@@ -1,0 +1,11 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/.vs
+/BoardVerse.Data/Data/Migrations
+/BoardVerse.Data/Migrations
+
+.vs/
+**/bin/
+**/obj/

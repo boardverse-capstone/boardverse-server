@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="BoardVerse.API/BoardVerse.API.csproj" />
+  <Project Path="BoardVerse.Core/BoardVerse.Core.csproj" />
+  <Project Path="BoardVerse.Data/BoardVerse.Data.csproj" />
+  <Project Path="BoardVerse.Services/BoardVerse.Services.csproj" />
+</Solution>
