@@ -1,6 +1,6 @@
 using BoardVerse.Data;
 using BoardVerse.Data.Repositories;
-using BoardVerse.Core.Repositories;
+using BoardVerse.Core.IRepositories;
 using Npgsql;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
@@ -172,10 +172,14 @@ builder.Services.AddScoped<IAuthRepository, AuthRepository>();
 builder.Services.AddScoped<IUserProfileRepository, UserProfileRepository>();
 builder.Services.AddScoped<IUserManagementRepository, UserManagementRepository>();
 builder.Services.AddScoped<IHealthRepository, HealthRepository>();
+builder.Services.AddScoped<IGameTemplateRepository, GameTemplateRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserProfileService, UserProfileService>();
 builder.Services.AddScoped<IUserManagementService, UserManagementService>();
 builder.Services.AddScoped<IHealthService, HealthService>();
+builder.Services.AddScoped<IGameTemplateService, GameTemplateService>();
+builder.Services.AddHttpClient<IBggApiService, BggApiService>();
+builder.Services.AddScoped<IGameSeedService, GameSeedService>();
 
 builder.Services.AddControllers(options =>
 {

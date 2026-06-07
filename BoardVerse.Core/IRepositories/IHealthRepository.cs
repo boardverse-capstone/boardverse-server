@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Repositories
+namespace BoardVerse.Core.IRepositories
 {
     public interface IHealthRepository
     {

@@ -1,6 +1,7 @@
 using BoardVerse.Core.Entities;
 using Microsoft.EntityFrameworkCore;
 using BoardVerse.Core.Enum;
+using System.Reflection;
 
 namespace BoardVerse.Data
 {
@@ -11,6 +12,10 @@ namespace BoardVerse.Data
         public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
         public DbSet<TokenBlacklist> TokenBlacklists => Set<TokenBlacklist>();
         public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
+        public DbSet<Cafe> Cafes => Set<Cafe>();
+        public DbSet<CafeStaff> CafeStaffs => Set<CafeStaff>();
+        public DbSet<GameTemplate> GameTemplates => Set<GameTemplate>();
+        public DbSet<GameComponentTemplate> GameComponentTemplates => Set<GameComponentTemplate>();
 
         public BoardVerseDbContext(DbContextOptions<BoardVerseDbContext> options) : base(options)
         {
@@ -19,6 +24,9 @@ namespace BoardVerse.Data
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+
+            // Apply all IEntityTypeConfiguration<T> configurations from the assembly
+            modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
 
             // User entity configuration
             modelBuilder.Entity<User>(entity =>
@@ -209,6 +217,70 @@ namespace BoardVerse.Data
 
                 entity.HasIndex(prt => prt.UserId);
             });
+
+            // Cafe entity configuration
+            modelBuilder.Entity<Cafe>(entity =>
+            {
+                entity.HasKey(c => c.Id);
+
+                entity.Property(c => c.Id)
+                    .ValueGeneratedNever();
+
+                entity.Property(c => c.Name)
+                    .IsRequired()
+                    .HasMaxLength(200);
+
+                entity.Property(c => c.Address)
+                    .IsRequired()
+                    .HasMaxLength(500);
+
+                entity.Property(c => c.PhoneNumber)
+                    .HasMaxLength(50);
+
+                entity.Property(c => c.Description)
+                    .HasMaxLength(1000);
+
+                entity.Property(c => c.CreatedAt)
+                    .IsRequired();
+
+                entity.Property(c => c.IsActive)
+                    .IsRequired()
+                    .HasDefaultValue(true);
+
+                entity.HasOne(c => c.Manager)
+                    .WithMany()
+                    .HasForeignKey(c => c.ManagerId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasIndex(c => c.ManagerId);
+            });
+
+            // CafeStaff junction entity configuration
+            modelBuilder.Entity<CafeStaff>(entity =>
+            {
+                entity.HasKey(cs => new { cs.CafeId, cs.UserId });
+
+                entity.Property(cs => cs.JoinedAt)
+                    .IsRequired();
+
+                entity.Property(cs => cs.IsActive)
+                    .IsRequired()
+                    .HasDefaultValue(true);
+
+                entity.HasOne(cs => cs.Cafe)
+                    .WithMany(c => c.StaffMembers)
+                    .HasForeignKey(cs => cs.CafeId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(cs => cs.User)
+                    .WithMany()
+                    .HasForeignKey(cs => cs.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // Note: GameTemplate and GameComponentTemplate configurations are now handled
+            // by IEntityTypeConfiguration<T> classes in the Configurations folder
+            // and are automatically applied via ApplyConfigurationsFromAssembly
         }
     }
 }

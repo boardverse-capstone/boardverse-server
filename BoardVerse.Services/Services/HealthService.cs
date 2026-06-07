@@ -1,5 +1,5 @@
 using BoardVerse.Services.IServices;
-using BoardVerse.Core.Repositories;
+using BoardVerse.Core.IRepositories;
 
 namespace BoardVerse.Services.Services
 {

@@ -1,7 +1,7 @@
 using BoardVerse.Core.DTOs.User;
 using BoardVerse.Core.Entities;
 
-namespace BoardVerse.Core.Repositories
+namespace BoardVerse.Core.IRepositories
 {
     public interface IUserManagementRepository
     {

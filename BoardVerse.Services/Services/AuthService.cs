@@ -3,7 +3,7 @@ using BoardVerse.Core.DTOs.Auth.Responses;
 using BoardVerse.Core.DTOs.User;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Exceptions;
-using BoardVerse.Core.Repositories;
+using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.IServices;
 using Google.Apis.Auth;
 using Microsoft.Extensions.Caching.Distributed;

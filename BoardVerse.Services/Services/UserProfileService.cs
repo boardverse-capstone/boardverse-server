@@ -2,7 +2,7 @@ using BoardVerse.Core.DTOs.User;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
-using BoardVerse.Core.Repositories;
+using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.IServices;
 
 namespace BoardVerse.Services.Services
