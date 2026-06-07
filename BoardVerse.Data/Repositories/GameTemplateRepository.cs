@@ -49,5 +49,10 @@ namespace BoardVerse.Data.Repositories
                 }
             };
         }
+
+        public Task SaveChangesAsync()
+        {
+            return _context.SaveChangesAsync();
+        }
     }
 }

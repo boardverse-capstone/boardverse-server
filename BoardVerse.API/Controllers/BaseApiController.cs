@@ -1,5 +1,6 @@
 using BoardVerse.Core.DTOs.Common;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace BoardVerse.API.Controllers
 {
@@ -18,6 +19,17 @@ namespace BoardVerse.API.Controllers
             };
 
             return StatusCode(statusCode, response);
+        }
+
+        protected Guid GetUserIdFromClaims()
+        {
+            var idClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrWhiteSpace(idClaim) || !Guid.TryParse(idClaim, out var userId))
+            {
+                throw new UnauthorizedException("Invalid user identifier in token");
+            }
+
+            return userId;
         }
     }
 }

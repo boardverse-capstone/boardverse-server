@@ -24,7 +24,6 @@ namespace BoardVerse.API.Controllers
         /// <response code="200">Trả về danh sách người dùng phù hợp.</response>
         /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
         /// <response code="403">Người dùng không có quyền quản trị.</response>
-        [HttpGet]
         [HttpGet("users")]
         public async Task<IActionResult> GetAll([FromQuery] AdminUserQueryDto query)
         {

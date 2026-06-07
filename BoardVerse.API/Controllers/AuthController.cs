@@ -153,8 +153,7 @@ namespace BoardVerse.API.Controllers
         [Authorize]
         public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDto request)
         {
-            var userIdValue = User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
-                              ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            var userIdValue = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
 
             if (!Guid.TryParse(userIdValue, out var userId))
             {
@@ -178,16 +177,5 @@ namespace BoardVerse.API.Controllers
             var response = await _authService.LinkGoogleAccountAsync(request);
             return this.NewResponse(200, "Google account linked successfully", response);
         }
-    }
-
-    public class TestGoogleLoginDto
-    {
-        [Required(ErrorMessage = "Email is required.")]
-        [EmailAddress(ErrorMessage = "Email must be a valid email address.")]
-        public string Email { get; set; }
-
-        [Required(ErrorMessage = "Name is required.")]
-        [StringLength(100, ErrorMessage = "Name cannot exceed 100 characters.")]
-        public string Name { get; set; }
     }
 }

@@ -7,7 +7,17 @@ namespace BoardVerse.Core.Entities
         private int _playTime = 30;
 
         public Guid Id { get; set; }
-        public int? BggGameId { get; set; }
+        private int? _bggGameId;
+        public int? BggGameId
+        {
+            get => _bggGameId;
+            set
+            {
+                if (value.HasValue && value.Value < 1)
+                    throw new ArgumentException("BggGameId must be positive if set");
+                _bggGameId = value;
+            }
+        }
         public string Name { get; set; } = string.Empty;
         public string? ThumbnailUrl { get; set; }
         public string? Description { get; set; }
@@ -19,6 +29,8 @@ namespace BoardVerse.Core.Entities
             {
                 if (value < 1)
                     throw new ArgumentException("MinPlayers must be at least 1");
+                if (value > _maxPlayers)
+                    throw new ArgumentException("MinPlayers cannot be greater than MaxPlayers");
                 _minPlayers = value;
             }
         }
@@ -30,7 +42,7 @@ namespace BoardVerse.Core.Entities
             {
                 if (value < 1)
                     throw new ArgumentException("MaxPlayers must be at least 1");
-                if (value < MinPlayers)
+                if (value < _minPlayers)
                     throw new ArgumentException("MaxPlayers cannot be less than MinPlayers");
                 _maxPlayers = value;
             }

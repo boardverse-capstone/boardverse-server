@@ -30,8 +30,8 @@ namespace BoardVerse.Services.Services
             _from = smtp["From"] ?? "noreply@boardverse.local";
             _enableSsl = bool.TryParse(smtp["EnableSsl"], out var s) ? s : false;
 
-            _logger.LogInformation("SMTP Configuration - Host: {Host}, Port: {Port}, Username: {Username}, EnableSsl: {EnableSsl}", 
-                _host, _port, _username, _enableSsl);
+            _logger.LogInformation("SMTP Configuration - Host: {Host}, Port: {Port}, EnableSsl: {EnableSsl}", 
+                _host, _port, _enableSsl);
         }
 
         public async Task SendEmailAsync(string to, string subject, string body, bool isHtml = false)

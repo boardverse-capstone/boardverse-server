@@ -106,9 +106,6 @@ namespace BoardVerse.Data
                 entity.Property(p => p.Bio)
                     .HasMaxLength(1000);
 
-                entity.Property(p => p.AvatarUrl)
-                    .HasMaxLength(500);
-
                 entity.Property(p => p.KarmaPoints)
                     .HasDefaultValue(100);
 

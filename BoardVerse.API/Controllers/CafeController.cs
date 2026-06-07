@@ -32,12 +32,7 @@ namespace BoardVerse.API.Controllers
         [HttpPost("{cafeId:guid}/staff")]
         public async Task<IActionResult> AddStaff(Guid cafeId, [FromBody] AddStaffRequestDto dto)
         {
-            // Extract current manager ID from JWT claims
-            var currentManagerIdStr = User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            if (string.IsNullOrEmpty(currentManagerIdStr) || !Guid.TryParse(currentManagerIdStr, out var currentManagerId))
-            {
-                return this.NewResponse(401, "Invalid user identifier in token", null);
-            }
+            var currentManagerId = GetUserIdFromClaims();
 
             await _cafeService.AddStaffAsync(cafeId, currentManagerId, dto);
             return this.NewResponse(200, "Staff member added successfully", null);
@@ -56,12 +51,7 @@ namespace BoardVerse.API.Controllers
         [HttpGet("{cafeId:guid}/staff")]
         public async Task<IActionResult> GetStaffList(Guid cafeId, [FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10)
         {
-            // Extract current manager ID from JWT claims
-            var currentManagerIdStr = User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            if (string.IsNullOrEmpty(currentManagerIdStr) || !Guid.TryParse(currentManagerIdStr, out var currentManagerId))
-            {
-                return this.NewResponse(401, "Invalid user identifier in token", null);
-            }
+            var currentManagerId = GetUserIdFromClaims();
 
             var paginationParams = new PaginationParams { PageNumber = pageNumber, PageSize = pageSize };
             var result = await _cafeService.GetStaffListAsync(cafeId, currentManagerId, paginationParams);
@@ -80,12 +70,7 @@ namespace BoardVerse.API.Controllers
         [HttpDelete("{cafeId:guid}/staff/{staffId:guid}")]
         public async Task<IActionResult> RemoveStaff(Guid cafeId, Guid staffId)
         {
-            // Extract current manager ID from JWT claims
-            var currentManagerIdStr = User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            if (string.IsNullOrEmpty(currentManagerIdStr) || !Guid.TryParse(currentManagerIdStr, out var currentManagerId))
-            {
-                return this.NewResponse(401, "Invalid user identifier in token", null);
-            }
+            var currentManagerId = GetUserIdFromClaims();
 
             await _cafeService.RemoveStaffAsync(cafeId, currentManagerId, staffId);
             return this.NewResponse(200, "Staff member removed successfully", null);

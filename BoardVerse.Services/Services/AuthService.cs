@@ -49,7 +49,7 @@ namespace BoardVerse.Services.Services
         {
             var bytes = _distributedCache.Get(key);
             if (bytes == null) return false;
-            var attempts = int.Parse(System.Text.Encoding.UTF8.GetString(bytes));
+            if (!int.TryParse(System.Text.Encoding.UTF8.GetString(bytes), out var attempts)) return false;
             return attempts >= 5;
         }
 
@@ -173,7 +173,7 @@ namespace BoardVerse.Services.Services
                     user = new User
                     {
                         Id = Guid.NewGuid(),
-                        Username = !string.IsNullOrWhiteSpace(payload.Name) ? payload.Name : payload.Email.Split('@')[0],
+                        Username = !string.IsNullOrWhiteSpace(payload.Name) ? payload.Name : (payload.Email?.Split('@').FirstOrDefault() ?? string.Empty),
                         Email = payload.Email,
                         Provider = "Google",
                         ProviderId = payload.Subject,

@@ -1,3 +1,4 @@
+using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.User;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
@@ -42,15 +43,21 @@ namespace BoardVerse.Services.Services
             };
         }
 
-        public async Task<List<AdminUserDto>> GetAllAsync(AdminUserQueryDto query)
+        public async Task<PaginatedResponse<AdminUserDto>> GetAllAsync(AdminUserQueryDto query)
         {
             if (!string.IsNullOrWhiteSpace(query.Role) && !Enum.TryParse<UserRole>(query.Role, true, out _))
             {
                 throw new BadRequestException("Role is invalid.");
             }
 
-            var users = await _userRepository.GetAdminUsersAsync(query);
-            return users.Select(MapUser).ToList();
+            var result = await _userRepository.GetAdminUsersAsync(query);
+            var dtoData = result.Data.Select(MapUser).ToList();
+
+            return new PaginatedResponse<AdminUserDto>
+            {
+                Data = dtoData,
+                Meta = result.Meta
+            };
         }
 
         public async Task<AdminUserDto> GetAsync(Guid id)

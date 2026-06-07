@@ -21,6 +21,7 @@ namespace BoardVerse.Services.Services
             var dtoData = result.Data.Select(game => new MasterGameResponseDto
             {
                 Id = game.Id,
+                BggGameId = game.BggGameId,
                 Name = game.Name,
                 ThumbnailUrl = game.ThumbnailUrl,
                 Description = game.Description,

@@ -16,8 +16,8 @@ namespace BoardVerse.API.Controllers
         [Authorize]
         public IActionResult Secret()
         {
-            var userId = User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            var email = User?.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value;
+            var userId = User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+            var email = User?.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ?? string.Empty;
             var data = new { userId, email };
             return this.NewResponse(200, "You have accessed a protected endpoint.", data);
         }

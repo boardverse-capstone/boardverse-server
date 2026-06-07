@@ -22,6 +22,7 @@ namespace BoardVerse.Data.Configurations
                 .OnDelete(DeleteBehavior.Cascade);
 
             // Seed data for components of each game
+            var seedDate = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
             builder.HasData(
                 // Catan Components (GameTemplateId: 11111111-1111-1111-1111-111111111111)
                 new GameComponentTemplate
@@ -30,7 +31,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("11111111-1111-1111-1111-111111111111"),
                     ComponentName = "Wood Hexagon Tiles",
                     DefaultQuantity = 4,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -38,7 +39,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("11111111-1111-1111-1111-111111111111"),
                     ComponentName = "Brick Hexagon Tiles",
                     DefaultQuantity = 3,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -46,7 +47,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("11111111-1111-1111-1111-111111111111"),
                     ComponentName = "Sheep Resource Cards",
                     DefaultQuantity = 19,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -54,7 +55,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("11111111-1111-1111-1111-111111111111"),
                     ComponentName = "Wheat Resource Cards",
                     DefaultQuantity = 19,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -62,7 +63,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("11111111-1111-1111-1111-111111111111"),
                     ComponentName = "Ore Resource Cards",
                     DefaultQuantity = 19,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -70,7 +71,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("11111111-1111-1111-1111-111111111111"),
                     ComponentName = "Settlement Pieces",
                     DefaultQuantity = 20,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -78,7 +79,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("11111111-1111-1111-1111-111111111111"),
                     ComponentName = "Road Pieces",
                     DefaultQuantity = 30,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -86,7 +87,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("11111111-1111-1111-1111-111111111111"),
                     ComponentName = "City Pieces",
                     DefaultQuantity = 16,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -94,7 +95,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("11111111-1111-1111-1111-111111111111"),
                     ComponentName = "Dice (2 pieces)",
                     DefaultQuantity = 2,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
 
                 // Monopoly Components (GameTemplateId: 22222222-2222-2222-2222-222222222222)
@@ -104,7 +105,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("22222222-2222-2222-2222-222222222222"),
                     ComponentName = "Gameboard",
                     DefaultQuantity = 1,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -112,7 +113,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("22222222-2222-2222-2222-222222222222"),
                     ComponentName = "Player Tokens (8 pieces)",
                     DefaultQuantity = 8,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -120,7 +121,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("22222222-2222-2222-2222-222222222222"),
                     ComponentName = "Title Deed Cards (28 cards)",
                     DefaultQuantity = 28,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -128,7 +129,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("22222222-2222-2222-2222-222222222222"),
                     ComponentName = "Chance Cards (16 cards)",
                     DefaultQuantity = 16,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -136,7 +137,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("22222222-2222-2222-2222-222222222222"),
                     ComponentName = "Community Chest Cards (16 cards)",
                     DefaultQuantity = 16,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -144,7 +145,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("22222222-2222-2222-2222-222222222222"),
                     ComponentName = "Houses (32 pieces)",
                     DefaultQuantity = 32,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -152,7 +153,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("22222222-2222-2222-2222-222222222222"),
                     ComponentName = "Hotels (12 pieces)",
                     DefaultQuantity = 12,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -160,7 +161,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("22222222-2222-2222-2222-222222222222"),
                     ComponentName = "Dice (2 pieces)",
                     DefaultQuantity = 2,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -168,7 +169,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("22222222-2222-2222-2222-222222222222"),
                     ComponentName = "Monopoly Money",
                     DefaultQuantity = 1,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
 
                 // Uno Components (GameTemplateId: 33333333-3333-3333-3333-333333333333)
@@ -178,7 +179,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("33333333-3333-3333-3333-333333333333"),
                     ComponentName = "Number Cards (Red)",
                     DefaultQuantity = 19,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -186,7 +187,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("33333333-3333-3333-3333-333333333333"),
                     ComponentName = "Number Cards (Blue)",
                     DefaultQuantity = 19,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -194,7 +195,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("33333333-3333-3333-3333-333333333333"),
                     ComponentName = "Number Cards (Green)",
                     DefaultQuantity = 19,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -202,7 +203,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("33333333-3333-3333-3333-333333333333"),
                     ComponentName = "Number Cards (Yellow)",
                     DefaultQuantity = 19,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -210,7 +211,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("33333333-3333-3333-3333-333333333333"),
                     ComponentName = "Skip Cards",
                     DefaultQuantity = 8,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -218,7 +219,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("33333333-3333-3333-3333-333333333333"),
                     ComponentName = "Reverse Cards",
                     DefaultQuantity = 8,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -226,7 +227,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("33333333-3333-3333-3333-333333333333"),
                     ComponentName = "Draw Two Cards",
                     DefaultQuantity = 8,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -234,7 +235,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("33333333-3333-3333-3333-333333333333"),
                     ComponentName = "Wild Cards",
                     DefaultQuantity = 4,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -242,7 +243,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("33333333-3333-3333-3333-333333333333"),
                     ComponentName = "Wild Draw Four Cards",
                     DefaultQuantity = 4,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
 
                 // Splendor Components (GameTemplateId: 44444444-4444-4444-4444-444444444444)
@@ -252,7 +253,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("44444444-4444-4444-4444-444444444444"),
                     ComponentName = "Ruby Gem Tokens",
                     DefaultQuantity = 7,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -260,7 +261,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("44444444-4444-4444-4444-444444444444"),
                     ComponentName = "Sapphire Gem Tokens",
                     DefaultQuantity = 7,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -268,7 +269,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("44444444-4444-4444-4444-444444444444"),
                     ComponentName = "Emerald Gem Tokens",
                     DefaultQuantity = 7,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -276,7 +277,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("44444444-4444-4444-4444-444444444444"),
                     ComponentName = "Onyx Gem Tokens",
                     DefaultQuantity = 7,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -284,7 +285,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("44444444-4444-4444-4444-444444444444"),
                     ComponentName = "Diamond Gem Tokens",
                     DefaultQuantity = 7,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -292,7 +293,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("44444444-4444-4444-4444-444444444444"),
                     ComponentName = "Gold Joker Tokens",
                     DefaultQuantity = 5,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -300,7 +301,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("44444444-4444-4444-4444-444444444444"),
                     ComponentName = "Development Cards (Tier 1)",
                     DefaultQuantity = 40,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -308,7 +309,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("44444444-4444-4444-4444-444444444444"),
                     ComponentName = "Development Cards (Tier 2)",
                     DefaultQuantity = 30,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -316,7 +317,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("44444444-4444-4444-4444-444444444444"),
                     ComponentName = "Development Cards (Tier 3)",
                     DefaultQuantity = 20,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -324,7 +325,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("44444444-4444-4444-4444-444444444444"),
                     ComponentName = "Noble Tiles",
                     DefaultQuantity = 10,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
 
                 // Werewolf Ultimate Components (GameTemplateId: 55555555-5555-5555-5555-555555555555)
@@ -334,7 +335,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("55555555-5555-5555-5555-555555555555"),
                     ComponentName = "Villager Role Cards",
                     DefaultQuantity = 10,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -342,7 +343,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("55555555-5555-5555-5555-555555555555"),
                     ComponentName = "Werewolf Role Cards",
                     DefaultQuantity = 4,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -350,7 +351,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("55555555-5555-5555-5555-555555555555"),
                     ComponentName = "Seer Role Card",
                     DefaultQuantity = 1,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -358,7 +359,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("55555555-5555-5555-5555-555555555555"),
                     ComponentName = "Doctor Role Card",
                     DefaultQuantity = 1,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -366,7 +367,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("55555555-5555-5555-5555-555555555555"),
                     ComponentName = "Witch Role Card",
                     DefaultQuantity = 1,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -374,7 +375,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("55555555-5555-5555-5555-555555555555"),
                     ComponentName = "Hunter Role Card",
                     DefaultQuantity = 1,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -382,7 +383,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("55555555-5555-5555-5555-555555555555"),
                     ComponentName = "Moderator Script",
                     DefaultQuantity = 1,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -390,7 +391,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("55555555-5555-5555-5555-555555555555"),
                     ComponentName = "Night Phase Marker",
                     DefaultQuantity = 1,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 },
                 new GameComponentTemplate
                 {
@@ -398,7 +399,7 @@ namespace BoardVerse.Data.Configurations
                     GameTemplateId = new Guid("55555555-5555-5555-5555-555555555555"),
                     ComponentName = "Day Phase Marker",
                     DefaultQuantity = 1,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate
                 }
             );
         }

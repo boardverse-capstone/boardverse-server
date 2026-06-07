@@ -110,7 +110,6 @@ namespace BoardVerse.Services.Services
             }
 
             p.KarmaPoints = p.KarmaPoints <= 0 ? 100 : p.KarmaPoints;
-            p.GamerTier = p.GamerTier;
 
             p.GamerTag = request.GamerTag ?? p.GamerTag;
             p.Bio = request.Bio ?? p.Bio;
@@ -139,7 +138,6 @@ namespace BoardVerse.Services.Services
             }
 
             p.KarmaPoints = p.KarmaPoints <= 0 ? 100 : p.KarmaPoints;
-            p.GamerTier = p.GamerTier;
 
             p.GlobalElo = request.GlobalElo;
             p.Level = request.Level;
@@ -172,7 +170,10 @@ namespace BoardVerse.Services.Services
                 UserId = user.Id,
                 GamerTag = user.Username,
                 KarmaPoints = 100,
-                GamerTier = GamerTier.Bronze
+                GamerTier = GamerTier.Bronze,
+                GlobalElo = 1200,
+                Level = 1,
+                CurrentExp = 0
             };
             profile.AvatarUrl = request.AvatarUrl;
             profile.UpdatedAt = DateTime.UtcNow;

@@ -34,13 +34,17 @@ if (!string.IsNullOrWhiteSpace(envDatabaseUrl))
     {
         var uri = new Uri(envDatabaseUrl);
         var userInfo = uri.UserInfo.Split(':');
+        if (userInfo.Length < 2)
+        {
+            throw new InvalidOperationException("Invalid database URL format: missing username or password");
+        }
         var builderCs = new NpgsqlConnectionStringBuilder()
         {
             Host = uri.Host,
             Port = uri.Port > 0 ? uri.Port : 5432,
             Database = uri.AbsolutePath.Trim('/'),
-            Username = userInfo.Length > 0 ? userInfo[0] : string.Empty,
-            Password = userInfo.Length > 1 ? userInfo[1] : string.Empty,
+            Username = userInfo[0],
+            Password = userInfo[1],
             SslMode = SslMode.Require,
             TrustServerCertificate = true
         };
@@ -173,11 +177,13 @@ builder.Services.AddScoped<IUserProfileRepository, UserProfileRepository>();
 builder.Services.AddScoped<IUserManagementRepository, UserManagementRepository>();
 builder.Services.AddScoped<IHealthRepository, HealthRepository>();
 builder.Services.AddScoped<IGameTemplateRepository, GameTemplateRepository>();
+builder.Services.AddScoped<ICafeRepository, CafeRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserProfileService, UserProfileService>();
 builder.Services.AddScoped<IUserManagementService, UserManagementService>();
 builder.Services.AddScoped<IHealthService, HealthService>();
 builder.Services.AddScoped<IGameTemplateService, GameTemplateService>();
+builder.Services.AddScoped<ICafeService, CafeService>();
 builder.Services.AddHttpClient<IBggApiService, BggApiService>();
 builder.Services.AddScoped<IGameSeedService, GameSeedService>();
 
@@ -281,11 +287,11 @@ if (enableSwagger)
 
 app.UseCors("AllowAll");
 
-app.UseAuthentication();
-app.UseAuthorization();
-
 // Register exception middleware so every response uses the unified shape
 app.UseMiddleware<BoardVerse.API.Middleware.ApiExceptionMiddleware>();
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapControllers();
 

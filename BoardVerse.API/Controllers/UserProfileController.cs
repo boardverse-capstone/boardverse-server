@@ -3,7 +3,6 @@ using BoardVerse.Core.Exceptions;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Security.Claims;
 
 namespace BoardVerse.API.Controllers
 {
@@ -16,17 +15,6 @@ namespace BoardVerse.API.Controllers
         public UserProfileController(IUserProfileService profileService)
         {
             _profileService = profileService;
-        }
-
-        private Guid GetUserIdFromClaims()
-        {
-            var idClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (string.IsNullOrWhiteSpace(idClaim) || !Guid.TryParse(idClaim, out var userId))
-            {
-                throw new UnauthorizedException("User id not found in claims.");
-            }
-
-            return userId;
         }
 
         /// <summary>

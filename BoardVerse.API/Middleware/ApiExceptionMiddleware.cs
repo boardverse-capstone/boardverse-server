@@ -10,10 +10,12 @@ namespace BoardVerse.API.Middleware
     public class ApiExceptionMiddleware
     {
         private readonly RequestDelegate _next;
+        private readonly ILogger<ApiExceptionMiddleware> _logger;
 
-        public ApiExceptionMiddleware(RequestDelegate next)
+        public ApiExceptionMiddleware(RequestDelegate next, ILogger<ApiExceptionMiddleware> logger)
         {
             _next = next;
+            _logger = logger;
         }
 
         public async Task InvokeAsync(HttpContext context)
@@ -39,7 +41,7 @@ namespace BoardVerse.API.Middleware
                         Message = ReasonPhrase(context.Response.StatusCode),
                         Data = null,
                         Timestamp = DateTime.UtcNow,
-                        Path = context.Request.Path,
+                        Path = context.Request.Path?.Value ?? string.Empty
                     };
 
                     context.Response.ContentType = "application/json";
@@ -58,22 +60,24 @@ namespace BoardVerse.API.Middleware
                     Message = ex.Message,
                     Data = null,
                     Timestamp = DateTime.UtcNow,
-                    Path = context.Request.Path
+                    Path = context.Request.Path?.Value ?? string.Empty
                 };
 
                 var payload = JsonSerializer.Serialize(response, jsonOptions);
                 await context.Response.WriteAsync(payload);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
                 // Return a generic error message to clients. Detailed exception information is logged server-side.
+                _logger.LogError(ex, "An unexpected error occurred while processing request: {Path}", context.Request.Path);
+
                 var response = new ApiResponse
                 {
                     StatusCode = (int)HttpStatusCode.InternalServerError,
                     Message = "An unexpected error occurred.",
                     Data = null,
                     Timestamp = DateTime.UtcNow,
-                    Path = context.Request.Path,
+                    Path = context.Request.Path?.Value ?? string.Empty
                 };
 
                 context.Response.ContentType = "application/json";

@@ -92,6 +92,9 @@ Current unhappy cases by API:
 - User Profile API: `401`, `404`, and `409`.
 - Health APIs: usually `200`, but `GET /api/health/db-info` can return `500` if the database is unavailable.
 - Debug Email API: `500` if SMTP fails.
+- Cafe Management API: `400`, `401`, `403`, `404`, and `409`.
+- Staff API: `401` for missing or invalid tokens.
+- Master Games API: `401` for missing or invalid tokens.
 
 ## Base URL
 
@@ -668,16 +671,24 @@ Happy case:
 {
   "statusCode": 200,
   "message": "Users retrieved successfully",
-  "data": [
-    {
-      "id": "guid",
-      "username": "alice",
-      "email": "alice@example.com",
-      "role": "User",
-      "isActive": true,
-      "createdAt": "2026-05-31T12:34:56Z"
+  "data": {
+    "data": [
+      {
+        "id": "guid",
+        "username": "alice",
+        "email": "alice@example.com",
+        "role": "User",
+        "isActive": true,
+        "createdAt": "2026-05-31T12:34:56Z"
+      }
+    ],
+    "meta": {
+      "currentPage": 1,
+      "pageSize": 10,
+      "totalItems": 5,
+      "totalPages": 1
     }
-  ],
+  },
   "timestamp": "2026-05-31T12:34:56Z",
   "path": "/api/usermanagement"
 }
@@ -873,7 +884,8 @@ Happy case:
     "gamerTag": "AceAlice",
     "bio": "Board game enthusiast",
     "globalElo": 1200,
-    "level": 1
+    "level": 1,
+    "currentExp": 0
   },
   "timestamp": "2026-05-31T12:34:56Z",
   "path": "/api/userprofile"
@@ -979,7 +991,197 @@ Happy case:
 Unhappy cases:
 - Missing token or claim returns `401`.
 
-## 7. Quick cURL Examples
+## 7. Cafe Management API
+
+Base route: `/api/cafes`
+
+> Requires Manager role.
+
+### 7.1 Add Staff to Cafe
+
+```http
+POST /api/cafes/{cafeId}/staff
+```
+
+Request body:
+
+```json
+{
+  "email": "staff@example.com",
+  "fullName": "John Doe"
+}
+```
+
+Happy case:
+
+```json
+{
+  "statusCode": 200,
+  "message": "Staff member added successfully",
+  "data": null,
+  "timestamp": "2026-06-08T12:34:56Z",
+  "path": "/api/cafes/{cafeId}/staff"
+}
+```
+
+Unhappy cases:
+- Missing token returns `401`.
+- Non-manager token returns `403`.
+- Cafe not found returns `404`.
+- Staff member already exists returns `409`.
+- Invalid email format returns `400`.
+
+### 7.2 Get Cafe Staff List
+
+```http
+GET /api/cafes/{cafeId}/staff?pageNumber=1&pageSize=10
+```
+
+Happy case:
+
+```json
+{
+  "statusCode": 200,
+  "message": "Staff list retrieved successfully",
+  "data": {
+    "data": [
+      {
+        "userId": "guid",
+        "email": "staff@example.com",
+        "username": "johndoe",
+        "joinedAt": "2026-06-08T12:34:56Z",
+        "isActive": true
+      }
+    ],
+    "meta": {
+      "currentPage": 1,
+      "pageSize": 10,
+      "totalItems": 5,
+      "totalPages": 1
+    }
+  },
+  "timestamp": "2026-06-08T12:34:56Z",
+  "path": "/api/cafes/{cafeId}/staff"
+}
+```
+
+Unhappy cases:
+- Missing token returns `401`.
+- Non-manager token returns `403`.
+- Cafe not found returns `404`.
+
+### 7.3 Remove Staff from Cafe
+
+```http
+DELETE /api/cafes/{cafeId}/staff/{staffId}
+```
+
+Happy case:
+
+```json
+{
+  "statusCode": 200,
+  "message": "Staff member removed successfully",
+  "data": null,
+  "timestamp": "2026-06-08T12:34:56Z",
+  "path": "/api/cafes/{cafeId}/staff/{staffId}"
+}
+```
+
+Unhappy cases:
+- Missing token returns `401`.
+- Non-manager token returns `403`.
+- Cafe or staff member not found returns `404`.
+
+## 8. Staff API
+
+Base route: `/api/staff`
+
+> Requires CafeStaff role.
+
+### 8.1 Get My Workplaces
+
+```http
+GET /api/staff/my-cafes
+```
+
+Happy case:
+
+```json
+{
+  "statusCode": 200,
+  "message": "Workplaces retrieved successfully",
+  "data": [
+    {
+      "cafeId": "guid",
+      "name": "Board Game Cafe",
+      "address": "123 Main St",
+      "phoneNumber": "555-1234",
+      "joinedAt": "2026-06-08T12:34:56Z"
+    }
+  ],
+  "timestamp": "2026-06-08T12:34:56Z",
+  "path": "/api/staff/my-cafes"
+}
+```
+
+Unhappy cases:
+- Missing token returns `401`.
+- Non-staff token returns `403`.
+
+## 9. Master Games API
+
+Base route: `/api/v1/master-games`
+
+> Requires Bearer token (any authenticated user).
+
+### 9.1 Get Master Games
+
+```http
+GET /api/v1/master-games?searchTerm=catan&pageNumber=1&pageSize=10
+```
+
+Query parameters:
+- `searchTerm` (optional): Filter games by name.
+- `pageNumber` (default: 1): Page number for pagination.
+- `pageSize` (default: 10): Number of items per page.
+
+Happy case:
+
+```json
+{
+  "statusCode": 200,
+  "message": "Games retrieved successfully",
+  "data": {
+    "data": [
+      {
+        "id": "guid",
+        "bggGameId": 13,
+        "name": "Catan",
+        "thumbnailUrl": "https://example.com/images/catan.jpg",
+        "description": "A strategy board game where players build settlements, roads, and cities by gathering and trading resources.",
+        "minPlayers": 3,
+        "maxPlayers": 4,
+        "playTime": 60
+      }
+    ],
+    "meta": {
+      "currentPage": 1,
+      "pageSize": 10,
+      "totalItems": 5,
+      "totalPages": 1
+    }
+  },
+  "timestamp": "2026-06-08T12:34:56Z",
+  "path": "/api/v1/master-games"
+}
+```
+
+Unhappy cases:
+- Missing token returns `401`.
+- Invalid token returns `401`.
+
+## 10. Quick cURL Examples
 
 Login:
 
@@ -1005,7 +1207,30 @@ curl -X POST http://localhost:5022/api/userprofile \
   -d "{\"gamerTag\":\"AceAlice\"}"
 ```
 
-## 8. Error Handling Rules
+Add staff to cafe:
+
+```bash
+curl -X POST http://localhost:5022/api/cafes/{cafeId}/staff \
+  -H "Authorization: Bearer <your-manager-jwt>" \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"staff@example.com\",\"fullName\":\"John Doe\"}"
+```
+
+Get master games:
+
+```bash
+curl "http://localhost:5022/api/v1/master-games?searchTerm=catan&pageNumber=1&pageSize=10" \
+  -H "Authorization: Bearer <your-jwt>"
+```
+
+Get staff workplaces:
+
+```bash
+curl http://localhost:5022/api/staff/my-cafes \
+  -H "Authorization: Bearer <your-staff-jwt>"
+```
+
+## 11. Error Handling Rules
 
 When an API fails, the response still uses the same envelope.
 

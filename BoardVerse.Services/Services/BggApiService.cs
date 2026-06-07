@@ -1,17 +1,20 @@
 using System.Xml;
 using BoardVerse.Core.DTOs.BGG;
 using BoardVerse.Services.IServices;
+using Microsoft.Extensions.Logging;
 
 namespace BoardVerse.Services.Services
 {
     public class BggApiService : IBggApiService
     {
         private readonly HttpClient _httpClient;
+        private readonly ILogger<BggApiService> _logger;
         private const string BaseUrl = "https://boardgamegeek.com/xmlapi/thing";
 
-        public BggApiService(HttpClient httpClient)
+        public BggApiService(HttpClient httpClient, ILogger<BggApiService> logger)
         {
             _httpClient = httpClient;
+            _logger = logger;
             _httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
             _httpClient.Timeout = TimeSpan.FromSeconds(30);
         }
@@ -38,7 +41,7 @@ namespace BoardVerse.Services.Services
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error fetching games from BGG: {ex.Message}");
+                _logger.LogError(ex, "Error fetching games from BGG");
                 return new List<BggGameDto>();
             }
         }
@@ -60,7 +63,7 @@ namespace BoardVerse.Services.Services
                     if (response.StatusCode == System.Net.HttpStatusCode.Accepted)
                     {
                         var delay = 2000 * (int)Math.Pow(2, attempt - 1); // Exponential backoff: 2s, 4s, 8s
-                        Console.WriteLine($"Request queued by BGG, retrying in {delay}ms... (Attempt {attempt}/{maxRetries})");
+                        _logger.LogInformation("Request queued by BGG, retrying in {Delay}ms... (Attempt {Attempt}/{MaxRetries})", delay, attempt, maxRetries);
                         await Task.Delay(delay);
                         continue;
                     }
@@ -69,7 +72,7 @@ namespace BoardVerse.Services.Services
                     if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
                     {
                         var delay = 5000 * (int)Math.Pow(2, attempt - 1); // 5s, 10s, 20s
-                        Console.WriteLine($"Rate limited by BGG, waiting {delay}ms... (Attempt {attempt}/{maxRetries})");
+                        _logger.LogInformation("Rate limited by BGG, waiting {Delay}ms... (Attempt {Attempt}/{MaxRetries})", delay, attempt, maxRetries);
                         await Task.Delay(delay);
                         continue;
                     }
@@ -79,7 +82,7 @@ namespace BoardVerse.Services.Services
                     if (attempt == maxRetries)
                         throw;
                     
-                    Console.WriteLine($"HTTP error on attempt {attempt}/{maxRetries}: {ex.Message}");
+                    _logger.LogWarning(ex, "HTTP error on attempt {Attempt}/{MaxRetries}", attempt, maxRetries);
                     await Task.Delay(1000 * attempt);
                 }
             }
@@ -154,7 +157,7 @@ namespace BoardVerse.Services.Services
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error parsing XML: {ex.Message}");
+                _logger.LogError(ex, "Error parsing XML");
             }
 
             return games;

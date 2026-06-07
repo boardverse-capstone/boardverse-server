@@ -25,12 +25,7 @@ namespace BoardVerse.API.Controllers
         [HttpGet("my-cafes")]
         public async Task<IActionResult> GetMyWorkplaces()
         {
-            // Extract current staff ID from JWT claims
-            var currentStaffIdStr = User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            if (string.IsNullOrEmpty(currentStaffIdStr) || !Guid.TryParse(currentStaffIdStr, out var currentStaffId))
-            {
-                return this.NewResponse(401, "Invalid user identifier in token", null);
-            }
+            var currentStaffId = GetUserIdFromClaims();
 
             var result = await _cafeService.GetMyWorkplacesAsync(currentStaffId);
             return this.NewResponse(200, "Workplaces retrieved successfully", result);

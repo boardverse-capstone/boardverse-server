@@ -28,14 +28,16 @@ namespace BoardVerse.Data.Repositories
                 .FirstOrDefaultAsync(u => u.Email == email);
         }
 
-        public async Task AddCafeStaffAsync(CafeStaff cafeStaff)
+        public Task AddCafeStaffAsync(CafeStaff cafeStaff)
         {
-            await _context.CafeStaffs.AddAsync(cafeStaff);
+            _context.CafeStaffs.Add(cafeStaff);
+            return Task.CompletedTask;
         }
 
-        public async Task AddUserAsync(User user)
+        public Task AddUserAsync(User user)
         {
-            await _context.Users.AddAsync(user);
+            _context.Users.Add(user);
+            return Task.CompletedTask;
         }
 
         public async Task<bool> IsStaffMemberExistsAsync(Guid cafeId, Guid userId)
@@ -53,7 +55,7 @@ namespace BoardVerse.Data.Repositories
                 {
                     UserId = cs.UserId,
                     Email = cs.User.Email,
-                    FullName = cs.User.Username,
+                    FullName = cs.User.Username, // Note: Using Username as FullName until proper FullName field is added
                     JoinedAt = cs.JoinedAt
                 });
 
@@ -89,6 +91,7 @@ namespace BoardVerse.Data.Repositories
         {
             cafeStaff.IsActive = false;
             _context.CafeStaffs.Update(cafeStaff);
+            await _context.SaveChangesAsync();
         }
 
         public async Task<IEnumerable<Cafe>> GetCafesByStaffIdAsync(Guid staffId)

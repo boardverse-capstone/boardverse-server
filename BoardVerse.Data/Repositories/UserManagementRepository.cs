@@ -1,3 +1,4 @@
+using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.User;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
@@ -30,7 +31,7 @@ namespace BoardVerse.Data.Repositories
             return _context.Users.AnyAsync(u => u.Email == email && (!excludedUserId.HasValue || u.Id != excludedUserId.Value));
         }
 
-        public async Task<List<User>> GetAdminUsersAsync(AdminUserQueryDto query)
+        public async Task<PaginatedResponse<User>> GetAdminUsersAsync(AdminUserQueryDto query)
         {
             var usersQuery = _context.Users.Include(u => u.Profile).AsQueryable();
 
@@ -55,11 +56,26 @@ namespace BoardVerse.Data.Repositories
                 usersQuery = usersQuery.Where(u => u.IsBlocked == query.IsBlocked.Value);
             }
 
-            return await usersQuery
+            var totalItems = await usersQuery.CountAsync();
+            var items = await usersQuery
                 .OrderByDescending(u => u.CreatedAt)
                 .Skip((query.Page - 1) * query.PageSize)
                 .Take(query.PageSize)
                 .ToListAsync();
+
+            var totalPages = (int)Math.Ceiling(totalItems / (double)query.PageSize);
+
+            return new PaginatedResponse<User>
+            {
+                Data = items,
+                Meta = new PaginationMeta
+                {
+                    CurrentPage = query.Page,
+                    PageSize = query.PageSize,
+                    TotalItems = totalItems,
+                    TotalPages = totalPages
+                }
+            };
         }
 
         public Task<User?> GetByIdAsync(Guid userId)
