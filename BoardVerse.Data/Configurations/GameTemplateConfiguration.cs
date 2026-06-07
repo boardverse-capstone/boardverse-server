@@ -20,6 +20,7 @@ namespace BoardVerse.Data.Configurations
             builder.Property(g => g.UpdatedAt).IsRequired();
 
             // Seed data for 5 popular board games with hardcoded IDs
+            var seedDate = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
             builder.HasData(
                 new GameTemplate
                 {
@@ -30,8 +31,8 @@ namespace BoardVerse.Data.Configurations
                     MinPlayers = 3,
                     MaxPlayers = 4,
                     PlayTime = 60,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate,
+                    UpdatedAt = seedDate
                 },
                 new GameTemplate
                 {
@@ -42,8 +43,8 @@ namespace BoardVerse.Data.Configurations
                     MinPlayers = 2,
                     MaxPlayers = 8,
                     PlayTime = 120,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate,
+                    UpdatedAt = seedDate
                 },
                 new GameTemplate
                 {
@@ -54,8 +55,8 @@ namespace BoardVerse.Data.Configurations
                     MinPlayers = 2,
                     MaxPlayers = 10,
                     PlayTime = 30,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate,
+                    UpdatedAt = seedDate
                 },
                 new GameTemplate
                 {
@@ -66,8 +67,8 @@ namespace BoardVerse.Data.Configurations
                     MinPlayers = 2,
                     MaxPlayers = 4,
                     PlayTime = 30,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate,
+                    UpdatedAt = seedDate
                 },
                 new GameTemplate
                 {
@@ -78,8 +79,8 @@ namespace BoardVerse.Data.Configurations
                     MinPlayers = 5,
                     MaxPlayers = 20,
                     PlayTime = 45,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
+                    CreatedAt = seedDate,
+                    UpdatedAt = seedDate
                 }
             );
         }

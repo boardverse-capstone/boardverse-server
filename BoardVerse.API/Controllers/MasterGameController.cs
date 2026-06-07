@@ -39,7 +39,7 @@ namespace BoardVerse.API.Controllers
             };
 
             var result = await _gameTemplateService.GetMasterGamesAsync(query);
-            return Ok(result);
+            return this.NewResponse(200, "Games retrieved successfully", result);
         }
     }
 }

@@ -37,7 +37,14 @@ if (string.IsNullOrWhiteSpace(conn))
 
 Console.WriteLine("Using connection: " + conn.Split(';')[0]);
 
-var sql = "ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"Role\" character varying(50) NOT NULL DEFAULT 'User';";
+var sqlPath = Path.Combine(dir.FullName, "BoardVerse.Data", "seed-board-games.sql");
+if (!File.Exists(sqlPath))
+{
+    Console.Error.WriteLine("SQL script not found: " + sqlPath);
+    return 1;
+}
+
+var sql = await File.ReadAllTextAsync(sqlPath);
 
 await using var c = new NpgsqlConnection(conn);
 try

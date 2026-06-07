@@ -59,23 +59,20 @@ namespace BoardVerse.Services.Services
                     // BGG returns 202 when request is queued
                     if (response.StatusCode == System.Net.HttpStatusCode.Accepted)
                     {
-                        var delay = 2000 * attempt; // Exponential backoff: 2s, 4s, 6s
+                        var delay = 2000 * (int)Math.Pow(2, attempt - 1); // Exponential backoff: 2s, 4s, 8s
                         Console.WriteLine($"Request queued by BGG, retrying in {delay}ms... (Attempt {attempt}/{maxRetries})");
                         await Task.Delay(delay);
                         continue;
                     }
-                    
+
                     // Rate limit (429)
                     if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
                     {
-                        var delay = 5000 * attempt; // 5s, 10s, 15s
+                        var delay = 5000 * (int)Math.Pow(2, attempt - 1); // 5s, 10s, 20s
                         Console.WriteLine($"Rate limited by BGG, waiting {delay}ms... (Attempt {attempt}/{maxRetries})");
                         await Task.Delay(delay);
                         continue;
                     }
-
-                    response.EnsureSuccessStatusCode();
-                    return await response.Content.ReadAsStringAsync();
                 }
                 catch (HttpRequestException ex)
                 {
@@ -104,10 +101,14 @@ namespace BoardVerse.Services.Services
 
                 foreach (XmlNode item in items)
                 {
+                    var bggGameIdStr = item.Attributes?["id"]?.Value;
+                    var bggGameId = int.TryParse(bggGameIdStr, out var parsedId) ? parsedId : 0;
+
                     var game = new BggGameDto
                     {
                         Id = Guid.NewGuid(),
-                        Name = GetNodeValue(item, ".//name[@type='primary']") ?? 
+                        BggGameId = bggGameId,
+                        Name = GetNodeValue(item, ".//name[@type='primary']") ??
                               GetNodeValue(item, ".//name") ?? "Unknown",
                         Description = GetNodeValue(item, ".//description"),
                         ThumbnailUrl = GetNodeValue(item, ".//thumbnail"),

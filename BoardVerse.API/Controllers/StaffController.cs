@@ -7,7 +7,7 @@ namespace BoardVerse.API.Controllers
 {
     [ApiController]
     [Route("api/staff")]
-    [Authorize(Roles = "Staff")]
+    [Authorize(Roles = "CafeStaff")]
     public class StaffController : BaseApiController
     {
         private readonly ICafeService _cafeService;

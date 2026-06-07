@@ -50,17 +50,23 @@ namespace BoardVerse.Services.Services
             else
             {
                 // User does not exist - Create a new User with Role = Staff
+                var emailParts = dto.Email.Split('@');
+                if (emailParts.Length < 2 || string.IsNullOrWhiteSpace(emailParts[0]))
+                {
+                    throw new BadRequestException("Invalid email format");
+                }
+
                 staffUser = new User
                 {
                     Id = Guid.NewGuid(),
                     Email = dto.Email,
-                    Username = dto.Email.Split('@')[0], // Use email prefix as username
+                    Username = emailParts[0], // Use email prefix as username
                     Role = UserRole.CafeStaff,
                     Provider = "Local",
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow,
                     IsActive = true,
-                    IsEmailVerified = false // New staff accounts need email verification
+                    IsEmailVerified = true // Manager is vouching for this staff member
                 };
 
                 await _cafeRepository.AddUserAsync(staffUser);
