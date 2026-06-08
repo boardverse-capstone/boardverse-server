@@ -23,6 +23,11 @@ namespace BoardVerse.Data.Repositories
             return _context.Set<UserProfile>().FirstOrDefaultAsync(p => p.UserId == userId);
         }
 
+        public Task<UserProfile?> GetProfileByGamerTagAsync(string gamerTag)
+        {
+            return _context.Set<UserProfile>().FirstOrDefaultAsync(p => p.GamerTag == gamerTag);
+        }
+
         public Task AddUserProfileAsync(UserProfile profile)
         {
             _context.UserProfiles.Add(profile);

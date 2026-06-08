@@ -4,6 +4,7 @@ using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.Repositories;
 using BoardVerse.Services.IServices;
+using Microsoft.EntityFrameworkCore;
 
 namespace BoardVerse.Services.Services
 {
@@ -78,10 +79,19 @@ namespace BoardVerse.Services.Services
             if (user == null) throw new UserNotFoundException();
             if (user.Profile != null && user.Profile.IsActive) throw new ProfileAlreadyExistsException();
 
+            var gamerTag = request.GamerTag ?? user.Username;
+
+            // Check if GamerTag already exists in the database (including inactive profiles)
+            var existingProfile = await _userRepository.GetProfileByGamerTagAsync(gamerTag);
+            if (existingProfile != null)
+            {
+                throw new BadRequestException("GamerTag already exists. Please choose a different GamerTag.");
+            }
+
             var profile = new UserProfile
             {
                 UserId = userId,
-                GamerTag = request.GamerTag ?? user.Username,
+                GamerTag = gamerTag,
                 Bio = request.Bio,
                 FirstName = request.FirstName,
                 LastName = request.LastName,
@@ -93,7 +103,15 @@ namespace BoardVerse.Services.Services
             };
 
             await _userRepository.AddUserProfileAsync(profile);
-            await _userRepository.SaveChangesAsync();
+
+            try
+            {
+                await _userRepository.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("IX_UserProfiles_GamerTag") == true)
+            {
+                throw new BadRequestException("GamerTag already exists. Please choose a different GamerTag.");
+            }
 
             return await GetPublicProfileAsync(userId);
         }
@@ -122,7 +140,14 @@ namespace BoardVerse.Services.Services
 
             if (user.Profile == null) await _userRepository.AddUserProfileAsync(p);
 
-            await _userRepository.SaveChangesAsync();
+            try
+            {
+                await _userRepository.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("IX_UserProfiles_GamerTag") == true)
+            {
+                throw new BadRequestException("GamerTag already exists. Please choose a different GamerTag.");
+            }
 
             return await GetPublicProfileAsync(userId);
         }
@@ -220,7 +245,15 @@ namespace BoardVerse.Services.Services
                     UpdatedAt = DateTime.UtcNow
                 };
                 await _userRepository.AddUserProfileAsync(user.Profile);
-                await _userRepository.SaveChangesAsync();
+
+                try
+                {
+                    await _userRepository.SaveChangesAsync();
+                }
+                catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("IX_UserProfiles_GamerTag") == true)
+                {
+                    throw new BadRequestException("GamerTag already exists. Please choose a different GamerTag.");
+                }
             }
 
             return await GetPublicProfileAsync(userId);

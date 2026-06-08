@@ -6,6 +6,7 @@ namespace BoardVerse.Core.Repositories
     {
         Task<User?> GetByIdWithProfileAsync(Guid userId);
         Task<UserProfile?> GetProfileByUserIdAsync(Guid userId);
+        Task<UserProfile?> GetProfileByGamerTagAsync(string gamerTag);
         Task AddUserProfileAsync(UserProfile profile);
         Task SaveChangesAsync();
     }
