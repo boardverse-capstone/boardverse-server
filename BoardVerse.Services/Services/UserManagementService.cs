@@ -32,7 +32,6 @@ namespace BoardVerse.Services.Services
                 IsActive = user.IsActive,
                 CreatedAt = user.CreatedAt,
                 UpdatedAt = user.UpdatedAt,
-                GamerTag = profile?.GamerTag,
                 AvatarUrl = profile?.AvatarUrl,
                 Bio = profile?.Bio,
                 KarmaPoints = profile?.KarmaPoints ?? 100,

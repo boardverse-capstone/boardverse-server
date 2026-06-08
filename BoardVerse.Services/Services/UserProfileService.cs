@@ -32,7 +32,6 @@ namespace BoardVerse.Services.Services
             {
                 UserId = user.Id,
                 Username = user.Username,
-                GamerTag = profile?.GamerTag,
                 AvatarUrl = profile?.AvatarUrl,
                 Bio = profile?.Bio,
                 KarmaPoints = profile?.KarmaPoints ?? 100,
@@ -58,7 +57,6 @@ namespace BoardVerse.Services.Services
             {
                 UserId = user.Id,
                 Username = user.Username,
-                GamerTag = p?.GamerTag,
                 AvatarUrl = p?.AvatarUrl,
                 Bio = p?.Bio,
                 KarmaPoints = p?.KarmaPoints ?? 100,
@@ -79,40 +77,36 @@ namespace BoardVerse.Services.Services
             if (user == null) throw new UserNotFoundException();
             if (user.Profile != null && user.Profile.IsActive) throw new ProfileAlreadyExistsException();
 
-            var gamerTag = request.GamerTag ?? user.Username;
-
-            // Check if GamerTag already exists in the database (including inactive profiles)
-            var existingProfile = await _userRepository.GetProfileByGamerTagAsync(gamerTag);
-            if (existingProfile != null)
+            // Reactivate existing inactive profile instead of creating a duplicate row
+            if (user.Profile != null && !user.Profile.IsActive)
             {
-                throw new BadRequestException("GamerTag already exists. Please choose a different GamerTag.");
+                var p = user.Profile;
+                p.Bio = request.Bio ?? p.Bio;
+                p.FirstName = request.FirstName ?? p.FirstName;
+                p.LastName = request.LastName ?? p.LastName;
+                p.DateOfBirth = request.DateOfBirth ?? p.DateOfBirth;
+                p.HomeAddress = request.HomeAddress ?? p.HomeAddress;
+                p.IsActive = true;
+                p.UpdatedAt = DateTime.UtcNow;
+            }
+            else
+            {
+                var profile = new UserProfile
+                {
+                    UserId = userId,
+                    Bio = request.Bio,
+                    FirstName = request.FirstName,
+                    LastName = request.LastName,
+                    DateOfBirth = request.DateOfBirth,
+                    HomeAddress = request.HomeAddress,
+                    KarmaPoints = 100,
+                    GamerTier = GamerTier.Bronze,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                await _userRepository.AddUserProfileAsync(profile);
             }
 
-            var profile = new UserProfile
-            {
-                UserId = userId,
-                GamerTag = gamerTag,
-                Bio = request.Bio,
-                FirstName = request.FirstName,
-                LastName = request.LastName,
-                DateOfBirth = request.DateOfBirth,
-                HomeAddress = request.HomeAddress,
-                KarmaPoints = 100,
-                GamerTier = GamerTier.Bronze,
-                UpdatedAt = DateTime.UtcNow
-            };
-
-            await _userRepository.AddUserProfileAsync(profile);
-
-            try
-            {
-                await _userRepository.SaveChangesAsync();
-            }
-            catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("IX_UserProfiles_GamerTag") == true)
-            {
-                throw new BadRequestException("GamerTag already exists. Please choose a different GamerTag.");
-            }
-
+            await _userRepository.SaveChangesAsync();
             return await GetPublicProfileAsync(userId);
         }
 
@@ -121,16 +115,14 @@ namespace BoardVerse.Services.Services
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
             if (user == null) throw new UserNotFoundException();
 
-            var p = user.Profile ?? new UserProfile { UserId = user.Id, GamerTag = user.Username };
+            var p = user.Profile ?? new UserProfile { UserId = user.Id };
             if (user.Profile != null && !user.Profile.IsActive)
             {
                 p.IsActive = true;
             }
 
             p.KarmaPoints = p.KarmaPoints <= 0 ? 100 : p.KarmaPoints;
-            p.GamerTier = p.GamerTier;
 
-            p.GamerTag = request.GamerTag ?? p.GamerTag;
             p.Bio = request.Bio ?? p.Bio;
             p.FirstName = request.FirstName ?? p.FirstName;
             p.LastName = request.LastName ?? p.LastName;
@@ -140,15 +132,7 @@ namespace BoardVerse.Services.Services
 
             if (user.Profile == null) await _userRepository.AddUserProfileAsync(p);
 
-            try
-            {
-                await _userRepository.SaveChangesAsync();
-            }
-            catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("IX_UserProfiles_GamerTag") == true)
-            {
-                throw new BadRequestException("GamerTag already exists. Please choose a different GamerTag.");
-            }
-
+            await _userRepository.SaveChangesAsync();
             return await GetPublicProfileAsync(userId);
         }
 
@@ -157,14 +141,13 @@ namespace BoardVerse.Services.Services
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
             if (user == null) throw new UserNotFoundException();
 
-            var p = user.Profile ?? new UserProfile { UserId = user.Id, GamerTag = user.Username };
+            var p = user.Profile ?? new UserProfile { UserId = user.Id };
             if (user.Profile != null && !user.Profile.IsActive)
             {
                 p.IsActive = true;
             }
 
             p.KarmaPoints = p.KarmaPoints <= 0 ? 100 : p.KarmaPoints;
-            p.GamerTier = p.GamerTier;
 
             p.GlobalElo = request.GlobalElo;
             p.Level = request.Level;
@@ -195,7 +178,6 @@ namespace BoardVerse.Services.Services
             var profile = user.Profile ?? new UserProfile
             {
                 UserId = user.Id,
-                GamerTag = user.Username,
                 KarmaPoints = 100,
                 GamerTier = GamerTier.Bronze
             };
@@ -239,21 +221,12 @@ namespace BoardVerse.Services.Services
                 user.Profile = new UserProfile
                 {
                     UserId = user.Id,
-                    GamerTag = user.Username,
                     KarmaPoints = 100,
                     GamerTier = GamerTier.Bronze,
                     UpdatedAt = DateTime.UtcNow
                 };
                 await _userRepository.AddUserProfileAsync(user.Profile);
-
-                try
-                {
-                    await _userRepository.SaveChangesAsync();
-                }
-                catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("IX_UserProfiles_GamerTag") == true)
-                {
-                    throw new BadRequestException("GamerTag already exists. Please choose a different GamerTag.");
-                }
+                await _userRepository.SaveChangesAsync();
             }
 
             return await GetPublicProfileAsync(userId);

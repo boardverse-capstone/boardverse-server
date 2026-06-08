@@ -4,7 +4,6 @@ namespace BoardVerse.Core.DTOs.User
     {
         public Guid UserId { get; set; }
         public string Username { get; set; } = string.Empty;
-        public string? GamerTag { get; set; }
         public string? AvatarUrl { get; set; }
         public string? Bio { get; set; }
         public int KarmaPoints { get; set; }
