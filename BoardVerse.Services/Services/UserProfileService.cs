@@ -4,6 +4,7 @@ using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.IServices;
+using Microsoft.EntityFrameworkCore;
 
 namespace BoardVerse.Services.Services
 {
@@ -31,7 +32,6 @@ namespace BoardVerse.Services.Services
             {
                 UserId = user.Id,
                 Username = user.Username,
-                GamerTag = profile?.GamerTag,
                 AvatarUrl = profile?.AvatarUrl,
                 Bio = profile?.Bio,
                 KarmaPoints = profile?.KarmaPoints ?? 100,
@@ -57,7 +57,6 @@ namespace BoardVerse.Services.Services
             {
                 UserId = user.Id,
                 Username = user.Username,
-                GamerTag = p?.GamerTag,
                 AvatarUrl = p?.AvatarUrl,
                 Bio = p?.Bio,
                 KarmaPoints = p?.KarmaPoints ?? 100,
@@ -78,23 +77,36 @@ namespace BoardVerse.Services.Services
             if (user == null) throw new UserNotFoundException();
             if (user.Profile != null && user.Profile.IsActive) throw new ProfileAlreadyExistsException();
 
-            var profile = new UserProfile
+            // Reactivate existing inactive profile instead of creating a duplicate row
+            if (user.Profile != null && !user.Profile.IsActive)
             {
-                UserId = userId,
-                GamerTag = request.GamerTag ?? user.Username,
-                Bio = request.Bio,
-                FirstName = request.FirstName,
-                LastName = request.LastName,
-                DateOfBirth = request.DateOfBirth,
-                HomeAddress = request.HomeAddress,
-                KarmaPoints = 100,
-                GamerTier = GamerTier.Bronze,
-                UpdatedAt = DateTime.UtcNow
-            };
+                var p = user.Profile;
+                p.Bio = request.Bio ?? p.Bio;
+                p.FirstName = request.FirstName ?? p.FirstName;
+                p.LastName = request.LastName ?? p.LastName;
+                p.DateOfBirth = request.DateOfBirth ?? p.DateOfBirth;
+                p.HomeAddress = request.HomeAddress ?? p.HomeAddress;
+                p.IsActive = true;
+                p.UpdatedAt = DateTime.UtcNow;
+            }
+            else
+            {
+                var profile = new UserProfile
+                {
+                    UserId = userId,
+                    Bio = request.Bio,
+                    FirstName = request.FirstName,
+                    LastName = request.LastName,
+                    DateOfBirth = request.DateOfBirth,
+                    HomeAddress = request.HomeAddress,
+                    KarmaPoints = 100,
+                    GamerTier = GamerTier.Bronze,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                await _userRepository.AddUserProfileAsync(profile);
+            }
 
-            await _userRepository.AddUserProfileAsync(profile);
             await _userRepository.SaveChangesAsync();
-
             return await GetPublicProfileAsync(userId);
         }
 
@@ -103,7 +115,7 @@ namespace BoardVerse.Services.Services
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
             if (user == null) throw new UserNotFoundException();
 
-            var p = user.Profile ?? new UserProfile { UserId = user.Id, GamerTag = user.Username };
+            var p = user.Profile ?? new UserProfile { UserId = user.Id };
             if (user.Profile != null && !user.Profile.IsActive)
             {
                 p.IsActive = true;
@@ -111,7 +123,6 @@ namespace BoardVerse.Services.Services
 
             p.KarmaPoints = p.KarmaPoints <= 0 ? 100 : p.KarmaPoints;
 
-            p.GamerTag = request.GamerTag ?? p.GamerTag;
             p.Bio = request.Bio ?? p.Bio;
             p.FirstName = request.FirstName ?? p.FirstName;
             p.LastName = request.LastName ?? p.LastName;
@@ -122,7 +133,6 @@ namespace BoardVerse.Services.Services
             if (user.Profile == null) await _userRepository.AddUserProfileAsync(p);
 
             await _userRepository.SaveChangesAsync();
-
             return await GetPublicProfileAsync(userId);
         }
 
@@ -131,7 +141,7 @@ namespace BoardVerse.Services.Services
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
             if (user == null) throw new UserNotFoundException();
 
-            var p = user.Profile ?? new UserProfile { UserId = user.Id, GamerTag = user.Username };
+            var p = user.Profile ?? new UserProfile { UserId = user.Id };
             if (user.Profile != null && !user.Profile.IsActive)
             {
                 p.IsActive = true;
@@ -168,7 +178,6 @@ namespace BoardVerse.Services.Services
             var profile = user.Profile ?? new UserProfile
             {
                 UserId = user.Id,
-                GamerTag = user.Username,
                 KarmaPoints = 100,
                 GamerTier = GamerTier.Bronze,
                 GlobalElo = 1200,
@@ -215,7 +224,6 @@ namespace BoardVerse.Services.Services
                 user.Profile = new UserProfile
                 {
                     UserId = user.Id,
-                    GamerTag = user.Username,
                     KarmaPoints = 100,
                     GamerTier = GamerTier.Bronze,
                     UpdatedAt = DateTime.UtcNow

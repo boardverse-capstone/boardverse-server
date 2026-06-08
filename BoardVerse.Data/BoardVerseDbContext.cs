@@ -93,10 +93,6 @@ namespace BoardVerse.Data
                 entity.Property(p => p.UserId)
                     .ValueGeneratedNever();
 
-                entity.Property(p => p.GamerTag)
-                    .IsRequired()
-                    .HasMaxLength(100);
-
                 entity.Property(p => p.AvatarUrl)
                     .HasMaxLength(500);
 
@@ -135,8 +131,6 @@ namespace BoardVerse.Data
                     .HasForeignKey<UserProfile>(p => p.UserId)
                     .OnDelete(DeleteBehavior.Cascade);
 
-                entity.HasIndex(p => p.GamerTag)
-                    .IsUnique();
             });
 
             // RefreshToken entity configuration

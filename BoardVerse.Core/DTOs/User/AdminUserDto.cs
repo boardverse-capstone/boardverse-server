@@ -13,7 +13,6 @@ namespace BoardVerse.Core.DTOs.User
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
 
-        public string? GamerTag { get; set; }
         public string? AvatarUrl { get; set; }
         public string? Bio { get; set; }
         public int KarmaPoints { get; set; }

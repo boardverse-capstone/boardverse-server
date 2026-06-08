@@ -8,8 +8,6 @@ namespace BoardVerse.Core.Entities
         public Guid UserId { get; set; } // Shared PK and FK to User
 
         // --- Gamer Identity ---
-        public required string GamerTag { get; set; }
-
         public string? AvatarUrl { get; set; }
 
         public string? AvatarBorderUrl { get; set; }
