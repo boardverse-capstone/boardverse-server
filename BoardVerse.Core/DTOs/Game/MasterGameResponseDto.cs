@@ -3,6 +3,7 @@ namespace BoardVerse.Core.DTOs.Game
     public class MasterGameResponseDto
     {
         public Guid Id { get; set; }
+        public int? BggGameId { get; set; }
         public string Name { get; set; } = string.Empty;
         public string? ThumbnailUrl { get; set; }
         public string? Description { get; set; }

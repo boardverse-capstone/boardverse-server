@@ -16,6 +16,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using BoardVerse.Core.DTOs.Common;
+using BoardVerse.Core.Settings;
 using System.Reflection;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -178,18 +179,26 @@ builder.Services.AddScoped<IUserManagementRepository, UserManagementRepository>(
 builder.Services.AddScoped<IHealthRepository, HealthRepository>();
 builder.Services.AddScoped<IGameTemplateRepository, GameTemplateRepository>();
 builder.Services.AddScoped<ICafeRepository, CafeRepository>();
+builder.Services.AddScoped<ICafeInventoryRepository, CafeInventoryRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserProfileService, UserProfileService>();
 builder.Services.AddScoped<IUserManagementService, UserManagementService>();
 builder.Services.AddScoped<IHealthService, HealthService>();
 builder.Services.AddScoped<IGameTemplateService, GameTemplateService>();
 builder.Services.AddScoped<ICafeService, CafeService>();
+builder.Services.AddScoped<ICafeInventoryService, CafeInventoryService>();
+builder.Services.Configure<BggSettings>(builder.Configuration.GetSection(BggSettings.SectionName));
 builder.Services.AddHttpClient<IBggApiService, BggApiService>();
 builder.Services.AddScoped<IGameSeedService, GameSeedService>();
 
 builder.Services.AddControllers(options =>
 {
     options.Filters.Add<BoardVerse.API.Filters.ValidateModelAttribute>();
+})
+.AddJsonOptions(options =>
+{
+    options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
 });
 
 builder.Services.Configure<ApiBehaviorOptions>(options =>

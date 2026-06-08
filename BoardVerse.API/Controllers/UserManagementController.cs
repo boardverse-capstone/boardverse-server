@@ -18,10 +18,11 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Lấy danh sách người dùng theo điều kiện tìm kiếm, lọc và phân trang.
+        /// Lấy danh sách người dùng theo điều kiện tìm kiếm, lọc và phân trang. [Role: Admin — yêu cầu đăng nhập với role Admin.]
         /// </summary>
         /// <param name="query">Thông tin truy vấn bao gồm từ khóa, vai trò, trạng thái và phân trang.</param>
         /// <response code="200">Trả về danh sách người dùng phù hợp.</response>
+        /// <response code="400">Tham số role trong query không hợp lệ.</response>
         /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
         /// <response code="403">Người dùng không có quyền quản trị.</response>
         [HttpGet("users")]
@@ -33,10 +34,12 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Lấy thông tin chi tiết của một người dùng theo mã định danh.
+        /// Lấy thông tin chi tiết của một người dùng theo mã định danh. [Role: Admin — yêu cầu đăng nhập với role Admin.]
         /// </summary>
         /// <param name="id">Mã định danh của người dùng.</param>
         /// <response code="200">Trả về thông tin người dùng.</response>
+        /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
+        /// <response code="403">Người dùng không có quyền quản trị.</response>
         /// <response code="404">Không tìm thấy người dùng.</response>
         [HttpGet("{id:guid}")]
         public async Task<IActionResult> Get(Guid id)
@@ -46,13 +49,14 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Tạo mới tài khoản người dùng cho quản trị viên.
+        /// Tạo mới tài khoản người dùng cho quản trị viên. [Role: Admin — yêu cầu đăng nhập với role Admin.]
         /// </summary>
         /// <param name="request">Thông tin tài khoản cần tạo.</param>
         /// <response code="201">Tạo người dùng thành công.</response>
-        /// <response code="400">Dữ liệu đầu vào không hợp lệ hoặc email/username đã tồn tại.</response>
+        /// <response code="400">Dữ liệu đầu vào không hợp lệ hoặc role không hợp lệ.</response>
         /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
         /// <response code="403">Người dùng không có quyền quản trị.</response>
+        /// <response code="409">Email hoặc username đã tồn tại.</response>
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] AdminCreateUserDto request)
         {
@@ -61,14 +65,16 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Cập nhật thông tin người dùng theo mã định danh.
+        /// Cập nhật thông tin người dùng theo mã định danh. [Role: Admin — yêu cầu đăng nhập với role Admin.]
         /// </summary>
         /// <param name="id">Mã định danh của người dùng.</param>
         /// <param name="request">Thông tin cập nhật người dùng.</param>
         /// <response code="200">Cập nhật người dùng thành công.</response>
-        /// <response code="404">Không tìm thấy người dùng.</response>
+        /// <response code="400">Role không hợp lệ hoặc dữ liệu đầu vào không hợp lệ.</response>
         /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
         /// <response code="403">Người dùng không có quyền quản trị.</response>
+        /// <response code="404">Không tìm thấy người dùng.</response>
+        /// <response code="409">Username hoặc email đã được sử dụng bởi tài khoản khác.</response>
         [HttpPut("{id:guid}")]
         public async Task<IActionResult> Update(Guid id, [FromBody] AdminUpdateUserDto request)
         {
@@ -77,7 +83,7 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Vô hiệu hóa tài khoản người dùng theo mã định danh.
+        /// Vô hiệu hóa tài khoản người dùng theo mã định danh. [Role: Admin — yêu cầu đăng nhập với role Admin.]
         /// </summary>
         /// <param name="id">Mã định danh của người dùng.</param>
         /// <response code="200">Vô hiệu hóa người dùng thành công.</response>
@@ -92,12 +98,14 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Chặn một người dùng theo mã định danh với lý do cụ thể.
+        /// Chặn một người dùng theo mã định danh với lý do cụ thể. [Role: Admin — yêu cầu đăng nhập với role Admin.]
         /// </summary>
         /// <param name="id">Mã định danh của người dùng.</param>
         /// <param name="request">Lý do chặn người dùng.</param>
         /// <response code="200">Chặn người dùng thành công.</response>
         /// <response code="400">Lý do chặn không hợp lệ.</response>
+        /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
+        /// <response code="403">Người dùng không có quyền quản trị.</response>
         /// <response code="404">Không tìm thấy người dùng.</response>
         [HttpPost("users/{id:guid}/block")]
         public async Task<IActionResult> Block(Guid id, [FromBody] AdminBlockUserDto request)
@@ -107,10 +115,12 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Gỡ chặn người dùng theo mã định danh.
+        /// Gỡ chặn người dùng theo mã định danh. [Role: Admin — yêu cầu đăng nhập với role Admin.]
         /// </summary>
         /// <param name="id">Mã định danh của người dùng.</param>
         /// <response code="200">Gỡ chặn người dùng thành công.</response>
+        /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
+        /// <response code="403">Người dùng không có quyền quản trị.</response>
         /// <response code="404">Không tìm thấy người dùng.</response>
         [HttpPost("users/{id:guid}/unblock")]
         public async Task<IActionResult> Unblock(Guid id)
@@ -120,12 +130,14 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Cập nhật vai trò của người dùng theo mã định danh.
+        /// Cập nhật vai trò của người dùng theo mã định danh. [Role: Admin — yêu cầu đăng nhập với role Admin.]
         /// </summary>
         /// <param name="id">Mã định danh của người dùng.</param>
         /// <param name="request">Vai trò mới của người dùng.</param>
         /// <response code="200">Cập nhật vai trò thành công.</response>
         /// <response code="400">Vai trò không hợp lệ.</response>
+        /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
+        /// <response code="403">Người dùng không có quyền quản trị.</response>
         /// <response code="404">Không tìm thấy người dùng.</response>
         [HttpPut("users/{id:guid}/role")]
         public async Task<IActionResult> UpdateRole(Guid id, [FromBody] AdminUpdateUserRoleDto request)

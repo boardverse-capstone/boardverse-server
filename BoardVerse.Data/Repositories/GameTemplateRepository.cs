@@ -50,6 +50,14 @@ namespace BoardVerse.Data.Repositories
             };
         }
 
+        public async Task<GameTemplate?> GetByIdWithComponentsAsync(Guid id)
+        {
+            return await _context.GameTemplates
+                .AsNoTracking()
+                .Include(g => g.Components)
+                .FirstOrDefaultAsync(g => g.Id == id);
+        }
+
         public Task SaveChangesAsync()
         {
             return _context.SaveChangesAsync();

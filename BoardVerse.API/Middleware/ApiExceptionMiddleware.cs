@@ -41,7 +41,7 @@ namespace BoardVerse.API.Middleware
                         Message = ReasonPhrase(context.Response.StatusCode),
                         Data = null,
                         Timestamp = DateTime.UtcNow,
-                        Path = context.Request.Path?.Value ?? string.Empty
+                        Path = context.Request.Path.Value ?? string.Empty
                     };
 
                     context.Response.ContentType = "application/json";
@@ -60,7 +60,7 @@ namespace BoardVerse.API.Middleware
                     Message = ex.Message,
                     Data = null,
                     Timestamp = DateTime.UtcNow,
-                    Path = context.Request.Path?.Value ?? string.Empty
+                    Path = context.Request.Path.Value ?? string.Empty
                 };
 
                 var payload = JsonSerializer.Serialize(response, jsonOptions);
@@ -77,7 +77,7 @@ namespace BoardVerse.API.Middleware
                     Message = "An unexpected error occurred.",
                     Data = null,
                     Timestamp = DateTime.UtcNow,
-                    Path = context.Request.Path?.Value ?? string.Empty
+                    Path = context.Request.Path.Value ?? string.Empty
                 };
 
                 context.Response.ContentType = "application/json";

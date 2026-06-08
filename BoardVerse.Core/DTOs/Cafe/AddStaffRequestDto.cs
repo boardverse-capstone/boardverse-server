@@ -8,8 +8,10 @@ namespace BoardVerse.Core.DTOs.Cafe
         [EmailAddress(ErrorMessage = "Email must be a valid email address.")]
         public required string Email { get; set; }
 
-        [Required(ErrorMessage = "Full name is required.")]
-        [MaxLength(100, ErrorMessage = "Full name cannot exceed 100 characters.")]
-        public required string FullName { get; set; }
+        [StringLength(100, MinimumLength = 3, ErrorMessage = "Username must be between 3 and 100 characters.")]
+        public string? Username { get; set; }
+
+        [StringLength(100, MinimumLength = 8, ErrorMessage = "Password must be between 8 and 100 characters.")]
+        public string? Password { get; set; }
     }
 }

@@ -65,7 +65,7 @@ namespace BoardVerse.Data.Configurations
                 new GameTemplate
                 {
                     Id = new Guid("44444444-4444-4444-4444-444444444444"),
-                    BggGameId = 147228,
+                    BggGameId = 148228,
                     Name = "Splendor",
                     ThumbnailUrl = "https://example.com/images/splendor.jpg",
                     Description = "A strategy game of chip-collecting and card development where players act as Renaissance merchants.",

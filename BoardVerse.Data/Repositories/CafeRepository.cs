@@ -22,10 +22,33 @@ namespace BoardVerse.Data.Repositories
                 .FirstOrDefaultAsync(c => c.Id == id);
         }
 
+        public async Task<Cafe?> GetActiveByIdAsync(Guid id)
+        {
+            return await _context.Cafes
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Id == id && c.IsActive);
+        }
+
+        public async Task<User?> GetUserByIdAsync(Guid userId)
+        {
+            return await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+        }
+
         public async Task<User?> GetUserByEmailAsync(string email)
         {
             return await _context.Users
                 .FirstOrDefaultAsync(u => u.Email == email);
+        }
+
+        public async Task<bool> UsernameExistsAsync(string username, Guid? excludedUserId = null)
+        {
+            var query = _context.Users.Where(u => u.Username == username);
+            if (excludedUserId.HasValue)
+            {
+                query = query.Where(u => u.Id != excludedUserId.Value);
+            }
+
+            return await query.AnyAsync();
         }
 
         public Task AddCafeStaffAsync(CafeStaff cafeStaff)
@@ -46,6 +69,12 @@ namespace BoardVerse.Data.Repositories
                 .AnyAsync(cs => cs.CafeId == cafeId && cs.UserId == userId && cs.IsActive);
         }
 
+        public async Task<int> CountActiveStaffAssignmentsAsync(Guid userId)
+        {
+            return await _context.CafeStaffs
+                .CountAsync(cs => cs.UserId == userId && cs.IsActive);
+        }
+
         public async Task<PaginatedResponse<StaffDto>> GetStaffPagedAsync(Guid cafeId, PaginationParams paginationParams)
         {
             var query = _context.CafeStaffs
@@ -55,7 +84,7 @@ namespace BoardVerse.Data.Repositories
                 {
                     UserId = cs.UserId,
                     Email = cs.User.Email,
-                    FullName = cs.User.Username, // Note: Using Username as FullName until proper FullName field is added
+                    Username = cs.User.Username,
                     JoinedAt = cs.JoinedAt
                 });
 
@@ -87,11 +116,20 @@ namespace BoardVerse.Data.Repositories
                 .FirstOrDefaultAsync(cs => cs.CafeId == cafeId && cs.UserId == staffId && cs.IsActive);
         }
 
-        public async Task RemoveCafeStaffAsync(CafeStaff cafeStaff)
+        public Task RemoveCafeStaffAsync(CafeStaff cafeStaff)
         {
             cafeStaff.IsActive = false;
             _context.CafeStaffs.Update(cafeStaff);
-            await _context.SaveChangesAsync();
+            return Task.CompletedTask;
+        }
+
+        public async Task<IEnumerable<Cafe>> GetCafesByManagerIdAsync(Guid managerId)
+        {
+            return await _context.Cafes
+                .AsNoTracking()
+                .Where(c => c.ManagerId == managerId && c.IsActive)
+                .OrderBy(c => c.Name)
+                .ToListAsync();
         }
 
         public async Task<IEnumerable<Cafe>> GetCafesByStaffIdAsync(Guid staffId)

@@ -15,7 +15,7 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Kiểm tra trạng thái hoạt động tổng thể của API.
+        /// Kiểm tra trạng thái hoạt động tổng thể của API. [Role: Public — không cần đăng nhập.]
         /// </summary>
         /// <response code="200">API đang hoạt động bình thường.</response>
         [HttpGet("status")]
@@ -26,7 +26,7 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Kiểm tra kết nối cơ sở dữ liệu và trả về số lượng người dùng hiện có.
+        /// Kiểm tra kết nối cơ sở dữ liệu và trả về số lượng người dùng hiện có. [Role: Public — không cần đăng nhập.]
         /// </summary>
         /// <response code="200">Kết nối cơ sở dữ liệu thành công.</response>
         /// <response code="500">Không truy cập được cơ sở dữ liệu.</response>
@@ -39,7 +39,7 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Trả về phản hồi nhịp tim đơn giản để kiểm tra endpoint.
+        /// Trả về phản hồi nhịp tim đơn giản để kiểm tra endpoint. [Role: Public — không cần đăng nhập.]
         /// </summary>
         /// <response code="200">Endpoint phản hồi bình thường.</response>
         [HttpGet("ping")]

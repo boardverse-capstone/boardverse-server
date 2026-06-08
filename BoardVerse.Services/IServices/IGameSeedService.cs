@@ -6,5 +6,6 @@ namespace BoardVerse.Services.IServices
     {
         Task SeedGamesFromBggAsync(List<int> bggGameIds);
         Task SeedSingleGameFromBggAsync(int bggGameId);
+        Task SeedGamesFromCatalogAsync(List<int>? bggGameIds = null);
     }
 }

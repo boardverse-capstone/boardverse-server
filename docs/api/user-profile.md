@@ -1,0 +1,216 @@
+# UserProfileController
+
+**Base route:** `/api/userprofile`  
+**Controller:** `UserProfileController.cs`  
+**Role:** User, Manager, CafeStaff, Admin — yêu cầu đăng nhập
+
+| Endpoint | Method | Mô tả |
+|----------|--------|--------|
+| `/` | GET | Hồ sơ của tôi |
+| `/` | POST | Tạo hồ sơ (lần đầu) |
+| `/` | PUT | Cập nhật hồ sơ |
+| `/` | DELETE | Vô hiệu hóa hồ sơ |
+| `/progress` | POST | Cập nhật Elo / level |
+| `/me/avatar` | PUT | Đổi avatar |
+| `/me/karma-history` | GET | Trạng thái karma |
+
+**Header bắt buộc:** `Authorization: Bearer <token>`
+
+---
+
+## Cách dùng — luồng người chơi mới
+
+```
+1. POST /api/auth/register     → tạo tài khoản
+2. POST /api/auth/login      → lấy token
+3. GET  /api/userprofile       → 200 với giá trị mặc định (chưa có hồ sơ chi tiết)
+4. POST /api/userprofile       → tạo hồ sơ lần đầu
+5. GET  /api/userprofile       → xem hồ sơ đầy đủ
+```
+
+> Mỗi user chỉ có **một** hồ sơ. Gọi `POST` lần 2 sẽ lỗi `409`.
+
+### PowerShell mẫu
+
+```powershell
+# Login
+$login = curl.exe -s -X POST http://localhost:5022/api/auth/login `
+  -H "Content-Type: application/json" `
+  -d '{\"usernameOrEmail\":\"alice@example.com\",\"password\":\"P@ssw0rd!\"}' `
+  | ConvertFrom-Json
+$token = $login.data.token
+
+# Tạo profile
+curl.exe -X POST http://localhost:5022/api/userprofile `
+  -H "Authorization: Bearer $token" `
+  -H "Content-Type: application/json" `
+  -d '{\"bio\":\"Board game fan\",\"firstName\":\"Alice\",\"lastName\":\"Nguyen\"}'
+
+# Xem profile
+curl.exe http://localhost:5022/api/userprofile `
+  -H "Authorization: Bearer $token"
+```
+
+---
+
+## GET /api/userprofile
+
+Lấy hồ sơ **của chính user đang đăng nhập** (không cần truyền userId).
+
+**Response 200:**
+```json
+{
+  "data": {
+    "userId": "guid",
+    "username": "alice",
+    "avatarUrl": null,
+    "bio": "Board game fan",
+    "karmaPoints": 0,
+    "gamerTier": "Bronze",
+    "globalElo": 1200,
+    "level": 1,
+    "updatedAt": "2026-06-08T12:00:00Z"
+  }
+}
+```
+
+| Field | Mô tả |
+|-------|--------|
+| `karmaPoints` | Điểm karma tích lũy |
+| `gamerTier` | Hạng (Bronze, Silver, …) theo karma |
+| `globalElo` | Điểm Elo toàn cục |
+| `level` | Cấp độ người chơi |
+
+**Lỗi:** `401` thiếu/sai token, `403` tài khoản bị chặn, `404` user trong token không tồn tại.
+
+---
+
+## POST /api/userprofile
+
+Tạo hồ sơ lần đầu sau khi đăng ký.
+
+**Body (tất cả optional):**
+```json
+{
+  "bio": "Board game enthusiast",
+  "firstName": "Alice",
+  "lastName": "Nguyen",
+  "dateOfBirth": "1998-01-01T00:00:00Z",
+  "homeAddress": "Ho Chi Minh City"
+}
+```
+
+| Field | Ràng buộc |
+|-------|-----------|
+| `bio` | Max 1000 ký tự |
+| `firstName`, `lastName` | Max 100 ký tự |
+| `homeAddress` | Max 250 ký tự |
+| `dateOfBirth` | ISO 8601 date |
+
+**Response 201:** Trả `ProfileDetailDto` (gồm cả PII: firstName, lastName, …).
+
+**Lỗi:**
+- `409` — đã có profile
+- `404` — user không tồn tại
+- `401` — thiếu token
+
+---
+
+## PUT /api/userprofile
+
+Cập nhật một phần — chỉ gửi field cần đổi.
+
+**Body (tất cả optional):**
+```json
+{
+  "bio": "Love strategy games",
+  "globalElo": 1350,
+  "level": 5,
+  "firstName": "Alice",
+  "lastName": "Tran",
+  "dateOfBirth": "1998-01-01T00:00:00Z",
+  "homeAddress": "District 1, HCMC"
+}
+```
+
+| Field | Ràng buộc |
+|-------|-----------|
+| `globalElo` | ≥ 0 |
+| `level` | ≥ 1 |
+
+**Response 200:** Profile đã cập nhật.
+
+---
+
+## POST /api/userprofile/progress
+
+Cập nhật riêng Elo và level (dùng khi có kết quả trận đấu).
+
+**Body (bắt buộc cả hai):**
+```json
+{
+  "globalElo": 1350,
+  "level": 5
+}
+```
+
+**Response 200:** Profile với Elo/level mới.
+
+---
+
+## PUT /api/userprofile/me/avatar
+
+**Body:**
+```json
+{
+  "avatarUrl": "https://example.com/avatars/alice.png"
+}
+```
+
+| Field | Ràng buộc |
+|-------|-----------|
+| `avatarUrl` | Bắt buộc, phải là URL hợp lệ |
+
+**Response 200:** Profile với `avatarUrl` mới.
+
+---
+
+## GET /api/userprofile/me/karma-history
+
+Trả **trạng thái karma hiện tại** (không phải lịch sử từng sự kiện).
+
+**Response 200:**
+```json
+{
+  "data": {
+    "userId": "guid",
+    "username": "alice",
+    "karmaPoints": 120,
+    "gamerTier": "Silver",
+    "avatarUrl": "https://...",
+    "updatedAt": "2026-06-08T12:00:00Z"
+  }
+}
+```
+
+**Lỗi:** `401` thiếu/sai token, `403` tài khoản bị chặn, `404` user không tồn tại.
+
+---
+
+## DELETE /api/userprofile
+
+Vô hiệu hóa (soft-delete) profile của user đang đăng nhập.
+
+**Response 200:** `data: null`
+
+**Lỗi:** `401` thiếu token.
+
+---
+
+## Lưu ý khi tích hợp frontend
+
+1. Sau `login`, lưu `token` vào memory/localStorage
+2. Gắn `Authorization: Bearer <token>` vào mọi request profile
+3. Nếu `GET /api/userprofile` trả lỗi hoặc profile trống → hiện form tạo profile (`POST`)
+4. Khi token hết hạn (`401`) → gọi `POST /api/auth/refresh-token` rồi thử lại
+5. `PUT` chỉ gửi field thay đổi — không cần gửi toàn bộ object

@@ -18,10 +18,12 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Lấy hồ sơ công khai của người dùng đang đăng nhập.
+        /// Lấy hồ sơ công khai của người dùng đang đăng nhập. [Role: User, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
         /// </summary>
         /// <response code="200">Lấy hồ sơ thành công.</response>
         /// <response code="401">Thiếu token, token không hợp lệ hoặc thiếu claim người dùng.</response>
+        /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
+        /// <response code="404">Không tìm thấy người dùng trong token.</response>
         [HttpGet]
         [Authorize]
         public async Task<IActionResult> Get()
@@ -32,11 +34,13 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Tạo hồ sơ người dùng mới cho tài khoản đang đăng nhập.
+        /// Tạo hồ sơ người dùng mới cho tài khoản đang đăng nhập. [Role: User, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
         /// </summary>
         /// <param name="request">Thông tin hồ sơ cần tạo.</param>
         /// <response code="201">Tạo hồ sơ thành công.</response>
+        /// <response code="400">Dữ liệu hồ sơ không hợp lệ.</response>
         /// <response code="401">Thiếu token hoặc claim người dùng.</response>
+        /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
         /// <response code="404">Không tìm thấy người dùng.</response>
         /// <response code="409">Người dùng đã có hồ sơ hoạt động.</response>
         [HttpPost]
@@ -49,11 +53,13 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Cập nhật thông tin hồ sơ của người dùng đang đăng nhập.
+        /// Cập nhật thông tin hồ sơ của người dùng đang đăng nhập. [Role: User, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
         /// </summary>
         /// <param name="request">Thông tin hồ sơ cần cập nhật.</param>
         /// <response code="200">Cập nhật hồ sơ thành công.</response>
+        /// <response code="400">Dữ liệu hồ sơ không hợp lệ.</response>
         /// <response code="401">Thiếu token hoặc claim người dùng.</response>
+        /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
         /// <response code="404">Không tìm thấy người dùng.</response>
         [HttpPut]
         [Authorize]
@@ -65,11 +71,13 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Cập nhật tiến trình và điểm số của hồ sơ người dùng.
+        /// Cập nhật tiến trình và điểm số của hồ sơ người dùng. [Role: User, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
         /// </summary>
         /// <param name="request">Thông tin tiến trình cần cập nhật.</param>
         /// <response code="200">Cập nhật tiến trình thành công.</response>
+        /// <response code="400">Dữ liệu tiến trình không hợp lệ.</response>
         /// <response code="401">Thiếu token hoặc claim người dùng.</response>
+        /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
         /// <response code="404">Không tìm thấy người dùng.</response>
         [HttpPost("progress")]
         [Authorize]
@@ -81,11 +89,13 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Cập nhật ảnh đại diện của người dùng đang đăng nhập.
+        /// Cập nhật ảnh đại diện của người dùng đang đăng nhập. [Role: User, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
         /// </summary>
         /// <param name="request">Đường dẫn ảnh đại diện mới.</param>
         /// <response code="200">Cập nhật avatar thành công.</response>
+        /// <response code="400">URL avatar không hợp lệ.</response>
         /// <response code="401">Thiếu token hoặc claim người dùng.</response>
+        /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
         /// <response code="404">Không tìm thấy người dùng.</response>
         [HttpPut("me/avatar")]
         [Authorize]
@@ -97,10 +107,12 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Xem trạng thái điểm karma hiện tại của người dùng đang đăng nhập.
+        /// Xem trạng thái điểm karma hiện tại của người dùng đang đăng nhập. [Role: User, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
         /// </summary>
         /// <response code="200">Trả về trạng thái karma hiện tại.</response>
         /// <response code="401">Thiếu token hoặc claim người dùng.</response>
+        /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
+        /// <response code="404">Không tìm thấy người dùng.</response>
         [HttpGet("me/karma-history")]
         [Authorize]
         public async Task<IActionResult> GetKarmaHistory()
@@ -111,10 +123,11 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Vô hiệu hóa hồ sơ của người dùng đang đăng nhập.
+        /// Vô hiệu hóa hồ sơ của người dùng đang đăng nhập. [Role: User, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
         /// </summary>
-        /// <response code="200">Xóa hoặc vô hiệu hóa hồ sơ thành công.</response>
+        /// <response code="200">Xóa hoặc vô hiệu hóa hồ sơ thành công (idempotent nếu chưa có hồ sơ).</response>
         /// <response code="401">Thiếu token hoặc claim người dùng.</response>
+        /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
         [HttpDelete]
         [Authorize]
         public async Task<IActionResult> Delete()

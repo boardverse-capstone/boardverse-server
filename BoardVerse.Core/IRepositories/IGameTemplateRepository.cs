@@ -7,5 +7,6 @@ namespace BoardVerse.Core.IRepositories
     public interface IGameTemplateRepository
     {
         Task<PaginatedResponse<GameTemplate>> GetPagedAsync(GetMasterGamesQuery query);
+        Task<GameTemplate?> GetByIdWithComponentsAsync(Guid id);
     }
 }

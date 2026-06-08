@@ -1,7 +1,13 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Text.RegularExpressions;
 using System.Xml;
+using BoardVerse.Core.Data;
 using BoardVerse.Core.DTOs.BGG;
+using BoardVerse.Core.Settings;
 using BoardVerse.Services.IServices;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace BoardVerse.Services.Services
 {
@@ -9,91 +15,121 @@ namespace BoardVerse.Services.Services
     {
         private readonly HttpClient _httpClient;
         private readonly ILogger<BggApiService> _logger;
-        private const string BaseUrl = "https://boardgamegeek.com/xmlapi/thing";
+        private readonly BggSettings _settings;
 
-        public BggApiService(HttpClient httpClient, ILogger<BggApiService> logger)
+        public BggApiService(
+            HttpClient httpClient,
+            ILogger<BggApiService> logger,
+            IOptions<BggSettings> settings)
         {
             _httpClient = httpClient;
             _logger = logger;
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-            _httpClient.Timeout = TimeSpan.FromSeconds(30);
+            _settings = settings.Value;
+
+            _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (compatible; BoardVerse/1.0; +https://boardverse.app)");
+            _httpClient.Timeout = TimeSpan.FromSeconds(60);
+
+            if (!string.IsNullOrWhiteSpace(_settings.ApiToken))
+            {
+                _httpClient.DefaultRequestHeaders.Authorization =
+                    new AuthenticationHeaderValue("Bearer", _settings.ApiToken.Trim());
+            }
         }
+
+        public bool IsConfigured => !string.IsNullOrWhiteSpace(_settings.ApiToken);
 
         public async Task<BggGameDto?> GetGameByIdAsync(int bggGameId)
         {
-            var result = await GetGamesByIdsAsync(new List<int> { bggGameId });
+            var result = await GetGamesByIdsAsync([bggGameId]);
             return result.FirstOrDefault();
         }
 
         public async Task<List<BggGameDto>> GetGamesByIdsAsync(List<int> bggGameIds)
         {
-            if (bggGameIds == null || !bggGameIds.Any())
-                return new List<BggGameDto>();
+            if (bggGameIds == null || bggGameIds.Count == 0)
+                return [];
 
-            var ids = string.Join(",", bggGameIds);
-            var url = $"{BaseUrl}?id={ids}&stats=1";
-
-            try
+            if (!IsConfigured)
             {
-                var response = await CallWithRetryAsync(url);
-                var games = ParseBggXml(response);
-                return games;
+                _logger.LogWarning(
+                    "BGG API token is not configured. Set Bgg:ApiToken in appsettings or BGG_API_TOKEN env var. " +
+                    "See https://boardgamegeek.com/applications");
+                return [];
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error fetching games from BGG");
-                return new List<BggGameDto>();
-            }
-        }
 
-        private async Task<string> CallWithRetryAsync(string url, int maxRetries = 3)
-        {
-            for (int attempt = 1; attempt <= maxRetries; attempt++)
+            var games = new List<BggGameDto>();
+            var baseUrl = _settings.BaseUrl.TrimEnd('/');
+
+            for (var i = 0; i < bggGameIds.Count; i++)
             {
+                var bggGameId = bggGameIds[i];
+                var url = $"{baseUrl}/thing?id={bggGameId}&stats=1";
+
                 try
                 {
-                    var response = await _httpClient.GetAsync(url);
-                    
-                    if (response.IsSuccessStatusCode)
-                    {
-                        return await response.Content.ReadAsStringAsync();
-                    }
-                    
-                    // BGG returns 202 when request is queued
-                    if (response.StatusCode == System.Net.HttpStatusCode.Accepted)
-                    {
-                        var delay = 2000 * (int)Math.Pow(2, attempt - 1); // Exponential backoff: 2s, 4s, 8s
-                        _logger.LogInformation("Request queued by BGG, retrying in {Delay}ms... (Attempt {Attempt}/{MaxRetries})", delay, attempt, maxRetries);
-                        await Task.Delay(delay);
-                        continue;
-                    }
+                    var response = await CallWithRetryAsync(url);
+                    var parsed = ParseBggXml(response);
+                    games.AddRange(parsed);
 
-                    // Rate limit (429)
-                    if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
-                    {
-                        var delay = 5000 * (int)Math.Pow(2, attempt - 1); // 5s, 10s, 20s
-                        _logger.LogInformation("Rate limited by BGG, waiting {Delay}ms... (Attempt {Attempt}/{MaxRetries})", delay, attempt, maxRetries);
-                        await Task.Delay(delay);
-                        continue;
-                    }
+                    if (i < bggGameIds.Count - 1 && _settings.RequestDelayMs > 0)
+                        await Task.Delay(_settings.RequestDelayMs);
                 }
-                catch (HttpRequestException ex)
+                catch (Exception ex)
                 {
-                    if (attempt == maxRetries)
-                        throw;
-                    
-                    _logger.LogWarning(ex, "HTTP error on attempt {Attempt}/{MaxRetries}", attempt, maxRetries);
-                    await Task.Delay(1000 * attempt);
+                    _logger.LogError(ex, "Error fetching BGG game {BggGameId}", bggGameId);
                 }
             }
 
-            throw new Exception("Max retries exceeded");
+            return games;
+        }
+
+        private async Task<string> CallWithRetryAsync(string url, int maxRetries = 5)
+        {
+            for (var attempt = 1; attempt <= maxRetries; attempt++)
+            {
+                var response = await _httpClient.GetAsync(url);
+
+                if (response.IsSuccessStatusCode)
+                    return await response.Content.ReadAsStringAsync();
+
+                if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                {
+                    throw new InvalidOperationException(
+                        "BGG API returned 401 Unauthorized. Verify Bgg:ApiToken is valid and approved at " +
+                        "https://boardgamegeek.com/applications");
+                }
+
+                if (response.StatusCode == System.Net.HttpStatusCode.Accepted)
+                {
+                    var delay = 2000 * (int)Math.Pow(2, attempt - 1);
+                    _logger.LogInformation(
+                        "BGG queued request, retrying in {Delay}ms (attempt {Attempt}/{MaxRetries})",
+                        delay, attempt, maxRetries);
+                    await Task.Delay(delay);
+                    continue;
+                }
+
+                if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+                {
+                    var delay = 5000 * (int)Math.Pow(2, attempt - 1);
+                    _logger.LogInformation(
+                        "BGG rate limited, waiting {Delay}ms (attempt {Attempt}/{MaxRetries})",
+                        delay, attempt, maxRetries);
+                    await Task.Delay(delay);
+                    continue;
+                }
+
+                response.EnsureSuccessStatusCode();
+            }
+
+            throw new InvalidOperationException("BGG API max retries exceeded");
         }
 
         private List<BggGameDto> ParseBggXml(string xml)
         {
             var games = new List<BggGameDto>();
-            
+
             try
             {
                 var doc = new XmlDocument();
@@ -106,25 +142,32 @@ namespace BoardVerse.Services.Services
                 {
                     var bggGameIdStr = item.Attributes?["id"]?.Value;
                     var bggGameId = int.TryParse(bggGameIdStr, out var parsedId) ? parsedId : 0;
+                    if (bggGameId == 0) continue;
+
+                    var rawDescription = GetNodeValue(item, ".//description");
+                    var catalog = BggKnownGameCatalog.GetById(bggGameId);
 
                     var game = new BggGameDto
                     {
                         Id = Guid.NewGuid(),
                         BggGameId = bggGameId,
-                        Name = GetNodeValue(item, ".//name[@type='primary']") ??
-                              GetNodeValue(item, ".//name") ?? "Unknown",
-                        Description = GetNodeValue(item, ".//description"),
+                        Name = GetNodeValue(item, ".//name[@type='primary']")
+                               ?? GetNodeValue(item, ".//name")
+                               ?? catalog?.Name
+                               ?? "Unknown",
+                        Description = CleanDescription(rawDescription) ?? catalog?.Description,
                         ThumbnailUrl = GetNodeValue(item, ".//thumbnail"),
                         ImageUrl = GetNodeValue(item, ".//image"),
                         YearPublished = int.TryParse(GetNodeValue(item, ".//yearpublished"), out var year) ? year : 0,
-                        MinPlayers = int.TryParse(GetNodeValue(item, ".//minplayers"), out var min) ? min : 1,
-                        MaxPlayers = int.TryParse(GetNodeValue(item, ".//maxplayers"), out var max) ? max : 4,
+                        MinPlayers = int.TryParse(GetNodeValue(item, ".//minplayers"), out var min) ? min : catalog?.MinPlayers ?? 1,
+                        MaxPlayers = int.TryParse(GetNodeValue(item, ".//maxplayers"), out var max) ? max : catalog?.MaxPlayers ?? 4,
                         MinPlayTime = int.TryParse(GetNodeValue(item, ".//minplaytime"), out var minTime) ? minTime : 30,
                         MaxPlayTime = int.TryParse(GetNodeValue(item, ".//maxplaytime"), out var maxTime) ? maxTime : 60,
-                        PlayingTime = int.TryParse(GetNodeValue(item, ".//playingtime"), out var playTime) ? playTime : 60
+                        PlayingTime = int.TryParse(GetNodeValue(item, ".//playingtime"), out var playTime)
+                            ? playTime
+                            : catalog?.PlayTime ?? 60
                     };
 
-                    // Parse categories
                     var categoryNodes = item.SelectNodes(".//link[@type='boardgamecategory']");
                     if (categoryNodes != null)
                     {
@@ -136,7 +179,6 @@ namespace BoardVerse.Services.Services
                         }
                     }
 
-                    // Parse mechanics
                     var mechanicNodes = item.SelectNodes(".//link[@type='boardgamemechanic']");
                     if (mechanicNodes != null)
                     {
@@ -148,35 +190,54 @@ namespace BoardVerse.Services.Services
                         }
                     }
 
-                    // Parse components from description or other fields
-                    // Note: BGG doesn't have structured component data, so we'll extract from description
-                    game.Components = ExtractComponentsFromDescription(game.Description, game.Name);
-
+                    game.Components = BuildComponents(bggGameId, rawDescription);
                     games.Add(game);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error parsing XML");
+                _logger.LogError(ex, "Error parsing BGG XML response");
             }
 
             return games;
         }
 
-        private string? GetNodeValue(XmlNode parent, string xpath)
+        private static List<BggComponentDto> BuildComponents(int bggGameId, string? description)
+        {
+            var catalogComponents = BggKnownGameCatalog.GetComponents(bggGameId);
+            if (catalogComponents.Count > 0)
+            {
+                return catalogComponents
+                    .Select(c => new BggComponentDto { Name = c.Name, Quantity = c.Quantity })
+                    .ToList();
+            }
+
+            return ExtractComponentsFromDescription(description);
+        }
+
+        private static string? GetNodeValue(XmlNode parent, string xpath)
         {
             var node = parent.SelectSingleNode(xpath);
             return node?.Attributes?["value"]?.Value ?? node?.InnerText;
         }
 
-        private List<BggComponentDto> ExtractComponentsFromDescription(string? description, string gameName)
+        private static string? CleanDescription(string? html)
+        {
+            if (string.IsNullOrWhiteSpace(html))
+                return null;
+
+            var decoded = WebUtility.HtmlDecode(html);
+            var withoutTags = Regex.Replace(decoded, "<[^>]+>", " ");
+            var normalized = Regex.Replace(withoutTags, @"\s+", " ").Trim();
+            return normalized.Length > 2000 ? normalized[..2000] : normalized;
+        }
+
+        private static List<BggComponentDto> ExtractComponentsFromDescription(string? description)
         {
             var components = new List<BggComponentDto>();
-            
             if (string.IsNullOrEmpty(description))
                 return components;
 
-            // Common component patterns in BGG descriptions
             var patterns = new Dictionary<string, string>
             {
                 { @"(\d+)\s+cards?", "Cards" },
@@ -184,35 +245,26 @@ namespace BoardVerse.Services.Services
                 { @"(\d+)\s+meeples?", "Meeples" },
                 { @"(\d+)\s+dice", "Dice" },
                 { @"(\d+)\s+d6", "D6 Dice" },
-                { @"(\d+)\s+board", "Game Board" },
-                { @"(\d+)\s+cube", "Cubes" },
-                { @"(\d+)\s+disc", "Discs" },
-                { @"(\d+)\s+marker", "Markers" },
-                { @"(\d+)\s+counter", "Counters" }
+                { @"(\d+)\s+boards?", "Game Board" },
+                { @"(\d+)\s+cubes?", "Cubes" },
+                { @"(\d+)\s+discs?", "Discs" },
+                { @"(\d+)\s+markers?", "Markers" },
+                { @"(\d+)\s+counters?", "Counters" }
             };
 
-            foreach (var pattern in patterns)
+            foreach (var (pattern, name) in patterns)
             {
-                var matches = System.Text.RegularExpressions.Regex.Matches(
-                    description.ToLower(), 
-                    pattern.Key, 
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-                foreach (System.Text.RegularExpressions.Match match in matches)
+                var matches = Regex.Matches(description, pattern, RegexOptions.IgnoreCase);
+                foreach (Match match in matches)
                 {
                     if (int.TryParse(match.Groups[1].Value, out var quantity))
                     {
-                        components.Add(new BggComponentDto
-                        {
-                            Name = pattern.Value,
-                            Quantity = quantity
-                        });
+                        components.Add(new BggComponentDto { Name = name, Quantity = quantity });
                     }
                 }
             }
 
-            // If no components found, add default based on game type
-            if (!components.Any())
+            if (components.Count == 0)
             {
                 components.Add(new BggComponentDto { Name = "Game Board", Quantity = 1 });
                 components.Add(new BggComponentDto { Name = "Cards", Quantity = 50 });

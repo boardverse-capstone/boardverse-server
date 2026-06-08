@@ -29,8 +29,6 @@ namespace BoardVerse.Core.Entities
             {
                 if (value < 1)
                     throw new ArgumentException("MinPlayers must be at least 1");
-                if (value > _maxPlayers)
-                    throw new ArgumentException("MinPlayers cannot be greater than MaxPlayers");
                 _minPlayers = value;
             }
         }
@@ -42,8 +40,6 @@ namespace BoardVerse.Core.Entities
             {
                 if (value < 1)
                     throw new ArgumentException("MaxPlayers must be at least 1");
-                if (value < _minPlayers)
-                    throw new ArgumentException("MaxPlayers cannot be less than MinPlayers");
                 _maxPlayers = value;
             }
         }

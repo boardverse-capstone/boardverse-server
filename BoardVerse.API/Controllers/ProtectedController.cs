@@ -8,10 +8,11 @@ namespace BoardVerse.API.Controllers
     public class ProtectedController : BaseApiController
     {
         /// <summary>
-        /// Truy cập endpoint yêu cầu xác thực để xác minh token hợp lệ.
+        /// Truy cập endpoint yêu cầu xác thực để xác minh token hợp lệ. [Role: User, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
         /// </summary>
         /// <response code="200">Người dùng đã truy cập được endpoint bảo vệ.</response>
-        /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
+        /// <response code="401">Thiếu token, token hết hạn, token bị thu hồi, hoặc tài khoản bị chặn/vô hiệu hóa.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpGet("secret")]
         [Authorize]
         public IActionResult Secret()
