@@ -9,3 +9,11 @@
 .vs/
 **/bin/
 **/obj/
+BoardVerse.API/appsettings.json
+BoardVerse.API/appsettings.Development.json
+tools/SeedBoardGames/appsettings.json
+BoardVerse.Data/update-all-entities.sql
+BoardVerse.API/appsettings.json
+.agents/docs/structure-code.md
+.agents/docs/project-context.md
+BoardVerse.API/appsettings.Development.json
