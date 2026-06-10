@@ -37,12 +37,24 @@ if (string.IsNullOrWhiteSpace(conn))
 
 Console.WriteLine("Using connection: " + conn.Split(';')[0]);
 
-var sqlPath = Path.Combine(dir.FullName, "BoardVerse.Data", "seed-board-games.sql");
+if (args.Length == 0)
+{
+    Console.Error.WriteLine("Usage: dotnet run --project tools/ExecSql -- <path-to-sql-file>");
+    Console.Error.WriteLine("Example: dotnet run --project tools/ExecSql -- BoardVerse.Data/update-all-entities.sql");
+    return 1;
+}
+
+var sqlPath = Path.IsPathRooted(args[0])
+    ? args[0]
+    : Path.Combine(dir.FullName, args[0].Replace('/', Path.DirectorySeparatorChar));
+
 if (!File.Exists(sqlPath))
 {
     Console.Error.WriteLine("SQL script not found: " + sqlPath);
     return 1;
 }
+
+Console.WriteLine("Executing: " + sqlPath);
 
 var sql = await File.ReadAllTextAsync(sqlPath);
 
