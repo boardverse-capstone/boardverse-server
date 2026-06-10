@@ -52,7 +52,7 @@ curl.exe "http://localhost:5022/api/usermanagement/users?page=1&pageSize=10" `
 | Param | Mô tả | Ví dụ |
 |-------|--------|-------|
 | `search` | Tìm username/email | `alice` |
-| `role` | Lọc theo role | `User`, `Manager`, `CafeStaff`, `Admin` |
+| `role` | Lọc theo role | `Player`, `Manager`, `CafeStaff`, `Admin` |
 | `isActive` | Trạng thái active | `true` / `false` |
 | `isBlocked` | Trạng thái block | `true` / `false` |
 | `page` | Trang (mặc định 1) | `1` |
@@ -60,7 +60,7 @@ curl.exe "http://localhost:5022/api/usermanagement/users?page=1&pageSize=10" `
 
 **Ví dụ:**
 ```http
-GET /api/usermanagement/users?search=alice&role=User&page=1&pageSize=10
+GET /api/usermanagement/users?search=alice&role=Player&page=1&pageSize=10
 Authorization: Bearer <admin-token>
 ```
 
@@ -73,7 +73,7 @@ Authorization: Bearer <admin-token>
         "id": "guid",
         "username": "alice",
         "email": "alice@example.com",
-        "role": "User",
+        "role": "Player",
         "isActive": true,
         "isBlocked": false
       }
@@ -119,7 +119,7 @@ Tạo user mới (Admin tạo thay vì user tự register).
 | `username` | Bắt buộc, max 100 |
 | `email` | Bắt buộc, email hợp lệ |
 | `password` | Tuỳ chọn, min 8 ký tự |
-| `role` | Mặc định `User` |
+| `role` | Mặc định `Player` |
 
 **Response 201:** User đã tạo.
 
@@ -178,6 +178,6 @@ Gỡ chặn user — không cần body.
 { "role": "Manager" }
 ```
 
-Roles hợp lệ: `User`, `Admin`, `Manager`, `CafeStaff`.
+Roles hợp lệ: `Player`, `Admin`, `Manager`, `CafeStaff`. (`User` vẫn được chấp nhận như alias của `Player`.)
 
 **Dùng khi:** Nâng user thường lên Manager, hoặc gán CafeStaff.

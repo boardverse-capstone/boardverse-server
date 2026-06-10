@@ -65,9 +65,9 @@ POST /api/cafes/{cafeId}/staff
 | Tình huống | API |
 |------------|-----|
 | Email chưa có | `POST .../staff` (+ username bắt buộc) |
-| Email là `User` | `POST .../staff/promote` trước |
+| Email là `Player` | `POST .../staff/promote` trước |
 | Email là `CafeStaff` | `POST .../staff` (chỉ email) |
-| Gọi `POST staff` khi vẫn là `User` | `400` — message hướng dẫn gọi `/promote` |
+| Gọi `POST staff` khi vẫn là `Player` | `400` — message hướng dẫn gọi `/promote` |
 
 ---
 
@@ -99,13 +99,13 @@ POST /api/cafes/{cafeId}/staff
 }
 ```
 
-Nâng `User` → `CafeStaff` và gắn quán.
+Nâng `Player` → `CafeStaff` và gắn quán.
 
 ---
 
 ## DELETE /api/cafes/{cafeId}/staff/{staffId}
 
-Gỡ nhân viên khỏi quán. Nếu staff **không còn quán nào** → role tự hạ về `User`.
+Gỡ nhân viên khỏi quán. Nếu staff **không còn quán nào** → role tự hạ về `Player`.
 
 ---
 

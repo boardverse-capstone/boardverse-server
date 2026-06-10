@@ -39,7 +39,7 @@ curl.exe http://localhost:5022/api/staff/my-cafes `
 ```
 
 **Lưu ý:**
-- Token phải thuộc user role **CafeStaff** — Manager/User gọi endpoint này sẽ lỗi `403`
+- Token phải thuộc user role **CafeStaff** — Manager/Player gọi endpoint này sẽ lỗi `403`
 - Nếu staff chưa được manager thêm → danh sách trả về `[]` (mảng rỗng)
 
 ---

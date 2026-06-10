@@ -17,6 +17,6 @@ namespace BoardVerse.Core.DTOs.User
         public string? Password { get; set; }
 
         [StringLength(32, ErrorMessage = "Role cannot exceed 32 characters.")]
-        public string Role { get; set; } = "User";
+        public string Role { get; set; } = "Player";
     }
 }

@@ -1,10 +1,14 @@
-namespace BoardVerse.Core.DTOs.Game
+using BoardVerse.Core.Enum;
+
+namespace BoardVerse.Core.DTOs.Inventory
 {
-    public class GetMasterGamesQuery
+    public class GetCafeInventoryQuery
     {
         public string? SearchTerm { get; set; }
-        public Guid? CafeId { get; set; }
-        public bool ExcludeInInventory { get; set; }
+        public CafeGameInventoryStatus? Status { get; set; }
+        public InventorySortField SortBy { get; set; } = InventorySortField.UpdatedAt;
+        public bool SortDescending { get; set; } = true;
+
         private int _pageNumber = 1;
         private int _pageSize = 10;
 

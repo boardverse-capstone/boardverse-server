@@ -21,7 +21,8 @@ namespace BoardVerse.Core.DTOs.User
         public string? LastName { get; set; }
         public DateTime? DateOfBirth { get; set; }
 
-        [StringLength(250, ErrorMessage = "Home address cannot exceed 250 characters.")]
-        public string? HomeAddress { get; set; }
+        [Phone(ErrorMessage = "Phone number is invalid.")]
+        [StringLength(50, ErrorMessage = "Phone number cannot exceed 50 characters.")]
+        public string? PhoneNumber { get; set; }
     }
 }

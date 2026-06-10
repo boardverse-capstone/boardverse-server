@@ -153,7 +153,7 @@ curl.exe http://localhost:5022/api/userprofile `
 | Role | Mô tả |
 |------|--------|
 | **Public** | Không cần token |
-| **User** | Người chơi (role mặc định khi đăng ký) |
+| **Player** | Người chơi (role mặc định khi đăng ký) |
 | **Manager** | Chủ quán — quản lý staff, kho game |
 | **CafeStaff** | Nhân viên quán |
 | **Admin** | Quản trị hệ thống |
@@ -170,7 +170,7 @@ curl.exe http://localhost:5022/api/userprofile `
 | [Master Games](./master-games.md) | Manager |
 | [Manager](./manager.md) | Manager |
 | [Cafe](./cafe.md) | Public (GET) / Manager + chủ quán (PUT, staff) |
-| [Cafe Inventory](./cafe-inventory.md) | Public/User (GET browse) / Staff+Manager (GET full) / Manager (mutations) |
+| [Cafe Inventory](./cafe-inventory.md) | Public/Player (GET browse) / Staff+Manager (GET full) / Manager (mutations) |
 | [Staff](./staff.md) | CafeStaff |
 
 > **Manager + chủ quán:** Token role `Manager` **và** `Cafe.ManagerId` phải trùng user đang gọi API. Dùng cafe ID từ seed hoặc cafe do chính manager đó tạo.

@@ -32,6 +32,7 @@ namespace BoardVerse.Services.Services
             {
                 UserId = user.Id,
                 Username = user.Username,
+                PhoneNumber = user.PhoneNumber,
                 AvatarUrl = profile?.AvatarUrl,
                 Bio = profile?.Bio,
                 KarmaPoints = profile?.KarmaPoints ?? 100,
@@ -57,6 +58,7 @@ namespace BoardVerse.Services.Services
             {
                 UserId = user.Id,
                 Username = user.Username,
+                PhoneNumber = user.PhoneNumber,
                 AvatarUrl = p?.AvatarUrl,
                 Bio = p?.Bio,
                 KarmaPoints = p?.KarmaPoints ?? 100,
@@ -66,7 +68,6 @@ namespace BoardVerse.Services.Services
                 FirstName = p?.FirstName,
                 LastName = p?.LastName,
                 DateOfBirth = p?.DateOfBirth,
-                HomeAddress = p?.HomeAddress,
                 UpdatedAt = p?.UpdatedAt ?? DateTime.UtcNow
             };
         }
@@ -85,7 +86,6 @@ namespace BoardVerse.Services.Services
                 p.FirstName = request.FirstName ?? p.FirstName;
                 p.LastName = request.LastName ?? p.LastName;
                 p.DateOfBirth = request.DateOfBirth ?? p.DateOfBirth;
-                p.HomeAddress = request.HomeAddress ?? p.HomeAddress;
                 p.IsActive = true;
                 p.UpdatedAt = DateTime.UtcNow;
             }
@@ -98,13 +98,14 @@ namespace BoardVerse.Services.Services
                     FirstName = request.FirstName,
                     LastName = request.LastName,
                     DateOfBirth = request.DateOfBirth,
-                    HomeAddress = request.HomeAddress,
                     KarmaPoints = 100,
                     GamerTier = GamerTier.Bronze,
                     UpdatedAt = DateTime.UtcNow
                 };
                 await _userRepository.AddUserProfileAsync(profile);
             }
+
+            ApplyPhoneNumber(user, request.PhoneNumber);
 
             await _userRepository.SaveChangesAsync();
             return await GetPublicProfileAsync(userId);
@@ -127,8 +128,9 @@ namespace BoardVerse.Services.Services
             p.FirstName = request.FirstName ?? p.FirstName;
             p.LastName = request.LastName ?? p.LastName;
             p.DateOfBirth = request.DateOfBirth ?? p.DateOfBirth;
-            p.HomeAddress = request.HomeAddress ?? p.HomeAddress;
             p.UpdatedAt = DateTime.UtcNow;
+
+            ApplyPhoneNumber(user, request.PhoneNumber);
 
             if (user.Profile == null) await _userRepository.AddUserProfileAsync(p);
 
@@ -233,6 +235,17 @@ namespace BoardVerse.Services.Services
             }
 
             return await GetPublicProfileAsync(userId);
+        }
+
+        private static void ApplyPhoneNumber(User user, string? phoneNumber)
+        {
+            if (phoneNumber == null)
+            {
+                return;
+            }
+
+            user.PhoneNumber = string.IsNullOrWhiteSpace(phoneNumber) ? null : phoneNumber.Trim();
+            user.UpdatedAt = DateTime.UtcNow;
         }
     }
 }

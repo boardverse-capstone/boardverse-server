@@ -2,7 +2,7 @@
 
 **Base route:** `/api/userprofile`  
 **Controller:** `UserProfileController.cs`  
-**Role:** User, Manager, CafeStaff, Admin — yêu cầu đăng nhập
+**Role:** Player, Manager, CafeStaff, Admin — yêu cầu đăng nhập
 
 | Endpoint | Method | Mô tả |
 |----------|--------|--------|
@@ -95,8 +95,7 @@ Tạo hồ sơ lần đầu sau khi đăng ký.
   "bio": "Board game enthusiast",
   "firstName": "Alice",
   "lastName": "Nguyen",
-  "dateOfBirth": "1998-01-01T00:00:00Z",
-  "homeAddress": "Ho Chi Minh City"
+  "dateOfBirth": "1998-01-01T00:00:00Z"
 }
 ```
 
@@ -104,7 +103,6 @@ Tạo hồ sơ lần đầu sau khi đăng ký.
 |-------|-----------|
 | `bio` | Max 1000 ký tự |
 | `firstName`, `lastName` | Max 100 ký tự |
-| `homeAddress` | Max 250 ký tự |
 | `dateOfBirth` | ISO 8601 date |
 
 **Response 201:** Trả `ProfileDetailDto` (gồm cả PII: firstName, lastName, …).
@@ -128,8 +126,7 @@ Cập nhật một phần — chỉ gửi field cần đổi.
   "level": 5,
   "firstName": "Alice",
   "lastName": "Tran",
-  "dateOfBirth": "1998-01-01T00:00:00Z",
-  "homeAddress": "District 1, HCMC"
+  "dateOfBirth": "1998-01-01T00:00:00Z"
 }
 ```
 

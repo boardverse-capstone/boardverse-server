@@ -13,7 +13,7 @@ namespace BoardVerse.Data
                     "Email" character varying(256) NOT NULL,
                     "PhoneNumber" character varying(50),
                     "PasswordHash" character varying(500),
-                    "Role" character varying(50) NOT NULL DEFAULT 'User',
+                    "Role" character varying(50) NOT NULL DEFAULT 'Player',
                     "Provider" character varying(50) NOT NULL DEFAULT 'Local',
                     "ProviderId" character varying(200),
                     "CreatedAt" timestamp with time zone NOT NULL,
@@ -33,6 +33,18 @@ namespace BoardVerse.Data
 
             await context.Database.ExecuteSqlRawAsync("""
                 CREATE UNIQUE INDEX IF NOT EXISTS "IX_Users_Email" ON "Users" ("Email");
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                UPDATE "Users" SET "Role" = 'Player' WHERE "Role" = 'User';
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                ALTER TABLE "Users" ALTER COLUMN "Role" SET DEFAULT 'Player';
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                ALTER TABLE "UserProfiles" DROP COLUMN IF EXISTS "HomeAddress";
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""

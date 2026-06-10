@@ -44,7 +44,7 @@ namespace BoardVerse.Services.Services
 
         public async Task<PaginatedResponse<AdminUserDto>> GetAllAsync(AdminUserQueryDto query)
         {
-            if (!string.IsNullOrWhiteSpace(query.Role) && !Enum.TryParse<UserRole>(query.Role, true, out _))
+            if (!string.IsNullOrWhiteSpace(query.Role) && !UserRoleParser.TryParse(query.Role, out _))
             {
                 throw new BadRequestException("Role is invalid.");
             }
@@ -74,7 +74,7 @@ namespace BoardVerse.Services.Services
                 throw new UserAlreadyExistsException("User with same email or username exists.");
             }
 
-            if (!Enum.TryParse<UserRole>(request.Role, true, out var role))
+            if (!UserRoleParser.TryParse(request.Role, out var role))
             {
                 throw new BadRequestException("Role is invalid.");
             }
@@ -116,7 +116,7 @@ namespace BoardVerse.Services.Services
                 throw new ConflictException("Email already exists.");
             }
 
-            if (!string.IsNullOrWhiteSpace(request.Role) && !Enum.TryParse<UserRole>(request.Role, true, out var role))
+            if (!string.IsNullOrWhiteSpace(request.Role) && !UserRoleParser.TryParse(request.Role, out _))
             {
                 throw new BadRequestException("Role is invalid.");
             }
@@ -124,7 +124,7 @@ namespace BoardVerse.Services.Services
             user.Username = request.Username ?? user.Username;
             user.Email = request.Email ?? user.Email;
 
-            if (!string.IsNullOrWhiteSpace(request.Role) && Enum.TryParse<UserRole>(request.Role, true, out var parsedRole))
+            if (!string.IsNullOrWhiteSpace(request.Role) && UserRoleParser.TryParse(request.Role, out var parsedRole))
             {
                 user.Role = parsedRole;
             }
@@ -200,7 +200,7 @@ namespace BoardVerse.Services.Services
             var user = await _userRepository.GetByIdWithProfileAsync(id);
             if (user == null) throw new UserNotFoundException();
 
-            if (!Enum.TryParse<UserRole>(request.Role, true, out var role))
+            if (!UserRoleParser.TryParse(request.Role, out var role))
             {
                 throw new BadRequestException("Role is invalid.");
             }

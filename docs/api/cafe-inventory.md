@@ -5,10 +5,13 @@
 
 | Endpoint | Method | Ai được dùng |
 |----------|--------|--------------|
-| `/` | GET | **Public** / User (browse), CafeStaff + Manager (full) |
-| `/{inventoryId}` | GET | **Public** / User (browse), CafeStaff + Manager (full) |
+| `/` | GET | **Public** / Player (browse), CafeStaff + Manager (full) |
+| `/deleted` | GET | Manager (chủ quán) |
+| `/{inventoryId}` | GET | **Public** / Player (browse), CafeStaff + Manager (full) |
 | `/` | POST | Manager (chủ quán) |
 | `/{inventoryId}` | PUT | Manager (chủ quán) |
+| `/{inventoryId}/restore` | POST | Manager (chủ quán) |
+| `/{inventoryId}/sync-penalties` | POST | Manager (chủ quán) |
 | `/{inventoryId}` | DELETE | Manager (chủ quán) |
 
 ---
@@ -17,7 +20,7 @@
 
 | Viewer | Response |
 |--------|----------|
-| Không login / User | `CafeInventoryBrowseDto` — game info, **không** có phí phạt |
+| Không login / Player | `CafeInventoryBrowseDto` — game info, **không** có phí phạt |
 | CafeStaff (đã gắn quán) | Full — kèm `componentPenalties` |
 | Manager (chủ quán) | Full — kèm `componentPenalties` |
 
@@ -65,7 +68,18 @@ Player: không cần token → browse game tại quán.
 
 ## GET /api/cafes/{cafeId}/inventory
 
-**Query:** `pageNumber`, `pageSize` — **không cần token** (public browse).
+**Query:**
+
+| Param | Mô tả | Mặc định |
+|-------|--------|----------|
+| `searchTerm` | Lọc theo tên game (contains) | — |
+| `status` | Lọc theo trạng thái (`Available`, `InUse`, …) | — |
+| `sortBy` | `UpdatedAt`, `Name`, `BoxQuantity`, `Status` | `UpdatedAt` |
+| `sortDescending` | `true` = giảm dần | `true` |
+| `pageNumber` | Trang | 1 |
+| `pageSize` | Kích thước trang | 10 |
+
+Public browse — **không cần token**. Manager login → response full kèm `componentPenalties`, `description`, `minPlayers`, …
 
 **Browse response (public):**
 ```json
@@ -120,4 +134,31 @@ Invoke-RestMethod -Uri "http://localhost:5022/api/cafes/$cafeId/inventory" `
 
 # 5. Public browse (không token)
 Invoke-RestMethod -Uri "http://localhost:5022/api/cafes/$cafeId/inventory"
+
+# 6. Manager — game chưa có trong kho
+Invoke-RestMethod -Uri "http://localhost:5022/api/v1/master-games?cafeId=$cafeId&excludeInInventory=true" -Headers $h
+
+# 7. Manager — khôi phục mục đã xóa
+Invoke-RestMethod -Uri "http://localhost:5022/api/cafes/$cafeId/inventory/{inventoryId}/restore" `
+  -Method POST -Headers $h
 ```
+
+---
+
+## GET /api/cafes/{cafeId}/inventory/deleted
+
+**Role:** Manager (chủ quán). Query giống GET inventory (`searchTerm`, `status`, `sortBy`, …).
+
+Trả về danh sách mục kho đã soft-delete (`isActive: false`).
+
+---
+
+## POST /api/cafes/{cafeId}/inventory/{inventoryId}/restore
+
+Khôi phục mục đã xóa mềm. Trả `409` nếu game đã có bản active khác.
+
+---
+
+## POST /api/cafes/{cafeId}/inventory/{inventoryId}/sync-penalties
+
+Thêm penalty rows cho component mới từ master game (phí mặc định `0`). Không xóa penalty cũ.

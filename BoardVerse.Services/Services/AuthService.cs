@@ -2,6 +2,7 @@ using BoardVerse.Core.DTOs.Auth.Requests;
 using BoardVerse.Core.DTOs.Auth.Responses;
 using BoardVerse.Core.DTOs.User;
 using BoardVerse.Core.Entities;
+using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.IServices;
@@ -85,6 +86,7 @@ namespace BoardVerse.Services.Services
                 Email = request.Email,
                 PhoneNumber = request.PhoneNumber,
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
+                Role = UserRole.Player,
                 Provider = "Local",
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
@@ -175,6 +177,7 @@ namespace BoardVerse.Services.Services
                         Id = Guid.NewGuid(),
                         Username = !string.IsNullOrWhiteSpace(payload.Name) ? payload.Name : (payload.Email?.Split('@').FirstOrDefault() ?? string.Empty),
                         Email = payload.Email,
+                        Role = UserRole.Player,
                         Provider = "Google",
                         ProviderId = payload.Subject,
                         IsEmailVerified = true,

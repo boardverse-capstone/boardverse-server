@@ -29,6 +29,18 @@ namespace BoardVerse.Data.Repositories
                     EF.Functions.ILike(g.Name, $"%{query.SearchTerm}%"));
             }
 
+            if (query.CafeId.HasValue && query.ExcludeInInventory)
+            {
+                var inInventoryIds = _context.CafeGameInventories
+                    .AsNoTracking()
+                    .Where(i => i.CafeId == query.CafeId.Value && i.IsActive)
+                    .Select(i => i.GameTemplateId);
+
+                baseQuery = baseQuery.Where(g => !inInventoryIds.Contains(g.Id));
+            }
+
+            baseQuery = baseQuery.OrderBy(g => g.Name);
+
             var totalItems = await baseQuery.CountAsync();
             var items = await baseQuery
                 .Skip((query.PageNumber - 1) * query.PageSize)

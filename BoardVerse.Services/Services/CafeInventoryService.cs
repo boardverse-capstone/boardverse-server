@@ -43,6 +43,14 @@ namespace BoardVerse.Services.Services
                 throw new ConflictException("This game is already in the cafe inventory. Use update instead.");
             }
 
+            var inactive = await _inventoryRepository.GetByCafeAndGameTemplateIncludingInactiveAsync(
+                cafeId, dto.GameTemplateId);
+            if (inactive is { IsActive: false })
+            {
+                throw new ConflictException(
+                    "This game was previously removed from inventory. Use restore instead.");
+            }
+
             var now = DateTime.UtcNow;
             var inventoryId = Guid.NewGuid();
             var inventory = new CafeGameInventory
@@ -73,12 +81,12 @@ namespace BoardVerse.Services.Services
             Guid cafeId,
             Guid? viewerId,
             string? viewerRole,
-            PaginationParams paginationParams)
+            GetCafeInventoryQuery query)
         {
             await EnsureCafeIsBrowsableAsync(cafeId);
             var canViewFull = await CanViewFullInventoryAsync(cafeId, viewerId, viewerRole);
 
-            var result = await _inventoryRepository.GetPagedByCafeAsync(cafeId, paginationParams);
+            var result = await _inventoryRepository.GetPagedByCafeAsync(cafeId, query);
 
             if (canViewFull)
             {
@@ -92,6 +100,22 @@ namespace BoardVerse.Services.Services
             return new PaginatedResponse<CafeInventoryBrowseDto>
             {
                 Data = result.Data.Select(MapToBrowseDto).ToList(),
+                Meta = result.Meta
+            };
+        }
+
+        public async Task<PaginatedResponse<CafeInventoryResponseDto>> GetDeletedInventoryAsync(
+            Guid cafeId,
+            Guid managerId,
+            GetCafeInventoryQuery query)
+        {
+            await EnsureManagerOwnsCafeAsync(cafeId, managerId);
+
+            var result = await _inventoryRepository.GetPagedByCafeAsync(cafeId, query, deletedOnly: true);
+
+            return new PaginatedResponse<CafeInventoryResponseDto>
+            {
+                Data = result.Data.Select(MapToFullDto).ToList(),
                 Meta = result.Meta
             };
         }
@@ -160,6 +184,89 @@ namespace BoardVerse.Services.Services
             }
 
             inventory.UpdatedAt = DateTime.UtcNow;
+            await _inventoryRepository.SaveChangesAsync();
+
+            var updated = await _inventoryRepository.GetByIdWithDetailsAsync(inventoryId);
+            return MapToFullDto(updated!);
+        }
+
+        public async Task<CafeInventoryResponseDto> RestoreInventoryAsync(
+            Guid cafeId,
+            Guid inventoryId,
+            Guid managerId)
+        {
+            await EnsureManagerOwnsCafeAsync(cafeId, managerId);
+
+            var inventory = await _inventoryRepository.GetByIdWithDetailsIncludingInactiveAsync(inventoryId);
+            if (inventory == null || inventory.CafeId != cafeId)
+            {
+                throw new NotFoundException("Inventory item not found.");
+            }
+
+            if (inventory.IsActive)
+            {
+                throw new BadRequestException("Inventory item is already active.");
+            }
+
+            var activeDuplicate = await _inventoryRepository.GetByCafeAndGameTemplateAsync(
+                cafeId, inventory.GameTemplateId);
+            if (activeDuplicate != null)
+            {
+                throw new ConflictException(
+                    "An active inventory entry for this game already exists.");
+            }
+
+            inventory.IsActive = true;
+            inventory.UpdatedAt = DateTime.UtcNow;
+            await _inventoryRepository.SaveChangesAsync();
+
+            var restored = await _inventoryRepository.GetByIdWithDetailsAsync(inventoryId);
+            return MapToFullDto(restored!);
+        }
+
+        public async Task<CafeInventoryResponseDto> SyncPenaltiesAsync(
+            Guid cafeId,
+            Guid inventoryId,
+            Guid managerId)
+        {
+            await EnsureManagerOwnsCafeAsync(cafeId, managerId);
+
+            var inventory = await _inventoryRepository.GetByIdWithDetailsIncludingInactiveAsync(inventoryId);
+            if (inventory == null || inventory.CafeId != cafeId || !inventory.IsActive)
+            {
+                throw new NotFoundException("Inventory item not found.");
+            }
+
+            var gameTemplate = await _gameTemplateRepository.GetByIdWithComponentsAsync(inventory.GameTemplateId);
+            if (gameTemplate == null)
+            {
+                throw new NotFoundException("Master game not found.");
+            }
+
+            var existingComponentIds = inventory.ComponentPenalties
+                .Select(p => p.GameComponentTemplateId)
+                .ToHashSet();
+            var now = DateTime.UtcNow;
+
+            foreach (var component in gameTemplate.Components)
+            {
+                if (existingComponentIds.Contains(component.Id))
+                {
+                    continue;
+                }
+
+                inventory.ComponentPenalties.Add(new CafeGameComponentPenalty
+                {
+                    Id = Guid.NewGuid(),
+                    CafeGameInventoryId = inventory.Id,
+                    GameComponentTemplateId = component.Id,
+                    PenaltyFee = 0m,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                });
+            }
+
+            inventory.UpdatedAt = now;
             await _inventoryRepository.SaveChangesAsync();
 
             var updated = await _inventoryRepository.GetByIdWithDetailsAsync(inventoryId);
@@ -286,11 +393,16 @@ namespace BoardVerse.Services.Services
             GameTemplateId = inventory.GameTemplateId,
             GameName = inventory.GameTemplate?.Name ?? string.Empty,
             ThumbnailUrl = inventory.GameTemplate?.ThumbnailUrl,
+            Description = inventory.GameTemplate?.Description,
             BggGameId = inventory.GameTemplate?.BggGameId,
+            MinPlayers = inventory.GameTemplate?.MinPlayers ?? 0,
+            MaxPlayers = inventory.GameTemplate?.MaxPlayers ?? 0,
+            PlayTime = inventory.GameTemplate?.PlayTime ?? 0,
             BoxQuantity = inventory.BoxQuantity,
             Status = inventory.Status,
             CreatedAt = inventory.CreatedAt,
             UpdatedAt = inventory.UpdatedAt,
+            IsActive = inventory.IsActive,
             ComponentPenalties = inventory.ComponentPenalties
                 .OrderBy(p => p.GameComponentTemplate?.ComponentName)
                 .Select(p => new ComponentPenaltyResponseDto

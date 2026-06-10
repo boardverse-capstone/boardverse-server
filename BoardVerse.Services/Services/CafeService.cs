@@ -184,7 +184,7 @@ namespace BoardVerse.Services.Services
                 var user = await _cafeRepository.GetUserByIdAsync(staffId);
                 if (user != null && user.Role == UserRole.CafeStaff)
                 {
-                    user.Role = UserRole.User;
+                    user.Role = UserRole.Player;
                     user.UpdatedAt = DateTime.UtcNow;
                 }
             }

@@ -4,6 +4,7 @@ namespace BoardVerse.Core.DTOs.User
     {
         public Guid UserId { get; set; }
         public string Username { get; set; } = string.Empty;
+        public string? PhoneNumber { get; set; }
         public string? AvatarUrl { get; set; }
         public string? Bio { get; set; }
         public int KarmaPoints { get; set; }
@@ -15,7 +16,6 @@ namespace BoardVerse.Core.DTOs.User
         public string? FirstName { get; set; }
         public string? LastName { get; set; }
         public DateTime? DateOfBirth { get; set; }
-        public string? HomeAddress { get; set; }
 
         public DateTime UpdatedAt { get; set; }
     }

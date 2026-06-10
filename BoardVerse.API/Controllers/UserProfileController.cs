@@ -18,7 +18,7 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Lấy hồ sơ công khai của người dùng đang đăng nhập. [Role: User, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
+        /// Lấy hồ sơ công khai của người dùng đang đăng nhập. [Role: Player, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
         /// </summary>
         /// <response code="200">Lấy hồ sơ thành công.</response>
         /// <response code="401">Thiếu token, token không hợp lệ hoặc thiếu claim người dùng.</response>
@@ -34,7 +34,7 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Tạo hồ sơ người dùng mới cho tài khoản đang đăng nhập. [Role: User, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
+        /// Tạo hồ sơ người dùng mới cho tài khoản đang đăng nhập. [Role: Player, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
         /// </summary>
         /// <param name="request">Thông tin hồ sơ cần tạo.</param>
         /// <response code="201">Tạo hồ sơ thành công.</response>
@@ -53,7 +53,7 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Cập nhật thông tin hồ sơ của người dùng đang đăng nhập. [Role: User, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
+        /// Cập nhật thông tin hồ sơ của người dùng đang đăng nhập. [Role: Player, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
         /// </summary>
         /// <param name="request">Thông tin hồ sơ cần cập nhật.</param>
         /// <response code="200">Cập nhật hồ sơ thành công.</response>
@@ -71,7 +71,7 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Cập nhật tiến trình và điểm số của hồ sơ người dùng. [Role: User, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
+        /// Cập nhật tiến trình và điểm số của hồ sơ người dùng. [Role: Player, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
         /// </summary>
         /// <param name="request">Thông tin tiến trình cần cập nhật.</param>
         /// <response code="200">Cập nhật tiến trình thành công.</response>
@@ -89,7 +89,7 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Cập nhật ảnh đại diện của người dùng đang đăng nhập. [Role: User, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
+        /// Cập nhật ảnh đại diện của người dùng đang đăng nhập. [Role: Player, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
         /// </summary>
         /// <param name="request">Đường dẫn ảnh đại diện mới.</param>
         /// <response code="200">Cập nhật avatar thành công.</response>
@@ -107,7 +107,7 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Xem trạng thái điểm karma hiện tại của người dùng đang đăng nhập. [Role: User, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
+        /// Xem trạng thái điểm karma hiện tại của người dùng đang đăng nhập. [Role: Player, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
         /// </summary>
         /// <response code="200">Trả về trạng thái karma hiện tại.</response>
         /// <response code="401">Thiếu token hoặc claim người dùng.</response>
@@ -123,7 +123,7 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Vô hiệu hóa hồ sơ của người dùng đang đăng nhập. [Role: User, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
+        /// Vô hiệu hóa hồ sơ của người dùng đang đăng nhập. [Role: Player, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
         /// </summary>
         /// <response code="200">Xóa hoặc vô hiệu hóa hồ sơ thành công (idempotent nếu chưa có hồ sơ).</response>
         /// <response code="401">Thiếu token hoặc claim người dùng.</response>

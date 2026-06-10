@@ -13,5 +13,6 @@ namespace BoardVerse.Core.DTOs.Game
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
         public List<GameComponentTemplateDto> Components { get; set; } = new();
+        public bool? AlreadyInInventory { get; set; }
     }
 }

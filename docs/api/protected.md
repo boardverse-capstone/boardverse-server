@@ -2,7 +2,7 @@
 
 **Base route:** `/api/protected`  
 **Controller:** `ProtectedController.cs`  
-**Role:** User, Manager, CafeStaff, Admin — yêu cầu đăng nhập
+**Role:** Player, Manager, CafeStaff, Admin — yêu cầu đăng nhập
 
 Endpoint demo để **kiểm tra token** trước khi gọi API phức tạp hơn.
 

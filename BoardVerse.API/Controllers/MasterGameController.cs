@@ -21,6 +21,8 @@ namespace BoardVerse.API.Controllers
         /// Tra cứu danh mục board game master (tìm kiếm theo tên, kèm linh kiện mẫu). [Role: Manager — yêu cầu đăng nhập với role Manager.]
         /// </summary>
         /// <param name="searchTerm">Optional search term to filter games by name.</param>
+        /// <param name="cafeId">Optional cafe ID — populates alreadyInInventory; use with excludeInInventory.</param>
+        /// <param name="excludeInInventory">When true with cafeId, returns only games not yet in cafe inventory.</param>
         /// <param name="pageNumber">Page number (default: 1).</param>
         /// <param name="pageSize">Page size (default: 10).</param>
         /// <response code="200">Trả về danh sách board game master có phân trang.</response>
@@ -30,12 +32,16 @@ namespace BoardVerse.API.Controllers
         [HttpGet]
         public async Task<IActionResult> GetMasterGames(
             [FromQuery] string? searchTerm,
+            [FromQuery] Guid? cafeId,
+            [FromQuery] bool excludeInInventory = false,
             [FromQuery] int pageNumber = 1,
             [FromQuery] int pageSize = 10)
         {
             var query = new GetMasterGamesQuery
             {
                 SearchTerm = searchTerm,
+                CafeId = cafeId,
+                ExcludeInInventory = excludeInInventory,
                 PageNumber = pageNumber,
                 PageSize = pageSize
             };

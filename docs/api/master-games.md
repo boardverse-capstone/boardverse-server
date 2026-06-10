@@ -53,6 +53,7 @@ Từ response, lấy các field sau:
 | `data.data[].components[].id` | `gameComponentTemplateId` trong `componentPenalties` |
 | `data.data[].components[].componentName` | Nhãn hiển thị phí phạt |
 | `data.data[].components[].defaultQuantity` | Số lượng mặc định mỗi hộp |
+| `data.data[].alreadyInInventory` | `true`/`false` khi gọi kèm `cafeId`; `null` nếu không truyền `cafeId` |
 
 ---
 
@@ -62,7 +63,9 @@ Từ response, lấy các field sau:
 
 | Param | Mô tả | Mặc định |
 |-------|--------|----------|
-| `searchTerm` | Lọc theo tên (contains, không phân biệt hoa thường) | — (trả tất cả) |
+| `searchTerm` | Lọc theo tên (contains, không phân biệt hoa thường) | — |
+| `cafeId` | ID quán — bật `alreadyInInventory` trên từng game | — |
+| `excludeInInventory` | `true` + `cafeId` → chỉ game **chưa** có trong kho quán | `false` |
 | `pageNumber` | Trang | 1 |
 | `pageSize` | Kích thước | 10 (max 100) |
 

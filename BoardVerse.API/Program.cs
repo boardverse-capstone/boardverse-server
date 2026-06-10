@@ -2,6 +2,7 @@ using BoardVerse.Data;
 using BoardVerse.Data.Repositories;
 using BoardVerse.Core.IRepositories;
 using Npgsql;
+using BoardVerse.Services.Extensions;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -172,7 +173,7 @@ builder.Services.AddAuthorization(options =>
 // and replace AddDistributedMemoryCache with AddStackExchangeRedisCache using the Redis configuration.
 builder.Services.AddDistributedMemoryCache();
 
-builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddBoardVerseEmail(builder.Configuration);
 builder.Services.AddScoped<IAuthRepository, AuthRepository>();
 builder.Services.AddScoped<IUserProfileRepository, UserProfileRepository>();
 builder.Services.AddScoped<IUserManagementRepository, UserManagementRepository>();

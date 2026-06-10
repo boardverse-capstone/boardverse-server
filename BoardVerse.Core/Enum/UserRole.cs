@@ -2,10 +2,9 @@
 {
     public enum UserRole
     {
-            User,
-            Admin,
-            CafeStaff,
-            Manager,
-
+        Player,
+        Admin,
+        CafeStaff,
+        Manager,
     }
 }

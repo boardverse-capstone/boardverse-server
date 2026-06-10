@@ -9,3 +9,7 @@
 .vs/
 **/bin/
 **/obj/
+.agents/docs/project-context.md
+.agents/docs/structure-code.md
+BoardVerse.API/appsettings.json
+BoardVerse.API/appsettings.Development.json

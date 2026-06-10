@@ -41,7 +41,7 @@ namespace BoardVerse.Data.Repositories
                 usersQuery = usersQuery.Where(u => u.Username.Contains(search) || u.Email.Contains(search));
             }
 
-            if (!string.IsNullOrWhiteSpace(query.Role) && Enum.TryParse<UserRole>(query.Role, true, out var parsedRole))
+            if (!string.IsNullOrWhiteSpace(query.Role) && UserRoleParser.TryParse(query.Role, out var parsedRole))
             {
                 usersQuery = usersQuery.Where(u => u.Role == parsedRole);
             }

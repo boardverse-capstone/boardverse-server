@@ -154,7 +154,7 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Thay đổi mật khẩu của tài khoản đang đăng nhập. [Role: User, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
+        /// Thay đổi mật khẩu của tài khoản đang đăng nhập. [Role: Player, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
         /// </summary>
         /// <param name="request">Mật khẩu hiện tại và mật khẩu mới.</param>
         /// <response code="200">Đổi mật khẩu thành công.</response>

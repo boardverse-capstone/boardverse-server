@@ -58,7 +58,7 @@ namespace BoardVerse.API.Controllers
         /// <param name="cafeId">Mã định danh quán cafe.</param>
         /// <param name="dto">Email bắt buộc; username/password bắt buộc khi tạo tài khoản mới.</param>
         /// <response code="200">Thêm hoặc gắn nhân viên thành công.</response>
-        /// <response code="400">Email/username/password không hợp lệ; thiếu username khi tạo mới; user có role User (chưa promote) — gọi POST .../staff/promote trước; không thể thêm Admin/Manager.</response>
+        /// <response code="400">Email/username/password không hợp lệ; thiếu username khi tạo mới; user có role Player (chưa promote) — gọi POST .../staff/promote trước; không thể thêm Admin/Manager.</response>
         /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
         /// <response code="403">Không phải role Manager, hoặc Manager không phải chủ quán.</response>
         /// <response code="404">Không tìm thấy quán.</response>
@@ -74,7 +74,7 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Nâng user (role User) thành CafeStaff và gắn vào quán. [Role: Manager — phải là chủ quán (ManagerId của cafe).]
+        /// Nâng player (role Player) thành CafeStaff và gắn vào quán. [Role: Manager — phải là chủ quán (ManagerId của cafe).]
         /// </summary>
         /// <param name="cafeId">Mã định danh quán cafe.</param>
         /// <param name="dto">Email user cần promote; username/password tùy chọn.</param>
@@ -119,11 +119,11 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Xóa nhân viên khỏi quán cafe (hạ role User nếu không còn quán nào). [Role: Manager — phải là chủ quán (ManagerId của cafe).]
+        /// Xóa nhân viên khỏi quán cafe (hạ role Player nếu không còn quán nào). [Role: Manager — phải là chủ quán (ManagerId của cafe).]
         /// </summary>
         /// <param name="cafeId">Mã định danh quán cafe.</param>
         /// <param name="staffId">Mã user của nhân viên cần xóa khỏi quán.</param>
-        /// <response code="200">Xóa nhân viên khỏi quán thành công; tự động hạ role User nếu không còn quán nào.</response>
+        /// <response code="200">Xóa nhân viên khỏi quán thành công; tự động hạ role Player nếu không còn quán nào.</response>
         /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
         /// <response code="403">Không phải role Manager, hoặc Manager không phải chủ quán.</response>
         /// <response code="404">Không tìm thấy quán hoặc nhân viên không thuộc quán này.</response>

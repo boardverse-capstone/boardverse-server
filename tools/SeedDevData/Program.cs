@@ -13,7 +13,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
-// bin/Debug/net8.0 -> SeedDevData -> tools -> repo root (5 levels up)
 var configuration = new ConfigurationBuilder()
     .SetBasePath(Directory.GetCurrentDirectory())
     .AddJsonFile(Path.Combine(repoRoot, "BoardVerse.API", "appsettings.json"), optional: true)
