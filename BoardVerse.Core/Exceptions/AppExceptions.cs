@@ -181,4 +181,39 @@ namespace BoardVerse.Core.Exceptions
         public EmailSendingException(string message = "Failed to send email.") : base(message) { }
         public EmailSendingException(string message, Exception innerException) : base(message, innerException) { }
     }
+
+    public class CafePartnerApplicationNotFoundException : NotFoundException
+    {
+        public CafePartnerApplicationNotFoundException(string message = "Cafe partner application not found.") : base(message) { }
+    }
+
+    public class OpenCafePartnerApplicationExistsException : ConflictException
+    {
+        public OpenCafePartnerApplicationExistsException(string message = "An open cafe partner application already exists for this email.") : base(message) { }
+    }
+
+    public class CafePartnerEmailNotEligibleException : ConflictException
+    {
+        public CafePartnerEmailNotEligibleException(string message = "This email cannot be used for a cafe partner application.") : base(message) { }
+    }
+
+    public class CafePartnerApplicationInvalidStatusException : BadRequestException
+    {
+        public CafePartnerApplicationInvalidStatusException(string message = "Application status does not allow this action.") : base(message) { }
+    }
+
+    public class CafePartnerApplicationEmailMismatchException : BadRequestException
+    {
+        public CafePartnerApplicationEmailMismatchException(string message = "Representative email does not match this application.") : base(message) { }
+    }
+
+    public class CafePartnerActivationRequirementsNotMetException : BadRequestException
+    {
+        public CafePartnerActivationRequirementsNotMetException(string message = "Activation requirements are not met.") : base(message) { }
+    }
+
+    public class SevereDataDuplicationException : ConflictException
+    {
+        public SevereDataDuplicationException(string message = "Mã số thuế hoặc Địa chỉ này đã được đăng ký trên hệ thống. Vui lòng kiểm tra lại.") : base(message) { }
+    }
 }

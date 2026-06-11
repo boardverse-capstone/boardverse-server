@@ -1,4 +1,4 @@
-using System;
+using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Core.Entities
 {
@@ -14,7 +14,12 @@ namespace BoardVerse.Core.Entities
         public DateTime? UpdatedAt { get; set; }
         public bool IsActive { get; set; } = true;
 
-        // Navigation properties
+        public CafePartnerOperationalStatus? PartnerOperationalStatus { get; set; }
+        public TimeSpan? WeekdayOpen { get; set; }
+        public TimeSpan? WeekdayClose { get; set; }
+        public TimeSpan? WeekendOpen { get; set; }
+        public TimeSpan? WeekendClose { get; set; }
+
         public virtual User Manager { get; set; } = null!;
         public virtual ICollection<CafeStaff> StaffMembers { get; set; } = new List<CafeStaff>();
     }

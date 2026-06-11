@@ -12,21 +12,18 @@ namespace BoardVerse.Services.Extensions
             this IServiceCollection services,
             IConfiguration configuration)
         {
-            services.Configure<EmailSettings>(configuration.GetSection(EmailSettings.SectionName));
-            services.Configure<SmtpSettings>(configuration.GetSection(SmtpSettings.SectionName));
+            services.Configure<MailjetSettings>(configuration.GetSection(MailjetSettings.SectionName));
 
-            var provider = configuration
-                .GetSection(EmailSettings.SectionName)
-                .GetValue<string>(nameof(EmailSettings.Provider)) ?? "Console";
+            var mailjetBaseUrl = configuration
+                .GetSection(MailjetSettings.SectionName)
+                .GetValue<string>(nameof(MailjetSettings.ApiBaseUrl))
+                ?? "https://api.mailjet.com/v3.1";
 
-            if (string.Equals(provider, "Smtp", StringComparison.OrdinalIgnoreCase))
+            services.AddHttpClient(nameof(MailjetEmailService), client =>
             {
-                services.AddScoped<IEmailService, SmtpEmailService>();
-            }
-            else
-            {
-                services.AddScoped<IEmailService, ConsoleEmailService>();
-            }
+                client.BaseAddress = new Uri(mailjetBaseUrl.TrimEnd('/') + "/");
+            });
+            services.AddScoped<IEmailService, MailjetEmailService>();
 
             return services;
         }

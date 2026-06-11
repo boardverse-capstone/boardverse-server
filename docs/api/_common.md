@@ -218,6 +218,20 @@ Các API danh sách trả về dạng:
 
 ---
 
+## Email (Mailjet)
+
+Toàn bộ email transactional dùng **Mailjet API** (`MailjetEmailService`):
+
+| API | Email gửi |
+|-----|-----------|
+| `POST /api/auth/send-email-verification` | Mã xác minh 6 số |
+| `POST /api/auth/request-password-reset` | Mã reset mật khẩu |
+| Cafe partner workflow | Thông báo trạng thái đơn, credentials Manager |
+
+Config: `Mailjet:ApiKey`, `Mailjet:SecretKey`, `Mailjet:SenderEmail`, `Mailjet:SenderName`. Chi tiết: [auth.md](./auth.md).
+
+---
+
 ## Dev seed (test local)
 
 ```text
