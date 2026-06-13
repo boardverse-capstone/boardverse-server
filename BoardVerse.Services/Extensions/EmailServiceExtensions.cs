@@ -1,5 +1,4 @@
-using System.Net.Security;
-using System.Security.Authentication;
+using System.Net;
 using BoardVerse.Core.Settings;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services.Email;
@@ -19,16 +18,10 @@ namespace BoardVerse.Services.Extensions
             services.AddHttpClient(nameof(MailjetEmailService), client =>
             {
                 client.Timeout = TimeSpan.FromSeconds(30);
+                client.DefaultRequestVersion = HttpVersion.Version11;
+                client.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
             })
-            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
-            {
-                ConnectTimeout = TimeSpan.FromSeconds(15),
-                PooledConnectionLifetime = TimeSpan.FromMinutes(5),
-                SslOptions = new SslClientAuthenticationOptions
-                {
-                    EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
-                }
-            });
+            .ConfigurePrimaryHttpMessageHandler(MailjetHttpHandlerFactory.Create);
 
             services.AddScoped<IEmailService, MailjetEmailService>();
 

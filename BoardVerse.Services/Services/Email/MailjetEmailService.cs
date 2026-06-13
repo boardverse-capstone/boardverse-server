@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
@@ -65,8 +66,11 @@ namespace BoardVerse.Services.Services.Email
             var client = _httpClientFactory.CreateClient(nameof(MailjetEmailService));
             using var request = new HttpRequestMessage(HttpMethod.Post, sendUri)
             {
-                Content = JsonContent.Create(payload)
+                Content = JsonContent.Create(payload),
+                Version = HttpVersion.Version11,
+                VersionPolicy = HttpVersionPolicy.RequestVersionOrLower
             };
+            request.Headers.UserAgent.ParseAdd("BoardVerse/1.0");
 
             var credentials = Convert.ToBase64String(
                 Encoding.UTF8.GetBytes($"{_settings.ApiKey}:{_settings.SecretKey}"));
