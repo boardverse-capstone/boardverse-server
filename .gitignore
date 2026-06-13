@@ -15,3 +15,4 @@ BoardVerse.API/appsettings.json
 BoardVerse.API/appsettings.Development.json
 tools/SeedBoardGames/appsettings.json
 BoardVerse.Data/update-all-entities.sql
+.cursor/rules/api-controller-xml-docs.mdc

@@ -172,9 +172,9 @@ POST /api/auth/send-email-verification   { "email": "alice@example.com" }
   → POST /api/auth/verify-email          { "token": "123456" }
 ```
 
-> **Email:** SMTP (`Email:Provider` = `Smtp`). Local dev dùng `Console` — OTP chỉ log ra terminal, không gửi thật.  
-> Render: set env `Email__Provider=Smtp`, `Smtp__Host`, `Smtp__Port`, `Smtp__Username`, `Smtp__Password`, `Smtp__From`, `Smtp__EnableSsl=true`.  
-> Gmail: dùng [App Password](https://myaccount.google.com/apppasswords), port `587`, `EnableSsl=true`.
+> **Email:** Mailjet REST API (`Mailjet:ApiKey`, `Mailjet:SecretKey`, `Mailjet:SenderEmail`).  
+> Render env: `Mailjet__ApiKey`, `Mailjet__SecretKey`, `Mailjet__SenderEmail`, `Mailjet__SenderName`.  
+> Sender phải được verify trên Mailjet; nên dùng domain riêng (SPF/DKIM) để tránh spam.
 
 **Lỗi send:** `400` email không hợp lệ, `403` tài khoản bị chặn, `404` email không tồn tại, `500` gửi mail thất bại.  
 **Lỗi verify:** `401` mã sai/hết hạn, `403` tài khoản bị chặn.

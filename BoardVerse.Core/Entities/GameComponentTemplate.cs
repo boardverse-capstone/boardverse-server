@@ -1,5 +1,9 @@
 namespace BoardVerse.Core.Entities
 {
+    /// <summary>
+    /// Linh kiện/cấu phần bắt buộc trong hộp game.
+    /// Bảng DB: GameComponentTemplates (tương đương GameComponents trong thiết kế nghiệp vụ).
+    /// </summary>
     public class GameComponentTemplate
     {
         public Guid Id { get; set; } = Guid.NewGuid();

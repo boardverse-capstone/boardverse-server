@@ -1,6 +1,5 @@
 using BoardVerse.Core.Data;
 using BoardVerse.Core.IRepositories;
-using BoardVerse.Core.Settings;
 using BoardVerse.Data;
 using BoardVerse.Data.Repositories;
 using BoardVerse.Services.IServices;
@@ -22,14 +21,9 @@ var configuration = new ConfigurationBuilder()
     .AddEnvironmentVariables()
     .Build();
 
-var bggToken = Environment.GetEnvironmentVariable("BGG_API_TOKEN");
-if (!string.IsNullOrWhiteSpace(bggToken))
-    configuration["Bgg:ApiToken"] = bggToken;
-
 var services = new ServiceCollection();
 services.AddLogging(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Information));
 services.AddSingleton<IConfiguration>(configuration);
-services.Configure<BggSettings>(configuration.GetSection(BggSettings.SectionName));
 
 services.AddDbContext<BoardVerseDbContext>(options =>
 {
@@ -40,7 +34,6 @@ services.AddDbContext<BoardVerseDbContext>(options =>
 });
 
 services.AddScoped<IGameTemplateRepository, GameTemplateRepository>();
-services.AddHttpClient<IBggApiService, BggApiService>();
 services.AddScoped<IGameSeedService, GameSeedService>();
 
 var serviceProvider = services.BuildServiceProvider();
@@ -52,34 +45,18 @@ try
     await GameSchemaBootstrapper.EnsureGameTablesAsync(dbContext);
 
     var seedService = scope.ServiceProvider.GetRequiredService<IGameSeedService>();
-    var bggSettings = configuration.GetSection(BggSettings.SectionName).Get<BggSettings>() ?? new BggSettings();
 
     Console.WriteLine("=== BoardVerse Master Game Seed Tool ===");
     Console.WriteLine();
-
-    if (string.IsNullOrWhiteSpace(bggSettings.ApiToken))
-    {
-        Console.WriteLine("BGG API token: NOT configured");
-        Console.WriteLine("  → Seeding from curated catalog (names, components, metadata).");
-        Console.WriteLine("  → To fetch live images from BGG, set Bgg:ApiToken in appsettings");
-        Console.WriteLine("    or BGG_API_TOKEN environment variable after approval at:");
-        Console.WriteLine("    https://boardgamegeek.com/applications");
-    }
-    else
-    {
-        Console.WriteLine("BGG API token: configured — will fetch live metadata + images from BGG.");
-    }
-
-    Console.WriteLine();
     Console.WriteLine("Games to seed:");
-    foreach (var id in BggKnownGameCatalog.PopularGameIds)
+    foreach (var slug in GameCatalog.PopularGameSlugs)
     {
-        var entry = BggKnownGameCatalog.GetById(id);
-        Console.WriteLine($"  • {entry?.Name ?? "Unknown"} (BGG #{id})");
+        var entry = GameCatalog.GetBySlug(slug);
+        Console.WriteLine($"  • {entry?.Name ?? "Unknown"} ({slug})");
     }
 
     Console.WriteLine();
-    await seedService.SeedGamesFromBggAsync(BggKnownGameCatalog.PopularGameIds.ToList());
+    await seedService.SeedGamesFromCatalogAsync(GameCatalog.PopularGameSlugs.ToList());
     Console.WriteLine();
     Console.WriteLine("=== Done ===");
 }

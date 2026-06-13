@@ -1,0 +1,679 @@
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using BoardVerse.Core.Common;
+using BoardVerse.Core.Constants;
+using BoardVerse.Core.DTOs.CafePartner;
+using BoardVerse.Core.Entities;
+using BoardVerse.Core.Enum;
+using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Helpers;
+using BoardVerse.Core.IRepositories;
+using BoardVerse.Services.IServices;
+using Microsoft.Extensions.Logging;
+
+namespace BoardVerse.Services.Services
+{
+    public class CafePartnerApplicationService : ICafePartnerApplicationService
+    {
+        private static readonly string[] LicenseExtensions = [".jpg", ".jpeg", ".png", ".pdf"];
+        private static readonly string[] SpaceImageExtensions = [".jpg", ".jpeg", ".png"];
+
+        private readonly ICafePartnerApplicationRepository _applicationRepository;
+        private readonly IAuthRepository _authRepository;
+        private readonly ICafeRepository _cafeRepository;
+        private readonly IEmailService _emailService;
+        private readonly ILogger<CafePartnerApplicationService> _logger;
+
+        public CafePartnerApplicationService(
+            ICafePartnerApplicationRepository applicationRepository,
+            IAuthRepository authRepository,
+            ICafeRepository cafeRepository,
+            IEmailService emailService,
+            ILogger<CafePartnerApplicationService> logger)
+        {
+            _applicationRepository = applicationRepository;
+            _authRepository = authRepository;
+            _cafeRepository = cafeRepository;
+            _emailService = emailService;
+            _logger = logger;
+        }
+
+        public async Task<CafePartnerApplicationResponseDto> SubmitAsync(
+            SubmitCafePartnerApplicationRequestDto request,
+            Guid? submittedByUserId = null)
+        {
+            ValidatePhase1Request(request);
+
+            var email = NormalizeEmail(request.RepresentativeEmail);
+            if (await _applicationRepository.HasOpenApplicationByEmailAsync(email))
+            {
+                throw new OpenCafePartnerApplicationExistsException(
+                    "An open application already exists for this email.");
+            }
+
+            var existingUser = await _authRepository.GetByEmailAsync(email);
+            if (existingUser != null && existingUser.Role is UserRole.Admin or UserRole.Manager or UserRole.CafeStaff)
+            {
+                throw new CafePartnerEmailNotEligibleException(
+                    "This email is already registered with a system role and cannot be used for a new partner application.");
+            }
+
+            if (await _applicationRepository.HasSevereDuplicateAsync(request.BusinessLicense, request.Address.Trim()))
+            {
+                throw new SevereDataDuplicationException();
+            }
+
+            var resolvedSubmitterId = await ResolveSubmittedByUserIdAsync(submittedByUserId, email);
+            var workingHours = ParseWorkingHours(request.WorkingHours);
+            var now = DateTime.UtcNow;
+
+            var application = new CafePartnerApplication
+            {
+                Id = Guid.NewGuid(),
+                CafeName = request.CafeName.Trim(),
+                Address = request.Address.Trim(),
+                Hotline = NormalizePhoneDigits(request.Hotline),
+                RepresentativeEmail = email,
+                BusinessLicense = request.BusinessLicense.Trim().ToUpperInvariant(),
+                BusinessLicenseImageUrl = request.BusinessLicenseImageUrl.Trim(),
+                WeekdayOpen = workingHours.WeekdayOpen,
+                WeekdayClose = workingHours.WeekdayClose,
+                WeekendOpen = workingHours.WeekendOpen,
+                WeekendClose = workingHours.WeekendClose,
+                BillingModel = CafePartnerBillingModel.ByHour,
+                Status = CafePartnerApplicationStatus.PendingApproval,
+                SubmittedByUserId = resolvedSubmitterId,
+                SubmittedAt = now,
+                UpdatedAt = now
+            };
+
+            await _applicationRepository.AddAsync(application);
+            await _applicationRepository.SaveChangesAsync();
+
+            await SendEmailSafeAsync(
+                email,
+                "BoardVerse — Cafe partner application received",
+                $"Hello,\n\nWe received your partnership application for \"{application.CafeName}\".\n" +
+                $"Reference ID: {application.Id}\nStatus: PENDING_APPROVAL\n\n— BoardVerse Team");
+
+            return MapToDto(await GetApplicationOrThrowAsync(application.Id));
+        }
+
+        public async Task<CafePartnerApplicationResponseDto> GetByIdAsync(Guid id) =>
+            MapToDto(await GetApplicationOrThrowAsync(id));
+
+        public async Task<PaginatedResponse<CafePartnerApplicationResponseDto>> GetAllForAdminAsync(
+            AdminCafePartnerApplicationQueryDto query)
+        {
+            var result = await _applicationRepository.GetPagedAsync(query);
+            return new PaginatedResponse<CafePartnerApplicationResponseDto>
+            {
+                Data = result.Data.Select(MapToDto).ToList(),
+                Meta = result.Meta
+            };
+        }
+
+        public async Task<OnboardPartnerResultDto> ApproveAsync(Guid id, Guid adminId)
+        {
+            var application = await GetApplicationOrThrowAsync(id);
+            if (application.Status != CafePartnerApplicationStatus.PendingApproval)
+            {
+                throw new CafePartnerApplicationInvalidStatusException(
+                    "Only PENDING_APPROVAL applications can be approved.");
+            }
+
+            if (string.IsNullOrWhiteSpace(application.BusinessLicenseImageUrl))
+            {
+                throw new CafePartnerApplicationInvalidStatusException(
+                    "Business license image is required before approval.");
+            }
+
+            var email = application.RepresentativeEmail;
+            var existingUser = await _authRepository.GetByEmailAsync(email);
+            string? temporaryPassword = null;
+            var keptExistingPassword = false;
+
+            User managerUser;
+            if (existingUser == null)
+            {
+                temporaryPassword = GenerateTemporaryPassword();
+                managerUser = new User
+                {
+                    Id = Guid.NewGuid(),
+                    Username = email,
+                    Email = email,
+                    PhoneNumber = application.Hotline,
+                    PasswordHash = BCrypt.Net.BCrypt.HashPassword(temporaryPassword),
+                    Role = UserRole.Manager,
+                    Provider = "Local",
+                    IsEmailVerified = true,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                await _authRepository.AddUserAsync(managerUser);
+            }
+            else
+            {
+                if (existingUser.Role is UserRole.Admin or UserRole.CafeStaff)
+                {
+                    throw new CafePartnerEmailNotEligibleException(
+                        $"Email is already used by a {existingUser.Role} account.");
+                }
+
+                if (existingUser.Role == UserRole.Manager)
+                {
+                    var existingCafe = (await _cafeRepository.GetCafesByManagerIdAsync(existingUser.Id)).FirstOrDefault();
+                    if (existingCafe?.PartnerOperationalStatus != null)
+                    {
+                        throw new CafePartnerEmailNotEligibleException("This email already manages a partner cafe.");
+                    }
+                }
+
+                existingUser.Role = UserRole.Manager;
+                existingUser.Username = email;
+                existingUser.PhoneNumber = application.Hotline;
+                existingUser.IsEmailVerified = true;
+                existingUser.IsActive = true;
+                existingUser.UpdatedAt = DateTime.UtcNow;
+
+                if (RequiresTemporaryPassword(existingUser))
+                {
+                    temporaryPassword = GenerateTemporaryPassword();
+                    existingUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword(temporaryPassword);
+                }
+                else
+                {
+                    keptExistingPassword = true;
+                }
+
+                managerUser = existingUser;
+            }
+
+            var cafeId = Guid.NewGuid();
+            var cafe = new Cafe
+            {
+                Id = cafeId,
+                Name = application.CafeName,
+                Address = application.Address,
+                PhoneNumber = application.Hotline,
+                Description = null,
+                ManagerId = managerUser.Id,
+                CreatedAt = DateTime.UtcNow,
+                IsActive = false,
+                PartnerOperationalStatus = CafePartnerOperationalStatus.DataBlank,
+                WeekdayOpen = application.WeekdayOpen,
+                WeekdayClose = application.WeekdayClose,
+                WeekendOpen = application.WeekendOpen,
+                WeekendClose = application.WeekendClose
+            };
+
+            await _applicationRepository.AddCafeAsync(cafe);
+
+            application.Status = CafePartnerApplicationStatus.Approved;
+            application.ApprovedAt = DateTime.UtcNow;
+            application.ReviewedByAdminId = adminId;
+            application.ReviewedAt = DateTime.UtcNow;
+            application.CreatedManagerUserId = managerUser.Id;
+            application.CreatedCafeId = cafeId;
+            application.UpdatedAt = DateTime.UtcNow;
+
+            await _applicationRepository.SaveChangesAsync();
+
+            await SendEmailSafeAsync(
+                email,
+                "BoardVerse — Cafe manager account created",
+                BuildOnboardingEmailBody(email, temporaryPassword, keptExistingPassword));
+
+            return new OnboardPartnerResultDto
+            {
+                Application = MapToDto(await GetApplicationOrThrowAsync(id)),
+                ManagerUserId = managerUser.Id,
+                ManagerEmail = email,
+                CafeId = cafeId,
+                TemporaryPassword = temporaryPassword
+            };
+        }
+
+        public async Task<CafePartnerApplicationResponseDto> RejectAsync(
+            Guid id,
+            Guid adminId,
+            RejectCafePartnerApplicationRequestDto request)
+        {
+            if (string.IsNullOrWhiteSpace(request.Reason))
+            {
+                throw new BadRequestException("Rejection reason is required.");
+            }
+
+            var application = await GetApplicationOrThrowAsync(id);
+            if (application.Status != CafePartnerApplicationStatus.PendingApproval)
+            {
+                throw new CafePartnerApplicationInvalidStatusException(
+                    "Only PENDING_APPROVAL applications can be rejected.");
+            }
+
+            application.Status = CafePartnerApplicationStatus.Rejected;
+            application.RejectionReason = request.Reason.Trim();
+            application.ReviewedByAdminId = adminId;
+            application.ReviewedAt = DateTime.UtcNow;
+            application.UpdatedAt = DateTime.UtcNow;
+
+            await _applicationRepository.SaveChangesAsync();
+
+            await SendEmailSafeAsync(
+                application.RepresentativeEmail,
+                "BoardVerse — Cafe partner application update",
+                $"Hello,\n\nYour application was not approved.\nReason: {application.RejectionReason}\n\n— BoardVerse Team");
+
+            return MapToDto(await GetApplicationOrThrowAsync(id));
+        }
+
+        public async Task<CafePartnerApplicationResponseDto> GetMyPartnerProfileAsync(Guid managerUserId)
+        {
+            var application = await GetApprovedApplicationForManagerOrThrowAsync(managerUserId);
+            return MapToDto(application);
+        }
+
+        public async Task<CafePartnerApplicationResponseDto> UpdateOperationalProfileAsync(
+            Guid managerUserId,
+            UpdateOperationalProfileRequestDto request)
+        {
+            ValidatePhase2Request(request);
+
+            var application = await GetApprovedApplicationForManagerOrThrowAsync(managerUserId);
+            EnsureOperationalStateAllowsEdit(application);
+
+            application.NumberOfTables = request.NumberOfTables;
+            application.NumberOfPrivateRooms = request.NumberOfPrivateRooms;
+            application.SpaceImageUrlsJson = JsonSerializer.Serialize(
+                request.SpaceImageUrls.Select(u => u.Trim()).Where(u => !string.IsNullOrWhiteSpace(u)).ToList());
+            application.NumberOfGamesOwned = request.NumberOfGamesOwned;
+            application.PopularGamesList = request.PopularGamesList.Trim();
+            application.HasGameMaster = request.HasGameMaster;
+            application.BillingModel = request.BillingModel;
+            application.TableLayoutJson = JsonSerializer.Serialize(
+                request.TableNames.Select(n => n.Trim()).Where(n => !string.IsNullOrWhiteSpace(n)).ToList());
+            application.OperationalProfileUpdatedAt = DateTime.UtcNow;
+            application.UpdatedAt = DateTime.UtcNow;
+
+            if (application.CreatedCafe != null)
+            {
+                application.CreatedCafe.Description = application.PopularGamesList;
+                application.CreatedCafe.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await _applicationRepository.SaveChangesAsync();
+            return MapToDto(await GetApprovedApplicationForManagerOrThrowAsync(managerUserId));
+        }
+
+        public async Task<CafePartnerApplicationResponseDto> ActivateAsync(Guid managerUserId)
+        {
+            var application = await GetApprovedApplicationForManagerOrThrowAsync(managerUserId);
+            var cafe = application.CreatedCafe
+                ?? throw new CafePartnerApplicationInvalidStatusException("Linked cafe not found.");
+
+            if (cafe.PartnerOperationalStatus != CafePartnerOperationalStatus.DataBlank)
+            {
+                throw new CafePartnerApplicationInvalidStatusException(
+                    "Only DATA_BLANK cafes can be activated.");
+            }
+
+            var blockers = GetActivationBlockers(application);
+            if (blockers.Count > 0)
+            {
+                throw new CafePartnerActivationRequirementsNotMetException(
+                    "Activation requirements not met: " + string.Join("; ", blockers));
+            }
+
+            cafe.IsActive = true;
+            cafe.PartnerOperationalStatus = CafePartnerOperationalStatus.Active;
+            cafe.UpdatedAt = DateTime.UtcNow;
+            application.UpdatedAt = DateTime.UtcNow;
+
+            await _applicationRepository.SaveChangesAsync();
+
+            await SendEmailSafeAsync(
+                application.RepresentativeEmail,
+                "BoardVerse — Your cafe is now live",
+                $"Hello,\n\n\"{application.CafeName}\" is now ACTIVE on BoardVerse.\n\n— BoardVerse Team");
+
+            return MapToDto(await GetApprovedApplicationForManagerOrThrowAsync(managerUserId));
+        }
+
+        public async Task<CafePartnerApplicationResponseDto> DeactivateAsync(Guid managerUserId)
+        {
+            var application = await GetApprovedApplicationForManagerOrThrowAsync(managerUserId);
+            var cafe = application.CreatedCafe
+                ?? throw new CafePartnerApplicationInvalidStatusException("Linked cafe not found.");
+
+            if (cafe.PartnerOperationalStatus != CafePartnerOperationalStatus.Active)
+            {
+                throw new CafePartnerApplicationInvalidStatusException(
+                    "Only ACTIVE cafes can be paused.");
+            }
+
+            if (await _applicationRepository.HasActiveBookingsAsync(cafe.Id))
+            {
+                throw new CafePartnerApplicationInvalidStatusException(
+                    "Cannot pause while booking sessions are in progress.");
+            }
+
+            cafe.IsActive = false;
+            cafe.PartnerOperationalStatus = CafePartnerOperationalStatus.DataBlank;
+            cafe.UpdatedAt = DateTime.UtcNow;
+            application.UpdatedAt = DateTime.UtcNow;
+
+            await _applicationRepository.SaveChangesAsync();
+            return MapToDto(await GetApprovedApplicationForManagerOrThrowAsync(managerUserId));
+        }
+
+        private async Task<CafePartnerApplication> GetApplicationOrThrowAsync(Guid id) =>
+            await _applicationRepository.GetByIdAsync(id)
+            ?? throw new CafePartnerApplicationNotFoundException();
+
+        private async Task<CafePartnerApplication> GetApprovedApplicationForManagerOrThrowAsync(Guid managerUserId) =>
+            await _applicationRepository.GetApprovedByManagerUserIdAsync(managerUserId)
+            ?? throw new CafePartnerApplicationNotFoundException(
+                "No approved partner profile found for this manager.");
+
+        private static void EnsureOperationalStateAllowsEdit(CafePartnerApplication application)
+        {
+            if (application.CreatedCafe?.PartnerOperationalStatus == CafePartnerOperationalStatus.Active &&
+                application.CreatedCafe.IsActive)
+            {
+                throw new CafePartnerApplicationInvalidStatusException(
+                    "Pause the cafe before editing operational profile.");
+            }
+        }
+
+        private static void ValidatePhase1Request(SubmitCafePartnerApplicationRequestDto request)
+        {
+            if (request.CafeName.Trim().Length is < 5 or > 100)
+            {
+                throw new BadRequestException("Cafe name must be between 5 and 100 characters.");
+            }
+
+            if (!IsValidVnHotline(request.Hotline))
+            {
+                throw new BadRequestException("Hotline must be a valid 10–11 digit Vietnamese phone number.");
+            }
+
+            if (!Regex.IsMatch(request.BusinessLicense.Trim(), @"^[a-zA-Z0-9\-]+$"))
+            {
+                throw new BadRequestException("Business license must be alphanumeric.");
+            }
+
+            if (!HasAllowedExtension(request.BusinessLicenseImageUrl, LicenseExtensions))
+            {
+                throw new BadRequestException("Business license image must be JPEG, PNG, or PDF.");
+            }
+
+            ParseWorkingHours(request.WorkingHours);
+        }
+
+        private static void ValidatePhase2Request(UpdateOperationalProfileRequestDto request)
+        {
+            if (request.NumberOfTables <= 0)
+            {
+                throw new BadRequestException("Number of tables must be positive.");
+            }
+
+            if (request.NumberOfPrivateRooms < 0)
+            {
+                throw new BadRequestException("Number of private rooms cannot be negative.");
+            }
+
+            if (request.NumberOfGamesOwned <= 0)
+            {
+                throw new BadRequestException("Number of games owned must be positive.");
+            }
+
+            if (request.SpaceImageUrls == null || request.SpaceImageUrls.Count < CafePartnerActivationRules.MinSpaceImages)
+            {
+                throw new BadRequestException($"At least {CafePartnerActivationRules.MinSpaceImages} space images are required.");
+            }
+
+            foreach (var url in request.SpaceImageUrls)
+            {
+                if (!HasAllowedExtension(url, SpaceImageExtensions))
+                {
+                    throw new BadRequestException("Space images must be JPEG or PNG.");
+                }
+            }
+
+            if (request.TableNames == null || request.TableNames.Count == 0)
+            {
+                throw new BadRequestException("At least one table name is required for the table layout.");
+            }
+        }
+
+        private static List<string> GetActivationBlockers(CafePartnerApplication application)
+        {
+            var blockers = new List<string>();
+
+            if (application.NumberOfTables < CafePartnerActivationRules.MinPublicTables)
+            {
+                blockers.Add($"Minimum {CafePartnerActivationRules.MinPublicTables} public tables required.");
+            }
+
+            if (application.NumberOfGamesOwned < CafePartnerActivationRules.MinGamesOwned)
+            {
+                blockers.Add($"Minimum {CafePartnerActivationRules.MinGamesOwned} games required.");
+            }
+
+            var spaceUrls = DeserializeStringList(application.SpaceImageUrlsJson);
+            if (spaceUrls.Count < CafePartnerActivationRules.MinSpaceImages ||
+                spaceUrls.Any(u => !HasAllowedExtension(u, SpaceImageExtensions)))
+            {
+                blockers.Add($"Minimum {CafePartnerActivationRules.MinSpaceImages} valid space images required.");
+            }
+
+            var tableNames = DeserializeStringList(application.TableLayoutJson);
+            if (tableNames.Count < application.NumberOfTables)
+            {
+                blockers.Add("Table layout must be configured for all declared public tables.");
+            }
+
+            if (string.IsNullOrWhiteSpace(application.PopularGamesList))
+            {
+                blockers.Add("Popular games list is required.");
+            }
+
+            return blockers;
+        }
+
+        private static (TimeSpan WeekdayOpen, TimeSpan WeekdayClose, TimeSpan WeekendOpen, TimeSpan WeekendClose) ParseWorkingHours(
+            WorkingHoursDto dto)
+        {
+            var weekdayOpen = ParseTime(dto.WeekdayStart, nameof(dto.WeekdayStart));
+            var weekdayClose = ParseTime(dto.WeekdayEnd, nameof(dto.WeekdayEnd));
+            var weekendOpen = ParseTime(dto.WeekendStart, nameof(dto.WeekendStart));
+            var weekendClose = ParseTime(dto.WeekendEnd, nameof(dto.WeekendEnd));
+
+            if (weekdayOpen >= weekdayClose)
+            {
+                throw new BadRequestException("Weekday start must be before weekday end.");
+            }
+
+            if (weekendOpen >= weekendClose)
+            {
+                throw new BadRequestException("Weekend start must be before weekend end.");
+            }
+
+            return (weekdayOpen, weekdayClose, weekendOpen, weekendClose);
+        }
+
+        private static TimeSpan ParseTime(string value, string fieldName)
+        {
+            if (!TimeSpan.TryParseExact(value.Trim(), ["hh\\:mm", "h\\:mm"], CultureInfo.InvariantCulture, out var time))
+            {
+                throw new BadRequestException($"{fieldName} must be in HH:mm format.");
+            }
+
+            return time;
+        }
+
+        private async Task<Guid?> ResolveSubmittedByUserIdAsync(Guid? submittedByUserId, string contactEmail)
+        {
+            if (!submittedByUserId.HasValue)
+            {
+                return null;
+            }
+
+            var user = await _authRepository.GetByIdAsync(submittedByUserId.Value)
+                ?? throw new BadRequestException("Submitter account not found.");
+
+            if (user.Role != UserRole.Player)
+            {
+                throw new BadRequestException("Only Player accounts can be linked as application submitter.");
+            }
+
+            if (!string.Equals(NormalizeEmail(user.Email), contactEmail, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new BadRequestException("Representative email must match your logged-in account email.");
+            }
+
+            return user.Id;
+        }
+
+        private static string NormalizeEmail(string email) => email.Trim().ToLowerInvariant();
+
+        private static string NormalizePhoneDigits(string phone) =>
+            new string(phone.Where(char.IsDigit).ToArray());
+
+        private static bool IsValidVnHotline(string hotline)
+        {
+            var digits = NormalizePhoneDigits(hotline);
+            return digits.Length is 10 or 11 && digits.StartsWith('0') && digits[1] is '3' or '5' or '7' or '8' or '9';
+        }
+
+        private static bool HasAllowedExtension(string url, IEnumerable<string> allowedExtensions)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                return false;
+            }
+
+            var path = url.Split('?', '#')[0];
+            return allowedExtensions.Any(ext => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static List<string> DeserializeStringList(string json)
+        {
+            try
+            {
+                return JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>();
+            }
+            catch
+            {
+                return new List<string>();
+            }
+        }
+
+        private static bool RequiresTemporaryPassword(User user) =>
+            !string.Equals(user.Provider, "Local", StringComparison.OrdinalIgnoreCase) ||
+            string.IsNullOrWhiteSpace(user.PasswordHash);
+
+        private static string BuildOnboardingEmailBody(string email, string? temporaryPassword, bool keptExistingPassword)
+        {
+            var body = $"Hello,\n\nYour cafe partner application has been approved.\n\n" +
+                       $"Web POS login email: {email}\n";
+
+            if (keptExistingPassword)
+            {
+                body += "\nSign in with your existing password and complete your operational profile.\n";
+            }
+            else if (temporaryPassword != null)
+            {
+                body += $"\nTemporary password: {temporaryPassword}\n\nPlease change your password after first login.\n";
+            }
+
+            return body + "\nComplete infrastructure, game catalog, and table layout before activating your cafe.\n\n— BoardVerse Team";
+        }
+
+        private static string GenerateTemporaryPassword()
+        {
+            const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$";
+            var bytes = RandomNumberGenerator.GetBytes(12);
+            var builder = new StringBuilder(12);
+            foreach (var b in bytes)
+            {
+                builder.Append(chars[b % chars.Length]);
+            }
+
+            return builder.ToString();
+        }
+
+        private async Task SendEmailSafeAsync(string to, string subject, string body)
+        {
+            try
+            {
+                await _emailService.SendEmailAsync(to, subject, body);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send cafe partner email to {Email}. Subject: {Subject}", to, subject);
+            }
+        }
+
+        private CafePartnerApplicationResponseDto MapToDto(CafePartnerApplication application)
+        {
+            var spaceUrls = DeserializeStringList(application.SpaceImageUrlsJson);
+            var tableNames = DeserializeStringList(application.TableLayoutJson);
+            var blockers = application.Status == CafePartnerApplicationStatus.Approved
+                ? GetActivationBlockers(application)
+                : new List<string>();
+
+            return new CafePartnerApplicationResponseDto
+            {
+                Id = application.Id,
+                CafeName = application.CafeName,
+                Address = application.Address,
+                Hotline = application.Hotline,
+                RepresentativeEmail = application.RepresentativeEmail,
+                WorkingHours = new WorkingHoursDto
+                {
+                    WeekdayStart = application.WeekdayOpen.ToString(@"hh\:mm"),
+                    WeekdayEnd = application.WeekdayClose.ToString(@"hh\:mm"),
+                    WeekendStart = application.WeekendOpen.ToString(@"hh\:mm"),
+                    WeekendEnd = application.WeekendClose.ToString(@"hh\:mm")
+                },
+                BusinessLicense = application.BusinessLicense,
+                BusinessLicenseImageUrl = application.BusinessLicenseImageUrl,
+                NumberOfTables = application.NumberOfTables,
+                NumberOfPrivateRooms = application.NumberOfPrivateRooms,
+                SpaceImageUrls = spaceUrls,
+                NumberOfGamesOwned = application.NumberOfGamesOwned,
+                PopularGamesList = application.PopularGamesList,
+                HasGameMaster = application.HasGameMaster,
+                BillingModel = CafePartnerStatusMapper.ToApiBillingModel(application.BillingModel),
+                TableNames = tableNames,
+                ApplicationStatus = CafePartnerStatusMapper.ToApiApplicationStatus(application.Status),
+                OperationalStatus = application.CreatedCafe?.PartnerOperationalStatus is { } op
+                    ? CafePartnerStatusMapper.ToApiOperationalStatus(op)
+                    : null,
+                RejectionReason = application.RejectionReason,
+                RequiresCsSupport = application.RequiresCsSupport,
+                IsTableLayoutConfigured = tableNames.Count >= application.NumberOfTables && application.NumberOfTables > 0,
+                CanActivate = application.Status == CafePartnerApplicationStatus.Approved &&
+                              application.CreatedCafe?.PartnerOperationalStatus == CafePartnerOperationalStatus.DataBlank &&
+                              blockers.Count == 0,
+                ActivationBlockers = blockers,
+                SubmittedByUserId = application.SubmittedByUserId,
+                SubmittedByUsername = application.SubmittedByUser?.Username,
+                ReviewedByAdminId = application.ReviewedByAdminId,
+                ReviewedByAdminUsername = application.ReviewedByAdmin?.Username,
+                CreatedManagerUserId = application.CreatedManagerUserId,
+                CreatedCafeId = application.CreatedCafeId,
+                SubmittedAt = application.SubmittedAt,
+                UpdatedAt = application.UpdatedAt,
+                ReviewedAt = application.ReviewedAt,
+                ApprovedAt = application.ApprovedAt,
+                OperationalProfileUpdatedAt = application.OperationalProfileUpdatedAt
+            };
+        }
+    }
+}

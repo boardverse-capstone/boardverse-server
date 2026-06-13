@@ -3,6 +3,7 @@ using BoardVerse.Core.DTOs.Inventory;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
+using BoardVerse.Core.Helpers;
 using Microsoft.EntityFrameworkCore;
 
 namespace BoardVerse.Data.Repositories
@@ -20,6 +21,10 @@ namespace BoardVerse.Data.Repositories
         {
             return await _context.CafeGameInventories
                 .Include(i => i.GameTemplate)
+                    .ThenInclude(g => g!.Categories)
+                        .ThenInclude(gc => gc.Category)
+                .Include(i => i.GameTemplate)
+                    .ThenInclude(g => g!.Components)
                 .Include(i => i.ComponentPenalties)
                     .ThenInclude(p => p.GameComponentTemplate)
                 .FirstOrDefaultAsync(i => i.Id == inventoryId && i.IsActive);
@@ -74,14 +79,22 @@ namespace BoardVerse.Data.Repositories
             var baseQuery = _context.CafeGameInventories
                 .AsNoTracking()
                 .Include(i => i.GameTemplate)
+                    .ThenInclude(g => g!.Categories)
+                        .ThenInclude(gc => gc.Category)
+                .Include(i => i.GameTemplate)
+                    .ThenInclude(g => g!.Components)
                 .Include(i => i.ComponentPenalties)
                     .ThenInclude(p => p.GameComponentTemplate)
                 .Where(i => i.CafeId == cafeId && i.IsActive != deletedOnly);
 
             if (!string.IsNullOrWhiteSpace(query.SearchTerm))
             {
+                var trimmed = query.SearchTerm.Trim();
+                var searchKey = VietnameseTextNormalizer.ToSearchKey(trimmed);
                 baseQuery = baseQuery.Where(i =>
-                    EF.Functions.ILike(i.GameTemplate!.Name, $"%{query.SearchTerm}%"));
+                    EF.Functions.ILike(i.GameTemplate!.NameSearchKey, $"%{searchKey}%") ||
+                    EF.Functions.ILike(i.GameTemplate!.Name, $"%{trimmed}%") ||
+                    EF.Functions.ILike(i.GameTemplate!.SearchAliasesKey, $"%{searchKey}%"));
             }
 
             if (query.Status.HasValue)

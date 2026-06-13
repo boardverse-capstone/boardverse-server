@@ -18,6 +18,7 @@ namespace BoardVerse.API.Controllers
         /// Kiểm tra trạng thái hoạt động tổng thể của API. [Role: Public — không cần đăng nhập.]
         /// </summary>
         /// <response code="200">API đang hoạt động bình thường.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpGet("status")]
         public IActionResult GetStatus()
         {
@@ -42,6 +43,7 @@ namespace BoardVerse.API.Controllers
         /// Trả về phản hồi nhịp tim đơn giản để kiểm tra endpoint. [Role: Public — không cần đăng nhập.]
         /// </summary>
         /// <response code="200">Endpoint phản hồi bình thường.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpGet("ping")]
         public IActionResult Ping()
         {

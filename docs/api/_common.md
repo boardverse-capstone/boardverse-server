@@ -11,16 +11,20 @@ dotnet run --project BoardVerse.API\BoardVerse.API.csproj
 
 API chạy tại `http://localhost:5022`. Swagger UI: `http://localhost:5022/swagger`
 
-### 2. Seed dữ liệu dev (nếu DB trống)
+### 2. Seed dữ liệu (nếu DB trống hoặc thiếu board game)
 
 ```powershell
-dotnet run --project tools\SeedDevData\SeedDevData.csproj
+# Schema + board game catalog (categories, 8 game, linh kiện) — idempotent
+dotnet run --project tools/ExecSql -- BoardVerse.Data/update-all-entities.sql
+
+# Dev seed đầy đủ (manager, cafe, catalog ~10 game)
+dotnet run --project tools/SeedDevData/SeedDevData.csproj
 ```
 
 Sau seed có sẵn:
 - Manager: `manager@boardverse.dev` / `Manager@123`
 - Cafe ID: `bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb`
-- 10 board game master data
+- Board game master data (SQL seed 8 game + catalog nội bộ)
 
 ### 3. Kiểm tra API hoạt động
 
@@ -164,6 +168,7 @@ curl.exe http://localhost:5022/api/userprofile `
 |------|----------------|
 | [Health](./health.md) | Public |
 | [Auth](./auth.md) | Public (trừ change-password) |
+| [Board Games](./board-games.md) | Public |
 | [Protected](./protected.md) | Đã đăng nhập (mọi role) |
 | [User Profile](./user-profile.md) | Đã đăng nhập (mọi role) |
 | [User Management](./user-management.md) | Admin |
@@ -171,6 +176,7 @@ curl.exe http://localhost:5022/api/userprofile `
 | [Manager](./manager.md) | Manager |
 | [Cafe](./cafe.md) | Public (GET) / Manager + chủ quán (PUT, staff) |
 | [Cafe Inventory](./cafe-inventory.md) | Public/Player (GET browse) / Staff+Manager (GET full) / Manager (mutations) |
+| [Cafe Partner](./cafe-partner.md) | Public (POST đơn) / Admin (duyệt) / Manager (hồ sơ vận hành) |
 | [Staff](./staff.md) | CafeStaff |
 
 > **Manager + chủ quán:** Token role `Manager` **và** `Cafe.ManagerId` phải trùng user đang gọi API. Dùng cafe ID từ seed hoặc cafe do chính manager đó tạo.
@@ -197,7 +203,7 @@ Các API danh sách trả về dạng:
 
 | Param | Mặc định | Ghi chú |
 |-------|----------|---------|
-| `pageNumber` | 1 | Cafe, Inventory, Master Games |
+| `pageNumber` | 1 | Board Games, Cafe, Inventory, Master Games |
 | `page` | 1 | User Management (Admin) |
 | `pageSize` | 10 | Max thường là 100 |
 
@@ -215,6 +221,20 @@ Các API danh sách trả về dạng:
 | 409 | Trùng dữ liệu (conflict) | Dùng PUT thay POST, hoặc đổi email/username |
 | 429 | Quá nhiều request (rate limit login) | Đợi rồi thử lại |
 | 500 | Lỗi server | Xem log API, kiểm tra DB |
+
+---
+
+## Email (Mailjet)
+
+Toàn bộ email transactional dùng **Mailjet API** (`MailjetEmailService`):
+
+| API | Email gửi |
+|-----|-----------|
+| `POST /api/auth/send-email-verification` | Mã xác minh 6 số |
+| `POST /api/auth/request-password-reset` | Mã reset mật khẩu |
+| Cafe partner workflow | Thông báo trạng thái đơn, credentials Manager |
+
+Config: `Mailjet:ApiKey`, `Mailjet:SecretKey`, `Mailjet:SenderEmail`, `Mailjet:SenderName`. Chi tiết: [auth.md](./auth.md).
 
 ---
 

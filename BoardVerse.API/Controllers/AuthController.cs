@@ -43,6 +43,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="401">Thông tin đăng nhập không hợp lệ.</response>
         /// <response code="403">Tài khoản bị chặn.</response>
         /// <response code="429">Vượt quá số lần đăng nhập cho phép.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequestDto request)
         {
@@ -57,6 +58,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="200">Đăng nhập Google thành công.</response>
         /// <response code="401">Google token không hợp lệ, thiếu email hoặc xác thực thất bại.</response>
         /// <response code="403">Tài khoản bị chặn.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("google-login")]
         public async Task<IActionResult> GoogleLogin([FromBody] GoogleAuthRequestDto request)
         {
@@ -72,6 +74,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="401">Refresh token không hợp lệ hoặc đã hết hạn.</response>
         /// <response code="403">Tài khoản bị chặn.</response>
         /// <response code="404">Không tìm thấy người dùng tương ứng với refresh token.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("refresh-token")]
         public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequestDto request)
         {
@@ -85,6 +88,7 @@ namespace BoardVerse.API.Controllers
         /// <param name="request">Thông tin refresh token cần thu hồi.</param>
         /// <response code="200">Đăng xuất thành công.</response>
         /// <response code="400">Dữ liệu yêu cầu không hợp lệ.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("logout")]
         public async Task<IActionResult> Logout([FromBody] RefreshTokenRequestDto request)
         {
@@ -115,6 +119,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="200">Xác minh email thành công.</response>
         /// <response code="401">Mã xác minh không hợp lệ hoặc đã hết hạn.</response>
         /// <response code="403">Tài khoản bị chặn.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("verify-email")]
         public async Task<IActionResult> VerifyEmail([FromBody] VerifyEmailRequestDto request)
         {
@@ -146,6 +151,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="400">Mật khẩu mới không hợp lệ.</response>
         /// <response code="401">Mã reset không hợp lệ hoặc đã hết hạn.</response>
         /// <response code="403">Tài khoản bị chặn.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("reset-password")]
         public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDto request)
         {
@@ -162,6 +168,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="401">Token không hợp lệ hoặc mật khẩu hiện tại không đúng.</response>
         /// <response code="403">Tài khoản bị chặn.</response>
         /// <response code="404">Không tìm thấy người dùng.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("change-password")]
         [Authorize]
         public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDto request)
@@ -185,6 +192,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="401">Google token không hợp lệ hoặc thiếu email.</response>
         /// <response code="403">Tài khoản bị chặn.</response>
         /// <response code="404">Không tìm thấy tài khoản nội bộ để liên kết.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("link-google")]
         public async Task<IActionResult> LinkGoogle([FromBody] LinkGoogleRequestDto request)
         {
