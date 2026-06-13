@@ -269,6 +269,14 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+var mailjetSection = app.Configuration.GetSection(MailjetSettings.SectionName);
+app.Logger.LogInformation(
+    "Mailjet startup: ApiKeySet={HasApiKey}, SecretKeySet={HasSecretKey}, SenderEmail={SenderEmail}, ApiBaseUrl={ApiBaseUrl}",
+    !string.IsNullOrWhiteSpace(mailjetSection["ApiKey"]),
+    !string.IsNullOrWhiteSpace(mailjetSection["SecretKey"]),
+    string.IsNullOrWhiteSpace(mailjetSection["SenderEmail"]) ? "(missing)" : mailjetSection["SenderEmail"],
+    string.IsNullOrWhiteSpace(mailjetSection["ApiBaseUrl"]) ? "https://api.mailjet.com/v3.1 (default)" : mailjetSection["ApiBaseUrl"]);
+
 // Configure the HTTP request pipeline.
 var renderPort = Environment.GetEnvironmentVariable("PORT");
 if (!string.IsNullOrWhiteSpace(renderPort))

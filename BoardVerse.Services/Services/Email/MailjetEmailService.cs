@@ -61,8 +61,9 @@ namespace BoardVerse.Services.Services.Email
 
             var payload = new MailjetSendRequest { Messages = [message] };
 
+            var sendUri = BuildSendUri(_settings.ApiBaseUrl);
             var client = _httpClientFactory.CreateClient(nameof(MailjetEmailService));
-            using var request = new HttpRequestMessage(HttpMethod.Post, "send")
+            using var request = new HttpRequestMessage(HttpMethod.Post, sendUri)
             {
                 Content = JsonContent.Create(payload)
             };
@@ -71,9 +72,29 @@ namespace BoardVerse.Services.Services.Email
                 Encoding.UTF8.GetBytes($"{_settings.ApiKey}:{_settings.SecretKey}"));
             request.Headers.Authorization = new AuthenticationHeaderValue("Basic", credentials);
 
-            _logger.LogInformation("Sending email via Mailjet API to {To}", to);
+            _logger.LogInformation("Sending email via Mailjet API to {To} at {SendUri}", to, sendUri);
 
-            using var response = await client.SendAsync(request);
+            HttpResponseMessage response;
+            try
+            {
+                response = await client.SendAsync(request);
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogError(ex, "Mailjet HTTP connection failed to {SendUri}", sendUri);
+                throw new EmailSendingException(
+                    "Cannot connect to Mailjet API (SSL/network). " +
+                    "Verify Mailjet__ApiBaseUrl=https://api.mailjet.com/v3.1 and ApiKey/SecretKey on hosting.",
+                    ex);
+            }
+            catch (TaskCanceledException ex)
+            {
+                _logger.LogError(ex, "Mailjet API request timed out to {SendUri}", sendUri);
+                throw new EmailSendingException("Mailjet API request timed out.", ex);
+            }
+
+            using (response)
+            {
             var responseBody = await response.Content.ReadAsStringAsync();
 
             if (response.IsSuccessStatusCode)
@@ -91,6 +112,23 @@ namespace BoardVerse.Services.Services.Email
                 $"Mailjet API failed ({(int)response.StatusCode}). " +
                 "Verify ApiKey, SecretKey, and sender address in Mailjet. " +
                 $"Details: {responseBody}");
+            }
+        }
+
+        private static Uri BuildSendUri(string? apiBaseUrl)
+        {
+            var baseUrl = string.IsNullOrWhiteSpace(apiBaseUrl)
+                ? "https://api.mailjet.com/v3.1"
+                : apiBaseUrl.Trim().TrimEnd('/');
+
+            if (!Uri.TryCreate($"{baseUrl}/send", UriKind.Absolute, out var uri)
+                || uri.Scheme != Uri.UriSchemeHttps)
+            {
+                throw new EmailSendingException(
+                    $"Invalid Mailjet ApiBaseUrl '{apiBaseUrl}'. Use https://api.mailjet.com/v3.1");
+            }
+
+            return uri;
         }
 
         private sealed class MailjetSendRequest
