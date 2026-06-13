@@ -44,7 +44,11 @@ namespace BoardVerse.Data
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""
-                ALTER TABLE "UserProfiles" DROP COLUMN IF EXISTS "HomeAddress";
+                DO $$ BEGIN
+                    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'UserProfiles') THEN
+                        ALTER TABLE "UserProfiles" DROP COLUMN IF EXISTS "HomeAddress";
+                    END IF;
+                END $$;
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""
@@ -111,8 +115,15 @@ namespace BoardVerse.Data
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""
-                CREATE INDEX IF NOT EXISTS "IX_CafePartnerApplications_ContactEmail"
-                    ON "CafePartnerApplications" ("ContactEmail");
+                DO $$ BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_schema = 'public' AND table_name = 'CafePartnerApplications' AND column_name = 'ContactEmail'
+                    ) THEN
+                        CREATE INDEX IF NOT EXISTS "IX_CafePartnerApplications_ContactEmail"
+                            ON "CafePartnerApplications" ("ContactEmail");
+                    END IF;
+                END $$;
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""
@@ -148,26 +159,34 @@ namespace BoardVerse.Data
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""
-                ALTER TABLE "CafePartnerApplications" ALTER COLUMN "ContactName" DROP NOT NULL;
-                ALTER TABLE "CafePartnerApplications" ALTER COLUMN "ContactEmail" DROP NOT NULL;
-                ALTER TABLE "CafePartnerApplications" ALTER COLUMN "ContactPhone" DROP NOT NULL;
+                DO $$ BEGIN
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'CafePartnerApplications' AND column_name = 'ContactName') THEN
+                        ALTER TABLE "CafePartnerApplications" ALTER COLUMN "ContactName" DROP NOT NULL;
+                        ALTER TABLE "CafePartnerApplications" ALTER COLUMN "ContactEmail" DROP NOT NULL;
+                        ALTER TABLE "CafePartnerApplications" ALTER COLUMN "ContactPhone" DROP NOT NULL;
+                    END IF;
+                END $$;
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""
-                UPDATE "CafePartnerApplications"
-                SET "RepresentativeEmail" = COALESCE(NULLIF(TRIM("RepresentativeEmail"), ''), "ContactEmail"),
-                    "Hotline" = COALESCE(NULLIF(TRIM("Hotline"), ''), "ContactPhone"),
-                    "RepresentativeName" = COALESCE("RepresentativeName", "ContactName"),
-                    "BusinessLicense" = COALESCE(NULLIF(TRIM("BusinessLicense"), ''), "BusinessLicenseNumber", ''),
-                    "BusinessLicenseImageUrl" = COALESCE("BusinessLicenseImageUrl", "BusinessLicenseUrl"),
-                    "SpaceImageUrlsJson" = CASE
-                        WHEN ("SpaceImageUrlsJson" IS NULL OR "SpaceImageUrlsJson" = '[]') AND "CafeImageUrl" IS NOT NULL
-                        THEN format('["%s"]', replace("CafeImageUrl", '"', '\"'))
-                        ELSE COALESCE("SpaceImageUrlsJson", '[]')
-                    END
-                WHERE "ContactEmail" IS NOT NULL
-                   OR "RepresentativeEmail" IS NULL
-                   OR TRIM(COALESCE("RepresentativeEmail", '')) = '';
+                DO $$ BEGIN
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'CafePartnerApplications' AND column_name = 'ContactEmail') THEN
+                        UPDATE "CafePartnerApplications"
+                        SET "RepresentativeEmail" = COALESCE(NULLIF(TRIM("RepresentativeEmail"), ''), "ContactEmail"),
+                            "Hotline" = COALESCE(NULLIF(TRIM("Hotline"), ''), "ContactPhone"),
+                            "RepresentativeName" = COALESCE("RepresentativeName", "ContactName"),
+                            "BusinessLicense" = COALESCE(NULLIF(TRIM("BusinessLicense"), ''), "BusinessLicenseNumber", ''),
+                            "BusinessLicenseImageUrl" = COALESCE("BusinessLicenseImageUrl", "BusinessLicenseUrl"),
+                            "SpaceImageUrlsJson" = CASE
+                                WHEN ("SpaceImageUrlsJson" IS NULL OR "SpaceImageUrlsJson" = '[]') AND "CafeImageUrl" IS NOT NULL
+                                THEN format('["%s"]', replace("CafeImageUrl", '"', '\"'))
+                                ELSE COALESCE("SpaceImageUrlsJson", '[]')
+                            END
+                        WHERE "ContactEmail" IS NOT NULL
+                           OR "RepresentativeEmail" IS NULL
+                           OR TRIM(COALESCE("RepresentativeEmail", '')) = '';
+                    END IF;
+                END $$;
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""
@@ -209,14 +228,18 @@ namespace BoardVerse.Data
                     ON "CafePartnerApplications" ("Hotline");
                 """);
 
-            // Backfill legacy Contact* from new columns (rows created after schema rename).
+            // Backfill legacy Contact* from new columns (only when legacy columns still exist).
             await context.Database.ExecuteSqlRawAsync("""
-                UPDATE "CafePartnerApplications"
-                SET "ContactEmail" = COALESCE(NULLIF(TRIM("ContactEmail"), ''), "RepresentativeEmail"),
-                    "ContactPhone" = COALESCE(NULLIF(TRIM("ContactPhone"), ''), "Hotline"),
-                    "ContactName" = COALESCE(NULLIF(TRIM("ContactName"), ''), "RepresentativeName", '')
-                WHERE TRIM(COALESCE("RepresentativeEmail", '')) <> ''
-                   OR TRIM(COALESCE("Hotline", '')) <> '';
+                DO $$ BEGIN
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'CafePartnerApplications' AND column_name = 'ContactEmail') THEN
+                        UPDATE "CafePartnerApplications"
+                        SET "ContactEmail" = COALESCE(NULLIF(TRIM("ContactEmail"), ''), "RepresentativeEmail"),
+                            "ContactPhone" = COALESCE(NULLIF(TRIM("ContactPhone"), ''), "Hotline"),
+                            "ContactName" = COALESCE(NULLIF(TRIM("ContactName"), ''), "RepresentativeName", '')
+                        WHERE TRIM(COALESCE("RepresentativeEmail", '')) <> ''
+                           OR TRIM(COALESCE("Hotline", '')) <> '';
+                    END IF;
+                END $$;
                 """);
 
             // Drop legacy / unused columns — entity only maps Hotline, RepresentativeEmail, etc.

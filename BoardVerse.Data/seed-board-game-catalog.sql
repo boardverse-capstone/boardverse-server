@@ -8,6 +8,8 @@
 
 -- ── Schema extensions (safe if already applied via bootstrapper) ─────────────
 ALTER TABLE "GameTemplates" ADD COLUMN IF NOT EXISTS "NameSearchKey" character varying(200) NOT NULL DEFAULT '';
+ALTER TABLE "GameTemplates" ADD COLUMN IF NOT EXISTS "SearchAliases" character varying(500);
+ALTER TABLE "GameTemplates" ADD COLUMN IF NOT EXISTS "SearchAliasesKey" character varying(500) NOT NULL DEFAULT '';
 ALTER TABLE "GameTemplates" ADD COLUMN IF NOT EXISTS "IsActive" boolean NOT NULL DEFAULT true;
 
 CREATE TABLE IF NOT EXISTS "Categories" (
@@ -35,6 +37,7 @@ CREATE TABLE IF NOT EXISTS "GameTemplateCategories" (
 );
 
 CREATE INDEX IF NOT EXISTS "IX_GameTemplates_NameSearchKey" ON "GameTemplates" ("NameSearchKey");
+CREATE INDEX IF NOT EXISTS "IX_GameTemplates_SearchAliasesKey" ON "GameTemplates" ("SearchAliasesKey");
 
 -- ── Categories ────────────────────────────────────────────────────────────────
 INSERT INTO "Categories" ("Id", "Name", "Slug", "Description", "SortOrder", "IsActive", "CreatedAt", "UpdatedAt")
@@ -78,8 +81,17 @@ ON CONFLICT ("Id") DO UPDATE SET
     "UpdatedAt" = EXCLUDED."UpdatedAt";
 
 UPDATE "GameTemplates"
-SET "NameSearchKey" = lower("Name")
+SET "NameSearchKey" = lower(trim("Name"))
 WHERE "NameSearchKey" IS NULL OR TRIM("NameSearchKey") = '';
+
+UPDATE "GameTemplates" SET "SearchAliases" = 'Catán, Settlers of Catan, Catan', "SearchAliasesKey" = 'catan settlers of catan catan' WHERE lower(trim("Name")) = 'catan';
+UPDATE "GameTemplates" SET "SearchAliases" = 'Cờ Tỷ Phú', "SearchAliasesKey" = 'co ty phu' WHERE lower(trim("Name")) = 'monopoly';
+UPDATE "GameTemplates" SET "SearchAliases" = 'Uno', "SearchAliasesKey" = 'uno' WHERE lower(trim("Name")) = 'uno';
+UPDATE "GameTemplates" SET "SearchAliases" = 'Splendor, Ngọc Trai', "SearchAliasesKey" = 'splendor ngoc trai' WHERE lower(trim("Name")) = 'splendor';
+UPDATE "GameTemplates" SET "SearchAliases" = 'Ma Sói, Ma Soi, Werewolf, Ma Sói Ultimate', "SearchAliasesKey" = 'ma soi ma soi werewolf ma soi ultimate' WHERE lower(trim("Name")) = 'werewolf ultimate';
+UPDATE "GameTemplates" SET "SearchAliases" = 'Avalon, Kháng Chiến, The Resistance', "SearchAliasesKey" = 'avalon khang chien the resistance' WHERE lower(trim("Name")) = 'the resistance: avalon';
+UPDATE "GameTemplates" SET "SearchAliases" = 'Codenames, Mật Danh', "SearchAliasesKey" = 'codenames mat danh' WHERE lower(trim("Name")) = 'codenames';
+UPDATE "GameTemplates" SET "SearchAliases" = 'Pandemic, Đại Dịch', "SearchAliasesKey" = 'pandemic dai dich' WHERE lower(trim("Name")) = 'pandemic';
 
 -- ── Game ↔ Category links ─────────────────────────────────────────────────────
 INSERT INTO "GameTemplateCategories" ("GameTemplateId", "CategoryId", "CreatedAt")
