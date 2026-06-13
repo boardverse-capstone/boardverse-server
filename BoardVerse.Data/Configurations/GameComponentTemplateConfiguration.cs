@@ -400,6 +400,172 @@ namespace BoardVerse.Data.Configurations
                     ComponentName = "Day Phase Marker",
                     DefaultQuantity = 1,
                     CreatedAt = seedDate
+                },
+
+                // Avalon Components (GameTemplateId: 66666666-6666-6666-6666-666666666666)
+                new GameComponentTemplate
+                {
+                    Id = new Guid("a6666666-6666-6666-6666-666666666661"),
+                    GameTemplateId = new Guid("66666666-6666-6666-6666-666666666666"),
+                    ComponentName = "Thẻ nhân vật",
+                    DefaultQuantity = 10,
+                    CreatedAt = seedDate
+                },
+                new GameComponentTemplate
+                {
+                    Id = new Guid("a6666666-6666-6666-6666-666666666662"),
+                    GameTemplateId = new Guid("66666666-6666-6666-6666-666666666666"),
+                    ComponentName = "Token phiếu bầu (Approve/Reject)",
+                    DefaultQuantity = 20,
+                    CreatedAt = seedDate
+                },
+                new GameComponentTemplate
+                {
+                    Id = new Guid("a6666666-6666-6666-6666-666666666663"),
+                    GameTemplateId = new Guid("66666666-6666-6666-6666-666666666666"),
+                    ComponentName = "Token thực hiện nhiệm vụ (Success/Fail)",
+                    DefaultQuantity = 5,
+                    CreatedAt = seedDate
+                },
+                new GameComponentTemplate
+                {
+                    Id = new Guid("a6666666-6666-6666-6666-666666666664"),
+                    GameTemplateId = new Guid("66666666-6666-6666-6666-666666666666"),
+                    ComponentName = "Thẻ nhiệm vụ (Quest)",
+                    DefaultQuantity = 5,
+                    CreatedAt = seedDate
+                },
+                new GameComponentTemplate
+                {
+                    Id = new Guid("a6666666-6666-6666-6666-666666666665"),
+                    GameTemplateId = new Guid("66666666-6666-6666-6666-666666666666"),
+                    ComponentName = "Thẻ chỉ dẫn Hiệp sĩ/Phản bội",
+                    DefaultQuantity = 2,
+                    CreatedAt = seedDate
+                },
+                new GameComponentTemplate
+                {
+                    Id = new Guid("a6666666-6666-6666-6666-666666666666"),
+                    GameTemplateId = new Guid("66666666-6666-6666-6666-666666666666"),
+                    ComponentName = "Thẻ Lady of the Lake",
+                    DefaultQuantity = 1,
+                    CreatedAt = seedDate
+                },
+                new GameComponentTemplate
+                {
+                    Id = new Guid("a6666666-6666-6666-6666-666666666667"),
+                    GameTemplateId = new Guid("66666666-6666-6666-6666-666666666666"),
+                    ComponentName = "Bảng điểm nhiệm vụ",
+                    DefaultQuantity = 1,
+                    CreatedAt = seedDate
+                },
+                new GameComponentTemplate
+                {
+                    Id = new Guid("a6666666-6666-6666-6666-666666666668"),
+                    GameTemplateId = new Guid("66666666-6666-6666-6666-666666666666"),
+                    ComponentName = "Thẻ đánh dấu lãnh đạo (Leader)",
+                    DefaultQuantity = 1,
+                    CreatedAt = seedDate
+                },
+
+                // Codenames Components (GameTemplateId: 77777777-7777-7777-7777-777777777777)
+                new GameComponentTemplate
+                {
+                    Id = new Guid("a7777777-7777-7777-7777-777777777771"),
+                    GameTemplateId = new Guid("77777777-7777-7777-7777-777777777777"),
+                    ComponentName = "Thẻ từ khóa (Key cards)",
+                    DefaultQuantity = 200,
+                    CreatedAt = seedDate
+                },
+                new GameComponentTemplate
+                {
+                    Id = new Guid("a7777777-7777-7777-7777-777777777772"),
+                    GameTemplateId = new Guid("77777777-7777-7777-7777-777777777777"),
+                    ComponentName = "Thẻ mật danh (Agent cards)",
+                    DefaultQuantity = 16,
+                    CreatedAt = seedDate
+                },
+                new GameComponentTemplate
+                {
+                    Id = new Guid("a7777777-7777-7777-7777-777777777773"),
+                    GameTemplateId = new Guid("77777777-7777-7777-7777-777777777777"),
+                    ComponentName = "Thẻ đội (Team cards)",
+                    DefaultQuantity = 8,
+                    CreatedAt = seedDate
+                },
+                new GameComponentTemplate
+                {
+                    Id = new Guid("a7777777-7777-7777-7777-777777777774"),
+                    GameTemplateId = new Guid("77777777-7777-7777-7777-777777777777"),
+                    ComponentName = "Thẻ bẫy/bystander",
+                    DefaultQuantity = 1,
+                    CreatedAt = seedDate
+                },
+                new GameComponentTemplate
+                {
+                    Id = new Guid("a7777777-7777-7777-7777-777777777775"),
+                    GameTemplateId = new Guid("77777777-7777-7777-7777-777777777777"),
+                    ComponentName = "Giá đỡ thẻ (Card stand)",
+                    DefaultQuantity = 1,
+                    CreatedAt = seedDate
+                },
+
+                // Pandemic Components (GameTemplateId: 88888888-8888-8888-8888-888888888888)
+                new GameComponentTemplate
+                {
+                    Id = new Guid("a8888888-8888-8888-8888-888888888881"),
+                    GameTemplateId = new Guid("88888888-8888-8888-8888-888888888888"),
+                    ComponentName = "Bản đồ thế giới",
+                    DefaultQuantity = 1,
+                    CreatedAt = seedDate
+                },
+                new GameComponentTemplate
+                {
+                    Id = new Guid("a8888888-8888-8888-8888-888888888882"),
+                    GameTemplateId = new Guid("88888888-8888-8888-8888-888888888888"),
+                    ComponentName = "Thẻ thành phố",
+                    DefaultQuantity = 48,
+                    CreatedAt = seedDate
+                },
+                new GameComponentTemplate
+                {
+                    Id = new Guid("a8888888-8888-8888-8888-888888888883"),
+                    GameTemplateId = new Guid("88888888-8888-8888-8888-888888888888"),
+                    ComponentName = "Thẻ dịch bệnh",
+                    DefaultQuantity = 96,
+                    CreatedAt = seedDate
+                },
+                new GameComponentTemplate
+                {
+                    Id = new Guid("a8888888-8888-8888-8888-888888888884"),
+                    GameTemplateId = new Guid("88888888-8888-8888-8888-888888888888"),
+                    ComponentName = "Thẻ nhân vật",
+                    DefaultQuantity = 5,
+                    CreatedAt = seedDate
+                },
+                new GameComponentTemplate
+                {
+                    Id = new Guid("a8888888-8888-8888-8888-888888888885"),
+                    GameTemplateId = new Guid("88888888-8888-8888-8888-888888888888"),
+                    ComponentName = "Mẫu nhân vật (Pawns)",
+                    DefaultQuantity = 5,
+                    CreatedAt = seedDate
+                },
+                new GameComponentTemplate
+                {
+                    Id = new Guid("a8888888-8888-8888-8888-888888888886"),
+                    GameTemplateId = new Guid("88888888-8888-8888-8888-888888888888"),
+                    ComponentName = "Thẻ nghiên cứu",
+                    DefaultQuantity = 48,
+                    CreatedAt = seedDate
+                },
+                new GameComponentTemplate
+                {
+                    Id = new Guid("a8888888-8888-8888-8888-888888888887"),
+                    GameTemplateId = new Guid("88888888-8888-8888-8888-888888888888"),
+                    ComponentName = "Xúc xắc dịch bệnh",
+                    DefaultQuantity = 1,
+                    CreatedAt = seedDate
                 }
             );
         }

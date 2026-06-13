@@ -1,7 +1,9 @@
 using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.Game;
 using BoardVerse.Core.Entities;
+using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
+using BoardVerse.Data.Helpers;
 using Microsoft.EntityFrameworkCore;
 
 namespace BoardVerse.Data.Repositories
@@ -15,31 +17,29 @@ namespace BoardVerse.Data.Repositories
             _context = context;
         }
 
-        public async Task<PaginatedResponse<GameTemplate>> GetPagedAsync(GetMasterGamesQuery query)
+        public Task<PaginatedResponse<GameTemplate>> GetBoardGamesPagedAsync(GetMasterGamesQuery query) =>
+            GetPagedInternalAsync(query, includeComponents: false);
+
+        public Task<PaginatedResponse<GameTemplate>> GetPagedAsync(GetMasterGamesQuery query) =>
+            GetPagedInternalAsync(query, includeComponents: true);
+
+        private async Task<PaginatedResponse<GameTemplate>> GetPagedInternalAsync(
+            GetMasterGamesQuery query,
+            bool includeComponents)
         {
             var baseQuery = _context.GameTemplates
                 .AsNoTracking()
-                .Include(g => g.Components)
+                .Where(g => g.IsActive)
                 .AsQueryable();
 
-            // Apply search filter if provided
-            if (!string.IsNullOrWhiteSpace(query.SearchTerm))
-            {
-                baseQuery = baseQuery.Where(g => 
-                    EF.Functions.ILike(g.Name, $"%{query.SearchTerm}%"));
-            }
+            if (includeComponents)
+                baseQuery = baseQuery.Include(g => g.Components);
 
-            if (query.CafeId.HasValue && query.ExcludeInInventory)
-            {
-                var inInventoryIds = _context.CafeGameInventories
-                    .AsNoTracking()
-                    .Where(i => i.CafeId == query.CafeId.Value && i.IsActive)
-                    .Select(i => i.GameTemplateId);
+            baseQuery = baseQuery
+                .Include(g => g.Categories)
+                    .ThenInclude(gc => gc.Category);
 
-                baseQuery = baseQuery.Where(g => !inInventoryIds.Contains(g.Id));
-            }
-
-            baseQuery = baseQuery.OrderBy(g => g.Name);
+            baseQuery = ApplyFilters(baseQuery, query).OrderBy(g => g.Name);
 
             var totalItems = await baseQuery.CountAsync();
             var items = await baseQuery
@@ -62,12 +62,76 @@ namespace BoardVerse.Data.Repositories
             };
         }
 
+        private IQueryable<GameTemplate> ApplyFilters(IQueryable<GameTemplate> baseQuery, GetMasterGamesQuery query)
+        {
+            if (!string.IsNullOrWhiteSpace(query.SearchTerm))
+                baseQuery = GameSearchHelper.ApplyFuzzyNameSearch(baseQuery, query.SearchTerm);
+
+            if (query.CategoryIds is { Count: > 0 })
+            {
+                baseQuery = baseQuery.Where(g =>
+                    g.Categories.Any(gc => query.CategoryIds.Contains(gc.CategoryId)));
+            }
+
+            if (query.PlayerCount.HasValue)
+            {
+                var playerCount = query.PlayerCount.Value;
+                baseQuery = baseQuery.Where(g =>
+                    g.MinPlayers <= playerCount && g.MaxPlayers >= playerCount);
+            }
+
+            if (query.PlayTimeRanges is { Count: > 0 })
+            {
+                baseQuery = baseQuery.Where(g =>
+                    (query.PlayTimeRanges.Contains(PlayTimeRange.Under30) && g.PlayTime < 30) ||
+                    (query.PlayTimeRanges.Contains(PlayTimeRange.ThirtyToSixty) && g.PlayTime >= 30 && g.PlayTime <= 60) ||
+                    (query.PlayTimeRanges.Contains(PlayTimeRange.Over60) && g.PlayTime > 60));
+            }
+
+            if (query.CafeId.HasValue && query.ExcludeInInventory)
+            {
+                var inInventoryIds = _context.CafeGameInventories
+                    .AsNoTracking()
+                    .Where(i => i.CafeId == query.CafeId.Value && i.IsActive)
+                    .Select(i => i.GameTemplateId);
+
+                baseQuery = baseQuery.Where(g => !inInventoryIds.Contains(g.Id));
+            }
+
+            return baseQuery;
+        }
+
         public async Task<GameTemplate?> GetByIdWithComponentsAsync(Guid id)
         {
             return await _context.GameTemplates
                 .AsNoTracking()
                 .Include(g => g.Components)
+                .Include(g => g.Categories)
+                    .ThenInclude(gc => gc.Category)
                 .FirstOrDefaultAsync(g => g.Id == id);
+        }
+
+        public async Task<GameTemplate?> GetActiveByIdWithComponentsAsync(Guid id)
+        {
+            return await _context.GameTemplates
+                .AsNoTracking()
+                .Include(g => g.Components)
+                .Include(g => g.Categories)
+                    .ThenInclude(gc => gc.Category)
+                .FirstOrDefaultAsync(g => g.Id == id && g.IsActive);
+        }
+
+        public async Task<Dictionary<Guid, int>> GetComponentCountsByGameIdsAsync(IReadOnlyCollection<Guid> gameIds)
+        {
+            if (gameIds.Count == 0)
+                return new Dictionary<Guid, int>();
+
+            return await _context.GameComponentTemplates
+                .AsNoTracking()
+                .Where(c => gameIds.Contains(c.GameTemplateId))
+                .GroupBy(c => c.GameTemplateId)
+                .Select(g => new { g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.Key, x => x.Count);
         }
 
         public Task SaveChangesAsync()

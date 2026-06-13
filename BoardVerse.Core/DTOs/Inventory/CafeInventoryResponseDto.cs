@@ -10,7 +10,6 @@ namespace BoardVerse.Core.DTOs.Inventory
         public string GameName { get; set; } = string.Empty;
         public string? ThumbnailUrl { get; set; }
         public string? Description { get; set; }
-        public int? BggGameId { get; set; }
         public int MinPlayers { get; set; }
         public int MaxPlayers { get; set; }
         public int PlayTime { get; set; }

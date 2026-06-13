@@ -1,8 +1,13 @@
+using BoardVerse.Core.Enum;
+
 namespace BoardVerse.Core.DTOs.Game
 {
     public class GetMasterGamesQuery
     {
         public string? SearchTerm { get; set; }
+        public List<Guid>? CategoryIds { get; set; }
+        public int? PlayerCount { get; set; }
+        public List<PlayTimeRange>? PlayTimeRanges { get; set; }
         public Guid? CafeId { get; set; }
         public bool ExcludeInInventory { get; set; }
         private int _pageNumber = 1;

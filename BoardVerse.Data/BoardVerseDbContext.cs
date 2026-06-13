@@ -14,8 +14,11 @@ namespace BoardVerse.Data
         public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
         public DbSet<Cafe> Cafes => Set<Cafe>();
         public DbSet<CafeStaff> CafeStaffs => Set<CafeStaff>();
+        public DbSet<CafePartnerApplication> CafePartnerApplications => Set<CafePartnerApplication>();
         public DbSet<GameTemplate> GameTemplates => Set<GameTemplate>();
         public DbSet<GameComponentTemplate> GameComponentTemplates => Set<GameComponentTemplate>();
+        public DbSet<Category> Categories => Set<Category>();
+        public DbSet<GameTemplateCategory> GameTemplateCategories => Set<GameTemplateCategory>();
         public DbSet<CafeGameInventory> CafeGameInventories => Set<CafeGameInventory>();
         public DbSet<CafeGameComponentPenalty> CafeGameComponentPenalties => Set<CafeGameComponentPenalty>();
 
@@ -240,12 +243,67 @@ namespace BoardVerse.Data
                     .IsRequired()
                     .HasDefaultValue(true);
 
+                entity.Property(c => c.PartnerOperationalStatus)
+                    .HasConversion<string>()
+                    .HasMaxLength(20);
+
                 entity.HasOne(c => c.Manager)
                     .WithMany()
                     .HasForeignKey(c => c.ManagerId)
                     .OnDelete(DeleteBehavior.Restrict);
 
                 entity.HasIndex(c => c.ManagerId);
+            });
+
+            modelBuilder.Entity<CafePartnerApplication>(entity =>
+            {
+                entity.HasKey(a => a.Id);
+                entity.Property(a => a.Id).ValueGeneratedNever();
+                entity.Property(a => a.CafeName).IsRequired().HasMaxLength(100);
+                entity.Property(a => a.Address).IsRequired().HasMaxLength(500);
+                entity.Property(a => a.Hotline).IsRequired().HasMaxLength(11);
+                entity.Property(a => a.RepresentativeEmail).IsRequired().HasMaxLength(256);
+                entity.Property(a => a.BusinessLicense).IsRequired().HasMaxLength(50);
+                entity.Property(a => a.BusinessLicenseImageUrl).HasMaxLength(500);
+                entity.Property(a => a.SpaceImageUrlsJson).IsRequired().HasDefaultValue("[]");
+                entity.Property(a => a.TableLayoutJson).IsRequired().HasDefaultValue("[]");
+                entity.Property(a => a.PopularGamesList).IsRequired().HasMaxLength(2000);
+                entity.Property(a => a.BillingModel)
+                    .HasConversion<string>()
+                    .HasMaxLength(20)
+                    .IsRequired();
+                entity.Property(a => a.Status)
+                    .HasConversion<string>()
+                    .HasMaxLength(50)
+                    .IsRequired();
+                entity.Property(a => a.RejectionReason).HasMaxLength(1000);
+                entity.Property(a => a.SubmittedAt).IsRequired();
+                entity.Property(a => a.UpdatedAt).IsRequired();
+                entity.HasIndex(a => a.RepresentativeEmail);
+                entity.HasIndex(a => a.BusinessLicense);
+                entity.HasIndex(a => a.Hotline);
+                entity.HasIndex(a => a.Status);
+                entity.HasIndex(a => a.SubmittedByUserId);
+
+                entity.HasOne(a => a.SubmittedByUser)
+                    .WithMany()
+                    .HasForeignKey(a => a.SubmittedByUserId)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(a => a.ReviewedByAdmin)
+                    .WithMany()
+                    .HasForeignKey(a => a.ReviewedByAdminId)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(a => a.CreatedManager)
+                    .WithMany()
+                    .HasForeignKey(a => a.CreatedManagerUserId)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(a => a.CreatedCafe)
+                    .WithMany()
+                    .HasForeignKey(a => a.CreatedCafeId)
+                    .OnDelete(DeleteBehavior.SetNull);
             });
 
             // CafeStaff junction entity configuration

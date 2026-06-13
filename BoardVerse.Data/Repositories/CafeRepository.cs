@@ -26,7 +26,11 @@ namespace BoardVerse.Data.Repositories
         {
             return await _context.Cafes
                 .AsNoTracking()
-                .FirstOrDefaultAsync(c => c.Id == id && c.IsActive);
+                .FirstOrDefaultAsync(c =>
+                    c.Id == id &&
+                    c.IsActive &&
+                    (c.PartnerOperationalStatus == null ||
+                     c.PartnerOperationalStatus == Core.Enum.CafePartnerOperationalStatus.Active));
         }
 
         public async Task<User?> GetUserByIdAsync(Guid userId)

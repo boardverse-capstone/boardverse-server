@@ -2,7 +2,6 @@ using BoardVerse.Core.Data;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
-using BoardVerse.Core.Settings;
 using BoardVerse.Data;
 using BoardVerse.Data.Repositories;
 using BoardVerse.Services.IServices;
@@ -23,7 +22,6 @@ var configuration = new ConfigurationBuilder()
 var services = new ServiceCollection();
 services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Information));
 services.AddSingleton<IConfiguration>(configuration);
-services.Configure<BggSettings>(configuration.GetSection(BggSettings.SectionName));
 services.AddDbContext<BoardVerseDbContext>(options =>
 {
     var connectionString = configuration.GetConnectionString("DefaultConnection")
@@ -32,7 +30,6 @@ services.AddDbContext<BoardVerseDbContext>(options =>
     options.UseNpgsql(connectionString);
 });
 services.AddScoped<IGameTemplateRepository, GameTemplateRepository>();
-services.AddHttpClient<IBggApiService, BggApiService>();
 services.AddScoped<IGameSeedService, GameSeedService>();
 
 var provider = services.BuildServiceProvider();
@@ -51,7 +48,7 @@ try
     await GameSchemaBootstrapper.EnsureInventoryTablesAsync(db);
     Console.WriteLine("✓ Schema ready (games + inventory)");
 
-    await seedService.SeedGamesFromCatalogAsync(BggKnownGameCatalog.PopularGameIds.ToList());
+    await seedService.SeedGamesFromCatalogAsync(GameCatalog.PopularGameSlugs.ToList());
     Console.WriteLine("✓ Master games seeded");
 
     var manager = await db.Users.FirstOrDefaultAsync(u => u.Id == DevSeedConstants.ManagerUserId);

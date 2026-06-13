@@ -1,6 +1,7 @@
 using BoardVerse.Core.Data;
-using BoardVerse.Core.DTOs.BGG;
+using BoardVerse.Core.DTOs.Game;
 using BoardVerse.Core.Entities;
+using BoardVerse.Core.Helpers;
 using BoardVerse.Data;
 using BoardVerse.Services.IServices;
 using Microsoft.EntityFrameworkCore;
@@ -9,170 +10,163 @@ namespace BoardVerse.Services.Services
 {
     public class GameSeedService : IGameSeedService
     {
-        private readonly IBggApiService _bggApiService;
         private readonly BoardVerseDbContext _context;
 
-        public GameSeedService(IBggApiService bggApiService, BoardVerseDbContext context)
+        public GameSeedService(BoardVerseDbContext context)
         {
-            _bggApiService = bggApiService;
             _context = context;
         }
 
-        public async Task SeedGamesFromBggAsync(List<int> bggGameIds)
+        public async Task SeedGamesFromCatalogAsync(List<string>? slugs = null)
         {
-            if (!_bggApiService.IsConfigured)
+            var targetSlugs = slugs ?? GameCatalog.PopularGameSlugs.ToList();
+            Console.WriteLine($"Seeding {targetSlugs.Count} games from master catalog...");
+
+            foreach (var slug in targetSlugs)
             {
-                Console.WriteLine("BGG API token not configured — falling back to curated catalog.");
-                await SeedGamesFromCatalogAsync(bggGameIds);
-                return;
-            }
-
-            Console.WriteLine($"Fetching {bggGameIds.Count} games from BGG XML API...");
-
-            var bggGames = await _bggApiService.GetGamesByIdsAsync(bggGameIds);
-            Console.WriteLine($"Successfully fetched {bggGames.Count} games from BGG");
-
-            if (bggGames.Count == 0)
-            {
-                Console.WriteLine("No games returned from BGG — falling back to curated catalog.");
-                await SeedGamesFromCatalogAsync(bggGameIds);
-                return;
-            }
-
-            foreach (var bggGame in bggGames)
-                await UpsertGameAsync(bggGame);
-
-            var missingIds = bggGameIds.Except(bggGames.Select(g => g.BggGameId)).ToList();
-            if (missingIds.Count > 0)
-            {
-                Console.WriteLine($"Seeding {missingIds.Count} missing games from catalog...");
-                await SeedGamesFromCatalogAsync(missingIds);
-            }
-
-            Console.WriteLine("BGG seeding completed!");
-        }
-
-        public async Task SeedSingleGameFromBggAsync(int bggGameId)
-        {
-            if (!_bggApiService.IsConfigured)
-            {
-                await SeedGamesFromCatalogAsync([bggGameId]);
-                return;
-            }
-
-            Console.WriteLine($"Fetching game {bggGameId} from BGG...");
-            var bggGame = await _bggApiService.GetGameByIdAsync(bggGameId);
-
-            if (bggGame == null)
-            {
-                Console.WriteLine($"BGG fetch failed for {bggGameId} — using catalog.");
-                await SeedGamesFromCatalogAsync([bggGameId]);
-                return;
-            }
-
-            await UpsertGameAsync(bggGame);
-        }
-
-        public async Task SeedGamesFromCatalogAsync(List<int>? bggGameIds = null)
-        {
-            var ids = bggGameIds ?? BggKnownGameCatalog.PopularGameIds.ToList();
-            Console.WriteLine($"Seeding {ids.Count} games from curated master catalog...");
-
-            foreach (var bggGameId in ids)
-            {
-                var catalogEntry = BggKnownGameCatalog.GetById(bggGameId);
+                var catalogEntry = GameCatalog.GetBySlug(slug);
                 if (catalogEntry == null)
                 {
-                    Console.WriteLine($"  ✗ No catalog entry for BGG id {bggGameId}");
+                    Console.WriteLine($"  ✗ No catalog entry for slug '{slug}'");
                     continue;
                 }
 
-                var dto = MapCatalogToDto(catalogEntry);
-                await UpsertGameAsync(dto);
+                await UpsertGameAsync(MapCatalogToDto(catalogEntry));
             }
 
             Console.WriteLine("Catalog seeding completed!");
         }
 
-        private static BggGameDto MapCatalogToDto(KnownBggGameEntry entry) =>
+        public async Task SeedSingleGameAsync(string slug)
+        {
+            var catalogEntry = GameCatalog.GetBySlug(slug);
+            if (catalogEntry == null)
+            {
+                Console.WriteLine($"  ✗ No catalog entry for slug '{slug}'");
+                return;
+            }
+
+            await UpsertGameAsync(MapCatalogToDto(catalogEntry));
+        }
+
+        private static GameCatalogSeedDto MapCatalogToDto(GameCatalogEntry entry) =>
             new()
             {
-                Id = Guid.NewGuid(),
-                BggGameId = entry.BggGameId,
+                Slug = entry.Slug,
                 Name = entry.Name,
                 Description = entry.Description,
                 MinPlayers = entry.MinPlayers,
                 MaxPlayers = entry.MaxPlayers,
-                PlayingTime = entry.PlayTime,
+                PlayTime = entry.PlayTime,
                 Components = entry.Components
-                    .Select(c => new BggComponentDto { Name = c.Name, Quantity = c.Quantity })
+                    .Select(c => new GameCatalogComponentDto { Name = c.Name, Quantity = c.Quantity })
                     .ToList()
             };
 
-        private async Task UpsertGameAsync(BggGameDto bggGame)
+        private async Task UpsertGameAsync(GameCatalogSeedDto game)
         {
             var existing = await _context.GameTemplates
                 .Include(g => g.Components)
-                .FirstOrDefaultAsync(g =>
-                    (bggGame.BggGameId > 0 && g.BggGameId == bggGame.BggGameId) ||
-                    g.Name == bggGame.Name);
+                .Include(g => g.Categories)
+                .FirstOrDefaultAsync(g => g.Name == game.Name);
 
             if (existing != null)
             {
-                existing.BggGameId = bggGame.BggGameId > 0 ? bggGame.BggGameId : existing.BggGameId;
-                existing.Name = bggGame.Name;
-                existing.ThumbnailUrl = bggGame.ThumbnailUrl ?? bggGame.ImageUrl ?? existing.ThumbnailUrl;
-                existing.Description = bggGame.Description ?? existing.Description;
-                existing.MinPlayers = bggGame.MinPlayers > 0 ? bggGame.MinPlayers : existing.MinPlayers;
-                existing.MaxPlayers = bggGame.MaxPlayers > 0 ? bggGame.MaxPlayers : existing.MaxPlayers;
-                existing.PlayTime = bggGame.PlayingTime > 0 ? bggGame.PlayingTime : existing.PlayTime;
-                existing.UpdatedAt = DateTime.UtcNow;
+                ApplyGameFields(existing, game);
 
-                if (existing.Components.Count == 0 && bggGame.Components.Count > 0)
-                    AddComponents(existing, bggGame.Components);
+                if (existing.Components.Count == 0 && game.Components.Count > 0)
+                    AddComponents(existing, game.Components);
 
+                await EnsureCategoriesAndAliasesAsync(existing);
                 await _context.SaveChangesAsync();
                 Console.WriteLine($"  ↻ Updated: {existing.Name} ({existing.Components.Count} components)");
                 return;
             }
 
-            var minPlayers = bggGame.MinPlayers > 0 ? bggGame.MinPlayers : 1;
-            var maxPlayers = bggGame.MaxPlayers > 0 ? bggGame.MaxPlayers : 4;
+            var minPlayers = game.MinPlayers > 0 ? game.MinPlayers : 1;
+            var maxPlayers = game.MaxPlayers > 0 ? game.MaxPlayers : 4;
             if (minPlayers > maxPlayers)
                 (minPlayers, maxPlayers) = (maxPlayers, minPlayers);
 
             var gameTemplate = new GameTemplate
             {
                 Id = Guid.NewGuid(),
-                BggGameId = bggGame.BggGameId > 0 ? bggGame.BggGameId : null,
-                Name = bggGame.Name,
-                ThumbnailUrl = bggGame.ThumbnailUrl ?? bggGame.ImageUrl,
-                Description = bggGame.Description,
+                Name = game.Name,
+                ThumbnailUrl = game.ThumbnailUrl,
+                Description = game.Description,
                 MaxPlayers = maxPlayers,
                 MinPlayers = minPlayers,
-                PlayTime = bggGame.PlayingTime > 0 ? bggGame.PlayingTime : 60,
+                PlayTime = game.PlayTime > 0 ? game.PlayTime : 60,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
                 Components = []
             };
 
-            AddComponents(gameTemplate, bggGame.Components);
+            ApplySearchAliases(gameTemplate);
+            AddComponents(gameTemplate, game.Components);
 
             await _context.GameTemplates.AddAsync(gameTemplate);
+            await EnsureCategoriesAndAliasesAsync(gameTemplate);
             await _context.SaveChangesAsync();
             Console.WriteLine($"  ✓ Inserted: {gameTemplate.Name} ({gameTemplate.Components.Count} components)");
         }
 
-        private static void AddComponents(GameTemplate gameTemplate, IEnumerable<BggComponentDto> components)
+        private static void ApplyGameFields(GameTemplate existing, GameCatalogSeedDto game)
         {
-            foreach (var bggComponent in components)
+            existing.Name = game.Name;
+            existing.NameSearchKey = VietnameseTextNormalizer.ToSearchKey(game.Name);
+            existing.ThumbnailUrl = game.ThumbnailUrl ?? existing.ThumbnailUrl;
+            existing.Description = game.Description ?? existing.Description;
+            existing.MinPlayers = game.MinPlayers > 0 ? game.MinPlayers : existing.MinPlayers;
+            existing.MaxPlayers = game.MaxPlayers > 0 ? game.MaxPlayers : existing.MaxPlayers;
+            existing.PlayTime = game.PlayTime > 0 ? game.PlayTime : existing.PlayTime;
+            existing.UpdatedAt = DateTime.UtcNow;
+            ApplySearchAliases(existing);
+        }
+
+        private static void ApplySearchAliases(GameTemplate game)
+        {
+            var aliases = GameCategorySeedMap.GetSearchAliases(game.Name);
+            if (!string.IsNullOrWhiteSpace(aliases))
+                game.SearchAliases = aliases;
+        }
+
+        private async Task EnsureCategoriesAndAliasesAsync(GameTemplate game)
+        {
+            var slugs = GameCategorySeedMap.GetCategorySlugs(game.Name);
+            if (slugs.Count == 0)
+                return;
+
+            var categories = await _context.Categories
+                .Where(c => slugs.Contains(c.Slug))
+                .ToListAsync();
+
+            var existingCategoryIds = game.Categories.Select(gc => gc.CategoryId).ToHashSet();
+
+            foreach (var category in categories)
+            {
+                if (existingCategoryIds.Contains(category.Id))
+                    continue;
+
+                _context.GameTemplateCategories.Add(new GameTemplateCategory
+                {
+                    GameTemplateId = game.Id,
+                    CategoryId = category.Id,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+        }
+
+        private static void AddComponents(GameTemplate gameTemplate, IEnumerable<GameCatalogComponentDto> components)
+        {
+            foreach (var component in components)
             {
                 gameTemplate.Components.Add(new GameComponentTemplate
                 {
                     Id = Guid.NewGuid(),
                     GameTemplateId = gameTemplate.Id,
-                    ComponentName = bggComponent.Name,
-                    DefaultQuantity = bggComponent.Quantity > 0 ? bggComponent.Quantity : 1,
+                    ComponentName = component.Name,
+                    DefaultQuantity = component.Quantity > 0 ? component.Quantity : 1,
                     CreatedAt = DateTime.UtcNow
                 });
             }

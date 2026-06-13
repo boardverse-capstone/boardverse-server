@@ -1,26 +1,53 @@
+using BoardVerse.Core.Helpers;
+
 namespace BoardVerse.Core.Entities
 {
+    /// <summary>
+    /// Thông tin gốc của board game trong danh mục master.
+    /// Bảng DB: GameTemplates (tương đương BoardGames trong thiết kế nghiệp vụ).
+    /// </summary>
     public class GameTemplate
     {
         private int _minPlayers = 1;
         private int _maxPlayers = 4;
         private int _playTime = 30;
+        private string _name = string.Empty;
 
         public Guid Id { get; set; }
-        private int? _bggGameId;
-        public int? BggGameId
+        public string Name
         {
-            get => _bggGameId;
+            get => _name;
             set
             {
-                if (value.HasValue && value.Value < 1)
-                    throw new ArgumentException("BggGameId must be positive if set");
-                _bggGameId = value;
+                _name = value ?? string.Empty;
+                NameSearchKey = VietnameseTextNormalizer.ToSearchKey(_name);
             }
         }
-        public string Name { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Tên đã chuẩn hóa (bỏ dấu, chữ thường) — phục vụ fuzzy search AC 1.1.
+        /// </summary>
+        public string NameSearchKey { get; set; } = string.Empty;
+
+        private string? _searchAliases;
+        /// <summary>
+        /// Tên gọi khác / tiếng Việt, phân tách bằng dấu phẩy (vd: Ma Sói, Werewolf).
+        /// </summary>
+        public string? SearchAliases
+        {
+            get => _searchAliases;
+            set
+            {
+                _searchAliases = value;
+                SearchAliasesKey = VietnameseTextNormalizer.ToSearchKey(value);
+            }
+        }
+
+        public string SearchAliasesKey { get; set; } = string.Empty;
+
         public string? ThumbnailUrl { get; set; }
         public string? Description { get; set; }
+        public bool IsActive { get; set; } = true;
 
         public int MinPlayers
         {
@@ -58,7 +85,7 @@ namespace BoardVerse.Core.Entities
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
-        // Navigation property for components
-        public virtual ICollection<GameComponentTemplate> Components { get; set; } = new List<GameComponentTemplate>();
+        public virtual ICollection<GameComponentTemplate> Components { get; set; } = [];
+        public virtual ICollection<GameTemplateCategory> Categories { get; set; } = [];
     }
 }

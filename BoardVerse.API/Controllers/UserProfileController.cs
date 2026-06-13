@@ -24,6 +24,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="401">Thiếu token, token không hợp lệ hoặc thiếu claim người dùng.</response>
         /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
         /// <response code="404">Không tìm thấy người dùng trong token.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpGet]
         [Authorize]
         public async Task<IActionResult> Get()
@@ -43,6 +44,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
         /// <response code="404">Không tìm thấy người dùng.</response>
         /// <response code="409">Người dùng đã có hồ sơ hoạt động.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost]
         [Authorize]
         public async Task<IActionResult> Create([FromBody] ProfileCreateDto request)
@@ -61,6 +63,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="401">Thiếu token hoặc claim người dùng.</response>
         /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
         /// <response code="404">Không tìm thấy người dùng.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPut]
         [Authorize]
         public async Task<IActionResult> Update([FromBody] ProfileUpdateDto request)
@@ -79,6 +82,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="401">Thiếu token hoặc claim người dùng.</response>
         /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
         /// <response code="404">Không tìm thấy người dùng.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("progress")]
         [Authorize]
         public async Task<IActionResult> UpdateProgress([FromBody] ProfileProgressUpdateDto request)
@@ -97,6 +101,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="401">Thiếu token hoặc claim người dùng.</response>
         /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
         /// <response code="404">Không tìm thấy người dùng.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPut("me/avatar")]
         [Authorize]
         public async Task<IActionResult> UpdateAvatar([FromBody] UpdateAvatarRequestDto request)
@@ -113,6 +118,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="401">Thiếu token hoặc claim người dùng.</response>
         /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
         /// <response code="404">Không tìm thấy người dùng.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpGet("me/karma-history")]
         [Authorize]
         public async Task<IActionResult> GetKarmaHistory()
@@ -128,6 +134,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="200">Xóa hoặc vô hiệu hóa hồ sơ thành công (idempotent nếu chưa có hồ sơ).</response>
         /// <response code="401">Thiếu token hoặc claim người dùng.</response>
         /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpDelete]
         [Authorize]
         public async Task<IActionResult> Delete()

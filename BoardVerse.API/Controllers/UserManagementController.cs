@@ -25,6 +25,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="400">Tham số role trong query không hợp lệ.</response>
         /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
         /// <response code="403">Người dùng không có quyền quản trị.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpGet("users")]
         public async Task<IActionResult> GetAll([FromQuery] AdminUserQueryDto query)
         {
@@ -41,6 +42,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
         /// <response code="403">Người dùng không có quyền quản trị.</response>
         /// <response code="404">Không tìm thấy người dùng.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpGet("{id:guid}")]
         public async Task<IActionResult> Get(Guid id)
         {
@@ -57,6 +59,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
         /// <response code="403">Người dùng không có quyền quản trị.</response>
         /// <response code="409">Email hoặc username đã tồn tại.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] AdminCreateUserDto request)
         {
@@ -75,6 +78,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="403">Người dùng không có quyền quản trị.</response>
         /// <response code="404">Không tìm thấy người dùng.</response>
         /// <response code="409">Username hoặc email đã được sử dụng bởi tài khoản khác.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPut("{id:guid}")]
         public async Task<IActionResult> Update(Guid id, [FromBody] AdminUpdateUserDto request)
         {
@@ -90,6 +94,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="404">Không tìm thấy người dùng.</response>
         /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
         /// <response code="403">Người dùng không có quyền quản trị.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpDelete("{id:guid}")]
         public async Task<IActionResult> Disable(Guid id)
         {
@@ -107,6 +112,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
         /// <response code="403">Người dùng không có quyền quản trị.</response>
         /// <response code="404">Không tìm thấy người dùng.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("users/{id:guid}/block")]
         public async Task<IActionResult> Block(Guid id, [FromBody] AdminBlockUserDto request)
         {
@@ -122,6 +128,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
         /// <response code="403">Người dùng không có quyền quản trị.</response>
         /// <response code="404">Không tìm thấy người dùng.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("users/{id:guid}/unblock")]
         public async Task<IActionResult> Unblock(Guid id)
         {
@@ -139,6 +146,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
         /// <response code="403">Người dùng không có quyền quản trị.</response>
         /// <response code="404">Không tìm thấy người dùng.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPut("users/{id:guid}/role")]
         public async Task<IActionResult> UpdateRole(Guid id, [FromBody] AdminUpdateUserRoleDto request)
         {
