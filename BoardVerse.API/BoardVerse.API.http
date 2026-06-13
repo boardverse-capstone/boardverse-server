@@ -1,6 +1,19 @@
 @BoardVerse.API_HostAddress = http://localhost:5022
 
-GET {{BoardVerse.API_HostAddress}}/weatherforecast/
-Accept: application/json
+### Health
+GET {{BoardVerse.API_HostAddress}}/api/health/ping
 
-###
+### Board Games — categories (filter UI)
+GET {{BoardVerse.API_HostAddress}}/api/v1/board-games/categories
+
+### Board Games — search + filter
+GET {{BoardVerse.API_HostAddress}}/api/v1/board-games?search=ma%20soi&player_count=6&duration_range=ThirtyToSixty
+
+### Board Games — detail by id
+GET {{BoardVerse.API_HostAddress}}/api/v1/board-games/66666666-6666-6666-6666-666666666666
+
+### Board Games — detail (explicit path)
+GET {{BoardVerse.API_HostAddress}}/api/v1/board-games/66666666-6666-6666-6666-666666666666/details
+
+### Cafe inventory — public browse (with description, categories, components)
+GET {{BoardVerse.API_HostAddress}}/api/cafes/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/inventory?searchTerm=catan

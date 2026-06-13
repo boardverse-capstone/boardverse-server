@@ -1,7 +1,7 @@
 namespace BoardVerse.Core.Data
 {
-    public record KnownBggGameEntry(
-        int BggGameId,
+    public record GameCatalogEntry(
+        string Slug,
         string Name,
         string Description,
         int MinPlayers,
@@ -10,40 +10,44 @@ namespace BoardVerse.Core.Data
         IReadOnlyList<(string Name, int Quantity)> Components);
 
     /// <summary>
-    /// Curated master data for popular board games.
-    /// Used for component checklists when BGG XML API is unavailable or lacks structured component data.
+    /// Danh mục board game master nội bộ (metadata + linh kiện) dùng cho seed.
     /// </summary>
-    public static class BggKnownGameCatalog
+    public static class GameCatalog
     {
-        public static readonly IReadOnlyList<int> PopularGameIds =
+        public static readonly IReadOnlyList<string> PopularGameSlugs =
         [
-            13,      // Catan
-            9209,    // Ticket to Ride
-            822,     // Carcassonne
-            30549,   // Pandemic
-            266192,  // Wingspan
-            230802,  // Azul
-            148228,  // Splendor
-            167791,  // Terraforming Mars
-            174430,  // Gloomhaven
-            178900   // Codenames
+            "catan",
+            "ticket-to-ride",
+            "carcassonne",
+            "pandemic",
+            "wingspan",
+            "azul",
+            "splendor",
+            "terraforming-mars",
+            "gloomhaven",
+            "codenames"
         ];
 
-        private static readonly Dictionary<int, KnownBggGameEntry> Games = BuildCatalog();
+        private static readonly Dictionary<string, GameCatalogEntry> BySlug = BuildCatalog();
+        private static readonly Dictionary<string, GameCatalogEntry> ByName =
+            BySlug.Values.ToDictionary(e => e.Name, StringComparer.OrdinalIgnoreCase);
 
-        public static KnownBggGameEntry? GetById(int bggGameId) =>
-            Games.TryGetValue(bggGameId, out var entry) ? entry : null;
+        public static GameCatalogEntry? GetBySlug(string slug) =>
+            BySlug.TryGetValue(slug, out var entry) ? entry : null;
 
-        public static IReadOnlyList<KnownBggGameEntry> GetAll() => Games.Values.ToList();
+        public static GameCatalogEntry? GetByName(string name) =>
+            ByName.TryGetValue(name, out var entry) ? entry : null;
 
-        public static IReadOnlyList<(string Name, int Quantity)> GetComponents(int bggGameId) =>
-            GetById(bggGameId)?.Components ?? [];
+        public static IReadOnlyList<GameCatalogEntry> GetAll() => BySlug.Values.ToList();
 
-        private static Dictionary<int, KnownBggGameEntry> BuildCatalog()
+        public static IReadOnlyList<(string Name, int Quantity)> GetComponents(string slug) =>
+            GetBySlug(slug)?.Components ?? [];
+
+        private static Dictionary<string, GameCatalogEntry> BuildCatalog()
         {
             var entries = new[]
             {
-                Entry(13, "Catan",
+                Entry("catan", "Catan",
                     "A strategy board game where players build settlements, roads, and cities by gathering and trading resources.",
                     3, 4, 60,
                     ("Wood Hexagon Tiles", 4),
@@ -56,7 +60,7 @@ namespace BoardVerse.Core.Data
                     ("City Pieces", 16),
                     ("Dice", 2)),
 
-                Entry(9209, "Ticket to Ride",
+                Entry("ticket-to-ride", "Ticket to Ride",
                     "A railway-themed card game where players collect train cards to claim routes across a map.",
                     2, 5, 60,
                     ("Game Board", 1),
@@ -66,14 +70,14 @@ namespace BoardVerse.Core.Data
                     ("Scoring Markers", 5),
                     ("Longest Route Bonus Card", 1)),
 
-                Entry(822, "Carcassonne",
+                Entry("carcassonne", "Carcassonne",
                     "A tile-placement game where players build a medieval landscape and deploy followers to score points.",
                     2, 5, 45,
                     ("Land Tiles", 71),
                     ("Meeples", 40),
                     ("Scoring Track", 1)),
 
-                Entry(30549, "Pandemic",
+                Entry("pandemic", "Pandemic",
                     "A cooperative game where players work together as disease-fighting specialists to save the world.",
                     2, 4, 45,
                     ("World Board", 1),
@@ -87,7 +91,7 @@ namespace BoardVerse.Core.Data
                     ("Outbreak Marker", 1),
                     ("Infection Rate Marker", 1)),
 
-                Entry(266192, "Wingspan",
+                Entry("wingspan", "Wingspan",
                     "An engine-building card game about attracting birds to wildlife preserves.",
                     1, 5, 70,
                     ("Player Mats", 5),
@@ -99,7 +103,7 @@ namespace BoardVerse.Core.Data
                     ("Goal Cards", 26),
                     ("Bonus Cards", 21)),
 
-                Entry(230802, "Azul",
+                Entry("azul", "Azul",
                     "An abstract strategy game where players draft colorful tiles to decorate a palace wall.",
                     2, 4, 45,
                     ("Factory Displays", 9),
@@ -109,7 +113,7 @@ namespace BoardVerse.Core.Data
                     ("Tiles", 100),
                     ("First Player Marker", 1)),
 
-                Entry(148228, "Splendor",
+                Entry("splendor", "Splendor",
                     "A strategy game of chip-collecting and card development where players act as Renaissance merchants.",
                     2, 4, 30,
                     ("Ruby Gem Tokens", 7),
@@ -123,7 +127,7 @@ namespace BoardVerse.Core.Data
                     ("Development Cards (Tier 3)", 20),
                     ("Noble Tiles", 10)),
 
-                Entry(167791, "Terraforming Mars",
+                Entry("terraforming-mars", "Terraforming Mars",
                     "A engine-building game where corporations compete to terraform Mars and develop its ecosystem.",
                     1, 5, 120,
                     ("Game Board", 1),
@@ -137,7 +141,7 @@ namespace BoardVerse.Core.Data
                     ("Player Boards", 5),
                     ("Resource Cubes (per player)", 25)),
 
-                Entry(174430, "Gloomhaven",
+                Entry("gloomhaven", "Gloomhaven",
                     "A cooperative campaign dungeon crawler with legacy-style scenarios and tactical combat.",
                     1, 4, 120,
                     ("Scenario Book", 1),
@@ -150,7 +154,7 @@ namespace BoardVerse.Core.Data
                     ("Status Effect Tokens", 18),
                     ("Damage Tokens", 1)),
 
-                Entry(178900, "Codenames",
+                Entry("codenames", "Codenames",
                     "A social word game where spymasters give one-word clues to help their team identify secret agents.",
                     2, 8, 15,
                     ("Agent Cards", 16),
@@ -160,8 +164,7 @@ namespace BoardVerse.Core.Data
                     ("Codename Cards", 200),
                     ("Sand Timer", 1)),
 
-                // Additional games from EF seed data
-                Entry(1406, "Monopoly",
+                Entry("monopoly", "Monopoly",
                     "A classic real estate trading game where players buy, sell, and trade properties to bankrupt their opponents.",
                     2, 8, 120,
                     ("Gameboard", 1),
@@ -174,7 +177,7 @@ namespace BoardVerse.Core.Data
                     ("Dice", 2),
                     ("Monopoly Money", 1)),
 
-                Entry(2225, "Uno",
+                Entry("uno", "Uno",
                     "A fast-paced card game where players match colors and numbers, using action cards to change the game dynamics.",
                     2, 10, 30,
                     ("Number Cards (Red)", 19),
@@ -187,7 +190,7 @@ namespace BoardVerse.Core.Data
                     ("Wild Cards", 4),
                     ("Wild Draw Four Cards", 4)),
 
-                Entry(925, "Werewolf Ultimate",
+                Entry("werewolf-ultimate", "Werewolf Ultimate",
                     "A social deduction party game where players are assigned secret roles and must identify the werewolves among them.",
                     5, 20, 45,
                     ("Villager Role Cards", 10),
@@ -198,20 +201,30 @@ namespace BoardVerse.Core.Data
                     ("Hunter Role Card", 1),
                     ("Moderator Script", 1),
                     ("Night Phase Marker", 1),
-                    ("Day Phase Marker", 1))
+                    ("Day Phase Marker", 1)),
+
+                Entry("avalon", "The Resistance: Avalon",
+                    "Phe Hiệp sĩ phải hoàn thành 3 nhiệm vụ thành công, trong khi phe Phản bội âm thầm phá hoại.",
+                    5, 10, 30,
+                    ("Loyalty Cards", 14),
+                    ("Character Cards", 14),
+                    ("Quest Cards", 20),
+                    ("Vote Tokens", 5),
+                    ("Score Markers", 2),
+                    ("Leader Token", 1))
             };
 
-            return entries.ToDictionary(e => e.BggGameId);
+            return entries.ToDictionary(e => e.Slug);
         }
 
-        private static KnownBggGameEntry Entry(
-            int bggGameId,
+        private static GameCatalogEntry Entry(
+            string slug,
             string name,
             string description,
             int minPlayers,
             int maxPlayers,
             int playTime,
             params (string Name, int Quantity)[] components) =>
-            new(bggGameId, name, description, minPlayers, maxPlayers, playTime, components);
+            new(slug, name, description, minPlayers, maxPlayers, playTime, components);
     }
 }

@@ -17,6 +17,8 @@ namespace BoardVerse.Data
         public DbSet<CafePartnerApplication> CafePartnerApplications => Set<CafePartnerApplication>();
         public DbSet<GameTemplate> GameTemplates => Set<GameTemplate>();
         public DbSet<GameComponentTemplate> GameComponentTemplates => Set<GameComponentTemplate>();
+        public DbSet<Category> Categories => Set<Category>();
+        public DbSet<GameTemplateCategory> GameTemplateCategories => Set<GameTemplateCategory>();
         public DbSet<CafeGameInventory> CafeGameInventories => Set<CafeGameInventory>();
         public DbSet<CafeGameComponentPenalty> CafeGameComponentPenalties => Set<CafeGameComponentPenalty>();
 

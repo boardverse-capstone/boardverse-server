@@ -23,6 +23,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="201">Đơn đã gửi thành công (PENDING_APPROVAL).</response>
         /// <response code="400">Thiếu trường bắt buộc hoặc dữ liệu không hợp lệ (hotline, giờ làm việc, ảnh giấy phép).</response>
         /// <response code="409">Trùng MST/địa chỉ 100%, email đã có đơn mở, hoặc email thuộc Admin/Manager/CafeStaff.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost]
         [AllowAnonymous]
         public async Task<IActionResult> Submit([FromBody] SubmitCafePartnerApplicationRequestDto request)
@@ -39,6 +40,7 @@ namespace BoardVerse.API.Controllers
         /// <param name="id">Mã đơn đăng ký.</param>
         /// <response code="200">Trả về thông tin đơn.</response>
         /// <response code="404">Không tìm thấy đơn.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpGet("{id:guid}")]
         [AllowAnonymous]
         public async Task<IActionResult> GetById(Guid id)

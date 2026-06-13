@@ -179,6 +179,7 @@ builder.Services.AddScoped<IUserProfileRepository, UserProfileRepository>();
 builder.Services.AddScoped<IUserManagementRepository, UserManagementRepository>();
 builder.Services.AddScoped<IHealthRepository, HealthRepository>();
 builder.Services.AddScoped<IGameTemplateRepository, GameTemplateRepository>();
+builder.Services.AddScoped<ICategoryRepository, CategoryRepository>();
 builder.Services.AddScoped<ICafeRepository, CafeRepository>();
 builder.Services.AddScoped<ICafeInventoryRepository, CafeInventoryRepository>();
 builder.Services.AddScoped<ICafePartnerApplicationRepository, CafePartnerApplicationRepository>();
@@ -187,13 +188,10 @@ builder.Services.AddScoped<IUserProfileService, UserProfileService>();
 builder.Services.AddScoped<IUserManagementService, UserManagementService>();
 builder.Services.AddScoped<IHealthService, HealthService>();
 builder.Services.AddScoped<IGameTemplateService, GameTemplateService>();
+builder.Services.AddScoped<IBoardGameService, BoardGameService>();
 builder.Services.AddScoped<ICafeService, CafeService>();
 builder.Services.AddScoped<ICafeInventoryService, CafeInventoryService>();
 builder.Services.AddScoped<ICafePartnerApplicationService, CafePartnerApplicationService>();
-builder.Services.Configure<BggSettings>(builder.Configuration.GetSection(BggSettings.SectionName));
-builder.Services.AddHttpClient<IBggApiService, BggApiService>();
-builder.Services.AddScoped<IGameSeedService, GameSeedService>();
-
 builder.Services.AddControllers(options =>
 {
     options.Filters.Add<BoardVerse.API.Filters.ValidateModelAttribute>();

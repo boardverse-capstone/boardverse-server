@@ -1,5 +1,6 @@
 using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.Inventory;
+using BoardVerse.Core.Helpers;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
@@ -378,12 +379,14 @@ namespace BoardVerse.Services.Services
             GameTemplateId = inventory.GameTemplateId,
             GameName = inventory.GameTemplate?.Name ?? string.Empty,
             ThumbnailUrl = inventory.GameTemplate?.ThumbnailUrl,
-            BggGameId = inventory.GameTemplate?.BggGameId,
+            Description = inventory.GameTemplate?.Description,
             MinPlayers = inventory.GameTemplate?.MinPlayers ?? 0,
             MaxPlayers = inventory.GameTemplate?.MaxPlayers ?? 0,
             PlayTime = inventory.GameTemplate?.PlayTime ?? 0,
             BoxQuantity = inventory.BoxQuantity,
-            Status = inventory.Status
+            Status = inventory.Status,
+            Categories = GameCatalogMapper.MapCategories(inventory.GameTemplate),
+            Components = GameCatalogMapper.MapComponents(inventory.GameTemplate?.Components)
         };
 
         private static CafeInventoryResponseDto MapToFullDto(CafeGameInventory inventory) => new()
@@ -394,7 +397,6 @@ namespace BoardVerse.Services.Services
             GameName = inventory.GameTemplate?.Name ?? string.Empty,
             ThumbnailUrl = inventory.GameTemplate?.ThumbnailUrl,
             Description = inventory.GameTemplate?.Description,
-            BggGameId = inventory.GameTemplate?.BggGameId,
             MinPlayers = inventory.GameTemplate?.MinPlayers ?? 0,
             MaxPlayers = inventory.GameTemplate?.MaxPlayers ?? 0,
             PlayTime = inventory.GameTemplate?.PlayTime ?? 0,

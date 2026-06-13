@@ -24,6 +24,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
         /// <response code="403">Tài khoản không có quyền Manager.</response>
         /// <response code="404">Chưa có hồ sơ đối tác đã được duyệt.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpGet]
         public async Task<IActionResult> GetProfile()
         {
@@ -41,6 +42,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
         /// <response code="403">Tài khoản không có quyền Manager.</response>
         /// <response code="404">Chưa có hồ sơ đối tác đã được duyệt.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPut("operational-profile")]
         public async Task<IActionResult> UpdateOperationalProfile([FromBody] UpdateOperationalProfileRequestDto request)
         {
@@ -57,6 +59,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
         /// <response code="403">Tài khoản không có quyền Manager.</response>
         /// <response code="404">Chưa có hồ sơ đối tác đã được duyệt.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("activate")]
         public async Task<IActionResult> Activate()
         {
@@ -73,6 +76,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
         /// <response code="403">Tài khoản không có quyền Manager.</response>
         /// <response code="404">Chưa có hồ sơ đối tác đã được duyệt.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("deactivate")]
         public async Task<IActionResult> Deactivate()
         {

@@ -24,6 +24,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="200">Danh sách đơn đăng ký.</response>
         /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
         /// <response code="403">Tài khoản không có quyền Admin.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] AdminCafePartnerApplicationQueryDto query)
         {
@@ -39,6 +40,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
         /// <response code="403">Tài khoản không có quyền Admin.</response>
         /// <response code="404">Không tìm thấy đơn.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpGet("{id:guid}")]
         public async Task<IActionResult> GetById(Guid id)
         {
@@ -56,6 +58,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="403">Tài khoản không có quyền Admin.</response>
         /// <response code="404">Không tìm thấy đơn.</response>
         /// <response code="409">Email không đủ điều kiện hoặc đã quản lý quán khác.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("{id:guid}/approve")]
         public async Task<IActionResult> Approve(Guid id)
         {
@@ -74,6 +77,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
         /// <response code="403">Tài khoản không có quyền Admin.</response>
         /// <response code="404">Không tìm thấy đơn.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("{id:guid}/reject")]
         public async Task<IActionResult> Reject(Guid id, [FromBody] RejectCafePartnerApplicationRequestDto request)
         {

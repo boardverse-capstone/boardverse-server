@@ -208,6 +208,32 @@ namespace BoardVerse.Data
                 CREATE INDEX IF NOT EXISTS "IX_CafePartnerApplications_Hotline"
                     ON "CafePartnerApplications" ("Hotline");
                 """);
+
+            // Backfill legacy Contact* from new columns (rows created after schema rename).
+            await context.Database.ExecuteSqlRawAsync("""
+                UPDATE "CafePartnerApplications"
+                SET "ContactEmail" = COALESCE(NULLIF(TRIM("ContactEmail"), ''), "RepresentativeEmail"),
+                    "ContactPhone" = COALESCE(NULLIF(TRIM("ContactPhone"), ''), "Hotline"),
+                    "ContactName" = COALESCE(NULLIF(TRIM("ContactName"), ''), "RepresentativeName", '')
+                WHERE TRIM(COALESCE("RepresentativeEmail", '')) <> ''
+                   OR TRIM(COALESCE("Hotline", '')) <> '';
+                """);
+
+            // Drop legacy / unused columns — entity only maps Hotline, RepresentativeEmail, etc.
+            await context.Database.ExecuteSqlRawAsync("""
+                DROP INDEX IF EXISTS "IX_CafePartnerApplications_ContactEmail";
+                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "ContactName";
+                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "ContactEmail";
+                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "ContactPhone";
+                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "CafePhoneNumber";
+                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "Description";
+                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "AdminNotes";
+                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "BusinessLicenseNumber";
+                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "BusinessLicenseUrl";
+                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "CafeImageUrl";
+                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "RepresentativeName";
+                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "MaximumCapacity";
+                """);
         }
 
         public static async Task EnsureGameTablesAsync(BoardVerseDbContext context)
@@ -215,15 +241,64 @@ namespace BoardVerse.Data
             await context.Database.ExecuteSqlRawAsync("""
                 CREATE TABLE IF NOT EXISTS "GameTemplates" (
                     "Id" uuid PRIMARY KEY,
-                    "BggGameId" integer,
                     "Name" character varying(200) NOT NULL,
+                    "NameSearchKey" character varying(200) NOT NULL DEFAULT '',
                     "ThumbnailUrl" character varying(500),
                     "Description" character varying(2000),
                     "MinPlayers" integer NOT NULL,
                     "MaxPlayers" integer NOT NULL,
                     "PlayTime" integer NOT NULL,
+                    "IsActive" boolean NOT NULL DEFAULT true,
                     "CreatedAt" timestamp with time zone NOT NULL,
                     "UpdatedAt" timestamp with time zone NOT NULL
+                );
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                ALTER TABLE "GameTemplates" ADD COLUMN IF NOT EXISTS "NameSearchKey" character varying(200) NOT NULL DEFAULT '';
+                ALTER TABLE "GameTemplates" ADD COLUMN IF NOT EXISTS "SearchAliases" character varying(500);
+                ALTER TABLE "GameTemplates" ADD COLUMN IF NOT EXISTS "SearchAliasesKey" character varying(500) NOT NULL DEFAULT '';
+                ALTER TABLE "GameTemplates" ADD COLUMN IF NOT EXISTS "IsActive" boolean NOT NULL DEFAULT true;
+                ALTER TABLE "GameTemplates" DROP COLUMN IF EXISTS "BggGameId";
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE INDEX IF NOT EXISTS "IX_GameTemplates_NameSearchKey"
+                    ON "GameTemplates" ("NameSearchKey");
+                CREATE INDEX IF NOT EXISTS "IX_GameTemplates_SearchAliasesKey"
+                    ON "GameTemplates" ("SearchAliasesKey");
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS "Categories" (
+                    "Id" uuid PRIMARY KEY,
+                    "Name" character varying(100) NOT NULL,
+                    "Slug" character varying(100) NOT NULL,
+                    "Description" character varying(500),
+                    "SortOrder" integer NOT NULL,
+                    "IsActive" boolean NOT NULL DEFAULT true,
+                    "CreatedAt" timestamp with time zone NOT NULL,
+                    "UpdatedAt" timestamp with time zone NOT NULL
+                );
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE UNIQUE INDEX IF NOT EXISTS "IX_Categories_Slug"
+                    ON "Categories" ("Slug");
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS "GameTemplateCategories" (
+                    "GameTemplateId" uuid NOT NULL,
+                    "CategoryId" uuid NOT NULL,
+                    "CreatedAt" timestamp with time zone NOT NULL,
+                    PRIMARY KEY ("GameTemplateId", "CategoryId"),
+                    CONSTRAINT "FK_GameTemplateCategories_GameTemplates_GameTemplateId"
+                        FOREIGN KEY ("GameTemplateId")
+                        REFERENCES "GameTemplates" ("Id") ON DELETE CASCADE,
+                    CONSTRAINT "FK_GameTemplateCategories_Categories_CategoryId"
+                        FOREIGN KEY ("CategoryId")
+                        REFERENCES "Categories" ("Id") ON DELETE CASCADE
                 );
                 """);
 

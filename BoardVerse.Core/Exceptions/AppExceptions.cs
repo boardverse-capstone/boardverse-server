@@ -216,4 +216,9 @@ namespace BoardVerse.Core.Exceptions
     {
         public SevereDataDuplicationException(string message = "Mã số thuế hoặc Địa chỉ này đã được đăng ký trên hệ thống. Vui lòng kiểm tra lại.") : base(message) { }
     }
+
+    public class BoardGameNotFoundException : NotFoundException
+    {
+        public BoardGameNotFoundException(string message = "Board game not found.") : base(message) { }
+    }
 }

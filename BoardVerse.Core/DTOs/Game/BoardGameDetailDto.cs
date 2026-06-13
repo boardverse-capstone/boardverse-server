@@ -1,6 +1,6 @@
 namespace BoardVerse.Core.DTOs.Game
 {
-    public class MasterGameResponseDto
+    public class BoardGameDetailDto
     {
         public Guid Id { get; set; }
         public string Name { get; set; } = string.Empty;
@@ -11,8 +11,7 @@ namespace BoardVerse.Core.DTOs.Game
         public int PlayTime { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
-        public List<GameComponentTemplateDto> Components { get; set; } = new();
-        public List<CategoryDto> Categories { get; set; } = new();
-        public bool? AlreadyInInventory { get; set; }
+        public List<CategoryDto> Categories { get; set; } = [];
+        public List<BoardGameComponentDto> Components { get; set; } = [];
     }
 }

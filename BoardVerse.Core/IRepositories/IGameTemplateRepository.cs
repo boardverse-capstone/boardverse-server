@@ -7,6 +7,8 @@ namespace BoardVerse.Core.IRepositories
     public interface IGameTemplateRepository
     {
         Task<PaginatedResponse<GameTemplate>> GetPagedAsync(GetMasterGamesQuery query);
+        Task<PaginatedResponse<GameTemplate>> GetBoardGamesPagedAsync(GetMasterGamesQuery query);
         Task<GameTemplate?> GetByIdWithComponentsAsync(Guid id);
+        Task<Dictionary<Guid, int>> GetComponentCountsByGameIdsAsync(IReadOnlyCollection<Guid> gameIds);
     }
 }

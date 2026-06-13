@@ -1,11 +1,8 @@
-using BoardVerse.Core.DTOs.BGG;
-
 namespace BoardVerse.Services.IServices
 {
     public interface IGameSeedService
     {
-        Task SeedGamesFromBggAsync(List<int> bggGameIds);
-        Task SeedSingleGameFromBggAsync(int bggGameId);
-        Task SeedGamesFromCatalogAsync(List<int>? bggGameIds = null);
+        Task SeedGamesFromCatalogAsync(List<string>? slugs = null);
+        Task SeedSingleGameAsync(string slug);
     }
 }

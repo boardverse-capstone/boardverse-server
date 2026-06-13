@@ -28,6 +28,10 @@ Staff POS: login CafeStaff → gọi GET với token → thấy phí phạt linh
 
 Player: không cần token → browse game tại quán.
 
+**Browse response** gồm `description`, `categories[]`, `components[]` (không có phí phạt).
+
+**Search kho quán:** `searchTerm` hỗ trợ fuzzy search (bỏ dấu + alias) giống `/api/v1/board-games`.
+
 ---
 
 ## POST /api/cafes/{cafeId}/inventory
@@ -49,7 +53,7 @@ Player: không cần token → browse game tại quán.
 
 | Field | Mô tả |
 |-------|--------|
-| `gameTemplateId` | `id` từ `GET /api/v1/master-games` |
+| `gameTemplateId` | `id` từ `GET /api/v1/master-games` (Manager) hoặc `GET /api/v1/board-games` (catalog) |
 | `boxQuantity` | 1–1000 |
 | `status` | `"Available"`, `"InUse"`, `"Damaged"`, `"Maintenance"`, `"Retired"` (string hoặc số) |
 | `componentPenalties` | Tuỳ chọn — game không có components vẫn nhập được |
@@ -91,18 +95,57 @@ Public browse — **không cần token**. Manager login → response full kèm `
         "gameTemplateId": "22222222-2222-2222-2222-222222222222",
         "gameName": "Monopoly",
         "thumbnailUrl": "https://...",
-        "bggGameId": null,
+        "description": "Trò chơi kinh doanh bất động sản...",
         "minPlayers": 2,
         "maxPlayers": 8,
         "playTime": 120,
         "boxQuantity": 2,
-        "status": "Available"
+        "status": "Available",
+        "categories": [{ "id": "...", "name": "Giải trí", "slug": "giai-tri" }],
+        "components": [{ "id": "...", "componentName": "Gameboard", "defaultQuantity": 1 }]
       }
     ],
     "meta": { "currentPage": 1, "pageSize": 10, "totalItems": 1, "totalPages": 1 }
   }
 }
 ```
+
+---
+
+## GET /api/cafes/{cafeId}/inventory/{inventoryId}
+
+Chi tiết **một** mục kho. Quyền xem giống GET list:
+
+| Viewer | Response type |
+|--------|----------------|
+| Public / Player | `CafeInventoryBrowseDto` |
+| CafeStaff / Manager (chủ quán) | `CafeInventoryResponseDto` (kèm `description`, `componentPenalties`) |
+
+**Lỗi:** `404` mục kho hoặc cafe không tồn tại.
+
+---
+
+## PUT /api/cafes/{cafeId}/inventory/{inventoryId}
+
+**Role:** Manager (chủ quán). Cập nhật một phần:
+
+```json
+{
+  "boxQuantity": 3,
+  "status": "Maintenance",
+  "componentPenalties": [
+    { "gameComponentTemplateId": "a2222222-2222-2222-2222-222222222221", "penaltyFee": 750000 }
+  ]
+}
+```
+
+Tất cả field đều optional — chỉ gửi field cần đổi.
+
+---
+
+## DELETE /api/cafes/{cafeId}/inventory/{inventoryId}
+
+**Role:** Manager (chủ quán). Soft delete (`isActive = false`). Khôi phục qua `POST .../restore`.
 
 ---
 
