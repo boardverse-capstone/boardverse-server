@@ -2,6 +2,8 @@ using BoardVerse.Core.DTOs.User;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Helpers;
+using BoardVerse.Core.Messages;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.IServices;
 using Microsoft.EntityFrameworkCore;
@@ -20,10 +22,12 @@ namespace BoardVerse.Services.Services
         public async Task<ProfileDto> GetPublicProfileAsync(Guid userId)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
-            if (user == null) throw new UserNotFoundException();
+            if (user == null) throw new UserNotFoundException(ApiErrorMessages.Profile.UserNotFoundPublic);
 
             var profile = user.Profile;
-            if (profile != null && !profile.IsActive)
+            var hasActiveProfile = profile is { IsActive: true };
+            var hasProfile = ProfileCompletionRules.ResolveHasProfile(user.Role, hasActiveProfile);
+            if (!hasActiveProfile)
             {
                 profile = null;
             }
@@ -39,19 +43,22 @@ namespace BoardVerse.Services.Services
                 GamerTier = profile?.GamerTier.ToString() ?? GamerTier.Bronze.ToString(),
                 GlobalElo = profile?.GlobalElo ?? 1200,
                 Level = profile?.Level ?? 1,
-                UpdatedAt = profile?.UpdatedAt ?? user.UpdatedAt
+                UpdatedAt = profile?.UpdatedAt ?? user.UpdatedAt,
+                HasProfile = hasProfile
             };
         }
 
         public async Task<ProfileDetailDto> GetInternalProfileAsync(Guid userId)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
-            if (user == null) throw new UserNotFoundException();
+            if (user == null) throw new UserNotFoundException(ApiErrorMessages.Profile.UserNotFoundPrivate);
 
             var p = user.Profile;
+            var hasActiveProfile = p is { IsActive: true };
+            var hasProfile = ProfileCompletionRules.ResolveHasProfile(user.Role, hasActiveProfile);
             if (p != null && !p.IsActive)
             {
-                throw new ProfileDisabledException();
+                throw new ProfileDisabledException(ApiErrorMessages.Profile.ProfileDisabled);
             }
 
             return new ProfileDetailDto
@@ -68,15 +75,17 @@ namespace BoardVerse.Services.Services
                 FirstName = p?.FirstName,
                 LastName = p?.LastName,
                 DateOfBirth = p?.DateOfBirth,
-                UpdatedAt = p?.UpdatedAt ?? DateTime.UtcNow
+                UpdatedAt = p?.UpdatedAt ?? DateTime.UtcNow,
+                HasProfile = hasProfile
             };
         }
 
         public async Task<ProfileDto> CreateProfileAsync(Guid userId, ProfileCreateDto request)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
-            if (user == null) throw new UserNotFoundException();
-            if (user.Profile != null && user.Profile.IsActive) throw new ProfileAlreadyExistsException();
+            if (user == null) throw new UserNotFoundException(ApiErrorMessages.Profile.UserNotFoundCreate);
+            if (user.Profile != null && user.Profile.IsActive)
+                throw new ProfileAlreadyExistsException(ApiErrorMessages.Profile.ProfileAlreadyExists);
 
             // Reactivate existing inactive profile instead of creating a duplicate row
             if (user.Profile != null && !user.Profile.IsActive)
@@ -114,7 +123,7 @@ namespace BoardVerse.Services.Services
         public async Task<ProfileDto> UpdateProfileAsync(Guid userId, ProfileUpdateDto request)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
-            if (user == null) throw new UserNotFoundException();
+            if (user == null) throw new UserNotFoundException(ApiErrorMessages.Profile.UserNotFoundUpdate);
 
             var p = user.Profile ?? new UserProfile { UserId = user.Id };
             if (user.Profile != null && !user.Profile.IsActive)
@@ -141,7 +150,7 @@ namespace BoardVerse.Services.Services
         public async Task<ProfileDto> UpdateProgressAsync(Guid userId, ProfileProgressUpdateDto request)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
-            if (user == null) throw new UserNotFoundException();
+            if (user == null) throw new UserNotFoundException(ApiErrorMessages.Profile.UserNotFoundUpdateProgress);
 
             var p = user.Profile ?? new UserProfile { UserId = user.Id };
             if (user.Profile != null && !user.Profile.IsActive)
@@ -175,7 +184,7 @@ namespace BoardVerse.Services.Services
         public async Task<ProfileDto> UpdateAvatarAsync(Guid userId, UpdateAvatarRequestDto request)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
-            if (user == null) throw new UserNotFoundException();
+            if (user == null) throw new UserNotFoundException(ApiErrorMessages.Profile.UserNotFoundUpdateAvatar);
 
             var profile = user.Profile ?? new UserProfile
             {
@@ -201,7 +210,7 @@ namespace BoardVerse.Services.Services
         public async Task<KarmaStateDto> GetKarmaStateAsync(Guid userId)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
-            if (user == null) throw new UserNotFoundException();
+            if (user == null) throw new UserNotFoundException(ApiErrorMessages.Profile.UserNotFoundKarma);
 
             var profile = user.Profile;
 
@@ -219,7 +228,7 @@ namespace BoardVerse.Services.Services
         public async Task<ProfileDto> CreateOrGetProfileAsync(Guid userId)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
-            if (user == null) throw new UserNotFoundException();
+            if (user == null) throw new UserNotFoundException(ApiErrorMessages.Profile.UserNotFoundCreateOrGet);
 
             if (user.Profile == null)
             {

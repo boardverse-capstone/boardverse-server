@@ -9,6 +9,7 @@ using BoardVerse.Core.DTOs.CafePartner;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Messages;
 using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.IServices;
@@ -245,7 +246,7 @@ namespace BoardVerse.Services.Services
         {
             if (string.IsNullOrWhiteSpace(request.Reason))
             {
-                throw new BadRequestException("Rejection reason is required.");
+                throw new BadRequestException(ApiErrorMessages.CafePartner.RejectionReasonRequired);
             }
 
             var application = await GetApplicationOrThrowAsync(id);
@@ -313,7 +314,7 @@ namespace BoardVerse.Services.Services
         {
             var application = await GetApprovedApplicationForManagerOrThrowAsync(managerUserId);
             var cafe = application.CreatedCafe
-                ?? throw new CafePartnerApplicationInvalidStatusException("Linked cafe not found.");
+                ?? throw new CafePartnerApplicationInvalidStatusException(ApiErrorMessages.CafePartner.LinkedCafeMissing);
 
             if (cafe.PartnerOperationalStatus != CafePartnerOperationalStatus.DataBlank)
             {
@@ -347,7 +348,7 @@ namespace BoardVerse.Services.Services
         {
             var application = await GetApprovedApplicationForManagerOrThrowAsync(managerUserId);
             var cafe = application.CreatedCafe
-                ?? throw new CafePartnerApplicationInvalidStatusException("Linked cafe not found.");
+                ?? throw new CafePartnerApplicationInvalidStatusException(ApiErrorMessages.CafePartner.LinkedCafeMissing);
 
             if (cafe.PartnerOperationalStatus != CafePartnerOperationalStatus.Active)
             {
@@ -372,12 +373,11 @@ namespace BoardVerse.Services.Services
 
         private async Task<CafePartnerApplication> GetApplicationOrThrowAsync(Guid id) =>
             await _applicationRepository.GetByIdAsync(id)
-            ?? throw new CafePartnerApplicationNotFoundException();
+            ?? throw new CafePartnerApplicationNotFoundException(ApiErrorMessages.CafePartner.ApplicationNotFound(id));
 
         private async Task<CafePartnerApplication> GetApprovedApplicationForManagerOrThrowAsync(Guid managerUserId) =>
             await _applicationRepository.GetApprovedByManagerUserIdAsync(managerUserId)
-            ?? throw new CafePartnerApplicationNotFoundException(
-                "No approved partner profile found for this manager.");
+            ?? throw new CafePartnerApplicationNotFoundException(ApiErrorMessages.CafePartner.ApplicationNotFoundForManager);
 
         private static void EnsureOperationalStateAllowsEdit(CafePartnerApplication application)
         {

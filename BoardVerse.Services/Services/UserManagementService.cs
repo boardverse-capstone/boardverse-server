@@ -3,6 +3,7 @@ using BoardVerse.Core.DTOs.User;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Messages;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.IServices;
 
@@ -46,7 +47,7 @@ namespace BoardVerse.Services.Services
         {
             if (!string.IsNullOrWhiteSpace(query.Role) && !UserRoleParser.TryParse(query.Role, out _))
             {
-                throw new BadRequestException("Role is invalid.");
+                throw new BadRequestException(ApiErrorMessages.AdminUsers.InvalidRoleValue);
             }
 
             var result = await _userRepository.GetAdminUsersAsync(query);
@@ -62,7 +63,7 @@ namespace BoardVerse.Services.Services
         public async Task<AdminUserDto> GetAsync(Guid id)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(id);
-            if (user == null) throw new UserNotFoundException();
+            if (user == null) throw new UserNotFoundException(ApiErrorMessages.AdminUsers.UserNotFound(id));
 
             return MapUser(user);
         }
@@ -71,12 +72,12 @@ namespace BoardVerse.Services.Services
         {
             if (await _userRepository.UserExistsAsync(request.Email, request.Username))
             {
-                throw new UserAlreadyExistsException("User with same email or username exists.");
+                throw new UserAlreadyExistsException(ApiErrorMessages.AdminUsers.CreateDuplicate);
             }
 
             if (!UserRoleParser.TryParse(request.Role, out var role))
             {
-                throw new BadRequestException("Role is invalid.");
+                throw new BadRequestException(ApiErrorMessages.AdminUsers.InvalidRoleValue);
             }
 
             var user = new User
@@ -104,21 +105,21 @@ namespace BoardVerse.Services.Services
         public async Task<AdminUserDto> UpdateAsync(Guid id, AdminUpdateUserDto request)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(id);
-            if (user == null) throw new UserNotFoundException();
+            if (user == null) throw new UserNotFoundException(ApiErrorMessages.AdminUsers.UserNotFound(id));
 
             if (!string.IsNullOrWhiteSpace(request.Username) && await _userRepository.UsernameExistsAsync(request.Username, id))
             {
-                throw new ConflictException("Username already exists.");
+                throw new ConflictException(ApiErrorMessages.AdminUsers.UsernameConflict(request.Username));
             }
 
             if (!string.IsNullOrWhiteSpace(request.Email) && await _userRepository.EmailExistsAsync(request.Email, id))
             {
-                throw new ConflictException("Email already exists.");
+                throw new ConflictException(ApiErrorMessages.AdminUsers.EmailConflict(request.Email));
             }
 
             if (!string.IsNullOrWhiteSpace(request.Role) && !UserRoleParser.TryParse(request.Role, out _))
             {
-                throw new BadRequestException("Role is invalid.");
+                throw new BadRequestException(ApiErrorMessages.AdminUsers.InvalidRoleValue);
             }
 
             user.Username = request.Username ?? user.Username;
@@ -158,7 +159,7 @@ namespace BoardVerse.Services.Services
         public async Task DisableAsync(Guid id)
         {
             var user = await _userRepository.GetByIdAsync(id);
-            if (user == null) throw new UserNotFoundException();
+            if (user == null) throw new UserNotFoundException(ApiErrorMessages.AdminUsers.UserNotFound(id));
 
             user.IsActive = false;
             user.UpdatedAt = DateTime.UtcNow;
@@ -168,7 +169,7 @@ namespace BoardVerse.Services.Services
         public async Task<AdminUserDto> BlockAsync(Guid id, AdminBlockUserDto request)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(id);
-            if (user == null) throw new UserNotFoundException();
+            if (user == null) throw new UserNotFoundException(ApiErrorMessages.AdminUsers.UserNotFound(id));
 
             user.IsBlocked = true;
             user.BlockReason = request.Reason;
@@ -183,7 +184,7 @@ namespace BoardVerse.Services.Services
         public async Task<AdminUserDto> UnblockAsync(Guid id)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(id);
-            if (user == null) throw new UserNotFoundException();
+            if (user == null) throw new UserNotFoundException(ApiErrorMessages.AdminUsers.UserNotFound(id));
 
             user.IsBlocked = false;
             user.BlockReason = null;
@@ -198,11 +199,11 @@ namespace BoardVerse.Services.Services
         public async Task<AdminUserDto> UpdateRoleAsync(Guid id, AdminUpdateUserRoleDto request)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(id);
-            if (user == null) throw new UserNotFoundException();
+            if (user == null) throw new UserNotFoundException(ApiErrorMessages.AdminUsers.UserNotFound(id));
 
             if (!UserRoleParser.TryParse(request.Role, out var role))
             {
-                throw new BadRequestException("Role is invalid.");
+                throw new BadRequestException(ApiErrorMessages.AdminUsers.InvalidRoleValue);
             }
 
             user.Role = role;

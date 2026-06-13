@@ -19,7 +19,7 @@ namespace BoardVerse.Core.DTOs.User
 
         [StringLength(100, ErrorMessage = "Last name cannot exceed 100 characters.")]
         public string? LastName { get; set; }
-        public DateTime? DateOfBirth { get; set; }
+        public DateOnly? DateOfBirth { get; set; }
 
         [Phone(ErrorMessage = "Phone number is invalid.")]
         [StringLength(50, ErrorMessage = "Phone number cannot exceed 50 characters.")]

@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Messages;
 using BoardVerse.Core.Settings;
 using BoardVerse.Services.IServices;
 using Microsoft.Extensions.Logging;
@@ -36,14 +37,12 @@ namespace BoardVerse.Services.Services.Email
         {
             if (string.IsNullOrWhiteSpace(_settings.ApiKey))
             {
-                throw new EmailSendingException(
-                    "Brevo ApiKey is required. Set Brevo:ApiKey or Brevo__ApiKey in appsettings or environment.");
+                throw new EmailSendingException(ApiErrorMessages.Email.BrevoApiKeyMissing);
             }
 
             if (string.IsNullOrWhiteSpace(_settings.SenderEmail))
             {
-                throw new EmailSendingException(
-                    "Brevo SenderEmail is not configured. Verify sender in Brevo dashboard (Senders).");
+                throw new EmailSendingException(ApiErrorMessages.Email.BrevoSenderMissing);
             }
 
             var payload = new BrevoSendRequest
@@ -80,14 +79,12 @@ namespace BoardVerse.Services.Services.Email
             catch (HttpRequestException ex)
             {
                 _logger.LogError(ex, "Brevo HTTP connection failed to {SendUri}", sendUri);
-                throw new EmailSendingException(
-                    "Cannot connect to Brevo API. Verify Brevo__ApiKey and Brevo__ApiBaseUrl=https://api.brevo.com on hosting.",
-                    ex);
+                throw new EmailSendingException(ApiErrorMessages.Email.BrevoConnectionFailed, ex);
             }
             catch (TaskCanceledException ex)
             {
                 _logger.LogError(ex, "Brevo API request timed out to {SendUri}", sendUri);
-                throw new EmailSendingException("Brevo API request timed out.", ex);
+                throw new EmailSendingException(ApiErrorMessages.Email.BrevoRequestTimedOut, ex);
             }
 
             using (response)
@@ -106,9 +103,7 @@ namespace BoardVerse.Services.Services.Email
                     responseBody);
 
                 throw new EmailSendingException(
-                    $"Brevo API failed ({(int)response.StatusCode}). " +
-                    "Verify ApiKey, account validation, and sender email in Brevo. " +
-                    $"Details: {responseBody}");
+                    ApiErrorMessages.Email.BrevoApiFailed((int)response.StatusCode, responseBody));
             }
         }
 

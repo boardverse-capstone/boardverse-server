@@ -15,8 +15,9 @@ namespace BoardVerse.Core.DTOs.User
         // PII
         public string? FirstName { get; set; }
         public string? LastName { get; set; }
-        public DateTime? DateOfBirth { get; set; }
+        public DateOnly? DateOfBirth { get; set; }
 
         public DateTime UpdatedAt { get; set; }
+        public bool HasProfile { get; set; }
     }
 }

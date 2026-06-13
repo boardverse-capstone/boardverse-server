@@ -1,6 +1,7 @@
 using BoardVerse.Core.DTOs.Auth.Requests;
 using BoardVerse.Core.DTOs.Auth.Responses;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -177,7 +178,7 @@ namespace BoardVerse.API.Controllers
 
             if (!Guid.TryParse(userIdValue, out var userId))
             {
-                throw new UnauthorizedException("Invalid token.");
+                throw new UnauthorizedException(ApiErrorMessages.Controller.ChangePasswordInvalidUserId);
             }
 
             await _authService.ChangePasswordAsync(userId, request);

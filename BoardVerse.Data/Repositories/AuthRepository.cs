@@ -2,6 +2,7 @@ using BoardVerse.Core.DTOs.Auth.Requests;
 using BoardVerse.Core.DTOs.User;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using Microsoft.EntityFrameworkCore;
 
@@ -59,6 +60,25 @@ namespace BoardVerse.Data.Repositories
         public Task<bool> IsTokenBlacklistedAsync(string token)
         {
             return _context.TokenBlacklists.AnyAsync(tb => tb.Token == token);
+        }
+
+        public async Task<bool> HasActiveProfileAsync(Guid userId)
+        {
+            var user = await _context.Users
+                .AsNoTracking()
+                .Where(u => u.Id == userId)
+                .Select(u => new { u.Role })
+                .FirstOrDefaultAsync();
+
+            if (user == null)
+            {
+                return false;
+            }
+
+            var hasActiveProfile = await _context.UserProfiles
+                .AnyAsync(p => p.UserId == userId && p.IsActive);
+
+            return ProfileCompletionRules.ResolveHasProfile(user.Role, hasActiveProfile);
         }
 
         public Task AddUserAsync(User user)

@@ -47,6 +47,21 @@ namespace BoardVerse.Data
                 DO $$ BEGIN
                     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'UserProfiles') THEN
                         ALTER TABLE "UserProfiles" DROP COLUMN IF EXISTS "HomeAddress";
+
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.columns
+                            WHERE table_schema = 'public'
+                              AND table_name = 'UserProfiles'
+                              AND column_name = 'DateOfBirth'
+                              AND udt_name <> 'date'
+                        ) THEN
+                            ALTER TABLE "UserProfiles"
+                            ALTER COLUMN "DateOfBirth" TYPE date
+                            USING CASE
+                                WHEN "DateOfBirth" IS NULL THEN NULL
+                                ELSE ("DateOfBirth" AT TIME ZONE 'UTC')::date
+                            END;
+                        END IF;
                     END IF;
                 END $$;
                 """);

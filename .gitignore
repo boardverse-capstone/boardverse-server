@@ -9,6 +9,7 @@
 .vs/
 **/bin/
 **/obj/
+.build-check/
 .agents/docs/project-context.md
 .agents/docs/structure-code.md
 BoardVerse.API/appsettings.json
@@ -16,3 +17,4 @@ BoardVerse.API/appsettings.Development.json
 tools/SeedBoardGames/appsettings.json
 BoardVerse.Data/update-all-entities.sql
 .cursor/rules/api-controller-xml-docs.mdc
+.cursor/rules/api-error-messages.mdc

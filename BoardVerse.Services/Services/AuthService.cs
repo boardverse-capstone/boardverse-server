@@ -4,6 +4,7 @@ using BoardVerse.Core.DTOs.User;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Messages;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.IServices;
 using Google.Apis.Auth;
@@ -76,7 +77,7 @@ namespace BoardVerse.Services.Services
             var existingUser = await _userRepository.UserExistsAsync(request.Email, request.Username);
             if (existingUser)
             {
-                throw new UserAlreadyExistsException("A user with the same username or email already exists.");
+                throw new UserAlreadyExistsException(ApiErrorMessages.Auth.RegisterDuplicate);
             }
 
             var user = new User
@@ -103,11 +104,7 @@ namespace BoardVerse.Services.Services
             await _userRepository.SaveChangesAsync();
 
             // Generate tokens for automatic login
-            return new LoginResponseDto
-            {
-                Token = GenerateJwtToken(user),
-                RefreshToken = await CreateAndSaveRefreshTokenAsync(user.Id)
-            };
+            return await BuildLoginResponseAsync(user);
         }
 
         public async Task<LoginResponseDto> LoginAsync(LoginRequestDto request)
@@ -115,36 +112,32 @@ namespace BoardVerse.Services.Services
             var throttleKey = $"login:{request.UsernameOrEmail}";
             if (IsLoginThrottled(throttleKey))
             {
-                throw new TooManyLoginAttemptsException();
+                throw new TooManyLoginAttemptsException(ApiErrorMessages.Auth.LoginTooManyAttempts);
             }
 
             var user = await _userRepository.GetByUsernameOrEmailAsync(request.UsernameOrEmail);
             if (user == null || string.IsNullOrWhiteSpace(user.PasswordHash))
             {
                 IncrementLoginAttempts(throttleKey);
-                throw new InvalidCredentialsException("Invalid username/email or password.");
+                throw new InvalidCredentialsException(ApiErrorMessages.Auth.LoginInvalidCredentials);
             }
 
             if (user.IsBlocked)
             {
-                throw new UserBlockedException(user.BlockReason ?? "User is blocked.");
+                throw new UserBlockedException(ApiErrorMessages.AccountBlocked("Sign-in", user.BlockReason));
             }
 
             if (!BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             {
                 IncrementLoginAttempts(throttleKey);
-                throw new InvalidCredentialsException("Invalid username/email or password.");
+                throw new InvalidCredentialsException(ApiErrorMessages.Auth.LoginInvalidCredentials);
             }
 
             user.LastLoginAt = DateTime.UtcNow;
             user.UpdatedAt = DateTime.UtcNow;
             await _userRepository.SaveChangesAsync();
 
-            return new LoginResponseDto
-            {
-                Token = GenerateJwtToken(user),
-                RefreshToken = await CreateAndSaveRefreshTokenAsync(user.Id)
-            };
+            return await BuildLoginResponseAsync(user);
         }
 
         public async Task<LoginResponseDto> GoogleLoginAsync(GoogleAuthRequestDto request)
@@ -158,7 +151,7 @@ namespace BoardVerse.Services.Services
 
                 if (string.IsNullOrWhiteSpace(payload.Email))
                 {
-                    throw new InvalidTokenException("Google token missing email.");
+                    throw new InvalidTokenException(ApiErrorMessages.Auth.GoogleTokenMissingEmail);
                 }
 
                 // Check by provider id first
@@ -192,7 +185,7 @@ namespace BoardVerse.Services.Services
                 {
                     if (user.IsBlocked)
                     {
-                        throw new UserBlockedException(user.BlockReason ?? "User is blocked.");
+                        throw new UserBlockedException(ApiErrorMessages.AccountBlocked("Google sign-in", user.BlockReason));
                     }
 
                     // If user exists with same email but no provider set, link account
@@ -210,11 +203,7 @@ namespace BoardVerse.Services.Services
                 user.UpdatedAt = DateTime.UtcNow;
                 await _userRepository.SaveChangesAsync();
 
-                return new LoginResponseDto
-                {
-                    Token = GenerateJwtToken(user),
-                    RefreshToken = await CreateAndSaveRefreshTokenAsync(user.Id)
-                };
+                return await BuildLoginResponseAsync(user);
             }
             catch (InvalidOperationException)
             {
@@ -222,7 +211,7 @@ namespace BoardVerse.Services.Services
             }
             catch (Exception ex)
             {
-                throw new GoogleTokenValidationException("Failed to validate Google token.", ex);
+                throw new GoogleTokenValidationException(ApiErrorMessages.Auth.GoogleTokenValidationFailed, ex);
             }
         }
 
@@ -231,18 +220,18 @@ namespace BoardVerse.Services.Services
             var rt = await _userRepository.GetActiveRefreshTokenAsync(request.RefreshToken);
             if (rt == null || rt.ExpiresAt < DateTime.UtcNow)
             {
-                throw new RefreshTokenExpiredException("Invalid or expired refresh token.");
+                throw new RefreshTokenExpiredException(ApiErrorMessages.Auth.RefreshTokenInvalidOrExpired);
             }
 
             var user = await _userRepository.GetByIdAsync(rt.UserId);
             if (user == null)
             {
-                throw new UserNotFoundException("User not found for refresh token.");
+                throw new UserNotFoundException(ApiErrorMessages.Auth.RefreshTokenUserMissing);
             }
 
             if (user.IsBlocked)
             {
-                throw new UserBlockedException(user.BlockReason ?? "User is blocked.");
+                throw new UserBlockedException(ApiErrorMessages.AccountBlocked("Token refresh", user.BlockReason));
             }
 
             // Optionally revoke old refresh token and issue a new one
@@ -256,7 +245,8 @@ namespace BoardVerse.Services.Services
             return new RefreshTokenResponseDto
             {
                 Token = newAccessToken,
-                RefreshToken = newRefreshToken
+                RefreshToken = newRefreshToken,
+                HasProfile = await _userRepository.HasActiveProfileAsync(user.Id)
             };
         }
 
@@ -275,8 +265,8 @@ namespace BoardVerse.Services.Services
         public async Task<string> SendEmailVerificationAsync(SendEmailVerificationRequestDto request)
         {
             var user = await _userRepository.GetByEmailAsync(request.Email);
-            if (user == null) throw new UserNotFoundException();
-            if (user.IsBlocked) throw new UserBlockedException(user.BlockReason ?? "User is blocked.");
+            if (user == null) throw new UserNotFoundException(ApiErrorMessages.Auth.SendVerificationUserNotFound);
+            if (user.IsBlocked) throw new UserBlockedException(ApiErrorMessages.AccountBlocked("Sending verification email", user.BlockReason));
 
             var token = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
             user.EmailVerificationToken = token;
@@ -294,10 +284,11 @@ namespace BoardVerse.Services.Services
         public async Task VerifyEmailAsync(VerifyEmailRequestDto request)
         {
             var user = await _userRepository.GetByEmailVerificationTokenAsync(request.Token);
-            if (user == null) throw new InvalidTokenException("Invalid verification token.");
-            if (user.IsBlocked) throw new UserBlockedException(user.BlockReason ?? "User is blocked.");
+            if (user == null) throw new InvalidTokenException(ApiErrorMessages.Auth.VerifyEmailInvalidToken);
+            if (user.IsBlocked) throw new UserBlockedException(ApiErrorMessages.AccountBlocked("Email verification", user.BlockReason));
 
-            if (user.EmailVerificationTokenExpiresAt < DateTime.UtcNow) throw new VerificationTokenExpiredException();
+            if (user.EmailVerificationTokenExpiresAt < DateTime.UtcNow)
+                throw new VerificationTokenExpiredException(ApiErrorMessages.Auth.VerifyEmailTokenExpired);
 
             user.IsEmailVerified = true;
             user.EmailVerificationToken = null;
@@ -309,9 +300,9 @@ namespace BoardVerse.Services.Services
         public async Task<string> RequestPasswordResetAsync(RequestPasswordResetDto request)
         {
             var user = await _userRepository.GetByEmailAsync(request.Email);
-            if (user == null) throw new UserNotFoundException();
-            if (!user.IsEmailVerified) throw new EmailVerificationRequiredException();
-            if (user.IsBlocked) throw new UserBlockedException(user.BlockReason ?? "User is blocked.");
+            if (user == null) throw new UserNotFoundException(ApiErrorMessages.Auth.RequestPasswordResetUserNotFound);
+            if (!user.IsEmailVerified) throw new EmailVerificationRequiredException(ApiErrorMessages.Auth.RequestPasswordResetEmailNotVerified);
+            if (user.IsBlocked) throw new UserBlockedException(ApiErrorMessages.AccountBlocked("Password reset request", user.BlockReason));
 
             var token = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
             user.PasswordResetToken = token;
@@ -329,10 +320,11 @@ namespace BoardVerse.Services.Services
         public async Task ResetPasswordAsync(ResetPasswordDto request)
         {
             var user = await _userRepository.GetByPasswordResetTokenAsync(request.Token);
-            if (user == null) throw new InvalidTokenException("Invalid password reset token.");
-            if (user.IsBlocked) throw new UserBlockedException(user.BlockReason ?? "User is blocked.");
+            if (user == null) throw new InvalidTokenException(ApiErrorMessages.Auth.ResetPasswordInvalidToken);
+            if (user.IsBlocked) throw new UserBlockedException(ApiErrorMessages.AccountBlocked("Password reset", user.BlockReason));
 
-            if (user.PasswordResetTokenExpiresAt < DateTime.UtcNow) throw new PasswordResetTokenExpiredException();
+            if (user.PasswordResetTokenExpiresAt < DateTime.UtcNow)
+                throw new PasswordResetTokenExpiredException(ApiErrorMessages.Auth.ResetPasswordTokenExpired);
 
             user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
             user.PasswordResetToken = null;
@@ -344,18 +336,19 @@ namespace BoardVerse.Services.Services
         public async Task ChangePasswordAsync(Guid userId, ChangePasswordDto request)
         {
             var user = await _userRepository.GetByIdAsync(userId);
-            if (user == null) throw new UserNotFoundException();
-            if (user.IsBlocked) throw new UserBlockedException(user.BlockReason ?? "User is blocked.");
-            if (string.IsNullOrWhiteSpace(user.PasswordHash)) throw new BadRequestException("This account does not have a local password.");
+            if (user == null) throw new UserNotFoundException(ApiErrorMessages.Auth.ChangePasswordUserNotFound);
+            if (user.IsBlocked) throw new UserBlockedException(ApiErrorMessages.AccountBlocked("Password change", user.BlockReason));
+            if (string.IsNullOrWhiteSpace(user.PasswordHash))
+                throw new BadRequestException(ApiErrorMessages.Auth.ChangePasswordNoLocalPassword);
 
             if (!BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash))
             {
-                throw new InvalidCredentialsException("Current password is incorrect.");
+                throw new InvalidCredentialsException(ApiErrorMessages.Auth.ChangePasswordCurrentIncorrect);
             }
 
             if (BCrypt.Net.BCrypt.Verify(request.NewPassword, user.PasswordHash))
             {
-                throw new BadRequestException("New password must be different from the current password.");
+                throw new BadRequestException(ApiErrorMessages.Auth.ChangePasswordSameAsCurrent);
             }
 
             user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
@@ -374,13 +367,13 @@ namespace BoardVerse.Services.Services
 
                 if (string.IsNullOrWhiteSpace(payload.Email))
                 {
-                    throw new InvalidTokenException("Google token missing email.");
+                    throw new InvalidTokenException(ApiErrorMessages.Auth.GoogleTokenMissingEmail);
                 }
 
                 // Find existing user by email
                 var user = await _userRepository.GetByEmailAsync(payload.Email);
-                if (user == null) throw new UserNotFoundException("No local account found to link.");
-                if (user.IsBlocked) throw new UserBlockedException(user.BlockReason ?? "User is blocked.");
+                if (user == null) throw new UserNotFoundException(ApiErrorMessages.Auth.LinkGoogleAccountNotFound);
+                if (user.IsBlocked) throw new UserBlockedException(ApiErrorMessages.AccountBlocked("Google account linking", user.BlockReason));
 
                 user.Provider = "Google";
                 user.ProviderId = payload.Subject;
@@ -388,11 +381,7 @@ namespace BoardVerse.Services.Services
                 user.UpdatedAt = DateTime.UtcNow;
                 await _userRepository.SaveChangesAsync();
 
-                return new LoginResponseDto
-                {
-                    Token = GenerateJwtToken(user),
-                    RefreshToken = await CreateAndSaveRefreshTokenAsync(user.Id)
-                };
+                return await BuildLoginResponseAsync(user);
             }
             catch (InvalidOperationException)
             {
@@ -400,11 +389,18 @@ namespace BoardVerse.Services.Services
             }
             catch (Exception ex)
             {
-                throw new GoogleTokenValidationException("Failed to validate Google token.", ex);
+                throw new GoogleTokenValidationException(ApiErrorMessages.Auth.GoogleTokenValidationFailed, ex);
             }
         }
 
         // Helper methods
+        private async Task<LoginResponseDto> BuildLoginResponseAsync(User user) => new()
+        {
+            Token = GenerateJwtToken(user),
+            RefreshToken = await CreateAndSaveRefreshTokenAsync(user.Id),
+            HasProfile = await _userRepository.HasActiveProfileAsync(user.Id)
+        };
+
         private string GenerateJwtToken(User user)
         {
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSecurityKey));

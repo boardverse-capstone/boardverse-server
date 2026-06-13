@@ -4,6 +4,7 @@ using BoardVerse.Core.Helpers;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Messages;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.IServices;
 
@@ -35,21 +36,20 @@ namespace BoardVerse.Services.Services
             var gameTemplate = await _gameTemplateRepository.GetActiveByIdWithComponentsAsync(dto.GameTemplateId);
             if (gameTemplate == null)
             {
-                throw new NotFoundException("Master game not found.");
+                throw new NotFoundException(ApiErrorMessages.Inventory.MasterGameNotFound(dto.GameTemplateId));
             }
 
             var existing = await _inventoryRepository.GetByCafeAndGameTemplateAsync(cafeId, dto.GameTemplateId);
             if (existing != null)
             {
-                throw new ConflictException("This game is already in the cafe inventory. Use update instead.");
+                throw new ConflictException(ApiErrorMessages.Inventory.GameAlreadyInInventory);
             }
 
             var inactive = await _inventoryRepository.GetByCafeAndGameTemplateIncludingInactiveAsync(
                 cafeId, dto.GameTemplateId);
             if (inactive is { IsActive: false })
             {
-                throw new ConflictException(
-                    "This game was previously removed from inventory. Use restore instead.");
+                throw new ConflictException(ApiErrorMessages.Inventory.GamePreviouslyRemoved);
             }
 
             var now = DateTime.UtcNow;
@@ -133,7 +133,7 @@ namespace BoardVerse.Services.Services
             var inventory = await _inventoryRepository.GetByIdWithDetailsAsync(inventoryId);
             if (inventory == null || inventory.CafeId != cafeId)
             {
-                throw new NotFoundException("Inventory item not found.");
+                throw new NotFoundException(ApiErrorMessages.Inventory.ItemNotFound(cafeId, inventoryId));
             }
 
             return canViewFull ? MapToFullDto(inventory) : MapToBrowseDto(inventory);
@@ -150,7 +150,7 @@ namespace BoardVerse.Services.Services
             var inventory = await _inventoryRepository.GetByIdWithDetailsAsync(inventoryId);
             if (inventory == null || inventory.CafeId != cafeId)
             {
-                throw new NotFoundException("Inventory item not found.");
+                throw new NotFoundException(ApiErrorMessages.Inventory.ItemNotFound(cafeId, inventoryId));
             }
 
             if (dto.BoxQuantity.HasValue)
@@ -174,7 +174,7 @@ namespace BoardVerse.Services.Services
                     if (!componentIds.Contains(request.GameComponentTemplateId))
                     {
                         throw new BadRequestException(
-                            $"Component {request.GameComponentTemplateId} does not belong to this game.");
+                            ApiErrorMessages.Inventory.ComponentNotInGame(request.GameComponentTemplateId));
                     }
 
                     var penalty = inventory.ComponentPenalties
@@ -201,20 +201,19 @@ namespace BoardVerse.Services.Services
             var inventory = await _inventoryRepository.GetByIdWithDetailsIncludingInactiveAsync(inventoryId);
             if (inventory == null || inventory.CafeId != cafeId)
             {
-                throw new NotFoundException("Inventory item not found.");
+                throw new NotFoundException(ApiErrorMessages.Inventory.ItemNotFound(cafeId, inventoryId));
             }
 
             if (inventory.IsActive)
             {
-                throw new BadRequestException("Inventory item is already active.");
+                throw new BadRequestException(ApiErrorMessages.Inventory.ItemAlreadyActive);
             }
 
             var activeDuplicate = await _inventoryRepository.GetByCafeAndGameTemplateAsync(
                 cafeId, inventory.GameTemplateId);
             if (activeDuplicate != null)
             {
-                throw new ConflictException(
-                    "An active inventory entry for this game already exists.");
+                throw new ConflictException(ApiErrorMessages.Inventory.ActiveDuplicateOnRestore);
             }
 
             inventory.IsActive = true;
@@ -235,13 +234,13 @@ namespace BoardVerse.Services.Services
             var inventory = await _inventoryRepository.GetByIdWithDetailsIncludingInactiveAsync(inventoryId);
             if (inventory == null || inventory.CafeId != cafeId || !inventory.IsActive)
             {
-                throw new NotFoundException("Inventory item not found.");
+                throw new NotFoundException(ApiErrorMessages.Inventory.ActiveItemNotFound(cafeId, inventoryId));
             }
 
             var gameTemplate = await _gameTemplateRepository.GetByIdWithComponentsAsync(inventory.GameTemplateId);
             if (gameTemplate == null)
             {
-                throw new NotFoundException("Master game not found.");
+                throw new NotFoundException(ApiErrorMessages.Inventory.MasterGameNotFound(inventory.GameTemplateId));
             }
 
             var existingComponentIds = inventory.ComponentPenalties
@@ -281,7 +280,7 @@ namespace BoardVerse.Services.Services
             var inventory = await _inventoryRepository.GetByIdWithDetailsAsync(inventoryId);
             if (inventory == null || inventory.CafeId != cafeId)
             {
-                throw new NotFoundException("Inventory item not found.");
+                throw new NotFoundException(ApiErrorMessages.Inventory.ItemNotFound(cafeId, inventoryId));
             }
 
             inventory.IsActive = false;
@@ -294,7 +293,7 @@ namespace BoardVerse.Services.Services
             var cafe = await _cafeRepository.GetActiveByIdAsync(cafeId);
             if (cafe == null)
             {
-                throw new NotFoundException("Cafe not found.");
+                throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
             }
         }
 
@@ -329,12 +328,12 @@ namespace BoardVerse.Services.Services
             var cafe = await _cafeRepository.GetByIdAsync(cafeId);
             if (cafe == null)
             {
-                throw new NotFoundException("Cafe not found.");
+                throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
             }
 
             if (cafe.ManagerId != managerId)
             {
-                throw new ForbiddenException("You are not authorized to manage inventory for this cafe.");
+                throw new ForbiddenException(ApiErrorMessages.Cafe.InventoryManagerForbidden(cafeId));
             }
         }
 
@@ -358,7 +357,7 @@ namespace BoardVerse.Services.Services
 
                 if (invalid.Count > 0)
                 {
-                    throw new BadRequestException("One or more component IDs do not belong to the selected game.");
+                    throw new BadRequestException(ApiErrorMessages.Inventory.ComponentsInvalidForGame());
                 }
             }
 

@@ -1,5 +1,6 @@
 using BoardVerse.Core.DTOs.Common;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Messages;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 
@@ -27,7 +28,7 @@ namespace BoardVerse.API.Controllers
             var idClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (string.IsNullOrWhiteSpace(idClaim) || !Guid.TryParse(idClaim, out var userId))
             {
-                throw new UnauthorizedException("Invalid user identifier in token");
+                throw new UnauthorizedException(ApiErrorMessages.Controller.InvalidUserIdClaim);
             }
 
             return userId;

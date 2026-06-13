@@ -27,7 +27,7 @@ namespace BoardVerse.Core.Entities
         public string? FirstName { get; set; }
 
         public string? LastName { get; set; }
-        public DateTime? DateOfBirth { get; set; }
+        public DateOnly? DateOfBirth { get; set; }
 
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
         public bool IsActive { get; set; } = true;

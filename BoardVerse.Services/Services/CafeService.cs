@@ -3,6 +3,7 @@ using BoardVerse.Core.DTOs.Cafe;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Messages;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.IServices;
 
@@ -22,7 +23,7 @@ namespace BoardVerse.Services.Services
             var cafe = await _cafeRepository.GetActiveByIdAsync(cafeId);
             if (cafe == null)
             {
-                throw new NotFoundException("Cafe not found.");
+                throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
             }
 
             return MapToDto(cafe);
@@ -74,7 +75,7 @@ namespace BoardVerse.Services.Services
             {
                 if (existingUser.Role is UserRole.Admin or UserRole.Manager)
                 {
-                    throw new BadRequestException("Cannot add an Admin or Manager account as cafe staff.");
+                    throw new BadRequestException(ApiErrorMessages.Cafe.StaffAdminOrManagerNotAllowed);
                 }
 
                 if (existingUser.Role != UserRole.CafeStaff)
@@ -86,7 +87,7 @@ namespace BoardVerse.Services.Services
 
                 if (await _cafeRepository.IsStaffMemberExistsAsync(cafeId, existingUser.Id))
                 {
-                    throw new ConflictException("This user is already a staff member of this cafe.");
+                    throw new ConflictException(ApiErrorMessages.Cafe.StaffAlreadyAssigned);
                 }
 
                 staffUser = existingUser;
@@ -95,7 +96,7 @@ namespace BoardVerse.Services.Services
             {
                 if (string.IsNullOrWhiteSpace(dto.Username))
                 {
-                    throw new BadRequestException("Username is required when creating a new staff account.");
+                    throw new BadRequestException(ApiErrorMessages.Cafe.StaffCreateUsernameRequired);
                 }
 
                 var username = await ResolveUsernameAsync(dto.Username, excludedUserId: null);
@@ -125,12 +126,12 @@ namespace BoardVerse.Services.Services
             var user = await _cafeRepository.GetUserByEmailAsync(dto.Email);
             if (user == null)
             {
-                throw new NotFoundException("User not found.");
+                throw new NotFoundException(ApiErrorMessages.Cafe.StaffUserNotFound);
             }
 
             if (user.Role is UserRole.Admin or UserRole.Manager)
             {
-                throw new BadRequestException("Cannot promote an Admin or Manager account to cafe staff.");
+                throw new BadRequestException(ApiErrorMessages.Cafe.StaffAdminOrManagerNotAllowed);
             }
 
             if (user.Role == UserRole.CafeStaff)
@@ -151,7 +152,7 @@ namespace BoardVerse.Services.Services
 
             if (await _cafeRepository.IsStaffMemberExistsAsync(cafeId, user.Id))
             {
-                throw new ConflictException("This user is already a staff member of this cafe.");
+                throw new ConflictException(ApiErrorMessages.Cafe.StaffAlreadyAssigned);
             }
 
             await LinkStaffToCafeAsync(cafe, user);
@@ -173,7 +174,7 @@ namespace BoardVerse.Services.Services
             var cafeStaff = await _cafeRepository.GetCafeStaffAsync(cafeId, staffId);
             if (cafeStaff == null)
             {
-                throw new NotFoundException("Staff member not found in this cafe.");
+                throw new NotFoundException(ApiErrorMessages.Cafe.StaffNotFound(cafeId, staffId));
             }
 
             await _cafeRepository.RemoveCafeStaffAsync(cafeStaff);
@@ -203,12 +204,12 @@ namespace BoardVerse.Services.Services
             var cafe = await _cafeRepository.GetByIdAsync(cafeId);
             if (cafe == null)
             {
-                throw new NotFoundException("Cafe not found.");
+                throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
             }
 
             if (cafe.ManagerId != currentManagerId)
             {
-                throw new ForbiddenException("You are not authorized to manage this cafe.");
+                throw new ForbiddenException(ApiErrorMessages.Cafe.ManagerForbidden(cafeId));
             }
 
             return cafe;
@@ -233,12 +234,12 @@ namespace BoardVerse.Services.Services
             var normalized = username.Trim();
             if (normalized.Length < 3)
             {
-                throw new BadRequestException("Username must be at least 3 characters.");
+                throw new BadRequestException(ApiErrorMessages.Cafe.StaffUsernameTooShort);
             }
 
             if (await _cafeRepository.UsernameExistsAsync(normalized, excludedUserId))
             {
-                throw new ConflictException("Username is already taken.");
+                throw new ConflictException(ApiErrorMessages.Cafe.StaffUsernameTaken);
             }
 
             return normalized;

@@ -18,10 +18,13 @@ namespace BoardVerse.API.Filters
                         kvp => kvp.Value.Errors.Select(e => e.ErrorMessage).ToArray()
                     );
 
+                var path = context.HttpContext.Request.Path.Value ?? string.Empty;
+                var fieldErrors = string.Join("; ", errors.SelectMany(kvp => kvp.Value));
+
                 var response = new ApiResponse
                 {
                     StatusCode = 400,
-                    Message = string.Join("; ", errors.SelectMany(kvp => kvp.Value)),
+                    Message = $"Request validation failed for '{path}': {fieldErrors}",
                     Data = errors,
                     Timestamp = DateTime.UtcNow,
                     Path = context.HttpContext.Request.Path,

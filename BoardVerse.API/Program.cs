@@ -1,3 +1,4 @@
+using BoardVerse.API.Authentication;
 using BoardVerse.Data;
 using BoardVerse.Data.Repositories;
 using BoardVerse.Core.IRepositories;
@@ -17,6 +18,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using BoardVerse.Core.DTOs.Common;
+using BoardVerse.Core.Json;
 using BoardVerse.Core.Settings;
 using System.Reflection;
 
@@ -84,79 +86,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ClockSkew = TimeSpan.Zero
         };
 
-        options.Events = new JwtBearerEvents
-        {
-            OnTokenValidated = async context =>
-            {
-                // Check token blacklist
-                var userRepository = context.HttpContext.RequestServices.GetRequiredService<IAuthRepository>();
-                var token = context.SecurityToken as JwtSecurityToken;
-                if (token != null)
-                {
-                    var raw = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().WriteToken(token);
-                    var isBlacklisted = await userRepository.IsTokenBlacklistedAsync(raw);
-                    if (isBlacklisted)
-                    {
-                        context.Fail("Token is revoked");
-                    }
-                }
-
-                var userId = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-                if (Guid.TryParse(userId, out var parsedUserId))
-                {
-                    var user = await userRepository.GetByIdAsync(parsedUserId);
-                    if (user == null || !user.IsActive || user.IsBlocked)
-                    {
-                        context.Fail(user?.BlockReason ?? "User is blocked or inactive");
-                    }
-                }
-            },
-            OnChallenge = async context =>
-            {
-                context.HandleResponse();
-
-                if (!context.Response.HasStarted)
-                {
-                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                    context.Response.ContentType = "application/json";
-
-                    var payload = JsonSerializer.Serialize(new ApiResponse
-                    {
-                        StatusCode = StatusCodes.Status401Unauthorized,
-                        Message = string.IsNullOrWhiteSpace(context.ErrorDescription) ? "Unauthorized" : context.ErrorDescription,
-                        Data = null,
-                        Timestamp = DateTime.UtcNow,
-                        Path = context.Request.Path
-                    }, new JsonSerializerOptions
-                    {
-                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                        DictionaryKeyPolicy = JsonNamingPolicy.CamelCase,
-                    });
-
-                    await context.Response.WriteAsync(payload);
-                }
-            },
-            OnForbidden = async context =>
-            {
-                context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                context.Response.ContentType = "application/json";
-
-                var payload = JsonSerializer.Serialize(new ApiResponse
-                {
-                    StatusCode = StatusCodes.Status403Forbidden,
-                    Message = "Forbidden",
-                    Data = null,
-                    Timestamp = DateTime.UtcNow,
-                    Path = context.Request.Path
-                }, new JsonSerializerOptions
-                {
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                    DictionaryKeyPolicy = JsonNamingPolicy.CamelCase,
-                });
-
-                await context.Response.WriteAsync(payload);
-            }
-        };
+        options.Events = JwtBearerEventHandlers.Create();
     });
 
 // Add Authorization
@@ -199,6 +129,7 @@ builder.Services.AddControllers(options =>
 .AddJsonOptions(options =>
 {
     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    options.JsonSerializerOptions.Converters.Add(new FlexibleDateOnlyJsonConverter());
     options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
 });
 
@@ -268,6 +199,15 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<BoardVerseDbContext>();
+    await GameSchemaBootstrapper.EnsureUserAndCafeTablesAsync(db);
+    await GameSchemaBootstrapper.EnsureGameTablesAsync(db);
+    await GameSchemaBootstrapper.EnsureInventoryTablesAsync(db);
+    app.Logger.LogInformation("Database schema bootstrap completed.");
+}
 
 var brevoSection = app.Configuration.GetSection(BrevoSettings.SectionName);
 app.Logger.LogInformation(

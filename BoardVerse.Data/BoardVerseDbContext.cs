@@ -131,6 +131,9 @@ namespace BoardVerse.Data
                     .IsRequired()
                     .HasDefaultValue(true);
 
+                entity.Property(p => p.DateOfBirth)
+                    .HasColumnType("date");
+
                 entity.HasOne(p => p.User)
                     .WithOne(u => u.Profile)
                     .HasForeignKey<UserProfile>(p => p.UserId)

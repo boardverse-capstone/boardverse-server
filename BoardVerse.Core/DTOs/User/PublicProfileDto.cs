@@ -12,5 +12,6 @@ namespace BoardVerse.Core.DTOs.User
         public int GlobalElo { get; set; }
         public int Level { get; set; }
         public DateTime UpdatedAt { get; set; }
+        public bool HasProfile { get; set; }
     }
 }

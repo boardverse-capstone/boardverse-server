@@ -1,5 +1,7 @@
+using BoardVerse.API.Authentication;
 using BoardVerse.Core.DTOs.Common;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Messages;
 using Microsoft.AspNetCore.Http;
 using System.Net;
 using System.Text.Json;
@@ -30,15 +32,20 @@ namespace BoardVerse.API.Middleware
             {
                 await _next(context);
 
-                // Handle non-success status codes (like 401/403/404) and return the consistent response shape
-                if (context.Response.HasStarted) return;
+                if (context.Response.HasStarted || JwtAuthFailureContext.IsResponseWritten(context))
+                {
+                    return;
+                }
 
+                // Handle non-success status codes (like 401/403/404) and return the consistent response shape
                 if (context.Response.StatusCode >= 400)
                 {
                     var response = new ApiResponse
                     {
                         StatusCode = context.Response.StatusCode,
-                        Message = ReasonPhrase(context.Response.StatusCode),
+                        Message = ApiErrorMessages.Http.Fallback(
+                            context.Response.StatusCode,
+                            context.Request.Path.Value ?? string.Empty),
                         Data = null,
                         Timestamp = DateTime.UtcNow,
                         Path = context.Request.Path.Value ?? string.Empty
@@ -74,7 +81,9 @@ namespace BoardVerse.API.Middleware
                 var response = new ApiResponse
                 {
                     StatusCode = (int)HttpStatusCode.InternalServerError,
-                    Message = "An unexpected error occurred.",
+                    Message = ApiErrorMessages.Http.Fallback(
+                        (int)HttpStatusCode.InternalServerError,
+                        context.Request.Path.Value ?? string.Empty),
                     Data = null,
                     Timestamp = DateTime.UtcNow,
                     Path = context.Request.Path.Value ?? string.Empty
@@ -87,19 +96,5 @@ namespace BoardVerse.API.Middleware
             }
         }
 
-        private static string ReasonPhrase(int statusCode)
-        {
-            return statusCode switch
-            {
-                400 => "Bad Request",
-                401 => "Unauthorized",
-                403 => "Forbidden",
-                404 => "Not Found",
-                409 => "Conflict",
-                429 => "Too Many Requests",
-                500 => "Internal Server Error",
-                _ => "Error"
-            };
-        }
     }
 }

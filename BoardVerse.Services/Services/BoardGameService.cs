@@ -2,6 +2,7 @@ using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.Game;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Messages;
 using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.IServices;
@@ -41,7 +42,7 @@ namespace BoardVerse.Services.Services
         {
             var game = await _gameTemplateRepository.GetActiveByIdWithComponentsAsync(id);
             if (game == null)
-                throw new BoardGameNotFoundException("Không tìm thấy board game.");
+                throw new BoardGameNotFoundException(ApiErrorMessages.BoardGame.NotFound(id));
 
             return MapDetail(game);
         }
