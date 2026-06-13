@@ -5,7 +5,7 @@ using System.Security.Authentication;
 
 namespace BoardVerse.Services.Services.Email
 {
-    internal static class MailjetHttpHandlerFactory
+    internal static class OutboundEmailHttpHandlerFactory
     {
         public static SocketsHttpHandler Create() => new()
         {

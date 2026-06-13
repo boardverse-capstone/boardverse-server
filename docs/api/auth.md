@@ -172,9 +172,9 @@ POST /api/auth/send-email-verification   { "email": "alice@example.com" }
   → POST /api/auth/verify-email          { "token": "123456" }
 ```
 
-> **Email:** Mailjet REST API (`Mailjet:ApiKey`, `Mailjet:SecretKey`, `Mailjet:SenderEmail`).  
-> Render env: `Mailjet__ApiKey`, `Mailjet__SecretKey`, `Mailjet__SenderEmail`, `Mailjet__SenderName`.  
-> Sender phải được verify trên Mailjet; nên dùng domain riêng (SPF/DKIM) để tránh spam.
+> **Email:** **Brevo** REST API (`Brevo:ApiKey`, `Brevo:SenderEmail`, `Brevo:SenderName`).  
+> Render env: `Brevo__ApiKey`, `Brevo__SenderEmail`, `Brevo__SenderName`.  
+> Sender phải được verify trong Brevo (Senders); tài khoản Brevo phải hoàn tất profile validation.
 
 **Lỗi send:** `400` email không hợp lệ, `403` tài khoản bị chặn, `404` email không tồn tại, `500` gửi mail thất bại.  
 **Lỗi verify:** `401` mã sai/hết hạn, `403` tài khoản bị chặn.

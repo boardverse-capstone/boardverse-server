@@ -194,6 +194,6 @@ dotnet run --project tools/ExecSql -- BoardVerse.Data/update-all-entities.sql
 
 ---
 
-## Email (Mailjet)
+## Email (Brevo)
 
-Cấu hình `Mailjet` trong `appsettings.json` — xem [auth.md](./auth.md).
+Cấu hình `Brevo` trong `appsettings.json` — xem [auth.md](./auth.md).

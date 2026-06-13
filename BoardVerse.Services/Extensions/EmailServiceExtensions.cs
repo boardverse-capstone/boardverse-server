@@ -13,18 +13,17 @@ namespace BoardVerse.Services.Extensions
             this IServiceCollection services,
             IConfiguration configuration)
         {
-            services.Configure<MailjetSettings>(configuration.GetSection(MailjetSettings.SectionName));
+            services.Configure<BrevoSettings>(configuration.GetSection(BrevoSettings.SectionName));
 
-            services.AddHttpClient(nameof(MailjetEmailService), client =>
+            services.AddHttpClient(nameof(BrevoEmailService), client =>
             {
                 client.Timeout = TimeSpan.FromSeconds(30);
                 client.DefaultRequestVersion = HttpVersion.Version11;
                 client.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
             })
-            .ConfigurePrimaryHttpMessageHandler(MailjetHttpHandlerFactory.Create);
+            .ConfigurePrimaryHttpMessageHandler(OutboundEmailHttpHandlerFactory.Create);
 
-            services.AddScoped<IEmailService, MailjetEmailService>();
-
+            services.AddScoped<IEmailService, BrevoEmailService>();
             return services;
         }
     }

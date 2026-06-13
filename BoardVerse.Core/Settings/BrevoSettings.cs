@@ -1,12 +1,11 @@
 namespace BoardVerse.Core.Settings
 {
-    public class MailjetSettings
+    public class BrevoSettings
     {
-        public const string SectionName = "Mailjet";
+        public const string SectionName = "Brevo";
 
         public string ApiKey { get; set; } = string.Empty;
-        public string SecretKey { get; set; } = string.Empty;
-        public string ApiBaseUrl { get; set; } = "https://api.mailjet.com/v3.1";
+        public string ApiBaseUrl { get; set; } = "https://api.brevo.com";
         public string SenderEmail { get; set; } = string.Empty;
         public string SenderName { get; set; } = "BoardVerse";
     }

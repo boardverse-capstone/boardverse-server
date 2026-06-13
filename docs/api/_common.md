@@ -224,9 +224,9 @@ Các API danh sách trả về dạng:
 
 ---
 
-## Email (Mailjet)
+## Email (Brevo)
 
-Toàn bộ email transactional dùng **Mailjet API** (`MailjetEmailService`):
+Toàn bộ email transactional dùng **Brevo API** (`BrevoEmailService`):
 
 | API | Email gửi |
 |-----|-----------|
@@ -234,7 +234,7 @@ Toàn bộ email transactional dùng **Mailjet API** (`MailjetEmailService`):
 | `POST /api/auth/request-password-reset` | Mã reset mật khẩu |
 | Cafe partner workflow | Thông báo trạng thái đơn, credentials Manager |
 
-Config: `Mailjet:ApiKey`, `Mailjet:SecretKey`, `Mailjet:SenderEmail`, `Mailjet:SenderName`. Chi tiết: [auth.md](./auth.md).
+Config: `Brevo:ApiKey`, `Brevo:SenderEmail`, `Brevo:SenderName`. Chi tiết: [auth.md](./auth.md).
 
 ---
 
