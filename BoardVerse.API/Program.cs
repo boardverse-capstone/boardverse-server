@@ -63,7 +63,7 @@ if (!string.IsNullOrWhiteSpace(envDatabaseUrl))
 }
 
 builder.Services.AddDbContext<BoardVerseDbContext>(options =>
-    options.UseNpgsql(resolvedConnectionString));
+    BoardVerseDbContextOptions.UseBoardVersePostgreSql(options, resolvedConnectionString));
 
 // Add Authentication
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
@@ -112,6 +112,7 @@ builder.Services.AddScoped<IGameTemplateRepository, GameTemplateRepository>();
 builder.Services.AddScoped<ICategoryRepository, CategoryRepository>();
 builder.Services.AddScoped<ICafeRepository, CafeRepository>();
 builder.Services.AddScoped<ICafeInventoryRepository, CafeInventoryRepository>();
+builder.Services.AddScoped<ICafePosRepository, CafePosRepository>();
 builder.Services.AddScoped<ICafePartnerApplicationRepository, CafePartnerApplicationRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserProfileService, UserProfileService>();
@@ -121,6 +122,7 @@ builder.Services.AddScoped<IGameTemplateService, GameTemplateService>();
 builder.Services.AddScoped<IBoardGameService, BoardGameService>();
 builder.Services.AddScoped<ICafeService, CafeService>();
 builder.Services.AddScoped<ICafeInventoryService, CafeInventoryService>();
+builder.Services.AddScoped<ICafePosService, CafePosService>();
 builder.Services.AddScoped<ICafePartnerApplicationService, CafePartnerApplicationService>();
 builder.Services.AddControllers(options =>
 {
@@ -206,6 +208,7 @@ using (var scope = app.Services.CreateScope())
     await GameSchemaBootstrapper.EnsureUserAndCafeTablesAsync(db);
     await GameSchemaBootstrapper.EnsureGameTablesAsync(db);
     await GameSchemaBootstrapper.EnsureInventoryTablesAsync(db);
+    await GameSchemaBootstrapper.EnsureInventoryBoxBackfillAsync(db);
     app.Logger.LogInformation("Database schema bootstrap completed.");
 }
 

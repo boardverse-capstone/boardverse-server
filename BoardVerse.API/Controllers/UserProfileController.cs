@@ -112,6 +112,59 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
+        /// Lấy vị trí gần nhất đã lưu của người dùng đang đăng nhập (chỉ bản thân). [Role: Player, Manager, CafeStaff, Admin]
+        /// </summary>
+        /// <response code="200">Trả về tọa độ đã lưu hoặc hasLocation=false nếu chưa có.</response>
+        /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+        /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
+        /// <response code="404">Không tìm thấy tài khoản người dùng.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpGet("me/location")]
+        [Authorize]
+        public async Task<IActionResult> GetCurrentLocation()
+        {
+            var userId = GetUserIdFromClaims();
+            var location = await _profileService.GetCurrentLocationAsync(userId);
+            return this.NewResponse(200, "Current location retrieved successfully", location);
+        }
+
+        /// <summary>
+        /// Cập nhật vị trí hiện tại (GPS/map pin). Ghi vào profile và lịch sử audit. [Role: Player, Manager, CafeStaff, Admin]
+        /// </summary>
+        /// <param name="request">latitude, longitude (WGS84) và source (Gps hoặc Manual).</param>
+        /// <response code="200">Vị trí đã lưu; trả về PlayerLocationDto.</response>
+        /// <response code="400">Tọa độ không hợp lệ hoặc dữ liệu request sai định dạng.</response>
+        /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+        /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
+        /// <response code="404">Không tìm thấy tài khoản người dùng.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpPut("me/location")]
+        [Authorize]
+        public async Task<IActionResult> UpdateCurrentLocation([FromBody] UpdatePlayerLocationRequestDto request)
+        {
+            var userId = GetUserIdFromClaims();
+            var location = await _profileService.UpdateCurrentLocationAsync(userId, request);
+            return this.NewResponse(200, "Current location updated successfully", location);
+        }
+
+        /// <summary>
+        /// Xóa vị trí đã lưu trên profile (không xóa lịch sử audit). [Role: Player, Manager, CafeStaff, Admin]
+        /// </summary>
+        /// <response code="200">Vị trí trên profile đã được xóa.</response>
+        /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+        /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
+        /// <response code="404">Không tìm thấy profile hoặc chưa có vị trí để xóa.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpDelete("me/location")]
+        [Authorize]
+        public async Task<IActionResult> ClearCurrentLocation()
+        {
+            var userId = GetUserIdFromClaims();
+            await _profileService.ClearCurrentLocationAsync(userId);
+            return this.NewResponse(200, "Current location cleared successfully", null);
+        }
+
+        /// <summary>
         /// Xem trạng thái điểm karma hiện tại của người dùng đang đăng nhập. [Role: Player, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
         /// </summary>
         /// <response code="200">Trả về trạng thái karma hiện tại.</response>

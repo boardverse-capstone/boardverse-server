@@ -27,6 +27,7 @@ namespace BoardVerse.Data.Repositories
                     .ThenInclude(g => g!.Components)
                 .Include(i => i.ComponentPenalties)
                     .ThenInclude(p => p.GameComponentTemplate)
+                .Include(i => i.Boxes.Where(b => b.IsActive))
                 .FirstOrDefaultAsync(i => i.Id == inventoryId && i.IsActive);
         }
 
@@ -129,6 +130,43 @@ namespace BoardVerse.Data.Repositories
         {
             _context.CafeGameInventories.Add(inventory);
             return Task.CompletedTask;
+        }
+
+        public async Task SyncInventoryBoxesAsync(Guid inventoryId)
+        {
+            var inventory = await _context.CafeGameInventories
+                .FirstOrDefaultAsync(i => i.Id == inventoryId);
+
+            if (inventory == null)
+            {
+                return;
+            }
+
+            var existingBoxes = await _context.CafeInventoryBoxes
+                .Where(b => b.CafeGameInventoryId == inventoryId)
+                .ToListAsync();
+
+            CafeInventoryBoxSyncHelper.ApplySync(inventory, existingBoxes);
+        }
+
+        public async Task BackfillMissingInventoryBoxesAsync()
+        {
+            var inventoryIds = await _context.CafeGameInventories
+                .AsNoTracking()
+                .Where(i => i.IsActive)
+                .Select(i => i.Id)
+                .ToListAsync();
+
+            foreach (var inventoryId in inventoryIds)
+            {
+                var hasActiveBoxes = await _context.CafeInventoryBoxes
+                    .AnyAsync(b => b.CafeGameInventoryId == inventoryId && b.IsActive);
+
+                if (!hasActiveBoxes)
+                {
+                    await SyncInventoryBoxesAsync(inventoryId);
+                }
+            }
         }
 
         public Task SaveChangesAsync() => _context.SaveChangesAsync();

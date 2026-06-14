@@ -2,6 +2,7 @@ using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.CafePartner;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using Microsoft.EntityFrameworkCore;
 
@@ -26,6 +27,15 @@ namespace BoardVerse.Data.Repositories
         {
             _context.Cafes.Add(cafe);
             return Task.CompletedTask;
+        }
+
+        public async Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<string> tableNames)
+        {
+            var existingTables = await _context.CafeTables
+                .Where(t => t.CafeId == cafeId)
+                .ToListAsync();
+
+            CafeTableSyncHelper.ApplySync(cafeId, tableNames, existingTables);
         }
 
         public async Task<CafePartnerApplication?> GetByIdAsync(Guid id)
@@ -93,7 +103,10 @@ namespace BoardVerse.Data.Repositories
         }
 
         public Task<bool> HasActiveBookingsAsync(Guid cafeId) =>
-            Task.FromResult(false);
+            _context.CafeTables.AnyAsync(t =>
+                t.CafeId == cafeId
+                && t.IsActive
+                && (t.Status == CafeTableStatus.InUse || t.Status == CafeTableStatus.Reserved));
 
         public async Task<PaginatedResponse<CafePartnerApplication>> GetPagedAsync(AdminCafePartnerApplicationQueryDto query)
         {

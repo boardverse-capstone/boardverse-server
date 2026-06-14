@@ -16,6 +16,8 @@ namespace BoardVerse.Core.IRepositories
             GetCafeInventoryQuery query,
             bool deletedOnly = false);
         Task AddAsync(CafeGameInventory inventory);
+        Task SyncInventoryBoxesAsync(Guid inventoryId);
+        Task BackfillMissingInventoryBoxesAsync();
         Task SaveChangesAsync();
     }
 }

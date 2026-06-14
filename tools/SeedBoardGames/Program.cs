@@ -30,7 +30,7 @@ services.AddDbContext<BoardVerseDbContext>(options =>
     var connectionString = configuration.GetConnectionString("DefaultConnection")
         ?? Environment.GetEnvironmentVariable("DATABASE_URL")
         ?? "Host=localhost;Port=5432;Database=boardverse;Username=postgres;Password=postgres";
-    options.UseNpgsql(connectionString);
+    BoardVerseDbContextOptions.UseBoardVersePostgreSql(options, connectionString);
 });
 
 services.AddScoped<IGameTemplateRepository, GameTemplateRepository>();

@@ -14,6 +14,14 @@ namespace BoardVerse.Core.DTOs.CafePartner
         public string Address { get; set; } = string.Empty;
 
         [Required]
+        [Range(-90, 90)]
+        public double Latitude { get; set; }
+
+        [Required]
+        [Range(-180, 180)]
+        public double Longitude { get; set; }
+
+        [Required]
         [StringLength(11, MinimumLength = 10)]
         public string Hotline { get; set; } = string.Empty;
 

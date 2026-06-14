@@ -18,6 +18,67 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
+        /// Tìm quán đối tác ACTIVE gần vị trí player, có thể lọc theo tựa game (PostGIS). [Role: Public]
+        /// </summary>
+        /// <param name="latitude">Vĩ độ player (WGS84, -90 đến 90).</param>
+        /// <param name="longitude">Kinh độ player (WGS84, -180 đến 180).</param>
+        /// <param name="radiusKm">Bán kính tìm kiếm km (mặc định 5; cho phép 0.1–50).</param>
+        /// <param name="gameTemplateId">Bắt buộc — chỉ quán có hộp game Available hoặc InUse của tựa này (AC 2.1).</param>
+        /// <param name="pageNumber">Số trang (mặc định 1).</param>
+        /// <param name="pageSize">Kích thước trang (mặc định 20).</param>
+        /// <response code="200">Danh sách quán phân trang, sắp xếp theo khoảng cách; kèm availableTableCount, totalTableCount, selectedGameAvailabilityStatus, estimatedWaitMinutes.</response>
+        /// <response code="400">Tọa độ, bán kính hoặc gameTemplateId không hợp lệ.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpGet("nearby")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetNearbyCafes(
+            [FromQuery] double latitude,
+            [FromQuery] double longitude,
+            [FromQuery] Guid gameTemplateId,
+            [FromQuery] double radiusKm = 5,
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            var pagination = new PaginationParams { PageNumber = pageNumber, PageSize = pageSize };
+            var result = await _cafeService.GetNearbyCafesAsync(
+                latitude,
+                longitude,
+                radiusKm,
+                gameTemplateId,
+                pagination);
+            return this.NewResponse(200, "Nearby cafes retrieved successfully", result);
+        }
+
+        /// <summary>
+        /// Tìm quán gần vị trí đã lưu trên profile (LastKnown GPS/map pin). [Role: Player, Manager, CafeStaff, Admin]
+        /// </summary>
+        /// <param name="gameTemplateId">Bắt buộc — tựa game player đã chọn (AC 2.1).</param>
+        /// <param name="radiusKm">Bán kính tìm kiếm km (mặc định 5; cho phép 0.1–50).</param>
+        /// <param name="pageNumber">Số trang (mặc định 1).</param>
+        /// <param name="pageSize">Kích thước trang (mặc định 20).</param>
+        /// <response code="200">Cùng shape như GET /nearby; dùng tọa độ từ profile thay vì query lat/lng.</response>
+        /// <response code="400">Chưa lưu vị trí (gọi PUT /api/userprofile/me/location trước), hoặc gameTemplateId/bán kính không hợp lệ.</response>
+        /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpGet("nearby/me")]
+        [Authorize]
+        public async Task<IActionResult> GetNearbyCafesForCurrentUser(
+            [FromQuery] Guid gameTemplateId,
+            [FromQuery] double radiusKm = 5,
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            var userId = GetUserIdFromClaims();
+            var pagination = new PaginationParams { PageNumber = pageNumber, PageSize = pageSize };
+            var result = await _cafeService.GetNearbyCafesForCurrentUserAsync(
+                userId,
+                radiusKm,
+                gameTemplateId,
+                pagination);
+            return this.NewResponse(200, "Nearby cafes retrieved successfully", result);
+        }
+
+        /// <summary>
         /// Xem thông tin quán cafe (public). [Role: Public]
         /// </summary>
         /// <param name="id">Mã định danh quán cafe.</param>

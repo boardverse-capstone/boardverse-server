@@ -27,7 +27,7 @@ namespace BoardVerse.Core.DTOs.CafePartner
         [Required]
         public CafePartnerBillingModel BillingModel { get; set; }
 
-        [MinLength(1)]
-        public List<string> TableNames { get; set; } = new();
+        /// <summary>Optional. Omitted or empty → backend manages names from <see cref="NumberOfTables"/>.</summary>
+        public List<string>? TableNames { get; set; }
     }
 }

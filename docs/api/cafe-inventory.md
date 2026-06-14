@@ -110,6 +110,8 @@ Public browse — **không cần token**. Manager login → response full kèm `
 }
 ```
 
+Manager/Staff full response thêm `boxes[]` (`id`, `barcode`, `status`) — mỗi hộp vật lý trong kho. POS chi tiết: [cafe-pos.md](./cafe-pos.md).
+
 ---
 
 ## GET /api/cafes/{cafeId}/inventory/{inventoryId}

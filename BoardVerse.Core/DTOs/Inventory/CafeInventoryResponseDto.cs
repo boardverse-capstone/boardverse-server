@@ -1,3 +1,4 @@
+using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Core.DTOs.Inventory
@@ -19,5 +20,6 @@ namespace BoardVerse.Core.DTOs.Inventory
         public DateTime UpdatedAt { get; set; }
         public bool IsActive { get; set; } = true;
         public List<ComponentPenaltyResponseDto> ComponentPenalties { get; set; } = [];
+        public List<CafeInventoryBoxDto> Boxes { get; set; } = [];
     }
 }

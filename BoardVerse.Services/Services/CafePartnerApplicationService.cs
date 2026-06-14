@@ -76,6 +76,8 @@ namespace BoardVerse.Services.Services
                 Id = Guid.NewGuid(),
                 CafeName = request.CafeName.Trim(),
                 Address = request.Address.Trim(),
+                Latitude = request.Latitude,
+                Longitude = request.Longitude,
                 Hotline = NormalizePhoneDigits(request.Hotline),
                 RepresentativeEmail = email,
                 BusinessLicense = request.BusinessLicense.Trim().ToUpperInvariant(),
@@ -212,6 +214,11 @@ namespace BoardVerse.Services.Services
                 WeekendClose = application.WeekendClose
             };
 
+            if (application.Latitude.HasValue && application.Longitude.HasValue)
+            {
+                GeoLocationHelper.ApplyCoordinates(cafe, application.Latitude.Value, application.Longitude.Value);
+            }
+
             await _applicationRepository.AddCafeAsync(cafe);
 
             application.Status = CafePartnerApplicationStatus.Approved;
@@ -295,8 +302,12 @@ namespace BoardVerse.Services.Services
             application.PopularGamesList = request.PopularGamesList.Trim();
             application.HasGameMaster = request.HasGameMaster;
             application.BillingModel = request.BillingModel;
+            var existingTableNames = DeserializeStringList(application.TableLayoutJson);
             application.TableLayoutJson = JsonSerializer.Serialize(
-                request.TableNames.Select(n => n.Trim()).Where(n => !string.IsNullOrWhiteSpace(n)).ToList());
+                CafePartnerTableLayoutHelper.ResolveTableNames(
+                    request.NumberOfTables,
+                    request.TableNames,
+                    existingTableNames));
             application.OperationalProfileUpdatedAt = DateTime.UtcNow;
             application.UpdatedAt = DateTime.UtcNow;
 
@@ -304,6 +315,9 @@ namespace BoardVerse.Services.Services
             {
                 application.CreatedCafe.Description = application.PopularGamesList;
                 application.CreatedCafe.UpdatedAt = DateTime.UtcNow;
+
+                var tableNames = DeserializeStringList(application.TableLayoutJson);
+                await _applicationRepository.SyncCafeTablesAsync(application.CreatedCafe.Id, tableNames);
             }
 
             await _applicationRepository.SaveChangesAsync();
@@ -328,6 +342,9 @@ namespace BoardVerse.Services.Services
                 throw new CafePartnerActivationRequirementsNotMetException(
                     "Activation requirements not met: " + string.Join("; ", blockers));
             }
+
+            var tableNames = DeserializeStringList(application.TableLayoutJson);
+            await _applicationRepository.SyncCafeTablesAsync(cafe.Id, tableNames);
 
             cafe.IsActive = true;
             cafe.PartnerOperationalStatus = CafePartnerOperationalStatus.Active;
@@ -412,6 +429,15 @@ namespace BoardVerse.Services.Services
             }
 
             ParseWorkingHours(request.WorkingHours);
+
+            try
+            {
+                GeoLocationHelper.ValidateCoordinates(request.Latitude, request.Longitude);
+            }
+            catch (ArgumentOutOfRangeException ex)
+            {
+                throw new BadRequestException(ex.Message);
+            }
         }
 
         private static void ValidatePhase2Request(UpdateOperationalProfileRequestDto request)
@@ -442,11 +468,6 @@ namespace BoardVerse.Services.Services
                 {
                     throw new BadRequestException("Space images must be JPEG or PNG.");
                 }
-            }
-
-            if (request.TableNames == null || request.TableNames.Count == 0)
-            {
-                throw new BadRequestException("At least one table name is required for the table layout.");
             }
         }
 
@@ -480,6 +501,11 @@ namespace BoardVerse.Services.Services
             if (string.IsNullOrWhiteSpace(application.PopularGamesList))
             {
                 blockers.Add("Popular games list is required.");
+            }
+
+            if (!application.Latitude.HasValue || !application.Longitude.HasValue)
+            {
+                blockers.Add("GPS location is required before activation.");
             }
 
             return blockers;
@@ -632,6 +658,8 @@ namespace BoardVerse.Services.Services
                 Id = application.Id,
                 CafeName = application.CafeName,
                 Address = application.Address,
+                Latitude = application.Latitude,
+                Longitude = application.Longitude,
                 Hotline = application.Hotline,
                 RepresentativeEmail = application.RepresentativeEmail,
                 WorkingHours = new WorkingHoursDto

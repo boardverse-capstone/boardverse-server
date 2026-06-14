@@ -1,5 +1,6 @@
 using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.Inventory;
+using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.Helpers;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
@@ -72,6 +73,7 @@ namespace BoardVerse.Services.Services
             };
 
             await _inventoryRepository.AddAsync(inventory);
+            await _inventoryRepository.SyncInventoryBoxesAsync(inventoryId);
             await _inventoryRepository.SaveChangesAsync();
 
             var saved = await _inventoryRepository.GetByIdWithDetailsAsync(inventory.Id);
@@ -185,6 +187,7 @@ namespace BoardVerse.Services.Services
             }
 
             inventory.UpdatedAt = DateTime.UtcNow;
+            await _inventoryRepository.SyncInventoryBoxesAsync(inventory.Id);
             await _inventoryRepository.SaveChangesAsync();
 
             var updated = await _inventoryRepository.GetByIdWithDetailsAsync(inventoryId);
@@ -218,6 +221,7 @@ namespace BoardVerse.Services.Services
 
             inventory.IsActive = true;
             inventory.UpdatedAt = DateTime.UtcNow;
+            await _inventoryRepository.SyncInventoryBoxesAsync(inventory.Id);
             await _inventoryRepository.SaveChangesAsync();
 
             var restored = await _inventoryRepository.GetByIdWithDetailsAsync(inventoryId);
@@ -413,6 +417,18 @@ namespace BoardVerse.Services.Services
                     ComponentName = p.GameComponentTemplate?.ComponentName ?? string.Empty,
                     DefaultQuantity = p.GameComponentTemplate?.DefaultQuantity ?? 0,
                     PenaltyFee = p.PenaltyFee
+                })
+                .ToList(),
+            Boxes = inventory.Boxes
+                .OrderBy(b => b.Barcode)
+                .Select(b => new CafeInventoryBoxDto
+                {
+                    Id = b.Id,
+                    CafeGameInventoryId = b.CafeGameInventoryId,
+                    GameTemplateId = inventory.GameTemplateId,
+                    GameName = inventory.GameTemplate?.Name ?? string.Empty,
+                    Barcode = b.Barcode,
+                    Status = b.Status
                 })
                 .ToList()
         };

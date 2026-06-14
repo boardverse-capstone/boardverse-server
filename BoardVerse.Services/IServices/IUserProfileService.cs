@@ -13,5 +13,8 @@ namespace BoardVerse.Services.IServices
         Task<KarmaStateDto> GetKarmaStateAsync(Guid userId);
         Task DeleteProfileAsync(Guid userId);
         Task<ProfileDto> CreateOrGetProfileAsync(Guid userId);
+        Task<PlayerLocationDto> GetCurrentLocationAsync(Guid userId);
+        Task<PlayerLocationDto> UpdateCurrentLocationAsync(Guid userId, UpdatePlayerLocationRequestDto request);
+        Task ClearCurrentLocationAsync(Guid userId);
     }
 }

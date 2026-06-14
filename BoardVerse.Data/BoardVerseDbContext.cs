@@ -21,6 +21,10 @@ namespace BoardVerse.Data
         public DbSet<GameTemplateCategory> GameTemplateCategories => Set<GameTemplateCategory>();
         public DbSet<CafeGameInventory> CafeGameInventories => Set<CafeGameInventory>();
         public DbSet<CafeGameComponentPenalty> CafeGameComponentPenalties => Set<CafeGameComponentPenalty>();
+        public DbSet<PlayerLocationHistory> PlayerLocationHistories => Set<PlayerLocationHistory>();
+        public DbSet<CafeTable> CafeTables => Set<CafeTable>();
+        public DbSet<CafeInventoryBox> CafeInventoryBoxes => Set<CafeInventoryBox>();
+        public DbSet<ActiveSession> ActiveSessions => Set<ActiveSession>();
 
         public BoardVerseDbContext(DbContextOptions<BoardVerseDbContext> options) : base(options)
         {
@@ -134,6 +138,16 @@ namespace BoardVerse.Data
                 entity.Property(p => p.DateOfBirth)
                     .HasColumnType("date");
 
+                entity.Property(p => p.LastKnownLatitude)
+                    .HasColumnType("double precision");
+
+                entity.Property(p => p.LastKnownLongitude)
+                    .HasColumnType("double precision");
+
+                entity.Property(p => p.LastLocationSource)
+                    .HasConversion<string>()
+                    .HasMaxLength(20);
+
                 entity.HasOne(p => p.User)
                     .WithOne(u => u.Profile)
                     .HasForeignKey<UserProfile>(p => p.UserId)
@@ -217,46 +231,7 @@ namespace BoardVerse.Data
                 entity.HasIndex(prt => prt.UserId);
             });
 
-            // Cafe entity configuration
-            modelBuilder.Entity<Cafe>(entity =>
-            {
-                entity.HasKey(c => c.Id);
-
-                entity.Property(c => c.Id)
-                    .ValueGeneratedNever();
-
-                entity.Property(c => c.Name)
-                    .IsRequired()
-                    .HasMaxLength(200);
-
-                entity.Property(c => c.Address)
-                    .IsRequired()
-                    .HasMaxLength(500);
-
-                entity.Property(c => c.PhoneNumber)
-                    .HasMaxLength(50);
-
-                entity.Property(c => c.Description)
-                    .HasMaxLength(1000);
-
-                entity.Property(c => c.CreatedAt)
-                    .IsRequired();
-
-                entity.Property(c => c.IsActive)
-                    .IsRequired()
-                    .HasDefaultValue(true);
-
-                entity.Property(c => c.PartnerOperationalStatus)
-                    .HasConversion<string>()
-                    .HasMaxLength(20);
-
-                entity.HasOne(c => c.Manager)
-                    .WithMany()
-                    .HasForeignKey(c => c.ManagerId)
-                    .OnDelete(DeleteBehavior.Restrict);
-
-                entity.HasIndex(c => c.ManagerId);
-            });
+            // Cafe entity configuration is in Configurations/CafeConfiguration.cs
 
             modelBuilder.Entity<CafePartnerApplication>(entity =>
             {
@@ -264,6 +239,8 @@ namespace BoardVerse.Data
                 entity.Property(a => a.Id).ValueGeneratedNever();
                 entity.Property(a => a.CafeName).IsRequired().HasMaxLength(100);
                 entity.Property(a => a.Address).IsRequired().HasMaxLength(500);
+                entity.Property(a => a.Latitude).HasColumnType("double precision");
+                entity.Property(a => a.Longitude).HasColumnType("double precision");
                 entity.Property(a => a.Hotline).IsRequired().HasMaxLength(11);
                 entity.Property(a => a.RepresentativeEmail).IsRequired().HasMaxLength(256);
                 entity.Property(a => a.BusinessLicense).IsRequired().HasMaxLength(50);

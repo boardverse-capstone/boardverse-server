@@ -3,6 +3,7 @@ using BoardVerse.Core.DTOs.Cafe;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Helpers;
 using BoardVerse.Core.Messages;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.IServices;
@@ -12,10 +13,12 @@ namespace BoardVerse.Services.Services
     public class CafeService : ICafeService
     {
         private readonly ICafeRepository _cafeRepository;
+        private readonly IUserProfileRepository _userProfileRepository;
 
-        public CafeService(ICafeRepository cafeRepository)
+        public CafeService(ICafeRepository cafeRepository, IUserProfileRepository userProfileRepository)
         {
             _cafeRepository = cafeRepository;
+            _userProfileRepository = userProfileRepository;
         }
 
         public async Task<CafeDto> GetCafeAsync(Guid cafeId)
@@ -51,6 +54,27 @@ namespace BoardVerse.Services.Services
             if (dto.Description != null)
             {
                 cafe.Description = string.IsNullOrWhiteSpace(dto.Description) ? null : dto.Description.Trim();
+            }
+
+            if (dto.Latitude.HasValue && dto.Longitude.HasValue)
+            {
+                try
+                {
+                    GeoLocationHelper.ApplyCoordinates(cafe, dto.Latitude.Value, dto.Longitude.Value);
+                }
+                catch (ArgumentOutOfRangeException ex)
+                {
+                    throw new BadRequestException(ex.ParamName switch
+                    {
+                        "latitude" => ApiErrorMessages.Cafe.InvalidLatitudeForCafeUpdate,
+                        "longitude" => ApiErrorMessages.Cafe.InvalidLongitudeForCafeUpdate,
+                        _ => ApiErrorMessages.Cafe.InvalidLatitudeForCafeUpdate
+                    });
+                }
+            }
+            else if (dto.Latitude.HasValue || dto.Longitude.HasValue)
+            {
+                throw new BadRequestException(ApiErrorMessages.Cafe.LocationCoordinatesPairRequired);
             }
 
             cafe.UpdatedAt = DateTime.UtcNow;
@@ -199,6 +223,77 @@ namespace BoardVerse.Services.Services
             return cafes.Select(MapToDto);
         }
 
+        public async Task<PaginatedResponse<NearbyCafeDto>> GetNearbyCafesAsync(
+            double latitude,
+            double longitude,
+            double radiusKm,
+            Guid gameTemplateId,
+            PaginationParams paginationParams)
+        {
+            if (gameTemplateId == Guid.Empty)
+            {
+                throw new BadRequestException(ApiErrorMessages.Cafe.GameTemplateIdRequiredForNearbySearch);
+            }
+
+            try
+            {
+                GeoLocationHelper.ValidateCoordinates(latitude, longitude);
+            }
+            catch (ArgumentOutOfRangeException ex)
+            {
+                throw new BadRequestException(ex.ParamName switch
+                {
+                    "latitude" => ApiErrorMessages.Cafe.InvalidLatitudeForNearbySearch,
+                    "longitude" => ApiErrorMessages.Cafe.InvalidLongitudeForNearbySearch,
+                    _ => ApiErrorMessages.Cafe.InvalidLatitudeForNearbySearch
+                });
+            }
+
+            if (radiusKm is < GeoLocationHelper.MinNearbyRadiusKm or > GeoLocationHelper.MaxNearbyRadiusKm)
+            {
+                throw new BadRequestException(ApiErrorMessages.Cafe.InvalidNearbySearchRadius(
+                    GeoLocationHelper.MinNearbyRadiusKm,
+                    GeoLocationHelper.MaxNearbyRadiusKm));
+            }
+
+            var result = await _cafeRepository.GetNearbyAsync(
+                latitude,
+                longitude,
+                radiusKm,
+                gameTemplateId,
+                paginationParams);
+
+            var cafes = result.Data.ToList();
+            if (cafes.Count > 0)
+            {
+                await _cafeRepository.EnrichNearbyWithGameWaitAsync(cafes, gameTemplateId);
+                result.Data = cafes;
+            }
+
+            return result;
+        }
+
+        public async Task<PaginatedResponse<NearbyCafeDto>> GetNearbyCafesForCurrentUserAsync(
+            Guid userId,
+            double radiusKm,
+            Guid gameTemplateId,
+            PaginationParams paginationParams)
+        {
+            var profile = await _userProfileRepository.GetProfileByUserIdAsync(userId);
+            if (profile?.LastKnownLatitude is not { } latitude
+                || profile.LastKnownLongitude is not { } longitude)
+            {
+                throw new BadRequestException(ApiErrorMessages.Cafe.SavedLocationRequiredForNearbySearch);
+            }
+
+            return await GetNearbyCafesAsync(
+                latitude,
+                longitude,
+                radiusKm,
+                gameTemplateId,
+                paginationParams);
+        }
+
         private async Task<Cafe> EnsureManagerOwnsCafeAsync(Guid cafeId, Guid currentManagerId)
         {
             var cafe = await _cafeRepository.GetByIdAsync(cafeId);
@@ -260,6 +355,8 @@ namespace BoardVerse.Services.Services
             Id = cafe.Id,
             Name = cafe.Name,
             Address = cafe.Address,
+            Latitude = cafe.Latitude,
+            Longitude = cafe.Longitude,
             PhoneNumber = cafe.PhoneNumber,
             Description = cafe.Description,
             CreatedAt = cafe.CreatedAt

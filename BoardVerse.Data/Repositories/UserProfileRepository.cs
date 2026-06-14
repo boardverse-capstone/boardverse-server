@@ -29,6 +29,12 @@ namespace BoardVerse.Data.Repositories
             return Task.CompletedTask;
         }
 
+        public Task AddPlayerLocationHistoryAsync(PlayerLocationHistory history)
+        {
+            _context.PlayerLocationHistories.Add(history);
+            return Task.CompletedTask;
+        }
+
         public Task SaveChangesAsync()
         {
             return _context.SaveChangesAsync();

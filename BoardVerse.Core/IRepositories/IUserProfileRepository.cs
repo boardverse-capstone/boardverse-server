@@ -7,6 +7,7 @@ namespace BoardVerse.Core.IRepositories
         Task<User?> GetByIdWithProfileAsync(Guid userId);
         Task<UserProfile?> GetProfileByUserIdAsync(Guid userId);
         Task AddUserProfileAsync(UserProfile profile);
+        Task AddPlayerLocationHistoryAsync(PlayerLocationHistory history);
         Task SaveChangesAsync();
     }
 }

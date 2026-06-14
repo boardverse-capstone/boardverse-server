@@ -69,6 +69,8 @@ ACTIVE → [Manager: Deactivate] → DATA_BLANK (khi không còn booking đang c
 {
   "cafeName": "Board Game Hub Saigon",
   "address": "123 Nguyen Hue, Phuong Ben Nghe, Quan 1, TP.HCM",
+  "latitude": 10.776889,
+  "longitude": 106.700806,
   "hotline": "0901234567",
   "representativeEmail": "cafe.owner@example.com",
   "workingHours": {
@@ -86,6 +88,8 @@ ACTIVE → [Manager: Deactivate] → DATA_BLANK (khi không còn booking đang c
 |-------|----------|-----------|
 | `cafeName` | Có | 5–100 ký tự |
 | `address` | Có | Địa chỉ đầy đủ |
+| `latitude` | Có | -90 … 90 (WGS84, từ bản đồ khi đăng ký) |
+| `longitude` | Có | -180 … 180 |
 | `hotline` | Có | SĐT VN 10–11 số, đầu 03/05/07/08/09 |
 | `representativeEmail` | Có | Email RFC — dùng làm username Manager |
 | `workingHours` | Có | Khung T2–T6 và T7–CN (`HH:mm`) |
@@ -114,10 +118,23 @@ Chỉ khi quán ở `DATA_BLANK`. Không chỉnh sửa khi đang `ACTIVE` (phả
   "numberOfGamesOwned": 45,
   "popularGamesList": "Catan, Ticket to Ride, Azul, Wingspan",
   "hasGameMaster": true,
-  "billingModel": 0,
-  "tableNames": ["Bàn 1", "Bàn 2", "Bàn 3", "Bàn 4", "Bàn 5", "Bàn 6", "Bàn 7", "Bàn 8"]
+  "billingModel": 0
 }
 ```
+
+### `tableNames` (tùy chọn)
+
+Không gửi `tableNames` (hoặc gửi `null` / `[]`) — backend tự quản lý sơ đồ bàn theo `numberOfTables`:
+
+| Tình huống | Hành vi backend |
+|------------|-----------------|
+| Lần đầu, `numberOfTables: 8` | Sinh `["Bàn 1", …, "Bàn 8"]` |
+| Tăng lên `numberOfTables: 10` (không gửi `tableNames`) | Cập nhật thành `["Bàn 1", …, "Bàn 10"]` |
+| Giảm xuống `numberOfTables: 5` (không gửi `tableNames`) | Cập nhật thành `["Bàn 1", …, "Bàn 5"]` |
+| Gửi `tableNames` tùy chỉnh | Dùng tên tùy chỉnh; thiếu thì thêm `"Bàn N"`, thừa thì cắt theo `numberOfTables` |
+| Đã đặt tên tùy chỉnh, chỉ đổi `numberOfTables` | Giữ tên cũ (theo thứ tự), thêm/bớt slot cho khớp số bàn |
+
+Response luôn trả `tableNames` đầy đủ sau khi lưu.
 
 | `billingModel` | API string |
 |----------------|------------|
@@ -133,7 +150,7 @@ Kiểm tra ràng buộc tối thiểu (mục 4.2 spec):
 - ≥ 5 bàn chơi công cộng
 - ≥ 20 bộ game vật lý
 - ≥ 3 ảnh không gian hợp lệ
-- Sơ đồ bàn: `tableNames.length >= numberOfTables`
+- Sơ đồ bàn: backend đảm bảo đủ tên cho mọi bàn (tự sinh hoặc đồng bộ khi `numberOfTables` thay đổi)
 
 Response có `canActivate`, `activationBlockers`, `isTableLayoutConfigured`.
 

@@ -104,6 +104,24 @@ namespace BoardVerse.Core.Messages
 
             public const string UserNotFoundCreateOrGet =
                 "Cannot initialize profile because the user account was not found.";
+
+            public const string UserNotFoundUpdateLocation =
+                "Cannot update location because the user account was not found.";
+
+            public const string UserNotFoundGetLocation =
+                "Cannot load saved location because the user account was not found.";
+
+            public const string InvalidLatitudeForLocationUpdate =
+                "Location update failed. Latitude must be between -90 and 90.";
+
+            public const string InvalidLongitudeForLocationUpdate =
+                "Location update failed. Longitude must be between -180 and 180.";
+
+            public const string ProfileNotFoundClearLocation =
+                "Cannot clear saved location because the user profile was not found.";
+
+            public const string NoSavedLocationToClear =
+                "Cannot clear saved location because no location is stored on the profile.";
         }
 
         public static class AdminUsers
@@ -158,6 +176,30 @@ namespace BoardVerse.Core.Messages
 
             public static string StaffNotFound(Guid cafeId, Guid staffId) =>
                 $"Staff member '{staffId}' was not found in cafe '{cafeId}'.";
+
+            public const string InvalidLatitudeForNearbySearch =
+                "Nearby cafe search failed. Latitude must be between -90 and 90.";
+
+            public const string InvalidLongitudeForNearbySearch =
+                "Nearby cafe search failed. Longitude must be between -180 and 180.";
+
+            public static string InvalidNearbySearchRadius(double minKm, double maxKm) =>
+                $"Nearby cafe search failed. Radius must be between {minKm} and {maxKm} km.";
+
+            public const string LocationCoordinatesPairRequired =
+                "Cafe location update requires both latitude and longitude when either is provided.";
+
+            public const string InvalidLatitudeForCafeUpdate =
+                "Cafe location update failed. Latitude must be between -90 and 90.";
+
+            public const string InvalidLongitudeForCafeUpdate =
+                "Cafe location update failed. Longitude must be between -180 and 180.";
+
+            public const string GameTemplateIdRequiredForNearbySearch =
+                "Nearby cafe search requires a gameTemplateId when filtering by selected game.";
+
+            public const string SavedLocationRequiredForNearbySearch =
+                "Nearby cafe search from profile failed because no saved location was found. Update location via PUT /api/userprofile/me/location first.";
         }
 
         public static class Inventory
@@ -188,6 +230,33 @@ namespace BoardVerse.Core.Messages
 
             public static string ComponentsInvalidForGame() =>
                 "One or more component IDs do not belong to the selected game.";
+        }
+
+        public static class Pos
+        {
+            public static string AccessForbidden(Guid cafeId) =>
+                $"POS access denied. You are not authorized to operate cafe '{cafeId}'.";
+
+            public const string BarcodeRequired =
+                "Cannot look up inventory box because barcode is empty.";
+
+            public static string BoxNotFound(Guid cafeId, string barcode) =>
+                $"Inventory box with barcode '{barcode}' was not found in cafe '{cafeId}'.";
+
+            public static string TableNotFound(Guid cafeId, Guid tableId) =>
+                $"Table '{tableId}' was not found in cafe '{cafeId}'.";
+
+            public static string TableNotAvailableForGame(Guid tableId) =>
+                $"Table '{tableId}' is reserved or in an event and cannot receive a game.";
+
+            public static string BoxNotAvailable(string barcode, string status) =>
+                $"Inventory box '{barcode}' is not available (current status: {status}).";
+
+            public static string BoxAlreadyInSession(string barcode) =>
+                $"Inventory box '{barcode}' is already assigned to an active play session.";
+
+            public static string SessionNotFound(Guid cafeId, Guid sessionId) =>
+                $"Active play session '{sessionId}' was not found in cafe '{cafeId}'.";
         }
 
         public static class BoardGame

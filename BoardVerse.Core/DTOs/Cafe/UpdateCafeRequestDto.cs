@@ -15,5 +15,11 @@ namespace BoardVerse.Core.DTOs.Cafe
 
         [StringLength(2000, ErrorMessage = "Description cannot exceed 2000 characters.")]
         public string? Description { get; set; }
+
+        [Range(-90, 90)]
+        public double? Latitude { get; set; }
+
+        [Range(-180, 180)]
+        public double? Longitude { get; set; }
     }
 }

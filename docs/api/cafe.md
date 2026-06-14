@@ -5,6 +5,8 @@
 
 | Endpoint | Method | Role |
 |----------|--------|------|
+| `/nearby` | GET | Public (Player discovery — GPS query params) |
+| `/nearby/me` | GET | Player (dùng vị trí đã lưu trên profile) |
 | `/{id}` | GET | Public |
 | `/{id}` | PUT | Manager (chủ quán) |
 | `/{cafeId}/staff` | POST | Manager (chủ quán) |
@@ -16,11 +18,76 @@
 
 ---
 
+## GET /api/cafes/nearby
+
+Tìm quán đối tác **ACTIVE** gần vị trí player (PostGIS `geography` + GiST index). **Không cần token.**  
+Dùng cho luồng **Khám phá game**: `gameTemplateId` **bắt buộc** — chỉ quán có ít nhất một hộp game (`CafeInventoryBoxes`) thuộc tựa đó, trạng thái `Available` hoặc `InUse` (AC 2.1, 3.1).
+
+**Query:**
+
+| Param | Mô tả | Mặc định |
+|-------|--------|----------|
+| `latitude` | Vĩ độ player (WGS84) | bắt buộc |
+| `longitude` | Kinh độ player | bắt buộc |
+| `gameTemplateId` | Tựa game player đã chọn | **bắt buộc** |
+| `radiusKm` | Bán kính tìm kiếm (km) | `5` (0.1–50) |
+| `pageNumber` | Trang | `1` |
+| `pageSize` | Kích thước trang | `20` |
+
+**Response 200:** phân trang `NearbyCafeDto`:
+
+| Field | Mô tả |
+|-------|--------|
+| `distanceMeters` | Khoảng cách địa lý từ GPS player (PostGIS, sắp xếp tăng dần) |
+| `availableGameCount` | Số hộp game `Available` (theo `gameTemplateId` nếu có, ngược lại tổng kho) |
+| `availableTableCount` | Số bàn vật lý trạng thái `Available` (AC 2.3) |
+| `totalTableCount` | Tổng số bàn active của quán (AC 2.3) |
+| `totalGameBoxCount` | Tổng hộp game playable (`Available` + `InUse`) của tựa đã chọn |
+| `selectedGameAvailabilityStatus` | `GameAvailable` hoặc `WaitingForGame` (AC 3.2 — UI: **Chờ game trống**) |
+| `estimatedWaitMinutes` | Phút chờ ước tính khi `WaitingForGame` (AC 3.3); `null` khi còn hộp trống |
+
+UI card ví dụ: **Còn trống {availableTableCount}/{totalTableCount} bàn** · **Chờ game ~{estimatedWaitMinutes} phút** khi `selectedGameAvailabilityStatus = WaitingForGame`.
+
+**Công thức chờ (AC 3.3):** `GameTemplates.PlayTime` − thời gian đã chơi (từ `ActiveSessions.StartedAt` khi POS giao game). Lấy **min** trên các hộp `InUse` của tựa tại quán. Quán vẫn hiển thị khi tất cả hộp đang `InUse` (AC 3.1).
+
+POS tạo/kết thúc session qua [CafePosController](./cafe-pos.md).
+
+**Lỗi:** `400` tọa độ, bán kính, hoặc thiếu/không hợp lệ `gameTemplateId`.
+
+---
+
+## GET /api/cafes/nearby/me
+
+Cùng logic và response như `GET /nearby`, nhưng dùng **tọa độ đã lưu** trên profile (`LastKnownLatitude` / `LastKnownLongitude`) thay vì query `latitude`/`longitude`. **Yêu cầu đăng nhập.**
+
+**Luồng gợi ý (mobile):**
+
+```
+1. Lấy GPS thiết bị
+2. PUT /api/userprofile/me/location   → lưu server
+3. GET /api/cafes/nearby/me?gameTemplateId=...   → không cần gửi lại lat/lng
+```
+
+Hoặc gọi thẳng `GET /nearby?latitude=...&longitude=...&gameTemplateId=...` (public, không cần token).
+
+**Query:**
+
+| Param | Mô tả | Mặc định |
+|-------|--------|----------|
+| `gameTemplateId` | Tựa game đã chọn | **bắt buộc** |
+| `radiusKm` | Bán kính (km) | `5` |
+| `pageNumber` | Trang | `1` |
+| `pageSize` | Kích thước trang | `20` |
+
+**Lỗi:** `400` chưa lưu vị trí (`PUT me/location` trước); `401` thiếu token.
+
+---
+
 ## GET /api/cafes/{id}
 
 Xem thông tin quán — **không cần token**.
 
-**Response 200:** `CafeDto` (id, name, address, phoneNumber, description, createdAt)
+**Response 200:** `CafeDto` (id, name, address, latitude, longitude, phoneNumber, description, createdAt)
 
 **Lỗi:** `404` cafe không tồn tại hoặc inactive.
 
@@ -35,6 +102,8 @@ Cập nhật thông tin quán — chỉ **chủ quán**.
 {
   "name": "BoardVerse Demo Cafe",
   "address": "456 New Street, HCMC",
+  "latitude": 10.776889,
+  "longitude": 106.700806,
   "phoneNumber": "0909999999",
   "description": "Updated description"
 }

@@ -246,6 +246,116 @@ namespace BoardVerse.Services.Services
             return await GetPublicProfileAsync(userId);
         }
 
+        public async Task<PlayerLocationDto> GetCurrentLocationAsync(Guid userId)
+        {
+            var user = await _userRepository.GetByIdWithProfileAsync(userId);
+            if (user == null)
+            {
+                throw new UserNotFoundException(ApiErrorMessages.Profile.UserNotFoundGetLocation);
+            }
+
+            return MapToPlayerLocationDto(user.Profile);
+        }
+
+        public async Task<PlayerLocationDto> UpdateCurrentLocationAsync(
+            Guid userId,
+            UpdatePlayerLocationRequestDto request)
+        {
+            var user = await _userRepository.GetByIdWithProfileAsync(userId);
+            if (user == null)
+            {
+                throw new UserNotFoundException(ApiErrorMessages.Profile.UserNotFoundUpdateLocation);
+            }
+
+            try
+            {
+                GeoLocationHelper.ValidateCoordinates(request.Latitude, request.Longitude);
+            }
+            catch (ArgumentOutOfRangeException ex)
+            {
+                throw new BadRequestException(ex.ParamName switch
+                {
+                    "latitude" => ApiErrorMessages.Profile.InvalidLatitudeForLocationUpdate,
+                    "longitude" => ApiErrorMessages.Profile.InvalidLongitudeForLocationUpdate,
+                    _ => ApiErrorMessages.Profile.InvalidLatitudeForLocationUpdate
+                });
+            }
+
+            var profile = await EnsureProfileRowAsync(user, userId);
+            GeoLocationHelper.ApplyLastKnownLocation(
+                profile,
+                request.Latitude,
+                request.Longitude,
+                request.Source);
+            profile.UpdatedAt = DateTime.UtcNow;
+
+            await _userRepository.AddPlayerLocationHistoryAsync(new PlayerLocationHistory
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                Latitude = request.Latitude,
+                Longitude = request.Longitude,
+                Source = request.Source,
+                RecordedAt = DateTime.UtcNow
+            });
+
+            await _userRepository.SaveChangesAsync();
+            return MapToPlayerLocationDto(profile);
+        }
+
+        public async Task ClearCurrentLocationAsync(Guid userId)
+        {
+            var profile = await _userRepository.GetProfileByUserIdAsync(userId);
+            if (profile == null)
+            {
+                throw new ProfileNotFoundException(ApiErrorMessages.Profile.ProfileNotFoundClearLocation);
+            }
+
+            if (!GeoLocationHelper.HasLastKnownLocation(profile))
+            {
+                throw new NotFoundException(ApiErrorMessages.Profile.NoSavedLocationToClear);
+            }
+
+            GeoLocationHelper.ClearLastKnownLocation(profile);
+            profile.UpdatedAt = DateTime.UtcNow;
+            await _userRepository.SaveChangesAsync();
+        }
+
+        private async Task<UserProfile> EnsureProfileRowAsync(User user, Guid userId)
+        {
+            if (user.Profile != null)
+            {
+                return user.Profile;
+            }
+
+            var profile = new UserProfile
+            {
+                UserId = userId,
+                KarmaPoints = 100,
+                GamerTier = GamerTier.Bronze,
+                GlobalElo = 1200,
+                Level = 1,
+                CurrentExp = 0,
+                UpdatedAt = DateTime.UtcNow
+            };
+            await _userRepository.AddUserProfileAsync(profile);
+            user.Profile = profile;
+            return profile;
+        }
+
+        private static PlayerLocationDto MapToPlayerLocationDto(UserProfile? profile)
+        {
+            var hasLocation = profile != null && GeoLocationHelper.HasLastKnownLocation(profile);
+            return new PlayerLocationDto
+            {
+                Latitude = profile?.LastKnownLatitude,
+                Longitude = profile?.LastKnownLongitude,
+                UpdatedAt = profile?.LastLocationUpdatedAt,
+                Source = profile?.LastLocationSource?.ToString(),
+                HasLocation = hasLocation
+            };
+        }
+
         private static void ApplyPhoneNumber(User user, string? phoneNumber)
         {
             if (phoneNumber == null)

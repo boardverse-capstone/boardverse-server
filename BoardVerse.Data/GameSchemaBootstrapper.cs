@@ -1,3 +1,4 @@
+using BoardVerse.Core.Helpers;
 using Microsoft.EntityFrameworkCore;
 
 namespace BoardVerse.Data
@@ -64,6 +65,31 @@ namespace BoardVerse.Data
                         END IF;
                     END IF;
                 END $$;
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                ALTER TABLE "UserProfiles" ADD COLUMN IF NOT EXISTS "LastKnownLatitude" double precision;
+                ALTER TABLE "UserProfiles" ADD COLUMN IF NOT EXISTS "LastKnownLongitude" double precision;
+                ALTER TABLE "UserProfiles" ADD COLUMN IF NOT EXISTS "LastLocationUpdatedAt" timestamp with time zone;
+                ALTER TABLE "UserProfiles" ADD COLUMN IF NOT EXISTS "LastLocationSource" character varying(20);
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS "PlayerLocationHistories" (
+                    "Id" uuid PRIMARY KEY,
+                    "UserId" uuid NOT NULL,
+                    "Latitude" double precision NOT NULL,
+                    "Longitude" double precision NOT NULL,
+                    "Source" character varying(20) NOT NULL DEFAULT 'Gps',
+                    "RecordedAt" timestamp with time zone NOT NULL,
+                    CONSTRAINT "FK_PlayerLocationHistories_Users_UserId"
+                        FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+                );
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE INDEX IF NOT EXISTS "IX_PlayerLocationHistories_UserId_RecordedAt"
+                    ON "PlayerLocationHistories" ("UserId", "RecordedAt" DESC);
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""
@@ -235,6 +261,33 @@ namespace BoardVerse.Data
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""
+                CREATE EXTENSION IF NOT EXISTS postgis;
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                ALTER TABLE "Cafes" ADD COLUMN IF NOT EXISTS "Latitude" double precision;
+                ALTER TABLE "Cafes" ADD COLUMN IF NOT EXISTS "Longitude" double precision;
+                ALTER TABLE "Cafes" ADD COLUMN IF NOT EXISTS "Location" geography(Point,4326);
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                UPDATE "Cafes"
+                SET "Location" = ST_SetSRID(ST_MakePoint("Longitude", "Latitude"), 4326)::geography
+                WHERE "Location" IS NULL
+                  AND "Latitude" IS NOT NULL
+                  AND "Longitude" IS NOT NULL;
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE INDEX IF NOT EXISTS "IX_Cafes_Location" ON "Cafes" USING GIST ("Location");
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "Latitude" double precision;
+                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "Longitude" double precision;
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
                 CREATE INDEX IF NOT EXISTS "IX_CafePartnerApplications_RepresentativeEmail"
                     ON "CafePartnerApplications" ("RepresentativeEmail");
                 CREATE INDEX IF NOT EXISTS "IX_CafePartnerApplications_BusinessLicense"
@@ -271,6 +324,33 @@ namespace BoardVerse.Data
                 ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "CafeImageUrl";
                 ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "RepresentativeName";
                 ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "MaximumCapacity";
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS "CafeTables" (
+                    "Id" uuid PRIMARY KEY,
+                    "CafeId" uuid NOT NULL,
+                    "Name" character varying(100) NOT NULL,
+                    "SortOrder" integer NOT NULL DEFAULT 0,
+                    "Status" character varying(20) NOT NULL DEFAULT 'Available',
+                    "CreatedAt" timestamp with time zone NOT NULL,
+                    "UpdatedAt" timestamp with time zone,
+                    "IsActive" boolean NOT NULL DEFAULT true,
+                    CONSTRAINT "FK_CafeTables_Cafes_CafeId"
+                        FOREIGN KEY ("CafeId") REFERENCES "Cafes" ("Id") ON DELETE CASCADE
+                );
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE UNIQUE INDEX IF NOT EXISTS "IX_CafeTables_CafeId_Name"
+                    ON "CafeTables" ("CafeId", "Name")
+                    WHERE "IsActive" = true;
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE INDEX IF NOT EXISTS "IX_CafeTables_CafeId_Status"
+                    ON "CafeTables" ("CafeId", "Status")
+                    WHERE "IsActive" = true;
                 """);
         }
 
@@ -406,6 +486,100 @@ namespace BoardVerse.Data
                 CREATE UNIQUE INDEX IF NOT EXISTS "IX_CafeGameComponentPenalties_Inventory_Component"
                     ON "CafeGameComponentPenalties" ("CafeGameInventoryId", "GameComponentTemplateId");
                 """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS "CafeInventoryBoxes" (
+                    "Id" uuid PRIMARY KEY,
+                    "CafeGameInventoryId" uuid NOT NULL,
+                    "Barcode" character varying(50) NOT NULL,
+                    "Status" character varying(50) NOT NULL,
+                    "CreatedAt" timestamp with time zone NOT NULL,
+                    "UpdatedAt" timestamp with time zone,
+                    "IsActive" boolean NOT NULL DEFAULT true,
+                    CONSTRAINT "FK_CafeInventoryBoxes_CafeGameInventories_CafeGameInventoryId"
+                        FOREIGN KEY ("CafeGameInventoryId")
+                        REFERENCES "CafeGameInventories" ("Id") ON DELETE CASCADE
+                );
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE UNIQUE INDEX IF NOT EXISTS "IX_CafeInventoryBoxes_Barcode"
+                    ON "CafeInventoryBoxes" ("Barcode")
+                    WHERE "IsActive" = true;
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE INDEX IF NOT EXISTS "IX_CafeInventoryBoxes_Inventory_Status"
+                    ON "CafeInventoryBoxes" ("CafeGameInventoryId", "Status")
+                    WHERE "IsActive" = true;
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS "ActiveSessions" (
+                    "Id" uuid PRIMARY KEY,
+                    "CafeId" uuid NOT NULL,
+                    "CafeTableId" uuid NOT NULL,
+                    "CafeInventoryBoxId" uuid NOT NULL,
+                    "GameTemplateId" uuid NOT NULL,
+                    "StartedAt" timestamp with time zone NOT NULL,
+                    "EndedAt" timestamp with time zone,
+                    "IsActive" boolean NOT NULL DEFAULT true,
+                    "CreatedAt" timestamp with time zone NOT NULL,
+                    CONSTRAINT "FK_ActiveSessions_Cafes_CafeId"
+                        FOREIGN KEY ("CafeId") REFERENCES "Cafes" ("Id") ON DELETE CASCADE,
+                    CONSTRAINT "FK_ActiveSessions_CafeTables_CafeTableId"
+                        FOREIGN KEY ("CafeTableId") REFERENCES "CafeTables" ("Id") ON DELETE RESTRICT,
+                    CONSTRAINT "FK_ActiveSessions_CafeInventoryBoxes_CafeInventoryBoxId"
+                        FOREIGN KEY ("CafeInventoryBoxId") REFERENCES "CafeInventoryBoxes" ("Id") ON DELETE RESTRICT,
+                    CONSTRAINT "FK_ActiveSessions_GameTemplates_GameTemplateId"
+                        FOREIGN KEY ("GameTemplateId") REFERENCES "GameTemplates" ("Id") ON DELETE RESTRICT
+                );
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE UNIQUE INDEX IF NOT EXISTS "IX_ActiveSessions_CafeInventoryBoxId"
+                    ON "ActiveSessions" ("CafeInventoryBoxId")
+                    WHERE "IsActive" = true;
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE INDEX IF NOT EXISTS "IX_ActiveSessions_Cafe_Game_Active"
+                    ON "ActiveSessions" ("CafeId", "GameTemplateId", "IsActive");
+                """);
+        }
+
+        /// <summary>
+        /// Creates CafeInventoryBoxes for active inventories that have no box rows yet (legacy data).
+        /// </summary>
+        public static async Task EnsureInventoryBoxBackfillAsync(BoardVerseDbContext context)
+        {
+            var inventories = await context.CafeGameInventories
+                .Where(i => i.IsActive)
+                .ToListAsync();
+
+            var changed = false;
+            foreach (var inventory in inventories)
+            {
+                var hasActiveBoxes = await context.CafeInventoryBoxes
+                    .AnyAsync(b => b.CafeGameInventoryId == inventory.Id && b.IsActive);
+
+                if (hasActiveBoxes)
+                {
+                    continue;
+                }
+
+                var existingBoxes = await context.CafeInventoryBoxes
+                    .Where(b => b.CafeGameInventoryId == inventory.Id)
+                    .ToListAsync();
+
+                CafeInventoryBoxSyncHelper.ApplySync(inventory, existingBoxes);
+                changed = true;
+            }
+
+            if (changed)
+            {
+                await context.SaveChangesAsync();
+            }
         }
     }
 }

@@ -26,5 +26,6 @@ namespace BoardVerse.Core.Entities
         public virtual Cafe Cafe { get; set; } = null!;
         public virtual GameTemplate GameTemplate { get; set; } = null!;
         public virtual ICollection<CafeGameComponentPenalty> ComponentPenalties { get; set; } = [];
+        public virtual ICollection<CafeInventoryBox> Boxes { get; set; } = [];
     }
 }

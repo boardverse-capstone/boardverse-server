@@ -12,6 +12,9 @@
 | `/` | DELETE | Vô hiệu hóa hồ sơ |
 | `/progress` | POST | Cập nhật Elo / level |
 | `/me/avatar` | PUT | Đổi avatar |
+| `/me/location` | GET | Vị trí gần nhất đã lưu (chỉ bản thân) |
+| `/me/location` | PUT | Cập nhật vị trí hiện tại (GPS/map) |
+| `/me/location` | DELETE | Xóa vị trí trên profile |
 | `/me/karma-history` | GET | Trạng thái karma |
 
 **Header bắt buộc:** `Authorization: Bearer <token>`
@@ -201,6 +204,63 @@ Vô hiệu hóa (soft-delete) profile của user đang đăng nhập.
 **Response 200:** `data: null`
 
 **Lỗi:** `401` thiếu token.
+
+---
+
+## GET /api/userprofile/me/location
+
+Vị trí **gần nhất** đã lưu trên server — **chỉ user đăng nhập** xem được (không có trên public profile).
+
+**Response 200:**
+```json
+{
+  "data": {
+    "latitude": 10.776889,
+    "longitude": 106.700806,
+    "updatedAt": "2026-06-14T10:00:00Z",
+    "source": "Gps",
+    "hasLocation": true
+  }
+}
+```
+
+Chưa từng lưu → `hasLocation: false`, các field tọa độ `null`.
+
+---
+
+## PUT /api/userprofile/me/location
+
+Cập nhật vị trí khi app mở map / lấy GPS. Backend:
+- Ghi **LastKnown** trên `UserProfiles` (đọc nhanh)
+- Append **PlayerLocationHistories** (audit)
+
+**Body:**
+```json
+{
+  "latitude": 10.776889,
+  "longitude": 106.700806,
+  "source": 0
+}
+```
+
+| `source` | Ý nghĩa |
+|----------|---------|
+| `0` | `Gps` — thiết bị |
+| `1` | `Manual` — chọn trên map |
+
+**Response 200:** cùng shape `PlayerLocationDto` như GET.
+
+**Lỗi:** `400` tọa độ ngoài [-90,90] / [-180,180].
+
+**Luồng gợi ý:** App mở → `PUT me/location` → gọi `GET /api/cafes/nearby/me?gameTemplateId=...` hoặc `GET /api/cafes/nearby?latitude=...&longitude=...&gameTemplateId=...`.
+
+---
+
+## DELETE /api/userprofile/me/location
+
+Xóa vị trí trên profile (opt-out privacy). **Không** xóa bảng history audit.
+
+**Response 200:** `data: null`
 
 ---
 

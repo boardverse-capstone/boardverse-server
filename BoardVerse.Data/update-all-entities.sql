@@ -3,7 +3,13 @@
 -- Or:  dotnet run --project tools/SeedDevData/SeedDevData.csproj  (bootstrap + EF seed)
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- 1. Users / Cafes / CafePartnerApplications
+-- 0. Extensions
+-- ══════════════════════════════════════════════════════════════════════════════
+
+CREATE EXTENSION IF NOT EXISTS postgis;
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- 1. Users & auth-related tables
 -- ══════════════════════════════════════════════════════════════════════════════
 
 CREATE TABLE IF NOT EXISTS "Users" (
@@ -33,11 +39,134 @@ CREATE UNIQUE INDEX IF NOT EXISTS "IX_Users_Email" ON "Users" ("Email");
 UPDATE "Users" SET "Role" = 'Player' WHERE "Role" = 'User';
 ALTER TABLE "Users" ALTER COLUMN "Role" SET DEFAULT 'Player';
 
+CREATE TABLE IF NOT EXISTS "UserProfiles" (
+    "UserId" uuid PRIMARY KEY,
+    "AvatarUrl" character varying(500),
+    "AvatarBorderUrl" character varying(500),
+    "Bio" character varying(1000),
+    "KarmaPoints" integer NOT NULL DEFAULT 100,
+    "GamerTier" character varying(50) NOT NULL DEFAULT 'Bronze',
+    "GlobalElo" integer NOT NULL DEFAULT 1200,
+    "Level" integer NOT NULL DEFAULT 1,
+    "CurrentExp" integer NOT NULL DEFAULT 0,
+    "FirstName" character varying(100),
+    "LastName" character varying(100),
+    "DateOfBirth" date,
+    "UpdatedAt" timestamp with time zone NOT NULL,
+    "IsActive" boolean NOT NULL DEFAULT true,
+    CONSTRAINT "FK_UserProfiles_Users_UserId"
+        FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+);
+
 DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'UserProfiles') THEN
         ALTER TABLE "UserProfiles" DROP COLUMN IF EXISTS "HomeAddress";
+
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'UserProfiles'
+              AND column_name = 'DateOfBirth'
+              AND udt_name <> 'date'
+        ) THEN
+            ALTER TABLE "UserProfiles"
+            ALTER COLUMN "DateOfBirth" TYPE date
+            USING CASE
+                WHEN "DateOfBirth" IS NULL THEN NULL
+                ELSE ("DateOfBirth" AT TIME ZONE 'UTC')::date
+            END;
+        END IF;
     END IF;
 END $$;
+
+ALTER TABLE "UserProfiles" ADD COLUMN IF NOT EXISTS "AvatarUrl" character varying(500);
+ALTER TABLE "UserProfiles" ADD COLUMN IF NOT EXISTS "AvatarBorderUrl" character varying(500);
+ALTER TABLE "UserProfiles" ADD COLUMN IF NOT EXISTS "Bio" character varying(1000);
+ALTER TABLE "UserProfiles" ADD COLUMN IF NOT EXISTS "KarmaPoints" integer NOT NULL DEFAULT 100;
+ALTER TABLE "UserProfiles" ADD COLUMN IF NOT EXISTS "GamerTier" character varying(50) NOT NULL DEFAULT 'Bronze';
+ALTER TABLE "UserProfiles" ADD COLUMN IF NOT EXISTS "GlobalElo" integer NOT NULL DEFAULT 1200;
+ALTER TABLE "UserProfiles" ADD COLUMN IF NOT EXISTS "Level" integer NOT NULL DEFAULT 1;
+ALTER TABLE "UserProfiles" ADD COLUMN IF NOT EXISTS "CurrentExp" integer NOT NULL DEFAULT 0;
+ALTER TABLE "UserProfiles" ADD COLUMN IF NOT EXISTS "FirstName" character varying(100);
+ALTER TABLE "UserProfiles" ADD COLUMN IF NOT EXISTS "LastName" character varying(100);
+ALTER TABLE "UserProfiles" ADD COLUMN IF NOT EXISTS "DateOfBirth" date;
+ALTER TABLE "UserProfiles" ADD COLUMN IF NOT EXISTS "UpdatedAt" timestamp with time zone;
+ALTER TABLE "UserProfiles" ADD COLUMN IF NOT EXISTS "IsActive" boolean NOT NULL DEFAULT true;
+ALTER TABLE "UserProfiles" ADD COLUMN IF NOT EXISTS "LastKnownLatitude" double precision;
+ALTER TABLE "UserProfiles" ADD COLUMN IF NOT EXISTS "LastKnownLongitude" double precision;
+ALTER TABLE "UserProfiles" ADD COLUMN IF NOT EXISTS "LastLocationUpdatedAt" timestamp with time zone;
+ALTER TABLE "UserProfiles" ADD COLUMN IF NOT EXISTS "LastLocationSource" character varying(20);
+
+CREATE TABLE IF NOT EXISTS "PlayerLocationHistories" (
+    "Id" uuid PRIMARY KEY,
+    "UserId" uuid NOT NULL,
+    "Latitude" double precision NOT NULL,
+    "Longitude" double precision NOT NULL,
+    "Source" character varying(20) NOT NULL DEFAULT 'Gps',
+    "RecordedAt" timestamp with time zone NOT NULL,
+    CONSTRAINT "FK_PlayerLocationHistories_Users_UserId"
+        FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS "IX_PlayerLocationHistories_UserId_RecordedAt"
+    ON "PlayerLocationHistories" ("UserId", "RecordedAt" DESC);
+
+CREATE TABLE IF NOT EXISTS "RefreshTokens" (
+    "Id" uuid PRIMARY KEY,
+    "UserId" uuid NOT NULL,
+    "Token" character varying(500) NOT NULL,
+    "ExpiresAt" timestamp with time zone NOT NULL,
+    "IsRevoked" boolean NOT NULL DEFAULT false,
+    "CreatedAt" timestamp with time zone NOT NULL,
+    "RevokedAt" timestamp with time zone,
+    CONSTRAINT "FK_RefreshTokens_Users_UserId"
+        FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+);
+
+ALTER TABLE "RefreshTokens" ADD COLUMN IF NOT EXISTS "ExpiresAt" timestamp with time zone;
+ALTER TABLE "RefreshTokens" ADD COLUMN IF NOT EXISTS "IsRevoked" boolean NOT NULL DEFAULT false;
+ALTER TABLE "RefreshTokens" ADD COLUMN IF NOT EXISTS "RevokedAt" timestamp with time zone;
+
+CREATE UNIQUE INDEX IF NOT EXISTS "IX_RefreshTokens_Token" ON "RefreshTokens" ("Token");
+CREATE INDEX IF NOT EXISTS "IX_RefreshTokens_UserId" ON "RefreshTokens" ("UserId");
+
+CREATE TABLE IF NOT EXISTS "TokenBlacklists" (
+    "Id" uuid PRIMARY KEY,
+    "UserId" uuid NOT NULL,
+    "Token" character varying(500) NOT NULL,
+    "ExpiresAt" timestamp with time zone NOT NULL,
+    "CreatedAt" timestamp with time zone NOT NULL,
+    "Reason" character varying(500),
+    CONSTRAINT "FK_TokenBlacklists_Users_UserId"
+        FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+);
+
+ALTER TABLE "TokenBlacklists" ADD COLUMN IF NOT EXISTS "Reason" character varying(500);
+
+CREATE INDEX IF NOT EXISTS "IX_TokenBlacklists_Token" ON "TokenBlacklists" ("Token");
+CREATE INDEX IF NOT EXISTS "IX_TokenBlacklists_UserId" ON "TokenBlacklists" ("UserId");
+
+CREATE TABLE IF NOT EXISTS "PasswordResetTokens" (
+    "Id" uuid PRIMARY KEY,
+    "UserId" uuid NOT NULL,
+    "Token" character varying(500) NOT NULL,
+    "ExpiresAt" timestamp with time zone NOT NULL,
+    "IsUsed" boolean NOT NULL DEFAULT false,
+    "CreatedAt" timestamp with time zone NOT NULL,
+    "UsedAt" timestamp with time zone,
+    CONSTRAINT "FK_PasswordResetTokens_Users_UserId"
+        FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+);
+
+ALTER TABLE "PasswordResetTokens" ADD COLUMN IF NOT EXISTS "IsUsed" boolean NOT NULL DEFAULT false;
+ALTER TABLE "PasswordResetTokens" ADD COLUMN IF NOT EXISTS "UsedAt" timestamp with time zone;
+
+CREATE INDEX IF NOT EXISTS "IX_PasswordResetTokens_Token" ON "PasswordResetTokens" ("Token");
+CREATE INDEX IF NOT EXISTS "IX_PasswordResetTokens_UserId" ON "PasswordResetTokens" ("UserId");
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- 2. Cafes (partner locations + PostGIS)
+-- ══════════════════════════════════════════════════════════════════════════════
 
 CREATE TABLE IF NOT EXISTS "Cafes" (
     "Id" uuid PRIMARY KEY,
@@ -60,13 +189,62 @@ ALTER TABLE "Cafes" ADD COLUMN IF NOT EXISTS "WeekdayOpen" interval;
 ALTER TABLE "Cafes" ADD COLUMN IF NOT EXISTS "WeekdayClose" interval;
 ALTER TABLE "Cafes" ADD COLUMN IF NOT EXISTS "WeekendOpen" interval;
 ALTER TABLE "Cafes" ADD COLUMN IF NOT EXISTS "WeekendClose" interval;
+ALTER TABLE "Cafes" ADD COLUMN IF NOT EXISTS "Latitude" double precision;
+ALTER TABLE "Cafes" ADD COLUMN IF NOT EXISTS "Longitude" double precision;
+ALTER TABLE "Cafes" ADD COLUMN IF NOT EXISTS "Location" geography(Point,4326);
 
 UPDATE "Cafes" SET "PartnerOperationalStatus" = 'Active'
 WHERE "PartnerOperationalStatus" IS NULL AND "IsActive" = true;
 UPDATE "Cafes" SET "PartnerOperationalStatus" = 'DataBlank'
 WHERE "PartnerOperationalStatus" IS NULL AND "IsActive" = false;
 
--- CafePartnerApplications (create legacy shape, migrate to current columns)
+UPDATE "Cafes"
+SET "Location" = ST_SetSRID(ST_MakePoint("Longitude", "Latitude"), 4326)::geography
+WHERE "Location" IS NULL
+  AND "Latitude" IS NOT NULL
+  AND "Longitude" IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS "IX_Cafes_Location" ON "Cafes" USING GIST ("Location");
+
+CREATE TABLE IF NOT EXISTS "CafeStaffs" (
+    "CafeId" uuid NOT NULL,
+    "UserId" uuid NOT NULL,
+    "JoinedAt" timestamp with time zone NOT NULL,
+    "IsActive" boolean NOT NULL DEFAULT true,
+    PRIMARY KEY ("CafeId", "UserId"),
+    CONSTRAINT "FK_CafeStaffs_Cafes_CafeId"
+        FOREIGN KEY ("CafeId") REFERENCES "Cafes" ("Id") ON DELETE CASCADE,
+    CONSTRAINT "FK_CafeStaffs_Users_UserId"
+        FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+);
+
+ALTER TABLE "CafeStaffs" ADD COLUMN IF NOT EXISTS "IsActive" boolean NOT NULL DEFAULT true;
+
+CREATE TABLE IF NOT EXISTS "CafeTables" (
+    "Id" uuid PRIMARY KEY,
+    "CafeId" uuid NOT NULL,
+    "Name" character varying(100) NOT NULL,
+    "SortOrder" integer NOT NULL DEFAULT 0,
+    "Status" character varying(20) NOT NULL DEFAULT 'Available',
+    "CreatedAt" timestamp with time zone NOT NULL,
+    "UpdatedAt" timestamp with time zone,
+    "IsActive" boolean NOT NULL DEFAULT true,
+    CONSTRAINT "FK_CafeTables_Cafes_CafeId"
+        FOREIGN KEY ("CafeId") REFERENCES "Cafes" ("Id") ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "IX_CafeTables_CafeId_Name"
+    ON "CafeTables" ("CafeId", "Name")
+    WHERE "IsActive" = true;
+
+CREATE INDEX IF NOT EXISTS "IX_CafeTables_CafeId_Status"
+    ON "CafeTables" ("CafeId", "Status")
+    WHERE "IsActive" = true;
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- 3. CafePartnerApplications
+-- ══════════════════════════════════════════════════════════════════════════════
+
 CREATE TABLE IF NOT EXISTS "CafePartnerApplications" (
     "Id" uuid PRIMARY KEY,
     "ContactName" character varying(100),
@@ -92,11 +270,6 @@ CREATE TABLE IF NOT EXISTS "CafePartnerApplications" (
     "UpdatedAt" timestamp with time zone NOT NULL
 );
 
-ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "BusinessLicenseNumber" character varying(100);
-ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "BusinessLicenseUrl" character varying(500);
-ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "CafeImageUrl" character varying(500);
-ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "ResubmitCount" integer NOT NULL DEFAULT 0;
-ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "SubmittedByUserId" uuid;
 ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "Hotline" character varying(11);
 ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "RepresentativeEmail" character varying(256);
 ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "RepresentativeName" character varying(100);
@@ -123,28 +296,41 @@ ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "WeekendClose" in
 ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "TableLayoutJson" text NOT NULL DEFAULT '[]';
 ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "ApprovedAt" timestamp with time zone;
 ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "OperationalProfileUpdatedAt" timestamp with time zone;
+ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "Latitude" double precision;
+ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "Longitude" double precision;
 
 DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'CafePartnerApplications' AND column_name = 'ContactName') THEN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'CafePartnerApplications' AND column_name = 'ContactName'
+    ) THEN
         ALTER TABLE "CafePartnerApplications" ALTER COLUMN "ContactName" DROP NOT NULL;
         ALTER TABLE "CafePartnerApplications" ALTER COLUMN "ContactEmail" DROP NOT NULL;
         ALTER TABLE "CafePartnerApplications" ALTER COLUMN "ContactPhone" DROP NOT NULL;
     END IF;
 END $$;
 
-UPDATE "CafePartnerApplications"
-SET "RepresentativeEmail" = COALESCE(NULLIF(TRIM("RepresentativeEmail"), ''), "ContactEmail"),
-    "Hotline" = COALESCE(NULLIF(TRIM("Hotline"), ''), "ContactPhone"),
-    "RepresentativeName" = COALESCE("RepresentativeName", "ContactName"),
-    "BusinessLicense" = COALESCE(NULLIF(TRIM("BusinessLicense"), ''), "BusinessLicenseNumber", ''),
-    "BusinessLicenseImageUrl" = COALESCE("BusinessLicenseImageUrl", "BusinessLicenseUrl"),
-    "SpaceImageUrlsJson" = CASE
-        WHEN ("SpaceImageUrlsJson" IS NULL OR "SpaceImageUrlsJson" = '[]') AND "CafeImageUrl" IS NOT NULL
-        THEN format('["%s"]', replace("CafeImageUrl", '"', '\"'))
-        ELSE COALESCE("SpaceImageUrlsJson", '[]')
-    END
-WHERE EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'CafePartnerApplications' AND column_name = 'ContactEmail')
-  AND ("ContactEmail" IS NOT NULL OR "RepresentativeEmail" IS NULL OR TRIM(COALESCE("RepresentativeEmail", '')) = '');
+DO $$ BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'CafePartnerApplications' AND column_name = 'ContactEmail'
+    ) THEN
+        UPDATE "CafePartnerApplications"
+        SET "RepresentativeEmail" = COALESCE(NULLIF(TRIM("RepresentativeEmail"), ''), "ContactEmail"),
+            "Hotline" = COALESCE(NULLIF(TRIM("Hotline"), ''), "ContactPhone"),
+            "RepresentativeName" = COALESCE("RepresentativeName", "ContactName"),
+            "BusinessLicense" = COALESCE(NULLIF(TRIM("BusinessLicense"), ''), "BusinessLicenseNumber", ''),
+            "BusinessLicenseImageUrl" = COALESCE("BusinessLicenseImageUrl", "BusinessLicenseUrl"),
+            "SpaceImageUrlsJson" = CASE
+                WHEN ("SpaceImageUrlsJson" IS NULL OR "SpaceImageUrlsJson" = '[]') AND "CafeImageUrl" IS NOT NULL
+                THEN format('["%s"]', replace("CafeImageUrl", '"', '\"'))
+                ELSE COALESCE("SpaceImageUrlsJson", '[]')
+            END
+        WHERE "ContactEmail" IS NOT NULL
+           OR "RepresentativeEmail" IS NULL
+           OR TRIM(COALESCE("RepresentativeEmail", '')) = '';
+    END IF;
+END $$;
 
 UPDATE "CafePartnerApplications" SET "Status" = 'PendingApproval' WHERE "Status" IN ('Pending', 'PendingReview', 'PendingInfo', 'NeedsMoreInfo');
 UPDATE "CafePartnerApplications" SET "Status" = 'Approved' WHERE "Status" IN ('Active', 'ContractSigned', 'PendingNegotiation');
@@ -168,9 +354,14 @@ ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "BusinessLicenseUrl"
 ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "CafeImageUrl";
 ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "RepresentativeName";
 ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "MaximumCapacity";
+ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "OpsAlertMessage";
+ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "CommissionRate";
+ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "ContractSentAt";
+ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "ContractSignedAt";
+ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "DisplayRankOverride";
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- 2. Game catalog schema
+-- 4. Game catalog schema
 -- ══════════════════════════════════════════════════════════════════════════════
 
 CREATE TABLE IF NOT EXISTS "GameTemplates" (
@@ -233,7 +424,7 @@ CREATE TABLE IF NOT EXISTS "GameComponentTemplates" (
 CREATE INDEX IF NOT EXISTS "IX_GameComponentTemplates_GameTemplateId" ON "GameComponentTemplates" ("GameTemplateId");
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- 3. Cafe inventory schema
+-- 5. Cafe inventory schema
 -- ══════════════════════════════════════════════════════════════════════════════
 
 CREATE TABLE IF NOT EXISTS "CafeGameInventories" (
@@ -255,7 +446,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS "IX_CafeGameInventories_CafeId_GameTemplateId"
     ON "CafeGameInventories" ("CafeId", "GameTemplateId")
     WHERE "IsActive" = true;
 
--- Rename legacy table name if present
 DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'CafeGameComponents')
        AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'CafeGameComponentPenalties')
@@ -280,8 +470,90 @@ CREATE TABLE IF NOT EXISTS "CafeGameComponentPenalties" (
 CREATE UNIQUE INDEX IF NOT EXISTS "IX_CafeGameComponentPenalties_Inventory_Component"
     ON "CafeGameComponentPenalties" ("CafeGameInventoryId", "GameComponentTemplateId");
 
+CREATE TABLE IF NOT EXISTS "CafeInventoryBoxes" (
+    "Id" uuid PRIMARY KEY,
+    "CafeGameInventoryId" uuid NOT NULL,
+    "Barcode" character varying(50) NOT NULL,
+    "Status" character varying(50) NOT NULL,
+    "CreatedAt" timestamp with time zone NOT NULL,
+    "UpdatedAt" timestamp with time zone,
+    "IsActive" boolean NOT NULL DEFAULT true,
+    CONSTRAINT "FK_CafeInventoryBoxes_CafeGameInventories_CafeGameInventoryId"
+        FOREIGN KEY ("CafeGameInventoryId") REFERENCES "CafeGameInventories" ("Id") ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "IX_CafeInventoryBoxes_Barcode"
+    ON "CafeInventoryBoxes" ("Barcode")
+    WHERE "IsActive" = true;
+
+CREATE INDEX IF NOT EXISTS "IX_CafeInventoryBoxes_Inventory_Status"
+    ON "CafeInventoryBoxes" ("CafeGameInventoryId", "Status")
+    WHERE "IsActive" = true;
+
+CREATE TABLE IF NOT EXISTS "ActiveSessions" (
+    "Id" uuid PRIMARY KEY,
+    "CafeId" uuid NOT NULL,
+    "CafeTableId" uuid NOT NULL,
+    "CafeInventoryBoxId" uuid NOT NULL,
+    "GameTemplateId" uuid NOT NULL,
+    "StartedAt" timestamp with time zone NOT NULL,
+    "EndedAt" timestamp with time zone,
+    "IsActive" boolean NOT NULL DEFAULT true,
+    "CreatedAt" timestamp with time zone NOT NULL,
+    CONSTRAINT "FK_ActiveSessions_Cafes_CafeId"
+        FOREIGN KEY ("CafeId") REFERENCES "Cafes" ("Id") ON DELETE CASCADE,
+    CONSTRAINT "FK_ActiveSessions_CafeTables_CafeTableId"
+        FOREIGN KEY ("CafeTableId") REFERENCES "CafeTables" ("Id") ON DELETE RESTRICT,
+    CONSTRAINT "FK_ActiveSessions_CafeInventoryBoxes_CafeInventoryBoxId"
+        FOREIGN KEY ("CafeInventoryBoxId") REFERENCES "CafeInventoryBoxes" ("Id") ON DELETE RESTRICT,
+    CONSTRAINT "FK_ActiveSessions_GameTemplates_GameTemplateId"
+        FOREIGN KEY ("GameTemplateId") REFERENCES "GameTemplates" ("Id") ON DELETE RESTRICT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "IX_ActiveSessions_CafeInventoryBoxId"
+    ON "ActiveSessions" ("CafeInventoryBoxId")
+    WHERE "IsActive" = true;
+
+CREATE INDEX IF NOT EXISTS "IX_ActiveSessions_Cafe_Game_Active"
+    ON "ActiveSessions" ("CafeId", "GameTemplateId", "IsActive");
+
+-- Backfill physical box rows for active inventories that have no CafeInventoryBoxes yet (legacy data).
+DO $$
+DECLARE
+    inv RECORD;
+    seq int;
+    cafe_hex text;
+    inv_hex text;
+BEGIN
+    FOR inv IN
+        SELECT i."Id", i."CafeId", i."BoxQuantity"
+        FROM "CafeGameInventories" i
+        WHERE i."IsActive" = true
+          AND i."BoxQuantity" >= 1
+          AND NOT EXISTS (
+              SELECT 1 FROM "CafeInventoryBoxes" b
+              WHERE b."CafeGameInventoryId" = i."Id" AND b."IsActive" = true
+          )
+    LOOP
+        cafe_hex := substring(replace(inv."CafeId"::text, '-', '') from 1 for 8);
+        inv_hex := substring(replace(inv."Id"::text, '-', '') from 1 for 8);
+        FOR seq IN 1..inv."BoxQuantity" LOOP
+            INSERT INTO "CafeInventoryBoxes" (
+                "Id", "CafeGameInventoryId", "Barcode", "Status", "CreatedAt", "IsActive"
+            ) VALUES (
+                gen_random_uuid(),
+                inv."Id",
+                format('BV-%s-%s-%s', cafe_hex, inv_hex, lpad(seq::text, 3, '0')),
+                'Available',
+                NOW() AT TIME ZONE 'UTC',
+                true
+            );
+        END LOOP;
+    END LOOP;
+END $$;
+
 -- ══════════════════════════════════════════════════════════════════════════════
--- 4. Catalog seed (categories, games, links, components, aliases)
+-- 6. Catalog seed (categories, games, links, components, aliases)
 -- ══════════════════════════════════════════════════════════════════════════════
 
 INSERT INTO "Categories" ("Id", "Name", "Slug", "Description", "SortOrder", "IsActive", "CreatedAt", "UpdatedAt")
@@ -325,7 +597,6 @@ UPDATE "GameTemplates"
 SET "NameSearchKey" = lower(trim("Name"))
 WHERE "NameSearchKey" IS NULL OR TRIM("NameSearchKey") = '';
 
--- Search aliases (display + normalized key for fuzzy search)
 UPDATE "GameTemplates" SET "SearchAliases" = 'Catán, Settlers of Catan, Catan', "SearchAliasesKey" = 'catan settlers of catan catan' WHERE lower(trim("Name")) = 'catan';
 UPDATE "GameTemplates" SET "SearchAliases" = 'Cờ Tỷ Phú', "SearchAliasesKey" = 'co ty phu' WHERE lower(trim("Name")) = 'monopoly';
 UPDATE "GameTemplates" SET "SearchAliases" = 'Uno', "SearchAliasesKey" = 'uno' WHERE lower(trim("Name")) = 'uno';

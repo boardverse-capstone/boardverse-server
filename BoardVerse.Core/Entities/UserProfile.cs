@@ -29,6 +29,12 @@ namespace BoardVerse.Core.Entities
         public string? LastName { get; set; }
         public DateOnly? DateOfBirth { get; set; }
 
+        // Last known device/map location (private — not exposed on public profile)
+        public double? LastKnownLatitude { get; set; }
+        public double? LastKnownLongitude { get; set; }
+        public DateTime? LastLocationUpdatedAt { get; set; }
+        public PlayerLocationSource? LastLocationSource { get; set; }
+
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
         public bool IsActive { get; set; } = true;
 

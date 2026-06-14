@@ -1,6 +1,8 @@
 using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.Cafe;
 using BoardVerse.Core.Entities;
+using BoardVerse.Core.Enum;
+using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using Microsoft.EntityFrameworkCore;
 
@@ -143,6 +145,194 @@ namespace BoardVerse.Data.Repositories
                 .Where(cs => cs.UserId == staffId && cs.IsActive)
                 .Select(cs => cs.Cafe)
                 .ToListAsync();
+        }
+
+        public async Task<PaginatedResponse<NearbyCafeDto>> GetNearbyAsync(
+            double latitude,
+            double longitude,
+            double radiusKm,
+            Guid? gameTemplateId,
+            PaginationParams paginationParams)
+        {
+            var origin = GeoLocationHelper.ToPoint(latitude, longitude);
+            var radiusMeters = radiusKm * 1000;
+
+            var baseQuery = _context.Cafes
+                .AsNoTracking()
+                .Where(c => c.IsActive
+                    && c.PartnerOperationalStatus == CafePartnerOperationalStatus.Active
+                    && c.Location != null
+                    && c.Location.IsWithinDistance(origin, radiusMeters));
+
+            if (gameTemplateId.HasValue)
+            {
+                var gameId = gameTemplateId.Value;
+                baseQuery = baseQuery.Where(c =>
+                    _context.CafeInventoryBoxes.Any(b =>
+                        b.CafeGameInventory.CafeId == c.Id
+                        && b.IsActive
+                        && b.CafeGameInventory.IsActive
+                        && b.CafeGameInventory.GameTemplateId == gameId
+                        && (b.Status == CafeGameInventoryStatus.Available
+                            || b.Status == CafeGameInventoryStatus.InUse)));
+            }
+
+            var projected = baseQuery.Select(c => new NearbyCafeDto
+            {
+                Id = c.Id,
+                Name = c.Name,
+                Address = c.Address,
+                Latitude = c.Latitude,
+                Longitude = c.Longitude,
+                PhoneNumber = c.PhoneNumber,
+                Description = c.Description,
+                CreatedAt = c.CreatedAt,
+                DistanceMeters = c.Location!.Distance(origin),
+                AvailableGameCount = gameTemplateId.HasValue
+                    ? _context.CafeInventoryBoxes.Count(b =>
+                        b.CafeGameInventory.CafeId == c.Id
+                        && b.IsActive
+                        && b.CafeGameInventory.IsActive
+                        && b.CafeGameInventory.GameTemplateId == gameTemplateId.Value
+                        && b.Status == CafeGameInventoryStatus.Available)
+                    : _context.CafeInventoryBoxes.Count(b =>
+                        b.CafeGameInventory.CafeId == c.Id
+                        && b.IsActive
+                        && b.Status == CafeGameInventoryStatus.Available),
+                TotalGameBoxCount = gameTemplateId.HasValue
+                    ? _context.CafeInventoryBoxes.Count(b =>
+                        b.CafeGameInventory.CafeId == c.Id
+                        && b.IsActive
+                        && b.CafeGameInventory.IsActive
+                        && b.CafeGameInventory.GameTemplateId == gameTemplateId.Value
+                        && (b.Status == CafeGameInventoryStatus.Available
+                            || b.Status == CafeGameInventoryStatus.InUse))
+                    : _context.CafeInventoryBoxes.Count(b =>
+                        b.CafeGameInventory.CafeId == c.Id
+                        && b.IsActive),
+                AvailableTableCount = _context.CafeTables.Count(t =>
+                    t.CafeId == c.Id
+                    && t.IsActive
+                    && t.Status == CafeTableStatus.Available),
+                TotalTableCount = _context.CafeTables.Count(t =>
+                    t.CafeId == c.Id
+                    && t.IsActive)
+            });
+
+            var totalItems = await projected.CountAsync();
+            var items = await projected
+                .OrderBy(c => c.DistanceMeters)
+                .Skip((paginationParams.PageNumber - 1) * paginationParams.PageSize)
+                .Take(paginationParams.PageSize)
+                .ToListAsync();
+
+            var totalPages = totalItems == 0
+                ? 0
+                : (int)Math.Ceiling(totalItems / (double)paginationParams.PageSize);
+
+            return new PaginatedResponse<NearbyCafeDto>
+            {
+                Data = items,
+                Meta = new PaginationMeta
+                {
+                    CurrentPage = paginationParams.PageNumber,
+                    PageSize = paginationParams.PageSize,
+                    TotalItems = totalItems,
+                    TotalPages = totalPages
+                }
+            };
+        }
+
+        public async Task EnrichNearbyWithGameWaitAsync(IList<NearbyCafeDto> cafes, Guid gameTemplateId)
+        {
+            if (cafes.Count == 0)
+            {
+                return;
+            }
+
+            var cafeIds = cafes.Select(c => c.Id).ToList();
+            var utcNow = DateTime.UtcNow;
+
+            var playTime = await _context.GameTemplates
+                .AsNoTracking()
+                .Where(g => g.Id == gameTemplateId && g.IsActive)
+                .Select(g => (int?)g.PlayTime)
+                .FirstOrDefaultAsync();
+
+            if (!playTime.HasValue)
+            {
+                return;
+            }
+
+            var boxes = await _context.CafeInventoryBoxes
+                .AsNoTracking()
+                .Where(b =>
+                    cafeIds.Contains(b.CafeGameInventory.CafeId)
+                    && b.IsActive
+                    && b.CafeGameInventory.IsActive
+                    && b.CafeGameInventory.GameTemplateId == gameTemplateId
+                    && (b.Status == CafeGameInventoryStatus.Available
+                        || b.Status == CafeGameInventoryStatus.InUse))
+                .Select(b => new
+                {
+                    b.Id,
+                    b.CafeGameInventory.CafeId,
+                    b.Status
+                })
+                .ToListAsync();
+
+            var inUseBoxIds = boxes
+                .Where(b => b.Status == CafeGameInventoryStatus.InUse)
+                .Select(b => b.Id)
+                .ToList();
+
+            var sessionStarts = inUseBoxIds.Count == 0
+                ? []
+                : await _context.ActiveSessions
+                    .AsNoTracking()
+                    .Where(s =>
+                        s.IsActive
+                        && inUseBoxIds.Contains(s.CafeInventoryBoxId))
+                    .Select(s => new { s.CafeInventoryBoxId, s.StartedAt })
+                    .ToListAsync();
+
+            var sessionStartByBoxId = sessionStarts.ToDictionary(s => s.CafeInventoryBoxId, s => s.StartedAt);
+
+            foreach (var cafe in cafes)
+            {
+                var cafeBoxes = boxes.Where(b => b.CafeId == cafe.Id).ToList();
+                var availableCount = cafeBoxes.Count(b => b.Status == CafeGameInventoryStatus.Available);
+
+                cafe.AvailableGameCount = availableCount;
+                cafe.TotalGameBoxCount = cafeBoxes.Count;
+
+                if (availableCount > 0)
+                {
+                    cafe.SelectedGameAvailabilityStatus = NearbyCafeGameAvailabilityStatus.GameAvailable;
+                    cafe.EstimatedWaitMinutes = null;
+                    continue;
+                }
+
+                cafe.SelectedGameAvailabilityStatus = NearbyCafeGameAvailabilityStatus.WaitingForGame;
+
+                var waitCandidates = cafeBoxes
+                    .Where(b => b.Status == CafeGameInventoryStatus.InUse)
+                    .Select(b =>
+                    {
+                        if (sessionStartByBoxId.TryGetValue(b.Id, out var startedAt))
+                        {
+                            var elapsedMinutes = (utcNow - startedAt).TotalMinutes;
+                            return (int)Math.Max(0, Math.Ceiling(playTime.Value - elapsedMinutes));
+                        }
+
+                        return playTime.Value;
+                    })
+                    .ToList();
+
+                cafe.EstimatedWaitMinutes = waitCandidates.Count == 0
+                    ? playTime.Value
+                    : waitCandidates.Min();
+            }
         }
 
         public async Task SaveChangesAsync()

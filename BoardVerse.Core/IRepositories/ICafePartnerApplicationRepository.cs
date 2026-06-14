@@ -15,6 +15,7 @@ namespace BoardVerse.Core.IRepositories
         Task<bool> HasActiveBookingsAsync(Guid cafeId);
         Task<PaginatedResponse<CafePartnerApplication>> GetPagedAsync(AdminCafePartnerApplicationQueryDto query);
         Task AddCafeAsync(Cafe cafe);
+        Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<string> tableNames);
         Task SaveChangesAsync();
     }
 }

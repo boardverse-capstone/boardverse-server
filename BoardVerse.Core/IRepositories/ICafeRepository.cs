@@ -20,6 +20,13 @@ namespace BoardVerse.Core.IRepositories
         Task RemoveCafeStaffAsync(CafeStaff cafeStaff);
         Task<IEnumerable<Cafe>> GetCafesByStaffIdAsync(Guid staffId);
         Task<IEnumerable<Cafe>> GetCafesByManagerIdAsync(Guid managerId);
+        Task<PaginatedResponse<NearbyCafeDto>> GetNearbyAsync(
+            double latitude,
+            double longitude,
+            double radiusKm,
+            Guid? gameTemplateId,
+            PaginationParams paginationParams);
+        Task EnrichNearbyWithGameWaitAsync(IList<NearbyCafeDto> cafes, Guid gameTemplateId);
         Task SaveChangesAsync();
     }
 }
