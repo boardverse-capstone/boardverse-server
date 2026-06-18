@@ -12,6 +12,7 @@ namespace BoardVerse.Data.Configurations
             builder.Property(gc => gc.Id).ValueGeneratedNever();
             builder.Property(gc => gc.GameTemplateId).IsRequired();
             builder.Property(gc => gc.ComponentName).IsRequired().HasMaxLength(200);
+            builder.Property(gc => gc.ComponentKind).HasConversion<string>().HasMaxLength(50);
             builder.Property(gc => gc.DefaultQuantity).IsRequired();
             builder.Property(gc => gc.CreatedAt).IsRequired();
 

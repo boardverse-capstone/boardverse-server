@@ -25,6 +25,14 @@ namespace BoardVerse.Data
         public DbSet<CafeTable> CafeTables => Set<CafeTable>();
         public DbSet<CafeInventoryBox> CafeInventoryBoxes => Set<CafeInventoryBox>();
         public DbSet<ActiveSession> ActiveSessions => Set<ActiveSession>();
+        public DbSet<Lobby> Lobbies => Set<Lobby>();
+        public DbSet<LobbyMember> LobbyMembers => Set<LobbyMember>();
+        public DbSet<PlayerKarmaRating> PlayerKarmaRatings => Set<PlayerKarmaRating>();
+        public DbSet<MatchResult> MatchResults => Set<MatchResult>();
+        public DbSet<MatchHistory> MatchHistories => Set<MatchHistory>();
+        public DbSet<MatchHistoryParticipant> MatchHistoryParticipants => Set<MatchHistoryParticipant>();
+        public DbSet<KarmaLog> KarmaLogs => Set<KarmaLog>();
+        public DbSet<SystemConfiguration> SystemConfigurations => Set<SystemConfiguration>();
 
         public BoardVerseDbContext(DbContextOptions<BoardVerseDbContext> options) : base(options)
         {
@@ -89,6 +97,13 @@ namespace BoardVerse.Data
                     .HasMaxLength(500);
 
                 entity.Property(u => u.BlockedAt);
+
+                entity.Property(u => u.AccountStatus)
+                    .HasConversion<string>()
+                    .HasMaxLength(20)
+                    .HasDefaultValue(UserAccountStatus.Active);
+
+                entity.Property(u => u.LockoutEndDate);
 
                 entity.HasIndex(u => u.Email)
                     .IsUnique();

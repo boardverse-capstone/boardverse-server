@@ -1,5 +1,6 @@
 using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.Cafe;
+using BoardVerse.Core.Helpers;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -22,11 +23,11 @@ namespace BoardVerse.API.Controllers
         /// </summary>
         /// <param name="latitude">Vĩ độ player (WGS84, -90 đến 90).</param>
         /// <param name="longitude">Kinh độ player (WGS84, -180 đến 180).</param>
-        /// <param name="radiusKm">Bán kính tìm kiếm km (mặc định 5; cho phép 0.1–50).</param>
+        /// <param name="radiusKm">Bán kính tìm kiếm km (mặc định 15; cho phép 0.1–50).</param>
         /// <param name="gameTemplateId">Bắt buộc — chỉ quán có hộp game Available hoặc InUse của tựa này (AC 2.1).</param>
         /// <param name="pageNumber">Số trang (mặc định 1).</param>
         /// <param name="pageSize">Kích thước trang (mặc định 20).</param>
-        /// <response code="200">Danh sách quán phân trang, sắp xếp theo khoảng cách; kèm availableTableCount, totalTableCount, selectedGameAvailabilityStatus, estimatedWaitMinutes.</response>
+        /// <response code="200">Danh sách quán phân trang; khi rỗng kèm emptyResultMessage và alternativeSuggestions (AC 5.1, 5.2).</response>
         /// <response code="400">Tọa độ, bán kính hoặc gameTemplateId không hợp lệ.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpGet("nearby")]
@@ -35,7 +36,7 @@ namespace BoardVerse.API.Controllers
             [FromQuery] double latitude,
             [FromQuery] double longitude,
             [FromQuery] Guid gameTemplateId,
-            [FromQuery] double radiusKm = 5,
+            [FromQuery] double radiusKm = GeoLocationHelper.DefaultNearbyRadiusKm,
             [FromQuery] int pageNumber = 1,
             [FromQuery] int pageSize = 20)
         {
@@ -53,7 +54,7 @@ namespace BoardVerse.API.Controllers
         /// Tìm quán gần vị trí đã lưu trên profile (LastKnown GPS/map pin). [Role: Player, Manager, CafeStaff, Admin]
         /// </summary>
         /// <param name="gameTemplateId">Bắt buộc — tựa game player đã chọn (AC 2.1).</param>
-        /// <param name="radiusKm">Bán kính tìm kiếm km (mặc định 5; cho phép 0.1–50).</param>
+        /// <param name="radiusKm">Bán kính tìm kiếm km (mặc định 15; cho phép 0.1–50).</param>
         /// <param name="pageNumber">Số trang (mặc định 1).</param>
         /// <param name="pageSize">Kích thước trang (mặc định 20).</param>
         /// <response code="200">Cùng shape như GET /nearby; dùng tọa độ từ profile thay vì query lat/lng.</response>
@@ -64,7 +65,7 @@ namespace BoardVerse.API.Controllers
         [Authorize]
         public async Task<IActionResult> GetNearbyCafesForCurrentUser(
             [FromQuery] Guid gameTemplateId,
-            [FromQuery] double radiusKm = 5,
+            [FromQuery] double radiusKm = GeoLocationHelper.DefaultNearbyRadiusKm,
             [FromQuery] int pageNumber = 1,
             [FromQuery] int pageSize = 20)
         {

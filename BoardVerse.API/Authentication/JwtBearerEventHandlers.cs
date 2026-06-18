@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Text.Json;
 using BoardVerse.Core.DTOs.Common;
+using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
@@ -54,19 +55,15 @@ namespace BoardVerse.API.Authentication
                 return;
             }
 
-            if (user.IsBlocked)
+            var utcNow = DateTime.UtcNow;
+            if (UserAccessHelper.TryClearExpiredSuspension(user, utcNow))
             {
-                var reason = string.IsNullOrWhiteSpace(user.BlockReason)
-                    ? "Your account has been blocked."
-                    : $"Your account has been blocked. Reason: {user.BlockReason}";
-                Fail(context, StatusCodes.Status403Forbidden, reason);
-                return;
+                await userRepository.SaveChangesAsync();
             }
 
-            if (!user.IsActive)
+            if (UserAccessHelper.IsAccessRestricted(user, utcNow, out var accessMessage))
             {
-                Fail(context, StatusCodes.Status403Forbidden,
-                    "Your account is deactivated. Contact support to reactivate your account.");
+                Fail(context, StatusCodes.Status403Forbidden, accessMessage);
                 return;
             }
         }

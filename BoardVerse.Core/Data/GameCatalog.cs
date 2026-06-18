@@ -7,6 +7,7 @@ namespace BoardVerse.Core.Data
         int MinPlayers,
         int MaxPlayers,
         int PlayTime,
+        int? BggId,
         IReadOnlyList<(string Name, int Quantity)> Components);
 
     /// <summary>
@@ -31,12 +32,19 @@ namespace BoardVerse.Core.Data
         private static readonly Dictionary<string, GameCatalogEntry> BySlug = BuildCatalog();
         private static readonly Dictionary<string, GameCatalogEntry> ByName =
             BySlug.Values.ToDictionary(e => e.Name, StringComparer.OrdinalIgnoreCase);
+        private static readonly Dictionary<int, GameCatalogEntry> ByBggId =
+            BySlug.Values
+                .Where(e => e.BggId.HasValue)
+                .ToDictionary(e => e.BggId!.Value);
 
         public static GameCatalogEntry? GetBySlug(string slug) =>
             BySlug.TryGetValue(slug, out var entry) ? entry : null;
 
         public static GameCatalogEntry? GetByName(string name) =>
             ByName.TryGetValue(name, out var entry) ? entry : null;
+
+        public static GameCatalogEntry? GetByBggId(int bggId) =>
+            ByBggId.TryGetValue(bggId, out var entry) ? entry : null;
 
         public static IReadOnlyList<GameCatalogEntry> GetAll() => BySlug.Values.ToList();
 
@@ -49,7 +57,7 @@ namespace BoardVerse.Core.Data
             {
                 Entry("catan", "Catan",
                     "A strategy board game where players build settlements, roads, and cities by gathering and trading resources.",
-                    3, 4, 60,
+                    3, 4, 60, 13,
                     ("Wood Hexagon Tiles", 4),
                     ("Brick Hexagon Tiles", 3),
                     ("Sheep Resource Cards", 19),
@@ -62,7 +70,7 @@ namespace BoardVerse.Core.Data
 
                 Entry("ticket-to-ride", "Ticket to Ride",
                     "A railway-themed card game where players collect train cards to claim routes across a map.",
-                    2, 5, 60,
+                    2, 5, 60, 9209,
                     ("Game Board", 1),
                     ("Train Car Pieces (per color)", 45),
                     ("Train Cards", 240),
@@ -72,14 +80,14 @@ namespace BoardVerse.Core.Data
 
                 Entry("carcassonne", "Carcassonne",
                     "A tile-placement game where players build a medieval landscape and deploy followers to score points.",
-                    2, 5, 45,
+                    2, 5, 45, 822,
                     ("Land Tiles", 71),
                     ("Meeples", 40),
                     ("Scoring Track", 1)),
 
                 Entry("pandemic", "Pandemic",
                     "A cooperative game where players work together as disease-fighting specialists to save the world.",
-                    2, 4, 45,
+                    2, 4, 45, 30549,
                     ("World Board", 1),
                     ("Player Pawns", 4),
                     ("Role Cards", 5),
@@ -93,7 +101,7 @@ namespace BoardVerse.Core.Data
 
                 Entry("wingspan", "Wingspan",
                     "An engine-building card game about attracting birds to wildlife preserves.",
-                    1, 5, 70,
+                    1, 5, 70, 266192,
                     ("Player Mats", 5),
                     ("Bird Cards", 170),
                     ("Food Tokens", 5),
@@ -105,7 +113,7 @@ namespace BoardVerse.Core.Data
 
                 Entry("azul", "Azul",
                     "An abstract strategy game where players draft colorful tiles to decorate a palace wall.",
-                    2, 4, 45,
+                    2, 4, 45, 230802,
                     ("Factory Displays", 9),
                     ("Player Boards", 4),
                     ("Scoring Markers", 4),
@@ -115,7 +123,7 @@ namespace BoardVerse.Core.Data
 
                 Entry("splendor", "Splendor",
                     "A strategy game of chip-collecting and card development where players act as Renaissance merchants.",
-                    2, 4, 30,
+                    2, 4, 30, 148228,
                     ("Ruby Gem Tokens", 7),
                     ("Sapphire Gem Tokens", 7),
                     ("Emerald Gem Tokens", 7),
@@ -129,7 +137,7 @@ namespace BoardVerse.Core.Data
 
                 Entry("terraforming-mars", "Terraforming Mars",
                     "A engine-building game where corporations compete to terraform Mars and develop its ecosystem.",
-                    1, 5, 120,
+                    1, 5, 120, 167791,
                     ("Game Board", 1),
                     ("Project Cards", 208),
                     ("Corporation Cards", 20),
@@ -143,7 +151,7 @@ namespace BoardVerse.Core.Data
 
                 Entry("gloomhaven", "Gloomhaven",
                     "A cooperative campaign dungeon crawler with legacy-style scenarios and tactical combat.",
-                    1, 4, 120,
+                    1, 4, 120, 174430,
                     ("Scenario Book", 1),
                     ("Map Tiles", 22),
                     ("Character Boards", 17),
@@ -156,7 +164,7 @@ namespace BoardVerse.Core.Data
 
                 Entry("codenames", "Codenames",
                     "A social word game where spymasters give one-word clues to help their team identify secret agents.",
-                    2, 8, 15,
+                    2, 8, 15, 178900,
                     ("Agent Cards", 16),
                     ("Bystander Cards", 7),
                     ("Assassin Card", 1),
@@ -166,7 +174,7 @@ namespace BoardVerse.Core.Data
 
                 Entry("monopoly", "Monopoly",
                     "A classic real estate trading game where players buy, sell, and trade properties to bankrupt their opponents.",
-                    2, 8, 120,
+                    2, 8, 120, 1406,
                     ("Gameboard", 1),
                     ("Player Tokens", 8),
                     ("Title Deed Cards", 28),
@@ -179,7 +187,7 @@ namespace BoardVerse.Core.Data
 
                 Entry("uno", "Uno",
                     "A fast-paced card game where players match colors and numbers, using action cards to change the game dynamics.",
-                    2, 10, 30,
+                    2, 10, 30, 2223,
                     ("Number Cards (Red)", 19),
                     ("Number Cards (Blue)", 19),
                     ("Number Cards (Green)", 19),
@@ -192,7 +200,7 @@ namespace BoardVerse.Core.Data
 
                 Entry("werewolf-ultimate", "Werewolf Ultimate",
                     "A social deduction party game where players are assigned secret roles and must identify the werewolves among them.",
-                    5, 20, 45,
+                    5, 20, 45, 92564,
                     ("Villager Role Cards", 10),
                     ("Werewolf Role Cards", 4),
                     ("Seer Role Card", 1),
@@ -205,7 +213,7 @@ namespace BoardVerse.Core.Data
 
                 Entry("avalon", "The Resistance: Avalon",
                     "Phe Hiệp sĩ phải hoàn thành 3 nhiệm vụ thành công, trong khi phe Phản bội âm thầm phá hoại.",
-                    5, 10, 30,
+                    5, 10, 30, 128882,
                     ("Loyalty Cards", 14),
                     ("Character Cards", 14),
                     ("Quest Cards", 20),
@@ -224,7 +232,8 @@ namespace BoardVerse.Core.Data
             int minPlayers,
             int maxPlayers,
             int playTime,
+            int? bggId,
             params (string Name, int Quantity)[] components) =>
-            new(slug, name, description, minPlayers, maxPlayers, playTime, components);
+            new(slug, name, description, minPlayers, maxPlayers, playTime, bggId, components);
     }
 }

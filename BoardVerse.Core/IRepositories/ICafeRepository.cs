@@ -27,6 +27,12 @@ namespace BoardVerse.Core.IRepositories
             Guid? gameTemplateId,
             PaginationParams paginationParams);
         Task EnrichNearbyWithGameWaitAsync(IList<NearbyCafeDto> cafes, Guid gameTemplateId);
+        Task<IReadOnlyList<NearbyAlternativeGameSuggestionDto>> GetAlternativeGameSuggestionsAsync(
+            double latitude,
+            double longitude,
+            double radiusKm,
+            Guid gameTemplateId,
+            int limit = 10);
         Task SaveChangesAsync();
     }
 }

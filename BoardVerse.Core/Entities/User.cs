@@ -32,6 +32,8 @@ namespace BoardVerse.Core.Entities
         public bool IsBlocked { get; set; } = false;
         public string? BlockReason { get; set; }
         public DateTime? BlockedAt { get; set; }
+        public UserAccountStatus AccountStatus { get; set; } = UserAccountStatus.Active;
+        public DateTime? LockoutEndDate { get; set; }
         public DateTime? LastLoginAt { get; set; }
     }
 }

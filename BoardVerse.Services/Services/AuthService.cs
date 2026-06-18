@@ -4,6 +4,7 @@ using BoardVerse.Core.DTOs.User;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Helpers;
 using BoardVerse.Core.Messages;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.IServices;
@@ -29,6 +30,7 @@ namespace BoardVerse.Services.Services
         private readonly int _jwtExpiryInMinutes;
         private readonly int _refreshTokenExpiryDays = 30;
         private readonly string _googleClientId;
+        private readonly bool _disableLoginThrottle;
 
         public AuthService(IAuthRepository userRepository, IConfiguration configuration, IDistributedCache distributedCache, IEmailService emailService)
         {
@@ -41,6 +43,11 @@ namespace BoardVerse.Services.Services
             _jwtValidIssuer = jwtSettings["ValidIssuer"] ?? throw new ConfigurationMissingException("JwtSettings:ValidIssuer not configured");
             _jwtValidAudience = jwtSettings["ValidAudience"] ?? throw new ConfigurationMissingException("JwtSettings:ValidAudience not configured");
             _jwtExpiryInMinutes = int.TryParse(jwtSettings["ExpiryInMinutes"], out var expiry) ? expiry : 1440;
+            _disableLoginThrottle = string.Equals(
+                configuration["ASPNETCORE_ENVIRONMENT"]
+                    ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"),
+                "Testing",
+                StringComparison.OrdinalIgnoreCase);
 
             var googleAuth = configuration.GetSection("Authentication:Google");
             _googleClientId = googleAuth["ClientId"] ?? throw new ConfigurationMissingException("Authentication:Google:ClientId not configured");
@@ -49,6 +56,11 @@ namespace BoardVerse.Services.Services
         // Rate limiting helper
         private bool IsLoginThrottled(string key)
         {
+            if (_disableLoginThrottle)
+            {
+                return false;
+            }
+
             var bytes = _distributedCache.Get(key);
             if (bytes == null) return false;
             if (!int.TryParse(System.Text.Encoding.UTF8.GetString(bytes), out var attempts)) return false;
@@ -57,6 +69,11 @@ namespace BoardVerse.Services.Services
 
         private void IncrementLoginAttempts(string key)
         {
+            if (_disableLoginThrottle)
+            {
+                return;
+            }
+
             var bytes = _distributedCache.Get(key);
             int attempts = 0;
             if (bytes != null)
@@ -122,10 +139,7 @@ namespace BoardVerse.Services.Services
                 throw new InvalidCredentialsException(ApiErrorMessages.Auth.LoginInvalidCredentials);
             }
 
-            if (user.IsBlocked)
-            {
-                throw new UserBlockedException(ApiErrorMessages.AccountBlocked("Sign-in", user.BlockReason));
-            }
+            await EnsureUserAccessAllowedAsync(user, "Sign-in");
 
             if (!BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             {
@@ -183,10 +197,7 @@ namespace BoardVerse.Services.Services
                 }
                 else
                 {
-                    if (user.IsBlocked)
-                    {
-                        throw new UserBlockedException(ApiErrorMessages.AccountBlocked("Google sign-in", user.BlockReason));
-                    }
+                    await EnsureUserAccessAllowedAsync(user, "Google sign-in");
 
                     // If user exists with same email but no provider set, link account
                     if (user.Provider == "Local" && string.IsNullOrWhiteSpace(user.ProviderId))
@@ -229,10 +240,7 @@ namespace BoardVerse.Services.Services
                 throw new UserNotFoundException(ApiErrorMessages.Auth.RefreshTokenUserMissing);
             }
 
-            if (user.IsBlocked)
-            {
-                throw new UserBlockedException(ApiErrorMessages.AccountBlocked("Token refresh", user.BlockReason));
-            }
+            await EnsureUserAccessAllowedAsync(user, "Token refresh");
 
             // Optionally revoke old refresh token and issue a new one
             rt.IsRevoked = true;
@@ -266,7 +274,7 @@ namespace BoardVerse.Services.Services
         {
             var user = await _userRepository.GetByEmailAsync(request.Email);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.Auth.SendVerificationUserNotFound);
-            if (user.IsBlocked) throw new UserBlockedException(ApiErrorMessages.AccountBlocked("Sending verification email", user.BlockReason));
+            await EnsureUserAccessAllowedAsync(user, "Sending verification email");
 
             var token = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
             user.EmailVerificationToken = token;
@@ -285,7 +293,7 @@ namespace BoardVerse.Services.Services
         {
             var user = await _userRepository.GetByEmailVerificationTokenAsync(request.Token);
             if (user == null) throw new InvalidTokenException(ApiErrorMessages.Auth.VerifyEmailInvalidToken);
-            if (user.IsBlocked) throw new UserBlockedException(ApiErrorMessages.AccountBlocked("Email verification", user.BlockReason));
+            await EnsureUserAccessAllowedAsync(user, "Email verification");
 
             if (user.EmailVerificationTokenExpiresAt < DateTime.UtcNow)
                 throw new VerificationTokenExpiredException(ApiErrorMessages.Auth.VerifyEmailTokenExpired);
@@ -302,7 +310,7 @@ namespace BoardVerse.Services.Services
             var user = await _userRepository.GetByEmailAsync(request.Email);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.Auth.RequestPasswordResetUserNotFound);
             if (!user.IsEmailVerified) throw new EmailVerificationRequiredException(ApiErrorMessages.Auth.RequestPasswordResetEmailNotVerified);
-            if (user.IsBlocked) throw new UserBlockedException(ApiErrorMessages.AccountBlocked("Password reset request", user.BlockReason));
+            await EnsureUserAccessAllowedAsync(user, "Password reset request");
 
             var token = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
             user.PasswordResetToken = token;
@@ -321,7 +329,7 @@ namespace BoardVerse.Services.Services
         {
             var user = await _userRepository.GetByPasswordResetTokenAsync(request.Token);
             if (user == null) throw new InvalidTokenException(ApiErrorMessages.Auth.ResetPasswordInvalidToken);
-            if (user.IsBlocked) throw new UserBlockedException(ApiErrorMessages.AccountBlocked("Password reset", user.BlockReason));
+            await EnsureUserAccessAllowedAsync(user, "Password reset");
 
             if (user.PasswordResetTokenExpiresAt < DateTime.UtcNow)
                 throw new PasswordResetTokenExpiredException(ApiErrorMessages.Auth.ResetPasswordTokenExpired);
@@ -337,7 +345,7 @@ namespace BoardVerse.Services.Services
         {
             var user = await _userRepository.GetByIdAsync(userId);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.Auth.ChangePasswordUserNotFound);
-            if (user.IsBlocked) throw new UserBlockedException(ApiErrorMessages.AccountBlocked("Password change", user.BlockReason));
+            await EnsureUserAccessAllowedAsync(user, "Password change");
             if (string.IsNullOrWhiteSpace(user.PasswordHash))
                 throw new BadRequestException(ApiErrorMessages.Auth.ChangePasswordNoLocalPassword);
 
@@ -373,7 +381,7 @@ namespace BoardVerse.Services.Services
                 // Find existing user by email
                 var user = await _userRepository.GetByEmailAsync(payload.Email);
                 if (user == null) throw new UserNotFoundException(ApiErrorMessages.Auth.LinkGoogleAccountNotFound);
-                if (user.IsBlocked) throw new UserBlockedException(ApiErrorMessages.AccountBlocked("Google account linking", user.BlockReason));
+                await EnsureUserAccessAllowedAsync(user, "Google account linking");
 
                 user.Provider = "Google";
                 user.ProviderId = payload.Subject;
@@ -446,6 +454,33 @@ namespace BoardVerse.Services.Services
             await _userRepository.AddRefreshTokenAsync(refreshToken);
             await _userRepository.SaveChangesAsync();
             return token;
+        }
+
+        private async Task EnsureUserAccessAllowedAsync(User user, string action)
+        {
+            var utcNow = DateTime.UtcNow;
+            if (UserAccessHelper.TryClearExpiredSuspension(user, utcNow))
+            {
+                await _userRepository.SaveChangesAsync();
+            }
+
+            if (user.AccountStatus == UserAccountStatus.Banned)
+            {
+                throw new UserBlockedException(ApiErrorMessages.AccountAccess.LoginDeniedBanned(user.BlockReason));
+            }
+
+            if (user.AccountStatus == UserAccountStatus.Suspended
+                && user.LockoutEndDate.HasValue
+                && user.LockoutEndDate > utcNow)
+            {
+                throw new UserBlockedException(
+                    ApiErrorMessages.AccountAccess.LoginDeniedSuspended(user.LockoutEndDate.Value, user.BlockReason));
+            }
+
+            if (UserAccessHelper.IsAccessRestricted(user, utcNow, out var message))
+            {
+                throw new UserBlockedException(ApiErrorMessages.AccountBlocked(action, user.BlockReason ?? message));
+            }
         }
     }
 }

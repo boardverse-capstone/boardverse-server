@@ -1,4 +1,5 @@
 using BoardVerse.Core.Common;
+using BoardVerse.Core.Data;
 using BoardVerse.Core.DTOs.Cafe;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
@@ -14,11 +15,16 @@ namespace BoardVerse.Services.Services
     {
         private readonly ICafeRepository _cafeRepository;
         private readonly IUserProfileRepository _userProfileRepository;
+        private readonly ISystemConfigurationProvider _systemConfigurationProvider;
 
-        public CafeService(ICafeRepository cafeRepository, IUserProfileRepository userProfileRepository)
+        public CafeService(
+            ICafeRepository cafeRepository,
+            IUserProfileRepository userProfileRepository,
+            ISystemConfigurationProvider systemConfigurationProvider)
         {
             _cafeRepository = cafeRepository;
             _userProfileRepository = userProfileRepository;
+            _systemConfigurationProvider = systemConfigurationProvider;
         }
 
         public async Task<CafeDto> GetCafeAsync(Guid cafeId)
@@ -223,7 +229,7 @@ namespace BoardVerse.Services.Services
             return cafes.Select(MapToDto);
         }
 
-        public async Task<PaginatedResponse<NearbyCafeDto>> GetNearbyCafesAsync(
+        public async Task<NearbyCafeSearchResultDto> GetNearbyCafesAsync(
             double latitude,
             double longitude,
             double radiusKm,
@@ -234,6 +240,8 @@ namespace BoardVerse.Services.Services
             {
                 throw new BadRequestException(ApiErrorMessages.Cafe.GameTemplateIdRequiredForNearbySearch);
             }
+
+            radiusKm = await ResolveMatchmakingRadiusKmAsync(radiusKm);
 
             try
             {
@@ -268,12 +276,40 @@ namespace BoardVerse.Services.Services
             {
                 await _cafeRepository.EnrichNearbyWithGameWaitAsync(cafes, gameTemplateId);
                 result.Data = cafes;
+
+                return new NearbyCafeSearchResultDto
+                {
+                    Cafes = result,
+                    EmptyResultMessage = null,
+                    AlternativeSuggestions = []
+                };
             }
 
-            return result;
+            if (result.Meta.TotalItems > 0)
+            {
+                return new NearbyCafeSearchResultDto
+                {
+                    Cafes = result,
+                    EmptyResultMessage = null,
+                    AlternativeSuggestions = []
+                };
+            }
+
+            var alternativeSuggestions = await _cafeRepository.GetAlternativeGameSuggestionsAsync(
+                latitude,
+                longitude,
+                radiusKm,
+                gameTemplateId);
+
+            return new NearbyCafeSearchResultDto
+            {
+                Cafes = result,
+                EmptyResultMessage = ApiErrorMessages.Cafe.NoNearbyCafesWithSelectedGameMessage,
+                AlternativeSuggestions = alternativeSuggestions
+            };
         }
 
-        public async Task<PaginatedResponse<NearbyCafeDto>> GetNearbyCafesForCurrentUserAsync(
+        public async Task<NearbyCafeSearchResultDto> GetNearbyCafesForCurrentUserAsync(
             Guid userId,
             double radiusKm,
             Guid gameTemplateId,
@@ -322,6 +358,18 @@ namespace BoardVerse.Services.Services
 
             await _cafeRepository.AddCafeStaffAsync(cafeStaff);
             await _cafeRepository.SaveChangesAsync();
+        }
+
+        private async Task<double> ResolveMatchmakingRadiusKmAsync(double radiusKm)
+        {
+            if (Math.Abs(radiusKm - GeoLocationHelper.DefaultNearbyRadiusKm) > 0.001)
+            {
+                return radiusKm;
+            }
+
+            return await _systemConfigurationProvider.GetDoubleAsync(
+                SystemConfigKeys.MatchmakingRadiusKm,
+                GeoLocationHelper.DefaultNearbyRadiusKm);
         }
 
         private async Task<string> ResolveUsernameAsync(string username, Guid? excludedUserId)

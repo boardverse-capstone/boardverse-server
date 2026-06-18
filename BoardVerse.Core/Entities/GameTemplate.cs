@@ -47,6 +47,11 @@ namespace BoardVerse.Core.Entities
 
         public string? ThumbnailUrl { get; set; }
         public string? Description { get; set; }
+
+        /// <summary>BoardGameGeek thing id (xmlapi2/thing?id=).</summary>
+        public int? BggId { get; set; }
+        public DateTime? BggSyncedAt { get; set; }
+
         public bool IsActive { get; set; } = true;
 
         public int MinPlayers

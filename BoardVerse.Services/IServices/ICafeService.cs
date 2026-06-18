@@ -13,14 +13,14 @@ namespace BoardVerse.Services.IServices
         Task<PaginatedResponse<StaffDto>> GetStaffListAsync(Guid cafeId, Guid currentManagerId, PaginationParams paginationParams);
         Task RemoveStaffAsync(Guid cafeId, Guid currentManagerId, Guid staffId);
         Task<IEnumerable<CafeDto>> GetMyWorkplacesAsync(Guid currentStaffId);
-        Task<PaginatedResponse<NearbyCafeDto>> GetNearbyCafesAsync(
+        Task<NearbyCafeSearchResultDto> GetNearbyCafesAsync(
             double latitude,
             double longitude,
             double radiusKm,
             Guid gameTemplateId,
             PaginationParams paginationParams);
 
-        Task<PaginatedResponse<NearbyCafeDto>> GetNearbyCafesForCurrentUserAsync(
+        Task<NearbyCafeSearchResultDto> GetNearbyCafesForCurrentUserAsync(
             Guid userId,
             double radiusKm,
             Guid gameTemplateId,

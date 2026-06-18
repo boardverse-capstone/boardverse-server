@@ -1,3 +1,4 @@
+using BoardVerse.Core.Data;
 using BoardVerse.Core.Helpers;
 using Microsoft.EntityFrameworkCore;
 
@@ -377,7 +378,15 @@ namespace BoardVerse.Data
                 ALTER TABLE "GameTemplates" ADD COLUMN IF NOT EXISTS "SearchAliases" character varying(500);
                 ALTER TABLE "GameTemplates" ADD COLUMN IF NOT EXISTS "SearchAliasesKey" character varying(500) NOT NULL DEFAULT '';
                 ALTER TABLE "GameTemplates" ADD COLUMN IF NOT EXISTS "IsActive" boolean NOT NULL DEFAULT true;
+                ALTER TABLE "GameTemplates" ADD COLUMN IF NOT EXISTS "BggId" integer;
+                ALTER TABLE "GameTemplates" ADD COLUMN IF NOT EXISTS "BggSyncedAt" timestamp with time zone;
                 ALTER TABLE "GameTemplates" DROP COLUMN IF EXISTS "BggGameId";
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE UNIQUE INDEX IF NOT EXISTS "IX_GameTemplates_BggId"
+                    ON "GameTemplates" ("BggId")
+                    WHERE "BggId" IS NOT NULL;
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""
@@ -436,6 +445,10 @@ namespace BoardVerse.Data
             await context.Database.ExecuteSqlRawAsync("""
                 CREATE INDEX IF NOT EXISTS "IX_GameComponentTemplates_GameTemplateId"
                     ON "GameComponentTemplates" ("GameTemplateId");
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                ALTER TABLE "GameComponentTemplates" ADD COLUMN IF NOT EXISTS "ComponentKind" character varying(50);
                 """);
 
         }
@@ -579,6 +592,214 @@ namespace BoardVerse.Data
             if (changed)
             {
                 await context.SaveChangesAsync();
+            }
+        }
+
+        public static async Task EnsureLobbyAndKarmaRatingTablesAsync(BoardVerseDbContext context)
+        {
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS "Lobbies" (
+                    "Id" uuid PRIMARY KEY,
+                    "GameTemplateId" uuid NOT NULL,
+                    "ActiveSessionId" uuid,
+                    "Status" character varying(30) NOT NULL DEFAULT 'Open',
+                    "RatingOpenedAt" timestamp with time zone,
+                    "CreatedAt" timestamp with time zone NOT NULL,
+                    "UpdatedAt" timestamp with time zone NOT NULL,
+                    CONSTRAINT "FK_Lobbies_GameTemplates_GameTemplateId"
+                        FOREIGN KEY ("GameTemplateId") REFERENCES "GameTemplates" ("Id") ON DELETE RESTRICT,
+                    CONSTRAINT "FK_Lobbies_ActiveSessions_ActiveSessionId"
+                        FOREIGN KEY ("ActiveSessionId") REFERENCES "ActiveSessions" ("Id") ON DELETE SET NULL
+                );
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE INDEX IF NOT EXISTS "IX_Lobbies_Status" ON "Lobbies" ("Status");
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS "LobbyMembers" (
+                    "Id" uuid PRIMARY KEY,
+                    "LobbyId" uuid NOT NULL,
+                    "UserId" uuid NOT NULL,
+                    "JoinedAt" timestamp with time zone NOT NULL,
+                    "IsActive" boolean NOT NULL DEFAULT true,
+                    CONSTRAINT "FK_LobbyMembers_Lobbies_LobbyId"
+                        FOREIGN KEY ("LobbyId") REFERENCES "Lobbies" ("Id") ON DELETE CASCADE,
+                    CONSTRAINT "FK_LobbyMembers_Users_UserId"
+                        FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+                );
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE UNIQUE INDEX IF NOT EXISTS "IX_LobbyMembers_LobbyId_UserId"
+                    ON "LobbyMembers" ("LobbyId", "UserId")
+                    WHERE "IsActive" = true;
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS "PlayerKarmaRatings" (
+                    "Id" uuid PRIMARY KEY,
+                    "LobbyId" uuid NOT NULL,
+                    "RaterUserId" uuid NOT NULL,
+                    "TargetUserId" uuid NOT NULL,
+                    "TagsJson" character varying(500) NOT NULL,
+                    "KarmaDeltaApplied" numeric(6,2) NOT NULL,
+                    "CreatedAt" timestamp with time zone NOT NULL,
+                    CONSTRAINT "FK_PlayerKarmaRatings_Lobbies_LobbyId"
+                        FOREIGN KEY ("LobbyId") REFERENCES "Lobbies" ("Id") ON DELETE CASCADE,
+                    CONSTRAINT "FK_PlayerKarmaRatings_Users_RaterUserId"
+                        FOREIGN KEY ("RaterUserId") REFERENCES "Users" ("Id") ON DELETE RESTRICT,
+                    CONSTRAINT "FK_PlayerKarmaRatings_Users_TargetUserId"
+                        FOREIGN KEY ("TargetUserId") REFERENCES "Users" ("Id") ON DELETE RESTRICT
+                );
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE UNIQUE INDEX IF NOT EXISTS "IX_PlayerKarmaRatings_Lobby_Rater_Target"
+                    ON "PlayerKarmaRatings" ("LobbyId", "RaterUserId", "TargetUserId");
+                """);
+        }
+
+        public static async Task EnsureMatchResultTablesAsync(BoardVerseDbContext context)
+        {
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS "MatchResults" (
+                    "Id" uuid PRIMARY KEY,
+                    "LobbyId" uuid NOT NULL,
+                    "UserId" uuid NOT NULL,
+                    "Outcome" character varying(20) NOT NULL,
+                    "SubmittedAt" timestamp with time zone NOT NULL,
+                    "UpdatedAt" timestamp with time zone NOT NULL,
+                    CONSTRAINT "FK_MatchResults_Lobbies_LobbyId"
+                        FOREIGN KEY ("LobbyId") REFERENCES "Lobbies" ("Id") ON DELETE CASCADE,
+                    CONSTRAINT "FK_MatchResults_Users_UserId"
+                        FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+                );
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE UNIQUE INDEX IF NOT EXISTS "IX_MatchResults_LobbyId_UserId"
+                    ON "MatchResults" ("LobbyId", "UserId");
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS "MatchHistories" (
+                    "Id" uuid PRIMARY KEY,
+                    "LobbyId" uuid NOT NULL,
+                    "GameTemplateId" uuid NOT NULL,
+                    "Status" character varying(30) NOT NULL,
+                    "WinnerUserId" uuid,
+                    "IsDraw" boolean NOT NULL DEFAULT false,
+                    "FinalizedAt" timestamp with time zone NOT NULL,
+                    CONSTRAINT "FK_MatchHistories_Lobbies_LobbyId"
+                        FOREIGN KEY ("LobbyId") REFERENCES "Lobbies" ("Id") ON DELETE RESTRICT,
+                    CONSTRAINT "FK_MatchHistories_GameTemplates_GameTemplateId"
+                        FOREIGN KEY ("GameTemplateId") REFERENCES "GameTemplates" ("Id") ON DELETE RESTRICT,
+                    CONSTRAINT "FK_MatchHistories_Users_WinnerUserId"
+                        FOREIGN KEY ("WinnerUserId") REFERENCES "Users" ("Id") ON DELETE SET NULL
+                );
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE UNIQUE INDEX IF NOT EXISTS "IX_MatchHistories_LobbyId"
+                    ON "MatchHistories" ("LobbyId");
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS "MatchHistoryParticipants" (
+                    "Id" uuid PRIMARY KEY,
+                    "MatchHistoryId" uuid NOT NULL,
+                    "UserId" uuid NOT NULL,
+                    "ReportedOutcome" character varying(20) NOT NULL,
+                    "EloBefore" integer NOT NULL,
+                    "EloAfter" integer NOT NULL,
+                    "EloDelta" integer NOT NULL,
+                    CONSTRAINT "FK_MatchHistoryParticipants_MatchHistories_MatchHistoryId"
+                        FOREIGN KEY ("MatchHistoryId") REFERENCES "MatchHistories" ("Id") ON DELETE CASCADE,
+                    CONSTRAINT "FK_MatchHistoryParticipants_Users_UserId"
+                        FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE RESTRICT
+                );
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE UNIQUE INDEX IF NOT EXISTS "IX_MatchHistoryParticipants_MatchHistoryId_UserId"
+                    ON "MatchHistoryParticipants" ("MatchHistoryId", "UserId");
+                """);
+        }
+
+        public static async Task EnsureUserModerationColumnsAsync(BoardVerseDbContext context)
+        {
+            await context.Database.ExecuteSqlRawAsync("""
+                ALTER TABLE "Users" ADD COLUMN IF NOT EXISTS "AccountStatus" character varying(20) NOT NULL DEFAULT 'Active';
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                ALTER TABLE "Users" ADD COLUMN IF NOT EXISTS "LockoutEndDate" timestamp with time zone;
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                UPDATE "Users"
+                SET "AccountStatus" = CASE
+                    WHEN "IsBlocked" = true AND COALESCE("BlockReason", '') ILIKE '%ban%' THEN 'Banned'
+                    WHEN "IsBlocked" = true THEN 'Suspended'
+                    ELSE 'Active'
+                END
+                WHERE "AccountStatus" IS NULL OR "AccountStatus" = 'Active' AND "IsBlocked" = true;
+                """);
+        }
+
+        public static async Task EnsureKarmaLogAndSystemConfigTablesAsync(BoardVerseDbContext context)
+        {
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS "KarmaLogs" (
+                    "Id" uuid PRIMARY KEY,
+                    "UserId" uuid NOT NULL,
+                    "ViolationCategory" character varying(50) NOT NULL,
+                    "Source" character varying(50) NOT NULL,
+                    "DeltaAmount" numeric(8,2) NOT NULL,
+                    "KarmaBefore" integer NOT NULL,
+                    "KarmaAfter" integer NOT NULL,
+                    "Reason" character varying(1000) NOT NULL,
+                    "RelatedLobbyId" uuid,
+                    "ActorUserId" uuid,
+                    "IsAdminAdjustment" boolean NOT NULL DEFAULT false,
+                    "CreatedAt" timestamp with time zone NOT NULL,
+                    CONSTRAINT "FK_KarmaLogs_Users_UserId"
+                        FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE,
+                    CONSTRAINT "FK_KarmaLogs_Users_ActorUserId"
+                        FOREIGN KEY ("ActorUserId") REFERENCES "Users" ("Id") ON DELETE SET NULL
+                );
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE INDEX IF NOT EXISTS "IX_KarmaLogs_UserId" ON "KarmaLogs" ("UserId");
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE INDEX IF NOT EXISTS "IX_KarmaLogs_CreatedAt" ON "KarmaLogs" ("CreatedAt");
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS "SystemConfigurations" (
+                    "ConfigKey" character varying(100) PRIMARY KEY,
+                    "ConfigValue" character varying(500) NOT NULL,
+                    "Description" character varying(1000) NOT NULL,
+                    "UpdatedAt" timestamp with time zone NOT NULL
+                );
+                """);
+
+            foreach (var (key, (value, description)) in SystemConfigKeys.SeedDefaults)
+            {
+                await context.Database.ExecuteSqlRawAsync(
+                    """
+                    INSERT INTO "SystemConfigurations" ("ConfigKey", "ConfigValue", "Description", "UpdatedAt")
+                    VALUES ({0}, {1}, {2}, NOW() AT TIME ZONE 'UTC')
+                    ON CONFLICT ("ConfigKey") DO NOTHING;
+                    """,
+                    key,
+                    value,
+                    description);
             }
         }
     }

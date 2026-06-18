@@ -58,6 +58,7 @@ namespace BoardVerse.Services.Services
                 MinPlayers = entry.MinPlayers,
                 MaxPlayers = entry.MaxPlayers,
                 PlayTime = entry.PlayTime,
+                BggId = entry.BggId,
                 Components = entry.Components
                     .Select(c => new GameCatalogComponentDto { Name = c.Name, Quantity = c.Quantity })
                     .ToList()
@@ -97,6 +98,8 @@ namespace BoardVerse.Services.Services
                 MaxPlayers = maxPlayers,
                 MinPlayers = minPlayers,
                 PlayTime = game.PlayTime > 0 ? game.PlayTime : 60,
+                BggId = game.BggId,
+                BggSyncedAt = game.BggId.HasValue ? DateTime.UtcNow : null,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
                 Components = []
@@ -120,6 +123,11 @@ namespace BoardVerse.Services.Services
             existing.MinPlayers = game.MinPlayers > 0 ? game.MinPlayers : existing.MinPlayers;
             existing.MaxPlayers = game.MaxPlayers > 0 ? game.MaxPlayers : existing.MaxPlayers;
             existing.PlayTime = game.PlayTime > 0 ? game.PlayTime : existing.PlayTime;
+            if (game.BggId.HasValue)
+            {
+                existing.BggId = game.BggId;
+                existing.BggSyncedAt = DateTime.UtcNow;
+            }
             existing.UpdatedAt = DateTime.UtcNow;
             ApplySearchAliases(existing);
         }
@@ -166,6 +174,7 @@ namespace BoardVerse.Services.Services
                     Id = Guid.NewGuid(),
                     GameTemplateId = gameTemplate.Id,
                     ComponentName = component.Name,
+                    ComponentKind = BoardVerse.Core.Data.ComponentCatalog.ResolveKindFromName(component.Name),
                     DefaultQuantity = component.Quantity > 0 ? component.Quantity : 1,
                     CreatedAt = DateTime.UtcNow
                 });

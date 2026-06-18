@@ -10,7 +10,6 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.AspNetCore.Mvc;
 using System.IdentityModel.Tokens.Jwt;
 using System.Text;
@@ -96,14 +95,11 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("RequireManagerOrStaff", policy => policy.RequireRole("Manager", "CafeStaff"));
 });
 
-// Register services
-// Register distributed Redis cache for rate-limiting and shared state
-// Register distributed cache. For development we use in-memory distributed cache.
-// To enable Redis in production, install Microsoft.Extensions.Caching.StackExchangeRedis
-// and replace AddDistributedMemoryCache with AddStackExchangeRedisCache using the Redis configuration.
-builder.Services.AddDistributedMemoryCache();
+// Distributed cache: Redis when REDIS_URL/config is set (Render/prod), in-memory otherwise (local dev)
+builder.Services.AddBoardVerseRedis(builder.Configuration);
 
 builder.Services.AddBoardVerseEmail(builder.Configuration);
+builder.Services.AddBoardVerseBgg(builder.Configuration);
 builder.Services.AddScoped<IAuthRepository, AuthRepository>();
 builder.Services.AddScoped<IUserProfileRepository, UserProfileRepository>();
 builder.Services.AddScoped<IUserManagementRepository, UserManagementRepository>();
@@ -113,6 +109,10 @@ builder.Services.AddScoped<ICategoryRepository, CategoryRepository>();
 builder.Services.AddScoped<ICafeRepository, CafeRepository>();
 builder.Services.AddScoped<ICafeInventoryRepository, CafeInventoryRepository>();
 builder.Services.AddScoped<ICafePosRepository, CafePosRepository>();
+builder.Services.AddScoped<IKarmaRatingRepository, KarmaRatingRepository>();
+builder.Services.AddScoped<IMatchResultRepository, MatchResultRepository>();
+builder.Services.AddScoped<IAdminModerationRepository, AdminModerationRepository>();
+builder.Services.AddScoped<ISystemConfigurationRepository, SystemConfigurationRepository>();
 builder.Services.AddScoped<ICafePartnerApplicationRepository, CafePartnerApplicationRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserProfileService, UserProfileService>();
@@ -123,6 +123,13 @@ builder.Services.AddScoped<IBoardGameService, BoardGameService>();
 builder.Services.AddScoped<ICafeService, CafeService>();
 builder.Services.AddScoped<ICafeInventoryService, CafeInventoryService>();
 builder.Services.AddScoped<ICafePosService, CafePosService>();
+builder.Services.AddScoped<IKarmaRatingService, KarmaRatingService>();
+builder.Services.AddScoped<IMatchResultService, MatchResultService>();
+builder.Services.AddScoped<IAdminModerationService, AdminModerationService>();
+builder.Services.AddScoped<SystemConfigurationService>();
+builder.Services.AddScoped<ISystemConfigurationProvider>(sp => sp.GetRequiredService<SystemConfigurationService>());
+builder.Services.AddScoped<IAdminSystemConfigurationService>(sp => sp.GetRequiredService<SystemConfigurationService>());
+builder.Services.AddScoped<IKarmaConfigurationService, KarmaConfigurationService>();
 builder.Services.AddScoped<ICafePartnerApplicationService, CafePartnerApplicationService>();
 builder.Services.AddControllers(options =>
 {
@@ -209,8 +216,15 @@ using (var scope = app.Services.CreateScope())
     await GameSchemaBootstrapper.EnsureGameTablesAsync(db);
     await GameSchemaBootstrapper.EnsureInventoryTablesAsync(db);
     await GameSchemaBootstrapper.EnsureInventoryBoxBackfillAsync(db);
+    await GameSchemaBootstrapper.EnsureLobbyAndKarmaRatingTablesAsync(db);
+    await GameSchemaBootstrapper.EnsureMatchResultTablesAsync(db);
+    await GameSchemaBootstrapper.EnsureUserModerationColumnsAsync(db);
+    await GameSchemaBootstrapper.EnsureKarmaLogAndSystemConfigTablesAsync(db);
     app.Logger.LogInformation("Database schema bootstrap completed.");
 }
+
+var redisInfo = app.Services.GetRequiredService<RedisCacheStartupInfo>();
+RedisServiceExtensions.LogRedisCacheStartup(app.Logger, redisInfo);
 
 var brevoSection = app.Configuration.GetSection(BrevoSettings.SectionName);
 app.Logger.LogInformation(

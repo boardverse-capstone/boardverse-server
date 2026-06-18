@@ -1,5 +1,6 @@
 using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.Cafe;
+using BoardVerse.Core.DTOs.Game;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Helpers;
@@ -333,6 +334,110 @@ namespace BoardVerse.Data.Repositories
                     ? playTime.Value
                     : waitCandidates.Min();
             }
+        }
+
+        public async Task<IReadOnlyList<NearbyAlternativeGameSuggestionDto>> GetAlternativeGameSuggestionsAsync(
+            double latitude,
+            double longitude,
+            double radiusKm,
+            Guid gameTemplateId,
+            int limit = 10)
+        {
+            var origin = GeoLocationHelper.ToPoint(latitude, longitude);
+            var radiusMeters = radiusKm * 1000;
+
+            var categoryIds = await _context.GameTemplateCategories
+                .AsNoTracking()
+                .Where(gtc => gtc.GameTemplateId == gameTemplateId)
+                .Select(gtc => gtc.CategoryId)
+                .ToListAsync();
+
+            if (categoryIds.Count == 0)
+            {
+                return [];
+            }
+
+            var availabilityRows = await _context.CafeInventoryBoxes
+                .AsNoTracking()
+                .Where(b =>
+                    b.IsActive
+                    && b.Status == CafeGameInventoryStatus.Available
+                    && b.CafeGameInventory.IsActive
+                    && b.CafeGameInventory.GameTemplateId != gameTemplateId
+                    && b.CafeGameInventory.GameTemplate.IsActive
+                    && b.CafeGameInventory.GameTemplate.Categories.Any(c => categoryIds.Contains(c.CategoryId))
+                    && b.CafeGameInventory.Cafe.IsActive
+                    && b.CafeGameInventory.Cafe.PartnerOperationalStatus == CafePartnerOperationalStatus.Active
+                    && b.CafeGameInventory.Cafe.Location != null
+                    && b.CafeGameInventory.Cafe.Location.IsWithinDistance(origin, radiusMeters))
+                .Select(b => new
+                {
+                    GameTemplateId = b.CafeGameInventory.GameTemplateId,
+                    GameName = b.CafeGameInventory.GameTemplate.Name,
+                    ThumbnailUrl = b.CafeGameInventory.GameTemplate.ThumbnailUrl,
+                    MinPlayers = b.CafeGameInventory.GameTemplate.MinPlayers,
+                    MaxPlayers = b.CafeGameInventory.GameTemplate.MaxPlayers,
+                    CafeId = b.CafeGameInventory.CafeId,
+                    DistanceMeters = b.CafeGameInventory.Cafe.Location!.Distance(origin)
+                })
+                .ToListAsync();
+
+            if (availabilityRows.Count == 0)
+            {
+                return [];
+            }
+
+            var gameIds = availabilityRows.Select(r => r.GameTemplateId).Distinct().ToList();
+
+            var sharedCategoriesByGame = await _context.GameTemplateCategories
+                .AsNoTracking()
+                .Where(gtc =>
+                    gameIds.Contains(gtc.GameTemplateId)
+                    && categoryIds.Contains(gtc.CategoryId))
+                .Select(gtc => new
+                {
+                    gtc.GameTemplateId,
+                    Category = new CategoryDto
+                    {
+                        Id = gtc.Category.Id,
+                        Name = gtc.Category.Name,
+                        Slug = gtc.Category.Slug,
+                        Description = gtc.Category.Description,
+                        SortOrder = gtc.Category.SortOrder
+                    }
+                })
+                .ToListAsync();
+
+            var categoriesLookup = sharedCategoriesByGame
+                .GroupBy(x => x.GameTemplateId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Select(x => x.Category)
+                        .OrderBy(c => c.SortOrder)
+                        .ToList());
+
+            return availabilityRows
+                .GroupBy(r => r.GameTemplateId)
+                .Select(g =>
+                {
+                    var first = g.First();
+                    return new NearbyAlternativeGameSuggestionDto
+                    {
+                        GameTemplateId = g.Key,
+                        GameName = first.GameName,
+                        ThumbnailUrl = first.ThumbnailUrl,
+                        MinPlayers = first.MinPlayers,
+                        MaxPlayers = first.MaxPlayers,
+                        NearbyCafeCount = g.Select(x => x.CafeId).Distinct().Count(),
+                        NearestCafeDistanceMeters = g.Min(x => x.DistanceMeters),
+                        AvailableBoxCount = g.Count(),
+                        SharedCategories = categoriesLookup.GetValueOrDefault(g.Key, [])
+                    };
+                })
+                .OrderBy(s => s.NearestCafeDistanceMeters)
+                .ThenByDescending(s => s.AvailableBoxCount)
+                .Take(limit)
+                .ToList();
         }
 
         public async Task SaveChangesAsync()

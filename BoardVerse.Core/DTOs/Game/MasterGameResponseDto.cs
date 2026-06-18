@@ -9,6 +9,8 @@ namespace BoardVerse.Core.DTOs.Game
         public int MinPlayers { get; set; }
         public int MaxPlayers { get; set; }
         public int PlayTime { get; set; }
+        public int? BggId { get; set; }
+        public DateTime? BggSyncedAt { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
         public List<GameComponentTemplateDto> Components { get; set; } = new();

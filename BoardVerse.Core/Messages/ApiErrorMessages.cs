@@ -200,6 +200,9 @@ namespace BoardVerse.Core.Messages
 
             public const string SavedLocationRequiredForNearbySearch =
                 "Nearby cafe search from profile failed because no saved location was found. Update location via PUT /api/userprofile/me/location first.";
+
+            public const string NoNearbyCafesWithSelectedGameMessage =
+                "Không tìm thấy địa điểm phù hợp có sẵn tựa game này xung quanh bạn.";
         }
 
         public static class Inventory
@@ -266,6 +269,36 @@ namespace BoardVerse.Core.Messages
 
             public static string MasterNotFound(Guid id) =>
                 $"Master board game '{id}' was not found.";
+
+            public static string SoloPlayNotSupported(Guid id, int minPlayers) =>
+                $"Solo play is not available for board game '{id}'. Minimum players is {minPlayers}; choose Group play instead.";
+        }
+
+        public static class Bgg
+        {
+            public const string SearchQueryTooShort =
+                "BGG search failed: query must be at least 2 characters.";
+
+            public const string SearchUpstreamUnavailable =
+                "BGG search failed: BoardGameGeek API is unavailable or returned an invalid response.";
+
+            public const string PreviewInvalidBggId =
+                "BGG game preview failed: bggId must be a positive integer.";
+
+            public static string PreviewGameNotFound(int bggId) =>
+                $"BGG game preview failed: board game with BGG id {bggId} was not found or could not be loaded.";
+
+            public const string ImportInvalidBggId =
+                "BGG import failed: bggId must be a positive integer.";
+
+            public static string ImportGameNotFound(int bggId) =>
+                $"BGG import failed: board game with BGG id {bggId} was not found or could not be loaded.";
+
+            public static string ImportNoComponentsResolved(int bggId) =>
+                $"BGG import failed: could not resolve component templates for BGG game {bggId}.";
+
+            public static string ImportAlreadyExists(Guid gameTemplateId, int bggId) =>
+                $"BGG import failed: game already exists (template '{gameTemplateId}' / BGG {bggId}). Set overwriteExisting=true to refresh from BGG.";
         }
 
         public static class CafePartner
@@ -299,6 +332,105 @@ namespace BoardVerse.Core.Messages
 
             public static string BrevoApiFailed(int statusCode, string details) =>
                 $"Brevo API rejected the email request ({statusCode}). {details}";
+        }
+
+        public static class Rating
+        {
+            public static string LobbyNotFound(Guid lobbyId) =>
+                $"Karma rating failed. Lobby '{lobbyId}' was not found.";
+
+            public static string NotLobbyMember(Guid lobbyId, Guid userId) =>
+                $"Karma rating failed. User '{userId}' is not an active member of lobby '{lobbyId}'.";
+
+            public static string LobbyNotOpenForRating(Guid lobbyId) =>
+                $"Karma rating failed. Lobby '{lobbyId}' is not open for cross-ratings yet (billing may be incomplete).";
+
+            public static string CannotRateSelf(Guid lobbyId) =>
+                $"Karma rating failed. You cannot rate yourself in lobby '{lobbyId}'.";
+
+            public static string TargetNotLobbyMember(Guid lobbyId, Guid targetUserId) =>
+                $"Karma rating failed. Target user '{targetUserId}' is not a member of lobby '{lobbyId}'.";
+
+            public static string DuplicateTargetInRequest(Guid targetUserId) =>
+                $"Karma rating failed. Target user '{targetUserId}' appears more than once in the request.";
+
+            public static string AlreadyRated(Guid lobbyId, Guid targetUserId) =>
+                $"Karma rating failed. You have already rated user '{targetUserId}' in lobby '{lobbyId}'.";
+
+            public const string EmptyTagsForEntry =
+                "Karma rating failed. Each rating entry must include at least one tag.";
+
+            public const string InvalidTagValue =
+                "Karma rating failed. One or more rating tags are not recognized.";
+
+            public static string TargetProfileMissing(Guid targetUserId) =>
+                $"Karma rating failed. Target user '{targetUserId}' has no profile to receive karma updates.";
+
+            public static string LobbyAlreadyOpenForRating(Guid lobbyId) =>
+                $"Karma rating window for lobby '{lobbyId}' is already open.";
+
+            public static string LobbyCannotOpenRating(Guid lobbyId) =>
+                $"Cannot open karma rating for lobby '{lobbyId}' because the session is not eligible yet.";
+        }
+
+        public static class Match
+        {
+            public static string LobbyNotFound(Guid lobbyId) =>
+                $"Match result submission failed. Lobby '{lobbyId}' was not found.";
+
+            public static string NotLobbyMember(Guid lobbyId, Guid userId) =>
+                $"Match result submission failed. User '{userId}' is not an active member of lobby '{lobbyId}'.";
+
+            public static string LobbyNotEligible(Guid lobbyId) =>
+                $"Match result submission failed. Lobby '{lobbyId}' is not in a state that accepts match results.";
+
+            public static string GameNotCompetitive(Guid gameTemplateId) =>
+                $"Match result submission failed. Game '{gameTemplateId}' is not configured for competitive Elo tracking.";
+
+            public static string MatchAlreadyFinalized(Guid lobbyId) =>
+                $"Match result submission failed. Match results for lobby '{lobbyId}' are already finalized.";
+
+            public static string ProfileMissing(Guid userId) =>
+                $"Match result submission failed. User '{userId}' has no profile to receive Elo updates.";
+
+            public const string InvalidOutcomeValue =
+                "Match result submission failed. Outcome must be Win, Loss, or Draw.";
+        }
+
+        public static class AdminModeration
+        {
+            public const string InvalidPunishmentAction =
+                "Invalid punishment action. Use Warning, Suspend, or Ban.";
+
+            public const string SuspendDurationRequired =
+                "Suspension requires duration_days between 1 and 365.";
+
+            public const string KarmaAdjustmentZeroNotAllowed =
+                "Karma adjustment amount cannot be zero.";
+
+            public const string CannotPunishAdmin =
+                "Admin accounts cannot be punished through this endpoint.";
+
+            public static string ProfileNotFound(Guid userId) =>
+                $"Cannot adjust karma because user '{userId}' has no profile.";
+
+            public const string InvalidViolationCategoryFilter =
+                "Invalid violation category filter value.";
+        }
+
+        public static class AccountAccess
+        {
+            public static string Restricted(string message) => message;
+
+            public static string LoginDeniedBanned(string? reason = null) =>
+                string.IsNullOrWhiteSpace(reason)
+                    ? "Login denied. Your account has been permanently banned."
+                    : $"Login denied. Your account has been permanently banned. Reason: {reason}";
+
+            public static string LoginDeniedSuspended(DateTime lockoutEnd, string? reason = null) =>
+                string.IsNullOrWhiteSpace(reason)
+                    ? $"Login denied. Your account is suspended until {lockoutEnd:O}."
+                    : $"Login denied. Your account is suspended until {lockoutEnd:O}. Reason: {reason}";
         }
 
         public static class Http

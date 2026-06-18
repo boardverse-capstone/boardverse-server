@@ -47,10 +47,19 @@ try
     await GameSchemaBootstrapper.EnsureUserAndCafeTablesAsync(db);
     await GameSchemaBootstrapper.EnsureGameTablesAsync(db);
     await GameSchemaBootstrapper.EnsureInventoryTablesAsync(db);
-    Console.WriteLine("✓ Schema ready (games + inventory)");
+    await GameSchemaBootstrapper.EnsureLobbyAndKarmaRatingTablesAsync(db);
+    await GameSchemaBootstrapper.EnsureMatchResultTablesAsync(db);
+    Console.WriteLine("✓ Schema ready (games + inventory + lobby/match)");
 
-    await seedService.SeedGamesFromCatalogAsync(GameCatalog.PopularGameSlugs.ToList());
-    Console.WriteLine("✓ Master games seeded");
+    try
+    {
+        await seedService.SeedGamesFromCatalogAsync(GameCatalog.PopularGameSlugs.ToList());
+        Console.WriteLine("✓ Master games seeded");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"⚠ Master game seed skipped: {ex.Message}");
+    }
 
     var manager = await db.Users.FirstOrDefaultAsync(u => u.Id == DevSeedConstants.ManagerUserId);
     if (manager == null)
@@ -74,7 +83,39 @@ try
     }
     else
     {
-        Console.WriteLine("↻ Dev Manager user already exists");
+        var conflicts = await db.Users
+            .Where(u => u.Id != DevSeedConstants.ManagerUserId
+                && (u.Email == DevSeedConstants.ManagerEmail || u.Username == DevSeedConstants.ManagerUsername))
+            .ToListAsync();
+
+        foreach (var conflict in conflicts)
+        {
+            conflict.Email = $"orphan.{conflict.Id:N}@boardverse.dev.invalid";
+            conflict.Username = $"orphan_{conflict.Id:N}"[..20];
+            conflict.UpdatedAt = DateTime.UtcNow;
+        }
+
+        if (conflicts.Count > 0)
+        {
+            await db.SaveChangesAsync();
+            Console.WriteLine($"↻ Cleared {conflicts.Count} manager identity conflict(s)");
+        }
+
+        manager.Email = DevSeedConstants.ManagerEmail;
+        manager.Username = DevSeedConstants.ManagerUsername;
+        manager.Role = UserRole.Manager;
+        manager.Provider = "Local";
+        manager.IsEmailVerified = true;
+        manager.IsActive = true;
+        manager.AccountStatus = UserAccountStatus.Active;
+        manager.IsBlocked = false;
+        manager.BlockReason = null;
+        manager.BlockedAt = null;
+        manager.LockoutEndDate = null;
+        manager.PasswordHash = BCrypt.Net.BCrypt.HashPassword(DevSeedConstants.ManagerPassword);
+        manager.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+        Console.WriteLine("↻ Dev Manager user credentials refreshed");
     }
 
     var cafe = await db.Cafes.FirstOrDefaultAsync(c => c.Id == DevSeedConstants.DemoCafeId);
@@ -245,16 +286,34 @@ try
         }
     }
 
+    await DevLobbySeed.RunAsync(db);
+
     Console.WriteLine();
     Console.WriteLine("--- Test credentials ---");
     Console.WriteLine($"Manager login : {DevSeedConstants.ManagerEmail} / {DevSeedConstants.ManagerPassword}");
+    Console.WriteLine($"Admin login   : {DevSeedConstants.AdminEmail} / {DevSeedConstants.AdminPassword}");
+    Console.WriteLine($"Player 1      : {DevSeedConstants.Player1Email} / {DevSeedConstants.DemoPlayerPassword}");
+    Console.WriteLine($"Player 2      : {DevSeedConstants.Player2Email} / {DevSeedConstants.DemoPlayerPassword}");
+    Console.WriteLine($"Player 3      : {DevSeedConstants.Player3Email} / {DevSeedConstants.DemoPlayerPassword} (karma alerts)");
     Console.WriteLine($"Cafe ID       : {DevSeedConstants.DemoCafeId}");
+    Console.WriteLine($"Match lobby   : {DevSeedConstants.DemoMatchLobbyId}");
+    Console.WriteLine($"Karma lobby   : {DevSeedConstants.DemoKarmaLobbyId}");
     Console.WriteLine();
-    Console.WriteLine("--- API flow ---");
+    Console.WriteLine("--- Match flow (Elo) ---");
+    Console.WriteLine("1. POST /api/auth/login  (player1)");
+    Console.WriteLine("2. GET  /api/v1/matches/results/lobbies/{DemoMatchLobbyId}");
+    Console.WriteLine("3. POST /api/v1/matches/results  { lobbyId, outcome: 0 }  // Win");
+    Console.WriteLine("4. Login player2 → POST outcome: 1 (Loss) → consensus finalized + Elo");
+    Console.WriteLine();
+    Console.WriteLine("--- Karma rating flow ---");
+    Console.WriteLine("1. Login manager → POST /api/v1/lobbies/{DemoKarmaLobbyId}/karma-rating/open");
+    Console.WriteLine("2. Login player1 → GET  /api/v1/users/ratings/karma/lobbies/{DemoKarmaLobbyId}");
+    Console.WriteLine("3. POST /api/v1/users/ratings/karma  { lobbyId, ratings: [...] }");
+    Console.WriteLine();
+    Console.WriteLine("--- Discovery flow ---");
     Console.WriteLine("1. POST /api/auth/login");
     Console.WriteLine("2. GET  /api/v1/master-games?searchTerm=catan");
     Console.WriteLine("3. GET  /api/cafes/nearby?latitude=10.776889&longitude=106.700806&gameTemplateId={catanId}");
-    Console.WriteLine("4. POST /api/cafes/{cafeId}/inventory");
     Console.WriteLine("=== Done ===");
 }
 catch (Exception ex)

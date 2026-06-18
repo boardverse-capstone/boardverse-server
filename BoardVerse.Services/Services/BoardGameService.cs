@@ -1,6 +1,7 @@
 using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.Game;
 using BoardVerse.Core.Entities;
+using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.Messages;
 using BoardVerse.Core.Helpers;
@@ -59,6 +60,64 @@ namespace BoardVerse.Services.Services
                 SortOrder = c.SortOrder
             }).ToList();
         }
+
+        public async Task<GamePlayConfigurationDto> GetPlayConfigurationAsync(Guid gameTemplateId)
+        {
+            var game = await RequireActiveGameAsync(gameTemplateId);
+            return MapPlayConfiguration(game);
+        }
+
+        public async Task<GamePlayNavigationResponseDto> ResolvePlayNavigationAsync(
+            Guid gameTemplateId,
+            ResolveGamePlayNavigationRequestDto request)
+        {
+            var game = await RequireActiveGameAsync(gameTemplateId);
+
+            if (request.PlayMode == PlayerPlayMode.Solo && !GamePlayRoutingHelper.SupportsSoloPlay(game.MinPlayers))
+            {
+                throw new BadRequestException(
+                    ApiErrorMessages.BoardGame.SoloPlayNotSupported(gameTemplateId, game.MinPlayers));
+            }
+
+            var navigationTarget = GamePlayRoutingHelper.ResolveNavigationTarget(game.MinPlayers, request.PlayMode);
+
+            return new GamePlayNavigationResponseDto
+            {
+                GameTemplateId = game.Id,
+                GameName = game.Name,
+                PlayMode = request.PlayMode,
+                MinPlayers = game.MinPlayers,
+                MaxPlayers = game.MaxPlayers,
+                SupportsSoloPlay = GamePlayRoutingHelper.SupportsSoloPlay(game.MinPlayers),
+                NavigationTarget = navigationTarget,
+                RoomConfiguration = GamePlayRoutingHelper.BuildRoomConfiguration(
+                    game.MinPlayers,
+                    game.MaxPlayers,
+                    navigationTarget)
+            };
+        }
+
+        private async Task<GameTemplate> RequireActiveGameAsync(Guid gameTemplateId)
+        {
+            var game = await _gameTemplateRepository.GetActiveByIdWithComponentsAsync(gameTemplateId);
+            if (game == null)
+            {
+                throw new BoardGameNotFoundException(ApiErrorMessages.BoardGame.NotFound(gameTemplateId));
+            }
+
+            return game;
+        }
+
+        private static GamePlayConfigurationDto MapPlayConfiguration(GameTemplate game) =>
+            new()
+            {
+                GameTemplateId = game.Id,
+                GameName = game.Name,
+                MinPlayers = game.MinPlayers,
+                MaxPlayers = game.MaxPlayers,
+                SupportsSoloPlay = GamePlayRoutingHelper.SupportsSoloPlay(game.MinPlayers),
+                AvailablePlayModes = GamePlayRoutingHelper.GetAvailablePlayModes(game.MinPlayers)
+            };
 
         private static BoardGameListItemDto MapListItem(GameTemplate game, int componentCount) =>
             new()

@@ -89,5 +89,37 @@ namespace BoardVerse.API.Controllers
             var result = await _boardGameService.GetBoardGameDetailsAsync(id);
             return NewResponse(200, "Board game details retrieved successfully", result);
         }
+
+        /// <summary>
+        /// Kiểm tra cấu hình số người chơi và các chế độ chơi khả dụng (Solo/Nhóm). [Role: Public]
+        /// </summary>
+        /// <param name="id">Mã định danh board game (GameTemplates.Id).</param>
+        /// <response code="200">Trả về min/max người, supportsSoloPlay và danh sách playMode UI có thể hiển thị.</response>
+        /// <response code="404">Không tìm thấy board game hoặc game đã bị vô hiệu hóa.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpGet("{id:guid}/play-configuration")]
+        public async Task<IActionResult> GetPlayConfiguration(Guid id)
+        {
+            var result = await _boardGameService.GetPlayConfigurationAsync(id);
+            return NewResponse(200, "Game play configuration retrieved successfully", result);
+        }
+
+        /// <summary>
+        /// Xác định điều hướng sau khi người chơi chọn chế độ Solo hoặc Nhóm. [Role: Public]
+        /// </summary>
+        /// <param name="id">Mã định danh board game (GameTemplates.Id).</param>
+        /// <param name="request">playMode: Solo (0) hoặc Group (1).</param>
+        /// <response code="200">Trả về navigationTarget (SoloBooking hoặc LobbyCreation) và roomConfiguration tương ứng.</response>
+        /// <response code="400">Chọn Solo nhưng game có minPlayers &gt; 1.</response>
+        /// <response code="404">Không tìm thấy board game hoặc game đã bị vô hiệu hóa.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpPost("{id:guid}/play-navigation")]
+        public async Task<IActionResult> ResolvePlayNavigation(
+            Guid id,
+            [FromBody] ResolveGamePlayNavigationRequestDto request)
+        {
+            var result = await _boardGameService.ResolvePlayNavigationAsync(id, request);
+            return NewResponse(200, "Game play navigation resolved successfully", result);
+        }
     }
 }

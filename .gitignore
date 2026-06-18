@@ -14,7 +14,10 @@
 .agents/docs/structure-code.md
 BoardVerse.API/appsettings.json
 BoardVerse.API/appsettings.Development.json
+BoardVerse.Tests/appsettings.local.json
 tools/SeedBoardGames/appsettings.json
 BoardVerse.Data/update-all-entities.sql
 .cursor/rules/api-controller-xml-docs.mdc
 .cursor/rules/api-error-messages.mdc
+BoardVerse.Tests/appsettings.json
+BoardVerse.Tests/appsettings.Testing.json

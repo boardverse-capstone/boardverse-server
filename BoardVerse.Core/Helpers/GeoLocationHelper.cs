@@ -11,7 +11,7 @@ namespace BoardVerse.Core.Helpers
         public const double MinLongitude = -180;
         public const double MaxLongitude = 180;
 
-        public const double DefaultNearbyRadiusKm = 5;
+        public const double DefaultNearbyRadiusKm = 15;
         public const double MinNearbyRadiusKm = 0.1;
         public const double MaxNearbyRadiusKm = 50;
 

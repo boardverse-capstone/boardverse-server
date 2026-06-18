@@ -1,3 +1,5 @@
+using BoardVerse.Core.Enum;
+
 namespace BoardVerse.Core.Entities
 {
     /// <summary>
@@ -9,6 +11,10 @@ namespace BoardVerse.Core.Entities
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid GameTemplateId { get; set; }
         public string ComponentName { get; set; } = string.Empty;
+
+        /// <summary>Loại cấu phần chuẩn (ComponentCatalog); null nếu chưa phân loại.</summary>
+        public BoardGameComponentKind? ComponentKind { get; set; }
+
         private int _defaultQuantity = 1;
         public int DefaultQuantity
         {

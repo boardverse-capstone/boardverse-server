@@ -20,6 +20,9 @@ namespace BoardVerse.Data.Configurations
             builder.Property(g => g.MaxPlayers).IsRequired();
             builder.Property(g => g.PlayTime).IsRequired();
             builder.Property(g => g.IsActive).IsRequired().HasDefaultValue(true);
+            builder.Property(g => g.BggId);
+            builder.Property(g => g.BggSyncedAt);
+            builder.HasIndex(g => g.BggId).IsUnique().HasFilter("\"BggId\" IS NOT NULL");
             builder.Property(g => g.CreatedAt).IsRequired();
             builder.Property(g => g.UpdatedAt).IsRequired();
 

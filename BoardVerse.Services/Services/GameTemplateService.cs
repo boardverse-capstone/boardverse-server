@@ -60,6 +60,8 @@ namespace BoardVerse.Services.Services
                 MinPlayers = game.MinPlayers,
                 MaxPlayers = game.MaxPlayers,
                 PlayTime = game.PlayTime,
+                BggId = game.BggId,
+                BggSyncedAt = game.BggSyncedAt,
                 CreatedAt = game.CreatedAt,
                 UpdatedAt = game.UpdatedAt,
                 AlreadyInInventory = inInventoryIds != null ? inInventoryIds.Contains(game.Id) : null,
@@ -69,6 +71,7 @@ namespace BoardVerse.Services.Services
                     Id = c.Id,
                     GameTemplateId = c.GameTemplateId,
                     ComponentName = c.ComponentName,
+                    ComponentKind = c.ComponentKind,
                     DefaultQuantity = c.DefaultQuantity,
                     CreatedAt = c.CreatedAt
                 }).ToList()
