@@ -112,12 +112,12 @@ namespace BoardVerse.Services.Services
                     UserId = entry.TargetUserId,
                     ViolationCategory = ResolveViolationCategory(distinctTags),
                     Source = KarmaLogSource.PlayerCrossRating,
-                    DeltaAmount = delta,
+                    KarmaPointsChange = delta,
                     KarmaBefore = karmaBefore,
                     KarmaAfter = profile.KarmaPoints,
                     Reason = $"Lobby cross-rating tags: {string.Join(", ", distinctTags)}",
                     RelatedLobbyId = request.LobbyId,
-                    ActorUserId = raterUserId,
+                    PerformedByUserId = raterUserId,
                     IsAdminAdjustment = false,
                     CreatedAt = DateTime.UtcNow
                 });

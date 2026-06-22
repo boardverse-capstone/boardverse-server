@@ -47,6 +47,9 @@ namespace BoardVerse.Data.Configurations
                 .HasConversion<string>()
                 .HasMaxLength(20);
 
+            builder.Property(c => c.PartnerOperationalStatusReason)
+                .HasMaxLength(500);
+
             builder.HasOne(c => c.Manager)
                 .WithMany()
                 .HasForeignKey(c => c.ManagerId)

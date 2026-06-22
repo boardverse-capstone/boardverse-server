@@ -158,10 +158,13 @@ Content-Type: application/json
     "name": "Catan",
     "created": true,
     "componentCount": 12,
+    "categoryCount": 3,
     "primaryComponentSource": 1
   }
 }
 ```
+
+Import tự **map thể loại** từ BGG categories/mechanics sang slug nội bộ (nếu khớp `Categories` active).
 
 **Lỗi:**
 

@@ -10,8 +10,6 @@ namespace BoardVerse.Data
         public DbSet<User> Users => Set<User>();
         public DbSet<UserProfile> UserProfiles => Set<UserProfile>();
         public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
-        public DbSet<TokenBlacklist> TokenBlacklists => Set<TokenBlacklist>();
-        public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
         public DbSet<Cafe> Cafes => Set<Cafe>();
         public DbSet<CafeStaff> CafeStaffs => Set<CafeStaff>();
         public DbSet<CafePartnerApplication> CafePartnerApplications => Set<CafePartnerApplication>();
@@ -89,9 +87,6 @@ namespace BoardVerse.Data
 
                 entity.Property(u => u.IsActive)
                     .HasDefaultValue(true);
-
-                entity.Property(u => u.IsBlocked)
-                    .HasDefaultValue(false);
 
                 entity.Property(u => u.BlockReason)
                     .HasMaxLength(500);
@@ -196,56 +191,6 @@ namespace BoardVerse.Data
                 entity.HasIndex(rt => rt.UserId);
             });
 
-            // TokenBlacklist entity configuration
-            modelBuilder.Entity<TokenBlacklist>(entity =>
-            {
-                entity.HasKey(tb => tb.Id);
-
-                entity.Property(tb => tb.Id)
-                    .ValueGeneratedNever();
-
-                entity.Property(tb => tb.Token)
-                    .IsRequired()
-                    .HasMaxLength(500);
-
-                entity.Property(tb => tb.CreatedAt)
-                    .IsRequired();
-
-                entity.HasOne(tb => tb.User)
-                    .WithMany()
-                    .HasForeignKey(tb => tb.UserId)
-                    .OnDelete(DeleteBehavior.Cascade);
-
-                entity.HasIndex(tb => tb.Token);
-
-                entity.HasIndex(tb => tb.UserId);
-            });
-
-            // PasswordResetToken entity configuration
-            modelBuilder.Entity<PasswordResetToken>(entity =>
-            {
-                entity.HasKey(prt => prt.Id);
-
-                entity.Property(prt => prt.Id)
-                    .ValueGeneratedNever();
-
-                entity.Property(prt => prt.Token)
-                    .IsRequired()
-                    .HasMaxLength(500);
-
-                entity.Property(prt => prt.CreatedAt)
-                    .IsRequired();
-
-                entity.HasOne(prt => prt.User)
-                    .WithMany()
-                    .HasForeignKey(prt => prt.UserId)
-                    .OnDelete(DeleteBehavior.Cascade);
-
-                entity.HasIndex(prt => prt.Token);
-
-                entity.HasIndex(prt => prt.UserId);
-            });
-
             // Cafe entity configuration is in Configurations/CafeConfiguration.cs
 
             modelBuilder.Entity<CafePartnerApplication>(entity =>
@@ -308,10 +253,6 @@ namespace BoardVerse.Data
 
                 entity.Property(cs => cs.JoinedAt)
                     .IsRequired();
-
-                entity.Property(cs => cs.IsActive)
-                    .IsRequired()
-                    .HasDefaultValue(true);
 
                 entity.HasOne(cs => cs.Cafe)
                     .WithMany(c => c.StaffMembers)

@@ -14,10 +14,11 @@ namespace BoardVerse.Core.IRepositories
         Task<User?> GetByEmailVerificationTokenAsync(string token);
         Task<User?> GetByPasswordResetTokenAsync(string token);
         Task<RefreshToken?> GetActiveRefreshTokenAsync(string token);
-        Task<bool> IsTokenBlacklistedAsync(string token);
         Task<bool> HasActiveProfileAsync(Guid userId);
         Task AddUserAsync(User user);
         Task AddRefreshTokenAsync(RefreshToken refreshToken);
+        Task DeleteStaleRefreshTokensForUserAsync(Guid userId, DateTime utcNow);
+        Task<int> DeleteAllStaleRefreshTokensAsync(DateTime utcNow);
         Task SaveChangesAsync();
     }
 }

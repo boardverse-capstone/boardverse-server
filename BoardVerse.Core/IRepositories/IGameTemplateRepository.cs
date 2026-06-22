@@ -10,6 +10,9 @@ namespace BoardVerse.Core.IRepositories
         Task<PaginatedResponse<GameTemplate>> GetBoardGamesPagedAsync(GetMasterGamesQuery query);
         Task<GameTemplate?> GetByIdWithComponentsAsync(Guid id);
         Task<GameTemplate?> GetActiveByIdWithComponentsAsync(Guid id);
+        Task<GameTemplate?> GetByIdWithCategoriesForUpdateAsync(Guid id);
+        Task<bool> ExistsAsync(Guid id);
         Task<Dictionary<Guid, int>> GetComponentCountsByGameIdsAsync(IReadOnlyCollection<Guid> gameIds);
+        Task SaveChangesAsync();
     }
 }

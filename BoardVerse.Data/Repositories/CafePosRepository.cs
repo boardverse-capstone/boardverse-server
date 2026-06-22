@@ -25,7 +25,7 @@ namespace BoardVerse.Data.Repositories
             if (userRole == UserRole.CafeStaff.ToString())
             {
                 return await _context.CafeStaffs.AnyAsync(cs =>
-                    cs.CafeId == cafeId && cs.UserId == userId && cs.IsActive);
+                    cs.CafeId == cafeId && cs.UserId == userId && cs.User.IsActive);
             }
 
             return false;

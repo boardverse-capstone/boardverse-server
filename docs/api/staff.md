@@ -46,7 +46,13 @@ curl.exe http://localhost:5022/api/staff/my-cafes `
 
 ## GET /api/staff/my-cafes
 
-Trả danh sách cafe mà nhân viên hiện tại được gán (active).
+Trả danh sách cafe mà nhân viên hiện tại được gán.
+
+Chỉ hiện quán khi:
+- Còn bản ghi trong `CafeStaffs` (gỡ staff = **xóa hàng**, không soft-delete)
+- `User.isActive = true` và `Cafe.isActive = true`
+
+Nếu admin deactivate user (`isActive = false`) → staff không thấy quán dù chưa bị manager gỡ.
 
 **Response 200:**
 ```json

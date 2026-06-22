@@ -9,12 +9,12 @@ namespace BoardVerse.Core.DTOs.Admin
         public string Username { get; set; } = string.Empty;
         public KarmaViolationCategory ViolationCategory { get; set; }
         public KarmaLogSource Source { get; set; }
-        public decimal DeltaAmount { get; set; }
+        public decimal KarmaPointsChange { get; set; }
         public int KarmaBefore { get; set; }
         public int KarmaAfter { get; set; }
         public string Reason { get; set; } = string.Empty;
         public Guid? RelatedLobbyId { get; set; }
-        public Guid? ActorUserId { get; set; }
+        public Guid? PerformedByUserId { get; set; }
         public bool IsAdminAdjustment { get; set; }
         public DateTime CreatedAt { get; set; }
     }

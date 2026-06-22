@@ -59,11 +59,11 @@ namespace BoardVerse.Services.Services
                         UserId = targetUserId,
                         ViolationCategory = KarmaViolationCategory.AdminWarning,
                         Source = KarmaLogSource.AdminManual,
-                        DeltaAmount = 0,
+                        KarmaPointsChange = 0,
                         KarmaBefore = user.Profile?.KarmaPoints ?? 100,
                         KarmaAfter = user.Profile?.KarmaPoints ?? 100,
                         Reason = reason,
-                        ActorUserId = adminUserId,
+                        PerformedByUserId = adminUserId,
                         IsAdminAdjustment = false,
                         CreatedAt = utcNow
                     });
@@ -76,7 +76,6 @@ namespace BoardVerse.Services.Services
                     }
 
                     user.AccountStatus = UserAccountStatus.Suspended;
-                    user.IsBlocked = true;
                     user.BlockReason = reason;
                     user.BlockedAt = utcNow;
                     user.LockoutEndDate = utcNow.AddDays(request.DurationDays.Value);
@@ -85,7 +84,6 @@ namespace BoardVerse.Services.Services
 
                 case AdminPunishmentActionType.Ban:
                     user.AccountStatus = UserAccountStatus.Banned;
-                    user.IsBlocked = true;
                     user.BlockReason = reason;
                     user.BlockedAt = utcNow;
                     user.LockoutEndDate = null;
@@ -136,11 +134,11 @@ namespace BoardVerse.Services.Services
                 UserId = targetUserId,
                 ViolationCategory = KarmaViolationCategory.AdminManual,
                 Source = KarmaLogSource.AdminManual,
-                DeltaAmount = request.Amount,
+                KarmaPointsChange = request.Amount,
                 KarmaBefore = karmaBefore,
                 KarmaAfter = karmaAfter,
                 Reason = request.Reason.Trim(),
-                ActorUserId = adminUserId,
+                PerformedByUserId = adminUserId,
                 IsAdminAdjustment = true,
                 CreatedAt = DateTime.UtcNow
             };

@@ -440,15 +440,18 @@ namespace BoardVerse.Services.Services
 
         private async Task<string> CreateAndSaveRefreshTokenAsync(Guid userId)
         {
+            var utcNow = DateTime.UtcNow;
+            await _userRepository.DeleteStaleRefreshTokensForUserAsync(userId, utcNow);
+
             var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
             var refreshToken = new RefreshToken
             {
                 Id = Guid.NewGuid(),
                 UserId = userId,
                 Token = token,
-                ExpiresAt = DateTime.UtcNow.AddDays(_refreshTokenExpiryDays),
+                ExpiresAt = utcNow.AddDays(_refreshTokenExpiryDays),
                 IsRevoked = false,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = utcNow
             };
 
             await _userRepository.AddRefreshTokenAsync(refreshToken);

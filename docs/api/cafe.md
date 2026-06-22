@@ -220,7 +220,11 @@ Nâng `Player` → `CafeStaff` và gắn quán.
 
 ## DELETE /api/cafes/{cafeId}/staff/{staffId}
 
-Gỡ nhân viên khỏi quán. Nếu staff **không còn quán nào** → role tự hạ về `Player`.
+Gỡ nhân viên khỏi quán — **xóa hàng** trong `CafeStaffs` (không còn cột `IsActive` trên staff).
+
+Nếu staff **không còn quán nào** → role tự hạ về `Player`.
+
+Danh sách staff (`GET .../staff`) chỉ gồm user có `isActive = true`.
 
 ---
 

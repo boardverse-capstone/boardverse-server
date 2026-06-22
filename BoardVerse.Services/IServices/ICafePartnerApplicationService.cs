@@ -16,5 +16,6 @@ namespace BoardVerse.Services.IServices
         Task<CafePartnerApplicationResponseDto> UpdateOperationalProfileAsync(Guid managerUserId, UpdateOperationalProfileRequestDto request);
         Task<CafePartnerApplicationResponseDto> ActivateAsync(Guid managerUserId);
         Task<CafePartnerApplicationResponseDto> DeactivateAsync(Guid managerUserId);
+        Task<CafePartnerApplicationResponseDto> ClosePermanentlyAsync(Guid managerUserId);
     }
 }

@@ -3,6 +3,7 @@ using BoardVerse.Core.DTOs.User;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Helpers;
 using BoardVerse.Core.Messages;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.IServices;
@@ -28,9 +29,10 @@ namespace BoardVerse.Services.Services
                 Username = user.Username,
                 Email = user.Email,
                 Role = user.Role.ToString(),
-                IsBlocked = user.IsBlocked,
+                AccountStatus = user.AccountStatus.ToString(),
                 BlockReason = user.BlockReason,
                 BlockedAt = user.BlockedAt,
+                LockoutEndDate = user.LockoutEndDate,
                 IsActive = user.IsActive,
                 CreatedAt = user.CreatedAt,
                 UpdatedAt = user.UpdatedAt,
@@ -135,16 +137,6 @@ namespace BoardVerse.Services.Services
                 user.IsActive = request.IsActive.Value;
             }
 
-            if (request.IsBlocked.HasValue)
-            {
-                user.IsBlocked = request.IsBlocked.Value;
-                if (!request.IsBlocked.Value)
-                {
-                    user.BlockReason = null;
-                    user.BlockedAt = null;
-                }
-            }
-
             if (!string.IsNullOrWhiteSpace(request.Password))
             {
                 user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password);
@@ -171,11 +163,12 @@ namespace BoardVerse.Services.Services
             var user = await _userRepository.GetByIdWithProfileAsync(id);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.AdminUsers.UserNotFound(id));
 
-            user.IsBlocked = true;
+            var utcNow = DateTime.UtcNow;
+            user.AccountStatus = UserAccountStatus.Banned;
             user.BlockReason = request.Reason;
-            user.BlockedAt = DateTime.UtcNow;
-            user.IsActive = false;
-            user.UpdatedAt = DateTime.UtcNow;
+            user.BlockedAt = utcNow;
+            user.LockoutEndDate = null;
+            user.UpdatedAt = utcNow;
 
             await _userRepository.SaveChangesAsync();
             return MapUser(user);
@@ -186,11 +179,7 @@ namespace BoardVerse.Services.Services
             var user = await _userRepository.GetByIdWithProfileAsync(id);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.AdminUsers.UserNotFound(id));
 
-            user.IsBlocked = false;
-            user.BlockReason = null;
-            user.BlockedAt = null;
-            user.IsActive = true;
-            user.UpdatedAt = DateTime.UtcNow;
+            UserAccessHelper.ClearModerationState(user, DateTime.UtcNow);
 
             await _userRepository.SaveChangesAsync();
             return MapUser(user);

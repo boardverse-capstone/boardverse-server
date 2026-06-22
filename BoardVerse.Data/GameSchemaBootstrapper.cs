@@ -1,11 +1,20 @@
 using BoardVerse.Core.Data;
-using BoardVerse.Core.Helpers;
 using Microsoft.EntityFrameworkCore;
 
 namespace BoardVerse.Data
 {
     public static class GameSchemaBootstrapper
     {
+        /// <summary>Legacy tables removed from the app model; safe to drop on startup.</summary>
+        public static async Task EnsureObsoleteTablesDroppedAsync(BoardVerseDbContext context)
+        {
+            await context.Database.ExecuteSqlRawAsync("""
+                DROP TABLE IF EXISTS "TokenBlacklists" CASCADE;
+                DROP TABLE IF EXISTS "PasswordResetTokens" CASCADE;
+                DROP TABLE IF EXISTS "__EFMigrationsHistory" CASCADE;
+                """);
+        }
+
         public static async Task EnsureUserAndCafeTablesAsync(BoardVerseDbContext context)
         {
             await context.Database.ExecuteSqlRawAsync("""
@@ -26,9 +35,10 @@ namespace BoardVerse.Data
                     "PasswordResetToken" character varying(500),
                     "PasswordResetTokenExpiresAt" timestamp with time zone,
                     "IsActive" boolean NOT NULL DEFAULT true,
-                    "IsBlocked" boolean NOT NULL DEFAULT false,
                     "BlockReason" character varying(500),
                     "BlockedAt" timestamp with time zone,
+                    "AccountStatus" character varying(20) NOT NULL DEFAULT 'Active',
+                    "LockoutEndDate" timestamp with time zone,
                     "LastLoginAt" timestamp with time zone
                 );
                 """);
@@ -38,34 +48,8 @@ namespace BoardVerse.Data
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""
-                UPDATE "Users" SET "Role" = 'Player' WHERE "Role" = 'User';
-                """);
-
-            await context.Database.ExecuteSqlRawAsync("""
-                ALTER TABLE "Users" ALTER COLUMN "Role" SET DEFAULT 'Player';
-                """);
-
-            await context.Database.ExecuteSqlRawAsync("""
-                DO $$ BEGIN
-                    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'UserProfiles') THEN
-                        ALTER TABLE "UserProfiles" DROP COLUMN IF EXISTS "HomeAddress";
-
-                        IF EXISTS (
-                            SELECT 1 FROM information_schema.columns
-                            WHERE table_schema = 'public'
-                              AND table_name = 'UserProfiles'
-                              AND column_name = 'DateOfBirth'
-                              AND udt_name <> 'date'
-                        ) THEN
-                            ALTER TABLE "UserProfiles"
-                            ALTER COLUMN "DateOfBirth" TYPE date
-                            USING CASE
-                                WHEN "DateOfBirth" IS NULL THEN NULL
-                                ELSE ("DateOfBirth" AT TIME ZONE 'UTC')::date
-                            END;
-                        END IF;
-                    END IF;
-                END $$;
+                ALTER TABLE "Users" ADD COLUMN IF NOT EXISTS "AccountStatus" character varying(20) NOT NULL DEFAULT 'Active';
+                ALTER TABLE "Users" ADD COLUMN IF NOT EXISTS "LockoutEndDate" timestamp with time zone;
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""
@@ -114,22 +98,45 @@ namespace BoardVerse.Data
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS "CafeStaffs" (
+                    "CafeId" uuid NOT NULL,
+                    "UserId" uuid NOT NULL,
+                    "JoinedAt" timestamp with time zone NOT NULL,
+                    CONSTRAINT "PK_CafeStaffs" PRIMARY KEY ("CafeId", "UserId"),
+                    CONSTRAINT "FK_CafeStaffs_Cafes_CafeId"
+                        FOREIGN KEY ("CafeId") REFERENCES "Cafes" ("Id") ON DELETE CASCADE,
+                    CONSTRAINT "FK_CafeStaffs_Users_UserId"
+                        FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+                );
+                """);
+
+            await context.Database.ExecuteSqlRawAsync("""
                 CREATE TABLE IF NOT EXISTS "CafePartnerApplications" (
                     "Id" uuid PRIMARY KEY,
-                    "ContactName" character varying(100) NOT NULL,
-                    "ContactEmail" character varying(256) NOT NULL,
-                    "ContactPhone" character varying(50) NOT NULL,
                     "CafeName" character varying(200) NOT NULL,
                     "Address" character varying(500) NOT NULL,
-                    "CafePhoneNumber" character varying(50),
-                    "Description" character varying(1000),
-                    "BusinessLicenseNumber" character varying(100),
-                    "BusinessLicenseUrl" character varying(500),
-                    "CafeImageUrl" character varying(500),
-                    "Status" character varying(50) NOT NULL DEFAULT 'Pending',
-                    "AdminNotes" character varying(1000),
+                    "Latitude" double precision,
+                    "Longitude" double precision,
+                    "Hotline" character varying(11) NOT NULL DEFAULT '',
+                    "RepresentativeEmail" character varying(256) NOT NULL DEFAULT '',
+                    "BusinessLicense" character varying(50) NOT NULL DEFAULT '',
+                    "BusinessLicenseImageUrl" character varying(500),
+                    "WeekdayOpen" interval,
+                    "WeekdayClose" interval,
+                    "WeekendOpen" interval,
+                    "WeekendClose" interval,
+                    "NumberOfTables" integer NOT NULL DEFAULT 0,
+                    "NumberOfPrivateRooms" integer NOT NULL DEFAULT 0,
+                    "SpaceImageUrlsJson" text NOT NULL DEFAULT '[]',
+                    "NumberOfGamesOwned" integer NOT NULL DEFAULT 0,
+                    "PopularGamesList" character varying(2000) NOT NULL DEFAULT '',
+                    "HasGameMaster" boolean NOT NULL DEFAULT false,
+                    "BillingModel" character varying(20) NOT NULL DEFAULT 'ByHour',
+                    "TableLayoutJson" text NOT NULL DEFAULT '[]',
+                    "Status" character varying(50) NOT NULL DEFAULT 'PendingApproval',
                     "RejectionReason" character varying(1000),
-                    "ResubmitCount" integer NOT NULL DEFAULT 0,
+                    "ApprovedAt" timestamp with time zone,
+                    "OperationalProfileUpdatedAt" timestamp with time zone,
                     "SubmittedByUserId" uuid,
                     "ReviewedByAdminId" uuid,
                     "ReviewedAt" timestamp with time zone,
@@ -149,116 +156,41 @@ namespace BoardVerse.Data
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "BusinessLicenseNumber" character varying(100);
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "BusinessLicenseUrl" character varying(500);
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "CafeImageUrl" character varying(500);
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "ResubmitCount" integer NOT NULL DEFAULT 0;
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "SubmittedByUserId" uuid;
-                """);
-
-            await context.Database.ExecuteSqlRawAsync("""
-                DO $$ BEGIN
-                    IF EXISTS (
-                        SELECT 1 FROM information_schema.columns
-                        WHERE table_schema = 'public' AND table_name = 'CafePartnerApplications' AND column_name = 'ContactEmail'
-                    ) THEN
-                        CREATE INDEX IF NOT EXISTS "IX_CafePartnerApplications_ContactEmail"
-                            ON "CafePartnerApplications" ("ContactEmail");
-                    END IF;
-                END $$;
-                """);
-
-            await context.Database.ExecuteSqlRawAsync("""
-                CREATE INDEX IF NOT EXISTS "IX_CafePartnerApplications_Status"
-                    ON "CafePartnerApplications" ("Status");
-                """);
-
-            await context.Database.ExecuteSqlRawAsync("""
-                CREATE INDEX IF NOT EXISTS "IX_CafePartnerApplications_SubmittedByUserId"
-                    ON "CafePartnerApplications" ("SubmittedByUserId");
-                """);
-
-            await context.Database.ExecuteSqlRawAsync("""
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "Hotline" character varying(11);
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "RepresentativeEmail" character varying(256);
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "RepresentativeName" character varying(100);
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "BusinessLicense" character varying(50);
+                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "Latitude" double precision;
+                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "Longitude" double precision;
+                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "Hotline" character varying(11) NOT NULL DEFAULT '';
+                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "RepresentativeEmail" character varying(256) NOT NULL DEFAULT '';
+                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "BusinessLicense" character varying(50) NOT NULL DEFAULT '';
                 ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "BusinessLicenseImageUrl" character varying(500);
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "NumberOfTables" integer NOT NULL DEFAULT 1;
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "NumberOfPrivateRooms" integer NOT NULL DEFAULT 0;
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "MaximumCapacity" integer NOT NULL DEFAULT 1;
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "SpaceImageUrlsJson" text NOT NULL DEFAULT '[]';
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "NumberOfGamesOwned" integer NOT NULL DEFAULT 1;
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "PopularGamesList" character varying(2000) NOT NULL DEFAULT '';
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "HasGameMaster" boolean NOT NULL DEFAULT false;
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "BillingModel" character varying(20) NOT NULL DEFAULT 'ByHour';
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "OpsAlertMessage" character varying(1000);
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "CommissionRate" numeric(5,2);
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "ContractSentAt" timestamp with time zone;
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "ContractSignedAt" timestamp with time zone;
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "RequiresCsSupport" boolean NOT NULL DEFAULT false;
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "DisplayRankOverride" integer;
-                """);
-
-            await context.Database.ExecuteSqlRawAsync("""
-                DO $$ BEGIN
-                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'CafePartnerApplications' AND column_name = 'ContactName') THEN
-                        ALTER TABLE "CafePartnerApplications" ALTER COLUMN "ContactName" DROP NOT NULL;
-                        ALTER TABLE "CafePartnerApplications" ALTER COLUMN "ContactEmail" DROP NOT NULL;
-                        ALTER TABLE "CafePartnerApplications" ALTER COLUMN "ContactPhone" DROP NOT NULL;
-                    END IF;
-                END $$;
-                """);
-
-            await context.Database.ExecuteSqlRawAsync("""
-                DO $$ BEGIN
-                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'CafePartnerApplications' AND column_name = 'ContactEmail') THEN
-                        UPDATE "CafePartnerApplications"
-                        SET "RepresentativeEmail" = COALESCE(NULLIF(TRIM("RepresentativeEmail"), ''), "ContactEmail"),
-                            "Hotline" = COALESCE(NULLIF(TRIM("Hotline"), ''), "ContactPhone"),
-                            "RepresentativeName" = COALESCE("RepresentativeName", "ContactName"),
-                            "BusinessLicense" = COALESCE(NULLIF(TRIM("BusinessLicense"), ''), "BusinessLicenseNumber", ''),
-                            "BusinessLicenseImageUrl" = COALESCE("BusinessLicenseImageUrl", "BusinessLicenseUrl"),
-                            "SpaceImageUrlsJson" = CASE
-                                WHEN ("SpaceImageUrlsJson" IS NULL OR "SpaceImageUrlsJson" = '[]') AND "CafeImageUrl" IS NOT NULL
-                                THEN format('["%s"]', replace("CafeImageUrl", '"', '\"'))
-                                ELSE COALESCE("SpaceImageUrlsJson", '[]')
-                            END
-                        WHERE "ContactEmail" IS NOT NULL
-                           OR "RepresentativeEmail" IS NULL
-                           OR TRIM(COALESCE("RepresentativeEmail", '')) = '';
-                    END IF;
-                END $$;
-                """);
-
-            await context.Database.ExecuteSqlRawAsync("""
-                UPDATE "CafePartnerApplications" SET "Status" = 'PendingApproval' WHERE "Status" IN ('Pending', 'PendingReview', 'PendingInfo', 'NeedsMoreInfo');
-                UPDATE "CafePartnerApplications" SET "Status" = 'Approved' WHERE "Status" IN ('Active', 'ContractSigned', 'PendingNegotiation');
-                UPDATE "CafePartnerApplications" SET "Status" = 'Rejected' WHERE "Status" IN ('Cancelled', 'Rejected');
-                """);
-
-            await context.Database.ExecuteSqlRawAsync("""
                 ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "WeekdayOpen" interval;
                 ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "WeekdayClose" interval;
                 ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "WeekendOpen" interval;
                 ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "WeekendClose" interval;
+                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "NumberOfTables" integer NOT NULL DEFAULT 0;
+                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "NumberOfPrivateRooms" integer NOT NULL DEFAULT 0;
+                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "SpaceImageUrlsJson" text NOT NULL DEFAULT '[]';
+                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "NumberOfGamesOwned" integer NOT NULL DEFAULT 0;
+                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "PopularGamesList" character varying(2000) NOT NULL DEFAULT '';
+                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "HasGameMaster" boolean NOT NULL DEFAULT false;
+                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "BillingModel" character varying(20) NOT NULL DEFAULT 'ByHour';
                 ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "TableLayoutJson" text NOT NULL DEFAULT '[]';
                 ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "ApprovedAt" timestamp with time zone;
                 ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "OperationalProfileUpdatedAt" timestamp with time zone;
-                ALTER TABLE "CafePartnerApplications" ALTER COLUMN "NumberOfTables" SET DEFAULT 0;
-                ALTER TABLE "CafePartnerApplications" ALTER COLUMN "NumberOfGamesOwned" SET DEFAULT 0;
+                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "SubmittedByUserId" uuid;
+                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "ReviewedByAdminId" uuid;
+                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "ReviewedAt" timestamp with time zone;
+                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "CreatedManagerUserId" uuid;
+                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "CreatedCafeId" uuid;
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""
                 ALTER TABLE "Cafes" ADD COLUMN IF NOT EXISTS "PartnerOperationalStatus" character varying(20);
+                ALTER TABLE "Cafes" ADD COLUMN IF NOT EXISTS "PartnerOperationalStatusReason" character varying(500);
+                ALTER TABLE "Cafes" ADD COLUMN IF NOT EXISTS "PartnerOperationalStatusChangedAt" timestamp with time zone;
                 ALTER TABLE "Cafes" ADD COLUMN IF NOT EXISTS "WeekdayOpen" interval;
                 ALTER TABLE "Cafes" ADD COLUMN IF NOT EXISTS "WeekdayClose" interval;
                 ALTER TABLE "Cafes" ADD COLUMN IF NOT EXISTS "WeekendOpen" interval;
                 ALTER TABLE "Cafes" ADD COLUMN IF NOT EXISTS "WeekendClose" interval;
-                UPDATE "Cafes" SET "PartnerOperationalStatus" = 'Active'
-                WHERE "PartnerOperationalStatus" IS NULL AND "IsActive" = true;
-                UPDATE "Cafes" SET "PartnerOperationalStatus" = 'DataBlank'
-                WHERE "PartnerOperationalStatus" IS NULL AND "IsActive" = false;
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""
@@ -284,47 +216,16 @@ namespace BoardVerse.Data
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "Latitude" double precision;
-                ALTER TABLE "CafePartnerApplications" ADD COLUMN IF NOT EXISTS "Longitude" double precision;
-                """);
-
-            await context.Database.ExecuteSqlRawAsync("""
+                CREATE INDEX IF NOT EXISTS "IX_CafePartnerApplications_Status"
+                    ON "CafePartnerApplications" ("Status");
+                CREATE INDEX IF NOT EXISTS "IX_CafePartnerApplications_SubmittedByUserId"
+                    ON "CafePartnerApplications" ("SubmittedByUserId");
                 CREATE INDEX IF NOT EXISTS "IX_CafePartnerApplications_RepresentativeEmail"
                     ON "CafePartnerApplications" ("RepresentativeEmail");
                 CREATE INDEX IF NOT EXISTS "IX_CafePartnerApplications_BusinessLicense"
                     ON "CafePartnerApplications" ("BusinessLicense");
                 CREATE INDEX IF NOT EXISTS "IX_CafePartnerApplications_Hotline"
                     ON "CafePartnerApplications" ("Hotline");
-                """);
-
-            // Backfill legacy Contact* from new columns (only when legacy columns still exist).
-            await context.Database.ExecuteSqlRawAsync("""
-                DO $$ BEGIN
-                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'CafePartnerApplications' AND column_name = 'ContactEmail') THEN
-                        UPDATE "CafePartnerApplications"
-                        SET "ContactEmail" = COALESCE(NULLIF(TRIM("ContactEmail"), ''), "RepresentativeEmail"),
-                            "ContactPhone" = COALESCE(NULLIF(TRIM("ContactPhone"), ''), "Hotline"),
-                            "ContactName" = COALESCE(NULLIF(TRIM("ContactName"), ''), "RepresentativeName", '')
-                        WHERE TRIM(COALESCE("RepresentativeEmail", '')) <> ''
-                           OR TRIM(COALESCE("Hotline", '')) <> '';
-                    END IF;
-                END $$;
-                """);
-
-            // Drop legacy / unused columns — entity only maps Hotline, RepresentativeEmail, etc.
-            await context.Database.ExecuteSqlRawAsync("""
-                DROP INDEX IF EXISTS "IX_CafePartnerApplications_ContactEmail";
-                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "ContactName";
-                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "ContactEmail";
-                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "ContactPhone";
-                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "CafePhoneNumber";
-                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "Description";
-                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "AdminNotes";
-                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "BusinessLicenseNumber";
-                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "BusinessLicenseUrl";
-                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "CafeImageUrl";
-                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "RepresentativeName";
-                ALTER TABLE "CafePartnerApplications" DROP COLUMN IF EXISTS "MaximumCapacity";
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""
@@ -380,7 +281,6 @@ namespace BoardVerse.Data
                 ALTER TABLE "GameTemplates" ADD COLUMN IF NOT EXISTS "IsActive" boolean NOT NULL DEFAULT true;
                 ALTER TABLE "GameTemplates" ADD COLUMN IF NOT EXISTS "BggId" integer;
                 ALTER TABLE "GameTemplates" ADD COLUMN IF NOT EXISTS "BggSyncedAt" timestamp with time zone;
-                ALTER TABLE "GameTemplates" DROP COLUMN IF EXISTS "BggGameId";
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""
@@ -561,40 +461,6 @@ namespace BoardVerse.Data
                 """);
         }
 
-        /// <summary>
-        /// Creates CafeInventoryBoxes for active inventories that have no box rows yet (legacy data).
-        /// </summary>
-        public static async Task EnsureInventoryBoxBackfillAsync(BoardVerseDbContext context)
-        {
-            var inventories = await context.CafeGameInventories
-                .Where(i => i.IsActive)
-                .ToListAsync();
-
-            var changed = false;
-            foreach (var inventory in inventories)
-            {
-                var hasActiveBoxes = await context.CafeInventoryBoxes
-                    .AnyAsync(b => b.CafeGameInventoryId == inventory.Id && b.IsActive);
-
-                if (hasActiveBoxes)
-                {
-                    continue;
-                }
-
-                var existingBoxes = await context.CafeInventoryBoxes
-                    .Where(b => b.CafeGameInventoryId == inventory.Id)
-                    .ToListAsync();
-
-                CafeInventoryBoxSyncHelper.ApplySync(inventory, existingBoxes);
-                changed = true;
-            }
-
-            if (changed)
-            {
-                await context.SaveChangesAsync();
-            }
-        }
-
         public static async Task EnsureLobbyAndKarmaRatingTablesAsync(BoardVerseDbContext context)
         {
             await context.Database.ExecuteSqlRawAsync("""
@@ -728,26 +594,35 @@ namespace BoardVerse.Data
                 """);
         }
 
-        public static async Task EnsureUserModerationColumnsAsync(BoardVerseDbContext context)
+        public static async Task EnsureAuthTokenTablesAsync(BoardVerseDbContext context)
         {
             await context.Database.ExecuteSqlRawAsync("""
-                ALTER TABLE "Users" ADD COLUMN IF NOT EXISTS "AccountStatus" character varying(20) NOT NULL DEFAULT 'Active';
+                CREATE TABLE IF NOT EXISTS "RefreshTokens" (
+                    "Id" uuid PRIMARY KEY,
+                    "UserId" uuid NOT NULL,
+                    "Token" character varying(500) NOT NULL,
+                    "ExpiresAt" timestamp with time zone NOT NULL,
+                    "IsRevoked" boolean NOT NULL DEFAULT false,
+                    "CreatedAt" timestamp with time zone NOT NULL,
+                    "RevokedAt" timestamp with time zone,
+                    CONSTRAINT "FK_RefreshTokens_Users_UserId"
+                        FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+                );
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""
-                ALTER TABLE "Users" ADD COLUMN IF NOT EXISTS "LockoutEndDate" timestamp with time zone;
+                CREATE UNIQUE INDEX IF NOT EXISTS "IX_RefreshTokens_Token" ON "RefreshTokens" ("Token");
                 """);
 
             await context.Database.ExecuteSqlRawAsync("""
-                UPDATE "Users"
-                SET "AccountStatus" = CASE
-                    WHEN "IsBlocked" = true AND COALESCE("BlockReason", '') ILIKE '%ban%' THEN 'Banned'
-                    WHEN "IsBlocked" = true THEN 'Suspended'
-                    ELSE 'Active'
-                END
-                WHERE "AccountStatus" IS NULL OR "AccountStatus" = 'Active' AND "IsBlocked" = true;
+                CREATE INDEX IF NOT EXISTS "IX_RefreshTokens_UserId" ON "RefreshTokens" ("UserId");
                 """);
         }
+
+        public static Task<int> CleanupStaleRefreshTokensAsync(BoardVerseDbContext context) =>
+            context.RefreshTokens
+                .Where(r => r.IsRevoked || r.ExpiresAt <= DateTime.UtcNow)
+                .ExecuteDeleteAsync();
 
         public static async Task EnsureKarmaLogAndSystemConfigTablesAsync(BoardVerseDbContext context)
         {
@@ -757,18 +632,18 @@ namespace BoardVerse.Data
                     "UserId" uuid NOT NULL,
                     "ViolationCategory" character varying(50) NOT NULL,
                     "Source" character varying(50) NOT NULL,
-                    "DeltaAmount" numeric(8,2) NOT NULL,
+                    "KarmaPointsChange" numeric(8,2) NOT NULL,
                     "KarmaBefore" integer NOT NULL,
                     "KarmaAfter" integer NOT NULL,
                     "Reason" character varying(1000) NOT NULL,
                     "RelatedLobbyId" uuid,
-                    "ActorUserId" uuid,
+                    "PerformedByUserId" uuid,
                     "IsAdminAdjustment" boolean NOT NULL DEFAULT false,
                     "CreatedAt" timestamp with time zone NOT NULL,
                     CONSTRAINT "FK_KarmaLogs_Users_UserId"
                         FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE,
-                    CONSTRAINT "FK_KarmaLogs_Users_ActorUserId"
-                        FOREIGN KEY ("ActorUserId") REFERENCES "Users" ("Id") ON DELETE SET NULL
+                    CONSTRAINT "FK_KarmaLogs_Users_PerformedByUserId"
+                        FOREIGN KEY ("PerformedByUserId") REFERENCES "Users" ("Id") ON DELETE SET NULL
                 );
                 """);
 

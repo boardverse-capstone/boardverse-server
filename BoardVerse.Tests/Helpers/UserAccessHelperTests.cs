@@ -12,21 +12,20 @@ public class UserAccessHelperTests
         var utcNow = new DateTime(2026, 6, 17, 12, 0, 0, DateTimeKind.Utc);
         var user = CreateUser(
             UserAccountStatus.Suspended,
-            isBlocked: true,
             lockoutEnd: utcNow.AddMinutes(-1));
 
         var cleared = UserAccessHelper.TryClearExpiredSuspension(user, utcNow);
 
         Assert.True(cleared);
         Assert.Equal(UserAccountStatus.Active, user.AccountStatus);
-        Assert.False(user.IsBlocked);
         Assert.Null(user.LockoutEndDate);
+        Assert.Null(user.BlockReason);
     }
 
     [Fact]
     public void IsAccessRestricted_BannedUserIsBlocked()
     {
-        var user = CreateUser(UserAccountStatus.Banned, isBlocked: true, blockReason: "Cheating");
+        var user = CreateUser(UserAccountStatus.Banned, blockReason: "Cheating");
 
         var restricted = UserAccessHelper.IsAccessRestricted(user, DateTime.UtcNow, out var message);
 
@@ -60,7 +59,6 @@ public class UserAccessHelperTests
     private static User CreateUser(
         UserAccountStatus status = UserAccountStatus.Active,
         bool isActive = true,
-        bool isBlocked = false,
         DateTime? lockoutEnd = null,
         string? blockReason = null) =>
         new()
@@ -71,7 +69,6 @@ public class UserAccessHelperTests
             Role = UserRole.Player,
             AccountStatus = status,
             IsActive = isActive,
-            IsBlocked = isBlocked,
             LockoutEndDate = lockoutEnd,
             BlockReason = blockReason
         };

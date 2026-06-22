@@ -60,6 +60,7 @@ namespace BoardVerse.Core.DTOs.Bgg
         public string Name { get; set; } = string.Empty;
         public bool Created { get; set; }
         public int ComponentCount { get; set; }
+        public int CategoryCount { get; set; }
         public GameComponentCatalogSource PrimaryComponentSource { get; set; }
     }
 }

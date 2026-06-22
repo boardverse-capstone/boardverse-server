@@ -60,12 +60,12 @@ namespace BoardVerse.Data.Repositories
                     Username = k.User.Username,
                     ViolationCategory = k.ViolationCategory,
                     Source = k.Source,
-                    DeltaAmount = k.DeltaAmount,
+                    KarmaPointsChange = k.KarmaPointsChange,
                     KarmaBefore = k.KarmaBefore,
                     KarmaAfter = k.KarmaAfter,
                     Reason = k.Reason,
                     RelatedLobbyId = k.RelatedLobbyId,
-                    ActorUserId = k.ActorUserId,
+                    PerformedByUserId = k.PerformedByUserId,
                     IsAdminAdjustment = k.IsAdminAdjustment,
                     CreatedAt = k.CreatedAt
                 })

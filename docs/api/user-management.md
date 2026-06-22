@@ -17,6 +17,19 @@
 
 **Header:** `Authorization: Bearer <admin-token>`
 
+### Trạng thái tài khoản (model mới)
+
+| Field | Mô tả |
+|-------|--------|
+| `isActive` | Soft-disable (admin tắt tài khoản). Khác moderation |
+| `accountStatus` | `Active`, `Suspended`, `Banned` |
+| `blockReason` | Lý do suspend/ban hiện tại |
+| `blockedAt` | Thời điểm bị phạt gần nhất |
+| `lockoutEndDate` | Hết hạn suspend (`Suspended` only) |
+
+**Breaking change:** đã bỏ `isBlocked`. Filter list dùng `?accountStatus=Suspended` thay `?isBlocked=true`.  
+Suspend có thời hạn: [Admin Moderation](./admin-moderation.md) `POST /users/{id}/punish`.
+
 ---
 
 ## Cách dùng — luồng Admin
@@ -54,7 +67,7 @@ curl.exe "http://localhost:5022/api/usermanagement/users?page=1&pageSize=10" `
 | `search` | Tìm username/email | `alice` |
 | `role` | Lọc theo role | `Player`, `Manager`, `CafeStaff`, `Admin` |
 | `isActive` | Trạng thái active | `true` / `false` |
-| `isBlocked` | Trạng thái block | `true` / `false` |
+| `accountStatus` | Trạng thái moderation | `Active`, `Suspended`, `Banned` |
 | `page` | Trang (mặc định 1) | `1` |
 | `pageSize` | Kích thước (1–100) | `10` |
 
@@ -75,7 +88,14 @@ Authorization: Bearer <admin-token>
         "email": "alice@example.com",
         "role": "Player",
         "isActive": true,
-        "isBlocked": false
+        "accountStatus": "Active",
+        "blockReason": null,
+        "blockedAt": null,
+        "lockoutEndDate": null,
+        "karmaPoints": 100,
+        "gamerTier": "Bronze",
+        "createdAt": "2026-06-01T00:00:00Z",
+        "updatedAt": "2026-06-17T10:00:00Z"
       }
     ],
     "meta": {
@@ -94,7 +114,7 @@ Authorization: Bearer <admin-token>
 
 ## GET /api/usermanagement/{id}
 
-Lấy chi tiết một user theo GUID.
+Lấy chi tiết một user theo GUID. Response cùng shape `AdminUserDto` như item trong list (kèm profile: `avatarUrl`, `bio`, `karmaPoints`, `gamerTier`, `globalElo`, `level`).
 
 **Lỗi:** `401`, `403`, `404` không tìm thấy.
 
@@ -144,6 +164,8 @@ Cập nhật thông tin user — chỉ gửi field cần đổi.
 }
 ```
 
+Không còn field `isBlocked` trong body. Moderation (`accountStatus`, suspend/ban) qua block/unblock hoặc [Admin Moderation punish](./admin-moderation.md).
+
 ---
 
 ## DELETE /api/usermanagement/{id}
@@ -156,6 +178,8 @@ Soft-disable user (không xóa cứng).
 
 ## POST /api/usermanagement/users/{id}/block
 
+Đặt `accountStatus` = `Banned` (cấm vĩnh viễn). Dùng Admin Moderation API nếu cần suspend có thời hạn.
+
 **Body:**
 ```json
 { "reason": "Spam / vi phạm điều khoản" }
@@ -167,7 +191,7 @@ Soft-disable user (không xóa cứng).
 
 ## POST /api/usermanagement/users/{id}/unblock
 
-Gỡ chặn user — không cần body.
+Gỡ chặn — đặt lại `accountStatus` = `Active`, xóa `blockReason` / `lockoutEndDate`. Không đổi `isActive`.
 
 ---
 

@@ -11,7 +11,9 @@
   → [Manager: Activate] → ACTIVE (hiển thị Mobile App)
 
 PENDING_APPROVAL → [Admin: Reject] → REJECTED (+ email lý do)
-ACTIVE → [Manager: Deactivate] → DATA_BLANK (khi không còn booking đang chạy)
+ACTIVE → [Manager: Deactivate] → DATA_BLANK (tạm dừng, có thể kích hoạt lại)
+ACTIVE/DATA_BLANK → [Manager: Close] → INACTIVE (ngừng kinh doanh vĩnh viễn)
+Any → [Admin: BANNED] → BANNED (vi phạm chính sách)
 ```
 
 ---
@@ -40,6 +42,13 @@ ACTIVE → [Manager: Deactivate] → DATA_BLANK (khi không còn booking đang c
 | `/api/cafe-partner/me/operational-profile` | PUT | Cập nhật Giai đoạn 2 (hạ tầng + catalog) |
 | `/api/cafe-partner/me/activate` | POST | Kích hoạt quán (DATA_BLANK → ACTIVE) |
 | `/api/cafe-partner/me/deactivate` | POST | Tạm dừng (ACTIVE → DATA_BLANK) |
+| `/api/cafe-partner/me/close` | POST | Ngừng kinh doanh vĩnh viễn (→ INACTIVE) |
+
+## Admin — trạng thái quán
+
+| Endpoint | Method | Mô tả |
+|----------|--------|--------|
+| `/api/v1/admin/cafes/{cafeId}/operational-status` | PUT | Đặt `DATA_BLANK`, `ACTIVE`, `INACTIVE`, `BANNED` (`reason` bắt buộc khi `BANNED`) |
 
 ---
 
@@ -57,8 +66,12 @@ ACTIVE → [Manager: Deactivate] → DATA_BLANK (khi không còn booking đang c
 
 | Giá trị API | Ý nghĩa |
 |------------|---------|
-| `DATA_BLANK` | Đã cấp tài khoản, chưa kích hoạt / đang tạm dừng |
+| `DATA_BLANK` | Đã cấp tài khoản, chưa kích hoạt / manager tạm dừng |
 | `ACTIVE` | Hiển thị trên Player Mobile App |
+| `INACTIVE` | Quán ngừng kinh doanh — không còn hoạt động (manager đóng cửa vĩnh viễn hoặc admin đặt) |
+| `BANNED` | Admin cấm hoạt động do vi phạm chính sách |
+
+Response partner profile có thêm `operationalStatusReason` khi `INACTIVE` hoặc `BANNED`.
 
 ---
 
@@ -195,19 +208,7 @@ Chỉ quán có `IsActive=true` **và** `operationalStatus=ACTIVE` mới hiển 
 
 ## Database
 
-Migration **không** tự chạy khi API start. Chạy thủ công:
-
-```powershell
-dotnet run --project tools/ExecSql -- BoardVerse.Data/update-all-entities.sql
-```
-
-### Status migration
-
-| Cũ | Mới |
-|----|-----|
-| `Pending`, `PendingReview`, `PendingInfo` | `PendingApproval` |
-| `Active`, `ContractSigned`, `PendingNegotiation` | `Approved` |
-| `Cancelled`, `Rejected` | `Rejected` |
+Schema được bootstrap tự động khi API start hoặc `dotnet run --project tools/MigrateDb`. Chỉ tạo/thêm cột khớp entity hiện tại — không migration legacy.
 
 ---
 

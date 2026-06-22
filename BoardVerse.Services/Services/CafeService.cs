@@ -330,6 +330,50 @@ namespace BoardVerse.Services.Services
                 paginationParams);
         }
 
+        public async Task<AdminCafeOperationalStatusResultDto> SetOperationalStatusByAdminAsync(
+            Guid cafeId,
+            AdminSetCafeOperationalStatusRequestDto request)
+        {
+            if (!CafePartnerStatusMapper.TryParseApiOperationalStatus(request.Status, out var status))
+            {
+                throw new BadRequestException(ApiErrorMessages.CafePartner.InvalidOperationalStatus);
+            }
+
+            if (status == CafePartnerOperationalStatus.Banned
+                && string.IsNullOrWhiteSpace(request.Reason))
+            {
+                throw new BadRequestException(ApiErrorMessages.CafePartner.BanReasonRequired);
+            }
+
+            var cafe = await _cafeRepository.GetByIdAsync(cafeId);
+            if (cafe == null)
+            {
+                throw new NotFoundException(ApiErrorMessages.Cafe.CafeRecordNotFound(cafeId));
+            }
+
+            var utcNow = DateTime.UtcNow;
+            var reason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
+
+            cafe.PartnerOperationalStatus = status;
+            cafe.IsActive = status == CafePartnerOperationalStatus.Active;
+            cafe.PartnerOperationalStatusReason = status is CafePartnerOperationalStatus.Inactive
+                or CafePartnerOperationalStatus.Banned
+                ? reason
+                : null;
+            cafe.PartnerOperationalStatusChangedAt = utcNow;
+            cafe.UpdatedAt = utcNow;
+
+            await _cafeRepository.SaveChangesAsync();
+
+            return new AdminCafeOperationalStatusResultDto
+            {
+                CafeId = cafe.Id,
+                OperationalStatus = CafePartnerStatusMapper.ToApiOperationalStatus(status),
+                IsActive = cafe.IsActive,
+                Reason = cafe.PartnerOperationalStatusReason
+            };
+        }
+
         private async Task<Cafe> EnsureManagerOwnsCafeAsync(Guid cafeId, Guid currentManagerId)
         {
             var cafe = await _cafeRepository.GetByIdAsync(cafeId);
@@ -352,8 +396,7 @@ namespace BoardVerse.Services.Services
             {
                 CafeId = cafe.Id,
                 UserId = staffUser.Id,
-                JoinedAt = DateTime.UtcNow,
-                IsActive = true
+                JoinedAt = DateTime.UtcNow
             };
 
             await _cafeRepository.AddCafeStaffAsync(cafeStaff);

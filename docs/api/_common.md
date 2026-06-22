@@ -172,11 +172,14 @@ curl.exe http://localhost:5022/api/userprofile `
 | [Protected](./protected.md) | Đã đăng nhập (mọi role) |
 | [User Profile](./user-profile.md) | Đã đăng nhập (mọi role) |
 | [User Management](./user-management.md) | Admin |
+| [Admin Moderation](./admin-moderation.md) | Admin |
+| [Admin Master Catalog](./admin-master-catalog.md) | Admin |
+| [BGG Import](./bgg.md) | Admin |
 | [Master Games](./master-games.md) | Manager |
 | [Manager](./manager.md) | Manager |
 | [Cafe](./cafe.md) | Public (GET) / Manager + chủ quán (PUT, staff) |
 | [Cafe Inventory](./cafe-inventory.md) | Public/Player (GET browse) / Staff+Manager (GET full) / Manager (mutations) |
-| [Cafe Partner](./cafe-partner.md) | Public (POST đơn) / Admin (duyệt) / Manager (hồ sơ vận hành) |
+| [Cafe Partner](./cafe-partner.md) | Public (POST đơn) / Admin (duyệt, đặt trạng thái quán) / Manager (hồ sơ vận hành) |
 | [Staff](./staff.md) | CafeStaff |
 
 > **Manager + chủ quán:** Token role `Manager` **và** `Cafe.ManagerId` phải trùng user đang gọi API. Dùng cafe ID từ seed hoặc cafe do chính manager đó tạo.

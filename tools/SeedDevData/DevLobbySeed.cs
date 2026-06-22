@@ -188,7 +188,6 @@ internal static class DevLobbySeed
             user.IsEmailVerified = true;
             user.IsActive = true;
             user.AccountStatus = UserAccountStatus.Active;
-            user.IsBlocked = false;
             user.BlockReason = null;
             user.BlockedAt = null;
             user.LockoutEndDate = null;

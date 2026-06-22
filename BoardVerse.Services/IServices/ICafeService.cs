@@ -25,5 +25,9 @@ namespace BoardVerse.Services.IServices
             double radiusKm,
             Guid gameTemplateId,
             PaginationParams paginationParams);
+
+        Task<AdminCafeOperationalStatusResultDto> SetOperationalStatusByAdminAsync(
+            Guid cafeId,
+            AdminSetCafeOperationalStatusRequestDto request);
     }
 }

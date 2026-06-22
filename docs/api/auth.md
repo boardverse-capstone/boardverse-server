@@ -107,7 +107,12 @@ curl.exe -X POST http://localhost:5022/api/auth/register `
 - `token` → header `Authorization: Bearer <token>` cho mọi API protected
 - `refreshToken` → lưu an toàn, dùng khi access token hết hạn
 
-**Lỗi:** `401` sai credential, `403` tài khoản bị chặn, `429` quá nhiều lần thử (rate limit).
+**Lưu ý session:**
+- Refresh token lưu bảng `RefreshTokens` (hỗ trợ nhiều thiết bị)
+- Logout chỉ **revoke refresh token** — JWT access token vẫn hợp lệ đến khi hết hạn (config `JwtSettings:ExpiryInMinutes`, mặc định 1440 phút)
+- Không còn JWT blacklist server-side
+
+**Lỗi:** `401` sai credential, `403` tài khoản bị suspend/ban (`accountStatus`), `429` quá nhiều lần thử (rate limit).
 
 ---
 
@@ -145,15 +150,17 @@ Gia hạn access token khi nhận `401` từ API protected.
 }
 ```
 
-> Sau refresh, **thay cả hai token** — refresh token cũ bị vô hiệu.
+> Sau refresh, **thay cả hai token** — refresh token cũ bị revoke (rotation).
 
-**Lỗi:** `401` token hết hạn/không hợp lệ, `403` tài khoản bị chặn, `404` user không tồn tại.
+Stale refresh token (hết hạn / đã revoke) được dọn khi login hoặc refresh.
+
+**Lỗi:** `401` token hết hạn/không hợp lệ, `403` `accountStatus` = Suspended/Banned, `404` user không tồn tại.
 
 ---
 
 ## POST /api/auth/logout
 
-Thu hồi refresh token, kết thúc phiên.
+Thu hồi refresh token của **một phiên** (thiết bị hiện tại), kết thúc khả năng lấy JWT mới.
 
 **Body:**
 ```json
@@ -161,6 +168,8 @@ Thu hồi refresh token, kết thúc phiên.
 ```
 
 **Response 200:** `data: null`
+
+> Access token đã cấp vẫn dùng được đến khi hết hạn. Client nên xóa cả access + refresh token local sau logout.
 
 ---
 
@@ -234,6 +243,7 @@ Liên kết Google với tài khoản local đã có (không tạo tài khoản 
 | Tình huống | Hành động |
 |------------|-----------|
 | API trả `401` | Thử `refresh-token` trước, nếu vẫn lỗi → redirect login |
+| API trả `403` (account) | Hiển thị message suspend/ban; không refresh được nếu `accountStatus` ≠ Active |
 | Đăng xuất app | Gọi `logout` + xóa token local |
 | Test nhanh Manager | `manager@boardverse.dev` / `Manager@123` (sau seed) |
 | Test trên Windows | Dùng `curl.exe`, escape `\"` trong JSON |

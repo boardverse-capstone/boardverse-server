@@ -31,7 +31,7 @@ public class AdminModerationServiceTests
         Assert.Equal("Be nicer", result.Reason);
         repo.Verify(r => r.AddKarmaLogAsync(It.Is<KarmaLog>(l =>
             l.ViolationCategory == KarmaViolationCategory.AdminWarning &&
-            l.DeltaAmount == 0 &&
+            l.KarmaPointsChange == 0 &&
             l.KarmaBefore == 85)), Times.Once);
         repo.Verify(r => r.SaveChangesAsync(), Times.Once);
     }
@@ -68,7 +68,6 @@ public class AdminModerationServiceTests
             Reason = "Repeat offender"
         });
 
-        Assert.True(user.IsBlocked);
         Assert.Equal(UserAccountStatus.Suspended, user.AccountStatus);
         Assert.NotNull(user.LockoutEndDate);
         Assert.Equal("Suspended", result.AccountStatus);
@@ -109,7 +108,7 @@ public class AdminModerationServiceTests
         Assert.Equal(95, result.NewKarma);
         repo.Verify(r => r.AddKarmaLogAsync(It.Is<KarmaLog>(l =>
             l.IsAdminAdjustment &&
-            l.DeltaAmount == -5)), Times.Once);
+            l.KarmaPointsChange == -5)), Times.Once);
     }
 
     [Fact]

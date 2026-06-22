@@ -3,9 +3,15 @@ using Npgsql;
 
 internal static class SchemaAudit
 {
+    /// <summary>PostGIS / extension-owned tables in public schema — not app tables.</summary>
+    private static readonly HashSet<string> AllowedInfrastructureTables =
+    [
+        "spatial_ref_sys"
+    ];
+
     private static readonly HashSet<string> ExpectedTables =
     [
-        "Users", "UserProfiles", "RefreshTokens", "TokenBlacklists", "PasswordResetTokens",
+        "Users", "UserProfiles", "RefreshTokens",
         "Cafes", "CafeStaffs", "CafePartnerApplications",
         "GameTemplates", "GameComponentTemplates", "Categories", "GameTemplateCategories",
         "CafeGameInventories", "CafeGameComponentPenalties", "CafeInventoryBoxes",
@@ -24,8 +30,8 @@ internal static class SchemaAudit
         ["UserProfiles"] = ["LastKnownLatitude", "LastKnownLongitude", "KarmaPoints"],
         ["KarmaLogs"] =
         [
-            "Id", "UserId", "ViolationCategory", "Source", "DeltaAmount",
-            "KarmaBefore", "KarmaAfter", "Reason", "IsAdminAdjustment", "CreatedAt"
+            "Id", "UserId", "ViolationCategory", "Source", "KarmaPointsChange",
+            "KarmaBefore", "KarmaAfter", "Reason", "PerformedByUserId", "IsAdminAdjustment", "CreatedAt"
         ],
         ["SystemConfigurations"] = ["ConfigKey", "ConfigValue", "Description", "UpdatedAt"],
         ["Lobbies"] = ["Id", "GameTemplateId", "Status", "RatingOpenedAt"],
@@ -71,7 +77,7 @@ internal static class SchemaAudit
         }
 
         var extraTables = tableSet
-            .Where(t => !ExpectedTables.Contains(t))
+            .Where(t => !ExpectedTables.Contains(t) && !AllowedInfrastructureTables.Contains(t))
             .OrderBy(t => t)
             .ToList();
 

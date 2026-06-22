@@ -14,8 +14,32 @@ namespace BoardVerse.Core.Helpers
         {
             Enum.CafePartnerOperationalStatus.DataBlank => "DATA_BLANK",
             Enum.CafePartnerOperationalStatus.Active => "ACTIVE",
+            Enum.CafePartnerOperationalStatus.Inactive => "INACTIVE",
+            Enum.CafePartnerOperationalStatus.Banned => "BANNED",
             _ => status.ToString()
         };
+
+        public static bool TryParseApiOperationalStatus(string? value, out Enum.CafePartnerOperationalStatus status)
+        {
+            status = default;
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+
+            return value.Trim().ToUpperInvariant() switch
+            {
+                "DATA_BLANK" => Assign(Enum.CafePartnerOperationalStatus.DataBlank, out status),
+                "ACTIVE" => Assign(Enum.CafePartnerOperationalStatus.Active, out status),
+                "INACTIVE" => Assign(Enum.CafePartnerOperationalStatus.Inactive, out status),
+                "BANNED" => Assign(Enum.CafePartnerOperationalStatus.Banned, out status),
+                _ => false
+            };
+        }
+
+        private static bool Assign(Enum.CafePartnerOperationalStatus value, out Enum.CafePartnerOperationalStatus status)
+        {
+            status = value;
+            return true;
+        }
 
         public static string ToApiBillingModel(Enum.CafePartnerBillingModel model) => model switch
         {

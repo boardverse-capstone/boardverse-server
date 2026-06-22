@@ -51,9 +51,10 @@ namespace BoardVerse.Data.Repositories
                 usersQuery = usersQuery.Where(u => u.IsActive == query.IsActive.Value);
             }
 
-            if (query.IsBlocked.HasValue)
+            if (!string.IsNullOrWhiteSpace(query.AccountStatus)
+                && Enum.TryParse<UserAccountStatus>(query.AccountStatus, ignoreCase: true, out var accountStatus))
             {
-                usersQuery = usersQuery.Where(u => u.IsBlocked == query.IsBlocked.Value);
+                usersQuery = usersQuery.Where(u => u.AccountStatus == accountStatus);
             }
 
             var totalItems = await usersQuery.CountAsync();

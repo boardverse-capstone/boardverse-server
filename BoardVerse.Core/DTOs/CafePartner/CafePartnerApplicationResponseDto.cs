@@ -26,8 +26,8 @@ namespace BoardVerse.Core.DTOs.CafePartner
 
         public string ApplicationStatus { get; set; } = string.Empty;
         public string? OperationalStatus { get; set; }
+        public string? OperationalStatusReason { get; set; }
         public string? RejectionReason { get; set; }
-        public bool RequiresCsSupport { get; set; }
         public bool IsTableLayoutConfigured { get; set; }
         public bool CanActivate { get; set; }
         public List<string> ActivationBlockers { get; set; } = new();

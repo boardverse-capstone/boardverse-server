@@ -13,7 +13,7 @@ namespace BoardVerse.Data.Configurations
             entity.Property(k => k.Id).ValueGeneratedNever();
             entity.Property(k => k.ViolationCategory).HasConversion<string>().HasMaxLength(50).IsRequired();
             entity.Property(k => k.Source).HasConversion<string>().HasMaxLength(50).IsRequired();
-            entity.Property(k => k.DeltaAmount).HasColumnType("numeric(8,2)").IsRequired();
+            entity.Property(k => k.KarmaPointsChange).HasColumnType("numeric(8,2)").IsRequired();
             entity.Property(k => k.Reason).IsRequired().HasMaxLength(1000);
             entity.Property(k => k.CreatedAt).IsRequired();
 
@@ -26,9 +26,9 @@ namespace BoardVerse.Data.Configurations
                 .HasForeignKey(k => k.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasOne(k => k.ActorUser)
+            entity.HasOne(k => k.PerformedByUser)
                 .WithMany()
-                .HasForeignKey(k => k.ActorUserId)
+                .HasForeignKey(k => k.PerformedByUserId)
                 .OnDelete(DeleteBehavior.SetNull);
         }
     }

@@ -86,10 +86,12 @@ namespace BoardVerse.Services.Services.Bgg
 
             var existing = await _context.GameTemplates
                 .Include(g => g.Components)
+                .Include(g => g.Categories)
                 .FirstOrDefaultAsync(g => g.BggId == request.BggId);
 
             existing ??= await _context.GameTemplates
                 .Include(g => g.Components)
+                .Include(g => g.Categories)
                 .FirstOrDefaultAsync(g => g.Name == thing.Name);
 
             var syncedAt = DateTime.UtcNow;
@@ -115,6 +117,7 @@ namespace BoardVerse.Services.Services.Bgg
 
                 ApplySearchAliases(existing);
                 ApplyComponents(existing, preview.Components);
+                await ApplyCategoriesAsync(existing, thing, replaceExisting: true);
                 await _context.GameTemplates.AddAsync(existing);
             }
             else if (request.OverwriteExisting)
@@ -133,6 +136,7 @@ namespace BoardVerse.Services.Services.Bgg
                 _context.GameComponentTemplates.RemoveRange(existing.Components);
                 existing.Components.Clear();
                 ApplyComponents(existing, preview.Components);
+                await ApplyCategoriesAsync(existing, thing, replaceExisting: true);
             }
             else
             {
@@ -155,10 +159,57 @@ namespace BoardVerse.Services.Services.Bgg
                 Name = existing.Name,
                 Created = created,
                 ComponentCount = existing.Components.Count,
+                CategoryCount = existing.Categories.Count,
                 PrimaryComponentSource = preview.HasCuratedComponents
                     ? GameComponentCatalogSource.CuratedCatalog
                     : preview.Components.First().Source
             };
+        }
+
+        private async Task ApplyCategoriesAsync(
+            GameTemplate game,
+            BggThingData thing,
+            bool replaceExisting)
+        {
+            var slugs = BggCategoryMapper.ResolveCategorySlugs(
+                thing.Categories,
+                thing.Mechanics,
+                thing.Name);
+
+            if (slugs.Count == 0)
+                return;
+
+            var categories = await _context.Categories
+                .AsNoTracking()
+                .Where(c => c.IsActive && slugs.Contains(c.Slug))
+                .ToListAsync();
+
+            if (categories.Count == 0)
+                return;
+
+            if (replaceExisting && game.Categories.Count > 0)
+            {
+                _context.GameTemplateCategories.RemoveRange(game.Categories.ToList());
+                game.Categories.Clear();
+            }
+
+            var linkedCategoryIds = game.Categories
+                .Select(gc => gc.CategoryId)
+                .ToHashSet();
+
+            var utcNow = DateTime.UtcNow;
+            foreach (var category in categories)
+            {
+                if (linkedCategoryIds.Contains(category.Id))
+                    continue;
+
+                game.Categories.Add(new GameTemplateCategory
+                {
+                    GameTemplateId = game.Id,
+                    CategoryId = category.Id,
+                    CreatedAt = utcNow
+                });
+            }
         }
 
         private async Task<BggThingData> FetchThingForPreviewAsync(int bggId)

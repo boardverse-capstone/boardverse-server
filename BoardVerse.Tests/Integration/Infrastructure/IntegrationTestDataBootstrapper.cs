@@ -116,7 +116,6 @@ internal static class IntegrationTestDataBootstrapper
         user.IsEmailVerified = true;
         user.IsActive = true;
         user.AccountStatus = UserAccountStatus.Active;
-        user.IsBlocked = false;
         user.BlockReason = null;
         user.BlockedAt = null;
         user.LockoutEndDate = null;
@@ -280,13 +279,8 @@ internal static class IntegrationTestDataBootstrapper
             {
                 CafeId = DevSeedConstants.DemoCafeId,
                 UserId = DevSeedConstants.DemoPlayer2UserId,
-                JoinedAt = DateTime.UtcNow,
-                IsActive = true
+                JoinedAt = DateTime.UtcNow
             });
-        }
-        else
-        {
-            staff.IsActive = true;
         }
 
         await db.SaveChangesAsync();

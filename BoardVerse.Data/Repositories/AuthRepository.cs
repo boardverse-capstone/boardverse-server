@@ -57,11 +57,6 @@ namespace BoardVerse.Data.Repositories
             return _context.RefreshTokens.FirstOrDefaultAsync(r => r.Token == token && !r.IsRevoked);
         }
 
-        public Task<bool> IsTokenBlacklistedAsync(string token)
-        {
-            return _context.TokenBlacklists.AnyAsync(tb => tb.Token == token);
-        }
-
         public async Task<bool> HasActiveProfileAsync(Guid userId)
         {
             var user = await _context.Users
@@ -92,6 +87,23 @@ namespace BoardVerse.Data.Repositories
             _context.RefreshTokens.Add(refreshToken);
             return Task.CompletedTask;
         }
+
+        public async Task DeleteStaleRefreshTokensForUserAsync(Guid userId, DateTime utcNow)
+        {
+            var stale = await _context.RefreshTokens
+                .Where(r => r.UserId == userId && (r.IsRevoked || r.ExpiresAt <= utcNow))
+                .ToListAsync();
+
+            if (stale.Count == 0)
+                return;
+
+            _context.RefreshTokens.RemoveRange(stale);
+        }
+
+        public Task<int> DeleteAllStaleRefreshTokensAsync(DateTime utcNow) =>
+            _context.RefreshTokens
+                .Where(r => r.IsRevoked || r.ExpiresAt <= utcNow)
+                .ExecuteDeleteAsync();
 
         public Task SaveChangesAsync()
         {

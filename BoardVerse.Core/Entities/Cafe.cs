@@ -19,6 +19,8 @@ namespace BoardVerse.Core.Entities
         public bool IsActive { get; set; } = true;
 
         public CafePartnerOperationalStatus? PartnerOperationalStatus { get; set; }
+        public string? PartnerOperationalStatusReason { get; set; }
+        public DateTime? PartnerOperationalStatusChangedAt { get; set; }
         public TimeSpan? WeekdayOpen { get; set; }
         public TimeSpan? WeekdayClose { get; set; }
         public TimeSpan? WeekendOpen { get; set; }

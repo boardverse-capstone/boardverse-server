@@ -106,6 +106,7 @@ builder.Services.AddScoped<IUserManagementRepository, UserManagementRepository>(
 builder.Services.AddScoped<IHealthRepository, HealthRepository>();
 builder.Services.AddScoped<IGameTemplateRepository, GameTemplateRepository>();
 builder.Services.AddScoped<ICategoryRepository, CategoryRepository>();
+builder.Services.AddScoped<IGameComponentTemplateRepository, GameComponentTemplateRepository>();
 builder.Services.AddScoped<ICafeRepository, CafeRepository>();
 builder.Services.AddScoped<ICafeInventoryRepository, CafeInventoryRepository>();
 builder.Services.AddScoped<ICafePosRepository, CafePosRepository>();
@@ -126,6 +127,7 @@ builder.Services.AddScoped<ICafePosService, CafePosService>();
 builder.Services.AddScoped<IKarmaRatingService, KarmaRatingService>();
 builder.Services.AddScoped<IMatchResultService, MatchResultService>();
 builder.Services.AddScoped<IAdminModerationService, AdminModerationService>();
+builder.Services.AddScoped<IAdminMasterCatalogService, AdminMasterCatalogService>();
 builder.Services.AddScoped<SystemConfigurationService>();
 builder.Services.AddScoped<ISystemConfigurationProvider>(sp => sp.GetRequiredService<SystemConfigurationService>());
 builder.Services.AddScoped<IAdminSystemConfigurationService>(sp => sp.GetRequiredService<SystemConfigurationService>());
@@ -212,13 +214,13 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<BoardVerseDbContext>();
+    await GameSchemaBootstrapper.EnsureObsoleteTablesDroppedAsync(db);
     await GameSchemaBootstrapper.EnsureUserAndCafeTablesAsync(db);
     await GameSchemaBootstrapper.EnsureGameTablesAsync(db);
     await GameSchemaBootstrapper.EnsureInventoryTablesAsync(db);
-    await GameSchemaBootstrapper.EnsureInventoryBoxBackfillAsync(db);
     await GameSchemaBootstrapper.EnsureLobbyAndKarmaRatingTablesAsync(db);
     await GameSchemaBootstrapper.EnsureMatchResultTablesAsync(db);
-    await GameSchemaBootstrapper.EnsureUserModerationColumnsAsync(db);
+    await GameSchemaBootstrapper.EnsureAuthTokenTablesAsync(db);
     await GameSchemaBootstrapper.EnsureKarmaLogAndSystemConfigTablesAsync(db);
     app.Logger.LogInformation("Database schema bootstrap completed.");
 }

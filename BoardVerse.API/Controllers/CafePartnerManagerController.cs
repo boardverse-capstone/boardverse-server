@@ -84,5 +84,18 @@ namespace BoardVerse.API.Controllers
             var result = await _service.DeactivateAsync(managerId);
             return NewResponse(200, "Cafe paused successfully", result);
         }
+
+        /// <summary>
+        /// Ngừng kinh doanh vĩnh viễn (ACTIVE/DATA_BLANK → INACTIVE). [Role: Manager]
+        /// </summary>
+        /// <response code="200">Quán đã chuyển sang INACTIVE.</response>
+        /// <response code="400">Còn phiên bàn đang chạy, quán đã INACTIVE/BANNED, hoặc trạng thái không hợp lệ.</response>
+        [HttpPost("close")]
+        public async Task<IActionResult> ClosePermanently()
+        {
+            var managerId = GetUserIdFromClaims();
+            var result = await _service.ClosePermanentlyAsync(managerId);
+            return NewResponse(200, "Cafe closed permanently", result);
+        }
     }
 }

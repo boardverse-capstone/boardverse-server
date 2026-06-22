@@ -108,7 +108,6 @@ try
         manager.IsEmailVerified = true;
         manager.IsActive = true;
         manager.AccountStatus = UserAccountStatus.Active;
-        manager.IsBlocked = false;
         manager.BlockReason = null;
         manager.BlockedAt = null;
         manager.LockoutEndDate = null;

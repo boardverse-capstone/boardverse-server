@@ -33,6 +33,9 @@ if (args.Length > 0 && args[0].Equals("audit", StringComparison.OrdinalIgnoreCas
 Console.WriteLine("=== BoardVerse schema bootstrap ===");
 Console.WriteLine();
 
+await GameSchemaBootstrapper.EnsureObsoleteTablesDroppedAsync(db);
+Console.WriteLine("✓ Obsolete tables removed");
+
 await GameSchemaBootstrapper.EnsureUserAndCafeTablesAsync(db);
 Console.WriteLine("✓ Users, cafes, location, PostGIS");
 
@@ -42,17 +45,15 @@ Console.WriteLine("✓ Game templates, components (incl. BggId, ComponentKind)")
 await GameSchemaBootstrapper.EnsureInventoryTablesAsync(db);
 Console.WriteLine("✓ Inventory, POS tables");
 
-await GameSchemaBootstrapper.EnsureInventoryBoxBackfillAsync(db);
-Console.WriteLine("✓ Inventory box backfill");
-
 await GameSchemaBootstrapper.EnsureLobbyAndKarmaRatingTablesAsync(db);
 Console.WriteLine("✓ Lobbies, karma ratings");
 
 await GameSchemaBootstrapper.EnsureMatchResultTablesAsync(db);
 Console.WriteLine("✓ Match results, Elo history");
 
-await GameSchemaBootstrapper.EnsureUserModerationColumnsAsync(db);
-Console.WriteLine("✓ User moderation columns (AccountStatus, LockoutEndDate)");
+await GameSchemaBootstrapper.EnsureAuthTokenTablesAsync(db);
+var staleRefreshTokensRemoved = await GameSchemaBootstrapper.CleanupStaleRefreshTokensAsync(db);
+Console.WriteLine($"✓ Auth tokens (removed {staleRefreshTokensRemoved} stale refresh token(s))");
 
 await GameSchemaBootstrapper.EnsureKarmaLogAndSystemConfigTablesAsync(db);
 Console.WriteLine("✓ Karma logs, system configurations");

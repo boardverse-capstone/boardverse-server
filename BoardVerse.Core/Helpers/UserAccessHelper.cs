@@ -5,6 +5,15 @@ namespace BoardVerse.Core.Helpers
 {
     public static class UserAccessHelper
     {
+        public static void ClearModerationState(User user, DateTime utcNow)
+        {
+            user.AccountStatus = UserAccountStatus.Active;
+            user.LockoutEndDate = null;
+            user.BlockReason = null;
+            user.BlockedAt = null;
+            user.UpdatedAt = utcNow;
+        }
+
         public static bool TryClearExpiredSuspension(User user, DateTime utcNow)
         {
             if (user.AccountStatus != UserAccountStatus.Suspended || user.LockoutEndDate == null)
@@ -17,10 +26,7 @@ namespace BoardVerse.Core.Helpers
                 return false;
             }
 
-            user.AccountStatus = UserAccountStatus.Active;
-            user.IsBlocked = false;
-            user.LockoutEndDate = null;
-            user.UpdatedAt = utcNow;
+            ClearModerationState(user, utcNow);
             return true;
         }
 
@@ -28,7 +34,7 @@ namespace BoardVerse.Core.Helpers
         {
             TryClearExpiredSuspension(user, utcNow);
 
-            if (user.AccountStatus == UserAccountStatus.Banned || (user.IsBlocked && user.AccountStatus == UserAccountStatus.Banned))
+            if (user.AccountStatus == UserAccountStatus.Banned)
             {
                 message = string.IsNullOrWhiteSpace(user.BlockReason)
                     ? "Your account has been permanently banned."
@@ -36,21 +42,19 @@ namespace BoardVerse.Core.Helpers
                 return true;
             }
 
-            if (user.AccountStatus == UserAccountStatus.Suspended
-                && user.LockoutEndDate.HasValue
-                && user.LockoutEndDate > utcNow)
+            if (user.AccountStatus == UserAccountStatus.Suspended)
             {
-                message = string.IsNullOrWhiteSpace(user.BlockReason)
-                    ? $"Your account is suspended until {user.LockoutEndDate:O}."
-                    : $"Your account is suspended until {user.LockoutEndDate:O}. Reason: {user.BlockReason}";
-                return true;
-            }
+                if (user.LockoutEndDate.HasValue && user.LockoutEndDate > utcNow)
+                {
+                    message = string.IsNullOrWhiteSpace(user.BlockReason)
+                        ? $"Your account is suspended until {user.LockoutEndDate:O}."
+                        : $"Your account is suspended until {user.LockoutEndDate:O}. Reason: {user.BlockReason}";
+                    return true;
+                }
 
-            if (user.IsBlocked)
-            {
                 message = string.IsNullOrWhiteSpace(user.BlockReason)
-                    ? "Your account has been blocked."
-                    : $"Your account has been blocked. Reason: {user.BlockReason}";
+                    ? "Your account is suspended."
+                    : $"Your account is suspended. Reason: {user.BlockReason}";
                 return true;
             }
 

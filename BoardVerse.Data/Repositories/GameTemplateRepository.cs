@@ -121,6 +121,14 @@ namespace BoardVerse.Data.Repositories
                 .FirstOrDefaultAsync(g => g.Id == id && g.IsActive);
         }
 
+        public Task<GameTemplate?> GetByIdWithCategoriesForUpdateAsync(Guid id) =>
+            _context.GameTemplates
+                .Include(g => g.Categories)
+                .FirstOrDefaultAsync(g => g.Id == id);
+
+        public Task<bool> ExistsAsync(Guid id) =>
+            _context.GameTemplates.AsNoTracking().AnyAsync(g => g.Id == id);
+
         public async Task<Dictionary<Guid, int>> GetComponentCountsByGameIdsAsync(IReadOnlyCollection<Guid> gameIds)
         {
             if (gameIds.Count == 0)

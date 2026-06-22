@@ -17,6 +17,5 @@ namespace BoardVerse.Core.DTOs.User
         [StringLength(32, ErrorMessage = "Role cannot exceed 32 characters.")]
         public string? Role { get; set; }
         public bool? IsActive { get; set; }
-        public bool? IsBlocked { get; set; }
     }
 }

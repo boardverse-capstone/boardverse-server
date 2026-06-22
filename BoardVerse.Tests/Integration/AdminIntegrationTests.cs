@@ -165,7 +165,86 @@ public class AdminIntegrationTests
         response.EnsureSuccessStatusCode();
     }
 
+    [IntegrationFact]
+    public async Task AdminCatalog_CategoriesAndComponents_Flow()
+    {
+        var token = await IntegrationTestAuth.AsAdminAsync(_client);
+        ApiTestClient.Authorize(_client, token);
+
+        var listResponse = await _client.GetAsync("/api/v1/admin/categories");
+        listResponse.EnsureSuccessStatusCode();
+
+        var slug = $"test-{Guid.NewGuid():N}"[..20];
+        var createCategoryResponse = await ApiTestClient.PostJsonAsync(_client, "/api/v1/admin/categories", new
+        {
+            name = "Integration Test Category",
+            slug,
+            description = "Created by integration test",
+            sortOrder = 99
+        });
+        createCategoryResponse.EnsureSuccessStatusCode();
+        var categoryId = (await ApiTestClient.ReadApiResponseAsync<AdminCategoryDto>(createCategoryResponse)).Data!.Id;
+
+        var updateCategoryResponse = await ApiTestClient.PutJsonAsync(_client,
+            $"/api/v1/admin/categories/{categoryId}",
+            new { description = "Updated by integration test" });
+        updateCategoryResponse.EnsureSuccessStatusCode();
+
+        var gameId = await IntegrationCatalog.GetCatanGameIdAsync(_client);
+
+        var getComponentsResponse = await _client.GetAsync($"/api/v1/admin/master-games/{gameId}/components");
+        getComponentsResponse.EnsureSuccessStatusCode();
+
+        var createComponentResponse = await ApiTestClient.PostJsonAsync(_client,
+            $"/api/v1/admin/master-games/{gameId}/components",
+            new
+            {
+                componentName = "Integration Test Token",
+                componentKind = BoardGameComponentKind.Token,
+                defaultQuantity = 3
+            });
+        createComponentResponse.EnsureSuccessStatusCode();
+        var componentId = (await ApiTestClient.ReadApiResponseAsync<GameComponentDto>(createComponentResponse)).Data!.Id;
+
+        var updateComponentResponse = await ApiTestClient.PutJsonAsync(_client,
+            $"/api/v1/admin/master-games/{gameId}/components/{componentId}",
+            new { defaultQuantity = 4 });
+        updateComponentResponse.EnsureSuccessStatusCode();
+
+        var getGameCategoriesResponse = await _client.GetAsync($"/api/v1/admin/master-games/{gameId}/categories");
+        getGameCategoriesResponse.EnsureSuccessStatusCode();
+
+        var setCategoriesResponse = await ApiTestClient.PutJsonAsync(_client,
+            $"/api/v1/admin/master-games/{gameId}/categories",
+            new
+            {
+                categoryIds = new[]
+                {
+                    Guid.Parse("c1111111-1111-1111-1111-111111111112"),
+                    Guid.Parse("c1111111-1111-1111-1111-111111111115")
+                }
+            });
+        setCategoriesResponse.EnsureSuccessStatusCode();
+
+        var deleteComponentResponse = await _client.DeleteAsync(
+            $"/api/v1/admin/master-games/{gameId}/components/{componentId}");
+        deleteComponentResponse.EnsureSuccessStatusCode();
+
+        var deleteCategoryResponse = await _client.DeleteAsync($"/api/v1/admin/categories/{categoryId}");
+        deleteCategoryResponse.EnsureSuccessStatusCode();
+    }
+
     private sealed class CreatedUserDto
+    {
+        public Guid Id { get; set; }
+    }
+
+    private sealed class AdminCategoryDto
+    {
+        public Guid Id { get; set; }
+    }
+
+    private sealed class GameComponentDto
     {
         public Guid Id { get; set; }
     }

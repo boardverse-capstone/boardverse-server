@@ -27,17 +27,6 @@ namespace BoardVerse.API.Authentication
         private static async Task OnTokenValidatedAsync(TokenValidatedContext context)
         {
             var userRepository = context.HttpContext.RequestServices.GetRequiredService<IAuthRepository>();
-            var token = context.SecurityToken as JwtSecurityToken;
-            if (token != null)
-            {
-                var raw = new JwtSecurityTokenHandler().WriteToken(token);
-                if (await userRepository.IsTokenBlacklistedAsync(raw))
-                {
-                    Fail(context, StatusCodes.Status401Unauthorized,
-                        "Access token has been revoked. Please sign in again.");
-                    return;
-                }
-            }
 
             var userId = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
             if (!Guid.TryParse(userId, out var parsedUserId))

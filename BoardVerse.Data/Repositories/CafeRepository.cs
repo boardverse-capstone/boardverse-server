@@ -73,20 +73,20 @@ namespace BoardVerse.Data.Repositories
         public async Task<bool> IsStaffMemberExistsAsync(Guid cafeId, Guid userId)
         {
             return await _context.CafeStaffs
-                .AnyAsync(cs => cs.CafeId == cafeId && cs.UserId == userId && cs.IsActive);
+                .AnyAsync(cs => cs.CafeId == cafeId && cs.UserId == userId);
         }
 
         public async Task<int> CountActiveStaffAssignmentsAsync(Guid userId)
         {
             return await _context.CafeStaffs
-                .CountAsync(cs => cs.UserId == userId && cs.IsActive);
+                .CountAsync(cs => cs.UserId == userId && cs.User.IsActive);
         }
 
         public async Task<PaginatedResponse<StaffDto>> GetStaffPagedAsync(Guid cafeId, PaginationParams paginationParams)
         {
             var query = _context.CafeStaffs
                 .Include(cs => cs.User)
-                .Where(cs => cs.CafeId == cafeId && cs.IsActive)
+                .Where(cs => cs.CafeId == cafeId && cs.User.IsActive)
                 .Select(cs => new StaffDto
                 {
                     UserId = cs.UserId,
@@ -120,13 +120,12 @@ namespace BoardVerse.Data.Repositories
         {
             return await _context.CafeStaffs
                 .Include(cs => cs.Cafe)
-                .FirstOrDefaultAsync(cs => cs.CafeId == cafeId && cs.UserId == staffId && cs.IsActive);
+                .FirstOrDefaultAsync(cs => cs.CafeId == cafeId && cs.UserId == staffId);
         }
 
         public Task RemoveCafeStaffAsync(CafeStaff cafeStaff)
         {
-            cafeStaff.IsActive = false;
-            _context.CafeStaffs.Update(cafeStaff);
+            _context.CafeStaffs.Remove(cafeStaff);
             return Task.CompletedTask;
         }
 
@@ -143,8 +142,9 @@ namespace BoardVerse.Data.Repositories
         {
             return await _context.CafeStaffs
                 .Include(cs => cs.Cafe)
-                .Where(cs => cs.UserId == staffId && cs.IsActive)
+                .Where(cs => cs.UserId == staffId && cs.User.IsActive)
                 .Select(cs => cs.Cafe)
+                .Where(c => c.IsActive)
                 .ToListAsync();
         }
 

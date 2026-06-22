@@ -29,7 +29,6 @@ namespace BoardVerse.Core.Entities
 
         // Account status
         public bool IsActive { get; set; } = true;
-        public bool IsBlocked { get; set; } = false;
         public string? BlockReason { get; set; }
         public DateTime? BlockedAt { get; set; }
         public UserAccountStatus AccountStatus { get; set; } = UserAccountStatus.Active;

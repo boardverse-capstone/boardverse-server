@@ -150,6 +150,9 @@ namespace BoardVerse.Core.Messages
             public static string NotFound(Guid cafeId) =>
                 $"Cafe not found or is not available. Cafe id: '{cafeId}'.";
 
+            public static string CafeRecordNotFound(Guid cafeId) =>
+                $"Cafe '{cafeId}' was not found.";
+
             public static string ManagerForbidden(Guid cafeId) =>
                 $"You are not the manager of cafe '{cafeId}' and cannot perform this action.";
 
@@ -314,6 +317,27 @@ namespace BoardVerse.Core.Messages
 
             public const string LinkedCafeMissing =
                 "Cannot complete partner action because the linked cafe record is missing.";
+
+            public const string InvalidOperationalStatus =
+                "Invalid operational status. Use DATA_BLANK, ACTIVE, INACTIVE, or BANNED.";
+
+            public const string BanReasonRequired =
+                "A reason is required when setting cafe status to BANNED.";
+
+            public const string CafePermanentlyClosed =
+                "This cafe is permanently closed and cannot be modified.";
+
+            public const string CafeBannedByAdmin =
+                "This cafe has been banned by an administrator.";
+
+            public const string CannotCloseWithActiveBookings =
+                "Cannot close the cafe while table sessions are in progress.";
+
+            public const string OnlyActiveCafesCanBePaused =
+                "Only ACTIVE cafes can be paused.";
+
+            public const string OnlyDataBlankCafesCanBeActivated =
+                "Only DATA_BLANK cafes can be activated.";
         }
 
         public static class Email
@@ -416,6 +440,36 @@ namespace BoardVerse.Core.Messages
 
             public const string InvalidViolationCategoryFilter =
                 "Invalid violation category filter value.";
+        }
+
+        public static class AdminCatalog
+        {
+            public static string CategoryNotFound(Guid id) =>
+                $"Category '{id}' was not found.";
+
+            public const string CategoryNameRequired =
+                "Category name is required.";
+
+            public const string CategorySlugRequired =
+                "Category slug is required.";
+
+            public static string CategorySlugTaken(string slug) =>
+                $"Category slug '{slug}' is already in use.";
+
+            public static string GameTemplateNotFound(Guid id) =>
+                $"Game template '{id}' was not found.";
+
+            public static string ComponentNotFound(Guid gameTemplateId, Guid componentId) =>
+                $"Component '{componentId}' was not found on game '{gameTemplateId}'.";
+
+            public static string ComponentInUse(Guid componentId) =>
+                $"Component '{componentId}' cannot be deleted because it is referenced by cafe inventory penalties.";
+
+            public static string InvalidComponentKind(int kind) =>
+                $"Invalid component kind value '{kind}'.";
+
+            public static string CategoriesNotFound(IReadOnlyCollection<Guid> missingIds) =>
+                $"One or more categories were not found: {string.Join(", ", missingIds)}.";
         }
 
         public static class AccountAccess

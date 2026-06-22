@@ -32,5 +32,16 @@ namespace BoardVerse.Core.Helpers
 
             return builder.ToString().Normalize(NormalizationForm.FormC);
         }
+
+        /// <summary>URL-safe slug (lowercase, no diacritics, hyphen-separated).</summary>
+        public static string ToSlug(string? text)
+        {
+            var key = ToSearchKey(text);
+            if (string.IsNullOrEmpty(key))
+                return string.Empty;
+
+            var parts = key.Split([' ', '_'], StringSplitOptions.RemoveEmptyEntries);
+            return string.Join('-', parts);
+        }
     }
 }

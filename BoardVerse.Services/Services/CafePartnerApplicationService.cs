@@ -330,10 +330,14 @@ namespace BoardVerse.Services.Services
             var cafe = application.CreatedCafe
                 ?? throw new CafePartnerApplicationInvalidStatusException(ApiErrorMessages.CafePartner.LinkedCafeMissing);
 
-            if (cafe.PartnerOperationalStatus != CafePartnerOperationalStatus.DataBlank)
+            if (!CafePartnerOperationalStatusHelper.CanManagerActivate(cafe.PartnerOperationalStatus))
             {
                 throw new CafePartnerApplicationInvalidStatusException(
-                    "Only DATA_BLANK cafes can be activated.");
+                    cafe.PartnerOperationalStatus == CafePartnerOperationalStatus.Banned
+                        ? ApiErrorMessages.CafePartner.CafeBannedByAdmin
+                        : cafe.PartnerOperationalStatus == CafePartnerOperationalStatus.Inactive
+                            ? ApiErrorMessages.CafePartner.CafePermanentlyClosed
+                            : ApiErrorMessages.CafePartner.OnlyDataBlankCafesCanBeActivated);
             }
 
             var blockers = GetActivationBlockers(application);
@@ -348,6 +352,8 @@ namespace BoardVerse.Services.Services
 
             cafe.IsActive = true;
             cafe.PartnerOperationalStatus = CafePartnerOperationalStatus.Active;
+            cafe.PartnerOperationalStatusReason = null;
+            cafe.PartnerOperationalStatusChangedAt = DateTime.UtcNow;
             cafe.UpdatedAt = DateTime.UtcNow;
             application.UpdatedAt = DateTime.UtcNow;
 
@@ -367,10 +373,14 @@ namespace BoardVerse.Services.Services
             var cafe = application.CreatedCafe
                 ?? throw new CafePartnerApplicationInvalidStatusException(ApiErrorMessages.CafePartner.LinkedCafeMissing);
 
-            if (cafe.PartnerOperationalStatus != CafePartnerOperationalStatus.Active)
+            if (!CafePartnerOperationalStatusHelper.CanManagerPause(cafe.PartnerOperationalStatus))
             {
                 throw new CafePartnerApplicationInvalidStatusException(
-                    "Only ACTIVE cafes can be paused.");
+                    cafe.PartnerOperationalStatus == CafePartnerOperationalStatus.Banned
+                        ? ApiErrorMessages.CafePartner.CafeBannedByAdmin
+                        : cafe.PartnerOperationalStatus == CafePartnerOperationalStatus.Inactive
+                            ? ApiErrorMessages.CafePartner.CafePermanentlyClosed
+                            : ApiErrorMessages.CafePartner.OnlyActiveCafesCanBePaused);
             }
 
             if (await _applicationRepository.HasActiveBookingsAsync(cafe.Id))
@@ -381,8 +391,42 @@ namespace BoardVerse.Services.Services
 
             cafe.IsActive = false;
             cafe.PartnerOperationalStatus = CafePartnerOperationalStatus.DataBlank;
+            cafe.PartnerOperationalStatusReason = null;
+            cafe.PartnerOperationalStatusChangedAt = DateTime.UtcNow;
             cafe.UpdatedAt = DateTime.UtcNow;
             application.UpdatedAt = DateTime.UtcNow;
+
+            await _applicationRepository.SaveChangesAsync();
+            return MapToDto(await GetApprovedApplicationForManagerOrThrowAsync(managerUserId));
+        }
+
+        public async Task<CafePartnerApplicationResponseDto> ClosePermanentlyAsync(Guid managerUserId)
+        {
+            var application = await GetApprovedApplicationForManagerOrThrowAsync(managerUserId);
+            var cafe = application.CreatedCafe
+                ?? throw new CafePartnerApplicationInvalidStatusException(ApiErrorMessages.CafePartner.LinkedCafeMissing);
+
+            if (!CafePartnerOperationalStatusHelper.CanManagerClosePermanently(cafe.PartnerOperationalStatus))
+            {
+                throw new CafePartnerApplicationInvalidStatusException(
+                    cafe.PartnerOperationalStatus == CafePartnerOperationalStatus.Banned
+                        ? ApiErrorMessages.CafePartner.CafeBannedByAdmin
+                        : ApiErrorMessages.CafePartner.CafePermanentlyClosed);
+            }
+
+            if (await _applicationRepository.HasActiveBookingsAsync(cafe.Id))
+            {
+                throw new CafePartnerApplicationInvalidStatusException(
+                    ApiErrorMessages.CafePartner.CannotCloseWithActiveBookings);
+            }
+
+            var utcNow = DateTime.UtcNow;
+            cafe.IsActive = false;
+            cafe.PartnerOperationalStatus = CafePartnerOperationalStatus.Inactive;
+            cafe.PartnerOperationalStatusReason = "Closed by manager.";
+            cafe.PartnerOperationalStatusChangedAt = utcNow;
+            cafe.UpdatedAt = utcNow;
+            application.UpdatedAt = utcNow;
 
             await _applicationRepository.SaveChangesAsync();
             return MapToDto(await GetApprovedApplicationForManagerOrThrowAsync(managerUserId));
@@ -398,8 +442,19 @@ namespace BoardVerse.Services.Services
 
         private static void EnsureOperationalStateAllowsEdit(CafePartnerApplication application)
         {
-            if (application.CreatedCafe?.PartnerOperationalStatus == CafePartnerOperationalStatus.Active &&
-                application.CreatedCafe.IsActive)
+            var cafe = application.CreatedCafe;
+            if (cafe == null)
+                return;
+
+            if (CafePartnerOperationalStatusHelper.IsTerminal(cafe.PartnerOperationalStatus))
+            {
+                throw new CafePartnerApplicationInvalidStatusException(
+                    cafe.PartnerOperationalStatus == CafePartnerOperationalStatus.Banned
+                        ? ApiErrorMessages.CafePartner.CafeBannedByAdmin
+                        : ApiErrorMessages.CafePartner.CafePermanentlyClosed);
+            }
+
+            if (cafe.PartnerOperationalStatus == CafePartnerOperationalStatus.Active && cafe.IsActive)
             {
                 throw new CafePartnerApplicationInvalidStatusException(
                     "Pause the cafe before editing operational profile.");
@@ -653,6 +708,15 @@ namespace BoardVerse.Services.Services
                 ? GetActivationBlockers(application)
                 : new List<string>();
 
+            if (application.CreatedCafe?.PartnerOperationalStatus == CafePartnerOperationalStatus.Inactive)
+            {
+                blockers.Add("Cafe is permanently closed (INACTIVE).");
+            }
+            else if (application.CreatedCafe?.PartnerOperationalStatus == CafePartnerOperationalStatus.Banned)
+            {
+                blockers.Add("Cafe is banned by an administrator.");
+            }
+
             return new CafePartnerApplicationResponseDto
             {
                 Id = application.Id,
@@ -683,11 +747,11 @@ namespace BoardVerse.Services.Services
                 OperationalStatus = application.CreatedCafe?.PartnerOperationalStatus is { } op
                     ? CafePartnerStatusMapper.ToApiOperationalStatus(op)
                     : null,
+                OperationalStatusReason = application.CreatedCafe?.PartnerOperationalStatusReason,
                 RejectionReason = application.RejectionReason,
-                RequiresCsSupport = application.RequiresCsSupport,
                 IsTableLayoutConfigured = tableNames.Count >= application.NumberOfTables && application.NumberOfTables > 0,
                 CanActivate = application.Status == CafePartnerApplicationStatus.Approved &&
-                              application.CreatedCafe?.PartnerOperationalStatus == CafePartnerOperationalStatus.DataBlank &&
+                              CafePartnerOperationalStatusHelper.CanManagerActivate(application.CreatedCafe?.PartnerOperationalStatus) &&
                               blockers.Count == 0,
                 ActivationBlockers = blockers,
                 SubmittedByUserId = application.SubmittedByUserId,

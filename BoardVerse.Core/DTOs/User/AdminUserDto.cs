@@ -6,9 +6,10 @@ namespace BoardVerse.Core.DTOs.User
         public string Username { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
         public string Role { get; set; } = "Player";
-        public bool IsBlocked { get; set; }
+        public string AccountStatus { get; set; } = "Active";
         public string? BlockReason { get; set; }
         public DateTime? BlockedAt { get; set; }
+        public DateTime? LockoutEndDate { get; set; }
         public bool IsActive { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }

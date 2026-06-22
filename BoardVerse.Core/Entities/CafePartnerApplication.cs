@@ -33,7 +33,6 @@ namespace BoardVerse.Core.Entities
 
         public CafePartnerApplicationStatus Status { get; set; } = CafePartnerApplicationStatus.PendingApproval;
         public string? RejectionReason { get; set; }
-        public bool RequiresCsSupport { get; set; }
         public DateTime? ApprovedAt { get; set; }
         public DateTime? OperationalProfileUpdatedAt { get; set; }
 
