@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Admin;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -29,7 +30,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> GetCategories([FromQuery] bool includeInactive = false)
         {
             var result = await _catalogService.GetCategoriesAsync(includeInactive);
-            return NewResponse(200, "Categories retrieved successfully", result);
+            return NewResponse(200, ApiSuccessMessages.AdminCatalog.CategoriesRetrieved, result);
         }
 
         /// <summary>
@@ -46,7 +47,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> CreateCategory([FromBody] AdminCreateCategoryRequestDto request)
         {
             var result = await _catalogService.CreateCategoryAsync(request);
-            return NewResponse(201, "Category created successfully", result);
+            return NewResponse(201, ApiSuccessMessages.AdminCatalog.CategoryCreated, result);
         }
 
         /// <summary>
@@ -65,7 +66,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> UpdateCategory(Guid id, [FromBody] AdminUpdateCategoryRequestDto request)
         {
             var result = await _catalogService.UpdateCategoryAsync(id, request);
-            return NewResponse(200, "Category updated successfully", result);
+            return NewResponse(200, ApiSuccessMessages.AdminCatalog.CategoryUpdated, result);
         }
 
         /// <summary>
@@ -81,7 +82,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> DeleteCategory(Guid id)
         {
             var result = await _catalogService.DeleteCategoryAsync(id);
-            return NewResponse(200, "Category deactivated successfully", result);
+            return NewResponse(200, ApiSuccessMessages.AdminCatalog.CategoryDeactivated, result);
         }
 
         /// <summary>
@@ -97,7 +98,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> GetGameComponents(Guid gameTemplateId)
         {
             var result = await _catalogService.GetGameComponentsAsync(gameTemplateId);
-            return NewResponse(200, "Game components retrieved successfully", result);
+            return NewResponse(200, ApiSuccessMessages.AdminCatalog.ComponentsRetrieved, result);
         }
 
         /// <summary>
@@ -117,7 +118,7 @@ namespace BoardVerse.API.Controllers
             [FromBody] AdminCreateGameComponentRequestDto request)
         {
             var result = await _catalogService.CreateGameComponentAsync(gameTemplateId, request);
-            return NewResponse(201, "Game component created successfully", result);
+            return NewResponse(201, ApiSuccessMessages.AdminCatalog.ComponentCreated, result);
         }
 
         /// <summary>
@@ -139,7 +140,7 @@ namespace BoardVerse.API.Controllers
             [FromBody] AdminUpdateGameComponentRequestDto request)
         {
             var result = await _catalogService.UpdateGameComponentAsync(gameTemplateId, componentId, request);
-            return NewResponse(200, "Game component updated successfully", result);
+            return NewResponse(200, ApiSuccessMessages.AdminCatalog.ComponentUpdated, result);
         }
 
         /// <summary>
@@ -157,7 +158,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> DeleteGameComponent(Guid gameTemplateId, Guid componentId)
         {
             await _catalogService.DeleteGameComponentAsync(gameTemplateId, componentId);
-            return NewResponse(200, "Game component deleted successfully", null);
+            return NewResponse(200, ApiSuccessMessages.AdminCatalog.ComponentDeleted, null);
         }
 
         /// <summary>
@@ -173,7 +174,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> GetGameCategories(Guid gameTemplateId)
         {
             var result = await _catalogService.GetGameCategoriesAsync(gameTemplateId);
-            return NewResponse(200, "Game categories retrieved successfully", result);
+            return NewResponse(200, ApiSuccessMessages.AdminCatalog.GameCategoriesRetrieved, result);
         }
 
         /// <summary>
@@ -193,7 +194,7 @@ namespace BoardVerse.API.Controllers
             [FromBody] AdminSetGameCategoriesRequestDto request)
         {
             var result = await _catalogService.SetGameCategoriesAsync(gameTemplateId, request);
-            return NewResponse(200, "Game categories updated successfully", result);
+            return NewResponse(200, ApiSuccessMessages.AdminCatalog.GameCategoriesUpdated, result);
         }
     }
 }

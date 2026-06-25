@@ -1,11 +1,12 @@
 using System.ComponentModel.DataAnnotations;
+using BoardVerse.Core.Messages;
 
 namespace BoardVerse.Core.DTOs.Auth.Requests
 {
     public class LinkGoogleRequestDto
     {
-        [Required(ErrorMessage = "Google idToken is required.")]
-        [StringLength(4000, MinimumLength = 10, ErrorMessage = "Google idToken must be between 10 and 4000 characters.")]
+        [Required(ErrorMessage = ApiErrorMessages.Validation.GoogleIdTokenRequired)]
+        [StringLength(4000, MinimumLength = 10, ErrorMessage = ApiErrorMessages.Validation.GoogleIdTokenLength)]
         public required string IdToken { get; set; }
     }
 }

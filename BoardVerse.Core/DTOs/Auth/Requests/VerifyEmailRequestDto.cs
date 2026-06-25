@@ -1,11 +1,12 @@
 using System.ComponentModel.DataAnnotations;
+using BoardVerse.Core.Messages;
 
 namespace BoardVerse.Core.DTOs.Auth.Requests
 {
     public class VerifyEmailRequestDto
     {
-        [Required(ErrorMessage = "Verification token is required.")]
-        [StringLength(10, MinimumLength = 6, ErrorMessage = "Verification token must be between 6 and 10 characters.")]
+        [Required(ErrorMessage = ApiErrorMessages.Validation.VerificationTokenRequired)]
+        [StringLength(10, MinimumLength = 6, ErrorMessage = ApiErrorMessages.Validation.VerificationTokenLength)]
         public required string Token { get; set; }
     }
 }

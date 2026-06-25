@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Bgg;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -28,7 +29,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> GetComponentCatalog()
         {
             var result = await _bggGameService.GetComponentCatalogAsync();
-            return this.NewResponse(200, "Component catalog retrieved successfully", result);
+            return this.NewResponse(200, ApiSuccessMessages.Bgg.ComponentCatalogRetrieved, result);
         }
 
         /// <summary>
@@ -44,7 +45,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> Search([FromQuery] string query)
         {
             var result = await _bggGameService.SearchGamesAsync(query);
-            return this.NewResponse(200, "BGG search completed successfully", result);
+            return this.NewResponse(200, ApiSuccessMessages.Bgg.SearchCompleted, result);
         }
 
         /// <summary>
@@ -64,7 +65,7 @@ namespace BoardVerse.API.Controllers
             [FromQuery] bool curatedComponentsOnly = false)
         {
             var result = await _bggGameService.GetGamePreviewAsync(bggId, curatedComponentsOnly);
-            return this.NewResponse(200, "BGG game preview retrieved successfully", result);
+            return this.NewResponse(200, ApiSuccessMessages.Bgg.PreviewRetrieved, result);
         }
 
         /// <summary>
@@ -85,8 +86,8 @@ namespace BoardVerse.API.Controllers
             var result = await _bggGameService.ImportGameAsync(request);
             var status = result.Created ? 201 : 200;
             var message = result.Created
-                ? "Game imported from BGG successfully"
-                : "Game updated from BGG successfully";
+                ? ApiSuccessMessages.Bgg.GameImported
+                : ApiSuccessMessages.Bgg.GameUpdated;
             return this.NewResponse(status, message, result);
         }
     }

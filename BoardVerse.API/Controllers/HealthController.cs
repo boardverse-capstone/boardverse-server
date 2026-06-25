@@ -1,3 +1,4 @@
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Mvc;
 
@@ -23,7 +24,7 @@ namespace BoardVerse.API.Controllers
         public IActionResult GetStatus()
         {
             var data = new { status = "healthy" };
-            return this.NewResponse(200, "API is operational", data);
+            return this.NewResponse(200, ApiSuccessMessages.Health.ApiOperational, data);
         }
 
         /// <summary>
@@ -36,7 +37,7 @@ namespace BoardVerse.API.Controllers
         {
             var userCount = await _healthService.GetUserCountAsync();
             var data = new { status = "connected", userCount };
-            return this.NewResponse(200, "Database connected", data);
+            return this.NewResponse(200, ApiSuccessMessages.Health.DatabaseConnected, data);
         }
 
         /// <summary>
@@ -47,7 +48,7 @@ namespace BoardVerse.API.Controllers
         [HttpGet("ping")]
         public IActionResult Ping()
         {
-            return this.NewResponse(200, "pong", new { message = "pong" });
+            return this.NewResponse(200, ApiSuccessMessages.Health.Pong, new { message = "pong" });
         }
     }
 }

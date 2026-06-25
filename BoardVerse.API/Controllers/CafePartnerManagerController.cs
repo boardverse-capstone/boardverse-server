@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.CafePartner;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -30,7 +31,7 @@ namespace BoardVerse.API.Controllers
         {
             var managerId = GetUserIdFromClaims();
             var result = await _service.GetMyPartnerProfileAsync(managerId);
-            return NewResponse(200, "Partner profile retrieved successfully", result);
+            return NewResponse(200, ApiSuccessMessages.CafePartner.ProfileRetrieved, result);
         }
 
         /// <summary>
@@ -48,7 +49,7 @@ namespace BoardVerse.API.Controllers
         {
             var managerId = GetUserIdFromClaims();
             var result = await _service.UpdateOperationalProfileAsync(managerId, request);
-            return NewResponse(200, "Operational profile updated successfully", result);
+            return NewResponse(200, ApiSuccessMessages.CafePartner.OperationalProfileUpdated, result);
         }
 
         /// <summary>
@@ -65,7 +66,7 @@ namespace BoardVerse.API.Controllers
         {
             var managerId = GetUserIdFromClaims();
             var result = await _service.ActivateAsync(managerId);
-            return NewResponse(200, "Cafe activated successfully", result);
+            return NewResponse(200, ApiSuccessMessages.CafePartner.CafeActivated, result);
         }
 
         /// <summary>
@@ -82,7 +83,7 @@ namespace BoardVerse.API.Controllers
         {
             var managerId = GetUserIdFromClaims();
             var result = await _service.DeactivateAsync(managerId);
-            return NewResponse(200, "Cafe paused successfully", result);
+            return NewResponse(200, ApiSuccessMessages.CafePartner.CafePaused, result);
         }
 
         /// <summary>
@@ -95,7 +96,7 @@ namespace BoardVerse.API.Controllers
         {
             var managerId = GetUserIdFromClaims();
             var result = await _service.ClosePermanentlyAsync(managerId);
-            return NewResponse(200, "Cafe closed permanently", result);
+            return NewResponse(200, ApiSuccessMessages.CafePartner.CafeClosedPermanently, result);
         }
     }
 }

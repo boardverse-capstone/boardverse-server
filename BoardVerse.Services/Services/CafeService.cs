@@ -111,8 +111,7 @@ namespace BoardVerse.Services.Services
                 if (existingUser.Role != UserRole.CafeStaff)
                 {
                     throw new BadRequestException(
-                        $"User '{dto.Email}' has role '{existingUser.Role}' and is not CafeStaff yet. " +
-                        "Call POST /api/cafes/{cafeId}/staff/promote first, then POST /api/cafes/{cafeId}/staff to link them.");
+                        ApiErrorMessages.Cafe.StaffWrongRoleMustPromote(dto.Email, existingUser.Role.ToString()));
                 }
 
                 if (await _cafeRepository.IsStaffMemberExistsAsync(cafeId, existingUser.Id))
@@ -167,8 +166,7 @@ namespace BoardVerse.Services.Services
             if (user.Role == UserRole.CafeStaff)
             {
                 throw new BadRequestException(
-                    $"User '{dto.Email}' is already CafeStaff. " +
-                    "Link them to this cafe via POST /api/cafes/{cafeId}/staff (email only).");
+                    ApiErrorMessages.Cafe.StaffAlreadyCafeStaffMustLink(dto.Email));
             }
 
             if (!string.IsNullOrWhiteSpace(dto.Username))

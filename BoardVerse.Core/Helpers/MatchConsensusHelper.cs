@@ -1,4 +1,5 @@
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Messages;
 
 namespace BoardVerse.Core.Helpers
 {
@@ -58,7 +59,7 @@ namespace BoardVerse.Core.Helpers
                 MatchConsensusStatus.Conflict,
                 null,
                 false,
-                "Submitted match results conflict. All players must re-enter outcomes that agree (one Win, others Loss, or all Draw).");
+                ApiErrorMessages.Match.MatchResultsConflict);
         }
     }
 }

@@ -1,5 +1,6 @@
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Messages;
 
 namespace BoardVerse.Core.Helpers
 {
@@ -37,8 +38,8 @@ namespace BoardVerse.Core.Helpers
             if (user.AccountStatus == UserAccountStatus.Banned)
             {
                 message = string.IsNullOrWhiteSpace(user.BlockReason)
-                    ? "Your account has been permanently banned."
-                    : $"Your account has been permanently banned. Reason: {user.BlockReason}";
+                    ? ApiErrorMessages.AccountAccess.BannedPermanent
+                    : ApiErrorMessages.AccountAccess.BannedPermanentWithReason(user.BlockReason);
                 return true;
             }
 
@@ -47,20 +48,22 @@ namespace BoardVerse.Core.Helpers
                 if (user.LockoutEndDate.HasValue && user.LockoutEndDate > utcNow)
                 {
                     message = string.IsNullOrWhiteSpace(user.BlockReason)
-                        ? $"Your account is suspended until {user.LockoutEndDate:O}."
-                        : $"Your account is suspended until {user.LockoutEndDate:O}. Reason: {user.BlockReason}";
+                        ? ApiErrorMessages.AccountAccess.SuspendedUntil(user.LockoutEndDate.Value)
+                        : ApiErrorMessages.AccountAccess.SuspendedUntilWithReason(
+                            user.LockoutEndDate.Value,
+                            user.BlockReason);
                     return true;
                 }
 
                 message = string.IsNullOrWhiteSpace(user.BlockReason)
-                    ? "Your account is suspended."
-                    : $"Your account is suspended. Reason: {user.BlockReason}";
+                    ? ApiErrorMessages.AccountAccess.SuspendedIndefinite
+                    : ApiErrorMessages.AccountAccess.SuspendedIndefiniteWithReason(user.BlockReason);
                 return true;
             }
 
             if (!user.IsActive)
             {
-                message = "Your account is deactivated. Contact support to reactivate your account.";
+                message = ApiErrorMessages.AccountAccess.AccountInactive;
                 return true;
             }
 

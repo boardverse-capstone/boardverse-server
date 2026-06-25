@@ -1,4 +1,5 @@
 using BoardVerse.Core.Helpers;
+using BoardVerse.Core.Messages;
 
 namespace BoardVerse.Core.Entities
 {
@@ -60,7 +61,7 @@ namespace BoardVerse.Core.Entities
             set
             {
                 if (value < 1)
-                    throw new ArgumentException("MinPlayers must be at least 1");
+                    throw new ArgumentException(ApiErrorMessages.Entity.MinPlayersAtLeastOne);
                 _minPlayers = value;
             }
         }
@@ -71,7 +72,7 @@ namespace BoardVerse.Core.Entities
             set
             {
                 if (value < 1)
-                    throw new ArgumentException("MaxPlayers must be at least 1");
+                    throw new ArgumentException(ApiErrorMessages.Entity.MaxPlayersAtLeastOne);
                 _maxPlayers = value;
             }
         }
@@ -82,7 +83,7 @@ namespace BoardVerse.Core.Entities
             set
             {
                 if (value <= 0)
-                    throw new ArgumentException("PlayTime must be positive");
+                    throw new ArgumentException(ApiErrorMessages.Entity.PlayTimeMustBePositive);
                 _playTime = value;
             }
         }

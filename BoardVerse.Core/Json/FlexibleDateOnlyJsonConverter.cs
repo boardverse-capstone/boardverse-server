@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using BoardVerse.Core.Messages;
 
 namespace BoardVerse.Core.Json
 {
@@ -15,7 +16,7 @@ namespace BoardVerse.Core.Json
 
             if (reader.TokenType != JsonTokenType.String)
             {
-                throw new JsonException("dateOfBirth must be a date string (yyyy-MM-dd).");
+                throw new JsonException(ApiErrorMessages.Validation.DateOfBirthFormat);
             }
 
             var raw = reader.GetString();
@@ -39,7 +40,7 @@ namespace BoardVerse.Core.Json
                 return DateOnly.FromDateTime(dateTime);
             }
 
-            throw new JsonException($"Cannot parse dateOfBirth value '{raw}'. Use yyyy-MM-dd (e.g. 1998-01-01).");
+            throw new JsonException(ApiErrorMessages.Validation.DateOfBirthFormat);
         }
 
         public override void Write(Utf8JsonWriter writer, DateOnly? value, JsonSerializerOptions options)

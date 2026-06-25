@@ -1,3 +1,5 @@
+using BoardVerse.Core.Messages;
+
 namespace BoardVerse.Core.Entities
 {
     public class RefreshToken
@@ -12,7 +14,7 @@ namespace BoardVerse.Core.Entities
             set
             {
                 if (value <= DateTime.UtcNow)
-                    throw new ArgumentException("ExpiresAt must be in the future");
+                    throw new ArgumentException(ApiErrorMessages.Entity.ExpiresAtMustBeFuture);
                 _expiresAt = value;
             }
         }

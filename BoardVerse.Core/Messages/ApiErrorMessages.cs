@@ -1,514 +1,818 @@
+using BoardVerse.Core.Enum;
+
 namespace BoardVerse.Core.Messages
 {
     public static class ApiErrorMessages
     {
         public static string AccountBlocked(string action, string? reason = null) =>
             string.IsNullOrWhiteSpace(reason)
-                ? $"{action} denied. Your account has been blocked. Contact support for assistance."
-                : $"{action} denied. Your account has been blocked. Reason: {reason}";
+                ? $"{action} bị từ chối. Tài khoản của bạn đã bị khóa. Vui lòng liên hệ hỗ trợ."
+                : $"{action} bị từ chối. Tài khoản của bạn đã bị khóa. Lý do: {reason}";
 
         public static class Auth
         {
             public const string RegisterDuplicate =
-                "Registration failed. A user with the same username or email already exists.";
+                "Đăng ký thất bại. Tên đăng nhập hoặc email đã được sử dụng.";
 
             public const string LoginTooManyAttempts =
-                "Too many failed login attempts. Wait 15 minutes before trying again.";
+                "Đăng nhập sai quá nhiều lần. Vui lòng thử lại sau 15 phút.";
 
             public const string LoginInvalidCredentials =
-                "Login failed. Username/email or password is incorrect.";
+                "Đăng nhập thất bại. Tên đăng nhập/email hoặc mật khẩu không đúng.";
 
             public const string GoogleTokenMissingEmail =
-                "Google sign-in failed. The Google token does not include an email address.";
+                "Đăng nhập Google thất bại. Token Google không chứa địa chỉ email.";
 
             public const string GoogleTokenValidationFailed =
-                "Google sign-in failed. The Google token could not be validated.";
+                "Đăng nhập Google thất bại. Không thể xác thực token Google.";
 
             public const string RefreshTokenInvalidOrExpired =
-                "Refresh token is invalid or expired. Sign in again to obtain a new session.";
+                "Refresh token không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập lại.";
 
             public const string RefreshTokenUserMissing =
-                "Refresh token is valid but the linked user account no longer exists.";
+                "Refresh token hợp lệ nhưng tài khoản liên kết không còn tồn tại.";
 
             public const string SendVerificationUserNotFound =
-                "Cannot send verification email. No account exists for the provided email.";
+                "Không thể gửi email xác minh. Không tìm thấy tài khoản với email này.";
 
             public const string VerifyEmailInvalidToken =
-                "Email verification failed. The verification code is invalid.";
+                "Xác minh email thất bại. Mã xác minh không hợp lệ.";
 
             public const string VerifyEmailTokenExpired =
-                "Email verification failed. The verification code has expired. Request a new code.";
+                "Xác minh email thất bại. Mã xác minh đã hết hạn. Vui lòng yêu cầu mã mới.";
 
             public const string RequestPasswordResetUserNotFound =
-                "Cannot start password reset. No account exists for the provided email.";
+                "Không thể đặt lại mật khẩu. Không tìm thấy tài khoản với email này.";
 
             public const string RequestPasswordResetEmailNotVerified =
-                "Cannot reset password until the account email has been verified.";
+                "Không thể đặt lại mật khẩu cho đến khi email đã được xác minh.";
 
             public const string ResetPasswordInvalidToken =
-                "Password reset failed. The reset code is invalid.";
+                "Đặt lại mật khẩu thất bại. Mã đặt lại không hợp lệ.";
 
             public const string ResetPasswordTokenExpired =
-                "Password reset failed. The reset code has expired. Request a new code.";
+                "Đặt lại mật khẩu thất bại. Mã đặt lại đã hết hạn. Vui lòng yêu cầu mã mới.";
 
             public const string ChangePasswordUserNotFound =
-                "Cannot change password because the signed-in account was not found.";
+                "Không thể đổi mật khẩu vì không tìm thấy tài khoản đang đăng nhập.";
 
             public const string ChangePasswordNoLocalPassword =
-                "This account uses Google sign-in only and has no local password to change.";
+                "Tài khoản này chỉ đăng nhập bằng Google và không có mật khẩu cục bộ để đổi.";
 
             public const string ChangePasswordCurrentIncorrect =
-                "Current password is incorrect.";
+                "Mật khẩu hiện tại không đúng.";
 
             public const string ChangePasswordSameAsCurrent =
-                "New password must be different from the current password.";
+                "Mật khẩu mới phải khác mật khẩu hiện tại.";
 
             public const string LinkGoogleAccountNotFound =
-                "Cannot link Google account. No matching local account was found.";
+                "Không thể liên kết Google. Không tìm thấy tài khoản cục bộ tương ứng.";
 
             public const string ChangePasswordInvalidToken =
-                "Cannot change password. Access token is missing a valid user identifier.";
+                "Không thể đổi mật khẩu. Access token thiếu mã định danh người dùng hợp lệ.";
 
             public const string LogoutInvalidToken =
-                "Logout failed. Refresh token in request is invalid.";
+                "Đăng xuất thất bại. Refresh token trong yêu cầu không hợp lệ.";
+
+            public const string VerificationEmailSent = "Đã gửi email xác minh.";
+            public const string PasswordResetEmailSent = "Đã gửi email đặt lại mật khẩu.";
         }
 
         public static class Profile
         {
             public const string UserNotFoundPublic =
-                "Public profile not found for the requested user.";
+                "Không tìm thấy hồ sơ công khai của người dùng này.";
 
             public const string UserNotFoundPrivate =
-                "Profile not found for the signed-in user.";
+                "Không tìm thấy hồ sơ của tài khoản đang đăng nhập.";
 
             public const string ProfileDisabled =
-                "This profile has been disabled and is no longer available.";
+                "Hồ sơ này đã bị vô hiệu hóa và không còn khả dụng.";
 
             public const string ProfileAlreadyExists =
-                "Profile already exists. Use PUT to update instead of creating a new one.";
+                "Hồ sơ đã tồn tại. Dùng PUT để cập nhật thay vì tạo mới.";
 
             public const string UserNotFoundCreate =
-                "Cannot create profile because the user account was not found.";
+                "Không thể tạo hồ sơ vì không tìm thấy tài khoản người dùng.";
 
             public const string UserNotFoundUpdate =
-                "Cannot update profile because the user account was not found.";
+                "Không thể cập nhật hồ sơ vì không tìm thấy tài khoản người dùng.";
 
             public const string UserNotFoundUpdateProgress =
-                "Cannot update gamer progress because the user account was not found.";
+                "Không thể cập nhật tiến trình vì không tìm thấy tài khoản người dùng.";
 
             public const string UserNotFoundUpdateAvatar =
-                "Cannot update avatar because the user account was not found.";
+                "Không thể cập nhật avatar vì không tìm thấy tài khoản người dùng.";
 
             public const string UserNotFoundKarma =
-                "Cannot load karma state because the user account was not found.";
+                "Không thể tải trạng thái karma vì không tìm thấy tài khoản người dùng.";
 
             public const string UserNotFoundCreateOrGet =
-                "Cannot initialize profile because the user account was not found.";
+                "Không thể khởi tạo hồ sơ vì không tìm thấy tài khoản người dùng.";
 
             public const string UserNotFoundUpdateLocation =
-                "Cannot update location because the user account was not found.";
+                "Không thể cập nhật vị trí vì không tìm thấy tài khoản người dùng.";
 
             public const string UserNotFoundGetLocation =
-                "Cannot load saved location because the user account was not found.";
+                "Không thể tải vị trí đã lưu vì không tìm thấy tài khoản người dùng.";
 
             public const string InvalidLatitudeForLocationUpdate =
-                "Location update failed. Latitude must be between -90 and 90.";
+                "Cập nhật vị trí thất bại. Vĩ độ phải nằm trong khoảng -90 đến 90.";
 
             public const string InvalidLongitudeForLocationUpdate =
-                "Location update failed. Longitude must be between -180 and 180.";
+                "Cập nhật vị trí thất bại. Kinh độ phải nằm trong khoảng -180 đến 180.";
 
             public const string ProfileNotFoundClearLocation =
-                "Cannot clear saved location because the user profile was not found.";
+                "Không thể xóa vị trí đã lưu vì không tìm thấy hồ sơ người dùng.";
 
             public const string NoSavedLocationToClear =
-                "Cannot clear saved location because no location is stored on the profile.";
+                "Không thể xóa vị trí vì hồ sơ chưa lưu vị trí nào.";
         }
 
         public static class AdminUsers
         {
             public const string InvalidRoleFilter =
-                "Invalid role filter. Use Player, Manager, CafeStaff, or Admin.";
+                "Bộ lọc vai trò không hợp lệ. Dùng Player, Manager, CafeStaff hoặc Admin.";
 
             public const string InvalidRoleValue =
-                "Invalid role value. Use Player, Manager, CafeStaff, or Admin.";
+                "Giá trị vai trò không hợp lệ. Dùng Player, Manager, CafeStaff hoặc Admin.";
 
             public static string UserNotFound(Guid id) =>
-                $"Admin user lookup failed. No user exists with id '{id}'.";
+                $"Không tìm thấy người dùng với id '{id}'.";
 
             public const string CreateDuplicate =
-                "Cannot create user. Another account already uses the same email or username.";
+                "Không thể tạo người dùng. Email hoặc tên đăng nhập đã được sử dụng.";
 
             public static string UsernameConflict(string username) =>
-                $"Cannot update user. Username '{username}' is already taken.";
+                $"Không thể cập nhật. Tên đăng nhập '{username}' đã được sử dụng.";
 
             public static string EmailConflict(string email) =>
-                $"Cannot update user. Email '{email}' is already registered.";
+                $"Không thể cập nhật. Email '{email}' đã được đăng ký.";
         }
 
         public static class Cafe
         {
             public static string NotFound(Guid cafeId) =>
-                $"Cafe not found or is not available. Cafe id: '{cafeId}'.";
+                $"Không tìm thấy quán hoặc quán không khả dụng. Mã quán: '{cafeId}'.";
 
             public static string CafeRecordNotFound(Guid cafeId) =>
-                $"Cafe '{cafeId}' was not found.";
+                $"Không tìm thấy quán '{cafeId}'.";
 
             public static string ManagerForbidden(Guid cafeId) =>
-                $"You are not the manager of cafe '{cafeId}' and cannot perform this action.";
+                $"Bạn không phải quản lý của quán '{cafeId}' và không thể thực hiện thao tác này.";
 
             public static string InventoryManagerForbidden(Guid cafeId) =>
-                $"You are not authorized to manage inventory for cafe '{cafeId}'.";
+                $"Bạn không có quyền quản lý kho của quán '{cafeId}'.";
 
             public const string StaffUserNotFound =
-                "Cannot add staff because the specified user was not found.";
+                "Không thể thêm nhân viên vì không tìm thấy người dùng được chỉ định.";
 
             public const string StaffAdminOrManagerNotAllowed =
-                "Admin and Manager accounts cannot be assigned as cafe staff.";
+                "Tài khoản Admin và Manager không thể được gán làm nhân viên quán.";
 
             public const string StaffAlreadyAssigned =
-                "This user is already an active staff member of the cafe.";
+                "Người dùng này đã là nhân viên của quán.";
 
             public const string StaffCreateUsernameRequired =
-                "Username is required when creating a new staff account.";
+                "Tên đăng nhập là bắt buộc khi tạo tài khoản nhân viên mới.";
 
             public const string StaffUsernameTooShort =
-                "Staff username must be at least 3 characters.";
+                "Tên đăng nhập nhân viên phải có ít nhất 3 ký tự.";
 
             public const string StaffUsernameTaken =
-                "Cannot create staff account. Username is already taken.";
+                "Không thể tạo tài khoản nhân viên. Tên đăng nhập đã được sử dụng.";
 
             public static string StaffNotFound(Guid cafeId, Guid staffId) =>
-                $"Staff member '{staffId}' was not found in cafe '{cafeId}'.";
+                $"Không tìm thấy nhân viên '{staffId}' trong quán '{cafeId}'.";
 
             public const string InvalidLatitudeForNearbySearch =
-                "Nearby cafe search failed. Latitude must be between -90 and 90.";
+                "Tìm quán gần bạn thất bại. Vĩ độ phải nằm trong khoảng -90 đến 90.";
 
             public const string InvalidLongitudeForNearbySearch =
-                "Nearby cafe search failed. Longitude must be between -180 and 180.";
+                "Tìm quán gần bạn thất bại. Kinh độ phải nằm trong khoảng -180 đến 180.";
 
             public static string InvalidNearbySearchRadius(double minKm, double maxKm) =>
-                $"Nearby cafe search failed. Radius must be between {minKm} and {maxKm} km.";
+                $"Tìm quán gần bạn thất bại. Bán kính phải nằm trong khoảng {minKm} đến {maxKm} km.";
 
             public const string LocationCoordinatesPairRequired =
-                "Cafe location update requires both latitude and longitude when either is provided.";
+                "Cập nhật vị trí quán yêu cầu cả vĩ độ và kinh độ khi cung cấp một trong hai.";
 
             public const string InvalidLatitudeForCafeUpdate =
-                "Cafe location update failed. Latitude must be between -90 and 90.";
+                "Cập nhật vị trí quán thất bại. Vĩ độ phải nằm trong khoảng -90 đến 90.";
 
             public const string InvalidLongitudeForCafeUpdate =
-                "Cafe location update failed. Longitude must be between -180 and 180.";
+                "Cập nhật vị trí quán thất bại. Kinh độ phải nằm trong khoảng -180 đến 180.";
 
             public const string GameTemplateIdRequiredForNearbySearch =
-                "Nearby cafe search requires a gameTemplateId when filtering by selected game.";
+                "Tìm quán gần bạn theo game yêu cầu gameTemplateId.";
 
             public const string SavedLocationRequiredForNearbySearch =
-                "Nearby cafe search from profile failed because no saved location was found. Update location via PUT /api/userprofile/me/location first.";
+                "Tìm quán gần bạn từ hồ sơ thất bại vì chưa lưu vị trí. Hãy cập nhật vị trí qua PUT /api/userprofile/me/location trước.";
 
             public const string NoNearbyCafesWithSelectedGameMessage =
                 "Không tìm thấy địa điểm phù hợp có sẵn tựa game này xung quanh bạn.";
+
+            public const string StaffPromoteHint =
+                "Hãy gọi POST /api/cafes/{cafeId}/staff/promote trước, sau đó POST /api/cafes/{cafeId}/staff để liên kết.";
+
+            public const string StaffLinkHint =
+                "Liên kết họ với quán này qua POST /api/cafes/{cafeId}/staff (chỉ cần email).";
+
+            public static string StaffAlreadyCafeStaffMustLink(string email) =>
+                $"Người dùng '{email}' đã là CafeStaff. {StaffLinkHint}";
+
+            public static string StaffWrongRoleMustPromote(string email, string role) =>
+                $"Người dùng '{email}' có vai trò '{role}' và chưa phải CafeStaff. {StaffPromoteHint}";
+
+            public static string StaffWrongRoleMustLink(string email, string role) =>
+                $"Người dùng '{email}' có vai trò '{role}'. {StaffLinkHint}";
         }
 
         public static class Inventory
         {
             public static string MasterGameNotFound(Guid gameTemplateId) =>
-                $"Master game '{gameTemplateId}' was not found or is inactive.";
+                $"Không tìm thấy game master '{gameTemplateId}' hoặc game đã bị vô hiệu hóa.";
 
             public const string GameAlreadyInInventory =
-                "This game is already in the cafe inventory. Update the existing entry instead.";
+                "Game này đã có trong kho quán. Hãy cập nhật mục hiện có.";
 
             public const string GamePreviouslyRemoved =
-                "This game was soft-deleted from inventory. Restore it instead of adding again.";
+                "Game này đã bị xóa mềm khỏi kho. Hãy khôi phục thay vì thêm mới.";
 
             public static string ItemNotFound(Guid cafeId, Guid inventoryId) =>
-                $"Inventory item '{inventoryId}' was not found in cafe '{cafeId}'.";
+                $"Không tìm thấy mục kho '{inventoryId}' trong quán '{cafeId}'.";
 
             public static string ActiveItemNotFound(Guid cafeId, Guid inventoryId) =>
-                $"Active inventory item '{inventoryId}' was not found in cafe '{cafeId}'.";
+                $"Không tìm thấy mục kho đang hoạt động '{inventoryId}' trong quán '{cafeId}'.";
 
             public const string ItemAlreadyActive =
-                "Inventory item is already active. Restore is not required.";
+                "Mục kho đã đang hoạt động. Không cần khôi phục.";
 
             public const string ActiveDuplicateOnRestore =
-                "Cannot restore inventory item because an active entry for this game already exists.";
+                "Không thể khôi phục vì đã có mục kho đang hoạt động cho game này.";
 
             public static string ComponentNotInGame(Guid componentId) =>
-                $"Component '{componentId}' does not belong to the selected game.";
+                $"Linh kiện '{componentId}' không thuộc game đã chọn.";
 
             public static string ComponentsInvalidForGame() =>
-                "One or more component IDs do not belong to the selected game.";
+                "Một hoặc nhiều mã linh kiện không thuộc game đã chọn.";
         }
 
         public static class Pos
         {
             public static string AccessForbidden(Guid cafeId) =>
-                $"POS access denied. You are not authorized to operate cafe '{cafeId}'.";
+                $"Từ chối truy cập POS. Bạn không có quyền vận hành quán '{cafeId}'.";
 
             public const string BarcodeRequired =
-                "Cannot look up inventory box because barcode is empty.";
+                "Không thể tra cứu hộp game vì mã vạch trống.";
 
             public static string BoxNotFound(Guid cafeId, string barcode) =>
-                $"Inventory box with barcode '{barcode}' was not found in cafe '{cafeId}'.";
+                $"Không tìm thấy hộp game với mã vạch '{barcode}' trong quán '{cafeId}'.";
 
             public static string TableNotFound(Guid cafeId, Guid tableId) =>
-                $"Table '{tableId}' was not found in cafe '{cafeId}'.";
+                $"Không tìm thấy bàn '{tableId}' trong quán '{cafeId}'.";
 
             public static string TableNotAvailableForGame(Guid tableId) =>
-                $"Table '{tableId}' is reserved or in an event and cannot receive a game.";
+                $"Bàn '{tableId}' đang được giữ hoặc trong sự kiện và không thể nhận game.";
 
             public static string BoxNotAvailable(string barcode, string status) =>
-                $"Inventory box '{barcode}' is not available (current status: {status}).";
+                $"Hộp game '{barcode}' không khả dụng (trạng thái hiện tại: {status}).";
 
             public static string BoxAlreadyInSession(string barcode) =>
-                $"Inventory box '{barcode}' is already assigned to an active play session.";
+                $"Hộp game '{barcode}' đang được gán cho một phiên chơi đang hoạt động.";
 
             public static string SessionNotFound(Guid cafeId, Guid sessionId) =>
-                $"Active play session '{sessionId}' was not found in cafe '{cafeId}'.";
+                $"Không tìm thấy phiên chơi '{sessionId}' trong quán '{cafeId}'.";
         }
 
         public static class BoardGame
         {
             public static string NotFound(Guid id) =>
-                $"Board game '{id}' was not found or is inactive.";
+                $"Không tìm thấy board game '{id}' hoặc game đã bị vô hiệu hóa.";
 
             public static string MasterNotFound(Guid id) =>
-                $"Master board game '{id}' was not found.";
+                $"Không tìm thấy board game master '{id}'.";
 
             public static string SoloPlayNotSupported(Guid id, int minPlayers) =>
-                $"Solo play is not available for board game '{id}'. Minimum players is {minPlayers}; choose Group play instead.";
+                $"Không hỗ trợ chơi solo cho board game '{id}'. Số người chơi tối thiểu là {minPlayers}; hãy chọn chế độ nhóm.";
         }
 
         public static class Bgg
         {
             public const string SearchQueryTooShort =
-                "BGG search failed: query must be at least 2 characters.";
+                "Tìm kiếm BGG thất bại: từ khóa phải có ít nhất 2 ký tự.";
 
             public const string SearchUpstreamUnavailable =
-                "BGG search failed: BoardGameGeek API is unavailable or returned an invalid response.";
+                "Tìm kiếm BGG thất bại: API BoardGameGeek không phản hồi hoặc trả dữ liệu không hợp lệ.";
 
             public const string PreviewInvalidBggId =
-                "BGG game preview failed: bggId must be a positive integer.";
+                "Xem trước game BGG thất bại: bggId phải là số nguyên dương.";
 
             public static string PreviewGameNotFound(int bggId) =>
-                $"BGG game preview failed: board game with BGG id {bggId} was not found or could not be loaded.";
+                $"Xem trước game BGG thất bại: không tìm thấy hoặc không tải được game BGG id {bggId}.";
 
             public const string ImportInvalidBggId =
-                "BGG import failed: bggId must be a positive integer.";
+                "Import BGG thất bại: bggId phải là số nguyên dương.";
 
             public static string ImportGameNotFound(int bggId) =>
-                $"BGG import failed: board game with BGG id {bggId} was not found or could not be loaded.";
+                $"Import BGG thất bại: không tìm thấy hoặc không tải được game BGG id {bggId}.";
 
             public static string ImportNoComponentsResolved(int bggId) =>
-                $"BGG import failed: could not resolve component templates for BGG game {bggId}.";
+                $"Import BGG thất bại: không thể xác định linh kiện cho game BGG {bggId}.";
 
             public static string ImportAlreadyExists(Guid gameTemplateId, int bggId) =>
-                $"BGG import failed: game already exists (template '{gameTemplateId}' / BGG {bggId}). Set overwriteExisting=true to refresh from BGG.";
+                $"Import BGG thất bại: game đã tồn tại (template '{gameTemplateId}' / BGG {bggId}). Đặt overwriteExisting=true để làm mới từ BGG.";
         }
 
         public static class CafePartner
         {
             public static string ApplicationNotFound(Guid id) =>
-                $"Cafe partner application '{id}' was not found.";
+                $"Không tìm thấy đơn đăng ký đối tác '{id}'.";
 
             public const string ApplicationNotFoundForManager =
-                "No approved cafe partner application was found for the signed-in manager.";
+                "Không tìm thấy đơn đăng ký đối tác đã được duyệt cho quản lý đang đăng nhập.";
 
             public const string RejectionReasonRequired =
-                "Rejection reason is required when rejecting a cafe partner application.";
+                "Lý do từ chối là bắt buộc khi từ chối đơn đăng ký đối tác.";
 
             public const string LinkedCafeMissing =
-                "Cannot complete partner action because the linked cafe record is missing.";
+                "Không thể hoàn tất thao tác đối tác vì thiếu bản ghi quán liên kết.";
 
             public const string InvalidOperationalStatus =
-                "Invalid operational status. Use DATA_BLANK, ACTIVE, INACTIVE, or BANNED.";
+                "Trạng thái vận hành không hợp lệ. Dùng DATA_BLANK, ACTIVE, INACTIVE hoặc BANNED.";
 
             public const string BanReasonRequired =
-                "A reason is required when setting cafe status to BANNED.";
+                "Lý do là bắt buộc khi đặt trạng thái quán là BANNED.";
 
             public const string CafePermanentlyClosed =
-                "This cafe is permanently closed and cannot be modified.";
+                "Quán này đã đóng vĩnh viễn và không thể chỉnh sửa.";
 
             public const string CafeBannedByAdmin =
-                "This cafe has been banned by an administrator.";
+                "Quán này đã bị quản trị viên cấm hoạt động.";
 
             public const string CannotCloseWithActiveBookings =
-                "Cannot close the cafe while table sessions are in progress.";
+                "Không thể đóng quán khi còn phiên bàn đang chạy.";
+
+            public const string CannotPauseWithActiveSessions =
+                "Không thể tạm dừng quán khi còn phiên bàn đang chạy.";
+
+            public const string ClosedByManagerReason =
+                "Quản lý đóng quán.";
 
             public const string OnlyActiveCafesCanBePaused =
-                "Only ACTIVE cafes can be paused.";
+                "Chỉ quán ACTIVE mới có thể tạm dừng.";
 
             public const string OnlyDataBlankCafesCanBeActivated =
-                "Only DATA_BLANK cafes can be activated.";
+                "Chỉ quán DATA_BLANK mới có thể kích hoạt.";
+
+            public const string OpenApplicationExists =
+                "Đã có đơn đang mở với email này.";
+
+            public const string EmailNotEligibleForApplication =
+                "Email này đã đăng ký vai trò hệ thống và không thể dùng cho đơn đối tác mới.";
+
+            public const string OnlyPendingApprovalCanBeApproved =
+                "Chỉ đơn PENDING_APPROVAL mới có thể được phê duyệt.";
+
+            public const string BusinessLicenseImageRequired =
+                "Ảnh giấy phép kinh doanh là bắt buộc trước khi phê duyệt.";
+
+            public static string EmailUsedByRoleAccount(string role) =>
+                $"Email đã được dùng bởi tài khoản {role}.";
+
+            public const string EmailAlreadyManagesPartnerCafe =
+                "Email này đã quản lý một quán đối tác.";
+
+            public const string OnlyPendingApprovalCanBeRejected =
+                "Chỉ đơn PENDING_APPROVAL mới có thể bị từ chối.";
+
+            public const string PauseBeforeEditingProfile =
+                "Hãy tạm dừng quán trước khi chỉnh sửa hồ sơ vận hành.";
+
+            public const string CafeNameLengthInvalid =
+                "Tên quán phải từ 5 đến 100 ký tự.";
+
+            public const string HotlineInvalid =
+                "Hotline phải là số điện thoại Việt Nam hợp lệ gồm 10–11 chữ số.";
+
+            public const string BusinessLicenseAlphanumeric =
+                "Giấy phép kinh doanh chỉ được chứa chữ và số.";
+
+            public const string BusinessLicenseImageFormatInvalid =
+                "Ảnh giấy phép kinh doanh phải là JPEG, PNG hoặc PDF.";
+
+            public const string TableCountMustBePositive =
+                "Số bàn phải lớn hơn 0.";
+
+            public const string PrivateRoomCountCannotBeNegative =
+                "Số phòng riêng không được âm.";
+
+            public const string GamesOwnedMustBePositive =
+                "Số game sở hữu phải lớn hơn 0.";
+
+            public static string MinSpaceImagesRequired(int min) =>
+                $"Cần ít nhất {min} ảnh không gian.";
+
+            public const string SpaceImagesFormatInvalid =
+                "Ảnh không gian phải là JPEG hoặc PNG.";
+
+            public static string MinPublicTablesRequired(int min) =>
+                $"Cần tối thiểu {min} bàn công cộng.";
+
+            public static string MinGamesOwnedRequired(int min) =>
+                $"Cần tối thiểu {min} game sở hữu.";
+
+            public static string MinSpaceImagesActivationRequired(int min) =>
+                $"Cần tối thiểu {min} ảnh không gian hợp lệ.";
+
+            public const string TableLayoutRequired =
+                "Phải cấu hình sơ đồ bàn cho tất cả bàn công cộng đã khai báo.";
+
+            public const string PopularGamesListRequired =
+                "Danh sách game phổ biến là bắt buộc.";
+
+            public const string WeekdayHoursInvalid =
+                "Giờ mở cửa ngày thường phải trước giờ đóng cửa.";
+
+            public const string WeekendHoursInvalid =
+                "Giờ mở cửa cuối tuần phải trước giờ đóng cửa.";
+
+            public static string TimeFormatInvalid(string fieldName) =>
+                $"{fieldName} phải theo định dạng HH:mm.";
+
+            public const string SubmitterNotFound =
+                "Không tìm thấy tài khoản người gửi đơn.";
+
+            public const string SubmitterMustBePlayer =
+                "Chỉ tài khoản Player mới có thể liên kết làm người gửi đơn.";
+
+            public const string RepresentativeEmailMustMatch =
+                "Email đại diện phải trùng email tài khoản đang đăng nhập.";
+
+            public const string GpsLocationRequiredBeforeActivation =
+                "Cần có vị trí GPS trước khi kích hoạt quán.";
+
+            public const string CafePermanentlyClosedBlocker =
+                "Quán đã đóng vĩnh viễn (INACTIVE).";
+
+            public const string CafeBannedBlocker =
+                "Quán đã bị quản trị viên cấm hoạt động.";
+
+            public static string ActivationRequirementsNotMet(IReadOnlyCollection<string> blockers) =>
+                "Chưa đủ điều kiện kích hoạt: " + string.Join("; ", blockers);
         }
 
         public static class Email
         {
             public const string BrevoApiKeyMissing =
-                "Email service is not configured. Set Brevo:ApiKey on the server.";
+                "Dịch vụ email chưa được cấu hình. Hãy đặt Brevo:ApiKey trên máy chủ.";
 
             public const string BrevoSenderMissing =
-                "Email sender is not configured. Verify sender email in Brevo dashboard.";
+                "Email người gửi chưa được cấu hình. Hãy xác minh email người gửi trên Brevo.";
 
             public const string BrevoConnectionFailed =
-                "Cannot connect to Brevo API. Verify Brevo__ApiKey and network access.";
+                "Không thể kết nối API Brevo. Kiểm tra Brevo__ApiKey và quyền truy cập mạng.";
 
             public const string BrevoRequestTimedOut =
-                "Brevo email request timed out. Try again later.";
+                "Yêu cầu email Brevo đã hết thời gian chờ. Vui lòng thử lại sau.";
 
             public static string BrevoApiFailed(int statusCode, string details) =>
-                $"Brevo API rejected the email request ({statusCode}). {details}";
+                $"API Brevo từ chối yêu cầu email ({statusCode}). {details}";
         }
 
         public static class Rating
         {
+            public static string CrossRatingTagsReason(IEnumerable<KarmaRatingTag> tags) =>
+                $"Thẻ đánh giá chéo trong phòng: {string.Join(", ", tags)}";
+
             public static string LobbyNotFound(Guid lobbyId) =>
-                $"Karma rating failed. Lobby '{lobbyId}' was not found.";
+                $"Đánh giá karma thất bại. Không tìm thấy phòng '{lobbyId}'.";
 
             public static string NotLobbyMember(Guid lobbyId, Guid userId) =>
-                $"Karma rating failed. User '{userId}' is not an active member of lobby '{lobbyId}'.";
+                $"Đánh giá karma thất bại. Người dùng '{userId}' không phải thành viên đang hoạt động của phòng '{lobbyId}'.";
 
             public static string LobbyNotOpenForRating(Guid lobbyId) =>
-                $"Karma rating failed. Lobby '{lobbyId}' is not open for cross-ratings yet (billing may be incomplete).";
+                $"Đánh giá karma thất bại. Phòng '{lobbyId}' chưa mở đánh giá chéo (có thể chưa hoàn tất thanh toán).";
 
             public static string CannotRateSelf(Guid lobbyId) =>
-                $"Karma rating failed. You cannot rate yourself in lobby '{lobbyId}'.";
+                $"Đánh giá karma thất bại. Bạn không thể tự đánh giá mình trong phòng '{lobbyId}'.";
 
             public static string TargetNotLobbyMember(Guid lobbyId, Guid targetUserId) =>
-                $"Karma rating failed. Target user '{targetUserId}' is not a member of lobby '{lobbyId}'.";
+                $"Đánh giá karma thất bại. Người được đánh giá '{targetUserId}' không phải thành viên phòng '{lobbyId}'.";
 
             public static string DuplicateTargetInRequest(Guid targetUserId) =>
-                $"Karma rating failed. Target user '{targetUserId}' appears more than once in the request.";
+                $"Đánh giá karma thất bại. Người được đánh giá '{targetUserId}' xuất hiện nhiều lần trong yêu cầu.";
 
             public static string AlreadyRated(Guid lobbyId, Guid targetUserId) =>
-                $"Karma rating failed. You have already rated user '{targetUserId}' in lobby '{lobbyId}'.";
+                $"Đánh giá karma thất bại. Bạn đã đánh giá người dùng '{targetUserId}' trong phòng '{lobbyId}'.";
 
             public const string EmptyTagsForEntry =
-                "Karma rating failed. Each rating entry must include at least one tag.";
+                "Đánh giá karma thất bại. Mỗi mục đánh giá phải có ít nhất một thẻ.";
 
             public const string InvalidTagValue =
-                "Karma rating failed. One or more rating tags are not recognized.";
+                "Đánh giá karma thất bại. Một hoặc nhiều thẻ đánh giá không được nhận diện.";
 
             public static string TargetProfileMissing(Guid targetUserId) =>
-                $"Karma rating failed. Target user '{targetUserId}' has no profile to receive karma updates.";
+                $"Đánh giá karma thất bại. Người được đánh giá '{targetUserId}' chưa có hồ sơ để nhận cập nhật karma.";
 
             public static string LobbyAlreadyOpenForRating(Guid lobbyId) =>
-                $"Karma rating window for lobby '{lobbyId}' is already open.";
+                $"Cửa sổ đánh giá karma của phòng '{lobbyId}' đã được mở trước đó.";
 
             public static string LobbyCannotOpenRating(Guid lobbyId) =>
-                $"Cannot open karma rating for lobby '{lobbyId}' because the session is not eligible yet.";
+                $"Không thể mở đánh giá karma cho phòng '{lobbyId}' vì phiên chưa đủ điều kiện.";
         }
 
         public static class Match
         {
+            public const string MatchResultsConflict =
+                "Kết quả trận đấu không khớp. Tất cả người chơi phải nhập lại kết quả thống nhất (một Win, các Loss còn lại, hoặc tất cả Draw).";
+
             public static string LobbyNotFound(Guid lobbyId) =>
-                $"Match result submission failed. Lobby '{lobbyId}' was not found.";
+                $"Gửi kết quả trận đấu thất bại. Không tìm thấy phòng '{lobbyId}'.";
 
             public static string NotLobbyMember(Guid lobbyId, Guid userId) =>
-                $"Match result submission failed. User '{userId}' is not an active member of lobby '{lobbyId}'.";
+                $"Gửi kết quả trận đấu thất bại. Người dùng '{userId}' không phải thành viên đang hoạt động của phòng '{lobbyId}'.";
 
             public static string LobbyNotEligible(Guid lobbyId) =>
-                $"Match result submission failed. Lobby '{lobbyId}' is not in a state that accepts match results.";
+                $"Gửi kết quả trận đấu thất bại. Phòng '{lobbyId}' chưa ở trạng thái nhận kết quả.";
 
             public static string GameNotCompetitive(Guid gameTemplateId) =>
-                $"Match result submission failed. Game '{gameTemplateId}' is not configured for competitive Elo tracking.";
+                $"Gửi kết quả trận đấu thất bại. Game '{gameTemplateId}' chưa được cấu hình theo dõi Elo cạnh tranh.";
 
             public static string MatchAlreadyFinalized(Guid lobbyId) =>
-                $"Match result submission failed. Match results for lobby '{lobbyId}' are already finalized.";
+                $"Gửi kết quả trận đấu thất bại. Kết quả phòng '{lobbyId}' đã được chốt.";
 
             public static string ProfileMissing(Guid userId) =>
-                $"Match result submission failed. User '{userId}' has no profile to receive Elo updates.";
+                $"Gửi kết quả trận đấu thất bại. Người dùng '{userId}' chưa có hồ sơ để nhận cập nhật Elo.";
 
             public const string InvalidOutcomeValue =
-                "Match result submission failed. Outcome must be Win, Loss, or Draw.";
+                "Gửi kết quả trận đấu thất bại. Kết quả phải là Win, Loss hoặc Draw.";
         }
 
         public static class AdminModeration
         {
             public const string InvalidPunishmentAction =
-                "Invalid punishment action. Use Warning, Suspend, or Ban.";
+                "Hành động xử phạt không hợp lệ. Dùng Warning, Suspend hoặc Ban.";
 
             public const string SuspendDurationRequired =
-                "Suspension requires duration_days between 1 and 365.";
+                "Đình chỉ yêu cầu duration_days từ 1 đến 365.";
 
             public const string KarmaAdjustmentZeroNotAllowed =
-                "Karma adjustment amount cannot be zero.";
+                "Số điểm điều chỉnh karma không được bằng 0.";
 
             public const string CannotPunishAdmin =
-                "Admin accounts cannot be punished through this endpoint.";
+                "Không thể xử phạt tài khoản Admin qua endpoint này.";
 
             public static string ProfileNotFound(Guid userId) =>
-                $"Cannot adjust karma because user '{userId}' has no profile.";
+                $"Không thể điều chỉnh karma vì người dùng '{userId}' chưa có hồ sơ.";
 
             public const string InvalidViolationCategoryFilter =
-                "Invalid violation category filter value.";
+                "Giá trị lọc loại vi phạm không hợp lệ.";
         }
 
         public static class AdminCatalog
         {
             public static string CategoryNotFound(Guid id) =>
-                $"Category '{id}' was not found.";
+                $"Không tìm thấy thể loại '{id}'.";
 
             public const string CategoryNameRequired =
-                "Category name is required.";
+                "Tên thể loại là bắt buộc.";
 
             public const string CategorySlugRequired =
-                "Category slug is required.";
+                "Slug thể loại là bắt buộc.";
 
             public static string CategorySlugTaken(string slug) =>
-                $"Category slug '{slug}' is already in use.";
+                $"Slug thể loại '{slug}' đã được sử dụng.";
 
             public static string GameTemplateNotFound(Guid id) =>
-                $"Game template '{id}' was not found.";
+                $"Không tìm thấy game template '{id}'.";
 
             public static string ComponentNotFound(Guid gameTemplateId, Guid componentId) =>
-                $"Component '{componentId}' was not found on game '{gameTemplateId}'.";
+                $"Không tìm thấy linh kiện '{componentId}' trên game '{gameTemplateId}'.";
 
             public static string ComponentInUse(Guid componentId) =>
-                $"Component '{componentId}' cannot be deleted because it is referenced by cafe inventory penalties.";
+                $"Không thể xóa linh kiện '{componentId}' vì đang được tham chiếu bởi phí kho quán.";
 
             public static string InvalidComponentKind(int kind) =>
-                $"Invalid component kind value '{kind}'.";
+                $"Giá trị loại linh kiện '{kind}' không hợp lệ.";
 
             public static string CategoriesNotFound(IReadOnlyCollection<Guid> missingIds) =>
-                $"One or more categories were not found: {string.Join(", ", missingIds)}.";
+                $"Một hoặc nhiều thể loại không tồn tại: {string.Join(", ", missingIds)}.";
+        }
+
+        public static class Jwt
+        {
+            public const string MissingUserIdentifier =
+                "Access token thiếu mã định danh người dùng hợp lệ. Vui lòng đăng nhập lại.";
+
+            public const string UserNoLongerExists =
+                "Tài khoản không còn tồn tại. Vui lòng đăng nhập lại.";
+
+            public const string TokenExpired =
+                "Access token đã hết hạn. Dùng POST /api/auth/refresh-token hoặc đăng nhập lại.";
+
+            public const string TokenInvalidSignature =
+                "Chữ ký access token không hợp lệ. Vui lòng đăng nhập lại.";
+
+            public const string TokenInvalid =
+                "Access token không hợp lệ hoặc sai định dạng. Vui lòng đăng nhập lại.";
+
+            public const string AuthenticationFailed =
+                "Xác thực thất bại. Vui lòng đăng nhập lại.";
+
+            public const string AuthorizationHeaderMissing =
+                "Thiếu header Authorization. Hãy cung cấp Bearer access token.";
+
+            public const string AccessDenied =
+                "Từ chối truy cập. Tài khoản không có vai trò hoặc quyền cần thiết cho endpoint này.";
         }
 
         public static class AccountAccess
         {
+            public const string ActionSignIn = "Đăng nhập";
+            public const string ActionGoogleSignIn = "Đăng nhập Google";
+            public const string ActionTokenRefresh = "Làm mới token";
+            public const string ActionSendVerificationEmail = "Gửi email xác minh";
+            public const string ActionEmailVerification = "Xác minh email";
+            public const string ActionPasswordResetRequest = "Yêu cầu đặt lại mật khẩu";
+            public const string ActionPasswordReset = "Đặt lại mật khẩu";
+            public const string ActionPasswordChange = "Đổi mật khẩu";
+            public const string ActionGoogleAccountLinking = "Liên kết tài khoản Google";
+
+            public const string BannedPermanent =
+                "Tài khoản của bạn đã bị cấm vĩnh viễn.";
+
+            public const string AccountInactive =
+                "Tài khoản của bạn đã bị vô hiệu hóa. Vui lòng liên hệ hỗ trợ để kích hoạt lại.";
+
+            public static string BannedPermanentWithReason(string reason) =>
+                $"Tài khoản của bạn đã bị cấm vĩnh viễn. Lý do: {reason}";
+
+            public static string SuspendedUntil(DateTime lockoutEnd) =>
+                $"Tài khoản của bạn bị đình chỉ đến {lockoutEnd:O}.";
+
+            public static string SuspendedUntilWithReason(DateTime lockoutEnd, string reason) =>
+                $"Tài khoản của bạn bị đình chỉ đến {lockoutEnd:O}. Lý do: {reason}";
+
+            public const string SuspendedIndefinite =
+                "Tài khoản của bạn đang bị đình chỉ.";
+
+            public static string SuspendedIndefiniteWithReason(string reason) =>
+                $"Tài khoản của bạn đang bị đình chỉ. Lý do: {reason}";
+
             public static string Restricted(string message) => message;
 
             public static string LoginDeniedBanned(string? reason = null) =>
                 string.IsNullOrWhiteSpace(reason)
-                    ? "Login denied. Your account has been permanently banned."
-                    : $"Login denied. Your account has been permanently banned. Reason: {reason}";
+                    ? "Từ chối đăng nhập. Tài khoản của bạn đã bị cấm vĩnh viễn."
+                    : $"Từ chối đăng nhập. Tài khoản của bạn đã bị cấm vĩnh viễn. Lý do: {reason}";
 
             public static string LoginDeniedSuspended(DateTime lockoutEnd, string? reason = null) =>
                 string.IsNullOrWhiteSpace(reason)
-                    ? $"Login denied. Your account is suspended until {lockoutEnd:O}."
-                    : $"Login denied. Your account is suspended until {lockoutEnd:O}. Reason: {reason}";
+                    ? $"Từ chối đăng nhập. Tài khoản bị đình chỉ đến {lockoutEnd:O}."
+                    : $"Từ chối đăng nhập. Tài khoản bị đình chỉ đến {lockoutEnd:O}. Lý do: {reason}";
         }
 
         public static class Http
         {
             public static string Fallback(int statusCode, string path) => statusCode switch
             {
-                400 => $"Request to '{path}' was invalid. Check query/body parameters.",
-                401 => $"Authentication is required for '{path}'.",
-                403 => $"You do not have permission to access '{path}'.",
-                404 => $"No API route or resource matched '{path}'.",
-                409 => $"Request to '{path}' conflicts with existing data.",
-                429 => $"Too many requests to '{path}'. Slow down and retry later.",
-                500 => $"An unexpected server error occurred while processing '{path}'.",
-                _ => $"Request to '{path}' failed with status {statusCode}."
+                400 => $"Yêu cầu tới '{path}' không hợp lệ. Kiểm tra tham số query/body.",
+                401 => $"Cần xác thực để truy cập '{path}'.",
+                403 => $"Bạn không có quyền truy cập '{path}'.",
+                404 => $"Không tìm thấy route hoặc tài nguyên API khớp '{path}'.",
+                409 => $"Yêu cầu tới '{path}' xung đột với dữ liệu hiện có.",
+                429 => $"Quá nhiều yêu cầu tới '{path}'. Hãy chậm lại và thử lại sau.",
+                500 => $"Đã xảy ra lỗi máy chủ không mong đợi khi xử lý '{path}'.",
+                _ => $"Yêu cầu tới '{path}' thất bại với mã trạng thái {statusCode}."
             };
         }
 
         public static class Controller
         {
             public const string InvalidUserIdClaim =
-                "Cannot identify the signed-in user. Access token is missing a valid user id claim.";
+                "Không xác định được người dùng đang đăng nhập. Access token thiếu claim user id hợp lệ.";
 
             public const string ChangePasswordInvalidUserId =
-                "Cannot change password. Access token is missing a valid user identifier.";
+                "Không thể đổi mật khẩu. Access token thiếu mã định danh người dùng hợp lệ.";
+        }
+
+        public static class Validation
+        {
+            public const string RequestFailed = "Xác thực dữ liệu yêu cầu thất bại cho '{0}': {1}";
+            public const string FieldRequired = "Trường {0} là bắt buộc.";
+            public const string EmailRequired = "Email là bắt buộc.";
+            public const string EmailInvalid = "Email không hợp lệ.";
+            public const string EmailMaxLength = "Email không được vượt quá 256 ký tự.";
+            public const string PasswordRequired = "Mật khẩu là bắt buộc.";
+            public const string PasswordLength8To100 = "Mật khẩu phải từ 8 đến 100 ký tự.";
+            public const string PasswordLength6To100 = "Mật khẩu phải từ 6 đến 100 ký tự.";
+            public const string PasswordMin8 = "Mật khẩu phải có ít nhất 8 ký tự.";
+            public const string UsernameRequired = "Tên đăng nhập là bắt buộc.";
+            public const string UsernameLength3To100 = "Tên đăng nhập phải từ 3 đến 100 ký tự.";
+            public const string UsernameMax100 = "Tên đăng nhập không được vượt quá 100 ký tự.";
+            public const string UsernameOrEmailRequired = "Tên đăng nhập hoặc email là bắt buộc.";
+            public const string UsernameOrEmailLength3To256 = "Tên đăng nhập hoặc email phải từ 3 đến 256 ký tự.";
+            public const string PhoneInvalid = "Số điện thoại không hợp lệ.";
+            public const string PhoneMax50 = "Số điện thoại không được vượt quá 50 ký tự.";
+            public const string RoleRequired = "Vai trò là bắt buộc.";
+            public const string RoleMax32 = "Vai trò không được vượt quá 32 ký tự.";
+            public const string AccountStatusMax32 = "AccountStatus không được vượt quá 32 ký tự.";
+            public const string SearchMax100 = "Từ khóa tìm kiếm không được vượt quá 100 ký tự.";
+            public const string PageRange1To100 = "Trang phải từ 1 đến 100.";
+            public const string PageSizeRange1To100 = "PageSize phải từ 1 đến 100.";
+            public const string BioMax1000 = "Tiểu sử không được vượt quá 1000 ký tự.";
+            public const string GlobalEloMinZero = "GlobalElo phải lớn hơn hoặc bằng 0.";
+            public const string LevelMin1 = "Cấp độ phải ít nhất là 1.";
+            public const string FirstNameMax100 = "Tên không được vượt quá 100 ký tự.";
+            public const string LastNameMax100 = "Họ không được vượt quá 100 ký tự.";
+            public const string AvatarUrlRequired = "URL avatar là bắt buộc.";
+            public const string AvatarUrlInvalid = "URL avatar không hợp lệ.";
+            public const string BlockReasonRequired = "Lý do khóa là bắt buộc.";
+            public const string BlockReasonMax500 = "Lý do khóa không được vượt quá 500 ký tự.";
+            public const string RejectionReasonRequired = "Lý do từ chối là bắt buộc.";
+            public const string RejectionReasonMax1000 = "Lý do từ chối không được vượt quá 1000 ký tự.";
+            public const string CafeNameMax200 = "Tên quán không được vượt quá 200 ký tự.";
+            public const string AddressMax500 = "Địa chỉ không được vượt quá 500 ký tự.";
+            public const string PhoneNumberMax50 = "Số điện thoại không được vượt quá 50 ký tự.";
+            public const string DescriptionMax2000 = "Mô tả không được vượt quá 2000 ký tự.";
+            public const string LatitudeRange = "Vĩ độ phải từ -90 đến 90.";
+            public const string LongitudeRange = "Kinh độ phải từ -180 đến 180.";
+            public const string GoogleIdTokenRequired = "Google idToken là bắt buộc.";
+            public const string GoogleIdTokenLength = "Google idToken phải từ 10 đến 4000 ký tự.";
+            public const string RefreshTokenRequired = "Refresh token là bắt buộc.";
+            public const string RefreshTokenLength = "Refresh token phải từ 20 đến 500 ký tự.";
+            public const string VerificationTokenRequired = "Mã xác minh là bắt buộc.";
+            public const string VerificationTokenLength = "Mã xác minh phải từ 6 đến 10 ký tự.";
+            public const string ResetTokenRequired = "Mã đặt lại mật khẩu là bắt buộc.";
+            public const string ResetTokenLength = "Mã đặt lại mật khẩu phải từ 6 đến 10 ký tự.";
+            public const string NewPasswordRequired = "Mật khẩu mới là bắt buộc.";
+            public const string CurrentPasswordRequired = "Mật khẩu hiện tại là bắt buộc.";
+            public const string ConfirmPasswordRequired = "Xác nhận mật khẩu mới là bắt buộc.";
+            public const string ConfirmPasswordMismatch = "Xác nhận mật khẩu mới phải trùng mật khẩu mới.";
+            public const string NameRequired = "Tên là bắt buộc.";
+            public const string NameMax100 = "Tên không được vượt quá 100 ký tự.";
+            public const string DateOfBirthFormat = "dateOfBirth phải là chuỗi ngày (yyyy-MM-dd).";
+            public const string GameTemplateIdRequired = "GameTemplateId là bắt buộc.";
+            public const string LobbyIdRequired = "LobbyId là bắt buộc.";
+            public const string OutcomeRequired = "Kết quả trận đấu là bắt buộc.";
+            public const string RatingsRequired = "Danh sách đánh giá là bắt buộc.";
+            public const string TargetUserIdRequired = "TargetUserId là bắt buộc.";
+            public const string TagsRequired = "Thẻ đánh giá là bắt buộc.";
+            public const string BarcodeRequired = "Mã vạch là bắt buộc.";
+            public const string BarcodeLength = "Mã vạch phải từ 3 đến 50 ký tự.";
+            public const string TableIdRequired = "CafeTableId là bắt buộc.";
+            public const string BoxQuantityRange = "Số hộp phải từ 1 đến 1000.";
+            public const string ComponentIdRequired = "ComponentId là bắt buộc.";
+            public const string PenaltyFeeRange = "Phí phạt phải từ 0 đến 999999999.";
+            public const string CategoryNameRequired = "Tên thể loại là bắt buộc.";
+            public const string CategoryNameLength = "Tên thể loại phải từ 2 đến 100 ký tự.";
+            public const string CategorySlugLength = "Slug thể loại phải từ 2 đến 100 ký tự.";
+            public const string CategoryDescriptionMax500 = "Mô tả thể loại không được vượt quá 500 ký tự.";
+            public const string SortOrderRange = "Thứ tự sắp xếp phải từ 0 đến 9999.";
+            public const string ComponentNameRequired = "Tên linh kiện là bắt buộc.";
+            public const string ComponentNameLength = "Tên linh kiện phải từ 1 đến 200 ký tự.";
+            public const string DefaultQuantityRange = "Số lượng mặc định phải từ 1 đến 9999.";
+            public const string ComponentKindRequired = "Loại linh kiện là bắt buộc.";
+            public const string ConfigKeyRequired = "ConfigKey là bắt buộc.";
+            public const string ConfigKeyLength = "ConfigKey phải từ 2 đến 100 ký tự.";
+            public const string ConfigValueRequired = "ConfigValue là bắt buộc.";
+            public const string ConfigValueMax500 = "ConfigValue không được vượt quá 500 ký tự.";
+            public const string PunishmentActionRequired = "Hành động xử phạt là bắt buộc.";
+            public const string SuspendDurationRange = "Thời gian đình chỉ phải từ 1 đến 365 ngày.";
+            public const string ReasonRequired = "Lý do là bắt buộc.";
+            public const string ReasonLength5To1000 = "Lý do phải từ 5 đến 1000 ký tự.";
+            public const string KarmaAdjustmentRange = "Điểm karma phải từ -100 đến 100.";
+            public const string OperationalStatusRequired = "Trạng thái vận hành là bắt buộc.";
+            public const string OperationalStatusMax32 = "Trạng thái vận hành không được vượt quá 32 ký tự.";
+            public const string OperationalStatusReasonMax500 = "Lý do trạng thái không được vượt quá 500 ký tự.";
+            public const string CafePartnerCafeNameRequired = "Tên quán là bắt buộc.";
+            public const string CafePartnerCafeNameLength = "Tên quán phải từ 5 đến 100 ký tự.";
+            public const string CafePartnerAddressRequired = "Địa chỉ là bắt buộc.";
+            public const string CafePartnerAddressLength = "Địa chỉ phải từ 10 đến 500 ký tự.";
+            public const string CafePartnerHotlineRequired = "Hotline là bắt buộc.";
+            public const string CafePartnerHotlineLength = "Hotline phải từ 10 đến 11 ký tự.";
+            public const string CafePartnerRepresentativeEmailRequired = "Email đại diện là bắt buộc.";
+            public const string CafePartnerBusinessLicenseRequired = "Giấy phép kinh doanh là bắt buộc.";
+            public const string CafePartnerBusinessLicenseLength = "Giấy phép kinh doanh phải từ 5 đến 50 ký tự.";
+            public const string CafePartnerBusinessLicenseImageRequired = "Ảnh giấy phép kinh doanh là bắt buộc.";
+            public const string WorkingHoursRequired = "Giờ làm việc là bắt buộc.";
+            public const string PopularGamesListRequired = "Danh sách game phổ biến là bắt buộc.";
+            public const string PopularGamesListLength = "Danh sách game phổ biến phải từ 3 đến 2000 ký tự.";
+            public const string TableCountRange = "Số bàn phải từ 1 đến 10000.";
+            public const string PrivateRoomCountRange = "Số phòng riêng phải từ 0 đến 1000.";
+            public const string GamesOwnedRange = "Số game sở hữu phải từ 1 đến 100000.";
+        }
+
+        public static class Entity
+        {
+            public const string ExpiresAtMustBeFuture = "Thời gian hết hạn phải ở tương lai.";
+            public const string MinPlayersAtLeastOne = "Số người chơi tối thiểu phải ít nhất 1.";
+            public const string MaxPlayersAtLeastOne = "Số người chơi tối đa phải ít nhất 1.";
+            public const string PlayTimeMustBePositive = "Thời gian chơi phải lớn hơn 0.";
+            public const string DefaultQuantityMustBePositive = "Số lượng mặc định phải lớn hơn 0.";
+            public const string BoxQuantityAtLeastOne = "Số hộp phải ít nhất 1.";
+            public const string PenaltyFeeCannotBeNegative = "Phí phạt không được âm.";
         }
     }
 }

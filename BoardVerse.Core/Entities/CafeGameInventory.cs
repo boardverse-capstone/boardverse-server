@@ -1,4 +1,5 @@
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Messages;
 
 namespace BoardVerse.Core.Entities
 {
@@ -14,7 +15,7 @@ namespace BoardVerse.Core.Entities
             set
             {
                 if (value < 1)
-                    throw new ArgumentException("BoxQuantity must be at least 1");
+                    throw new ArgumentException(ApiErrorMessages.Entity.BoxQuantityAtLeastOne);
                 _boxQuantity = value;
             }
         }

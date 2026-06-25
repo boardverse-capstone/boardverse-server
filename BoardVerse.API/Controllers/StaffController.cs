@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Cafe;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -30,7 +31,7 @@ namespace BoardVerse.API.Controllers
             var currentStaffId = GetUserIdFromClaims();
 
             var result = await _cafeService.GetMyWorkplacesAsync(currentStaffId);
-            return this.NewResponse(200, "Workplaces retrieved successfully", result);
+            return this.NewResponse(200, ApiSuccessMessages.Staff.WorkplacesRetrieved, result);
         }
     }
 }

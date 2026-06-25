@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Cafe;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -33,7 +34,7 @@ namespace BoardVerse.API.Controllers
             [FromBody] AdminSetCafeOperationalStatusRequestDto request)
         {
             var result = await _cafeService.SetOperationalStatusByAdminAsync(cafeId, request);
-            return NewResponse(200, "Cafe operational status updated successfully", result);
+            return NewResponse(200, ApiSuccessMessages.Cafe.OperationalStatusUpdated, result);
         }
     }
 }

@@ -33,7 +33,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> Register([FromBody] RegisterRequestDto request)
         {
             var response = await _authService.RegisterAsync(request);
-            return this.NewResponse(200, "Registration successful", response);
+            return this.NewResponse(200, ApiSuccessMessages.Auth.RegistrationSuccessful, response);
         }
 
         /// <summary>
@@ -49,7 +49,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> Login([FromBody] LoginRequestDto request)
         {
             var response = await _authService.LoginAsync(request);
-            return this.NewResponse(200, "Login successful", response);
+            return this.NewResponse(200, ApiSuccessMessages.Auth.LoginSuccessful, response);
         }
 
         /// <summary>
@@ -64,7 +64,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> GoogleLogin([FromBody] GoogleAuthRequestDto request)
         {
             var response = await _authService.GoogleLoginAsync(request);
-            return this.NewResponse(200, "Google login successful", response);
+            return this.NewResponse(200, ApiSuccessMessages.Auth.GoogleLoginSuccessful, response);
         }
 
         /// <summary>
@@ -80,7 +80,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequestDto request)
         {
             var response = await _authService.ExchangeRefreshTokenAsync(request);
-            return this.NewResponse(200, "Token refreshed successfully", response);
+            return this.NewResponse(200, ApiSuccessMessages.Auth.TokenRefreshed, response);
         }
 
         /// <summary>
@@ -94,7 +94,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> Logout([FromBody] RefreshTokenRequestDto request)
         {
             await _authService.RevokeRefreshTokenAsync(request.RefreshToken);
-            return this.NewResponse(200, "Logged out", null);
+            return this.NewResponse(200, ApiSuccessMessages.Auth.LoggedOut, null);
         }
 
         /// <summary>
@@ -125,7 +125,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> VerifyEmail([FromBody] VerifyEmailRequestDto request)
         {
             await _authService.VerifyEmailAsync(request);
-            return this.NewResponse(200, "Email verified", null);
+            return this.NewResponse(200, ApiSuccessMessages.Auth.EmailVerified, null);
         }
 
         /// <summary>
@@ -157,7 +157,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDto request)
         {
             await _authService.ResetPasswordAsync(request);
-            return this.NewResponse(200, "Password has been reset", null);
+            return this.NewResponse(200, ApiSuccessMessages.Auth.PasswordReset, null);
         }
 
         /// <summary>
@@ -182,7 +182,7 @@ namespace BoardVerse.API.Controllers
             }
 
             await _authService.ChangePasswordAsync(userId, request);
-            return this.NewResponse(200, "Password has been changed", null);
+            return this.NewResponse(200, ApiSuccessMessages.Auth.PasswordChanged, null);
         }
 
         /// <summary>
@@ -198,7 +198,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> LinkGoogle([FromBody] LinkGoogleRequestDto request)
         {
             var response = await _authService.LinkGoogleAccountAsync(request);
-            return this.NewResponse(200, "Google account linked successfully", response);
+            return this.NewResponse(200, ApiSuccessMessages.Auth.GoogleAccountLinked, response);
         }
     }
 }

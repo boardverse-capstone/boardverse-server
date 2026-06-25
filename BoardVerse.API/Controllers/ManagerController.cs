@@ -1,3 +1,4 @@
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -28,7 +29,7 @@ namespace BoardVerse.API.Controllers
         {
             var managerId = GetUserIdFromClaims();
             var cafes = await _cafeService.GetManagerCafesAsync(managerId);
-            return this.NewResponse(200, "Cafes retrieved successfully", cafes);
+            return this.NewResponse(200, ApiSuccessMessages.Cafe.ListRetrieved, cafes);
         }
     }
 }

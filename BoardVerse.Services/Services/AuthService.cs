@@ -139,7 +139,7 @@ namespace BoardVerse.Services.Services
                 throw new InvalidCredentialsException(ApiErrorMessages.Auth.LoginInvalidCredentials);
             }
 
-            await EnsureUserAccessAllowedAsync(user, "Sign-in");
+            await EnsureUserAccessAllowedAsync(user, ApiErrorMessages.AccountAccess.ActionSignIn);
 
             if (!BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             {
@@ -197,7 +197,7 @@ namespace BoardVerse.Services.Services
                 }
                 else
                 {
-                    await EnsureUserAccessAllowedAsync(user, "Google sign-in");
+                    await EnsureUserAccessAllowedAsync(user, ApiErrorMessages.AccountAccess.ActionGoogleSignIn);
 
                     // If user exists with same email but no provider set, link account
                     if (user.Provider == "Local" && string.IsNullOrWhiteSpace(user.ProviderId))
@@ -240,7 +240,7 @@ namespace BoardVerse.Services.Services
                 throw new UserNotFoundException(ApiErrorMessages.Auth.RefreshTokenUserMissing);
             }
 
-            await EnsureUserAccessAllowedAsync(user, "Token refresh");
+            await EnsureUserAccessAllowedAsync(user, ApiErrorMessages.AccountAccess.ActionTokenRefresh);
 
             // Optionally revoke old refresh token and issue a new one
             rt.IsRevoked = true;
@@ -274,7 +274,7 @@ namespace BoardVerse.Services.Services
         {
             var user = await _userRepository.GetByEmailAsync(request.Email);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.Auth.SendVerificationUserNotFound);
-            await EnsureUserAccessAllowedAsync(user, "Sending verification email");
+            await EnsureUserAccessAllowedAsync(user, ApiErrorMessages.AccountAccess.ActionSendVerificationEmail);
 
             var token = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
             user.EmailVerificationToken = token;
@@ -282,18 +282,20 @@ namespace BoardVerse.Services.Services
             user.UpdatedAt = DateTime.UtcNow;
             await _userRepository.SaveChangesAsync();
 
-            var subject = "BoardVerse email verification";
-            var body = $"Your BoardVerse verification code is: {token}\n\nThis code expires in 5 minutes.";
-            await _emailService.SendEmailAsync(user.Email, subject, body, false);
+            await _emailService.SendEmailAsync(
+                user.Email,
+                ApiEmailMessages.Auth.VerificationSubject,
+                ApiEmailMessages.Auth.VerificationBody(token),
+                false);
 
-            return "Verification email sent.";
+            return ApiErrorMessages.Auth.VerificationEmailSent;
         }
 
         public async Task VerifyEmailAsync(VerifyEmailRequestDto request)
         {
             var user = await _userRepository.GetByEmailVerificationTokenAsync(request.Token);
             if (user == null) throw new InvalidTokenException(ApiErrorMessages.Auth.VerifyEmailInvalidToken);
-            await EnsureUserAccessAllowedAsync(user, "Email verification");
+            await EnsureUserAccessAllowedAsync(user, ApiErrorMessages.AccountAccess.ActionEmailVerification);
 
             if (user.EmailVerificationTokenExpiresAt < DateTime.UtcNow)
                 throw new VerificationTokenExpiredException(ApiErrorMessages.Auth.VerifyEmailTokenExpired);
@@ -310,7 +312,7 @@ namespace BoardVerse.Services.Services
             var user = await _userRepository.GetByEmailAsync(request.Email);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.Auth.RequestPasswordResetUserNotFound);
             if (!user.IsEmailVerified) throw new EmailVerificationRequiredException(ApiErrorMessages.Auth.RequestPasswordResetEmailNotVerified);
-            await EnsureUserAccessAllowedAsync(user, "Password reset request");
+            await EnsureUserAccessAllowedAsync(user, ApiErrorMessages.AccountAccess.ActionPasswordResetRequest);
 
             var token = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
             user.PasswordResetToken = token;
@@ -318,18 +320,20 @@ namespace BoardVerse.Services.Services
             user.UpdatedAt = DateTime.UtcNow;
             await _userRepository.SaveChangesAsync();
 
-            var subject = "BoardVerse password reset";
-            var body = $"Your BoardVerse password reset code is: {token}\n\nThis code expires in 5 minutes.";
-            await _emailService.SendEmailAsync(user.Email, subject, body, false);
+            await _emailService.SendEmailAsync(
+                user.Email,
+                ApiEmailMessages.Auth.PasswordResetSubject,
+                ApiEmailMessages.Auth.PasswordResetBody(token),
+                false);
 
-            return "Password reset email sent.";
+            return ApiErrorMessages.Auth.PasswordResetEmailSent;
         }
 
         public async Task ResetPasswordAsync(ResetPasswordDto request)
         {
             var user = await _userRepository.GetByPasswordResetTokenAsync(request.Token);
             if (user == null) throw new InvalidTokenException(ApiErrorMessages.Auth.ResetPasswordInvalidToken);
-            await EnsureUserAccessAllowedAsync(user, "Password reset");
+            await EnsureUserAccessAllowedAsync(user, ApiErrorMessages.AccountAccess.ActionPasswordReset);
 
             if (user.PasswordResetTokenExpiresAt < DateTime.UtcNow)
                 throw new PasswordResetTokenExpiredException(ApiErrorMessages.Auth.ResetPasswordTokenExpired);
@@ -345,7 +349,7 @@ namespace BoardVerse.Services.Services
         {
             var user = await _userRepository.GetByIdAsync(userId);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.Auth.ChangePasswordUserNotFound);
-            await EnsureUserAccessAllowedAsync(user, "Password change");
+            await EnsureUserAccessAllowedAsync(user, ApiErrorMessages.AccountAccess.ActionPasswordChange);
             if (string.IsNullOrWhiteSpace(user.PasswordHash))
                 throw new BadRequestException(ApiErrorMessages.Auth.ChangePasswordNoLocalPassword);
 
@@ -381,7 +385,7 @@ namespace BoardVerse.Services.Services
                 // Find existing user by email
                 var user = await _userRepository.GetByEmailAsync(payload.Email);
                 if (user == null) throw new UserNotFoundException(ApiErrorMessages.Auth.LinkGoogleAccountNotFound);
-                await EnsureUserAccessAllowedAsync(user, "Google account linking");
+                await EnsureUserAccessAllowedAsync(user, ApiErrorMessages.AccountAccess.ActionGoogleAccountLinking);
 
                 user.Provider = "Google";
                 user.ProviderId = payload.Subject;

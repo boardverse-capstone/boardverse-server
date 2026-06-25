@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Admin;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -29,7 +30,7 @@ namespace BoardVerse.API.Controllers
         {
             var entries = await _configurationService.GetAllConfigsAsync();
             var map = entries.ToDictionary(e => e.ConfigKey, e => e.ConfigValue);
-            return NewResponse(200, "System configurations retrieved successfully", map);
+            return NewResponse(200, ApiSuccessMessages.AdminConfig.Retrieved, map);
         }
 
         /// <summary>
@@ -46,7 +47,7 @@ namespace BoardVerse.API.Controllers
         {
             var updated = await _configurationService.BulkUpdateConfigsAsync(request);
             var map = updated.ToDictionary(e => e.ConfigKey, e => e.ConfigValue);
-            return NewResponse(200, "System configurations updated successfully", map);
+            return NewResponse(200, ApiSuccessMessages.AdminConfig.Updated, map);
         }
     }
 }

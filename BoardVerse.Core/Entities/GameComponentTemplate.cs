@@ -1,4 +1,5 @@
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Messages;
 
 namespace BoardVerse.Core.Entities
 {
@@ -22,7 +23,7 @@ namespace BoardVerse.Core.Entities
             set
             {
                 if (value < 1)
-                    throw new ArgumentException("DefaultQuantity must be positive");
+                    throw new ArgumentException(ApiErrorMessages.Entity.DefaultQuantityMustBePositive);
                 _defaultQuantity = value;
             }
         }

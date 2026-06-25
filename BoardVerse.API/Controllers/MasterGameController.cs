@@ -1,5 +1,6 @@
 using BoardVerse.Core.DTOs.Game;
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -57,7 +58,7 @@ namespace BoardVerse.API.Controllers
             };
 
             var result = await _gameTemplateService.GetMasterGamesAsync(query);
-            return this.NewResponse(200, "Games retrieved successfully", result);
+            return this.NewResponse(200, ApiSuccessMessages.MasterGame.ListRetrieved, result);
         }
 
         /// <summary>
@@ -74,7 +75,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> GetMasterGameById(Guid id, [FromQuery] Guid? cafeId)
         {
             var result = await _gameTemplateService.GetMasterGameByIdAsync(id, cafeId);
-            return this.NewResponse(200, "Game retrieved successfully", result);
+            return this.NewResponse(200, ApiSuccessMessages.MasterGame.Retrieved, result);
         }
     }
 }

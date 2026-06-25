@@ -1,3 +1,4 @@
+using BoardVerse.Core.Messages;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -20,7 +21,7 @@ namespace BoardVerse.API.Controllers
             var userId = User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
             var email = User?.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ?? string.Empty;
             var data = new { userId, email };
-            return this.NewResponse(200, "You have accessed a protected endpoint.", data);
+            return this.NewResponse(200, ApiSuccessMessages.Protected.EndpointAccessed, data);
         }
     }
 }

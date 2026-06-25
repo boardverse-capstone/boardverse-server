@@ -1,3 +1,4 @@
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -31,7 +32,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> OpenKarmaRatingWindow(Guid lobbyId)
         {
             var result = await _karmaRatingService.OpenLobbyKarmaRatingWindowAsync(lobbyId);
-            return NewResponse(200, "Lobby karma rating window opened successfully", result);
+            return NewResponse(200, ApiSuccessMessages.Lobby.KarmaRatingWindowOpened, result);
         }
     }
 }

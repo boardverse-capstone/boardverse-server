@@ -247,13 +247,25 @@ internal static class IntegrationTestDataBootstrapper
             .Where(b => b.CafeGameInventoryId == inventory.Id)
             .ToListAsync();
 
+        var knownBoxIds = boxes.Select(b => b.Id).ToHashSet();
         CafeInventoryBoxSyncHelper.ApplySync(inventory, boxes);
+        foreach (var box in boxes.Where(b => !knownBoxIds.Contains(b.Id)))
+        {
+            db.CafeInventoryBoxes.Add(box);
+        }
+
         await db.SaveChangesAsync();
 
         boxes = await db.CafeInventoryBoxes
             .Where(b => b.CafeGameInventoryId == inventory.Id && b.IsActive)
             .OrderBy(b => b.Barcode)
             .ToListAsync();
+
+        if (boxes.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "Integration bootstrap requires at least one active inventory box for demo Catan.");
+        }
 
         foreach (var box in boxes)
         {
@@ -264,7 +276,7 @@ internal static class IntegrationTestDataBootstrapper
         await db.SaveChangesAsync();
 
         IntegrationTestFixtures.CatanInventoryId = inventory.Id;
-        IntegrationTestFixtures.PosBoxBarcode = boxes.First().Barcode;
+        IntegrationTestFixtures.PosBoxBarcode = boxes[0].Barcode;
     }
 
     private static async Task EnsureDemoStaffAsync(BoardVerseDbContext db)

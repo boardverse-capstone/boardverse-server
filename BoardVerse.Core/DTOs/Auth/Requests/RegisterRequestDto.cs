@@ -1,24 +1,25 @@
 using System.ComponentModel.DataAnnotations;
+using BoardVerse.Core.Messages;
 
 namespace BoardVerse.Core.DTOs.Auth.Requests
 {
     public class RegisterRequestDto
     {
-        [Required(ErrorMessage = "Username is required.")]
-        [StringLength(100, MinimumLength = 3, ErrorMessage = "Username must be between 3 and 100 characters.")]
+        [Required(ErrorMessage = ApiErrorMessages.Validation.UsernameRequired)]
+        [StringLength(100, MinimumLength = 3, ErrorMessage = ApiErrorMessages.Validation.UsernameLength3To100)]
         public required string Username { get; set; }
 
-        [Required(ErrorMessage = "Email is required.")]
-        [EmailAddress(ErrorMessage = "Email must be a valid email address.")]
-        [StringLength(256, ErrorMessage = "Email cannot exceed 256 characters.")]
+        [Required(ErrorMessage = ApiErrorMessages.Validation.EmailRequired)]
+        [EmailAddress(ErrorMessage = ApiErrorMessages.Validation.EmailInvalid)]
+        [StringLength(256, ErrorMessage = ApiErrorMessages.Validation.EmailMaxLength)]
         public required string Email { get; set; }
 
-        [Phone(ErrorMessage = "Phone number is invalid.")]
-        [StringLength(50, ErrorMessage = "Phone number cannot exceed 50 characters.")]
+        [Phone(ErrorMessage = ApiErrorMessages.Validation.PhoneInvalid)]
+        [StringLength(50, ErrorMessage = ApiErrorMessages.Validation.PhoneMax50)]
         public string? PhoneNumber { get; set; }
 
-        [Required(ErrorMessage = "Password is required.")]
-        [StringLength(100, MinimumLength = 8, ErrorMessage = "Password must be between 8 and 100 characters.")]
+        [Required(ErrorMessage = ApiErrorMessages.Validation.PasswordRequired)]
+        [StringLength(100, MinimumLength = 8, ErrorMessage = ApiErrorMessages.Validation.PasswordLength8To100)]
         public required string Password { get; set; }
     }
 }

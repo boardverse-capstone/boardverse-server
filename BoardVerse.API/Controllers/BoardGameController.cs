@@ -1,5 +1,6 @@
 using BoardVerse.Core.DTOs.Game;
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Mvc;
 
@@ -25,7 +26,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> GetCategories()
         {
             var result = await _boardGameService.GetCategoriesAsync();
-            return NewResponse(200, "Categories retrieved successfully", result);
+            return NewResponse(200, ApiSuccessMessages.BoardGame.CategoriesRetrieved, result);
         }
 
         /// <summary>
@@ -59,7 +60,7 @@ namespace BoardVerse.API.Controllers
             };
 
             var result = await _boardGameService.SearchBoardGamesAsync(query);
-            return NewResponse(200, "Board games retrieved successfully", result);
+            return NewResponse(200, ApiSuccessMessages.BoardGame.ListRetrieved, result);
         }
 
         /// <summary>
@@ -73,7 +74,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> GetBoardGameById(Guid id)
         {
             var result = await _boardGameService.GetBoardGameByIdAsync(id);
-            return NewResponse(200, "Board game retrieved successfully", result);
+            return NewResponse(200, ApiSuccessMessages.BoardGame.Retrieved, result);
         }
 
         /// <summary>
@@ -87,7 +88,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> GetBoardGameDetails(Guid id)
         {
             var result = await _boardGameService.GetBoardGameDetailsAsync(id);
-            return NewResponse(200, "Board game details retrieved successfully", result);
+            return NewResponse(200, ApiSuccessMessages.BoardGame.DetailsRetrieved, result);
         }
 
         /// <summary>
@@ -101,7 +102,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> GetPlayConfiguration(Guid id)
         {
             var result = await _boardGameService.GetPlayConfigurationAsync(id);
-            return NewResponse(200, "Game play configuration retrieved successfully", result);
+            return NewResponse(200, ApiSuccessMessages.BoardGame.PlayConfigurationRetrieved, result);
         }
 
         /// <summary>
@@ -119,7 +120,7 @@ namespace BoardVerse.API.Controllers
             [FromBody] ResolveGamePlayNavigationRequestDto request)
         {
             var result = await _boardGameService.ResolvePlayNavigationAsync(id, request);
-            return NewResponse(200, "Game play navigation resolved successfully", result);
+            return NewResponse(200, ApiSuccessMessages.BoardGame.PlayNavigationResolved, result);
         }
     }
 }

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using BoardVerse.Core.Messages;
 
 namespace BoardVerse.Core.DTOs.Admin
 {
@@ -12,19 +13,19 @@ namespace BoardVerse.Core.DTOs.Admin
 
     public class SystemConfigBulkUpdateRequestDto
     {
-        [Required]
+        [Required(ErrorMessage = ApiErrorMessages.Validation.FieldRequired)]
         [MinLength(1)]
         public List<SystemConfigUpdateItemDto> Configs { get; set; } = [];
     }
 
     public class SystemConfigUpdateItemDto
     {
-        [Required]
-        [StringLength(100, MinimumLength = 2)]
+        [Required(ErrorMessage = ApiErrorMessages.Validation.ConfigKeyRequired)]
+        [StringLength(100, MinimumLength = 2, ErrorMessage = ApiErrorMessages.Validation.ConfigKeyLength)]
         public string ConfigKey { get; set; } = string.Empty;
 
-        [Required]
-        [StringLength(500)]
+        [Required(ErrorMessage = ApiErrorMessages.Validation.ConfigValueRequired)]
+        [StringLength(500, ErrorMessage = ApiErrorMessages.Validation.ConfigValueMax500)]
         public string ConfigValue { get; set; } = string.Empty;
     }
 }

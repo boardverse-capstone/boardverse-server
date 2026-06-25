@@ -52,14 +52,14 @@ namespace BoardVerse.Services.Services
             if (await _applicationRepository.HasOpenApplicationByEmailAsync(email))
             {
                 throw new OpenCafePartnerApplicationExistsException(
-                    "An open application already exists for this email.");
+                    ApiErrorMessages.CafePartner.OpenApplicationExists);
             }
 
             var existingUser = await _authRepository.GetByEmailAsync(email);
             if (existingUser != null && existingUser.Role is UserRole.Admin or UserRole.Manager or UserRole.CafeStaff)
             {
                 throw new CafePartnerEmailNotEligibleException(
-                    "This email is already registered with a system role and cannot be used for a new partner application.");
+                    ApiErrorMessages.CafePartner.EmailNotEligibleForApplication);
             }
 
             if (await _applicationRepository.HasSevereDuplicateAsync(request.BusinessLicense, request.Address.Trim()))
@@ -98,9 +98,8 @@ namespace BoardVerse.Services.Services
 
             await SendEmailSafeAsync(
                 email,
-                "BoardVerse — Cafe partner application received",
-                $"Hello,\n\nWe received your partnership application for \"{application.CafeName}\".\n" +
-                $"Reference ID: {application.Id}\nStatus: PENDING_APPROVAL\n\n— BoardVerse Team");
+                ApiEmailMessages.CafePartner.ApplicationReceivedSubject,
+                ApiEmailMessages.CafePartner.ApplicationReceivedBody(application.CafeName, application.Id));
 
             return MapToDto(await GetApplicationOrThrowAsync(application.Id));
         }
@@ -125,13 +124,13 @@ namespace BoardVerse.Services.Services
             if (application.Status != CafePartnerApplicationStatus.PendingApproval)
             {
                 throw new CafePartnerApplicationInvalidStatusException(
-                    "Only PENDING_APPROVAL applications can be approved.");
+                    ApiErrorMessages.CafePartner.OnlyPendingApprovalCanBeApproved);
             }
 
             if (string.IsNullOrWhiteSpace(application.BusinessLicenseImageUrl))
             {
                 throw new CafePartnerApplicationInvalidStatusException(
-                    "Business license image is required before approval.");
+                    ApiErrorMessages.CafePartner.BusinessLicenseImageRequired);
             }
 
             var email = application.RepresentativeEmail;
@@ -164,7 +163,7 @@ namespace BoardVerse.Services.Services
                 if (existingUser.Role is UserRole.Admin or UserRole.CafeStaff)
                 {
                     throw new CafePartnerEmailNotEligibleException(
-                        $"Email is already used by a {existingUser.Role} account.");
+                        ApiErrorMessages.CafePartner.EmailUsedByRoleAccount(existingUser.Role.ToString()));
                 }
 
                 if (existingUser.Role == UserRole.Manager)
@@ -172,7 +171,8 @@ namespace BoardVerse.Services.Services
                     var existingCafe = (await _cafeRepository.GetCafesByManagerIdAsync(existingUser.Id)).FirstOrDefault();
                     if (existingCafe?.PartnerOperationalStatus != null)
                     {
-                        throw new CafePartnerEmailNotEligibleException("This email already manages a partner cafe.");
+                        throw new CafePartnerEmailNotEligibleException(
+                            ApiErrorMessages.CafePartner.EmailAlreadyManagesPartnerCafe);
                     }
                 }
 
@@ -233,8 +233,8 @@ namespace BoardVerse.Services.Services
 
             await SendEmailSafeAsync(
                 email,
-                "BoardVerse — Cafe manager account created",
-                BuildOnboardingEmailBody(email, temporaryPassword, keptExistingPassword));
+                ApiEmailMessages.CafePartner.ManagerAccountCreatedSubject,
+                ApiEmailMessages.CafePartner.OnboardingApprovedBody(email, temporaryPassword, keptExistingPassword));
 
             return new OnboardPartnerResultDto
             {
@@ -260,7 +260,7 @@ namespace BoardVerse.Services.Services
             if (application.Status != CafePartnerApplicationStatus.PendingApproval)
             {
                 throw new CafePartnerApplicationInvalidStatusException(
-                    "Only PENDING_APPROVAL applications can be rejected.");
+                    ApiErrorMessages.CafePartner.OnlyPendingApprovalCanBeRejected);
             }
 
             application.Status = CafePartnerApplicationStatus.Rejected;
@@ -273,8 +273,8 @@ namespace BoardVerse.Services.Services
 
             await SendEmailSafeAsync(
                 application.RepresentativeEmail,
-                "BoardVerse — Cafe partner application update",
-                $"Hello,\n\nYour application was not approved.\nReason: {application.RejectionReason}\n\n— BoardVerse Team");
+                ApiEmailMessages.CafePartner.ApplicationRejectedSubject,
+                ApiEmailMessages.CafePartner.ApplicationRejectedBody(application.RejectionReason!));
 
             return MapToDto(await GetApplicationOrThrowAsync(id));
         }
@@ -344,7 +344,7 @@ namespace BoardVerse.Services.Services
             if (blockers.Count > 0)
             {
                 throw new CafePartnerActivationRequirementsNotMetException(
-                    "Activation requirements not met: " + string.Join("; ", blockers));
+                    ApiErrorMessages.CafePartner.ActivationRequirementsNotMet(blockers));
             }
 
             var tableNames = DeserializeStringList(application.TableLayoutJson);
@@ -361,8 +361,8 @@ namespace BoardVerse.Services.Services
 
             await SendEmailSafeAsync(
                 application.RepresentativeEmail,
-                "BoardVerse — Your cafe is now live",
-                $"Hello,\n\n\"{application.CafeName}\" is now ACTIVE on BoardVerse.\n\n— BoardVerse Team");
+                ApiEmailMessages.CafePartner.CafeActivatedSubject,
+                ApiEmailMessages.CafePartner.CafeActivatedBody(application.CafeName));
 
             return MapToDto(await GetApprovedApplicationForManagerOrThrowAsync(managerUserId));
         }
@@ -386,7 +386,7 @@ namespace BoardVerse.Services.Services
             if (await _applicationRepository.HasActiveBookingsAsync(cafe.Id))
             {
                 throw new CafePartnerApplicationInvalidStatusException(
-                    "Cannot pause while booking sessions are in progress.");
+                    ApiErrorMessages.CafePartner.CannotPauseWithActiveSessions);
             }
 
             cafe.IsActive = false;
@@ -423,7 +423,7 @@ namespace BoardVerse.Services.Services
             var utcNow = DateTime.UtcNow;
             cafe.IsActive = false;
             cafe.PartnerOperationalStatus = CafePartnerOperationalStatus.Inactive;
-            cafe.PartnerOperationalStatusReason = "Closed by manager.";
+            cafe.PartnerOperationalStatusReason = ApiErrorMessages.CafePartner.ClosedByManagerReason;
             cafe.PartnerOperationalStatusChangedAt = utcNow;
             cafe.UpdatedAt = utcNow;
             application.UpdatedAt = utcNow;
@@ -457,7 +457,7 @@ namespace BoardVerse.Services.Services
             if (cafe.PartnerOperationalStatus == CafePartnerOperationalStatus.Active && cafe.IsActive)
             {
                 throw new CafePartnerApplicationInvalidStatusException(
-                    "Pause the cafe before editing operational profile.");
+                    ApiErrorMessages.CafePartner.PauseBeforeEditingProfile);
             }
         }
 
@@ -465,22 +465,22 @@ namespace BoardVerse.Services.Services
         {
             if (request.CafeName.Trim().Length is < 5 or > 100)
             {
-                throw new BadRequestException("Cafe name must be between 5 and 100 characters.");
+                throw new BadRequestException(ApiErrorMessages.CafePartner.CafeNameLengthInvalid);
             }
 
             if (!IsValidVnHotline(request.Hotline))
             {
-                throw new BadRequestException("Hotline must be a valid 10–11 digit Vietnamese phone number.");
+                throw new BadRequestException(ApiErrorMessages.CafePartner.HotlineInvalid);
             }
 
             if (!Regex.IsMatch(request.BusinessLicense.Trim(), @"^[a-zA-Z0-9\-]+$"))
             {
-                throw new BadRequestException("Business license must be alphanumeric.");
+                throw new BadRequestException(ApiErrorMessages.CafePartner.BusinessLicenseAlphanumeric);
             }
 
             if (!HasAllowedExtension(request.BusinessLicenseImageUrl, LicenseExtensions))
             {
-                throw new BadRequestException("Business license image must be JPEG, PNG, or PDF.");
+                throw new BadRequestException(ApiErrorMessages.CafePartner.BusinessLicenseImageFormatInvalid);
             }
 
             ParseWorkingHours(request.WorkingHours);
@@ -491,7 +491,12 @@ namespace BoardVerse.Services.Services
             }
             catch (ArgumentOutOfRangeException ex)
             {
-                throw new BadRequestException(ex.Message);
+                throw new BadRequestException(ex.ParamName switch
+                {
+                    "latitude" => ApiErrorMessages.Profile.InvalidLatitudeForLocationUpdate,
+                    "longitude" => ApiErrorMessages.Profile.InvalidLongitudeForLocationUpdate,
+                    _ => ApiErrorMessages.Profile.InvalidLatitudeForLocationUpdate
+                });
             }
         }
 
@@ -499,29 +504,30 @@ namespace BoardVerse.Services.Services
         {
             if (request.NumberOfTables <= 0)
             {
-                throw new BadRequestException("Number of tables must be positive.");
+                throw new BadRequestException(ApiErrorMessages.CafePartner.TableCountMustBePositive);
             }
 
             if (request.NumberOfPrivateRooms < 0)
             {
-                throw new BadRequestException("Number of private rooms cannot be negative.");
+                throw new BadRequestException(ApiErrorMessages.CafePartner.PrivateRoomCountCannotBeNegative);
             }
 
             if (request.NumberOfGamesOwned <= 0)
             {
-                throw new BadRequestException("Number of games owned must be positive.");
+                throw new BadRequestException(ApiErrorMessages.CafePartner.GamesOwnedMustBePositive);
             }
 
             if (request.SpaceImageUrls == null || request.SpaceImageUrls.Count < CafePartnerActivationRules.MinSpaceImages)
             {
-                throw new BadRequestException($"At least {CafePartnerActivationRules.MinSpaceImages} space images are required.");
+                throw new BadRequestException(
+                    ApiErrorMessages.CafePartner.MinSpaceImagesRequired(CafePartnerActivationRules.MinSpaceImages));
             }
 
             foreach (var url in request.SpaceImageUrls)
             {
                 if (!HasAllowedExtension(url, SpaceImageExtensions))
                 {
-                    throw new BadRequestException("Space images must be JPEG or PNG.");
+                    throw new BadRequestException(ApiErrorMessages.CafePartner.SpaceImagesFormatInvalid);
                 }
             }
         }
@@ -532,35 +538,35 @@ namespace BoardVerse.Services.Services
 
             if (application.NumberOfTables < CafePartnerActivationRules.MinPublicTables)
             {
-                blockers.Add($"Minimum {CafePartnerActivationRules.MinPublicTables} public tables required.");
+                blockers.Add(ApiErrorMessages.CafePartner.MinPublicTablesRequired(CafePartnerActivationRules.MinPublicTables));
             }
 
             if (application.NumberOfGamesOwned < CafePartnerActivationRules.MinGamesOwned)
             {
-                blockers.Add($"Minimum {CafePartnerActivationRules.MinGamesOwned} games required.");
+                blockers.Add(ApiErrorMessages.CafePartner.MinGamesOwnedRequired(CafePartnerActivationRules.MinGamesOwned));
             }
 
             var spaceUrls = DeserializeStringList(application.SpaceImageUrlsJson);
             if (spaceUrls.Count < CafePartnerActivationRules.MinSpaceImages ||
                 spaceUrls.Any(u => !HasAllowedExtension(u, SpaceImageExtensions)))
             {
-                blockers.Add($"Minimum {CafePartnerActivationRules.MinSpaceImages} valid space images required.");
+                blockers.Add(ApiErrorMessages.CafePartner.MinSpaceImagesActivationRequired(CafePartnerActivationRules.MinSpaceImages));
             }
 
             var tableNames = DeserializeStringList(application.TableLayoutJson);
             if (tableNames.Count < application.NumberOfTables)
             {
-                blockers.Add("Table layout must be configured for all declared public tables.");
+                blockers.Add(ApiErrorMessages.CafePartner.TableLayoutRequired);
             }
 
             if (string.IsNullOrWhiteSpace(application.PopularGamesList))
             {
-                blockers.Add("Popular games list is required.");
+                blockers.Add(ApiErrorMessages.CafePartner.PopularGamesListRequired);
             }
 
             if (!application.Latitude.HasValue || !application.Longitude.HasValue)
             {
-                blockers.Add("GPS location is required before activation.");
+                blockers.Add(ApiErrorMessages.CafePartner.GpsLocationRequiredBeforeActivation);
             }
 
             return blockers;
@@ -576,12 +582,12 @@ namespace BoardVerse.Services.Services
 
             if (weekdayOpen >= weekdayClose)
             {
-                throw new BadRequestException("Weekday start must be before weekday end.");
+                throw new BadRequestException(ApiErrorMessages.CafePartner.WeekdayHoursInvalid);
             }
 
             if (weekendOpen >= weekendClose)
             {
-                throw new BadRequestException("Weekend start must be before weekend end.");
+                throw new BadRequestException(ApiErrorMessages.CafePartner.WeekendHoursInvalid);
             }
 
             return (weekdayOpen, weekdayClose, weekendOpen, weekendClose);
@@ -591,7 +597,7 @@ namespace BoardVerse.Services.Services
         {
             if (!TimeSpan.TryParseExact(value.Trim(), ["hh\\:mm", "h\\:mm"], CultureInfo.InvariantCulture, out var time))
             {
-                throw new BadRequestException($"{fieldName} must be in HH:mm format.");
+                throw new BadRequestException(ApiErrorMessages.CafePartner.TimeFormatInvalid(fieldName));
             }
 
             return time;
@@ -605,16 +611,16 @@ namespace BoardVerse.Services.Services
             }
 
             var user = await _authRepository.GetByIdAsync(submittedByUserId.Value)
-                ?? throw new BadRequestException("Submitter account not found.");
+                ?? throw new BadRequestException(ApiErrorMessages.CafePartner.SubmitterNotFound);
 
             if (user.Role != UserRole.Player)
             {
-                throw new BadRequestException("Only Player accounts can be linked as application submitter.");
+                throw new BadRequestException(ApiErrorMessages.CafePartner.SubmitterMustBePlayer);
             }
 
             if (!string.Equals(NormalizeEmail(user.Email), contactEmail, StringComparison.OrdinalIgnoreCase))
             {
-                throw new BadRequestException("Representative email must match your logged-in account email.");
+                throw new BadRequestException(ApiErrorMessages.CafePartner.RepresentativeEmailMustMatch);
             }
 
             return user.Id;
@@ -658,23 +664,6 @@ namespace BoardVerse.Services.Services
             !string.Equals(user.Provider, "Local", StringComparison.OrdinalIgnoreCase) ||
             string.IsNullOrWhiteSpace(user.PasswordHash);
 
-        private static string BuildOnboardingEmailBody(string email, string? temporaryPassword, bool keptExistingPassword)
-        {
-            var body = $"Hello,\n\nYour cafe partner application has been approved.\n\n" +
-                       $"Web POS login email: {email}\n";
-
-            if (keptExistingPassword)
-            {
-                body += "\nSign in with your existing password and complete your operational profile.\n";
-            }
-            else if (temporaryPassword != null)
-            {
-                body += $"\nTemporary password: {temporaryPassword}\n\nPlease change your password after first login.\n";
-            }
-
-            return body + "\nComplete infrastructure, game catalog, and table layout before activating your cafe.\n\n— BoardVerse Team";
-        }
-
         private static string GenerateTemporaryPassword()
         {
             const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$";
@@ -710,11 +699,11 @@ namespace BoardVerse.Services.Services
 
             if (application.CreatedCafe?.PartnerOperationalStatus == CafePartnerOperationalStatus.Inactive)
             {
-                blockers.Add("Cafe is permanently closed (INACTIVE).");
+                blockers.Add(ApiErrorMessages.CafePartner.CafePermanentlyClosedBlocker);
             }
             else if (application.CreatedCafe?.PartnerOperationalStatus == CafePartnerOperationalStatus.Banned)
             {
-                blockers.Add("Cafe is banned by an administrator.");
+                blockers.Add(ApiErrorMessages.CafePartner.CafeBannedBlocker);
             }
 
             return new CafePartnerApplicationResponseDto

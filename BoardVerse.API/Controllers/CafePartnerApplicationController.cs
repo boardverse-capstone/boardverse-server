@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.CafePartner;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -31,7 +32,7 @@ namespace BoardVerse.API.Controllers
             var (userId, role) = GetOptionalViewerContext();
             var submittedByUserId = string.Equals(role, "Player", StringComparison.OrdinalIgnoreCase) ? userId : null;
             var result = await _service.SubmitAsync(request, submittedByUserId);
-            return NewResponse(201, "Application submitted successfully", result);
+            return NewResponse(201, ApiSuccessMessages.CafePartner.ApplicationSubmitted, result);
         }
 
         /// <summary>
@@ -46,7 +47,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> GetById(Guid id)
         {
             var result = await _service.GetByIdAsync(id);
-            return NewResponse(200, "Application retrieved successfully", result);
+            return NewResponse(200, ApiSuccessMessages.CafePartner.ApplicationRetrieved, result);
         }
     }
 }

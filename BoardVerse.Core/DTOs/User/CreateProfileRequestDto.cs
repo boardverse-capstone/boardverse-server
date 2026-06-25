@@ -1,22 +1,23 @@
 using System.ComponentModel.DataAnnotations;
+using BoardVerse.Core.Messages;
 
 namespace BoardVerse.Core.DTOs.User
 {
     public class ProfileCreateDto
     {
-        [StringLength(1000, ErrorMessage = "Bio cannot exceed 1000 characters.")]
+        [StringLength(1000, ErrorMessage = ApiErrorMessages.Validation.BioMax1000)]
         public string? Bio { get; set; }
 
         // Optional PII
-        [StringLength(100, ErrorMessage = "First name cannot exceed 100 characters.")]
+        [StringLength(100, ErrorMessage = ApiErrorMessages.Validation.FirstNameMax100)]
         public string? FirstName { get; set; }
 
-        [StringLength(100, ErrorMessage = "Last name cannot exceed 100 characters.")]
+        [StringLength(100, ErrorMessage = ApiErrorMessages.Validation.LastNameMax100)]
         public string? LastName { get; set; }
         public DateOnly? DateOfBirth { get; set; }
 
-        [Phone(ErrorMessage = "Phone number is invalid.")]
-        [StringLength(50, ErrorMessage = "Phone number cannot exceed 50 characters.")]
+        [Phone(ErrorMessage = ApiErrorMessages.Validation.PhoneInvalid)]
+        [StringLength(50, ErrorMessage = ApiErrorMessages.Validation.PhoneMax50)]
         public string? PhoneNumber { get; set; }
     }
 }

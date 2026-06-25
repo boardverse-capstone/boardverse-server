@@ -30,7 +30,7 @@ public class UserAccessHelperTests
         var restricted = UserAccessHelper.IsAccessRestricted(user, DateTime.UtcNow, out var message);
 
         Assert.True(restricted);
-        Assert.Contains("banned", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("cấm", message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Cheating", message);
     }
 
@@ -53,7 +53,7 @@ public class UserAccessHelperTests
         var restricted = UserAccessHelper.IsAccessRestricted(user, DateTime.UtcNow, out var message);
 
         Assert.True(restricted);
-        Assert.Contains("deactivated", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("vô hiệu hóa", message, StringComparison.OrdinalIgnoreCase);
     }
 
     private static User CreateUser(

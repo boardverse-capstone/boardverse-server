@@ -3,6 +3,7 @@ using System.Text.Json;
 using BoardVerse.Core.DTOs.Common;
 using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
+using BoardVerse.Core.Messages;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 
@@ -32,7 +33,7 @@ namespace BoardVerse.API.Authentication
             if (!Guid.TryParse(userId, out var parsedUserId))
             {
                 Fail(context, StatusCodes.Status401Unauthorized,
-                    "Access token is missing a valid user identifier. Please sign in again.");
+                    ApiErrorMessages.Jwt.MissingUserIdentifier);
                 return;
             }
 
@@ -40,7 +41,7 @@ namespace BoardVerse.API.Authentication
             if (user == null)
             {
                 Fail(context, StatusCodes.Status401Unauthorized,
-                    "User account no longer exists. Please sign in again.");
+                    ApiErrorMessages.Jwt.UserNoLongerExists);
                 return;
             }
 
@@ -61,14 +62,10 @@ namespace BoardVerse.API.Authentication
         {
             var message = context.Exception switch
             {
-                SecurityTokenExpiredException =>
-                    "Access token has expired. Use POST /api/auth/refresh-token or sign in again.",
-                SecurityTokenInvalidSignatureException =>
-                    "Access token signature is invalid. Please sign in again.",
-                SecurityTokenException =>
-                    "Access token is invalid or malformed. Please sign in again.",
-                _ =>
-                    "Authentication failed. Please sign in again."
+                SecurityTokenExpiredException => ApiErrorMessages.Jwt.TokenExpired,
+                SecurityTokenInvalidSignatureException => ApiErrorMessages.Jwt.TokenInvalidSignature,
+                SecurityTokenException => ApiErrorMessages.Jwt.TokenInvalid,
+                _ => ApiErrorMessages.Jwt.AuthenticationFailed
             };
 
             JwtAuthFailureContext.Set(context.HttpContext, StatusCodes.Status401Unauthorized, message);
@@ -100,7 +97,7 @@ namespace BoardVerse.API.Authentication
             }
 
             var message = JwtAuthFailureContext.GetMessage(context.HttpContext)
-                ?? "Access denied. Your account does not have the required role or permission for this endpoint.";
+                ?? ApiErrorMessages.Jwt.AccessDenied;
 
             await WriteJsonResponseAsync(
                 context.HttpContext,
@@ -128,14 +125,14 @@ namespace BoardVerse.API.Authentication
 
             if (!hasBearerHeader)
             {
-                return "Authorization header is missing. Provide a Bearer access token.";
+                return ApiErrorMessages.Jwt.AuthorizationHeaderMissing;
             }
 
             return context.Error switch
             {
-                "invalid_token" => "Access token is invalid. Please sign in again.",
-                "expired_token" => "Access token has expired. Use POST /api/auth/refresh-token or sign in again.",
-                _ => "Authentication failed. Please sign in again."
+                "invalid_token" => ApiErrorMessages.Jwt.TokenInvalid,
+                "expired_token" => ApiErrorMessages.Jwt.TokenExpired,
+                _ => ApiErrorMessages.Jwt.AuthenticationFailed
             };
         }
 

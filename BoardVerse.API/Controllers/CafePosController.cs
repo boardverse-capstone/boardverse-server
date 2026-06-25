@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Pos;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -31,7 +32,7 @@ namespace BoardVerse.API.Controllers
         {
             var (userId, role) = GetViewerContext();
             var result = await _posService.GetTablesAsync(cafeId, userId, role);
-            return this.NewResponse(200, "Cafe tables retrieved successfully", result);
+            return this.NewResponse(200, ApiSuccessMessages.Pos.TablesRetrieved, result);
         }
 
         /// <summary>
@@ -49,7 +50,7 @@ namespace BoardVerse.API.Controllers
         {
             var (userId, role) = GetViewerContext();
             var result = await _posService.GetBoxesAsync(cafeId, userId, role, gameTemplateId);
-            return this.NewResponse(200, "Inventory boxes retrieved successfully", result);
+            return this.NewResponse(200, ApiSuccessMessages.Pos.BoxesRetrieved, result);
         }
 
         /// <summary>
@@ -68,7 +69,7 @@ namespace BoardVerse.API.Controllers
         {
             var (userId, role) = GetViewerContext();
             var result = await _posService.GetBoxByBarcodeAsync(cafeId, userId, role, barcode);
-            return this.NewResponse(200, "Inventory box retrieved successfully", result);
+            return this.NewResponse(200, ApiSuccessMessages.Pos.BoxRetrieved, result);
         }
 
         /// <summary>
@@ -86,7 +87,7 @@ namespace BoardVerse.API.Controllers
         {
             var (userId, role) = GetViewerContext();
             var result = await _posService.GetActiveSessionsAsync(cafeId, userId, role, gameTemplateId);
-            return this.NewResponse(200, "Active sessions retrieved successfully", result);
+            return this.NewResponse(200, ApiSuccessMessages.Pos.SessionsRetrieved, result);
         }
 
         /// <summary>
@@ -106,7 +107,7 @@ namespace BoardVerse.API.Controllers
         {
             var (userId, role) = GetViewerContext();
             var result = await _posService.StartGameSessionAsync(cafeId, userId, role, request);
-            return this.NewResponse(201, "Game session started successfully", result);
+            return this.NewResponse(201, ApiSuccessMessages.Pos.SessionStarted, result);
         }
 
         /// <summary>
@@ -124,7 +125,7 @@ namespace BoardVerse.API.Controllers
         {
             var (userId, role) = GetViewerContext();
             var result = await _posService.EndGameSessionAsync(cafeId, userId, role, sessionId);
-            return this.NewResponse(200, "Game session ended successfully", result);
+            return this.NewResponse(200, ApiSuccessMessages.Pos.SessionEnded, result);
         }
 
         private (Guid UserId, string Role) GetViewerContext()

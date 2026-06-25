@@ -1,5 +1,6 @@
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Messages;
 using NetTopologySuite.Geometries;
 
 namespace BoardVerse.Core.Helpers
@@ -19,12 +20,16 @@ namespace BoardVerse.Core.Helpers
         {
             if (latitude is < MinLatitude or > MaxLatitude)
             {
-                throw new ArgumentOutOfRangeException(nameof(latitude), "Latitude must be between -90 and 90.");
+                throw new ArgumentOutOfRangeException(
+                    nameof(latitude),
+                    ApiErrorMessages.Validation.LatitudeRange);
             }
 
             if (longitude is < MinLongitude or > MaxLongitude)
             {
-                throw new ArgumentOutOfRangeException(nameof(longitude), "Longitude must be between -180 and 180.");
+                throw new ArgumentOutOfRangeException(
+                    nameof(longitude),
+                    ApiErrorMessages.Validation.LongitudeRange);
             }
         }
 

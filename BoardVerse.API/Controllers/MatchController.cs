@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Match;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -31,7 +32,7 @@ namespace BoardVerse.API.Controllers
         {
             var userId = GetUserIdFromClaims();
             var result = await _matchResultService.GetMatchResultStatusAsync(userId, lobbyId);
-            return NewResponse(200, "Match result status retrieved successfully", result);
+            return NewResponse(200, ApiSuccessMessages.Match.StatusRetrieved, result);
         }
 
         /// <summary>
@@ -50,7 +51,7 @@ namespace BoardVerse.API.Controllers
         {
             var userId = GetUserIdFromClaims();
             var result = await _matchResultService.SubmitMatchResultAsync(userId, request);
-            return NewResponse(200, "Match result submitted successfully", result);
+            return NewResponse(200, ApiSuccessMessages.Match.ResultSubmitted, result);
         }
     }
 }

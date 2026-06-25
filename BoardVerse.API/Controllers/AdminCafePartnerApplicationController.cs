@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.CafePartner;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -29,7 +30,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> GetAll([FromQuery] AdminCafePartnerApplicationQueryDto query)
         {
             var result = await _service.GetAllForAdminAsync(query);
-            return NewResponse(200, "Applications retrieved successfully", result);
+            return NewResponse(200, ApiSuccessMessages.CafePartner.ApplicationsRetrieved, result);
         }
 
         /// <summary>
@@ -45,7 +46,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> GetById(Guid id)
         {
             var result = await _service.GetByIdAsync(id);
-            return NewResponse(200, "Application retrieved successfully", result);
+            return NewResponse(200, ApiSuccessMessages.CafePartner.ApplicationRetrieved, result);
         }
 
         /// <summary>
@@ -64,7 +65,7 @@ namespace BoardVerse.API.Controllers
         {
             var adminId = GetUserIdFromClaims();
             var result = await _service.ApproveAsync(id, adminId);
-            return NewResponse(200, "Application approved and manager account created", result);
+            return NewResponse(200, ApiSuccessMessages.CafePartner.ApplicationApproved, result);
         }
 
         /// <summary>
@@ -83,7 +84,7 @@ namespace BoardVerse.API.Controllers
         {
             var adminId = GetUserIdFromClaims();
             var result = await _service.RejectAsync(id, adminId, request);
-            return NewResponse(200, "Application rejected", result);
+            return NewResponse(200, ApiSuccessMessages.CafePartner.ApplicationRejected, result);
         }
     }
 }

@@ -115,7 +115,7 @@ namespace BoardVerse.Services.Services
                     KarmaPointsChange = delta,
                     KarmaBefore = karmaBefore,
                     KarmaAfter = profile.KarmaPoints,
-                    Reason = $"Lobby cross-rating tags: {string.Join(", ", distinctTags)}",
+                    Reason = ApiErrorMessages.Rating.CrossRatingTagsReason(distinctTags),
                     RelatedLobbyId = request.LobbyId,
                     PerformedByUserId = raterUserId,
                     IsAdminAdjustment = false,

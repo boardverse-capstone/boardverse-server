@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.User;
+using BoardVerse.Core.Messages;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
@@ -31,7 +32,7 @@ namespace BoardVerse.API.Controllers
         {
             var userId = GetUserIdFromClaims();
             var profile = await _profileService.GetPublicProfileAsync(userId);
-            return this.NewResponse(200, "Profile retrieved successfully", profile);
+            return this.NewResponse(200, ApiSuccessMessages.Profile.Retrieved, profile);
         }
 
         /// <summary>
@@ -51,7 +52,7 @@ namespace BoardVerse.API.Controllers
         {
             var userId = GetUserIdFromClaims();
             var profile = await _profileService.CreateProfileAsync(userId, request);
-            return this.NewResponse(201, "Profile created", profile);
+            return this.NewResponse(201, ApiSuccessMessages.Profile.Created, profile);
         }
 
         /// <summary>
@@ -70,7 +71,7 @@ namespace BoardVerse.API.Controllers
         {
             var userId = GetUserIdFromClaims();
             var profile = await _profileService.UpdateProfileAsync(userId, request);
-            return this.NewResponse(200, "Profile updated successfully", profile);
+            return this.NewResponse(200, ApiSuccessMessages.Profile.Updated, profile);
         }
 
         /// <summary>
@@ -89,7 +90,7 @@ namespace BoardVerse.API.Controllers
         {
             var userId = GetUserIdFromClaims();
             var profile = await _profileService.UpdateProgressAsync(userId, request);
-            return this.NewResponse(200, "Profile progress updated successfully", profile);
+            return this.NewResponse(200, ApiSuccessMessages.Profile.ProgressUpdated, profile);
         }
 
         /// <summary>
@@ -108,7 +109,7 @@ namespace BoardVerse.API.Controllers
         {
             var userId = GetUserIdFromClaims();
             var profile = await _profileService.UpdateAvatarAsync(userId, request);
-            return this.NewResponse(200, "Avatar updated successfully", profile);
+            return this.NewResponse(200, ApiSuccessMessages.Profile.AvatarUpdated, profile);
         }
 
         /// <summary>
@@ -125,7 +126,7 @@ namespace BoardVerse.API.Controllers
         {
             var userId = GetUserIdFromClaims();
             var location = await _profileService.GetCurrentLocationAsync(userId);
-            return this.NewResponse(200, "Current location retrieved successfully", location);
+            return this.NewResponse(200, ApiSuccessMessages.Profile.LocationRetrieved, location);
         }
 
         /// <summary>
@@ -144,7 +145,7 @@ namespace BoardVerse.API.Controllers
         {
             var userId = GetUserIdFromClaims();
             var location = await _profileService.UpdateCurrentLocationAsync(userId, request);
-            return this.NewResponse(200, "Current location updated successfully", location);
+            return this.NewResponse(200, ApiSuccessMessages.Profile.LocationUpdated, location);
         }
 
         /// <summary>
@@ -161,7 +162,7 @@ namespace BoardVerse.API.Controllers
         {
             var userId = GetUserIdFromClaims();
             await _profileService.ClearCurrentLocationAsync(userId);
-            return this.NewResponse(200, "Current location cleared successfully", null);
+            return this.NewResponse(200, ApiSuccessMessages.Profile.LocationCleared, null);
         }
 
         /// <summary>
@@ -178,7 +179,7 @@ namespace BoardVerse.API.Controllers
         {
             var userId = GetUserIdFromClaims();
             var karmaState = await _profileService.GetKarmaStateAsync(userId);
-            return this.NewResponse(200, "Karma state retrieved successfully", karmaState);
+            return this.NewResponse(200, ApiSuccessMessages.Profile.KarmaStateRetrieved, karmaState);
         }
 
         /// <summary>
@@ -194,7 +195,7 @@ namespace BoardVerse.API.Controllers
         {
             var userId = GetUserIdFromClaims();
             await _profileService.DeleteProfileAsync(userId);
-            return this.NewResponse(200, "Profile deleted successfully", null);
+            return this.NewResponse(200, ApiSuccessMessages.Profile.Deleted, null);
         }
     }
 }

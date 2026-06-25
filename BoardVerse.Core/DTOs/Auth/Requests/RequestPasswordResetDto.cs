@@ -1,12 +1,13 @@
 using System.ComponentModel.DataAnnotations;
+using BoardVerse.Core.Messages;
 
 namespace BoardVerse.Core.DTOs.Auth.Requests
 {
     public class RequestPasswordResetDto
     {
-        [Required(ErrorMessage = "Email is required.")]
-        [EmailAddress(ErrorMessage = "Email must be a valid email address.")]
-        [StringLength(256, ErrorMessage = "Email cannot exceed 256 characters.")]
+        [Required(ErrorMessage = ApiErrorMessages.Validation.EmailRequired)]
+        [EmailAddress(ErrorMessage = ApiErrorMessages.Validation.EmailInvalid)]
+        [StringLength(256, ErrorMessage = ApiErrorMessages.Validation.EmailMaxLength)]
         public required string Email { get; set; }
     }
 }

@@ -1,3 +1,5 @@
+using BoardVerse.Core.Messages;
+
 namespace BoardVerse.Core.Entities
 {
     public class CafeGameComponentPenalty
@@ -12,7 +14,7 @@ namespace BoardVerse.Core.Entities
             set
             {
                 if (value < 0)
-                    throw new ArgumentException("PenaltyFee cannot be negative");
+                    throw new ArgumentException(ApiErrorMessages.Entity.PenaltyFeeCannotBeNegative);
                 _penaltyFee = value;
             }
         }

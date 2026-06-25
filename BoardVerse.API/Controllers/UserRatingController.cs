@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Rating;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -31,7 +32,7 @@ namespace BoardVerse.API.Controllers
         {
             var userId = GetUserIdFromClaims();
             var result = await _karmaRatingService.GetLobbyRatingContextAsync(userId, lobbyId);
-            return NewResponse(200, "Lobby karma rating context retrieved successfully", result);
+            return NewResponse(200, ApiSuccessMessages.Rating.ContextRetrieved, result);
         }
 
         /// <summary>
@@ -50,7 +51,7 @@ namespace BoardVerse.API.Controllers
         {
             var userId = GetUserIdFromClaims();
             var result = await _karmaRatingService.SubmitKarmaRatingsAsync(userId, request);
-            return NewResponse(200, "Karma ratings submitted successfully", result);
+            return NewResponse(200, ApiSuccessMessages.Rating.Submitted, result);
         }
     }
 }

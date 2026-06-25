@@ -1,6 +1,7 @@
 using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.Cafe;
 using BoardVerse.Core.Helpers;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -47,7 +48,7 @@ namespace BoardVerse.API.Controllers
                 radiusKm,
                 gameTemplateId,
                 pagination);
-            return this.NewResponse(200, "Nearby cafes retrieved successfully", result);
+            return this.NewResponse(200, ApiSuccessMessages.Cafe.NearbyRetrieved, result);
         }
 
         /// <summary>
@@ -76,7 +77,7 @@ namespace BoardVerse.API.Controllers
                 radiusKm,
                 gameTemplateId,
                 pagination);
-            return this.NewResponse(200, "Nearby cafes retrieved successfully", result);
+            return this.NewResponse(200, ApiSuccessMessages.Cafe.NearbyRetrieved, result);
         }
 
         /// <summary>
@@ -91,7 +92,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> GetCafe(Guid id)
         {
             var cafe = await _cafeService.GetCafeAsync(id);
-            return this.NewResponse(200, "Cafe retrieved successfully", cafe);
+            return this.NewResponse(200, ApiSuccessMessages.Cafe.Retrieved, cafe);
         }
 
         /// <summary>
@@ -111,7 +112,7 @@ namespace BoardVerse.API.Controllers
         {
             var managerId = GetUserIdFromClaims();
             var cafe = await _cafeService.UpdateCafeAsync(id, managerId, dto);
-            return this.NewResponse(200, "Cafe updated successfully", cafe);
+            return this.NewResponse(200, ApiSuccessMessages.Cafe.Updated, cafe);
         }
 
         /// <summary>
@@ -132,7 +133,7 @@ namespace BoardVerse.API.Controllers
         {
             var managerId = GetUserIdFromClaims();
             await _cafeService.AddStaffAsync(cafeId, managerId, dto);
-            return this.NewResponse(200, "Staff member added successfully", null);
+            return this.NewResponse(200, ApiSuccessMessages.Cafe.StaffAdded, null);
         }
 
         /// <summary>
@@ -153,7 +154,7 @@ namespace BoardVerse.API.Controllers
         {
             var managerId = GetUserIdFromClaims();
             await _cafeService.PromoteUserToStaffAsync(cafeId, managerId, dto);
-            return this.NewResponse(200, "User promoted to cafe staff successfully", null);
+            return this.NewResponse(200, ApiSuccessMessages.Cafe.StaffPromoted, null);
         }
 
         /// <summary>
@@ -177,7 +178,7 @@ namespace BoardVerse.API.Controllers
             var managerId = GetUserIdFromClaims();
             var pagination = new PaginationParams { PageNumber = pageNumber, PageSize = pageSize };
             var result = await _cafeService.GetStaffListAsync(cafeId, managerId, pagination);
-            return this.NewResponse(200, "Staff list retrieved successfully", result);
+            return this.NewResponse(200, ApiSuccessMessages.Cafe.StaffListRetrieved, result);
         }
 
         /// <summary>
@@ -196,7 +197,7 @@ namespace BoardVerse.API.Controllers
         {
             var managerId = GetUserIdFromClaims();
             await _cafeService.RemoveStaffAsync(cafeId, managerId, staffId);
-            return this.NewResponse(200, "Staff member removed successfully", null);
+            return this.NewResponse(200, ApiSuccessMessages.Cafe.StaffRemoved, null);
         }
     }
 }

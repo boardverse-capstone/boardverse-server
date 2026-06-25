@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using BoardVerse.Core.DTOs.Common;
+using BoardVerse.Core.Messages;
 using System.Text.Json;
 
 namespace BoardVerse.API.Filters
@@ -24,7 +25,10 @@ namespace BoardVerse.API.Filters
                 var response = new ApiResponse
                 {
                     StatusCode = 400,
-                    Message = $"Request validation failed for '{path}': {fieldErrors}",
+                    Message = string.Format(
+                        ApiErrorMessages.Validation.RequestFailed,
+                        path,
+                        fieldErrors),
                     Data = errors,
                     Timestamp = DateTime.UtcNow,
                     Path = context.HttpContext.Request.Path,

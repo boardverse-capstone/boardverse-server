@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.User;
+using BoardVerse.Core.Messages;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using BoardVerse.Services.IServices;
@@ -31,7 +32,7 @@ namespace BoardVerse.API.Controllers
         {
             var response = await _userManagementService.GetAllAsync(query);
 
-            return this.NewResponse(200, "Users retrieved successfully", response);
+            return this.NewResponse(200, ApiSuccessMessages.AdminUsers.ListRetrieved, response);
         }
 
         /// <summary>
@@ -47,7 +48,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> Get(Guid id)
         {
             var user = await _userManagementService.GetAsync(id);
-            return this.NewResponse(200, "User retrieved successfully", user);
+            return this.NewResponse(200, ApiSuccessMessages.AdminUsers.Retrieved, user);
         }
 
         /// <summary>
@@ -64,7 +65,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> Create([FromBody] AdminCreateUserDto request)
         {
             var user = await _userManagementService.CreateAsync(request);
-            return this.NewResponse(201, "User created", user);
+            return this.NewResponse(201, ApiSuccessMessages.AdminUsers.Created, user);
         }
 
         /// <summary>
@@ -83,7 +84,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> Update(Guid id, [FromBody] AdminUpdateUserDto request)
         {
             var user = await _userManagementService.UpdateAsync(id, request);
-            return this.NewResponse(200, "User updated successfully", user);
+            return this.NewResponse(200, ApiSuccessMessages.AdminUsers.Updated, user);
         }
 
         /// <summary>
@@ -99,7 +100,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> Disable(Guid id)
         {
             await _userManagementService.DisableAsync(id);
-            return this.NewResponse(200, "User disabled successfully", null);
+            return this.NewResponse(200, ApiSuccessMessages.AdminUsers.Disabled, null);
         }
 
         /// <summary>
@@ -117,7 +118,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> Block(Guid id, [FromBody] AdminBlockUserDto request)
         {
             var user = await _userManagementService.BlockAsync(id, request);
-            return this.NewResponse(200, "User blocked successfully", user);
+            return this.NewResponse(200, ApiSuccessMessages.AdminUsers.Blocked, user);
         }
 
         /// <summary>
@@ -133,7 +134,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> Unblock(Guid id)
         {
             var user = await _userManagementService.UnblockAsync(id);
-            return this.NewResponse(200, "User unblocked successfully", user);
+            return this.NewResponse(200, ApiSuccessMessages.AdminUsers.Unblocked, user);
         }
 
         /// <summary>
@@ -151,7 +152,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> UpdateRole(Guid id, [FromBody] AdminUpdateUserRoleDto request)
         {
             var user = await _userManagementService.UpdateRoleAsync(id, request);
-            return this.NewResponse(200, "User role updated successfully", user);
+            return this.NewResponse(200, ApiSuccessMessages.AdminUsers.RoleUpdated, user);
         }
     }
 }

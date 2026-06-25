@@ -1,6 +1,7 @@
 using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.Inventory;
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -36,7 +37,7 @@ namespace BoardVerse.API.Controllers
         {
             var managerId = GetUserIdFromClaims();
             var result = await _inventoryService.AddToInventoryAsync(cafeId, managerId, dto);
-            return this.NewResponse(201, "Game added to inventory successfully", result);
+            return this.NewResponse(201, ApiSuccessMessages.Inventory.GameAdded, result);
         }
 
         /// <summary>
@@ -75,7 +76,7 @@ namespace BoardVerse.API.Controllers
             };
             var result = await _inventoryService.GetInventoryForViewerAsync(
                 cafeId, viewerId, viewerRole, query);
-            return this.NewResponse(200, "Inventory retrieved successfully", result);
+            return this.NewResponse(200, ApiSuccessMessages.Inventory.Retrieved, result);
         }
 
         /// <summary>
@@ -115,7 +116,7 @@ namespace BoardVerse.API.Controllers
                 PageSize = pageSize
             };
             var result = await _inventoryService.GetDeletedInventoryAsync(cafeId, managerId, query);
-            return this.NewResponse(200, "Deleted inventory retrieved successfully", result);
+            return this.NewResponse(200, ApiSuccessMessages.Inventory.DeletedRetrieved, result);
         }
 
         /// <summary>
@@ -133,7 +134,7 @@ namespace BoardVerse.API.Controllers
             var (viewerId, viewerRole) = GetOptionalViewerContext();
             var result = await _inventoryService.GetInventoryItemForViewerAsync(
                 cafeId, inventoryId, viewerId, viewerRole);
-            return this.NewResponse(200, "Inventory item retrieved successfully", result);
+            return this.NewResponse(200, ApiSuccessMessages.Inventory.ItemRetrieved, result);
         }
 
         /// <summary>
@@ -157,7 +158,7 @@ namespace BoardVerse.API.Controllers
         {
             var managerId = GetUserIdFromClaims();
             var result = await _inventoryService.UpdateInventoryAsync(cafeId, inventoryId, managerId, dto);
-            return this.NewResponse(200, "Inventory updated successfully", result);
+            return this.NewResponse(200, ApiSuccessMessages.Inventory.Updated, result);
         }
 
         /// <summary>
@@ -178,7 +179,7 @@ namespace BoardVerse.API.Controllers
         {
             var managerId = GetUserIdFromClaims();
             var result = await _inventoryService.RestoreInventoryAsync(cafeId, inventoryId, managerId);
-            return this.NewResponse(200, "Inventory item restored successfully", result);
+            return this.NewResponse(200, ApiSuccessMessages.Inventory.Restored, result);
         }
 
         /// <summary>
@@ -197,7 +198,7 @@ namespace BoardVerse.API.Controllers
         {
             var managerId = GetUserIdFromClaims();
             var result = await _inventoryService.SyncPenaltiesAsync(cafeId, inventoryId, managerId);
-            return this.NewResponse(200, "Component penalties synced successfully", result);
+            return this.NewResponse(200, ApiSuccessMessages.Inventory.PenaltiesSynced, result);
         }
 
         /// <summary>
@@ -216,7 +217,7 @@ namespace BoardVerse.API.Controllers
         {
             var managerId = GetUserIdFromClaims();
             await _inventoryService.RemoveFromInventoryAsync(cafeId, inventoryId, managerId);
-            return this.NewResponse(200, "Game removed from inventory successfully", null);
+            return this.NewResponse(200, ApiSuccessMessages.Inventory.GameRemoved, null);
         }
     }
 }

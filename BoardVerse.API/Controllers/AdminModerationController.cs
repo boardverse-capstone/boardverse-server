@@ -64,7 +64,7 @@ namespace BoardVerse.API.Controllers
                 toUtc,
                 pagination);
 
-            return NewResponse(200, "Karma logs retrieved successfully", result);
+            return NewResponse(200, ApiSuccessMessages.AdminModeration.KarmaLogsRetrieved, result);
         }
 
         /// <summary>
@@ -78,7 +78,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> GetUserKarmaAlerts()
         {
             var result = await _adminModerationService.GetKarmaAlertsAsync();
-            return NewResponse(200, "User karma alerts retrieved successfully", result);
+            return NewResponse(200, ApiSuccessMessages.AdminModeration.KarmaAlertsRetrieved, result);
         }
 
         /// <summary>
@@ -97,7 +97,7 @@ namespace BoardVerse.API.Controllers
         {
             var adminUserId = GetUserIdFromClaims();
             var result = await _adminModerationService.PunishUserAsync(adminUserId, id, request);
-            return NewResponse(200, "User punishment applied successfully", result);
+            return NewResponse(200, ApiSuccessMessages.AdminModeration.PunishmentApplied, result);
         }
 
         /// <summary>
@@ -116,7 +116,7 @@ namespace BoardVerse.API.Controllers
         {
             var adminUserId = GetUserIdFromClaims();
             var result = await _adminModerationService.AdjustKarmaAsync(adminUserId, id, request);
-            return NewResponse(200, "User karma adjusted successfully", result);
+            return NewResponse(200, ApiSuccessMessages.AdminModeration.KarmaAdjusted, result);
         }
     }
 }
