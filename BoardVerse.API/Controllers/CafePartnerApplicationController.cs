@@ -22,7 +22,7 @@ namespace BoardVerse.API.Controllers
         /// </summary>
         /// <param name="request">Thông tin quán và người đại diện.</param>
         /// <response code="201">Đơn đã gửi thành công (PENDING_APPROVAL).</response>
-        /// <response code="400">Thiếu trường bắt buộc hoặc dữ liệu không hợp lệ (hotline, giờ làm việc, ảnh giấy phép).</response>
+        /// <response code="400">Thiếu trường bắt buộc hoặc dữ liệu không hợp lệ (số điện thoại, ảnh giấy phép).</response>
         /// <response code="409">Trùng MST/địa chỉ 100%, email đã có đơn mở, hoặc email thuộc Admin/Manager/CafeStaff.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost]

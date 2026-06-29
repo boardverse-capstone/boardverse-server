@@ -201,17 +201,10 @@ namespace BoardVerse.Data
                 entity.Property(a => a.Address).IsRequired().HasMaxLength(500);
                 entity.Property(a => a.Latitude).HasColumnType("double precision");
                 entity.Property(a => a.Longitude).HasColumnType("double precision");
-                entity.Property(a => a.Hotline).IsRequired().HasMaxLength(11);
+                entity.Property(a => a.PhoneNumber).IsRequired().HasMaxLength(11);
                 entity.Property(a => a.RepresentativeEmail).IsRequired().HasMaxLength(256);
                 entity.Property(a => a.BusinessLicense).IsRequired().HasMaxLength(50);
                 entity.Property(a => a.BusinessLicenseImageUrl).HasMaxLength(500);
-                entity.Property(a => a.SpaceImageUrlsJson).IsRequired().HasDefaultValue("[]");
-                entity.Property(a => a.TableLayoutJson).IsRequired().HasDefaultValue("[]");
-                entity.Property(a => a.PopularGamesList).IsRequired().HasMaxLength(2000);
-                entity.Property(a => a.BillingModel)
-                    .HasConversion<string>()
-                    .HasMaxLength(20)
-                    .IsRequired();
                 entity.Property(a => a.Status)
                     .HasConversion<string>()
                     .HasMaxLength(50)
@@ -221,7 +214,7 @@ namespace BoardVerse.Data
                 entity.Property(a => a.UpdatedAt).IsRequired();
                 entity.HasIndex(a => a.RepresentativeEmail);
                 entity.HasIndex(a => a.BusinessLicense);
-                entity.HasIndex(a => a.Hotline);
+                entity.HasIndex(a => a.PhoneNumber);
                 entity.HasIndex(a => a.Status);
                 entity.HasIndex(a => a.SubmittedByUserId);
 
@@ -238,11 +231,6 @@ namespace BoardVerse.Data
                 entity.HasOne(a => a.CreatedManager)
                     .WithMany()
                     .HasForeignKey(a => a.CreatedManagerUserId)
-                    .OnDelete(DeleteBehavior.SetNull);
-
-                entity.HasOne(a => a.CreatedCafe)
-                    .WithMany()
-                    .HasForeignKey(a => a.CreatedCafeId)
                     .OnDelete(DeleteBehavior.SetNull);
             });
 

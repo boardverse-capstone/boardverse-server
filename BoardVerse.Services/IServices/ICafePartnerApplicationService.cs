@@ -1,5 +1,5 @@
-using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.CafePartner;
+using BoardVerse.Core.Common;
 
 namespace BoardVerse.Services.IServices
 {
@@ -12,10 +12,11 @@ namespace BoardVerse.Services.IServices
         Task<OnboardPartnerResultDto> ApproveAsync(Guid id, Guid adminId);
         Task<CafePartnerApplicationResponseDto> RejectAsync(Guid id, Guid adminId, RejectCafePartnerApplicationRequestDto request);
 
-        Task<CafePartnerApplicationResponseDto> GetMyPartnerProfileAsync(Guid managerUserId);
-        Task<CafePartnerApplicationResponseDto> UpdateOperationalProfileAsync(Guid managerUserId, UpdateOperationalProfileRequestDto request);
-        Task<CafePartnerApplicationResponseDto> ActivateAsync(Guid managerUserId);
-        Task<CafePartnerApplicationResponseDto> DeactivateAsync(Guid managerUserId);
-        Task<CafePartnerApplicationResponseDto> ClosePermanentlyAsync(Guid managerUserId);
+        Task<ManagerCafeProfileResponseDto> GetMyPartnerProfileAsync(Guid managerUserId);
+        Task<ManagerCafeProfileResponseDto> UpdateOperationalProfileAsync(Guid managerUserId, UpdateOperationalProfileRequestDto request);
+        Task<ManagerCafeProfileResponseDto> ActivateAsync(Guid managerUserId);
+        Task<ManagerCafeProfileResponseDto> ReopenAsync(Guid managerUserId);
+        Task<ManagerCafeProfileResponseDto> DeactivateAsync(Guid managerUserId);
+        Task<ManagerCafeProfileResponseDto> ClosePermanentlyAsync(Guid managerUserId);
     }
 }

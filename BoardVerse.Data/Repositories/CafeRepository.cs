@@ -440,6 +440,37 @@ namespace BoardVerse.Data.Repositories
                 .ToList();
         }
 
+        public async Task<Cafe?> GetPartnerCafeByManagerIdAsync(Guid managerUserId)
+        {
+            return await _context.Cafes
+                .Include(c => c.PartnerApplication)
+                .Include(c => c.Tables.Where(t => t.IsActive))
+                .FirstOrDefaultAsync(c =>
+                    c.ManagerId == managerUserId &&
+                    c.PartnerOperationalStatus != null);
+        }
+
+        public async Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<string> tableNames)
+        {
+            var existingTables = await _context.CafeTables
+                .Where(t => t.CafeId == cafeId)
+                .ToListAsync();
+
+            var loadedIds = existingTables.Select(t => t.Id).ToHashSet();
+            CafeTableSyncHelper.ApplySync(cafeId, tableNames, existingTables);
+
+            foreach (var table in existingTables.Where(t => !loadedIds.Contains(t.Id)))
+            {
+                _context.CafeTables.Add(table);
+            }
+        }
+
+        public Task<bool> HasActiveBookingsAsync(Guid cafeId) =>
+            _context.CafeTables.AnyAsync(t =>
+                t.CafeId == cafeId
+                && t.IsActive
+                && (t.Status == CafeTableStatus.InUse || t.Status == CafeTableStatus.Reserved));
+
         public async Task SaveChangesAsync()
         {
             await _context.SaveChangesAsync();

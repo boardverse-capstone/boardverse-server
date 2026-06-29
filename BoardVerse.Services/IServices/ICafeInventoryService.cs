@@ -27,6 +27,7 @@ namespace BoardVerse.Services.IServices
             UpdateCafeInventoryRequestDto dto);
         Task<CafeInventoryResponseDto> RestoreInventoryAsync(Guid cafeId, Guid inventoryId, Guid managerId);
         Task<CafeInventoryResponseDto> SyncPenaltiesAsync(Guid cafeId, Guid inventoryId, Guid managerId);
+        Task<CafeInventoryResponseDto> SyncBoxesAsync(Guid cafeId, Guid inventoryId, Guid managerId);
         Task RemoveFromInventoryAsync(Guid cafeId, Guid inventoryId, Guid managerId);
     }
 }

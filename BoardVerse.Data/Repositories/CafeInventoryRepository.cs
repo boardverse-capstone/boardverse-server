@@ -146,26 +146,40 @@ namespace BoardVerse.Data.Repositories
                 .Where(b => b.CafeGameInventoryId == inventoryId)
                 .ToListAsync();
 
+            var loadedIds = existingBoxes.Select(b => b.Id).ToHashSet();
             CafeInventoryBoxSyncHelper.ApplySync(inventory, existingBoxes);
+
+            foreach (var box in existingBoxes.Where(b => !loadedIds.Contains(b.Id)))
+            {
+                _context.CafeInventoryBoxes.Add(box);
+            }
         }
 
         public async Task BackfillMissingInventoryBoxesAsync()
         {
-            var inventoryIds = await _context.CafeGameInventories
+            var inventories = await _context.CafeGameInventories
                 .AsNoTracking()
                 .Where(i => i.IsActive)
-                .Select(i => i.Id)
+                .Select(i => new { i.Id, i.BoxQuantity })
                 .ToListAsync();
 
-            foreach (var inventoryId in inventoryIds)
-            {
-                var hasActiveBoxes = await _context.CafeInventoryBoxes
-                    .AnyAsync(b => b.CafeGameInventoryId == inventoryId && b.IsActive);
+            var needsSync = false;
 
-                if (!hasActiveBoxes)
+            foreach (var inventory in inventories)
+            {
+                var activeBoxCount = await _context.CafeInventoryBoxes
+                    .CountAsync(b => b.CafeGameInventoryId == inventory.Id && b.IsActive);
+
+                if (activeBoxCount < inventory.BoxQuantity)
                 {
-                    await SyncInventoryBoxesAsync(inventoryId);
+                    await SyncInventoryBoxesAsync(inventory.Id);
+                    needsSync = true;
                 }
+            }
+
+            if (needsSync)
+            {
+                await SaveChangesAsync();
             }
         }
 

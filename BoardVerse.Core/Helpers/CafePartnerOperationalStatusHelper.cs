@@ -11,10 +11,15 @@ namespace BoardVerse.Core.Helpers
             status is CafePartnerOperationalStatus.Inactive or CafePartnerOperationalStatus.Banned;
 
         public static bool CanManagerEditProfile(CafePartnerOperationalStatus? status) =>
-            status is CafePartnerOperationalStatus.DataBlank or CafePartnerOperationalStatus.Active;
+            status is CafePartnerOperationalStatus.DataBlank
+                or CafePartnerOperationalStatus.Active
+                or CafePartnerOperationalStatus.Inactive;
 
         public static bool CanManagerActivate(CafePartnerOperationalStatus? status) =>
             status == CafePartnerOperationalStatus.DataBlank;
+
+        public static bool CanManagerReopen(CafePartnerOperationalStatus? status) =>
+            status == CafePartnerOperationalStatus.Inactive;
 
         public static bool CanManagerPause(CafePartnerOperationalStatus? status) =>
             status == CafePartnerOperationalStatus.Active;

@@ -11,22 +11,9 @@ dotnet run --project BoardVerse.API\BoardVerse.API.csproj
 
 API chạy tại `http://localhost:5022`. Swagger UI: `http://localhost:5022/swagger`
 
-### 2. Seed dữ liệu (nếu DB trống hoặc thiếu board game)
+Yêu cầu: schema và dữ liệu trên Neon đã được chuẩn bị sẵn (EF Core entity).
 
-```powershell
-# Schema + board game catalog (categories, 8 game, linh kiện) — idempotent
-dotnet run --project tools/ExecSql -- BoardVerse.Data/update-all-entities.sql
-
-# Dev seed đầy đủ (manager, cafe, catalog ~10 game)
-dotnet run --project tools/SeedDevData/SeedDevData.csproj
-```
-
-Sau seed có sẵn:
-- Manager: `manager@boardverse.dev` / `Manager@123`
-- Cafe ID: `bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb`
-- Board game master data (SQL seed 8 game + catalog nội bộ)
-
-### 3. Kiểm tra API hoạt động
+### 2. Kiểm tra API hoạt động
 
 ```powershell
 curl.exe http://localhost:5022/api/health/ping
@@ -250,5 +237,3 @@ Manager user ID : aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
 Cafe ID         : bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
 Cafe name       : BoardVerse Demo Cafe
 ```
-
-Chạy seed: `dotnet run --project tools/SeedDevData/SeedDevData.csproj`

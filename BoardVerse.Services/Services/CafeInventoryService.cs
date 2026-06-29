@@ -228,6 +228,26 @@ namespace BoardVerse.Services.Services
             return MapToFullDto(restored!);
         }
 
+        public async Task<CafeInventoryResponseDto> SyncBoxesAsync(
+            Guid cafeId,
+            Guid inventoryId,
+            Guid managerId)
+        {
+            await EnsureManagerOwnsCafeAsync(cafeId, managerId);
+
+            var inventory = await _inventoryRepository.GetByIdWithDetailsIncludingInactiveAsync(inventoryId);
+            if (inventory == null || inventory.CafeId != cafeId || !inventory.IsActive)
+            {
+                throw new NotFoundException(ApiErrorMessages.Inventory.ActiveItemNotFound(cafeId, inventoryId));
+            }
+
+            await _inventoryRepository.SyncInventoryBoxesAsync(inventory.Id);
+            await _inventoryRepository.SaveChangesAsync();
+
+            var updated = await _inventoryRepository.GetByIdWithDetailsAsync(inventoryId);
+            return MapToFullDto(updated!);
+        }
+
         public async Task<CafeInventoryResponseDto> SyncPenaltiesAsync(
             Guid cafeId,
             Guid inventoryId,

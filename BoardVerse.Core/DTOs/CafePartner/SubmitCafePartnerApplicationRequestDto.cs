@@ -22,17 +22,14 @@ namespace BoardVerse.Core.DTOs.CafePartner
         [Range(-180, 180, ErrorMessage = ApiErrorMessages.Validation.LongitudeRange)]
         public double Longitude { get; set; }
 
-        [Required(ErrorMessage = ApiErrorMessages.Validation.CafePartnerHotlineRequired)]
-        [StringLength(11, MinimumLength = 10, ErrorMessage = ApiErrorMessages.Validation.CafePartnerHotlineLength)]
-        public string Hotline { get; set; } = string.Empty;
+        [Required(ErrorMessage = ApiErrorMessages.Validation.CafePartnerPhoneNumberRequired)]
+        [StringLength(11, MinimumLength = 10, ErrorMessage = ApiErrorMessages.Validation.CafePartnerPhoneNumberLength)]
+        public string PhoneNumber { get; set; } = string.Empty;
 
         [Required(ErrorMessage = ApiErrorMessages.Validation.CafePartnerRepresentativeEmailRequired)]
         [EmailAddress(ErrorMessage = ApiErrorMessages.Validation.EmailInvalid)]
         [StringLength(256, ErrorMessage = ApiErrorMessages.Validation.EmailMaxLength)]
         public string RepresentativeEmail { get; set; } = string.Empty;
-
-        [Required(ErrorMessage = ApiErrorMessages.Validation.WorkingHoursRequired)]
-        public WorkingHoursDto WorkingHours { get; set; } = new();
 
         [Required(ErrorMessage = ApiErrorMessages.Validation.CafePartnerBusinessLicenseRequired)]
         [StringLength(50, MinimumLength = 5, ErrorMessage = ApiErrorMessages.Validation.CafePartnerBusinessLicenseLength)]

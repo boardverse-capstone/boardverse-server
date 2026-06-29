@@ -7,24 +7,24 @@ using Microsoft.AspNetCore.Mvc;
 namespace BoardVerse.API.Controllers
 {
     [ApiController]
-    [Route("api/cafe-partner/me")]
+    [Route("api/manager/cafes/me")]
     [Authorize(Roles = "Manager")]
-    public class CafePartnerManagerController : BaseApiController
+    public class ManagerCafeProfileController : BaseApiController
     {
         private readonly ICafePartnerApplicationService _service;
 
-        public CafePartnerManagerController(ICafePartnerApplicationService service)
+        public ManagerCafeProfileController(ICafePartnerApplicationService service)
         {
             _service = service;
         }
 
         /// <summary>
-        /// Lấy hồ sơ đối tác của Manager đang đăng nhập (Web POS). [Role: Manager]
+        /// Lấy hồ sơ quán đối tác của Manager (Web POS, nguồn dữ liệu <c>Cafe</c>). [Role: Manager]
         /// </summary>
-        /// <response code="200">Trả về hồ sơ đối tác và trạng thái kích hoạt.</response>
+        /// <response code="200">Trả về <see cref="ManagerCafeProfileResponseDto"/>.</response>
         /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
         /// <response code="403">Tài khoản không có quyền Manager.</response>
-        /// <response code="404">Chưa có hồ sơ đối tác đã được duyệt.</response>
+        /// <response code="404">Chưa có quán đối tác đã được duyệt.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpGet]
         public async Task<IActionResult> GetProfile()
@@ -37,12 +37,12 @@ namespace BoardVerse.API.Controllers
         /// <summary>
         /// Cập nhật hồ sơ vận hành (Giai đoạn 2) trước khi kích hoạt. [Role: Manager]
         /// </summary>
-        /// <param name="request">Hạ tầng, catalog game, sơ đồ bàn.</param>
+        /// <param name="request">Giờ mở cửa, hạ tầng, catalog game, sơ đồ bàn.</param>
         /// <response code="200">Cập nhật hồ sơ vận hành thành công.</response>
         /// <response code="400">Dữ liệu không hợp lệ hoặc quán đang ACTIVE (cần tạm dừng trước).</response>
         /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
         /// <response code="403">Tài khoản không có quyền Manager.</response>
-        /// <response code="404">Chưa có hồ sơ đối tác đã được duyệt.</response>
+        /// <response code="404">Chưa có quán đối tác đã được duyệt.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPut("operational-profile")]
         public async Task<IActionResult> UpdateOperationalProfile([FromBody] UpdateOperationalProfileRequestDto request)
@@ -56,10 +56,10 @@ namespace BoardVerse.API.Controllers
         /// Kích hoạt quán (DATA_BLANK → ACTIVE) khi đủ điều kiện ràng buộc. [Role: Manager]
         /// </summary>
         /// <response code="200">Kích hoạt quán thành công, hiển thị trên Mobile App.</response>
-        /// <response code="400">Chưa đủ điều kiện (≥5 bàn, ≥20 game, ≥3 ảnh, sơ đồ bàn) hoặc trạng thái không hợp lệ.</response>
+        /// <response code="400">Chưa đủ điều kiện (≥5 bàn, ≥20 game, ≥3 ảnh, giờ mở cửa, sơ đồ bàn) hoặc trạng thái không hợp lệ.</response>
         /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
         /// <response code="403">Tài khoản không có quyền Manager.</response>
-        /// <response code="404">Chưa có hồ sơ đối tác đã được duyệt.</response>
+        /// <response code="404">Chưa có quán đối tác đã được duyệt.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("activate")]
         public async Task<IActionResult> Activate()
@@ -76,7 +76,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="400">Còn phiên đặt bàn đang chạy hoặc trạng thái không hợp lệ.</response>
         /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
         /// <response code="403">Tài khoản không có quyền Manager.</response>
-        /// <response code="404">Chưa có hồ sơ đối tác đã được duyệt.</response>
+        /// <response code="404">Chưa có quán đối tác đã được duyệt.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("deactivate")]
         public async Task<IActionResult> Deactivate()
@@ -87,16 +87,37 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Ngừng kinh doanh vĩnh viễn (ACTIVE/DATA_BLANK → INACTIVE). [Role: Manager]
+        /// Ngừng kinh doanh (ACTIVE/DATA_BLANK → INACTIVE). Có thể mở lại bằng <c>POST reopen</c>. [Role: Manager]
         /// </summary>
         /// <response code="200">Quán đã chuyển sang INACTIVE.</response>
         /// <response code="400">Còn phiên bàn đang chạy, quán đã INACTIVE/BANNED, hoặc trạng thái không hợp lệ.</response>
+        /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+        /// <response code="403">Tài khoản không có quyền Manager.</response>
+        /// <response code="404">Chưa có quán đối tác đã được duyệt.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("close")]
         public async Task<IActionResult> ClosePermanently()
         {
             var managerId = GetUserIdFromClaims();
             var result = await _service.ClosePermanentlyAsync(managerId);
             return NewResponse(200, ApiSuccessMessages.CafePartner.CafeClosedPermanently, result);
+        }
+
+        /// <summary>
+        /// Mở lại quán (INACTIVE → ACTIVE) khi đủ điều kiện ràng buộc. [Role: Manager]
+        /// </summary>
+        /// <response code="200">Mở lại quán thành công, hiển thị trên Mobile App.</response>
+        /// <response code="400">Chưa đủ điều kiện kích hoạt, quán BANNED, hoặc trạng thái không phải INACTIVE.</response>
+        /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+        /// <response code="403">Tài khoản không có quyền Manager.</response>
+        /// <response code="404">Chưa có quán đối tác đã được duyệt.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpPost("reopen")]
+        public async Task<IActionResult> Reopen()
+        {
+            var managerId = GetUserIdFromClaims();
+            var result = await _service.ReopenAsync(managerId);
+            return NewResponse(200, ApiSuccessMessages.CafePartner.CafeReopened, result);
         }
     }
 }

@@ -22,7 +22,7 @@ namespace BoardVerse.Data.Configurations
             builder.Property(i => i.IsActive).IsRequired().HasDefaultValue(true);
 
             builder.HasOne(i => i.Cafe)
-                .WithMany()
+                .WithMany(c => c.Inventories)
                 .HasForeignKey(i => i.CafeId)
                 .OnDelete(DeleteBehavior.Cascade);
 

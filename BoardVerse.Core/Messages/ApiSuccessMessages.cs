@@ -51,6 +51,7 @@ namespace BoardVerse.Core.Messages
             public const string Updated = "Cập nhật kho thành công.";
             public const string Restored = "Khôi phục mục kho thành công.";
             public const string PenaltiesSynced = "Đồng bộ phí linh kiện thành công.";
+            public const string BoxesSynced = "Đồng bộ hộp game vật lý thành công.";
             public const string GameRemoved = "Xóa game khỏi kho thành công.";
         }
 
@@ -99,6 +100,7 @@ namespace BoardVerse.Core.Messages
             public const string ProfileRetrieved = "Lấy hồ sơ đối tác thành công.";
             public const string OperationalProfileUpdated = "Cập nhật hồ sơ vận hành thành công.";
             public const string CafeActivated = "Kích hoạt quán thành công.";
+            public const string CafeReopened = "Mở lại quán thành công.";
             public const string CafePaused = "Tạm dừng quán thành công.";
             public const string CafeClosedPermanently = "Đóng quán vĩnh viễn thành công.";
         }

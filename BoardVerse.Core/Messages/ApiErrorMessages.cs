@@ -365,6 +365,12 @@ namespace BoardVerse.Core.Messages
             public const string OnlyDataBlankCafesCanBeActivated =
                 "Chỉ quán DATA_BLANK mới có thể kích hoạt.";
 
+            public const string OnlyInactiveCafesCanBeReopened =
+                "Chỉ quán INACTIVE mới có thể mở lại.";
+
+            public const string UseReopenForInactiveCafes =
+                "Quán đang INACTIVE. Dùng POST /api/manager/cafes/me/reopen để mở lại.";
+
             public const string OpenApplicationExists =
                 "Đã có đơn đang mở với email này.";
 
@@ -392,8 +398,8 @@ namespace BoardVerse.Core.Messages
             public const string CafeNameLengthInvalid =
                 "Tên quán phải từ 5 đến 100 ký tự.";
 
-            public const string HotlineInvalid =
-                "Hotline phải là số điện thoại Việt Nam hợp lệ gồm 10–11 chữ số.";
+            public const string PhoneNumberInvalid =
+                "Số điện thoại phải là số Việt Nam hợp lệ gồm 10–11 chữ số.";
 
             public const string BusinessLicenseAlphanumeric =
                 "Giấy phép kinh doanh chỉ được chứa chữ và số.";
@@ -451,6 +457,9 @@ namespace BoardVerse.Core.Messages
 
             public const string GpsLocationRequiredBeforeActivation =
                 "Cần có vị trí GPS trước khi kích hoạt quán.";
+
+            public const string WorkingHoursRequiredBeforeActivation =
+                "Cần cấu hình giờ mở cửa trước khi kích hoạt quán.";
 
             public const string CafePermanentlyClosedBlocker =
                 "Quán đã đóng vĩnh viễn (INACTIVE).";
@@ -790,8 +799,8 @@ namespace BoardVerse.Core.Messages
             public const string CafePartnerCafeNameLength = "Tên quán phải từ 5 đến 100 ký tự.";
             public const string CafePartnerAddressRequired = "Địa chỉ là bắt buộc.";
             public const string CafePartnerAddressLength = "Địa chỉ phải từ 10 đến 500 ký tự.";
-            public const string CafePartnerHotlineRequired = "Hotline là bắt buộc.";
-            public const string CafePartnerHotlineLength = "Hotline phải từ 10 đến 11 ký tự.";
+            public const string CafePartnerPhoneNumberRequired = "Số điện thoại là bắt buộc.";
+            public const string CafePartnerPhoneNumberLength = "Số điện thoại phải từ 10 đến 11 ký tự.";
             public const string CafePartnerRepresentativeEmailRequired = "Email đại diện là bắt buộc.";
             public const string CafePartnerBusinessLicenseRequired = "Giấy phép kinh doanh là bắt buộc.";
             public const string CafePartnerBusinessLicenseLength = "Giấy phép kinh doanh phải từ 5 đến 50 ký tự.";

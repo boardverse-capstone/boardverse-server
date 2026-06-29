@@ -68,7 +68,6 @@ namespace BoardVerse.Services.Services
             }
 
             var resolvedSubmitterId = await ResolveSubmittedByUserIdAsync(submittedByUserId, email);
-            var workingHours = ParseWorkingHours(request.WorkingHours);
             var now = DateTime.UtcNow;
 
             var application = new CafePartnerApplication
@@ -78,15 +77,10 @@ namespace BoardVerse.Services.Services
                 Address = request.Address.Trim(),
                 Latitude = request.Latitude,
                 Longitude = request.Longitude,
-                Hotline = NormalizePhoneDigits(request.Hotline),
+                PhoneNumber = NormalizePhoneDigits(request.PhoneNumber),
                 RepresentativeEmail = email,
                 BusinessLicense = request.BusinessLicense.Trim().ToUpperInvariant(),
                 BusinessLicenseImageUrl = request.BusinessLicenseImageUrl.Trim(),
-                WeekdayOpen = workingHours.WeekdayOpen,
-                WeekdayClose = workingHours.WeekdayClose,
-                WeekendOpen = workingHours.WeekendOpen,
-                WeekendClose = workingHours.WeekendClose,
-                BillingModel = CafePartnerBillingModel.ByHour,
                 Status = CafePartnerApplicationStatus.PendingApproval,
                 SubmittedByUserId = resolvedSubmitterId,
                 SubmittedAt = now,
@@ -101,11 +95,11 @@ namespace BoardVerse.Services.Services
                 ApiEmailMessages.CafePartner.ApplicationReceivedSubject,
                 ApiEmailMessages.CafePartner.ApplicationReceivedBody(application.CafeName, application.Id));
 
-            return MapToDto(await GetApplicationOrThrowAsync(application.Id));
+            return MapApplicationDto(await GetApplicationOrThrowAsync(application.Id));
         }
 
         public async Task<CafePartnerApplicationResponseDto> GetByIdAsync(Guid id) =>
-            MapToDto(await GetApplicationOrThrowAsync(id));
+            MapApplicationDto(await GetApplicationOrThrowAsync(id));
 
         public async Task<PaginatedResponse<CafePartnerApplicationResponseDto>> GetAllForAdminAsync(
             AdminCafePartnerApplicationQueryDto query)
@@ -113,7 +107,7 @@ namespace BoardVerse.Services.Services
             var result = await _applicationRepository.GetPagedAsync(query);
             return new PaginatedResponse<CafePartnerApplicationResponseDto>
             {
-                Data = result.Data.Select(MapToDto).ToList(),
+                Data = result.Data.Select(MapApplicationDto).ToList(),
                 Meta = result.Meta
             };
         }
@@ -147,7 +141,7 @@ namespace BoardVerse.Services.Services
                     Id = Guid.NewGuid(),
                     Username = email,
                     Email = email,
-                    PhoneNumber = application.Hotline,
+                    PhoneNumber = application.PhoneNumber,
                     PasswordHash = BCrypt.Net.BCrypt.HashPassword(temporaryPassword),
                     Role = UserRole.Manager,
                     Provider = "Local",
@@ -178,7 +172,7 @@ namespace BoardVerse.Services.Services
 
                 existingUser.Role = UserRole.Manager;
                 existingUser.Username = email;
-                existingUser.PhoneNumber = application.Hotline;
+                existingUser.PhoneNumber = application.PhoneNumber;
                 existingUser.IsEmailVerified = true;
                 existingUser.IsActive = true;
                 existingUser.UpdatedAt = DateTime.UtcNow;
@@ -202,16 +196,13 @@ namespace BoardVerse.Services.Services
                 Id = cafeId,
                 Name = application.CafeName,
                 Address = application.Address,
-                PhoneNumber = application.Hotline,
+                PhoneNumber = application.PhoneNumber,
                 Description = null,
                 ManagerId = managerUser.Id,
                 CreatedAt = DateTime.UtcNow,
                 IsActive = false,
                 PartnerOperationalStatus = CafePartnerOperationalStatus.DataBlank,
-                WeekdayOpen = application.WeekdayOpen,
-                WeekdayClose = application.WeekdayClose,
-                WeekendOpen = application.WeekendOpen,
-                WeekendClose = application.WeekendClose
+                BillingModel = CafePartnerBillingModel.ByHour,
             };
 
             if (application.Latitude.HasValue && application.Longitude.HasValue)
@@ -238,7 +229,7 @@ namespace BoardVerse.Services.Services
 
             return new OnboardPartnerResultDto
             {
-                Application = MapToDto(await GetApplicationOrThrowAsync(id)),
+                Application = MapApplicationDto(await GetApplicationOrThrowAsync(id)),
                 ManagerUserId = managerUser.Id,
                 ManagerEmail = email,
                 CafeId = cafeId,
@@ -276,59 +267,57 @@ namespace BoardVerse.Services.Services
                 ApiEmailMessages.CafePartner.ApplicationRejectedSubject,
                 ApiEmailMessages.CafePartner.ApplicationRejectedBody(application.RejectionReason!));
 
-            return MapToDto(await GetApplicationOrThrowAsync(id));
+            return MapApplicationDto(await GetApplicationOrThrowAsync(id));
         }
 
-        public async Task<CafePartnerApplicationResponseDto> GetMyPartnerProfileAsync(Guid managerUserId)
+        public async Task<ManagerCafeProfileResponseDto> GetMyPartnerProfileAsync(Guid managerUserId)
         {
-            var application = await GetApprovedApplicationForManagerOrThrowAsync(managerUserId);
-            return MapToDto(application);
+            var cafe = await GetPartnerCafeForManagerOrThrowAsync(managerUserId);
+            return MapManagerCafeProfile(cafe.PartnerApplication!, cafe);
         }
 
-        public async Task<CafePartnerApplicationResponseDto> UpdateOperationalProfileAsync(
+        public async Task<ManagerCafeProfileResponseDto> UpdateOperationalProfileAsync(
             Guid managerUserId,
             UpdateOperationalProfileRequestDto request)
         {
             ValidatePhase2Request(request);
 
-            var application = await GetApprovedApplicationForManagerOrThrowAsync(managerUserId);
-            EnsureOperationalStateAllowsEdit(application);
+            var cafe = await GetPartnerCafeForManagerOrThrowAsync(managerUserId);
+            EnsureOperationalStateAllowsEdit(cafe);
 
-            application.NumberOfTables = request.NumberOfTables;
-            application.NumberOfPrivateRooms = request.NumberOfPrivateRooms;
-            application.SpaceImageUrlsJson = JsonSerializer.Serialize(
+            var existingTableNames = DeserializeStringList(cafe.TableLayoutJson);
+            var tableNames = CafePartnerTableLayoutHelper.ResolveTableNames(
+                request.NumberOfTables,
+                request.TableNames,
+                existingTableNames);
+            var workingHours = ParseWorkingHours(request.WorkingHours);
+
+            cafe.WeekdayOpen = workingHours.WeekdayOpen;
+            cafe.WeekdayClose = workingHours.WeekdayClose;
+            cafe.WeekendOpen = workingHours.WeekendOpen;
+            cafe.WeekendClose = workingHours.WeekendClose;
+            cafe.NumberOfTables = request.NumberOfTables;
+            cafe.NumberOfPrivateRooms = request.NumberOfPrivateRooms;
+            cafe.SpaceImageUrlsJson = JsonSerializer.Serialize(
                 request.SpaceImageUrls.Select(u => u.Trim()).Where(u => !string.IsNullOrWhiteSpace(u)).ToList());
-            application.NumberOfGamesOwned = request.NumberOfGamesOwned;
-            application.PopularGamesList = request.PopularGamesList.Trim();
-            application.HasGameMaster = request.HasGameMaster;
-            application.BillingModel = request.BillingModel;
-            var existingTableNames = DeserializeStringList(application.TableLayoutJson);
-            application.TableLayoutJson = JsonSerializer.Serialize(
-                CafePartnerTableLayoutHelper.ResolveTableNames(
-                    request.NumberOfTables,
-                    request.TableNames,
-                    existingTableNames));
-            application.OperationalProfileUpdatedAt = DateTime.UtcNow;
-            application.UpdatedAt = DateTime.UtcNow;
+            cafe.NumberOfGamesOwned = request.NumberOfGamesOwned;
+            cafe.PopularGamesList = request.PopularGamesList.Trim();
+            cafe.HasGameMaster = request.HasGameMaster;
+            cafe.BillingModel = request.BillingModel;
+            cafe.TableLayoutJson = JsonSerializer.Serialize(tableNames);
+            cafe.OperationalProfileUpdatedAt = DateTime.UtcNow;
+            cafe.UpdatedAt = DateTime.UtcNow;
 
-            if (application.CreatedCafe != null)
-            {
-                application.CreatedCafe.Description = application.PopularGamesList;
-                application.CreatedCafe.UpdatedAt = DateTime.UtcNow;
+            await _cafeRepository.SyncCafeTablesAsync(cafe.Id, tableNames);
+            await _cafeRepository.SaveChangesAsync();
 
-                var tableNames = DeserializeStringList(application.TableLayoutJson);
-                await _applicationRepository.SyncCafeTablesAsync(application.CreatedCafe.Id, tableNames);
-            }
-
-            await _applicationRepository.SaveChangesAsync();
-            return MapToDto(await GetApprovedApplicationForManagerOrThrowAsync(managerUserId));
+            return MapManagerCafeProfile(cafe.PartnerApplication!, cafe);
         }
 
-        public async Task<CafePartnerApplicationResponseDto> ActivateAsync(Guid managerUserId)
+        public async Task<ManagerCafeProfileResponseDto> ActivateAsync(Guid managerUserId)
         {
-            var application = await GetApprovedApplicationForManagerOrThrowAsync(managerUserId);
-            var cafe = application.CreatedCafe
-                ?? throw new CafePartnerApplicationInvalidStatusException(ApiErrorMessages.CafePartner.LinkedCafeMissing);
+            var cafe = await GetPartnerCafeForManagerOrThrowAsync(managerUserId);
+            var application = cafe.PartnerApplication!;
 
             if (!CafePartnerOperationalStatusHelper.CanManagerActivate(cafe.PartnerOperationalStatus))
             {
@@ -336,42 +325,62 @@ namespace BoardVerse.Services.Services
                     cafe.PartnerOperationalStatus == CafePartnerOperationalStatus.Banned
                         ? ApiErrorMessages.CafePartner.CafeBannedByAdmin
                         : cafe.PartnerOperationalStatus == CafePartnerOperationalStatus.Inactive
-                            ? ApiErrorMessages.CafePartner.CafePermanentlyClosed
+                            ? ApiErrorMessages.CafePartner.UseReopenForInactiveCafes
                             : ApiErrorMessages.CafePartner.OnlyDataBlankCafesCanBeActivated);
             }
 
-            var blockers = GetActivationBlockers(application);
+            return await SetCafeActiveAsync(cafe, application);
+        }
+
+        public async Task<ManagerCafeProfileResponseDto> ReopenAsync(Guid managerUserId)
+        {
+            var cafe = await GetPartnerCafeForManagerOrThrowAsync(managerUserId);
+            var application = cafe.PartnerApplication!;
+
+            if (!CafePartnerOperationalStatusHelper.CanManagerReopen(cafe.PartnerOperationalStatus))
+            {
+                throw new CafePartnerApplicationInvalidStatusException(
+                    cafe.PartnerOperationalStatus == CafePartnerOperationalStatus.Banned
+                        ? ApiErrorMessages.CafePartner.CafeBannedByAdmin
+                        : ApiErrorMessages.CafePartner.OnlyInactiveCafesCanBeReopened);
+            }
+
+            return await SetCafeActiveAsync(cafe, application);
+        }
+
+        private async Task<ManagerCafeProfileResponseDto> SetCafeActiveAsync(
+            Cafe cafe,
+            CafePartnerApplication application)
+        {
+            var blockers = GetActivationBlockers(cafe);
             if (blockers.Count > 0)
             {
                 throw new CafePartnerActivationRequirementsNotMetException(
                     ApiErrorMessages.CafePartner.ActivationRequirementsNotMet(blockers));
             }
 
-            var tableNames = DeserializeStringList(application.TableLayoutJson);
-            await _applicationRepository.SyncCafeTablesAsync(cafe.Id, tableNames);
+            var tableNames = DeserializeStringList(cafe.TableLayoutJson);
+            await _cafeRepository.SyncCafeTablesAsync(cafe.Id, tableNames);
 
             cafe.IsActive = true;
             cafe.PartnerOperationalStatus = CafePartnerOperationalStatus.Active;
             cafe.PartnerOperationalStatusReason = null;
             cafe.PartnerOperationalStatusChangedAt = DateTime.UtcNow;
             cafe.UpdatedAt = DateTime.UtcNow;
-            application.UpdatedAt = DateTime.UtcNow;
 
-            await _applicationRepository.SaveChangesAsync();
+            await _cafeRepository.SaveChangesAsync();
 
             await SendEmailSafeAsync(
                 application.RepresentativeEmail,
                 ApiEmailMessages.CafePartner.CafeActivatedSubject,
                 ApiEmailMessages.CafePartner.CafeActivatedBody(application.CafeName));
 
-            return MapToDto(await GetApprovedApplicationForManagerOrThrowAsync(managerUserId));
+            return MapManagerCafeProfile(application, cafe);
         }
 
-        public async Task<CafePartnerApplicationResponseDto> DeactivateAsync(Guid managerUserId)
+        public async Task<ManagerCafeProfileResponseDto> DeactivateAsync(Guid managerUserId)
         {
-            var application = await GetApprovedApplicationForManagerOrThrowAsync(managerUserId);
-            var cafe = application.CreatedCafe
-                ?? throw new CafePartnerApplicationInvalidStatusException(ApiErrorMessages.CafePartner.LinkedCafeMissing);
+            var cafe = await GetPartnerCafeForManagerOrThrowAsync(managerUserId);
 
             if (!CafePartnerOperationalStatusHelper.CanManagerPause(cafe.PartnerOperationalStatus))
             {
@@ -383,7 +392,7 @@ namespace BoardVerse.Services.Services
                             : ApiErrorMessages.CafePartner.OnlyActiveCafesCanBePaused);
             }
 
-            if (await _applicationRepository.HasActiveBookingsAsync(cafe.Id))
+            if (await _cafeRepository.HasActiveBookingsAsync(cafe.Id))
             {
                 throw new CafePartnerApplicationInvalidStatusException(
                     ApiErrorMessages.CafePartner.CannotPauseWithActiveSessions);
@@ -394,17 +403,14 @@ namespace BoardVerse.Services.Services
             cafe.PartnerOperationalStatusReason = null;
             cafe.PartnerOperationalStatusChangedAt = DateTime.UtcNow;
             cafe.UpdatedAt = DateTime.UtcNow;
-            application.UpdatedAt = DateTime.UtcNow;
 
-            await _applicationRepository.SaveChangesAsync();
-            return MapToDto(await GetApprovedApplicationForManagerOrThrowAsync(managerUserId));
+            await _cafeRepository.SaveChangesAsync();
+            return MapManagerCafeProfile(cafe.PartnerApplication!, cafe);
         }
 
-        public async Task<CafePartnerApplicationResponseDto> ClosePermanentlyAsync(Guid managerUserId)
+        public async Task<ManagerCafeProfileResponseDto> ClosePermanentlyAsync(Guid managerUserId)
         {
-            var application = await GetApprovedApplicationForManagerOrThrowAsync(managerUserId);
-            var cafe = application.CreatedCafe
-                ?? throw new CafePartnerApplicationInvalidStatusException(ApiErrorMessages.CafePartner.LinkedCafeMissing);
+            var cafe = await GetPartnerCafeForManagerOrThrowAsync(managerUserId);
 
             if (!CafePartnerOperationalStatusHelper.CanManagerClosePermanently(cafe.PartnerOperationalStatus))
             {
@@ -414,7 +420,7 @@ namespace BoardVerse.Services.Services
                         : ApiErrorMessages.CafePartner.CafePermanentlyClosed);
             }
 
-            if (await _applicationRepository.HasActiveBookingsAsync(cafe.Id))
+            if (await _cafeRepository.HasActiveBookingsAsync(cafe.Id))
             {
                 throw new CafePartnerApplicationInvalidStatusException(
                     ApiErrorMessages.CafePartner.CannotCloseWithActiveBookings);
@@ -426,32 +432,25 @@ namespace BoardVerse.Services.Services
             cafe.PartnerOperationalStatusReason = ApiErrorMessages.CafePartner.ClosedByManagerReason;
             cafe.PartnerOperationalStatusChangedAt = utcNow;
             cafe.UpdatedAt = utcNow;
-            application.UpdatedAt = utcNow;
 
-            await _applicationRepository.SaveChangesAsync();
-            return MapToDto(await GetApprovedApplicationForManagerOrThrowAsync(managerUserId));
+            await _cafeRepository.SaveChangesAsync();
+            return MapManagerCafeProfile(cafe.PartnerApplication!, cafe);
         }
 
         private async Task<CafePartnerApplication> GetApplicationOrThrowAsync(Guid id) =>
             await _applicationRepository.GetByIdAsync(id)
             ?? throw new CafePartnerApplicationNotFoundException(ApiErrorMessages.CafePartner.ApplicationNotFound(id));
 
-        private async Task<CafePartnerApplication> GetApprovedApplicationForManagerOrThrowAsync(Guid managerUserId) =>
-            await _applicationRepository.GetApprovedByManagerUserIdAsync(managerUserId)
+        private async Task<Cafe> GetPartnerCafeForManagerOrThrowAsync(Guid managerUserId) =>
+            await _cafeRepository.GetPartnerCafeByManagerIdAsync(managerUserId)
             ?? throw new CafePartnerApplicationNotFoundException(ApiErrorMessages.CafePartner.ApplicationNotFoundForManager);
 
-        private static void EnsureOperationalStateAllowsEdit(CafePartnerApplication application)
+        private static void EnsureOperationalStateAllowsEdit(Cafe cafe)
         {
-            var cafe = application.CreatedCafe;
-            if (cafe == null)
-                return;
-
-            if (CafePartnerOperationalStatusHelper.IsTerminal(cafe.PartnerOperationalStatus))
+            if (cafe.PartnerOperationalStatus == CafePartnerOperationalStatus.Banned)
             {
                 throw new CafePartnerApplicationInvalidStatusException(
-                    cafe.PartnerOperationalStatus == CafePartnerOperationalStatus.Banned
-                        ? ApiErrorMessages.CafePartner.CafeBannedByAdmin
-                        : ApiErrorMessages.CafePartner.CafePermanentlyClosed);
+                    ApiErrorMessages.CafePartner.CafeBannedByAdmin);
             }
 
             if (cafe.PartnerOperationalStatus == CafePartnerOperationalStatus.Active && cafe.IsActive)
@@ -468,9 +467,9 @@ namespace BoardVerse.Services.Services
                 throw new BadRequestException(ApiErrorMessages.CafePartner.CafeNameLengthInvalid);
             }
 
-            if (!IsValidVnHotline(request.Hotline))
+            if (!IsValidVnPhoneNumber(request.PhoneNumber))
             {
-                throw new BadRequestException(ApiErrorMessages.CafePartner.HotlineInvalid);
+                throw new BadRequestException(ApiErrorMessages.CafePartner.PhoneNumberInvalid);
             }
 
             if (!Regex.IsMatch(request.BusinessLicense.Trim(), @"^[a-zA-Z0-9\-]+$"))
@@ -482,8 +481,6 @@ namespace BoardVerse.Services.Services
             {
                 throw new BadRequestException(ApiErrorMessages.CafePartner.BusinessLicenseImageFormatInvalid);
             }
-
-            ParseWorkingHours(request.WorkingHours);
 
             try
             {
@@ -530,47 +527,60 @@ namespace BoardVerse.Services.Services
                     throw new BadRequestException(ApiErrorMessages.CafePartner.SpaceImagesFormatInvalid);
                 }
             }
+
+            ParseWorkingHours(request.WorkingHours);
         }
 
-        private static List<string> GetActivationBlockers(CafePartnerApplication application)
+        private static List<string> GetActivationBlockers(Cafe cafe)
         {
             var blockers = new List<string>();
 
-            if (application.NumberOfTables < CafePartnerActivationRules.MinPublicTables)
+            if (cafe.NumberOfTables < CafePartnerActivationRules.MinPublicTables)
             {
                 blockers.Add(ApiErrorMessages.CafePartner.MinPublicTablesRequired(CafePartnerActivationRules.MinPublicTables));
             }
 
-            if (application.NumberOfGamesOwned < CafePartnerActivationRules.MinGamesOwned)
+            if (cafe.NumberOfGamesOwned < CafePartnerActivationRules.MinGamesOwned)
             {
                 blockers.Add(ApiErrorMessages.CafePartner.MinGamesOwnedRequired(CafePartnerActivationRules.MinGamesOwned));
             }
 
-            var spaceUrls = DeserializeStringList(application.SpaceImageUrlsJson);
+            var spaceUrls = DeserializeStringList(cafe.SpaceImageUrlsJson);
             if (spaceUrls.Count < CafePartnerActivationRules.MinSpaceImages ||
                 spaceUrls.Any(u => !HasAllowedExtension(u, SpaceImageExtensions)))
             {
                 blockers.Add(ApiErrorMessages.CafePartner.MinSpaceImagesActivationRequired(CafePartnerActivationRules.MinSpaceImages));
             }
 
-            var tableNames = DeserializeStringList(application.TableLayoutJson);
-            if (tableNames.Count < application.NumberOfTables)
+            var tableNames = DeserializeStringList(cafe.TableLayoutJson);
+            if (tableNames.Count < cafe.NumberOfTables)
             {
                 blockers.Add(ApiErrorMessages.CafePartner.TableLayoutRequired);
             }
 
-            if (string.IsNullOrWhiteSpace(application.PopularGamesList))
+            if (string.IsNullOrWhiteSpace(cafe.PopularGamesList))
             {
                 blockers.Add(ApiErrorMessages.CafePartner.PopularGamesListRequired);
             }
 
-            if (!application.Latitude.HasValue || !application.Longitude.HasValue)
+            if (!cafe.Latitude.HasValue || !cafe.Longitude.HasValue)
             {
                 blockers.Add(ApiErrorMessages.CafePartner.GpsLocationRequiredBeforeActivation);
             }
 
+            if (!HasWorkingHoursConfigured(cafe))
+            {
+                blockers.Add(ApiErrorMessages.CafePartner.WorkingHoursRequiredBeforeActivation);
+            }
+
             return blockers;
         }
+
+        private static bool HasWorkingHoursConfigured(Cafe cafe) =>
+            cafe.WeekdayOpen.HasValue
+            && cafe.WeekdayClose.HasValue
+            && cafe.WeekendOpen.HasValue
+            && cafe.WeekendClose.HasValue;
 
         private static (TimeSpan WeekdayOpen, TimeSpan WeekdayClose, TimeSpan WeekendOpen, TimeSpan WeekendClose) ParseWorkingHours(
             WorkingHoursDto dto)
@@ -631,9 +641,9 @@ namespace BoardVerse.Services.Services
         private static string NormalizePhoneDigits(string phone) =>
             new string(phone.Where(char.IsDigit).ToArray());
 
-        private static bool IsValidVnHotline(string hotline)
+        private static bool IsValidVnPhoneNumber(string phoneNumber)
         {
-            var digits = NormalizePhoneDigits(hotline);
+            var digits = NormalizePhoneDigits(phoneNumber);
             return digits.Length is 10 or 11 && digits.StartsWith('0') && digits[1] is '3' or '5' or '7' or '8' or '9';
         }
 
@@ -677,6 +687,25 @@ namespace BoardVerse.Services.Services
             return builder.ToString();
         }
 
+        private static WorkingHoursDto MapWorkingHours(Cafe? cafe)
+        {
+            if (cafe?.WeekdayOpen is not { } weekdayOpen
+                || cafe.WeekdayClose is not { } weekdayClose
+                || cafe.WeekendOpen is not { } weekendOpen
+                || cafe.WeekendClose is not { } weekendClose)
+            {
+                return new WorkingHoursDto();
+            }
+
+            return new WorkingHoursDto
+            {
+                WeekdayStart = weekdayOpen.ToString(@"hh\:mm"),
+                WeekdayEnd = weekdayClose.ToString(@"hh\:mm"),
+                WeekendStart = weekendOpen.ToString(@"hh\:mm"),
+                WeekendEnd = weekendClose.ToString(@"hh\:mm")
+            };
+        }
+
         private async Task SendEmailSafeAsync(string to, string subject, string body)
         {
             try
@@ -689,23 +718,9 @@ namespace BoardVerse.Services.Services
             }
         }
 
-        private CafePartnerApplicationResponseDto MapToDto(CafePartnerApplication application)
+        private static CafePartnerApplicationResponseDto MapApplicationDto(CafePartnerApplication application)
         {
-            var spaceUrls = DeserializeStringList(application.SpaceImageUrlsJson);
-            var tableNames = DeserializeStringList(application.TableLayoutJson);
-            var blockers = application.Status == CafePartnerApplicationStatus.Approved
-                ? GetActivationBlockers(application)
-                : new List<string>();
-
-            if (application.CreatedCafe?.PartnerOperationalStatus == CafePartnerOperationalStatus.Inactive)
-            {
-                blockers.Add(ApiErrorMessages.CafePartner.CafePermanentlyClosedBlocker);
-            }
-            else if (application.CreatedCafe?.PartnerOperationalStatus == CafePartnerOperationalStatus.Banned)
-            {
-                blockers.Add(ApiErrorMessages.CafePartner.CafeBannedBlocker);
-            }
-
+            var cafe = application.CreatedCafe;
             return new CafePartnerApplicationResponseDto
             {
                 Id = application.Id,
@@ -713,47 +728,75 @@ namespace BoardVerse.Services.Services
                 Address = application.Address,
                 Latitude = application.Latitude,
                 Longitude = application.Longitude,
-                Hotline = application.Hotline,
+                PhoneNumber = application.PhoneNumber,
                 RepresentativeEmail = application.RepresentativeEmail,
-                WorkingHours = new WorkingHoursDto
-                {
-                    WeekdayStart = application.WeekdayOpen.ToString(@"hh\:mm"),
-                    WeekdayEnd = application.WeekdayClose.ToString(@"hh\:mm"),
-                    WeekendStart = application.WeekendOpen.ToString(@"hh\:mm"),
-                    WeekendEnd = application.WeekendClose.ToString(@"hh\:mm")
-                },
                 BusinessLicense = application.BusinessLicense,
                 BusinessLicenseImageUrl = application.BusinessLicenseImageUrl,
-                NumberOfTables = application.NumberOfTables,
-                NumberOfPrivateRooms = application.NumberOfPrivateRooms,
-                SpaceImageUrls = spaceUrls,
-                NumberOfGamesOwned = application.NumberOfGamesOwned,
-                PopularGamesList = application.PopularGamesList,
-                HasGameMaster = application.HasGameMaster,
-                BillingModel = CafePartnerStatusMapper.ToApiBillingModel(application.BillingModel),
-                TableNames = tableNames,
                 ApplicationStatus = CafePartnerStatusMapper.ToApiApplicationStatus(application.Status),
-                OperationalStatus = application.CreatedCafe?.PartnerOperationalStatus is { } op
+                RejectionReason = application.RejectionReason,
+                CreatedCafeId = application.CreatedCafeId ?? cafe?.Id,
+                OperationalStatus = cafe?.PartnerOperationalStatus is { } op
                     ? CafePartnerStatusMapper.ToApiOperationalStatus(op)
                     : null,
-                OperationalStatusReason = application.CreatedCafe?.PartnerOperationalStatusReason,
-                RejectionReason = application.RejectionReason,
-                IsTableLayoutConfigured = tableNames.Count >= application.NumberOfTables && application.NumberOfTables > 0,
-                CanActivate = application.Status == CafePartnerApplicationStatus.Approved &&
-                              CafePartnerOperationalStatusHelper.CanManagerActivate(application.CreatedCafe?.PartnerOperationalStatus) &&
-                              blockers.Count == 0,
-                ActivationBlockers = blockers,
                 SubmittedByUserId = application.SubmittedByUserId,
                 SubmittedByUsername = application.SubmittedByUser?.Username,
                 ReviewedByAdminId = application.ReviewedByAdminId,
                 ReviewedByAdminUsername = application.ReviewedByAdmin?.Username,
                 CreatedManagerUserId = application.CreatedManagerUserId,
-                CreatedCafeId = application.CreatedCafeId,
                 SubmittedAt = application.SubmittedAt,
                 UpdatedAt = application.UpdatedAt,
                 ReviewedAt = application.ReviewedAt,
+                ApprovedAt = application.ApprovedAt
+            };
+        }
+
+        private static ManagerCafeProfileResponseDto MapManagerCafeProfile(CafePartnerApplication application, Cafe cafe)
+        {
+            var spaceUrls = DeserializeStringList(cafe.SpaceImageUrlsJson);
+            var tableNames = DeserializeStringList(cafe.TableLayoutJson);
+            var numberOfTables = cafe.NumberOfTables;
+            var blockers = application.Status == CafePartnerApplicationStatus.Approved
+                ? GetActivationBlockers(cafe)
+                : new List<string>();
+
+            if (cafe.PartnerOperationalStatus == CafePartnerOperationalStatus.Banned)
+            {
+                blockers.Add(ApiErrorMessages.CafePartner.CafeBannedBlocker);
+            }
+
+            return new ManagerCafeProfileResponseDto
+            {
+                CafeId = cafe.Id,
+                ApplicationId = application.Id,
+                Name = cafe.Name,
+                Address = cafe.Address,
+                Latitude = cafe.Latitude,
+                Longitude = cafe.Longitude,
+                PhoneNumber = cafe.PhoneNumber ?? application.PhoneNumber,
+                WorkingHours = MapWorkingHours(cafe),
+                NumberOfTables = numberOfTables,
+                NumberOfPrivateRooms = cafe.NumberOfPrivateRooms,
+                SpaceImageUrls = spaceUrls,
+                NumberOfGamesOwned = cafe.NumberOfGamesOwned,
+                PopularGamesList = cafe.PopularGamesList,
+                HasGameMaster = cafe.HasGameMaster,
+                BillingModel = CafePartnerStatusMapper.ToApiBillingModel(cafe.BillingModel),
+                TableNames = tableNames,
+                ApplicationStatus = CafePartnerStatusMapper.ToApiApplicationStatus(application.Status),
+                OperationalStatus = cafe.PartnerOperationalStatus is { } operational
+                    ? CafePartnerStatusMapper.ToApiOperationalStatus(operational)
+                    : null,
+                OperationalStatusReason = cafe.PartnerOperationalStatusReason,
+                IsTableLayoutConfigured = tableNames.Count >= numberOfTables && numberOfTables > 0,
+                CanActivate = application.Status == CafePartnerApplicationStatus.Approved &&
+                              CafePartnerOperationalStatusHelper.CanManagerActivate(cafe.PartnerOperationalStatus) &&
+                              blockers.Count == 0,
+                CanReopen = application.Status == CafePartnerApplicationStatus.Approved &&
+                            CafePartnerOperationalStatusHelper.CanManagerReopen(cafe.PartnerOperationalStatus) &&
+                            blockers.Count == 0,
+                ActivationBlockers = blockers,
                 ApprovedAt = application.ApprovedAt,
-                OperationalProfileUpdatedAt = application.OperationalProfileUpdatedAt
+                OperationalProfileUpdatedAt = cafe.OperationalProfileUpdatedAt
             };
         }
     }

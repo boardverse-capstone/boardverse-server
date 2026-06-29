@@ -202,6 +202,25 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
+        /// Tạo/cập nhật hộp game vật lý (barcode) theo boxQuantity hiện tại. [Role: Manager — phải là chủ quán.]
+        /// </summary>
+        /// <param name="cafeId">Mã định danh quán cafe.</param>
+        /// <param name="inventoryId">Mã mục kho cần đồng bộ hộp vật lý.</param>
+        /// <response code="200">Đồng bộ hộp game vật lý thành công.</response>
+        /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+        /// <response code="403">Không phải role Manager, hoặc Manager không phải chủ quán.</response>
+        /// <response code="404">Không tìm thấy quán hoặc mục kho đang active.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpPost("{inventoryId:guid}/sync-boxes")]
+        [Authorize(Roles = "Manager")]
+        public async Task<IActionResult> SyncBoxes(Guid cafeId, Guid inventoryId)
+        {
+            var managerId = GetUserIdFromClaims();
+            var result = await _inventoryService.SyncBoxesAsync(cafeId, inventoryId, managerId);
+            return this.NewResponse(200, ApiSuccessMessages.Inventory.BoxesSynced, result);
+        }
+
+        /// <summary>
         /// Xóa game khỏi kho quán (soft delete). [Role: Manager — phải là chủ quán.]
         /// </summary>
         /// <param name="cafeId">Mã định danh quán cafe.</param>

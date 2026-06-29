@@ -50,10 +50,34 @@ namespace BoardVerse.Data.Configurations
             builder.Property(c => c.PartnerOperationalStatusReason)
                 .HasMaxLength(500);
 
+            builder.Property(c => c.SpaceImageUrlsJson)
+                .IsRequired()
+                .HasDefaultValue("[]");
+
+            builder.Property(c => c.TableLayoutJson)
+                .IsRequired()
+                .HasDefaultValue("[]");
+
+            builder.Property(c => c.PopularGamesList)
+                .IsRequired()
+                .HasMaxLength(2000)
+                .HasDefaultValue(string.Empty);
+
+            builder.Property(c => c.BillingModel)
+                .HasConversion<string>()
+                .HasMaxLength(20)
+                .IsRequired()
+                .HasDefaultValue(Core.Enum.CafePartnerBillingModel.ByHour);
+
             builder.HasOne(c => c.Manager)
                 .WithMany()
                 .HasForeignKey(c => c.ManagerId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            builder.HasOne(c => c.PartnerApplication)
+                .WithOne(a => a.CreatedCafe)
+                .HasForeignKey<CafePartnerApplication>(a => a.CreatedCafeId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             builder.HasIndex(c => c.ManagerId);
 

@@ -213,16 +213,9 @@ var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<BoardVerseDbContext>();
-    await GameSchemaBootstrapper.EnsureObsoleteTablesDroppedAsync(db);
-    await GameSchemaBootstrapper.EnsureUserAndCafeTablesAsync(db);
-    await GameSchemaBootstrapper.EnsureGameTablesAsync(db);
-    await GameSchemaBootstrapper.EnsureInventoryTablesAsync(db);
-    await GameSchemaBootstrapper.EnsureLobbyAndKarmaRatingTablesAsync(db);
-    await GameSchemaBootstrapper.EnsureMatchResultTablesAsync(db);
-    await GameSchemaBootstrapper.EnsureAuthTokenTablesAsync(db);
-    await GameSchemaBootstrapper.EnsureKarmaLogAndSystemConfigTablesAsync(db);
-    app.Logger.LogInformation("Database schema bootstrap completed.");
+    var inventoryRepo = scope.ServiceProvider.GetRequiredService<ICafeInventoryRepository>();
+    await inventoryRepo.BackfillMissingInventoryBoxesAsync();
+    app.Logger.LogInformation("Inventory box backfill completed.");
 }
 
 var redisInfo = app.Services.GetRequiredService<RedisCacheStartupInfo>();

@@ -33,6 +33,9 @@ namespace BoardVerse.Core.IRepositories
             double radiusKm,
             Guid gameTemplateId,
             int limit = 10);
+        Task<Cafe?> GetPartnerCafeByManagerIdAsync(Guid managerUserId);
+        Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<string> tableNames);
+        Task<bool> HasActiveBookingsAsync(Guid cafeId);
         Task SaveChangesAsync();
     }
 }

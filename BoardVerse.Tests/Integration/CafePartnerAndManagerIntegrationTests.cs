@@ -87,15 +87,8 @@ public class CafePartnerIntegrationTests
             address = $"123 Test Street {suffix}, Ho Chi Minh City, Vietnam",
             latitude = 10.776889,
             longitude = 106.700806,
-            hotline = "0901234567",
+            phoneNumber = "0901234567",
             representativeEmail = ApiTestClient.UniqueEmail("partner"),
-            workingHours = new
-            {
-                weekdayStart = "08:00",
-                weekdayEnd = "22:00",
-                weekendStart = "09:00",
-                weekendEnd = "23:00"
-            },
             businessLicense = $"BL-{suffix}".ToUpperInvariant(),
             businessLicenseImageUrl = "https://example.com/license.png"
         });
@@ -117,15 +110,8 @@ public class CafePartnerIntegrationTests
             address = $"456 Review Street {suffix}, Ho Chi Minh City, Vietnam",
             latitude = 10.776889,
             longitude = 106.700806,
-            hotline = "0907654321",
+            phoneNumber = "0907654321",
             representativeEmail = ApiTestClient.UniqueEmail("partner-dup"),
-            workingHours = new
-            {
-                weekdayStart = "08:00",
-                weekdayEnd = "22:00",
-                weekendStart = "09:00",
-                weekendEnd = "23:00"
-            },
             businessLicense = $"BL-DUP-{suffix}".ToUpperInvariant(),
             businessLicenseImageUrl = "https://example.com/license.png"
         };
@@ -147,15 +133,8 @@ public class CafePartnerIntegrationTests
             address = $"789 Admin Review Street {suffix}, Ho Chi Minh City, Vietnam",
             latitude = 10.776889,
             longitude = 106.700806,
-            hotline = "0907654321",
+            phoneNumber = "0907654321",
             representativeEmail = ApiTestClient.UniqueEmail("review"),
-            workingHours = new
-            {
-                weekdayStart = "08:00",
-                weekdayEnd = "22:00",
-                weekendStart = "09:00",
-                weekendEnd = "23:00"
-            },
             businessLicense = $"BL-REV-{suffix}".ToUpperInvariant(),
             businessLicenseImageUrl = "https://example.com/license2.png"
         });
@@ -182,7 +161,7 @@ public class CafePartnerIntegrationTests
         var token = await IntegrationTestAuth.AsManagerAsync(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var response = await _client.GetAsync("/api/cafe-partner/me");
+        var response = await _client.GetAsync("/api/manager/cafes/me");
         await ApiTestClient.AssertStatusOneOfAsync(response, HttpStatusCode.OK, HttpStatusCode.NotFound);
     }
 
@@ -192,8 +171,15 @@ public class CafePartnerIntegrationTests
         var token = await IntegrationTestAuth.AsManagerAsync(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var response = await ApiTestClient.PutJsonAsync(_client, "/api/cafe-partner/me/operational-profile", new
+        var response = await ApiTestClient.PutJsonAsync(_client, "/api/manager/cafes/me/operational-profile", new
         {
+            workingHours = new
+            {
+                weekdayStart = "08:00",
+                weekdayEnd = "22:00",
+                weekendStart = "09:00",
+                weekendEnd = "23:00"
+            },
             numberOfTables = 12,
             numberOfPrivateRooms = 0,
             spaceImageUrls = new[] { "https://example.com/1.png", "https://example.com/2.png", "https://example.com/3.png" },
@@ -212,11 +198,21 @@ public class CafePartnerIntegrationTests
         var token = await IntegrationTestAuth.AsManagerAsync(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var activateResponse = await _client.PostAsync("/api/cafe-partner/me/activate", null);
+        var activateResponse = await _client.PostAsync("/api/manager/cafes/me/activate", null);
         await ApiTestClient.AssertStatusOneOfAsync(activateResponse, HttpStatusCode.OK, HttpStatusCode.BadRequest, HttpStatusCode.NotFound);
 
-        var deactivateResponse = await _client.PostAsync("/api/cafe-partner/me/deactivate", null);
+        var deactivateResponse = await _client.PostAsync("/api/manager/cafes/me/deactivate", null);
         await ApiTestClient.AssertStatusOneOfAsync(deactivateResponse, HttpStatusCode.OK, HttpStatusCode.BadRequest, HttpStatusCode.NotFound);
+    }
+
+    [IntegrationFact]
+    public async Task ManagerReopen_Returns200Or400Or404()
+    {
+        var token = await IntegrationTestAuth.AsManagerAsync(_client);
+        ApiTestClient.Authorize(_client, token);
+
+        var reopenResponse = await _client.PostAsync("/api/manager/cafes/me/reopen", null);
+        await ApiTestClient.AssertStatusOneOfAsync(reopenResponse, HttpStatusCode.OK, HttpStatusCode.BadRequest, HttpStatusCode.NotFound);
     }
 
     private sealed class ApplicationDto

@@ -26,8 +26,22 @@ namespace BoardVerse.Core.Entities
         public TimeSpan? WeekendOpen { get; set; }
         public TimeSpan? WeekendClose { get; set; }
 
+        // Phase 2+ operational profile (source of truth after admin approval)
+        public int NumberOfTables { get; set; }
+        public int NumberOfPrivateRooms { get; set; }
+        public string SpaceImageUrlsJson { get; set; } = "[]";
+        public int NumberOfGamesOwned { get; set; }
+        public string PopularGamesList { get; set; } = string.Empty;
+        public bool HasGameMaster { get; set; }
+        public CafePartnerBillingModel BillingModel { get; set; } = CafePartnerBillingModel.ByHour;
+        /// <summary>JSON array of table names configured on Web POS.</summary>
+        public string TableLayoutJson { get; set; } = "[]";
+        public DateTime? OperationalProfileUpdatedAt { get; set; }
+
         public virtual User Manager { get; set; } = null!;
+        public virtual CafePartnerApplication? PartnerApplication { get; set; }
         public virtual ICollection<CafeStaff> StaffMembers { get; set; } = new List<CafeStaff>();
         public virtual ICollection<CafeTable> Tables { get; set; } = new List<CafeTable>();
+        public virtual ICollection<CafeGameInventory> Inventories { get; set; } = new List<CafeGameInventory>();
     }
 }

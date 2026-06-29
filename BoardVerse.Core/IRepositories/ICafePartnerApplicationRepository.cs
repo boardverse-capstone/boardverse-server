@@ -12,10 +12,8 @@ namespace BoardVerse.Core.IRepositories
         Task<CafePartnerApplication?> GetApprovedByManagerUserIdAsync(Guid managerUserId);
         Task<bool> HasOpenApplicationByEmailAsync(string email);
         Task<bool> HasSevereDuplicateAsync(string businessLicense, string normalizedAddress, Guid? excludeApplicationId = null);
-        Task<bool> HasActiveBookingsAsync(Guid cafeId);
         Task<PaginatedResponse<CafePartnerApplication>> GetPagedAsync(AdminCafePartnerApplicationQueryDto query);
         Task AddCafeAsync(Cafe cafe);
-        Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<string> tableNames);
         Task SaveChangesAsync();
     }
 }

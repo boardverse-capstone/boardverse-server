@@ -29,15 +29,6 @@ namespace BoardVerse.Data.Repositories
             return Task.CompletedTask;
         }
 
-        public async Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<string> tableNames)
-        {
-            var existingTables = await _context.CafeTables
-                .Where(t => t.CafeId == cafeId)
-                .ToListAsync();
-
-            CafeTableSyncHelper.ApplySync(cafeId, tableNames, existingTables);
-        }
-
         public async Task<CafePartnerApplication?> GetByIdAsync(Guid id)
         {
             return await _context.CafePartnerApplications
@@ -101,12 +92,6 @@ namespace BoardVerse.Data.Repositories
                 a.BusinessLicense.ToUpper() == license ||
                 a.Address.Trim().ToLower() == address);
         }
-
-        public Task<bool> HasActiveBookingsAsync(Guid cafeId) =>
-            _context.CafeTables.AnyAsync(t =>
-                t.CafeId == cafeId
-                && t.IsActive
-                && (t.Status == CafeTableStatus.InUse || t.Status == CafeTableStatus.Reserved));
 
         public async Task<PaginatedResponse<CafePartnerApplication>> GetPagedAsync(AdminCafePartnerApplicationQueryDto query)
         {

@@ -174,19 +174,9 @@ Danh mục thể loại cho UI: `GET /api/v1/board-games/categories` (public).
 | Codenames | `codenames` | `77777777-7777-7777-7777-777777777777` |
 | Pandemic | `pandemic` | `88888888-8888-8888-8888-888888888888` |
 
-### Game catalog seed (thêm từ SeedDevData)
+### Game catalog bổ sung
 
-Ticket to Ride, Carcassonne, Wingspan, Azul, Splendor, Terraforming Mars, Gloomhaven, …
-
-**Nạp dữ liệu:**
-
-```powershell
-# SQL idempotent (schema + 8 game + categories)
-dotnet run --project tools/ExecSql -- BoardVerse.Data/update-all-entities.sql
-
-# Dev seed đầy đủ
-dotnet run --project tools/SeedDevData/SeedDevData.csproj
-```
+Ticket to Ride, Carcassonne, Wingspan, Azul, Splendor, Terraforming Mars, Gloomhaven, … — thêm qua Admin API hoặc trực tiếp trên Neon.
 
 ---
 
