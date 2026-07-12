@@ -25,6 +25,8 @@ namespace BoardVerse.Data.Configurations
         builder.Property(d => d.SePayTransferId).HasMaxLength(100);
         builder.Property(d => d.CreatedAt).IsRequired();
         builder.Property(d => d.ScheduledAt);
+        builder.Property(d => d.QrUrl).HasMaxLength(500);
+        builder.Property(d => d.QrExpiresAt);
 
         builder.HasOne(d => d.MasterAccount)
             .WithMany()

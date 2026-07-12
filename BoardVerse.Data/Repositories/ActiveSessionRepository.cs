@@ -85,6 +85,12 @@ namespace BoardVerse.Data.Repositories
             return Task.CompletedTask;
         }
 
+        public Task UpdateAsync(ActiveSession session)
+        {
+            _db.ActiveSessions.Update(session);
+            return Task.CompletedTask;
+        }
+
         public async Task<int> CountActiveSessionMembersAsync(Guid cafeId)
         {
             return await _db.ActiveSessionMembers

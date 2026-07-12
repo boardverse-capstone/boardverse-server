@@ -23,6 +23,7 @@ using BoardVerse.Core.Json;
 using BoardVerse.Core.Settings;
 using BoardVerse.API.Infrastructure;
 using System.Reflection;
+using Microsoft.Extensions.FileProviders;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -123,6 +124,7 @@ builder.Services.AddScoped<ISystemConfigurationRepository, SystemConfigurationRe
 builder.Services.AddScoped<ICafePartnerApplicationRepository, CafePartnerApplicationRepository>();
 builder.Services.AddScoped<IPaymentMasterAccountRepository, PaymentMasterAccountRepository>();
 builder.Services.AddScoped<IBookingDepositRepository, BookingDepositRepository>();
+builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
 builder.Services.AddScoped<ICafeSettlementRepository, CafeSettlementRepository>();
 builder.Services.AddScoped<ISettlementService, SettlementService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -280,6 +282,14 @@ if (enableSwagger)
 }
 
 app.UseCors("AllowAll");
+
+// Serve static HTML test pages
+app.UseDefaultFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(Path.Combine(app.Environment.ContentRootPath, "..")),
+    RequestPath = "/test"
+});
 
 // Register exception middleware so every response uses the unified shape
 app.UseMiddleware<BoardVerse.API.Middleware.ApiExceptionMiddleware>();

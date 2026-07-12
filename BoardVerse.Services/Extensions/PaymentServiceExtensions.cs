@@ -13,8 +13,18 @@ public static class PaymentServiceExtensions
     public static IServiceCollection AddBoardVersePayment(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<SePaySettings>(configuration.GetSection(SePaySettings.SectionName));
+        services.Configure<PaymentGatewaySettings>(configuration.GetSection(PaymentGatewaySettings.SectionName));
 
         services.AddHttpClient<ISePayClient, SePayClient>();
+
+        // VietQR client for fallback
+        services.AddScoped<IVietQrClient, VietQrClient>();
+
+        // Payment gateway with fallback chain
+        services.AddScoped<IPaymentGatewayService, PaymentGatewayService>();
+
+        // Manual payment service for staff override
+        services.AddScoped<IManualPaymentService, ManualPaymentService>();
 
         services.AddScoped<IBookingDepositService, BookingDepositService>();
         services.AddScoped<IPaymentService, PaymentService>();

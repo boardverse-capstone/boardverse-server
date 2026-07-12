@@ -59,4 +59,9 @@ public interface IBookingDepositService
     /// Lấy đơn cọc theo SePay Transaction ID.
     /// </summary>
     Task<BookingDeposit?> GetBySePayTransactionIdAsync(string sePayTransactionId);
+
+    /// <summary>
+    /// Cập nhật QR URL và thời hạn mới cho đơn cọc (khi regenerate).
+    /// </summary>
+    Task UpdateQrInfoAsync(Guid depositId, string qrUrl, DateTime qrExpiresAt);
 }

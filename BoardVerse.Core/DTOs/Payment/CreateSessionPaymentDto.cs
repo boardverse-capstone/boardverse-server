@@ -20,5 +20,8 @@ namespace BoardVerse.Core.DTOs.Payment
         public string OrderId { get; set; } = string.Empty;
         public decimal Amount { get; set; }
         public string Status { get; set; } = "Pending";
+        public string? QrImageUrl { get; set; }
+        public string? Gateway { get; set; }
+        public bool RequiresManualConfirmation { get; set; }
     }
 }

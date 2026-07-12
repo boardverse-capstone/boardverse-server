@@ -17,6 +17,7 @@ public class PaymentService : IPaymentService
     private readonly ICafeSettlementRepository _settlementRepository;
     private readonly IPaymentMasterAccountRepository _masterAccountRepository;
     private readonly IActiveSessionRepository _activeSessionRepository;
+    private readonly IPaymentGatewayService _paymentGateway;
     private readonly ISePayClient _sePayClient;
     private readonly ILogger<PaymentService> _logger;
 
@@ -26,6 +27,7 @@ public class PaymentService : IPaymentService
         ICafeSettlementRepository settlementRepository,
         IPaymentMasterAccountRepository masterAccountRepository,
         IActiveSessionRepository activeSessionRepository,
+        IPaymentGatewayService paymentGateway,
         ISePayClient sePayClient,
         ILogger<PaymentService> logger)
     {
@@ -34,6 +36,7 @@ public class PaymentService : IPaymentService
         _settlementRepository = settlementRepository;
         _masterAccountRepository = masterAccountRepository;
         _activeSessionRepository = activeSessionRepository;
+        _paymentGateway = paymentGateway;
         _sePayClient = sePayClient;
         _logger = logger;
     }
@@ -53,28 +56,138 @@ public class PaymentService : IPaymentService
             deposit.OrderId = GenerateOrderId(deposit.Id);
         }
 
-        var paymentRequest = new CreatePaymentRequest(
-            OrderId: deposit.OrderId,
-            Amount: request.Amount,
-            CustomerEmail: request.CustomerEmail,
-            Description: $"BoardVerse session deposit - {deposit.OrderId}",
-            Metadata: new Dictionary<string, string?>
+        // Get cafe config for VietQR fallback
+        var cafe = await _cafeRepository.GetByIdAsync(deposit.CafeId);
+        var bankCode = cafe?.SePayBankCode ?? "MBBank";
+        var accountNumber = cafe?.SePayAccountNumber ?? "0000000001";
+
+        var paymentRequest = new PaymentGatewayRequest
+        {
+            OrderId = deposit.OrderId,
+            Amount = request.Amount,
+            CustomerEmail = request.CustomerEmail,
+            Description = $"BoardVerse session deposit - {deposit.OrderId}",
+            Metadata = new Dictionary<string, string?>
             {
                 ["depositId"] = deposit.Id.ToString(),
                 ["activeSessionId"] = deposit.ActiveSessionId.ToString(),
                 ["userId"] = userId.ToString()
-            });
+            },
+            BankCode = bankCode,
+            AccountNumber = accountNumber
+        };
 
-        var paymentUrl = await _sePayClient.CreatePaymentAsync(paymentRequest);
+        var result = await _paymentGateway.CreatePaymentAsync(paymentRequest);
+
+        if (!result.IsSuccess)
+        {
+            _logger.LogError(
+                "Payment gateway failed completely. OrderId={OrderId}, Error={Error}",
+                deposit.OrderId, result.ErrorMessage);
+            throw new PaymentException($"Không thể tạo thanh toán: {result.ErrorMessage}");
+        }
+
+        var paymentUrl = result.PaymentUrl ?? result.QrImageUrl;
+        var qrExpiresAt = result.Gateway == PaymentGateway.SePay
+            ? DateTime.UtcNow.AddMinutes(5)
+            : (DateTime?)null;
+
+        // Update deposit with new QR info
+        if (qrExpiresAt.HasValue)
+        {
+            await _depositService.UpdateQrInfoAsync(deposit.Id, paymentUrl, qrExpiresAt.Value);
+        }
 
         _logger.LogInformation(
-            "Payment link created for deposit. DepositId={DepositId}, PaymentUrl={PaymentUrl}",
-            deposit.Id, paymentUrl);
+            "Payment created via gateway. Gateway={Gateway}, DepositId={DepositId}, PaymentUrl={PaymentUrl}, RequiresManual={RequiresManual}",
+            result.Gateway, deposit.Id, paymentUrl, result.RequiresManualConfirmation);
 
         return new CreatePaymentResponseDto
         {
             PaymentUrl = paymentUrl,
-            OrderId = deposit.OrderId
+            OrderId = deposit.OrderId,
+            QrImageUrl = result.QrImageUrl,
+            Gateway = result.Gateway.ToString(),
+            RequiresManualConfirmation = result.RequiresManualConfirmation,
+            Message = result.Message
+        };
+    }
+
+    /// <summary>
+    /// Tạo lại QR thanh toán cho đơn cọc PENDING.
+    /// QR cũ sẽ bị đánh dấu expired (QR URL vẫn lưu để reference).
+    /// Không giới hạn số lần regenerate.
+    /// Sử dụng fallback chain: SePay -> VietQR
+    /// </summary>
+    public async Task<RegenerateQrResponseDto> RegenerateDepositQrAsync(Guid depositId, Guid userId)
+    {
+        var deposit = await _depositService.GetByIdAsync(depositId)
+            ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
+
+        if (deposit.Status != BookingDepositStatus.Pending)
+        {
+            throw new ConflictException($"Chỉ có thể tạo lại QR cho đơn cọc đang PENDING. Trạng thái hiện tại: '{deposit.Status}'.");
+        }
+
+        // Get cafe config
+        var cafe = await _cafeRepository.GetByIdAsync(deposit.CafeId)
+            ?? throw new NotFoundException($"Không tìm thấy cafe với ID: {deposit.CafeId}");
+
+        var bankCode = cafe.SePayBankCode ?? "MBBank";
+        var accountNumber = cafe.SePayAccountNumber ?? "0000000001";
+
+        var paymentRequest = new PaymentGatewayRequest
+        {
+            OrderId = deposit.OrderId,
+            Amount = deposit.Amount,
+            CustomerEmail = null,
+            Description = $"BoardVerse session deposit - {deposit.OrderId} (Regenerated)",
+            Metadata = new Dictionary<string, string?>
+            {
+                ["depositId"] = deposit.Id.ToString(),
+                ["activeSessionId"] = deposit.ActiveSessionId.ToString(),
+                ["userId"] = userId.ToString(),
+                ["regenerated"] = "true"
+            },
+            BankCode = bankCode,
+            AccountNumber = accountNumber
+        };
+
+        var result = await _paymentGateway.CreatePaymentAsync(paymentRequest);
+
+        if (!result.IsSuccess)
+        {
+            _logger.LogError(
+                "Payment gateway failed completely on regenerate. OrderId={OrderId}, Error={Error}",
+                deposit.OrderId, result.ErrorMessage);
+            throw new PaymentException($"Không thể tạo thanh toán: {result.ErrorMessage}");
+        }
+
+        var paymentUrl = result.PaymentUrl ?? result.QrImageUrl;
+        var qrExpiresAt = result.Gateway == PaymentGateway.SePay
+            ? DateTime.UtcNow.AddMinutes(5)
+            : (DateTime?)null;
+
+        // Update deposit with new QR info
+        if (qrExpiresAt.HasValue)
+        {
+            await _depositService.UpdateQrInfoAsync(depositId, paymentUrl, qrExpiresAt.Value);
+        }
+
+        _logger.LogInformation(
+            "QR regenerated via gateway. Gateway={Gateway}, DepositId={DepositId}, OldQr={OldQr}, NewQrExpiresAt={QrExpiresAt}",
+            result.Gateway, depositId, deposit.QrUrl, qrExpiresAt);
+
+        return new RegenerateQrResponseDto
+        {
+            DepositId = deposit.Id,
+            PaymentUrl = paymentUrl,
+            QrUrl = result.QrImageUrl,
+            OrderId = deposit.OrderId,
+            QrExpiresAt = qrExpiresAt ?? DateTime.UtcNow.AddMinutes(5),
+            Amount = deposit.Amount,
+            Gateway = result.Gateway.ToString(),
+            RequiresManualConfirmation = result.RequiresManualConfirmation
         };
     }
 
@@ -82,6 +195,7 @@ public class PaymentService : IPaymentService
     /// Tạo thanh toán cho hóa đơn phiên chơi qua SePay của cafe.
     /// BR-15: TotalAmount = Subtotal + Penalty - DepositAppliedAmount
     /// Session payment dùng SePay của từng cafe (không dùng central account).
+    /// Sử dụng fallback chain: SePay -> VietQR
     /// </summary>
     public async Task<CreateSessionPaymentResponseDto> CreateSessionPaymentAsync(CreateSessionPaymentRequestDto request)
     {
@@ -104,7 +218,7 @@ public class PaymentService : IPaymentService
             session.OrderId = GenerateOrderId(session.Id);
         }
 
-        // Lấy SePay config của cafe
+        // Lấy cafe config
         var cafe = await _cafeRepository.GetByIdAsync(session.CafeId)
             ?? throw new NotFoundException($"Không tìm thấy cafe với ID: {session.CafeId}");
 
@@ -115,38 +229,125 @@ public class PaymentService : IPaymentService
             throw new PaymentException($"Cafe '{cafe.Name}' chưa được cấu hình SePay. Vui lòng liên hệ quản lý cafe.");
         }
 
-        var cafeSePayConfig = new CafeSePayConfig(
-            MerchantId: cafe.SePayMerchantId,
-            ApiKey: cafe.SePayApiKey,
-            SecretKey: cafe.SePaySecretKey,
-            ReturnUrl: cafe.SePayReturnUrl ?? "https://rigid-boil-suffix.ngrok-free.dev/api/payments/sepay/return"
-        );
-
-        var paymentRequest = new CreatePaymentRequest(
-            OrderId: session.OrderId,
-            Amount: totalAmount,
-            CustomerEmail: request.CustomerEmail,
-            Description: $"BoardVerse session payment - {session.OrderId}",
-            Metadata: new Dictionary<string, string?>
+        var paymentRequest = new PaymentGatewayRequest
+        {
+            OrderId = session.OrderId,
+            Amount = totalAmount,
+            CustomerEmail = request.CustomerEmail,
+            Description = $"BoardVerse session payment - {session.OrderId}",
+            Metadata = new Dictionary<string, string?>
             {
                 ["sessionId"] = session.Id.ToString(),
                 ["cafeId"] = session.CafeId.ToString(),
                 ["notes"] = request.Notes ?? string.Empty
-            });
+            },
+            BankCode = cafe.SePayBankCode ?? "MBBank",
+            AccountNumber = cafe.SePayAccountNumber ?? "0000000001"
+        };
 
-        var paymentUrl = await _sePayClient.CreatePaymentAsync(paymentRequest, cafeSePayConfig);
+        var result = await _paymentGateway.CreatePaymentAsync(paymentRequest);
+
+        if (!result.IsSuccess)
+        {
+            _logger.LogError(
+                "Payment gateway failed completely for session. SessionId={SessionId}, Error={Error}",
+                session.Id, result.ErrorMessage);
+            throw new PaymentException($"Không thể tạo thanh toán: {result.ErrorMessage}");
+        }
+
+        var paymentUrl = result.PaymentUrl ?? result.QrImageUrl;
 
         _logger.LogInformation(
-            "Session payment created via Cafe SePay. SessionId={SessionId}, OrderId={OrderId}, Amount={Amount}, PaymentUrl={PaymentUrl}, CafeId={CafeId}",
-            session.Id, session.OrderId, totalAmount, paymentUrl, session.CafeId);
+            "Session payment created via gateway. Gateway={Gateway}, SessionId={SessionId}, Amount={Amount}, RequiresManual={RequiresManual}",
+            result.Gateway, session.Id, totalAmount, result.RequiresManualConfirmation);
 
         return new CreateSessionPaymentResponseDto
         {
             SessionId = session.Id,
             PaymentUrl = paymentUrl,
+            QrImageUrl = result.QrImageUrl,
             OrderId = session.OrderId,
             Amount = totalAmount,
-            Status = "Pending"
+            Status = "Pending",
+            Gateway = result.Gateway.ToString(),
+            RequiresManualConfirmation = result.RequiresManualConfirmation
+        };
+    }
+
+    /// <summary>
+    /// Tạo lại QR thanh toán cho phiên chơi đang UNPAID.
+    /// QR cũ sẽ bị đánh dấu là EXPIRED.
+    /// Sử dụng fallback chain: SePay -> VietQR
+    /// </summary>
+    public async Task<CreateSessionPaymentResponseDto> RegenerateSessionQrAsync(Guid sessionId)
+    {
+        var session = await _activeSessionRepository.GetByIdAsync(sessionId)
+            ?? throw new NotFoundException($"Không tìm thấy phiên chơi với ID: {sessionId}");
+
+        if (session.Status != GroupSessionStatus.Unpaid)
+        {
+            throw new ConflictException("Phiên chơi phải ở trạng thái UNPAID để tạo lại QR.");
+        }
+
+        // Lấy cafe config
+        var cafe = await _cafeRepository.GetByIdAsync(session.CafeId)
+            ?? throw new NotFoundException($"Không tìm thấy cafe với ID: {session.CafeId}");
+
+        if (string.IsNullOrWhiteSpace(cafe.SePayMerchantId) ||
+            string.IsNullOrWhiteSpace(cafe.SePayApiKey) ||
+            string.IsNullOrWhiteSpace(cafe.SePaySecretKey))
+        {
+            throw new PaymentException($"Cafe '{cafe.Name}' chưa được cấu hình SePay.");
+        }
+
+        // Tạo order ID mới nếu chưa có
+        if (string.IsNullOrWhiteSpace(session.OrderId))
+        {
+            session.OrderId = GenerateOrderId(session.Id);
+        }
+
+        var paymentRequest = new PaymentGatewayRequest
+        {
+            OrderId = session.OrderId,
+            Amount = session.TotalAmount,
+            CustomerEmail = null,
+            Description = $"BoardVerse session payment - {session.OrderId}",
+            Metadata = new Dictionary<string, string?>
+            {
+                ["sessionId"] = session.Id.ToString(),
+                ["cafeId"] = session.CafeId.ToString(),
+                ["regenerated"] = "true"
+            },
+            BankCode = cafe.SePayBankCode ?? "MBBank",
+            AccountNumber = cafe.SePayAccountNumber ?? "0000000001"
+        };
+
+        var result = await _paymentGateway.CreatePaymentAsync(paymentRequest);
+
+        if (!result.IsSuccess)
+        {
+            _logger.LogError(
+                "Payment gateway failed completely for session regenerate. SessionId={SessionId}, Error={Error}",
+                session.Id, result.ErrorMessage);
+            throw new PaymentException($"Không thể tạo thanh toán: {result.ErrorMessage}");
+        }
+
+        var paymentUrl = result.PaymentUrl ?? result.QrImageUrl;
+
+        _logger.LogInformation(
+            "Session QR regenerated via gateway. Gateway={Gateway}, SessionId={SessionId}, Amount={Amount}",
+            result.Gateway, session.Id, session.TotalAmount);
+
+        return new CreateSessionPaymentResponseDto
+        {
+            SessionId = session.Id,
+            PaymentUrl = paymentUrl,
+            QrImageUrl = result.QrImageUrl,
+            OrderId = session.OrderId,
+            Amount = session.TotalAmount,
+            Status = "Pending",
+            Gateway = result.Gateway.ToString(),
+            RequiresManualConfirmation = result.RequiresManualConfirmation
         };
     }
 

@@ -228,6 +228,23 @@ public class BookingDepositService : IBookingDepositService
         return await _depositRepository.GetBySePayTransactionIdAsync(sePayTransactionId);
     }
 
+    public async Task UpdateQrInfoAsync(Guid depositId, string qrUrl, DateTime qrExpiresAt)
+    {
+        var deposit = await _depositRepository.GetByIdAsync(depositId)
+            ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
+
+        deposit.QrUrl = qrUrl;
+        deposit.QrExpiresAt = qrExpiresAt;
+        deposit.UpdatedAt = DateTime.UtcNow;
+
+        await _depositRepository.UpdateAsync(deposit);
+        await _depositRepository.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "BookingDeposit QR updated. DepositId={DepositId}, QrExpiresAt={QrExpiresAt}",
+            depositId, qrExpiresAt);
+    }
+
     private static decimal CalculatePartialRefund(BookingDeposit deposit)
     {
         var elapsedHours = (DateTime.UtcNow - deposit.CreatedAt).TotalHours;

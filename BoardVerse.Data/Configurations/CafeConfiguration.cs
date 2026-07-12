@@ -99,6 +99,12 @@ namespace BoardVerse.Data.Configurations
             builder.Property(c => c.SePayReturnUrl)
                 .HasMaxLength(500);
 
+            builder.Property(c => c.SePayBankCode)
+                .HasMaxLength(50);
+
+            builder.Property(c => c.SePayAccountNumber)
+                .HasMaxLength(50);
+
             builder.HasOne(c => c.Manager)
                 .WithMany()
                 .HasForeignKey(c => c.ManagerId)

@@ -393,6 +393,24 @@ namespace BoardVerse.Services.Services
             };
         }
 
+        public async Task UpdateSePayConfigAsync(Guid cafeId, Guid managerId, UpdateSePayConfigRequestDto dto)
+        {
+            var cafe = await EnsureManagerOwnsCafeAsync(cafeId, managerId);
+
+            if (dto.SePayBankCode != null)
+            {
+                cafe.SePayBankCode = string.IsNullOrWhiteSpace(dto.SePayBankCode) ? null : dto.SePayBankCode.Trim();
+            }
+
+            if (dto.SePayAccountNumber != null)
+            {
+                cafe.SePayAccountNumber = string.IsNullOrWhiteSpace(dto.SePayAccountNumber) ? null : dto.SePayAccountNumber.Trim();
+            }
+
+            cafe.UpdatedAt = DateTime.UtcNow;
+            await _cafeRepository.SaveChangesAsync();
+        }
+
         private async Task<Cafe> EnsureManagerOwnsCafeAsync(Guid cafeId, Guid currentManagerId)
         {
             var cafe = await _cafeRepository.GetByIdAsync(cafeId);

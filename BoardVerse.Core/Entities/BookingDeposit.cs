@@ -26,6 +26,8 @@ public class BookingDeposit
     public DateTime? ReleasedAt { get; set; }
     public DateTime? RefundedAt { get; set; }
     public DateTime? ForfeitedAt { get; set; }
+    public string? QrUrl { get; set; }
+    public DateTime? QrExpiresAt { get; set; }
     /// <summary>Giờ hẹn chơi dự kiến — dùng để tính partial refund (BR-18).</summary>
     public DateTime? ScheduledAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

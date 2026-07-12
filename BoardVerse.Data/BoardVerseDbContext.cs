@@ -37,6 +37,7 @@ namespace BoardVerse.Data
         public DbSet<BookingDeposit> BookingDeposits => Set<BookingDeposit>();
         public DbSet<CafeSettlement> CafeSettlements => Set<CafeSettlement>();
         public DbSet<ComponentLossReport> ComponentLossReports => Set<ComponentLossReport>();
+        public DbSet<Transaction> Transactions => Set<Transaction>();
 
     public BoardVerseDbContext(DbContextOptions<BoardVerseDbContext> options) : base(options)
     {

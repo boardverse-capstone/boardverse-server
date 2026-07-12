@@ -86,6 +86,12 @@ namespace BoardVerse.Core.Entities
         /// <summary>Redirect URL sau khi thanh toán session (SePay sẽ redirect user về).</summary>
         public string? SePayReturnUrl { get; set; }
 
+        /// <summary>Mã ngân hàng cho VietQR fallback (ví dụ: MBBank, Vietinbank).</summary>
+        public string? SePayBankCode { get; set; }
+
+        /// <summary>Số tài khoản ngân hàng cho VietQR fallback.</summary>
+        public string? SePayAccountNumber { get; set; }
+
         // === Audit ===
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? UpdatedAt { get; set; }

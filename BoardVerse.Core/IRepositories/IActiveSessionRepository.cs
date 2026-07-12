@@ -13,6 +13,7 @@ namespace BoardVerse.Core.IRepositories
         Task AddAsync(ActiveSession session);
         Task AddMemberAsync(ActiveSessionMember member);
         Task UpdateMemberAsync(ActiveSessionMember member);
+        Task UpdateAsync(ActiveSession session);
         Task SaveChangesAsync();
         Task<IReadOnlyList<ActiveSession>> GetAllUnpaidAsync();
     }

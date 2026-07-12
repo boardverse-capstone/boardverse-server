@@ -199,5 +199,23 @@ namespace BoardVerse.API.Controllers
             await _cafeService.RemoveStaffAsync(cafeId, managerId, staffId);
             return this.NewResponse(200, ApiSuccessMessages.Cafe.StaffRemoved, null);
         }
+
+        /// <summary>
+        /// Cập nhật cấu hình thanh toán SePay của quán (mã ngân hàng, số tài khoản). [Role: Manager]
+        /// </summary>
+        /// <param name="id">Mã định danh quán cafe.</param>
+        /// <param name="dto">Thông tin SePay cần cập nhật.</param>
+        /// <response code="200">Cập nhật thành công.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không phải chủ quán.</response>
+        /// <response code="404">Không tìm thấy quán.</response>
+        [HttpPut("{id:guid}/sepay-config")]
+        [Authorize(Roles = "Manager")]
+        public async Task<IActionResult> UpdateSePayConfig(Guid id, [FromBody] UpdateSePayConfigRequestDto dto)
+        {
+            var managerId = GetUserIdFromClaims();
+            await _cafeService.UpdateSePayConfigAsync(id, managerId, dto);
+            return this.NewResponse(200, "SePay config updated successfully", null);
+        }
     }
 }

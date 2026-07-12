@@ -3,39 +3,75 @@ using BoardVerse.Core.Enum;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
-namespace BoardVerse.Data.Configurations
+namespace BoardVerse.Data.Configurations;
+
+public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
 {
-    public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
+    public void Configure(EntityTypeBuilder<Transaction> entity)
     {
-        public void Configure(EntityTypeBuilder<Transaction> builder)
-        {
-            builder.ToTable("Transactions");
-            builder.HasKey(t => t.Id);
-            builder.Property(t => t.Id).ValueGeneratedNever();
+        entity.ToTable("Transactions");
 
-            builder.Property(t => t.UserId);
-            builder.Property(t => t.Amount).HasPrecision(18, 2).IsRequired();
-            builder.Property(t => t.Currency).HasMaxLength(10).IsRequired();
-            builder.Property(t => t.Gateway).HasMaxLength(100).IsRequired();
-            builder.Property(t => t.GatewayTransactionId).HasMaxLength(200);
-            builder.Property(t => t.GatewayResponseCode).HasMaxLength(50);
-            builder.Property(t => t.GatewayResponseMessage).HasMaxLength(500);
-            builder.Property(t => t.Status)
-                .HasConversion<int>()
-                .IsRequired();
-            builder.Property(t => t.Type)
-                .HasConversion<int>()
-                .IsRequired();
-            builder.Property(t => t.CreatedAt).IsRequired();
-            builder.Property(t => t.CompletedAt);
+        entity.HasKey(t => t.Id);
 
-            builder.HasOne(t => t.User)
-                .WithMany()
-                .HasForeignKey(t => t.UserId)
-                .OnDelete(DeleteBehavior.SetNull);
+        entity.Property(t => t.Id)
+            .ValueGeneratedNever();
 
-            builder.HasIndex(t => t.GatewayTransactionId);
-            builder.HasIndex(t => new { t.Status, t.Type });
-        }
+        entity.Property(t => t.Amount)
+            .HasPrecision(18, 2);
+
+        entity.Property(t => t.Currency)
+            .HasMaxLength(10)
+            .HasDefaultValue("VND");
+
+        entity.Property(t => t.Gateway)
+            .HasMaxLength(50);
+
+        entity.Property(t => t.GatewayTransactionId)
+            .HasMaxLength(100);
+
+        entity.Property(t => t.GatewayResponseCode)
+            .HasMaxLength(50);
+
+        entity.Property(t => t.GatewayResponseMessage)
+            .HasMaxLength(500);
+
+        entity.Property(t => t.Status)
+            .HasConversion<int>();
+
+        entity.Property(t => t.Type)
+            .HasConversion<int>();
+
+        entity.Property(t => t.Direction)
+            .HasConversion<int>();
+
+        entity.Property(t => t.FromAccount)
+            .HasMaxLength(50);
+
+        entity.Property(t => t.ToAccount)
+            .HasMaxLength(50);
+
+        entity.Property(t => t.Notes)
+            .HasMaxLength(500);
+
+        entity.Property(t => t.CreatedAt)
+            .HasDefaultValueSql("NOW()");
+
+        // Indexes
+        entity.HasIndex(t => t.GatewayTransactionId);
+        entity.HasIndex(t => t.Status);
+        entity.HasIndex(t => t.Type);
+        entity.HasIndex(t => t.UserId);
+        entity.HasIndex(t => t.CafeId);
+
+        // Relationships
+        entity.HasOne(t => t.User)
+            .WithMany()
+            .HasForeignKey(t => t.UserId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        entity.HasOne(t => t.Cafe)
+            .WithMany()
+            .HasForeignKey(t => t.CafeId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }
