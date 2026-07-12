@@ -1,4 +1,4 @@
-################################################################################
+﻿################################################################################
 # This .gitignore file was automatically created by Microsoft(R) Visual Studio.
 ################################################################################
 
@@ -19,3 +19,9 @@ BoardVerse.Tests/appsettings.local.json
 .cursor/rules/api-error-messages.mdc
 BoardVerse.Tests/appsettings.json
 BoardVerse.Tests/appsettings.Testing.json
+
+# Development/test files
+*.http
+*.sql
+*.mdc
+

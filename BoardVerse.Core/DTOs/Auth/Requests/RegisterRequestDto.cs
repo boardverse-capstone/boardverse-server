@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using BoardVerse.Core.Messages;
+using BoardVerse.Core.Validation;
 
 namespace BoardVerse.Core.DTOs.Auth.Requests
 {
@@ -21,5 +22,12 @@ namespace BoardVerse.Core.DTOs.Auth.Requests
         [Required(ErrorMessage = ApiErrorMessages.Validation.PasswordRequired)]
         [StringLength(100, MinimumLength = 8, ErrorMessage = ApiErrorMessages.Validation.PasswordLength8To100)]
         public required string Password { get; set; }
+
+        /// <summary>
+        /// BR-11: Ngày sinh để xác minh tuổi >= 13. Bắt buộc để tuân thủ quy định bảo vệ trẻ em.
+        /// </summary>
+        [Required(ErrorMessage = "Ngày sinh là bắt buộc để xác minh độ tuổi.")]
+        [MinimumAge(13, ErrorMessage = "Ngày sinh phải cho thấy bạn từ 13 tuổi trở lên.")]
+        public DateOnly DateOfBirth { get; set; }
     }
 }

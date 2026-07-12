@@ -39,7 +39,8 @@ public class CafePosServiceTests
         posRepo.Setup(r => r.GetBoxByBarcodeAsync(CafeId, "BV-test-001")).ReturnsAsync(box);
         posRepo.Setup(r => r.GetActiveSessionByBoxIdAsync(BoxId)).ReturnsAsync((ActiveSession?)null);
 
-        var service = new CafePosService(posRepo.Object, cafeRepo.Object);
+        var depositRepo = new Mock<IBookingDepositRepository>();
+        var service = new CafePosService(posRepo.Object, cafeRepo.Object, depositRepo.Object);
         var result = await service.StartGameSessionAsync(CafeId, ManagerId, "Manager", new StartGameSessionRequestDto
         {
             CafeTableId = TableId,
@@ -47,9 +48,11 @@ public class CafePosServiceTests
         });
 
         Assert.Equal(TableId, result.CafeTableId);
+        Assert.Equal(ManagerId, result.HostId);
         Assert.Equal(CafeGameInventoryStatus.InUse, box.Status);
         Assert.Equal(CafeTableStatus.InUse, table.Status);
         posRepo.Verify(r => r.AddSessionAsync(It.IsAny<ActiveSession>()), Times.Once);
+        posRepo.Verify(r => r.AddSessionMemberAsync(It.IsAny<ActiveSessionMember>()), Times.Once);
         posRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
     }
 
@@ -71,7 +74,8 @@ public class CafePosServiceTests
                 CafeGameInventory = new CafeGameInventory { GameTemplateId = GameTemplateId }
             });
 
-        var service = new CafePosService(posRepo.Object, cafeRepo.Object);
+        var depositRepo = new Mock<IBookingDepositRepository>();
+        var service = new CafePosService(posRepo.Object, cafeRepo.Object, depositRepo.Object);
 
         await Assert.ThrowsAsync<ConflictException>(() =>
             service.StartGameSessionAsync(CafeId, ManagerId, "Manager", new StartGameSessionRequestDto
@@ -91,7 +95,8 @@ public class CafePosServiceTests
         posRepo.Setup(r => r.GetTableAsync(CafeId, TableId))
             .ReturnsAsync(new CafeTable { Id = TableId, Status = CafeTableStatus.Reserved });
 
-        var service = new CafePosService(posRepo.Object, cafeRepo.Object);
+        var depositRepo = new Mock<IBookingDepositRepository>();
+        var service = new CafePosService(posRepo.Object, cafeRepo.Object, depositRepo.Object);
 
         await Assert.ThrowsAsync<ConflictException>(() =>
             service.StartGameSessionAsync(CafeId, ManagerId, "Manager", new StartGameSessionRequestDto
@@ -122,17 +127,16 @@ public class CafePosServiceTests
             CafeInventoryBox = box,
             GameTemplateId = GameTemplateId,
             GameTemplate = new GameTemplate { Name = "Catan", PlayTime = 90 },
-            StartedAt = DateTime.UtcNow.AddMinutes(-30),
-            IsActive = true
+            StartedAt = DateTime.UtcNow.AddMinutes(-30)
         };
 
         posRepo.Setup(r => r.GetActiveSessionByIdAsync(CafeId, sessionId)).ReturnsAsync(session);
         posRepo.Setup(r => r.GetActiveSessionsAsync(CafeId, null)).ReturnsAsync([]);
 
-        var service = new CafePosService(posRepo.Object, cafeRepo.Object);
+        var depositRepo = new Mock<IBookingDepositRepository>();
+        var service = new CafePosService(posRepo.Object, cafeRepo.Object, depositRepo.Object);
         var result = await service.EndGameSessionAsync(CafeId, ManagerId, "Manager", sessionId);
 
-        Assert.False(session.IsActive);
         Assert.Equal(CafeGameInventoryStatus.Available, box.Status);
         Assert.Equal(CafeTableStatus.Available, table.Status);
         Assert.Equal(sessionId, result.Id);
@@ -146,7 +150,8 @@ public class CafePosServiceTests
         SetupActiveCafe(cafeRepo);
         posRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
 
-        var service = new CafePosService(posRepo.Object, cafeRepo.Object);
+        var depositRepo = new Mock<IBookingDepositRepository>();
+        var service = new CafePosService(posRepo.Object, cafeRepo.Object, depositRepo.Object);
 
         await Assert.ThrowsAsync<BadRequestException>(() =>
             service.GetBoxByBarcodeAsync(CafeId, ManagerId, "Manager", "   "));
@@ -160,7 +165,8 @@ public class CafePosServiceTests
         SetupActiveCafe(cafeRepo);
         posRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Player")).ReturnsAsync(false);
 
-        var service = new CafePosService(posRepo.Object, cafeRepo.Object);
+        var depositRepo = new Mock<IBookingDepositRepository>();
+        var service = new CafePosService(posRepo.Object, cafeRepo.Object, depositRepo.Object);
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
             service.GetTablesAsync(CafeId, ManagerId, "Player"));

@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using BoardVerse.Core.Data;
 using BoardVerse.Core.DTOs.Auth.Requests;
 using BoardVerse.Core.DTOs.Auth.Responses;
 
@@ -95,6 +96,39 @@ public static class ApiTestClient
     {
         var suffix = Guid.NewGuid().ToString("N")[..12];
         return $"{prefix}_{suffix}";
+    }
+
+    public static async Task ResetTestStateAsync(HttpClient client, Guid cafeId)
+    {
+        try
+        {
+            // Get active sessions
+            var managerToken = await LoginAsync(client, "manager@boardverse.dev", "Manager@123");
+            Authorize(client, managerToken);
+
+            var sessionsResponse = await client.GetAsync($"/api/cafes/{cafeId}/pos/sessions/active");
+            if (sessionsResponse.IsSuccessStatusCode)
+            {
+                var sessionsData = await ReadApiResponseAsync<List<object>>(sessionsResponse);
+                foreach (var session in sessionsData.Data ?? [])
+                {
+                    // Try to end each session
+                    if (session is System.Text.Json.JsonElement json && json.TryGetProperty("id", out var idProp))
+                    {
+                        var sessionId = idProp.GetGuid();
+                        await client.PostAsync($"/api/cafes/{cafeId}/pos/sessions/{sessionId}/end", null);
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Ignore reset errors
+        }
+        finally
+        {
+            ClearAuth(client);
+        }
     }
 }
 

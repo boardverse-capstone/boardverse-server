@@ -14,6 +14,9 @@ internal static class IntegrationTestDataBootstrapper
 
     public static async Task EnsureAllFixturesAsync(IServiceProvider services)
     {
+        // Generate unique IDs for this test run to avoid conflicts
+        IntegrationTestFixtures.GenerateUniqueIds();
+
         await using var scope = services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<BoardVerseDbContext>();
 
@@ -24,8 +27,56 @@ internal static class IntegrationTestDataBootstrapper
         await EnsureDemoCatanInventoryAsync(db);
         await EnsureDemoStaffAsync(db);
         await EnsureDemoLobbiesAsync(db);
+        await EnsureDemoBookingDepositAsync(db);
         await ResetPosSessionStateAsync(db);
         await ResetMatchLobbyAsync(db);
+        await ResetLobbyStateAsync(db);
+    }
+
+    private static async Task EnsureDemoBookingDepositAsync(BoardVerseDbContext db)
+    {
+        var depositId = IntegrationTestFixtures.DemoBookingDepositId;
+        var orderId = $"TEST-DEPOSIT-{Guid.NewGuid():N}";  // Unique OrderId to avoid constraint violations
+
+        // Clean up any existing deposit with this ID first
+        var existing = await db.BookingDeposits.FindAsync(depositId);
+        if (existing != null)
+        {
+            db.BookingDeposits.Remove(existing);
+            await db.SaveChangesAsync();
+        }
+
+        var deposit = new BookingDeposit
+        {
+            Id = depositId,
+            CafeId = IntegrationTestFixtures.DemoCafeId,
+            CafeManagerId = IntegrationTestFixtures.ManagerUserId,
+            Amount = 50000,
+            Status = BookingDepositStatus.Pending,  // Will be marked Paid by test webhook
+            RefundPolicy = DepositRefundPolicy.Full,
+            ActiveSessionId = Guid.Empty,  // Will be linked when session starts
+            OrderId = orderId,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        db.BookingDeposits.Add(deposit);
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task ResetLobbyStateAsync(BoardVerseDbContext db)
+    {
+        // Reset all open lobbies to HostCancelled to ensure clean test environment
+        var openLobbies = await db.Lobbies
+            .Where(l => l.Status == LobbyStatus.Open)
+            .ToListAsync();
+
+        foreach (var lobby in openLobbies)
+        {
+            lobby.Status = LobbyStatus.HostCancelled;
+            lobby.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await db.SaveChangesAsync();
     }
 
     private static async Task EnsureRequiredGamesAsync(BoardVerseDbContext db)
@@ -71,15 +122,15 @@ internal static class IntegrationTestDataBootstrapper
 
     private static async Task EnsureDevUsersAsync(BoardVerseDbContext db)
     {
-        await EnsureUserAsync(db, DevSeedConstants.ManagerUserId, DevSeedConstants.ManagerEmail,
+        await EnsureUserAsync(db, IntegrationTestFixtures.ManagerUserId, DevSeedConstants.ManagerEmail,
             DevSeedConstants.ManagerUsername, DevSeedConstants.ManagerPassword, UserRole.Manager);
-        await EnsureUserAsync(db, DevSeedConstants.AdminUserId, DevSeedConstants.AdminEmail,
+        await EnsureUserAsync(db, IntegrationTestFixtures.AdminUserId, DevSeedConstants.AdminEmail,
             DevSeedConstants.AdminUsername, DevSeedConstants.AdminPassword, UserRole.Admin);
-        await EnsureUserAsync(db, DevSeedConstants.DemoPlayer1UserId, DevSeedConstants.Player1Email,
+        await EnsureUserAsync(db, IntegrationTestFixtures.DemoPlayer1UserId, DevSeedConstants.Player1Email,
             DevSeedConstants.Player1Username, DevSeedConstants.DemoPlayerPassword, UserRole.Player, 1250, 100);
-        await EnsureUserAsync(db, DevSeedConstants.DemoPlayer2UserId, DevSeedConstants.Player2Email,
+        await EnsureUserAsync(db, IntegrationTestFixtures.DemoPlayer2UserId, DevSeedConstants.Player2Email,
             DevSeedConstants.Player2Username, DevSeedConstants.DemoPlayerPassword, UserRole.Player, 1180, 100);
-        await EnsureUserAsync(db, DevSeedConstants.DemoPlayer3UserId, DevSeedConstants.Player3Email,
+        await EnsureUserAsync(db, IntegrationTestFixtures.DemoPlayer3UserId, DevSeedConstants.Player3Email,
             DevSeedConstants.Player3Username, DevSeedConstants.DemoPlayerPassword, UserRole.Player, 1200, 45);
     }
 
@@ -140,17 +191,17 @@ internal static class IntegrationTestDataBootstrapper
 
     private static async Task EnsureDemoCafeAsync(BoardVerseDbContext db)
     {
-        var cafe = await db.Cafes.FirstOrDefaultAsync(c => c.Id == DevSeedConstants.DemoCafeId);
+        var cafe = await db.Cafes.FirstOrDefaultAsync(c => c.Id == IntegrationTestFixtures.DemoCafeId);
         if (cafe == null)
         {
             cafe = new Cafe
             {
-                Id = DevSeedConstants.DemoCafeId,
+                Id = IntegrationTestFixtures.DemoCafeId,
                 Name = DevSeedConstants.DemoCafeName,
                 Address = DevSeedConstants.DemoCafeAddress,
                 PhoneNumber = "0901234567",
                 Description = "Integration test demo cafe",
-                ManagerId = DevSeedConstants.ManagerUserId,
+                ManagerId = IntegrationTestFixtures.ManagerUserId,
                 CreatedAt = DateTime.UtcNow,
                 IsActive = true,
                 PartnerOperationalStatus = CafePartnerOperationalStatus.Active
@@ -163,7 +214,7 @@ internal static class IntegrationTestDataBootstrapper
         }
         else
         {
-            cafe.ManagerId = DevSeedConstants.ManagerUserId;
+            cafe.ManagerId = IntegrationTestFixtures.ManagerUserId;
             cafe.IsActive = true;
             cafe.PartnerOperationalStatus = CafePartnerOperationalStatus.Active;
             GeoLocationHelper.ApplyCoordinates(
@@ -177,13 +228,13 @@ internal static class IntegrationTestDataBootstrapper
 
     private static async Task EnsureDemoTablesAsync(BoardVerseDbContext db)
     {
-        var posTable = await db.CafeTables.FirstOrDefaultAsync(t => t.Id == DevSeedConstants.DemoPosTableId);
+        var posTable = await db.CafeTables.FirstOrDefaultAsync(t => t.Id == IntegrationTestFixtures.DemoPosTableId);
         if (posTable == null)
         {
             posTable = new CafeTable
             {
-                Id = DevSeedConstants.DemoPosTableId,
-                CafeId = DevSeedConstants.DemoCafeId,
+                Id = IntegrationTestFixtures.DemoPosTableId,
+                CafeId = IntegrationTestFixtures.DemoCafeId,
                 Name = "Integration POS Table",
                 SortOrder = 0,
                 Status = CafeTableStatus.Available,
@@ -194,7 +245,7 @@ internal static class IntegrationTestDataBootstrapper
         }
         else
         {
-            posTable.CafeId = DevSeedConstants.DemoCafeId;
+            posTable.CafeId = IntegrationTestFixtures.DemoCafeId;
             posTable.IsActive = true;
             posTable.Status = CafeTableStatus.Available;
         }
@@ -212,16 +263,16 @@ internal static class IntegrationTestDataBootstrapper
             ?? throw new InvalidOperationException("Integration bootstrap requires a Catan game template.");
 
         var inventory = await db.CafeGameInventories.FirstOrDefaultAsync(i =>
-            i.Id == DevSeedConstants.DemoCatanInventoryId
-            || (i.CafeId == DevSeedConstants.DemoCafeId && i.GameTemplateId == catan.Id && i.IsActive));
+            i.Id == IntegrationTestFixtures.DemoCatanInventoryId
+            || (i.CafeId == IntegrationTestFixtures.DemoCafeId && i.GameTemplateId == catan.Id && i.IsActive));
 
         if (inventory == null)
         {
             var now = DateTime.UtcNow;
             inventory = new CafeGameInventory
             {
-                Id = DevSeedConstants.DemoCatanInventoryId,
-                CafeId = DevSeedConstants.DemoCafeId,
+                Id = IntegrationTestFixtures.DemoCatanInventoryId,
+                CafeId = IntegrationTestFixtures.DemoCafeId,
                 GameTemplateId = catan.Id,
                 BoxQuantity = 2,
                 Status = CafeGameInventoryStatus.Available,
@@ -233,7 +284,7 @@ internal static class IntegrationTestDataBootstrapper
         }
         else
         {
-            inventory.CafeId = DevSeedConstants.DemoCafeId;
+            inventory.CafeId = IntegrationTestFixtures.DemoCafeId;
             inventory.GameTemplateId = catan.Id;
             inventory.BoxQuantity = Math.Max(inventory.BoxQuantity, 2);
             inventory.IsActive = true;
@@ -275,22 +326,39 @@ internal static class IntegrationTestDataBootstrapper
 
         await db.SaveChangesAsync();
 
-        IntegrationTestFixtures.CatanInventoryId = inventory.Id;
+        IntegrationTestFixtures.DemoCatanInventoryId = inventory.Id;
+        IntegrationTestFixtures.CatanBarcode = boxes[0].Barcode;
         IntegrationTestFixtures.PosBoxBarcode = boxes[0].Barcode;
     }
 
     private static async Task EnsureDemoStaffAsync(BoardVerseDbContext db)
     {
-        var staff = await db.CafeStaffs.FirstOrDefaultAsync(s =>
-            s.CafeId == DevSeedConstants.DemoCafeId
-            && s.UserId == DevSeedConstants.DemoPlayer2UserId);
+        // Add Manager as staff (required for POS operations)
+        var managerStaff = await db.CafeStaffs.FirstOrDefaultAsync(s =>
+            s.CafeId == IntegrationTestFixtures.DemoCafeId
+            && s.UserId == IntegrationTestFixtures.ManagerUserId);
 
-        if (staff == null)
+        if (managerStaff == null)
         {
             db.CafeStaffs.Add(new CafeStaff
             {
-                CafeId = DevSeedConstants.DemoCafeId,
-                UserId = DevSeedConstants.DemoPlayer2UserId,
+                CafeId = IntegrationTestFixtures.DemoCafeId,
+                UserId = IntegrationTestFixtures.ManagerUserId,
+                JoinedAt = DateTime.UtcNow
+            });
+        }
+
+        // Also add Player2 as staff
+        var player2Staff = await db.CafeStaffs.FirstOrDefaultAsync(s =>
+            s.CafeId == IntegrationTestFixtures.DemoCafeId
+            && s.UserId == IntegrationTestFixtures.DemoPlayer2UserId);
+
+        if (player2Staff == null)
+        {
+            db.CafeStaffs.Add(new CafeStaff
+            {
+                CafeId = IntegrationTestFixtures.DemoCafeId,
+                UserId = IntegrationTestFixtures.DemoPlayer2UserId,
                 JoinedAt = DateTime.UtcNow
             });
         }
@@ -308,21 +376,23 @@ internal static class IntegrationTestDataBootstrapper
 
         await EnsureLobbyAsync(
             db,
-            DevSeedConstants.DemoMatchLobbyId,
+            IntegrationTestFixtures.DemoMatchLobbyId,
             catan.Id,
             LobbyStatus.InProgress,
-            [DevSeedConstants.DemoPlayer1UserId, DevSeedConstants.DemoPlayer2UserId]);
+            [IntegrationTestFixtures.DemoPlayer1UserId, IntegrationTestFixtures.DemoPlayer2UserId],
+            hostUserId: IntegrationTestFixtures.DemoPlayer1UserId);
 
         await EnsureLobbyAsync(
             db,
-            DevSeedConstants.DemoKarmaLobbyId,
+            IntegrationTestFixtures.DemoKarmaLobbyId,
             catan.Id,
             LobbyStatus.Closed,
             [
-                DevSeedConstants.DemoPlayer1UserId,
-                DevSeedConstants.DemoPlayer2UserId,
-                DevSeedConstants.DemoPlayer3UserId
-            ]);
+                IntegrationTestFixtures.DemoPlayer1UserId,
+                IntegrationTestFixtures.DemoPlayer2UserId,
+                IntegrationTestFixtures.DemoPlayer3UserId
+            ],
+            hostUserId: IntegrationTestFixtures.DemoPlayer1UserId);
     }
 
     private static async Task EnsureLobbyAsync(
@@ -330,7 +400,8 @@ internal static class IntegrationTestDataBootstrapper
         Guid lobbyId,
         Guid gameTemplateId,
         LobbyStatus status,
-        IReadOnlyList<Guid> memberUserIds)
+        IReadOnlyList<Guid> memberUserIds,
+        Guid? hostUserId = null)
     {
         var now = DateTime.UtcNow;
         var lobby = await db.Lobbies
@@ -346,7 +417,8 @@ internal static class IntegrationTestDataBootstrapper
                 Status = status,
                 CreatedAt = now,
                 UpdatedAt = now,
-                Members = []
+                Members = [],
+                HostUserId = hostUserId ?? memberUserIds.FirstOrDefault()
             };
             db.Lobbies.Add(lobby);
         }
@@ -355,6 +427,10 @@ internal static class IntegrationTestDataBootstrapper
             lobby.GameTemplateId = gameTemplateId;
             lobby.Status = status;
             lobby.UpdatedAt = now;
+            if (hostUserId.HasValue)
+            {
+                lobby.HostUserId = hostUserId.Value;
+            }
         }
 
         foreach (var userId in memberUserIds)
@@ -379,37 +455,57 @@ internal static class IntegrationTestDataBootstrapper
 
     private static async Task ResetPosSessionStateAsync(BoardVerseDbContext db)
     {
-        var posTable = await db.CafeTables.FirstAsync(t => t.Id == DevSeedConstants.DemoPosTableId);
-        posTable.Status = CafeTableStatus.Available;
-        posTable.UpdatedAt = DateTime.UtcNow;
-
-        var activeSessions = await db.ActiveSessions
-            .Where(s => s.IsActive && s.CafeId == DevSeedConstants.DemoCafeId)
-            .ToListAsync();
-
-        foreach (var session in activeSessions)
+        var posTable = await db.CafeTables.FirstOrDefaultAsync(t => t.Id == IntegrationTestFixtures.DemoPosTableId);
+        if (posTable != null)
         {
-            session.IsActive = false;
-            session.EndedAt = DateTime.UtcNow;
+            posTable.Status = CafeTableStatus.Available;
+            posTable.UpdatedAt = DateTime.UtcNow;
         }
 
-        var boxes = await db.CafeInventoryBoxes
-            .Where(b => b.IsActive && b.CafeGameInventoryId == IntegrationTestFixtures.CatanInventoryId)
+        // Clean up old sessions - handle both old and new schema gracefully
+        try
+        {
+            // Delete members first (table may not exist in old schema)
+            await db.Database.ExecuteSqlRawAsync(@"
+                DO $$
+                BEGIN
+                    IF EXISTS (SELECT FROM pg_tables WHERE tablename = 'ActiveSessionMembers') THEN
+                        DELETE FROM ""ActiveSessionMembers"" WHERE ""ActiveSessionId"" IN (SELECT ""Id"" FROM ""ActiveSessions"" WHERE ""CafeId"" = {0});
+                    END IF;
+                END $$;
+                DELETE FROM ""ActiveSessions"" WHERE ""CafeId"" = {0};
+            ", IntegrationTestFixtures.DemoCafeId);
+        }
+        catch
+        {
+            // Schema might be incomplete, ignore
+        }
+
+        // Reset ALL boxes in demo cafe to Available - not just Catan
+        var allBoxes = await db.CafeInventoryBoxes
+            .Include(b => b.CafeGameInventory)
+            .Where(b => b.IsActive && b.CafeGameInventory.CafeId == IntegrationTestFixtures.DemoCafeId)
             .ToListAsync();
 
-        foreach (var box in boxes)
+        foreach (var box in allBoxes)
         {
             box.Status = CafeGameInventoryStatus.Available;
             box.UpdatedAt = DateTime.UtcNow;
         }
 
         await db.SaveChangesAsync();
+
+        // Refresh the barcode fixture to first available box
+        if (allBoxes.Count > 0)
+        {
+            IntegrationTestFixtures.PosBoxBarcode = allBoxes[0].Barcode;
+        }
     }
 
     private static async Task ResetMatchLobbyAsync(BoardVerseDbContext db)
     {
         var submissions = await db.MatchResults
-            .Where(m => m.LobbyId == DevSeedConstants.DemoMatchLobbyId)
+            .Where(m => m.LobbyId == IntegrationTestFixtures.DemoMatchLobbyId)
             .ToListAsync();
 
         if (submissions.Count > 0)
@@ -418,7 +514,7 @@ internal static class IntegrationTestDataBootstrapper
             await db.SaveChangesAsync();
         }
 
-        var lobby = await db.Lobbies.FirstOrDefaultAsync(l => l.Id == DevSeedConstants.DemoMatchLobbyId);
+        var lobby = await db.Lobbies.FirstOrDefaultAsync(l => l.Id == IntegrationTestFixtures.DemoMatchLobbyId);
         if (lobby != null)
         {
             lobby.Status = LobbyStatus.InProgress;

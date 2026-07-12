@@ -1,0 +1,43 @@
+using BoardVerse.Core.Entities;
+using BoardVerse.Core.IRepositories;
+using BoardVerse.Data;
+using Microsoft.EntityFrameworkCore;
+
+namespace BoardVerse.Data.Repositories
+{
+    public class CafeSettlementRepository : ICafeSettlementRepository
+    {
+        private readonly BoardVerseDbContext _db;
+
+        public CafeSettlementRepository(BoardVerseDbContext db)
+        {
+            _db = db;
+        }
+
+        public Task AddAsync(CafeSettlement settlement)
+        {
+            _db.CafeSettlements.Add(settlement);
+            return Task.CompletedTask;
+        }
+
+        public Task UpdateAsync(CafeSettlement settlement)
+        {
+            settlement.UpdatedAt = DateTime.UtcNow;
+            _db.CafeSettlements.Update(settlement);
+            return Task.CompletedTask;
+        }
+
+        public async Task<IReadOnlyList<CafeSettlement>> GetPendingAsync(Guid cafeId)
+        {
+            return await _db.CafeSettlements
+                .Where(s => s.CafeId == cafeId && s.Status == Core.Enum.CafeSettlementStatus.Pending)
+                .OrderBy(s => s.CreatedAt)
+                .ToListAsync();
+        }
+
+        public Task SaveChangesAsync()
+        {
+            return _db.SaveChangesAsync();
+        }
+    }
+}

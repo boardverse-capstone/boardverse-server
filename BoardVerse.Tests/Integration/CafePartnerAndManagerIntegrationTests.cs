@@ -1,5 +1,4 @@
 using System.Net;
-using BoardVerse.Core.Data;
 using BoardVerse.Tests.Integration.Infrastructure;
 
 namespace BoardVerse.Tests.Integration;
@@ -246,8 +245,8 @@ public class ManagerStaffIntegrationTests
         ApiTestClient.Authorize(_client, managerToken);
         await ApiTestClient.PostJsonAsync(
             _client,
-            $"/api/cafes/{DevSeedConstants.DemoCafeId}/staff/promote",
-            new { email = DevSeedConstants.Player2Email });
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/staff/promote",
+            new { email = IntegrationTestFixtures.Player2Email });
 
         var staffToken = await IntegrationTestAuth.AsPlayer2Async(_client);
         ApiTestClient.Authorize(_client, staffToken);

@@ -1,4 +1,3 @@
-using BoardVerse.Core.Data;
 using BoardVerse.Core.Enum;
 using BoardVerse.Tests.Integration.Infrastructure;
 
@@ -89,7 +88,7 @@ public class MasterGameIntegrationTests
         ApiTestClient.Authorize(_client, token);
 
         var response = await _client.GetAsync(
-            $"/api/v1/master-games?searchTerm=catan&cafeId={DevSeedConstants.DemoCafeId}&pageSize=5");
+            $"/api/v1/master-games?searchTerm=catan&cafeId={IntegrationTestFixtures.DemoCafeId}&pageSize=5");
         response.EnsureSuccessStatusCode();
     }
 
@@ -101,7 +100,7 @@ public class MasterGameIntegrationTests
         ApiTestClient.Authorize(_client, token);
 
         var response = await _client.GetAsync(
-            $"/api/v1/master-games/{gameId}?cafeId={DevSeedConstants.DemoCafeId}");
+            $"/api/v1/master-games/{gameId}?cafeId={IntegrationTestFixtures.DemoCafeId}");
         response.EnsureSuccessStatusCode();
     }
 }

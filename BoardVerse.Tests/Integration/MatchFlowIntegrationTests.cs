@@ -1,5 +1,4 @@
 using System.Net;
-using BoardVerse.Core.Data;
 using BoardVerse.Core.Enum;
 using BoardVerse.Tests.Integration.Infrastructure;
 
@@ -18,16 +17,16 @@ public class MatchFlowIntegrationTests
     {
         var token = await ApiTestClient.LoginAsync(
             _client,
-            DevSeedConstants.Player1Email,
-            DevSeedConstants.DemoPlayerPassword);
+            IntegrationTestFixtures.Player1Email,
+            IntegrationTestFixtures.PlayerPassword);
         ApiTestClient.Authorize(_client, token);
 
         var response = await _client.GetAsync(
-            $"/api/v1/matches/results/lobbies/{DevSeedConstants.DemoMatchLobbyId}");
+            $"/api/v1/matches/results/lobbies/{IntegrationTestFixtures.DemoMatchLobbyId}");
 
         response.EnsureSuccessStatusCode();
         var body = await ApiTestClient.ReadApiResponseAsync<MatchStatusDto>(response);
-        Assert.Equal(DevSeedConstants.DemoMatchLobbyId, body.Data!.LobbyId);
+        Assert.Equal(IntegrationTestFixtures.DemoMatchLobbyId, body.Data!.LobbyId);
         Assert.True(body.Data.SupportsMatchResults);
     }
 
@@ -36,12 +35,12 @@ public class MatchFlowIntegrationTests
     {
         var player1Token = await ApiTestClient.LoginAsync(
             _client,
-            DevSeedConstants.Player1Email,
-            DevSeedConstants.DemoPlayerPassword);
+            IntegrationTestFixtures.Player1Email,
+            IntegrationTestFixtures.PlayerPassword);
         ApiTestClient.Authorize(_client, player1Token);
 
         var statusResponse = await _client.GetAsync(
-            $"/api/v1/matches/results/lobbies/{DevSeedConstants.DemoMatchLobbyId}");
+            $"/api/v1/matches/results/lobbies/{IntegrationTestFixtures.DemoMatchLobbyId}");
         statusResponse.EnsureSuccessStatusCode();
         var status = (await ApiTestClient.ReadApiResponseAsync<MatchStatusDto>(statusResponse)).Data!;
 
@@ -53,7 +52,7 @@ public class MatchFlowIntegrationTests
         {
             var submitResponse = await ApiTestClient.PostJsonAsync(_client, "/api/v1/matches/results", new
             {
-                lobbyId = DevSeedConstants.DemoMatchLobbyId,
+                lobbyId = IntegrationTestFixtures.DemoMatchLobbyId,
                 outcome = MatchOutcome.Win
             });
 

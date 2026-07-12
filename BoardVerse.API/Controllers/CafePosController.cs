@@ -36,6 +36,31 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
+        /// Đồng bộ sơ đồ bàn — tạo mới, cập nhật hoặc xóa bàn. [Role: Manager — chủ quán]
+        /// </summary>
+        /// <param name="cafeId">Mã định danh quán cafe.</param>
+        /// <param name="request">Danh sách tên bàn muốn giữ lại.</param>
+        /// <response code="200">Đồng bộ thành công, trả danh sách bàn hiện tại.</response>
+        /// <response code="400">Danh sách tên bàn không hợp lệ.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không phải Manager chủ quán.</response>
+        /// <response code="404">Quán không tồn tại.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPut("tables")]
+        public async Task<IActionResult> SyncTables(Guid cafeId, [FromBody] SyncCafeTablesRequestDto request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return this.NewResponse(400, "Dữ liệu không hợp lệ.", null);
+            }
+
+            var managerId = GetUserIdFromClaims();
+            await _posService.SyncTablesAsync(cafeId, managerId, request.TableNames);
+            var tables = await _posService.GetTablesAsync(cafeId, managerId, "Manager");
+            return this.NewResponse(200, ApiSuccessMessages.Pos.TablesRetrieved, tables);
+        }
+
+        /// <summary>
         /// Liệt kê hộp game vật lý (barcode + trạng thái) trong kho quán. [Role: Manager, CafeStaff]
         /// </summary>
         /// <param name="cafeId">Mã định danh quán cafe.</param>
@@ -111,6 +136,27 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
+        /// Host-led check-in: Quét mã đặt chỗ (BookingCode) để kích hoạt phiên chơi cho cả nhóm.
+        /// Nhân viên quét mã QR trên ứng dụng của Host để check-in toàn bộ thành viên trong nhóm.
+        /// MDC Happy Path Step 9
+        /// </summary>
+        /// <param name="cafeId">Mã định danh quán.</param>
+        /// <param name="request">Mã đặt chỗ, bàn và game barcode.</param>
+        /// <response code="201">Check-in thành công, phiên chơi đã được kích hoạt.</response>
+        /// <response code="400">Mã đặt chỗ không hợp lệ.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Quán, bàn hoặc game không tồn tại.</response>
+        /// <response code="409">Đơn đặt chỗ chưa thanh toán hoặc bàn/game không khả dụng.</response>
+        [HttpPost("sessions/from-booking")]
+        public async Task<IActionResult> StartSessionFromBooking(Guid cafeId, [FromBody] StartSessionFromBookingRequestDto request)
+        {
+            var (userId, role) = GetViewerContext();
+            var result = await _posService.StartSessionFromBookingAsync(cafeId, userId, role, request);
+            return this.NewResponse(201, ApiSuccessMessages.Pos.SessionStarted, result);
+        }
+
+        /// <summary>
         /// Kết thúc phiên chơi — trả hộp game và giải phóng bàn nếu không còn session khác. [Role: Manager, CafeStaff]
         /// </summary>
         /// <param name="cafeId">Mã định danh quán cafe.</param>
@@ -126,6 +172,46 @@ namespace BoardVerse.API.Controllers
             var (userId, role) = GetViewerContext();
             var result = await _posService.EndGameSessionAsync(cafeId, userId, role, sessionId);
             return this.NewResponse(200, ApiSuccessMessages.Pos.SessionEnded, result);
+        }
+
+        /// <summary>
+        /// Lấy bảng kiểm kê linh kiện số hóa của một game trong phiên. [Role: Manager, CafeStaff]
+        /// BR-12: Bắt buộc kiểm kê trước khi in hóa đơn.
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="sessionGameId">Mã session game (ActiveSessionGame).</param>
+        /// <response code="200">Danh sách linh kiện cần kiểm.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy session game.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpGet("sessions/{sessionGameId:guid}/component-checklist")]
+        public async Task<IActionResult> GetComponentChecklist(Guid cafeId, Guid sessionGameId)
+        {
+            var (userId, role) = GetViewerContext();
+            var result = await _posService.GetComponentChecklistAsync(cafeId, userId, role, sessionGameId);
+            return this.NewResponse(200, "Lấy bảng kiểm kê linh kiện thành công.", result);
+        }
+
+        /// <summary>
+        /// Xác nhận kiểm kê linh kiện và tính phí phạt nếu thiếu. [Role: Manager, CafeStaff]
+        /// BR-12: Mở khóa in hóa đơn khi kiểm kê xong.
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="request">Kết quả kiểm kê từng linh kiện.</param>
+        /// <response code="200">Kiểm kê hoàn tất, trả kết quả kèm phí phạt.</response>
+        /// <response code="400">Dữ liệu không hợp lệ.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy session game.</response>
+        /// <response code="409">Đã kiểm kê rồi.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPost("sessions/component-check")]
+        public async Task<IActionResult> SubmitComponentCheck(Guid cafeId, [FromBody] SubmitComponentCheckRequestDto request)
+        {
+            var (userId, role) = GetViewerContext();
+            var result = await _posService.SubmitComponentCheckAsync(cafeId, userId, role, request);
+            return this.NewResponse(200, "Xác nhận kiểm kê linh kiện thành công.", result);
         }
 
         private (Guid UserId, string Role) GetViewerContext()

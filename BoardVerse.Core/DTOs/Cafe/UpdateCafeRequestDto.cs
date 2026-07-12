@@ -22,5 +22,17 @@ namespace BoardVerse.Core.DTOs.Cafe
 
         [Range(-180, 180, ErrorMessage = ApiErrorMessages.Validation.LongitudeRange)]
         public double? Longitude { get; set; }
+
+        [StringLength(100)]
+        public string? SePayMerchantId { get; set; }
+
+        [StringLength(200)]
+        public string? SePayApiKey { get; set; }
+
+        [StringLength(200)]
+        public string? SePaySecretKey { get; set; }
+
+        [StringLength(500)]
+        public string? SePayReturnUrl { get; set; }
     }
 }

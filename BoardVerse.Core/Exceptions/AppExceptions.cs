@@ -221,4 +221,10 @@ namespace BoardVerse.Core.Exceptions
     {
         public BoardGameNotFoundException(string message = "Không tìm thấy board game.") : base(message) { }
     }
+
+    public class PaymentException : InternalServerErrorException
+    {
+        public PaymentException(string message = "Thanh toán thất bại.") : base(message) { }
+        public PaymentException(string message, Exception innerException) : base(message, innerException) { }
+    }
 }

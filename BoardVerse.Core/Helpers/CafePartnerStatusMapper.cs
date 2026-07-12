@@ -43,8 +43,8 @@ namespace BoardVerse.Core.Helpers
 
         public static string ToApiBillingModel(Enum.CafePartnerBillingModel model) => model switch
         {
-            Enum.CafePartnerBillingModel.ByHour => "BY_HOUR",
-            Enum.CafePartnerBillingModel.PerDrink => "PER_DRINK",
+            Enum.CafePartnerBillingModel.TimeBased => "TIME_BASED",
+            Enum.CafePartnerBillingModel.FlatEntry => "FLAT_ENTRY",
             _ => model.ToString()
         };
     }

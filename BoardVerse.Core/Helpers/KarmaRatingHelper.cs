@@ -40,6 +40,6 @@ namespace BoardVerse.Core.Helpers
             };
 
         public static bool IsRatingAllowed(LobbyStatus status) =>
-            status is LobbyStatus.RatingOpen or LobbyStatus.Closed;
+            status is LobbyStatus.InProgress or LobbyStatus.Closed;
     }
 }

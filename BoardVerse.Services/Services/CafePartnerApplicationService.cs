@@ -25,6 +25,7 @@ namespace BoardVerse.Services.Services
         private readonly ICafePartnerApplicationRepository _applicationRepository;
         private readonly IAuthRepository _authRepository;
         private readonly ICafeRepository _cafeRepository;
+        private readonly IActiveSessionRepository _activeSessionRepository;
         private readonly IEmailService _emailService;
         private readonly ILogger<CafePartnerApplicationService> _logger;
 
@@ -32,12 +33,14 @@ namespace BoardVerse.Services.Services
             ICafePartnerApplicationRepository applicationRepository,
             IAuthRepository authRepository,
             ICafeRepository cafeRepository,
+            IActiveSessionRepository activeSessionRepository,
             IEmailService emailService,
             ILogger<CafePartnerApplicationService> logger)
         {
             _applicationRepository = applicationRepository;
             _authRepository = authRepository;
             _cafeRepository = cafeRepository;
+            _activeSessionRepository = activeSessionRepository;
             _emailService = emailService;
             _logger = logger;
         }
@@ -202,7 +205,7 @@ namespace BoardVerse.Services.Services
                 CreatedAt = DateTime.UtcNow,
                 IsActive = false,
                 PartnerOperationalStatus = CafePartnerOperationalStatus.DataBlank,
-                BillingModel = CafePartnerBillingModel.ByHour,
+                BillingModel = CafePartnerBillingModel.TimeBased,
             };
 
             if (application.Latitude.HasValue && application.Longitude.HasValue)
@@ -273,7 +276,12 @@ namespace BoardVerse.Services.Services
         public async Task<ManagerCafeProfileResponseDto> GetMyPartnerProfileAsync(Guid managerUserId)
         {
             var cafe = await GetPartnerCafeForManagerOrThrowAsync(managerUserId);
-            return MapManagerCafeProfile(cafe.PartnerApplication!, cafe);
+            if (cafe.PartnerApplication == null)
+            {
+                throw new CafePartnerApplicationNotFoundException(
+                    ApiErrorMessages.CafePartner.ApplicationNotFoundForManager);
+            }
+            return MapManagerCafeProfile(cafe.PartnerApplication, cafe);
         }
 
         public async Task<ManagerCafeProfileResponseDto> UpdateOperationalProfileAsync(
@@ -304,6 +312,12 @@ namespace BoardVerse.Services.Services
             cafe.PopularGamesList = request.PopularGamesList.Trim();
             cafe.HasGameMaster = request.HasGameMaster;
             cafe.BillingModel = request.BillingModel;
+            cafe.BasePrice = request.BasePrice;
+            cafe.TieredBlockRate = request.BillingModel == Core.Enum.CafePartnerBillingModel.TimeBased
+                ? request.TieredBlockRate
+                : null;
+            cafe.TieredBlockMinutes = request.TieredBlockMinutes;
+            cafe.DepositPercentage = request.DepositPercentage;
             cafe.TableLayoutJson = JsonSerializer.Serialize(tableNames);
             cafe.OperationalProfileUpdatedAt = DateTime.UtcNow;
             cafe.UpdatedAt = DateTime.UtcNow;
@@ -392,7 +406,8 @@ namespace BoardVerse.Services.Services
                             : ApiErrorMessages.CafePartner.OnlyActiveCafesCanBePaused);
             }
 
-            if (await _cafeRepository.HasActiveBookingsAsync(cafe.Id))
+            var activeSessions = await _activeSessionRepository.GetActiveSessionsAsync(cafe.Id, null);
+            if (activeSessions.Count > 0)
             {
                 throw new CafePartnerApplicationInvalidStatusException(
                     ApiErrorMessages.CafePartner.CannotPauseWithActiveSessions);
@@ -420,7 +435,8 @@ namespace BoardVerse.Services.Services
                         : ApiErrorMessages.CafePartner.CafePermanentlyClosed);
             }
 
-            if (await _cafeRepository.HasActiveBookingsAsync(cafe.Id))
+            var activeSessions = await _activeSessionRepository.GetActiveSessionsAsync(cafe.Id, null);
+            if (activeSessions.Count > 0)
             {
                 throw new CafePartnerApplicationInvalidStatusException(
                     ApiErrorMessages.CafePartner.CannotCloseWithActiveBookings);
@@ -453,6 +469,7 @@ namespace BoardVerse.Services.Services
                     ApiErrorMessages.CafePartner.CafeBannedByAdmin);
             }
 
+            // BR-04: Khóa biến động giá - chặn chỉnh sửa biểu phí khi quán đang hoạt động
             if (cafe.PartnerOperationalStatus == CafePartnerOperationalStatus.Active && cafe.IsActive)
             {
                 throw new CafePartnerApplicationInvalidStatusException(
@@ -512,6 +529,24 @@ namespace BoardVerse.Services.Services
             if (request.NumberOfGamesOwned <= 0)
             {
                 throw new BadRequestException(ApiErrorMessages.CafePartner.GamesOwnedMustBePositive);
+            }
+
+            if (request.BasePrice < 0)
+            {
+                throw new BadRequestException(ApiErrorMessages.Validation.BasePriceRange);
+            }
+
+            if (request.BillingModel == Core.Enum.CafePartnerBillingModel.TimeBased)
+            {
+                if (!request.TieredBlockRate.HasValue || request.TieredBlockRate <= 0)
+                {
+                    throw new BadRequestException(ApiErrorMessages.Validation.TieredBlockRateRequired);
+                }
+            }
+
+            if (request.DepositPercentage is < 0 or > 0.5m)
+            {
+                throw new BadRequestException(ApiErrorMessages.Validation.DepositPercentageRange);
             }
 
             if (request.SpaceImageUrls == null || request.SpaceImageUrls.Count < CafePartnerActivationRules.MinSpaceImages)
@@ -781,6 +816,12 @@ namespace BoardVerse.Services.Services
                 PopularGamesList = cafe.PopularGamesList,
                 HasGameMaster = cafe.HasGameMaster,
                 BillingModel = CafePartnerStatusMapper.ToApiBillingModel(cafe.BillingModel),
+                BasePrice = cafe.BasePrice,
+                TieredBlockRate = cafe.TieredBlockRate,
+                TieredBlockMinutes = cafe.TieredBlockMinutes,
+                DepositPercentage = cafe.DepositPercentage,
+                DefaultHoldDurationMinutes = cafe.DefaultHoldDurationMinutes,
+                IsPricingLocked = cafe.IsPricingLocked,
                 TableNames = tableNames,
                 ApplicationStatus = CafePartnerStatusMapper.ToApiApplicationStatus(application.Status),
                 OperationalStatus = cafe.PartnerOperationalStatus is { } operational

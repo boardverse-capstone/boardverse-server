@@ -20,6 +20,12 @@ namespace BoardVerse.Core.DTOs.CafePartner
         public string PopularGamesList { get; set; } = string.Empty;
         public bool HasGameMaster { get; set; }
         public string BillingModel { get; set; } = string.Empty;
+        public decimal BasePrice { get; set; }
+        public decimal? TieredBlockRate { get; set; }
+        public int TieredBlockMinutes { get; set; }
+        public decimal DepositPercentage { get; set; }
+        public int DefaultHoldDurationMinutes { get; set; }
+        public bool IsPricingLocked { get; set; }
         public List<string> TableNames { get; set; } = new();
 
         public string ApplicationStatus { get; set; } = string.Empty;

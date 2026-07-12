@@ -67,7 +67,37 @@ namespace BoardVerse.Data.Configurations
                 .HasConversion<string>()
                 .HasMaxLength(20)
                 .IsRequired()
-                .HasDefaultValue(Core.Enum.CafePartnerBillingModel.ByHour);
+                .HasDefaultValue(Core.Enum.CafePartnerBillingModel.TimeBased);
+
+            builder.Property(c => c.BasePrice)
+                .HasColumnType("numeric(18,2)")
+                .IsRequired();
+
+            builder.Property(c => c.TieredBlockRate)
+                .HasColumnType("numeric(18,2)");
+
+            builder.Property(c => c.TieredBlockMinutes)
+                .IsRequired();
+
+            builder.Property(c => c.DepositPercentage)
+                .HasColumnType("numeric(4,4)")
+                .IsRequired();
+
+            builder.Property(c => c.IsPricingLocked)
+                .IsRequired();
+
+            // SePay Configuration (Session Payment)
+            builder.Property(c => c.SePayMerchantId)
+                .HasMaxLength(100);
+
+            builder.Property(c => c.SePayApiKey)
+                .HasMaxLength(200);
+
+            builder.Property(c => c.SePaySecretKey)
+                .HasMaxLength(200);
+
+            builder.Property(c => c.SePayReturnUrl)
+                .HasMaxLength(500);
 
             builder.HasOne(c => c.Manager)
                 .WithMany()

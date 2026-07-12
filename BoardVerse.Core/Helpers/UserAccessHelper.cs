@@ -31,6 +31,15 @@ namespace BoardVerse.Core.Helpers
             return true;
         }
 
+        public static void SyncProfileActiveState(User user)
+        {
+            if (user.Profile != null)
+            {
+                user.Profile.IsActive = user.IsActive;
+                user.Profile.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+
         public static bool IsAccessRestricted(User user, DateTime utcNow, out string message)
         {
             TryClearExpiredSuspension(user, utcNow);

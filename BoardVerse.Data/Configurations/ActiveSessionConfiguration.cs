@@ -16,9 +16,16 @@ namespace BoardVerse.Data.Configurations
             builder.Property(s => s.CafeTableId).IsRequired();
             builder.Property(s => s.CafeInventoryBoxId).IsRequired();
             builder.Property(s => s.GameTemplateId).IsRequired();
+            builder.Property(s => s.HostId).IsRequired();
             builder.Property(s => s.StartedAt).IsRequired();
-            builder.Property(s => s.IsActive).IsRequired().HasDefaultValue(true);
             builder.Property(s => s.CreatedAt).IsRequired();
+
+            builder.Property(s => s.Status)
+                .HasConversion<int>()
+                .IsRequired();
+
+            builder.Property(s => s.OrderId)
+                .HasMaxLength(50);
 
             builder.HasOne(s => s.Cafe)
                 .WithMany()
@@ -40,11 +47,28 @@ namespace BoardVerse.Data.Configurations
                 .HasForeignKey(s => s.GameTemplateId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            builder.HasOne(s => s.Host)
+                .WithMany()
+                .HasForeignKey(s => s.HostId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.HasOne(s => s.Lobby)
+                .WithMany()
+                .HasForeignKey(s => s.LobbyId)
+                .OnDelete(DeleteBehavior.SetNull);
+
             builder.HasIndex(s => s.CafeInventoryBoxId)
                 .IsUnique()
-                .HasFilter("\"IsActive\" = true");
+                .HasFilter("\"Status\" != 3");
 
-            builder.HasIndex(s => new { s.CafeId, s.GameTemplateId, s.IsActive });
+            builder.HasIndex(s => new { s.CafeId, s.GameTemplateId, s.Status });
+            builder.HasIndex(s => s.HostId);
+            builder.HasIndex(s => s.LobbyId);
+
+            builder.HasMany(s => s.Games)
+                .WithOne(g => g.ActiveSession)
+                .HasForeignKey(g => g.ActiveSessionId)
+                .OnDelete(DeleteBehavior.Cascade);
         }
     }
 }

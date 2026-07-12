@@ -36,6 +36,24 @@ namespace BoardVerse.Data.Repositories
                      c.PartnerOperationalStatus == Core.Enum.CafePartnerOperationalStatus.Active));
         }
 
+        public async Task<Cafe?> GetByIdWithInventoriesAsync(Guid id)
+        {
+            return await _context.Cafes
+                .Include(c => c.Inventories)
+                    .ThenInclude(i => i.Boxes)
+                .FirstOrDefaultAsync(c => c.Id == id);
+        }
+
+        public async Task<List<Cafe>> GetNearbyCafesAsync(Guid excludeCafeId, double radiusKm = 10)
+        {
+            return await _context.Cafes
+                .AsNoTracking()
+                .Where(c => c.Id != excludeCafeId && c.IsActive && c.Location != null)
+                .OrderBy(c => c.Location.Distance(_context.Cafes.First(x => x.Id == excludeCafeId).Location))
+                .Take(5)
+                .ToListAsync();
+        }
+
         public async Task<User?> GetUserByIdAsync(Guid userId)
         {
             return await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
@@ -292,7 +310,7 @@ namespace BoardVerse.Data.Repositories
                 : await _context.ActiveSessions
                     .AsNoTracking()
                     .Where(s =>
-                        s.IsActive
+                        s.Status != GroupSessionStatus.Paid
                         && inUseBoxIds.Contains(s.CafeInventoryBoxId))
                     .Select(s => new { s.CafeInventoryBoxId, s.StartedAt })
                     .ToListAsync();
@@ -463,13 +481,9 @@ namespace BoardVerse.Data.Repositories
             {
                 _context.CafeTables.Add(table);
             }
-        }
 
-        public Task<bool> HasActiveBookingsAsync(Guid cafeId) =>
-            _context.CafeTables.AnyAsync(t =>
-                t.CafeId == cafeId
-                && t.IsActive
-                && (t.Status == CafeTableStatus.InUse || t.Status == CafeTableStatus.Reserved));
+            await _context.SaveChangesAsync();
+        }
 
         public async Task SaveChangesAsync()
         {

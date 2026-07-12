@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using BoardVerse.Core.Messages;
+using BoardVerse.Core.Validation;
 
 namespace BoardVerse.Core.DTOs.User
 {
@@ -20,6 +21,8 @@ namespace BoardVerse.Core.DTOs.User
 
         [StringLength(100, ErrorMessage = ApiErrorMessages.Validation.LastNameMax100)]
         public string? LastName { get; set; }
+
+        [MinimumAge(13)]
         public DateOnly? DateOfBirth { get; set; }
 
         [Phone(ErrorMessage = ApiErrorMessages.Validation.PhoneInvalid)]

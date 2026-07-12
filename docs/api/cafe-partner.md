@@ -184,7 +184,10 @@ Chỉ khi quán ở `DATA_BLANK`. Không chỉnh sửa khi đang `ACTIVE` (phả
   "numberOfGamesOwned": 45,
   "popularGamesList": "Catan, Ticket to Ride, Azul, Wingspan",
   "hasGameMaster": true,
-  "billingModel": 0
+  "billingModel": "TIME_BASED",
+  "basePrice": 50000,
+  "tieredBlockRate": 3000,
+  "tieredBlockMinutes": 15
 }
 ```
 
@@ -202,10 +205,10 @@ Không gửi `tableNames` (hoặc gửi `null` / `[]`) — backend tự quản l
 
 Response luôn trả `tableNames` đầy đủ sau khi lưu.
 
-| `billingModel` | API string |
-|----------------|------------|
-| `0` | `BY_HOUR` |
-| `1` | `PER_DRINK` |
+| `billingModel` | Mô hình tính tiền |
+|----------------|---------------------|
+| `TIME_BASED` | Tính theo phút/thực tế sử dụng. |
+| `FLAT_ENTRY` | Vào cổng trọn gói; các block sau = 0 VNĐ. |
 
 | `workingHours` | Có | Khung T2–T6 và T7–CN (`HH:mm`) — lưu trên `Cafe` |
 

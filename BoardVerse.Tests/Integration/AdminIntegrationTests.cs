@@ -1,5 +1,4 @@
 using System.Net;
-using BoardVerse.Core.Data;
 using BoardVerse.Core.Enum;
 using BoardVerse.Tests.Integration.Infrastructure;
 
@@ -40,7 +39,7 @@ public class AdminIntegrationTests
         ApiTestClient.Authorize(_client, token);
 
         var response = await ApiTestClient.PostJsonAsync(_client,
-            $"/api/v1/admin/users/{DevSeedConstants.DemoPlayer3UserId}/punish",
+            $"/api/v1/admin/users/{IntegrationTestFixtures.DemoPlayer3UserId}/punish",
             new
             {
                 actionType = AdminPunishmentActionType.Warning,
@@ -57,7 +56,7 @@ public class AdminIntegrationTests
         ApiTestClient.Authorize(_client, token);
 
         var response = await ApiTestClient.PostJsonAsync(_client,
-            $"/api/v1/admin/users/{DevSeedConstants.DemoPlayer3UserId}/adjust-karma",
+            $"/api/v1/admin/users/{IntegrationTestFixtures.DemoPlayer3UserId}/adjust-karma",
             new { amount = 1, reason = "Integration test bump" });
 
         response.EnsureSuccessStatusCode();
@@ -109,7 +108,7 @@ public class AdminIntegrationTests
         var token = await IntegrationTestAuth.AsAdminAsync(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var response = await _client.GetAsync($"/api/usermanagement/{DevSeedConstants.DemoPlayer1UserId}");
+        var response = await _client.GetAsync($"/api/usermanagement/{IntegrationTestFixtures.DemoPlayer1UserId}");
         response.EnsureSuccessStatusCode();
     }
 

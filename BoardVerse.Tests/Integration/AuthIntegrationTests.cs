@@ -1,5 +1,4 @@
 using System.Net;
-using BoardVerse.Core.Data;
 using BoardVerse.Core.DTOs.Auth.Requests;
 using BoardVerse.Tests.Integration.Infrastructure;
 
@@ -18,8 +17,8 @@ public class AuthIntegrationTests
     {
         var token = await ApiTestClient.LoginAsync(
             _client,
-            DevSeedConstants.Player1Email,
-            DevSeedConstants.DemoPlayerPassword);
+            IntegrationTestFixtures.Player1Email,
+            IntegrationTestFixtures.PlayerPassword);
 
         Assert.False(string.IsNullOrWhiteSpace(token));
     }
@@ -29,7 +28,7 @@ public class AuthIntegrationTests
     {
         var response = await ApiTestClient.PostJsonAsync(_client, "/api/auth/login", new LoginRequestDto
         {
-            UsernameOrEmail = DevSeedConstants.Player1Email,
+            UsernameOrEmail = IntegrationTestFixtures.Player1Email,
             Password = "WrongPassword123!"
         });
 
@@ -54,8 +53,8 @@ public class AuthIntegrationTests
     {
         var (_, _, refresh) = await ApiTestClient.LoginWithRefreshAsync(
             _client,
-            DevSeedConstants.Player1Email,
-            DevSeedConstants.DemoPlayerPassword);
+            IntegrationTestFixtures.Player1Email,
+            IntegrationTestFixtures.PlayerPassword);
 
         var response = await ApiTestClient.PostJsonAsync(_client, "/api/auth/refresh-token", new RefreshTokenRequestDto
         {
@@ -70,8 +69,8 @@ public class AuthIntegrationTests
     {
         var (_, _, refresh) = await ApiTestClient.LoginWithRefreshAsync(
             _client,
-            DevSeedConstants.Player1Email,
-            DevSeedConstants.DemoPlayerPassword);
+            IntegrationTestFixtures.Player1Email,
+            IntegrationTestFixtures.PlayerPassword);
 
         var response = await ApiTestClient.PostJsonAsync(_client, "/api/auth/logout", new RefreshTokenRequestDto
         {
@@ -97,7 +96,7 @@ public class AuthIntegrationTests
     {
         var response = await ApiTestClient.PostJsonAsync(_client, "/api/auth/send-email-verification", new
         {
-            email = DevSeedConstants.Player1Email
+            email = IntegrationTestFixtures.Player1Email
         });
 
         await ApiTestClient.AssertStatusOneOfAsync(response, HttpStatusCode.OK, HttpStatusCode.TooManyRequests);
@@ -108,7 +107,7 @@ public class AuthIntegrationTests
     {
         var response = await ApiTestClient.PostJsonAsync(_client, "/api/auth/verify-email", new
         {
-            email = DevSeedConstants.Player1Email,
+            email = IntegrationTestFixtures.Player1Email,
             code = "000000"
         });
 
@@ -120,7 +119,7 @@ public class AuthIntegrationTests
     {
         var response = await ApiTestClient.PostJsonAsync(_client, "/api/auth/request-password-reset", new
         {
-            email = DevSeedConstants.Player1Email
+            email = IntegrationTestFixtures.Player1Email
         });
 
         response.EnsureSuccessStatusCode();
@@ -131,7 +130,7 @@ public class AuthIntegrationTests
     {
         var response = await ApiTestClient.PostJsonAsync(_client, "/api/auth/reset-password", new
         {
-            email = DevSeedConstants.Player1Email,
+            email = IntegrationTestFixtures.Player1Email,
             code = "000000",
             newPassword = "NewPassword@123"
         });

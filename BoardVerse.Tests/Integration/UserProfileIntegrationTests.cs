@@ -1,5 +1,4 @@
 using System.Net;
-using BoardVerse.Core.Data;
 using BoardVerse.Tests.Integration.Infrastructure;
 
 namespace BoardVerse.Tests.Integration;
@@ -82,8 +81,8 @@ public class UserProfileIntegrationTests
 
         var response = await ApiTestClient.PutJsonAsync(_client, "/api/userprofile/me/location", new
         {
-            latitude = DevSeedConstants.DemoCafeLatitude,
-            longitude = DevSeedConstants.DemoCafeLongitude,
+            latitude = IntegrationTestFixtures.CafeLatitude,
+            longitude = IntegrationTestFixtures.CafeLongitude,
             source = "Gps"
         });
 

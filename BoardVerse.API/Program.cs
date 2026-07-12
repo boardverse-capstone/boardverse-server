@@ -1,4 +1,6 @@
 using BoardVerse.API.Authentication;
+using BoardVerse.API.BackgroundServices;
+using BoardVerse.API.Hubs;
 using BoardVerse.Data;
 using BoardVerse.Data.Repositories;
 using BoardVerse.Core.IRepositories;
@@ -19,6 +21,7 @@ using System.Text.Json.Serialization;
 using BoardVerse.Core.DTOs.Common;
 using BoardVerse.Core.Json;
 using BoardVerse.Core.Settings;
+using BoardVerse.API.Infrastructure;
 using System.Reflection;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -100,6 +103,7 @@ builder.Services.AddBoardVerseRedis(builder.Configuration);
 
 builder.Services.AddBoardVerseEmail(builder.Configuration);
 builder.Services.AddBoardVerseBgg(builder.Configuration);
+builder.Services.AddBoardVersePayment(builder.Configuration);
 builder.Services.AddScoped<IAuthRepository, AuthRepository>();
 builder.Services.AddScoped<IUserProfileRepository, UserProfileRepository>();
 builder.Services.AddScoped<IUserManagementRepository, UserManagementRepository>();
@@ -110,11 +114,17 @@ builder.Services.AddScoped<IGameComponentTemplateRepository, GameComponentTempla
 builder.Services.AddScoped<ICafeRepository, CafeRepository>();
 builder.Services.AddScoped<ICafeInventoryRepository, CafeInventoryRepository>();
 builder.Services.AddScoped<ICafePosRepository, CafePosRepository>();
+builder.Services.AddScoped<ILobbyRepository, LobbyRepository>();
+builder.Services.AddScoped<IActiveSessionRepository, ActiveSessionRepository>();
 builder.Services.AddScoped<IKarmaRatingRepository, KarmaRatingRepository>();
 builder.Services.AddScoped<IMatchResultRepository, MatchResultRepository>();
 builder.Services.AddScoped<IAdminModerationRepository, AdminModerationRepository>();
 builder.Services.AddScoped<ISystemConfigurationRepository, SystemConfigurationRepository>();
 builder.Services.AddScoped<ICafePartnerApplicationRepository, CafePartnerApplicationRepository>();
+builder.Services.AddScoped<IPaymentMasterAccountRepository, PaymentMasterAccountRepository>();
+builder.Services.AddScoped<IBookingDepositRepository, BookingDepositRepository>();
+builder.Services.AddScoped<ICafeSettlementRepository, CafeSettlementRepository>();
+builder.Services.AddScoped<ISettlementService, SettlementService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserProfileService, UserProfileService>();
 builder.Services.AddScoped<IUserManagementService, UserManagementService>();
@@ -124,6 +134,8 @@ builder.Services.AddScoped<IBoardGameService, BoardGameService>();
 builder.Services.AddScoped<ICafeService, CafeService>();
 builder.Services.AddScoped<ICafeInventoryService, CafeInventoryService>();
 builder.Services.AddScoped<ICafePosService, CafePosService>();
+builder.Services.AddScoped<ILobbyService, LobbyService>();
+builder.Services.AddScoped<IActiveSessionService, ActiveSessionService>();
 builder.Services.AddScoped<IKarmaRatingService, KarmaRatingService>();
 builder.Services.AddScoped<IMatchResultService, MatchResultService>();
 builder.Services.AddScoped<IAdminModerationService, AdminModerationService>();
@@ -133,6 +145,16 @@ builder.Services.AddScoped<ISystemConfigurationProvider>(sp => sp.GetRequiredSer
 builder.Services.AddScoped<IAdminSystemConfigurationService>(sp => sp.GetRequiredService<SystemConfigurationService>());
 builder.Services.AddScoped<IKarmaConfigurationService, KarmaConfigurationService>();
 builder.Services.AddScoped<ICafePartnerApplicationService, CafePartnerApplicationService>();
+
+// Background Jobs for Lobby expiration
+builder.Services.AddHostedService<LobbyTimeoutJob>();
+builder.Services.AddHostedService<KarmaWindowJob>();
+builder.Services.AddHostedService<BookingDepositExpiryJob>();
+
+// SignalR Hubs for real-time updates
+builder.Services.AddSignalR();
+builder.Services.AddScoped<ILobbyHubService, LobbyHubService>();
+
 builder.Services.AddControllers(options =>
 {
     options.Filters.Add<BoardVerse.API.Filters.ValidateModelAttribute>();
@@ -216,6 +238,9 @@ using (var scope = app.Services.CreateScope())
     var inventoryRepo = scope.ServiceProvider.GetRequiredService<ICafeInventoryRepository>();
     await inventoryRepo.BackfillMissingInventoryBoxesAsync();
     app.Logger.LogInformation("Inventory box backfill completed.");
+
+    // PaymentTestSeed disabled - tests use their own bootstrapper with unique data
+    // await PaymentTestSeed.SeedAsync(app.Services);
 }
 
 var redisInfo = app.Services.GetRequiredService<RedisCacheStartupInfo>();
@@ -263,5 +288,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Map SignalR Hubs
+app.MapHub<LobbyHub>("/hubs/lobby");
 
 app.Run();

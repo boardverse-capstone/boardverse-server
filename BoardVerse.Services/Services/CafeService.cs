@@ -83,6 +83,27 @@ namespace BoardVerse.Services.Services
                 throw new BadRequestException(ApiErrorMessages.Cafe.LocationCoordinatesPairRequired);
             }
 
+            // SePay Configuration (Session Payment)
+            if (dto.SePayMerchantId != null)
+            {
+                cafe.SePayMerchantId = string.IsNullOrWhiteSpace(dto.SePayMerchantId) ? null : dto.SePayMerchantId.Trim();
+            }
+
+            if (dto.SePayApiKey != null)
+            {
+                cafe.SePayApiKey = string.IsNullOrWhiteSpace(dto.SePayApiKey) ? null : dto.SePayApiKey.Trim();
+            }
+
+            if (dto.SePaySecretKey != null)
+            {
+                cafe.SePaySecretKey = string.IsNullOrWhiteSpace(dto.SePaySecretKey) ? null : dto.SePaySecretKey.Trim();
+            }
+
+            if (dto.SePayReturnUrl != null)
+            {
+                cafe.SePayReturnUrl = string.IsNullOrWhiteSpace(dto.SePayReturnUrl) ? null : dto.SePayReturnUrl.Trim();
+            }
+
             cafe.UpdatedAt = DateTime.UtcNow;
             await _cafeRepository.SaveChangesAsync();
 
@@ -448,7 +469,17 @@ namespace BoardVerse.Services.Services
             Longitude = cafe.Longitude,
             PhoneNumber = cafe.PhoneNumber,
             Description = cafe.Description,
-            CreatedAt = cafe.CreatedAt
+            CreatedAt = cafe.CreatedAt,
+            TotalSeats = cafe.TotalSeats,
+            BillingModel = CafePartnerStatusMapper.ToApiBillingModel(cafe.BillingModel),
+            BasePrice = cafe.BasePrice,
+            TieredBlockRate = cafe.TieredBlockRate,
+            TieredBlockMinutes = cafe.TieredBlockMinutes,
+            DepositPercentage = cafe.DepositPercentage,
+            IsPricingLocked = cafe.IsPricingLocked,
+            HasSePayConfigured = !string.IsNullOrWhiteSpace(cafe.SePayMerchantId)
+                              && !string.IsNullOrWhiteSpace(cafe.SePayApiKey)
+                              && !string.IsNullOrWhiteSpace(cafe.SePaySecretKey)
         };
     }
 }

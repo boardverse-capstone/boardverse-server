@@ -65,6 +65,38 @@ namespace BoardVerse.Core.Messages
             public const string SessionEnded = "Kết thúc phiên chơi thành công.";
         }
 
+        public static class Lobby
+        {
+            public const string LobbyCreated = "Tạo phòng chờ thành công.";
+            public const string LobbyJoined = "Tham gia phòng chờ thành công.";
+            public const string LobbyLeft = "Rời phòng chờ thành công.";
+            public const string LobbyRetrieved = "Lấy thông tin phòng chờ thành công.";
+            public const string LobbiesRetrieved = "Lấy danh sách phòng chờ thành công.";
+            public const string LobbyClosed = "Đóng phòng chờ thành công.";
+            public const string KarmaRatingWindowOpened = "Mở cửa sổ đánh giá karma thành công.";
+        }
+
+        public static class Session
+        {
+            public const string SessionRetrieved = "Lấy thông tin phiên chơi thành công.";
+            public const string SessionCheckedOut = "Thanh toán phiên chơi thành công.";
+            public const string SessionPaid = "Thanh toán hóa đơn tổng thành công.";
+            public const string GuestSlotAdded = "Thêm khách vô danh thành công.";
+            public const string PartialCheckoutRequested = "Yêu cầu thanh toán một phần thành công.";
+            public const string DepositSettlementReleased = "Đã tạo bản ghi giải ngân deposit.";
+        }
+
+        public static class Settlement
+        {
+            public const string PendingRetrieved = "Lấy danh sách settlement đang chờ thành công.";
+            public const string Released = "Tạo yêu cầu giải ngân deposit thành công.";
+        }
+
+        public static class MasterAccount
+        {
+            public const string Created = "Tạo master account thành công.";
+        }
+
         public static class BoardGame
         {
             public const string CategoriesRetrieved = "Lấy danh sách thể loại thành công.";
@@ -143,11 +175,6 @@ namespace BoardVerse.Core.Messages
         {
             public const string Retrieved = "Lấy cấu hình hệ thống thành công.";
             public const string Updated = "Cập nhật cấu hình hệ thống thành công.";
-        }
-
-        public static class Lobby
-        {
-            public const string KarmaRatingWindowOpened = "Mở cửa sổ đánh giá karma thành công.";
         }
 
         public static class Rating

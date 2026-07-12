@@ -23,6 +23,8 @@ namespace BoardVerse.Data
         public DbSet<CafeTable> CafeTables => Set<CafeTable>();
         public DbSet<CafeInventoryBox> CafeInventoryBoxes => Set<CafeInventoryBox>();
         public DbSet<ActiveSession> ActiveSessions => Set<ActiveSession>();
+        public DbSet<ActiveSessionMember> ActiveSessionMembers => Set<ActiveSessionMember>();
+        public DbSet<ActiveSessionGame> ActiveSessionGames => Set<ActiveSessionGame>();
         public DbSet<Lobby> Lobbies => Set<Lobby>();
         public DbSet<LobbyMember> LobbyMembers => Set<LobbyMember>();
         public DbSet<PlayerKarmaRating> PlayerKarmaRatings => Set<PlayerKarmaRating>();
@@ -31,10 +33,14 @@ namespace BoardVerse.Data
         public DbSet<MatchHistoryParticipant> MatchHistoryParticipants => Set<MatchHistoryParticipant>();
         public DbSet<KarmaLog> KarmaLogs => Set<KarmaLog>();
         public DbSet<SystemConfiguration> SystemConfigurations => Set<SystemConfiguration>();
+        public DbSet<PaymentMasterAccount> PaymentMasterAccounts => Set<PaymentMasterAccount>();
+        public DbSet<BookingDeposit> BookingDeposits => Set<BookingDeposit>();
+        public DbSet<CafeSettlement> CafeSettlements => Set<CafeSettlement>();
+        public DbSet<ComponentLossReport> ComponentLossReports => Set<ComponentLossReport>();
 
-        public BoardVerseDbContext(DbContextOptions<BoardVerseDbContext> options) : base(options)
-        {
-        }
+    public BoardVerseDbContext(DbContextOptions<BoardVerseDbContext> options) : base(options)
+    {
+    }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

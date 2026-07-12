@@ -135,6 +135,7 @@ namespace BoardVerse.Services.Services
             if (request.IsActive.HasValue)
             {
                 user.IsActive = request.IsActive.Value;
+                UserAccessHelper.SyncProfileActiveState(user);
             }
 
             if (!string.IsNullOrWhiteSpace(request.Password))
@@ -150,11 +151,13 @@ namespace BoardVerse.Services.Services
 
         public async Task DisableAsync(Guid id)
         {
-            var user = await _userRepository.GetByIdAsync(id);
+            var user = await _userRepository.GetByIdWithProfileAsync(id);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.AdminUsers.UserNotFound(id));
 
             user.IsActive = false;
             user.UpdatedAt = DateTime.UtcNow;
+            UserAccessHelper.SyncProfileActiveState(user);
+
             await _userRepository.SaveChangesAsync();
         }
 
@@ -180,6 +183,8 @@ namespace BoardVerse.Services.Services
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.AdminUsers.UserNotFound(id));
 
             UserAccessHelper.ClearModerationState(user, DateTime.UtcNow);
+            user.IsActive = true;
+            UserAccessHelper.SyncProfileActiveState(user);
 
             await _userRepository.SaveChangesAsync();
             return MapUser(user);

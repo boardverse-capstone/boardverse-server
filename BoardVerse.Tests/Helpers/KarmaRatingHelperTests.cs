@@ -48,9 +48,9 @@ public class KarmaRatingHelperTests
     }
 
     [Theory]
-    [InlineData(LobbyStatus.RatingOpen, true)]
+    [InlineData(LobbyStatus.InProgress, true)]
     [InlineData(LobbyStatus.Closed, true)]
-    [InlineData(LobbyStatus.InProgress, false)]
+    [InlineData(LobbyStatus.RatingOpen, false)]
     public void IsRatingAllowed_OnlyWhenRatingOpenOrClosed(LobbyStatus status, bool allowed)
     {
         Assert.Equal(allowed, KarmaRatingHelper.IsRatingAllowed(status));

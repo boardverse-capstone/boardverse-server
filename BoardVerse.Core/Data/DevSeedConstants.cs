@@ -37,5 +37,8 @@ namespace BoardVerse.Core.Data
         public const string DemoCafeAddress = "123 Board Game Street, Ho Chi Minh City";
         public const double DemoCafeLatitude = 10.776889;
         public const double DemoCafeLongitude = 106.700806;
+
+        // Demo Booking Deposit ID for integration tests
+        public static readonly Guid DemoBookingDepositId = new("11111111-1111-1111-1111-111111111111");
     }
 }

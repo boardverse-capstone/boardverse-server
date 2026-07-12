@@ -283,6 +283,56 @@ namespace BoardVerse.Core.Messages
 
             public static string SessionNotFound(Guid cafeId, Guid sessionId) =>
                 $"Không tìm thấy phiên chơi '{sessionId}' trong quán '{cafeId}'.";
+
+            // BR-12: Component Checklist errors
+            public static string SessionGameNotFound(Guid sessionGameId) =>
+                $"Không tìm thấy game trong phiên '{sessionGameId}'.";
+
+            public static string ComponentCheckAlreadyDone(Guid sessionGameId) =>
+                $"Game trong phiên '{sessionGameId}' đã được kiểm tra linh kiện.";
+
+            public static string ComponentNotBelongToGame(Guid componentId, Guid gameTemplateId) =>
+                $"Linh kiện '{componentId}' không thuộc game template '{gameTemplateId}'.";
+
+            public static string InventoryChecklistNotRequired =>
+                "Không cần kiểm tra linh kiện. Phiên chơi chưa bắt đầu kiểm kê.";
+
+            // BR-12: Strict checklist enforcement
+            public const string ChecklistNotComplete =
+                "Không thể thanh toán. Vui lòng hoàn tất kiểm kê linh kiện cho TẤT CẢ game trong phiên trước khi xuất hóa đơn. BR-12.";
+
+            public static string ChecklistNotCompleteForGames(int remaining) =>
+                $"Còn {remaining} game chưa được kiểm kê linh kiện. Vui lòng kiểm tra đủ trước khi thanh toán. BR-12.";
+
+            public static string DepositMissingForSettlement =>
+                "Phiên chơi này không có deposit để giải ngân.";
+
+            public static string DepositNotPaid =>
+                "Deposit chưa ở trạng thái PAID nên không thể chuyển.";
+
+            public static string MasterAccountNotConfigured =>
+                "Chưa cấu hình master account để giải ngân.";
+        }
+
+        public static class Payment
+        {
+            public const string SePayMerchantIdMissing =
+                "Dịch vụ thanh toán chưa được cấu hình. Hãy đặt SePay:MerchantId.";
+
+            public const string SePayWebhookTokenMissing =
+                "Dịch vụ thanh toán chưa được cấu hình. Hãy đặt SePay:WebhookToken.";
+
+            public const string SePayResponseInvalid =
+                "SePay trả về dữ liệu thanh toán không hợp lệ.";
+
+            public static string SePayCreatePaymentFailed(int statusCode, string details) =>
+                $"Tạo link thanh toán SePay thất bại ({statusCode}). {details}";
+
+            public static string SePayTransferFailed(int statusCode, string details) =>
+                $"Chuyển khoản SePay thất bại ({statusCode}). {details}";
+
+            public static string SePayTransferFailed(string code, string details) =>
+                $"Chuyển khoản SePay thất bại ({code}). {details}";
         }
 
         public static class BoardGame
@@ -811,6 +861,10 @@ namespace BoardVerse.Core.Messages
             public const string TableCountRange = "Số bàn phải từ 1 đến 10000.";
             public const string PrivateRoomCountRange = "Số phòng riêng phải từ 0 đến 1000.";
             public const string GamesOwnedRange = "Số game sở hữu phải từ 1 đến 100000.";
+            public const string BasePriceRange = "Giá cơ bản phải từ 0 đến 10000000.";
+            public const string TieredBlockMinutesRange = "Thời gian block tính tiền phải từ 1 đến 1440 phút.";
+            public const string TieredBlockRateRequired = "Với mô hình TIME_BASED, giá block lũy tiến là bắt buộc.";
+            public const string DepositPercentageRange = "Phần trăm cọc không được vượt quá 50%.";
         }
 
         public static class Entity

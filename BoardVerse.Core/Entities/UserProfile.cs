@@ -36,6 +36,9 @@ namespace BoardVerse.Core.Entities
         public PlayerLocationSource? LastLocationSource { get; set; }
 
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+        /// <summary>
+        /// Derived from <see cref="User.IsActive"/>. Do not set this directly; it is enforced by the save pipeline / service layer.
+        /// </summary>
         public bool IsActive { get; set; } = true;
 
         public virtual User User { get; set; } = null!;

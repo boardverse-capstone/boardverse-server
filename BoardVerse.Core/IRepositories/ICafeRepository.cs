@@ -8,6 +8,7 @@ namespace BoardVerse.Core.IRepositories
     {
         Task<Cafe?> GetByIdAsync(Guid id);
         Task<Cafe?> GetActiveByIdAsync(Guid id);
+        Task<Cafe?> GetByIdWithInventoriesAsync(Guid id);
         Task<User?> GetUserByEmailAsync(string email);
         Task<User?> GetUserByIdAsync(Guid userId);
         Task<bool> UsernameExistsAsync(string username, Guid? excludedUserId = null);
@@ -26,6 +27,7 @@ namespace BoardVerse.Core.IRepositories
             double radiusKm,
             Guid? gameTemplateId,
             PaginationParams paginationParams);
+        Task<List<Cafe>> GetNearbyCafesAsync(Guid excludeCafeId, double radiusKm);
         Task EnrichNearbyWithGameWaitAsync(IList<NearbyCafeDto> cafes, Guid gameTemplateId);
         Task<IReadOnlyList<NearbyAlternativeGameSuggestionDto>> GetAlternativeGameSuggestionsAsync(
             double latitude,
@@ -35,7 +37,6 @@ namespace BoardVerse.Core.IRepositories
             int limit = 10);
         Task<Cafe?> GetPartnerCafeByManagerIdAsync(Guid managerUserId);
         Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<string> tableNames);
-        Task<bool> HasActiveBookingsAsync(Guid cafeId);
         Task SaveChangesAsync();
     }
 }

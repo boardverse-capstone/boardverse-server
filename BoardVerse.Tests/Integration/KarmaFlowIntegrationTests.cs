@@ -1,5 +1,4 @@
 using System.Net;
-using BoardVerse.Core.Data;
 using BoardVerse.Core.Enum;
 using BoardVerse.Tests.Integration.Infrastructure;
 
@@ -18,50 +17,53 @@ public class KarmaFlowIntegrationTests
     {
         var token = await ApiTestClient.LoginAsync(
             _client,
-            DevSeedConstants.Player1Email,
-            DevSeedConstants.DemoPlayerPassword);
+            IntegrationTestFixtures.Player1Email,
+            IntegrationTestFixtures.PlayerPassword);
         ApiTestClient.Authorize(_client, token);
 
         var response = await _client.GetAsync(
-            $"/api/v1/users/ratings/karma/lobbies/{DevSeedConstants.DemoKarmaLobbyId}");
+            $"/api/v1/users/ratings/karma/lobbies/{IntegrationTestFixtures.DemoKarmaLobbyId}");
 
         response.EnsureSuccessStatusCode();
         var body = await ApiTestClient.ReadApiResponseAsync<KarmaContextDto>(response);
-        Assert.Equal(DevSeedConstants.DemoKarmaLobbyId, body.Data!.LobbyId);
+        Assert.Equal(IntegrationTestFixtures.DemoKarmaLobbyId, body.Data!.LobbyId);
         Assert.NotEmpty(body.Data.MembersToRate);
     }
 
     [IntegrationFact]
     public async Task OpenKarmaWindow_ThenSubmitRating_AsDevUsers()
     {
-        var adminToken = await ApiTestClient.LoginAsync(
+        // BR-09: Chỉ Host mới có thể mở cửa sổ đánh giá Karma
+        var player1Token = await ApiTestClient.LoginAsync(
             _client,
-            DevSeedConstants.AdminEmail,
-            DevSeedConstants.AdminPassword);
-        ApiTestClient.Authorize(_client, adminToken);
+            IntegrationTestFixtures.Player1Email,
+            IntegrationTestFixtures.PlayerPassword);
+        ApiTestClient.Authorize(_client, player1Token);
 
         var openResponse = await _client.PostAsync(
-            $"/api/v1/lobbies/{DevSeedConstants.DemoKarmaLobbyId}/karma-rating/open",
+            $"/api/v1/lobbies/{IntegrationTestFixtures.DemoKarmaLobbyId}/open-karma-window",
             null);
 
         Assert.True(
             openResponse.StatusCode is HttpStatusCode.OK or HttpStatusCode.Conflict,
             await openResponse.Content.ReadAsStringAsync());
 
-        var playerToken = await ApiTestClient.LoginAsync(
+        var player2Token = await ApiTestClient.LoginAsync(
             _client,
-            DevSeedConstants.Player1Email,
-            DevSeedConstants.DemoPlayerPassword);
-        ApiTestClient.Authorize(_client, playerToken);
+            IntegrationTestFixtures.Player2Email,
+            IntegrationTestFixtures.PlayerPassword);
+        ApiTestClient.Authorize(_client, player2Token);
 
+        // Player1 đánh giá Player2
+        ApiTestClient.Authorize(_client, player1Token);
         var submitResponse = await ApiTestClient.PostJsonAsync(_client, "/api/v1/users/ratings/karma", new
         {
-            lobbyId = DevSeedConstants.DemoKarmaLobbyId,
+            lobbyId = IntegrationTestFixtures.DemoKarmaLobbyId,
             ratings = new[]
             {
                 new
                 {
-                    targetUserId = DevSeedConstants.DemoPlayer2UserId,
+                    targetUserId = IntegrationTestFixtures.DemoPlayer2UserId,
                     tags = new[] { KarmaRatingTag.Friendly, KarmaRatingTag.OnTime }
                 }
             }
