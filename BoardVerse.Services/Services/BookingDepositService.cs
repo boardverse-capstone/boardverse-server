@@ -228,13 +228,17 @@ public class BookingDepositService : IBookingDepositService
         return await _depositRepository.GetBySePayTransactionIdAsync(sePayTransactionId);
     }
 
-    public async Task UpdateQrInfoAsync(Guid depositId, string qrUrl, DateTime qrExpiresAt)
+    public async Task UpdateQrInfoAsync(Guid depositId, string qrUrl, DateTime? qrExpiresAt, string? transferContent = null)
     {
         var deposit = await _depositRepository.GetByIdAsync(depositId)
             ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
 
         deposit.QrUrl = qrUrl;
         deposit.QrExpiresAt = qrExpiresAt;
+        if (!string.IsNullOrWhiteSpace(transferContent))
+        {
+            deposit.TransferContent = transferContent;
+        }
         deposit.UpdatedAt = DateTime.UtcNow;
 
         await _depositRepository.UpdateAsync(deposit);

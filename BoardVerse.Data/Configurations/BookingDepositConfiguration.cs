@@ -3,10 +3,10 @@ using BoardVerse.Core.Enum;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
-namespace BoardVerse.Data.Configurations
+namespace BoardVerse.Data.Configurations;
+
+public class BookingDepositConfiguration : IEntityTypeConfiguration<BookingDeposit>
 {
-    public class BookingDepositConfiguration : IEntityTypeConfiguration<BookingDeposit>
-    {
     public void Configure(EntityTypeBuilder<BookingDeposit> builder)
     {
         builder.ToTable("BookingDeposits");
@@ -25,7 +25,7 @@ namespace BoardVerse.Data.Configurations
         builder.Property(d => d.SePayTransferId).HasMaxLength(100);
         builder.Property(d => d.CreatedAt).IsRequired();
         builder.Property(d => d.ScheduledAt);
-        builder.Property(d => d.QrUrl).HasMaxLength(500);
+        builder.Property(d => d.QrUrl).HasMaxLength(2000);
         builder.Property(d => d.QrExpiresAt);
 
         builder.HasOne(d => d.MasterAccount)
@@ -47,6 +47,5 @@ namespace BoardVerse.Data.Configurations
         builder.HasIndex(d => d.ActiveSessionId).HasFilter("\"ActiveSessionId\" IS NOT NULL");
         builder.HasIndex(d => new { d.CafeId, d.Status });
         builder.HasIndex(d => d.SePayTransactionId).HasFilter("\"SePayTransactionId\" IS NOT NULL");
-    }
     }
 }

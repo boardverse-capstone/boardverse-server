@@ -37,6 +37,9 @@ namespace BoardVerse.Core.Entities
         /// <summary>Mã đơn hàng cho thanh toán SePay.</summary>
         public string? OrderId { get; set; }
 
+        /// <summary>Nội dung chuyển khoản ngẫu nhiên cho thanh toán SePay/VietQR.</summary>
+        public string? TransferContent { get; set; }
+
         /// <summary>BR-15: Tổng tiền phạt hao hụt linh kiện.</summary>
 
         // === State (Group Session) ===

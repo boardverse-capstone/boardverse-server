@@ -4,7 +4,6 @@ using BoardVerse.Services.Services;
 using BoardVerse.Services.Services.Payments;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
 namespace BoardVerse.Services.Extensions;
 
@@ -13,19 +12,16 @@ public static class PaymentServiceExtensions
     public static IServiceCollection AddBoardVersePayment(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<SePaySettings>(configuration.GetSection(SePaySettings.SectionName));
-        services.Configure<PaymentGatewaySettings>(configuration.GetSection(PaymentGatewaySettings.SectionName));
 
-        services.AddHttpClient<ISePayClient, SePayClient>();
+        services.AddHttpClient<ISePayClient, SePayClient>()
+            .SetHandlerLifetime(TimeSpan.FromMinutes(5));
 
-        // VietQR client for fallback
         services.AddScoped<IVietQrClient, VietQrClient>();
 
-        // Payment gateway with fallback chain
+        // VietQR gateway — tạo QR tĩnh, không cần retry
         services.AddScoped<IPaymentGatewayService, PaymentGatewayService>();
 
-        // Manual payment service for staff override
         services.AddScoped<IManualPaymentService, ManualPaymentService>();
-
         services.AddScoped<IBookingDepositService, BookingDepositService>();
         services.AddScoped<IPaymentService, PaymentService>();
 

@@ -237,6 +237,20 @@ var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
 {
+    var db = scope.ServiceProvider.GetRequiredService<BoardVerseDbContext>();
+
+    // Fix QrUrl column width for SePay full checkout URLs (can exceed 500 chars)
+    try
+    {
+        await db.Database.ExecuteSqlRawAsync($@"
+            ALTER TABLE ""BookingDeposits"" ALTER COLUMN ""QrUrl"" TYPE varchar(2000)");
+        app.Logger.LogInformation("BookingDeposits.QrUrl column extended to varchar(2000)");
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "Could not alter QrUrl column (may already be wide enough)");
+    }
+
     var inventoryRepo = scope.ServiceProvider.GetRequiredService<ICafeInventoryRepository>();
     await inventoryRepo.BackfillMissingInventoryBoxesAsync();
     app.Logger.LogInformation("Inventory box backfill completed.");

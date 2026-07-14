@@ -61,7 +61,9 @@ public interface IBookingDepositService
     Task<BookingDeposit?> GetBySePayTransactionIdAsync(string sePayTransactionId);
 
     /// <summary>
-    /// Cập nhật QR URL và thời hạn mới cho đơn cọc (khi regenerate).
+    /// Cập nhật QR URL, thời hạn và nội dung chuyển khoản cho đơn cọc.
+    /// qrExpiresAt = null khi dùng VietQR tĩnh (QR không hết hạn).
+    /// transferContent = nội dung CK dùng trên QR, random unique để webhook match đúng đơn.
     /// </summary>
-    Task UpdateQrInfoAsync(Guid depositId, string qrUrl, DateTime qrExpiresAt);
+    Task UpdateQrInfoAsync(Guid depositId, string qrUrl, DateTime? qrExpiresAt, string? transferContent = null);
 }

@@ -18,6 +18,8 @@ namespace BoardVerse.Core.DTOs.Payment
         public Guid SessionId { get; set; }
         public string PaymentUrl { get; set; } = string.Empty;
         public string OrderId { get; set; } = string.Empty;
+        /// <summary>Nội dung chuyển khoản ngẫu nhiên cho thanh toán VietQR.</summary>
+        public string TransferContent { get; set; } = string.Empty;
         public decimal Amount { get; set; }
         public string Status { get; set; } = "Pending";
         public string? QrImageUrl { get; set; }

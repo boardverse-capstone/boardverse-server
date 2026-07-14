@@ -1,6 +1,8 @@
 using BoardVerse.Core.Entities;
-using Microsoft.EntityFrameworkCore;
 using BoardVerse.Core.Enum;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using System.Reflection;
 
 namespace BoardVerse.Data
@@ -46,6 +48,28 @@ namespace BoardVerse.Data
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+
+            // Npgsql 8.x: timestamp with time zone requires Kind=Utc.
+            // Apply a ValueConverter globally to all DateTime/DateTime? properties so every
+            // value is coerced to UTC before being sent to PostgreSQL.
+            var utcConverter = new ValueConverter<DateTime, DateTime>(
+                v => DateTime.SpecifyKind(v, DateTimeKind.Utc),
+                v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+
+            var utcNullableConverter = new ValueConverter<DateTime?, DateTime?>(
+                v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : null,
+                v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : null);
+
+            foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+            {
+                foreach (var property in entityType.GetProperties())
+                {
+                    if (property.ClrType == typeof(DateTime))
+                        property.SetValueConverter(utcConverter);
+                    else if (property.ClrType == typeof(DateTime?))
+                        property.SetValueConverter(utcNullableConverter);
+                }
+            }
 
             // Apply all IEntityTypeConfiguration<T> configurations from the assembly
             modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());

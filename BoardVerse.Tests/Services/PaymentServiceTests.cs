@@ -3,10 +3,12 @@ using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
+using BoardVerse.Core.Settings;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
 using BoardVerse.Services.Services.Payments;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Moq;
 
 namespace BoardVerse.Tests.Services;
@@ -17,8 +19,11 @@ public class PaymentServiceTests
     private readonly Mock<ICafeRepository> _mockCafeRepo;
     private readonly Mock<ICafeSettlementRepository> _mockSettlementRepo;
     private readonly Mock<IPaymentMasterAccountRepository> _mockMasterAccountRepo;
+    private readonly Mock<IActiveSessionRepository> _mockSessionRepo;
+    private readonly Mock<IPaymentGatewayService> _mockGateway;
     private readonly Mock<ISePayClient> _mockSePayClient;
     private readonly Mock<ILogger<PaymentService>> _mockLogger;
+    private readonly IOptions<SePaySettings> _sePaySettings;
     private readonly PaymentService _service;
 
     public PaymentServiceTests()
@@ -27,15 +32,27 @@ public class PaymentServiceTests
         _mockCafeRepo = new Mock<ICafeRepository>();
         _mockSettlementRepo = new Mock<ICafeSettlementRepository>();
         _mockMasterAccountRepo = new Mock<IPaymentMasterAccountRepository>();
+        _mockSessionRepo = new Mock<IActiveSessionRepository>();
+        _mockGateway = new Mock<IPaymentGatewayService>();
         _mockSePayClient = new Mock<ISePayClient>();
         _mockLogger = new Mock<ILogger<PaymentService>>();
+
+        _sePaySettings = Options.Create(new SePaySettings
+        {
+            BankCode = "MBBank",
+            AccountNumber = "0855199924",
+            AccountHolder = "TEST HOLDER"
+        });
 
         _service = new PaymentService(
             _mockDepositService.Object,
             _mockCafeRepo.Object,
             _mockSettlementRepo.Object,
             _mockMasterAccountRepo.Object,
+            _mockSessionRepo.Object,
+            _mockGateway.Object,
             _mockSePayClient.Object,
+            _sePaySettings,
             _mockLogger.Object);
     }
 
@@ -69,36 +86,46 @@ public class PaymentServiceTests
     }
 
     [Fact]
-    public async Task CreateDepositPayment_ValidRequest_ReturnsPaymentUrl()
+    public async Task CreateDepositPayment_ValidRequest_ReturnsVietQrUrl()
     {
         var depositId = Guid.NewGuid();
         var deposit = CreateTestDeposit(depositId, BookingDepositStatus.Pending);
         deposit.OrderId = string.Empty;
 
         var request = new CreatePaymentRequestDto { DepositId = depositId, Amount = 40_000m };
-        var paymentUrl = "https://sepay.vn/pay/BV12345678";
+        var qrUrl = "https://vietqr.app/img?bank=MBBank&acc=0855199924&amount=40000";
 
         _mockDepositService.Setup(s => s.GetByIdAsync(depositId)).ReturnsAsync(deposit);
-        _mockSePayClient.Setup(c => c.CreatePaymentAsync(It.IsAny<CreatePaymentRequest>(), default))
-            .ReturnsAsync(paymentUrl);
+        _mockDepositService.Setup(s => s.UpdateQrInfoAsync(depositId, qrUrl, null)).Returns(Task.CompletedTask);
+        _mockGateway.Setup(g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), default))
+            .ReturnsAsync(new PaymentGatewayResult
+            {
+                IsSuccess = true,
+                Gateway = PaymentGateway.VietQr,
+                PaymentUrl = qrUrl,
+                QrImageUrl = qrUrl,
+                OrderId = It.IsAny<string>(),
+                Amount = 40_000m,
+                RequiresManualConfirmation = true,
+                Message = "Test message"
+            });
 
         var result = await _service.CreateDepositPaymentAsync(request, Guid.NewGuid());
 
-        Assert.Equal(paymentUrl, result.PaymentUrl);
+        Assert.Equal(qrUrl, result.PaymentUrl);
+        Assert.Equal("VietQr", result.Gateway);
         Assert.StartsWith("BV", result.OrderId);
-        _mockSePayClient.Verify(c => c.CreatePaymentAsync(
-            It.Is<CreatePaymentRequest>(p => p.OrderId.StartsWith("BV")),
-            default), Times.Once);
     }
 
     [Fact]
-    public async Task CreateDepositPayment_CallsSePayWithCorrectMetadata()
+    public async Task CreateDepositPayment_CallsGatewayWithCorrectMetadata()
     {
         var depositId = Guid.NewGuid();
         var userId = Guid.NewGuid();
+        var sessionId = Guid.NewGuid();
         var deposit = CreateTestDeposit(depositId, BookingDepositStatus.Pending);
         deposit.OrderId = string.Empty;
-        deposit.ActiveSessionId = Guid.NewGuid();
+        deposit.ActiveSessionId = sessionId;
 
         var request = new CreatePaymentRequestDto
         {
@@ -108,17 +135,51 @@ public class PaymentServiceTests
         };
 
         _mockDepositService.Setup(s => s.GetByIdAsync(depositId)).ReturnsAsync(deposit);
-        _mockSePayClient.Setup(c => c.CreatePaymentAsync(It.IsAny<CreatePaymentRequest>(), default))
-            .ReturnsAsync("https://sepay.vn/pay/BV12345678");
+        _mockDepositService.Setup(s => s.UpdateQrInfoAsync(depositId, It.IsAny<string>(), null)).Returns(Task.CompletedTask);
+        _mockGateway.Setup(g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), default))
+            .ReturnsAsync(new PaymentGatewayResult
+            {
+                IsSuccess = true,
+                Gateway = PaymentGateway.VietQr,
+                PaymentUrl = "https://vietqr.app/img",
+                QrImageUrl = "https://vietqr.app/img",
+                OrderId = It.IsAny<string>(),
+                Amount = 40_000m,
+                RequiresManualConfirmation = true
+            });
 
         await _service.CreateDepositPaymentAsync(request, userId);
 
-        _mockSePayClient.Verify(c => c.CreatePaymentAsync(
-            It.Is<CreatePaymentRequest>(p =>
+        _mockGateway.Verify(g => g.CreatePaymentAsync(
+            It.Is<PaymentGatewayRequest>(p =>
                 p.Metadata["depositId"] == depositId.ToString() &&
-                p.Metadata["activeSessionId"] == deposit.ActiveSessionId.ToString() &&
-                p.Metadata["userId"] == userId.ToString()),
+                p.Metadata["activeSessionId"] == sessionId.ToString() &&
+                p.Metadata["userId"] == userId.ToString() &&
+                p.BankCode == "MBBank" &&
+                p.AccountNumber == "0855199924"),
             default), Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateDepositPayment_GatewayFails_ThrowsPaymentException()
+    {
+        var depositId = Guid.NewGuid();
+        var deposit = CreateTestDeposit(depositId, BookingDepositStatus.Pending);
+        deposit.OrderId = string.Empty;
+
+        var request = new CreatePaymentRequestDto { DepositId = depositId, Amount = 40_000m };
+
+        _mockDepositService.Setup(s => s.GetByIdAsync(depositId)).ReturnsAsync(deposit);
+        _mockGateway.Setup(g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), default))
+            .ReturnsAsync(new PaymentGatewayResult
+            {
+                IsSuccess = false,
+                Gateway = PaymentGateway.VietQr,
+                ErrorMessage = "Gateway failed"
+            });
+
+        await Assert.ThrowsAsync<PaymentException>(
+            () => _service.CreateDepositPaymentAsync(request, Guid.NewGuid()));
     }
 
     #endregion

@@ -27,6 +27,9 @@ namespace BoardVerse.Data.Configurations
             builder.Property(s => s.OrderId)
                 .HasMaxLength(50);
 
+            builder.Property(s => s.TransferContent)
+                .HasMaxLength(100);
+
             builder.HasOne(s => s.Cafe)
                 .WithMany()
                 .HasForeignKey(s => s.CafeId)
