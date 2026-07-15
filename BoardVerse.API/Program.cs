@@ -148,10 +148,13 @@ builder.Services.AddScoped<IAdminSystemConfigurationService>(sp => sp.GetRequire
 builder.Services.AddScoped<IKarmaConfigurationService, KarmaConfigurationService>();
 builder.Services.AddScoped<ICafePartnerApplicationService, CafePartnerApplicationService>();
 
-// Background Jobs for Lobby expiration
-builder.Services.AddHostedService<LobbyTimeoutJob>();
-builder.Services.AddHostedService<KarmaWindowJob>();
-builder.Services.AddHostedService<BookingDepositExpiryJob>();
+// Background Jobs for Lobby expiration — skip in Testing env (KarmaWindowJob interferes with integration tests)
+if (!builder.Environment.IsEnvironment("Testing"))
+{
+    builder.Services.AddHostedService<LobbyTimeoutJob>();
+    builder.Services.AddHostedService<KarmaWindowJob>();
+    builder.Services.AddHostedService<BookingDepositExpiryJob>();
+}
 
 // SignalR Hubs for real-time updates
 builder.Services.AddSignalR();

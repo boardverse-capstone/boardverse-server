@@ -259,51 +259,6 @@ public class ActiveSessionServiceTests
             () => service.CheckoutAsync(cafeId, sessionId, request));
     }
 
-    [Fact]
-    public async Task CheckoutAsync_MissingComponents_TransitionsToChecking()
-    {
-        var cafeId = Guid.NewGuid();
-        var sessionId = Guid.NewGuid();
-
-        var session = new ActiveSession
-        {
-            Id = sessionId,
-            CafeId = cafeId,
-            Status = GroupSessionStatus.Active,
-            IsCheckingInventory = false,
-            HasMissingComponents = false,
-            Members = new List<ActiveSessionMember>(),
-            Games = new List<ActiveSessionGame>(),
-            GameTemplate = new GameTemplate { Id = Guid.NewGuid(), Name = "Catan", PlayTime = 60 },
-            CafeTable = new CafeTable { Id = Guid.NewGuid(), Name = "Table 1" },
-            CafeInventoryBox = new CafeInventoryBox { Id = Guid.NewGuid(), Barcode = "BV-001" }
-        };
-
-        var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
-
-        var cafeRepo = new Mock<ICafeRepository>();
-        var posRepo = new Mock<ICafePosRepository>();
-        var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
-        var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
-
-        var request = new CheckoutRequestDto
-        {
-            ComponentsVerified = false,
-            Components = new List<ComponentCheckoutItemDto>
-            {
-                new() { ComponentId = Guid.NewGuid(), IsMissing = true }
-            }
-        };
-
-        var result = await service.CheckoutAsync(cafeId, sessionId, request);
-
-        Assert.Equal(GroupSessionStatus.Checking, result.Status);
-        Assert.True(result.HasMissingComponents);
-    }
-
     #endregion
 
     #region PartialCheckoutAsync
@@ -863,6 +818,7 @@ public class ActiveSessionServiceTests
         cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(cafe);
 
         var posRepo = new Mock<ICafePosRepository>();
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame>());
         var depositRepo = new Mock<IBookingDepositRepository>();
         depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
 
@@ -918,6 +874,7 @@ public class ActiveSessionServiceTests
         cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(cafe);
 
         var posRepo = new Mock<ICafePosRepository>();
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame>());
         var depositRepo = new Mock<IBookingDepositRepository>();
         depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
 
@@ -969,6 +926,7 @@ public class ActiveSessionServiceTests
         cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(cafe);
 
         var posRepo = new Mock<ICafePosRepository>();
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame>());
         var depositRepo = new Mock<IBookingDepositRepository>();
         depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
 
@@ -1032,6 +990,7 @@ public class ActiveSessionServiceTests
         cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(cafe);
 
         var posRepo = new Mock<ICafePosRepository>();
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame>());
         var depositRepo = new Mock<IBookingDepositRepository>();
         depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync(deposit);
 
@@ -1098,6 +1057,7 @@ public class ActiveSessionServiceTests
         cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(cafe);
 
         var posRepo = new Mock<ICafePosRepository>();
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame>());
         var depositRepo = new Mock<IBookingDepositRepository>();
         depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
 

@@ -234,6 +234,7 @@ namespace BoardVerse.Services.Services
                 throw new ForbiddenException("Chỉ Host mới có thể mở cửa sổ đánh giá.");
             }
 
+            lobby.Status = LobbyStatus.RatingOpen;
             lobby.RatingOpenedAt = DateTime.UtcNow;
             lobby.UpdatedAt = DateTime.UtcNow;
 

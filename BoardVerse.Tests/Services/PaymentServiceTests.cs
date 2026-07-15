@@ -33,6 +33,7 @@ public class PaymentServiceTests
         _mockSettlementRepo = new Mock<ICafeSettlementRepository>();
         _mockMasterAccountRepo = new Mock<IPaymentMasterAccountRepository>();
         _mockSessionRepo = new Mock<IActiveSessionRepository>();
+        _mockSessionRepo.Setup(r => r.GetAllUnpaidAsync()).ReturnsAsync(new List<ActiveSession>());
         _mockGateway = new Mock<IPaymentGatewayService>();
         _mockSePayClient = new Mock<ISePayClient>();
         _mockLogger = new Mock<ILogger<PaymentService>>();
@@ -96,7 +97,7 @@ public class PaymentServiceTests
         var qrUrl = "https://vietqr.app/img?bank=MBBank&acc=0855199924&amount=40000";
 
         _mockDepositService.Setup(s => s.GetByIdAsync(depositId)).ReturnsAsync(deposit);
-        _mockDepositService.Setup(s => s.UpdateQrInfoAsync(depositId, qrUrl, null)).Returns(Task.CompletedTask);
+        _mockDepositService.Setup(s => s.UpdateQrInfoAsync(depositId, It.IsAny<string?>(), It.IsAny<DateTime?>(), It.IsAny<string?>())).Returns(Task.CompletedTask);
         _mockGateway.Setup(g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), default))
             .ReturnsAsync(new PaymentGatewayResult
             {
@@ -135,7 +136,7 @@ public class PaymentServiceTests
         };
 
         _mockDepositService.Setup(s => s.GetByIdAsync(depositId)).ReturnsAsync(deposit);
-        _mockDepositService.Setup(s => s.UpdateQrInfoAsync(depositId, It.IsAny<string>(), null)).Returns(Task.CompletedTask);
+        _mockDepositService.Setup(s => s.UpdateQrInfoAsync(depositId, It.IsAny<string?>(), It.IsAny<DateTime?>(), It.IsAny<string?>())).Returns(Task.CompletedTask);
         _mockGateway.Setup(g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), default))
             .ReturnsAsync(new PaymentGatewayResult
             {

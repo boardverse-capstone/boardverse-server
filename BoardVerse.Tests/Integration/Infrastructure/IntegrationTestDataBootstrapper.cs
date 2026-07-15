@@ -431,6 +431,8 @@ internal static class IntegrationTestDataBootstrapper
             {
                 lobby.HostUserId = hostUserId.Value;
             }
+            // BR-12: Always reset RatingOpenedAt so OpenKarmaWindowAsync can be called repeatedly
+            lobby.RatingOpenedAt = null;
         }
 
         foreach (var userId in memberUserIds)
