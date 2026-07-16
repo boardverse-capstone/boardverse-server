@@ -24,5 +24,12 @@ namespace BoardVerse.Services.IServices
         Task<List<CategoryDto>> SetGameCategoriesAsync(
             Guid gameTemplateId,
             AdminSetGameCategoriesRequestDto request);
+
+        Task<AdminBoardGameResponseDto> UpdateBoardGameAsync(
+            Guid gameTemplateId,
+            AdminUpdateBoardGameRequestDto request);
+        Task<AdminBoardGameResponseDto> UpdateThumbnailAsync(
+            Guid gameTemplateId,
+            AdminUpdateThumbnailRequestDto request);
     }
 }

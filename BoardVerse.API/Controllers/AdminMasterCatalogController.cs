@@ -196,5 +196,45 @@ namespace BoardVerse.API.Controllers
             var result = await _catalogService.SetGameCategoriesAsync(gameTemplateId, request);
             return NewResponse(200, ApiSuccessMessages.AdminCatalog.GameCategoriesUpdated, result);
         }
+
+        /// <summary>
+        /// Cập nhật thông tin board game master. [Role: Admin]
+        /// </summary>
+        /// <param name="gameTemplateId">Mã GameTemplate.</param>
+        /// <param name="request">Các field cần đổi (name, searchAliases, description, bggId, minPlayers, maxPlayers, playTime, isActive).</param>
+        /// <response code="200">Board game đã cập nhật.</response>
+        /// <response code="400">Dữ liệu request không hợp lệ.</response>
+        /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
+        /// <response code="403">Không có quyền Admin.</response>
+        /// <response code="404">Không tìm thấy game.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpPut("master-games/{gameTemplateId:guid}")]
+        public async Task<IActionResult> UpdateBoardGame(
+            Guid gameTemplateId,
+            [FromBody] AdminUpdateBoardGameRequestDto request)
+        {
+            var result = await _catalogService.UpdateBoardGameAsync(gameTemplateId, request);
+            return NewResponse(200, ApiSuccessMessages.AdminCatalog.BoardGameUpdated, result);
+        }
+
+        /// <summary>
+        /// Cập nhật ảnh thumbnail cho board game master. [Role: Admin]
+        /// </summary>
+        /// <param name="gameTemplateId">Mã GameTemplate.</param>
+        /// <param name="request">ThumbnailUrl — URL ảnh thumbnail.</param>
+        /// <response code="200">Thumbnail đã cập nhật.</response>
+        /// <response code="400">URL ảnh không hợp lệ.</response>
+        /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
+        /// <response code="403">Không có quyền Admin.</response>
+        /// <response code="404">Không tìm thấy game.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpPatch("master-games/{gameTemplateId:guid}/thumbnail")]
+        public async Task<IActionResult> UpdateThumbnail(
+            Guid gameTemplateId,
+            [FromBody] AdminUpdateThumbnailRequestDto request)
+        {
+            var result = await _catalogService.UpdateThumbnailAsync(gameTemplateId, request);
+            return NewResponse(200, ApiSuccessMessages.AdminCatalog.ThumbnailUpdated, result);
+        }
     }
 }

@@ -126,6 +126,10 @@ namespace BoardVerse.Data.Repositories
                 .Include(g => g.Categories)
                 .FirstOrDefaultAsync(g => g.Id == id);
 
+        public Task<GameTemplate?> GetByIdForUpdateAsync(Guid id) =>
+            _context.GameTemplates
+                .FirstOrDefaultAsync(g => g.Id == id);
+
         public Task<bool> ExistsAsync(Guid id) =>
             _context.GameTemplates.AsNoTracking().AnyAsync(g => g.Id == id);
 

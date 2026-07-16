@@ -137,6 +137,8 @@ namespace BoardVerse.Core.Messages
             public const string ComponentDeleted = "Xóa linh kiện thành công.";
             public const string GameCategoriesRetrieved = "Lấy thể loại của game thành công.";
             public const string GameCategoriesUpdated = "Cập nhật thể loại game thành công.";
+            public const string BoardGameUpdated = "Cập nhật board game thành công.";
+            public const string ThumbnailUpdated = "Cập nhật ảnh thumbnail thành công.";
         }
 
         public static class AdminConfig
