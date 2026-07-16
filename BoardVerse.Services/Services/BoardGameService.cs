@@ -36,9 +36,6 @@ namespace BoardVerse.Services.Services
             };
         }
 
-        public Task<BoardGameDetailDto> GetBoardGameDetailsAsync(Guid id) =>
-            GetBoardGameByIdAsync(id);
-
         public async Task<BoardGameDetailDto> GetBoardGameByIdAsync(Guid id)
         {
             var game = await _gameTemplateRepository.GetActiveByIdWithComponentsAsync(id);
