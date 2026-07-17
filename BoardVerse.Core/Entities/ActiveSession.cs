@@ -14,8 +14,18 @@ namespace BoardVerse.Core.Entities
         // === Relationships ===
         public Guid CafeId { get; set; }
         public Guid HostId { get; set; }
-        public Guid CafeTableId { get; set; }
-        public Guid CafeInventoryBoxId { get; set; }
+
+        /// <summary>
+        /// FK CafeTable (nullable vì nhân viên POS có thể add game sau khi nhóm đã chơi
+        /// mà chưa gán bàn trong lần scan đầu).
+        /// </summary>
+        public Guid? CafeTableId { get; set; }
+
+        /// <summary>
+        /// FK CafeInventoryBox (nullable cho cùng lý do — game có thể attach sau).
+        /// BR-12 các session có nhiều game cần tra cứu theo ActiveSessionGame.CafeInventoryBoxId.
+        /// </summary>
+        public Guid? CafeInventoryBoxId { get; set; }
         public Guid GameTemplateId { get; set; }
 
         /// <summary>Lobby liên kết. Nullable vì có thể bắt đầu session trực tiếp không qua lobby.</summary>
@@ -68,8 +78,8 @@ namespace BoardVerse.Core.Entities
 
         // === Navigation ===
         public virtual Cafe Cafe { get; set; } = null!;
-        public virtual CafeTable CafeTable { get; set; } = null!;
-        public virtual CafeInventoryBox CafeInventoryBox { get; set; } = null!;
+        public virtual CafeTable? CafeTable { get; set; }
+        public virtual CafeInventoryBox? CafeInventoryBox { get; set; }
         public virtual GameTemplate GameTemplate { get; set; } = null!;
         public virtual User Host { get; set; } = null!;
         public virtual Lobby? Lobby { get; set; }

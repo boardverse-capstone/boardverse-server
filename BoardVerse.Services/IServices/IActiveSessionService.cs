@@ -1,3 +1,4 @@
+using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.DTOs.Session;
 using BoardVerse.Core.Entities;
 
@@ -17,5 +18,11 @@ namespace BoardVerse.Services.IServices
         Task<ActiveSessionResponseDto> AddLateMemberAsync(Guid cafeId, Guid sessionId, AddLateMemberRequestDto request);
         Task RecordInventoryLossAsync(Guid cafeId, Guid userId, Guid sessionId, RecordInventoryLossRequestDto request);
         Task<AlternativeCafesResponseDto> GetAlternativeCafesAsync(Guid excludeCafeId, Guid gameTemplateId, int memberCount, DateTime scheduledTime);
+
+        /// <summary>
+        /// Submit component checklist cho 1 game trong phiên chơi (BR-12).
+        /// Nhân viên POS scan linh kiện thực tế → tính penalty nếu thiếu/hỏng.
+        /// </summary>
+        Task<ActiveSessionResponseDto> SubmitComponentCheckAsync(Guid cafeId, Guid sessionId, SubmitComponentCheckRequestDto request);
     }
 }

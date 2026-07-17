@@ -13,12 +13,13 @@ namespace BoardVerse.Data.Configurations
             builder.HasKey(s => s.Id);
             builder.Property(s => s.Id).ValueGeneratedNever();
             builder.Property(s => s.CafeId).IsRequired();
-            builder.Property(s => s.CafeTableId).IsRequired();
-            builder.Property(s => s.CafeInventoryBoxId).IsRequired();
             builder.Property(s => s.GameTemplateId).IsRequired();
             builder.Property(s => s.HostId).IsRequired();
             builder.Property(s => s.StartedAt).IsRequired();
             builder.Property(s => s.CreatedAt).IsRequired();
+
+            // FK nullable: CafeTableId + CafeInventoryBoxId có thể null khi staff
+            // attach game sau khi phiên đã chạy.
 
             builder.Property(s => s.Status)
                 .HasConversion<int>()

@@ -37,7 +37,7 @@ public class BoardGameIntegrationTests
     public async Task GetGameDetails_Returns200()
     {
         var gameId = await IntegrationCatalog.GetCatanGameIdAsync(_client);
-        var response = await _client.GetAsync($"/api/v1/board-games/{gameId}/details");
+        var response = await _client.GetAsync($"/api/v1/board-games/{gameId}");
         response.EnsureSuccessStatusCode();
     }
 

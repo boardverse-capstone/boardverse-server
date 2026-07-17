@@ -9,6 +9,12 @@ using Microsoft.Extensions.Logging;
 
 namespace BoardVerse.Services.Services
 {
+    /// <summary>
+    /// Settlement = giải ngân tiền cọc từ BoardVerse master về tài khoản cafe manager.
+    /// BR-09 + BR-18: Tiền cọc được cấn trừ 1 lần khi phiên PAID → release to cafe manager.
+    /// Retry: khi SePay fail → set CafeSettlement.Status = Failed, giữ BookingDeposit.Status = Paid
+    /// để <see cref="BoardVerse.API.BackgroundServices.SettlementRetryJob"/> có thể retry.
+    /// </summary>
     public class SettlementService : ISettlementService
     {
         private readonly IBookingDepositRepository _depositRepository;
@@ -47,7 +53,7 @@ namespace BoardVerse.Services.Services
 
             if (session.Status != GroupSessionStatus.Paid)
             {
-                throw new ConflictException("Chỉ phiên đã thanh toán mới giải ngân deposit.");
+                throw new ConflictException("Phiên đã thanh toán mới được giải ngân deposit.");
             }
 
             if (session.DepositAppliedAmount <= 0)
@@ -57,6 +63,14 @@ namespace BoardVerse.Services.Services
 
             var masterAccount = await _masterAccountRepository.GetActiveAsync()
                 ?? throw new ConflictException(ApiErrorMessages.Pos.MasterAccountNotConfigured);
+
+            // Gap 4 (fix): Destination = cafe manager's SePay bank account, KHÔNG phải master account.
+            // Cafe đã có SePayAccountNumber + SePayBankCode cho VietQR fallback — dùng luôn cho transfer.
+            if (string.IsNullOrWhiteSpace(cafe.SePayAccountNumber) || string.IsNullOrWhiteSpace(cafe.SePayBankCode))
+            {
+                throw new ConflictException(
+                    $"Cafe '{cafe.Name}' chưa được cấu hình SePay bank (SePayAccountNumber/SePayBankCode). Vui lòng cấu hình trong POS trước khi giải ngân.");
+            }
 
             var deposit = await _depositRepository.GetByActiveSessionIdAsync(activeSessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
@@ -83,19 +97,13 @@ namespace BoardVerse.Services.Services
             await _settlementRepository.AddAsync(settlement);
             await _settlementRepository.SaveChangesAsync();
 
-            deposit.Status = BookingDepositStatus.Released;
-            deposit.ReleasedAt = DateTime.UtcNow;
-            deposit.SePayTransferId = $"sepay_pending_{settlement.Id}";
-            deposit.UpdatedAt = DateTime.UtcNow;
-
-            await _depositRepository.UpdateAsync(deposit);
-            await _depositRepository.SaveChangesAsync();
-
+            // Gap 3 (fix): KHÔNG set Released ở đây. Đợi SePay success rồi mới released.
+            // Khi fail → giữ Status=Paid để SettlementRetryJob retry.
             try
             {
                 var transferRequest = new CreateTransferRequest(
-                    ToBankAccount: masterAccount.AccountHolder,
-                    ToAccountNumber: masterAccount.MaskedAccountNumber ?? masterAccount.VirtualAccountNumber ?? string.Empty,
+                    ToBankAccount: cafe.SePayBankCode,
+                    ToAccountNumber: cafe.SePayAccountNumber,
                     Amount: netTransfer,
                     Description: $"BoardVerse settlement - session {activeSessionId}",
                     ReferenceId: $"settlement_{settlement.Id:N}");
@@ -105,13 +113,18 @@ namespace BoardVerse.Services.Services
                 settlement.Status = CafeSettlementStatus.Succeeded;
                 settlement.SePayTransferId = transferResponse.TransferId ?? settlement.SePayTransferId;
                 settlement.TransferredAt = DateTime.UtcNow;
-                deposit.SePayTransferId = transferResponse.TransferId ?? deposit.SePayTransferId;
+
+                // Chỉ set deposit = Released khi transfer succeed.
+                deposit.Status = BookingDepositStatus.Released;
+                deposit.ReleasedAt = DateTime.UtcNow;
+                deposit.SePayTransferId = transferResponse.TransferId;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "SePay transfer failed for settlement {SettlementId}", settlement.Id);
+                _logger.LogError(ex, "SePay transfer failed for settlement {SettlementId}. Will retry later.", settlement.Id);
                 settlement.Status = CafeSettlementStatus.Failed;
                 settlement.FailureReason = ex.Message;
+                // Deposit vẫn ở Paid — sẽ được retry bởi SettlementRetryJob.
             }
             finally
             {
@@ -122,6 +135,10 @@ namespace BoardVerse.Services.Services
                 deposit.UpdatedAt = DateTime.UtcNow;
                 await _depositRepository.UpdateAsync(deposit);
                 await _depositRepository.SaveChangesAsync();
+
+                _logger.LogInformation(
+                    "Settlement {SettlementId} for cafe {CafeId} session {SessionId}: Status={Status}, Amount={Amount}",
+                    settlement.Id, cafeId, activeSessionId, settlement.Status, netTransfer);
             }
 
             return settlement;

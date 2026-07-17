@@ -311,11 +311,12 @@ namespace BoardVerse.Data.Repositories
                     .AsNoTracking()
                     .Where(s =>
                         s.Status != GroupSessionStatus.Paid
-                        && inUseBoxIds.Contains(s.CafeInventoryBoxId))
-                    .Select(s => new { s.CafeInventoryBoxId, s.StartedAt })
+                        && s.CafeInventoryBoxId.HasValue
+                        && inUseBoxIds.Contains(s.CafeInventoryBoxId.Value))
+                    .Select(s => new { BoxId = s.CafeInventoryBoxId!.Value, s.StartedAt })
                     .ToListAsync();
 
-            var sessionStartByBoxId = sessionStarts.ToDictionary(s => s.CafeInventoryBoxId, s => s.StartedAt);
+            var sessionStartByBoxId = sessionStarts.ToDictionary(s => s.BoxId, s => s.StartedAt);
 
             foreach (var cafe in cafes)
             {

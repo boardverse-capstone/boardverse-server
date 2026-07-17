@@ -6,7 +6,7 @@ namespace BoardVerse.Core.DTOs.Pos
         public Guid HostId { get; set; }
         public string HostName { get; set; } = string.Empty;
         public Guid? LobbyId { get; set; }
-        public Guid CafeTableId { get; set; }
+        public Guid? CafeTableId { get; set; }
         public string TableName { get; set; } = string.Empty;
         public int DefaultPlayTimeMinutes { get; set; }
         public DateTime StartedAt { get; set; }

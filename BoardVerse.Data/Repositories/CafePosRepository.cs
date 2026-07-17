@@ -213,8 +213,8 @@ namespace BoardVerse.Data.Repositories
                 StartedAt = s.StartedAt,
                 EndedAt = s.EndedAt,
                 CreatedAt = s.CreatedAt,
-                CafeTable = tables.GetValueOrDefault(s.CafeTableId) ?? null!,
-                CafeInventoryBox = boxes.GetValueOrDefault(s.CafeInventoryBoxId) ?? null!,
+                CafeTable = s.CafeTableId.HasValue ? tables.GetValueOrDefault(s.CafeTableId.Value) : null,
+                CafeInventoryBox = s.CafeInventoryBoxId.HasValue ? boxes.GetValueOrDefault(s.CafeInventoryBoxId.Value) : null,
                 GameTemplate = gameTemplates.GetValueOrDefault(s.GameTemplateId) ?? null!,
                 Host = hosts.GetValueOrDefault(s.HostId) ?? null!,
                 Members = membersBySession.GetValueOrDefault(s.Id) ?? []

@@ -8,9 +8,9 @@ namespace BoardVerse.Core.DTOs.Session
         public Guid Id { get; set; }
         public Guid CafeId { get; set; }
         public Guid HostId { get; set; }
-        public Guid CafeTableId { get; set; }
+        public Guid? CafeTableId { get; set; }
         public string TableName { get; set; } = string.Empty;
-        public Guid CafeInventoryBoxId { get; set; }
+        public Guid? CafeInventoryBoxId { get; set; }
         public string BoxBarcode { get; set; } = string.Empty;
         public Guid GameTemplateId { get; set; }
         public string GameName { get; set; } = string.Empty;

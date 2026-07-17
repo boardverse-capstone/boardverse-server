@@ -22,4 +22,11 @@ public class CafeSettlement
     public DateTime? TransferredAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
+
+    // === Retry tracking ===
+    /// <summary>Số lần SePay transfer đã thử.</summary>
+    public int RetryCount { get; set; }
+
+    /// <summary>Earliest time the retry job may pick this settlement again.</summary>
+    public DateTime? NextRetryAt { get; set; }
 }

@@ -35,6 +35,18 @@ namespace BoardVerse.Data.Repositories
                 .ToListAsync();
         }
 
+        public async Task<IReadOnlyList<CafeSettlement>> GetRetryableAsync(int maxAttempts, TimeSpan minRetryDelay)
+        {
+            var cutoff = DateTime.UtcNow - minRetryDelay;
+            return await _db.CafeSettlements
+                .Where(s => s.Status == Core.Enum.CafeSettlementStatus.Failed
+                    && s.RetryCount < maxAttempts
+                    && (s.NextRetryAt == null || s.NextRetryAt <= DateTime.UtcNow)
+                    && s.UpdatedAt <= cutoff)
+                .OrderBy(s => s.UpdatedAt)
+                .ToListAsync();
+        }
+
         public Task SaveChangesAsync()
         {
             return _db.SaveChangesAsync();

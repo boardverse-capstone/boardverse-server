@@ -16,5 +16,9 @@ namespace BoardVerse.Core.IRepositories
         Task UpdateAsync(ActiveSession session);
         Task SaveChangesAsync();
         Task<IReadOnlyList<ActiveSession>> GetAllUnpaidAsync();
+
+        // === Game checklist (BR-12) ===
+        Task<ActiveSessionGame?> GetSessionGameByIdAsync(Guid sessionGameId);
+        Task UpdateSessionGameAsync(ActiveSessionGame sessionGame);
     }
 }

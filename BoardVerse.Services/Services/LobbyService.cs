@@ -12,13 +12,16 @@ namespace BoardVerse.Services.Services
     {
         private readonly ILobbyRepository _lobbyRepository;
         private readonly IGameTemplateRepository _gameTemplateRepository;
+        private readonly ILobbyHubService _hubService;
 
         public LobbyService(
             ILobbyRepository lobbyRepository,
-            IGameTemplateRepository gameTemplateRepository)
+            IGameTemplateRepository gameTemplateRepository,
+            ILobbyHubService hubService)
         {
             _lobbyRepository = lobbyRepository;
             _gameTemplateRepository = gameTemplateRepository;
+            _hubService = hubService;
         }
 
         public async Task<LobbyResponseDto> CreateLobbyAsync(Guid hostUserId, CreateLobbyRequestDto request)
@@ -64,6 +67,16 @@ namespace BoardVerse.Services.Services
             await _lobbyRepository.AddAsync(lobby);
             await _lobbyRepository.SaveChangesAsync();
 
+            // Realtime: notify host's own lobby that it was created (helps mobile UI refresh).
+            await _hubService.NotifyMemberJoined(lobby.Id, new LobbyMemberDto
+            {
+                Id = lobby.Members.First().Id,
+                UserId = hostUserId,
+                JoinedAt = now,
+                IsActive = true,
+                IsHost = true
+            });
+
             return MapLobbyDto(lobby);
         }
 
@@ -93,24 +106,42 @@ namespace BoardVerse.Services.Services
                 throw new ConflictException("Số thành viên đã vượt quá số ghế cho phép.");
             }
 
-            lobby.Members.Add(new LobbyMember
+            var now = DateTime.UtcNow;
+            var newMember = new LobbyMember
             {
                 Id = Guid.NewGuid(),
                 LobbyId = lobby.Id,
                 UserId = userId,
                 IsHost = false,
                 IsActive = true,
-                JoinedAt = DateTime.UtcNow
-            });
+                JoinedAt = now
+            };
+            lobby.Members.Add(newMember);
 
-            lobby.UpdatedAt = DateTime.UtcNow;
+            lobby.UpdatedAt = now;
 
-            if (lobby.Members.Count(m => m.IsActive) >= lobby.MaxMembers)
+            var filledToMax = lobby.Members.Count(m => m.IsActive) >= lobby.MaxMembers;
+            if (filledToMax)
             {
                 lobby.Status = LobbyStatus.Full;
             }
 
             await _lobbyRepository.SaveChangesAsync();
+
+            // Realtime: broadcast MemberJoined + LobbyFull nếu vừa đủ.
+            await _hubService.NotifyMemberJoined(lobby.Id, new LobbyMemberDto
+            {
+                Id = newMember.Id,
+                UserId = userId,
+                JoinedAt = now,
+                IsActive = true,
+                IsHost = false
+            });
+
+            if (filledToMax)
+            {
+                await _hubService.NotifyLobbyFull(lobby.Id);
+            }
 
             return MapLobbyDto(lobby);
         }
@@ -126,15 +157,30 @@ namespace BoardVerse.Services.Services
                 throw new NotFoundException("Bạn không phải là thành viên của phòng này.");
             }
 
-            if (member.IsHost)
+            var wasHost = member.IsHost;
+            var memberId = member.Id;
+            string? cancelReason = null;
+
+            if (wasHost)
             {
                 lobby.Status = LobbyStatus.HostCancelled;
+                cancelReason = "Host đã rời phòng chờ.";
             }
 
             member.IsActive = false;
             lobby.UpdatedAt = DateTime.UtcNow;
 
             await _lobbyRepository.SaveChangesAsync();
+
+            // Realtime: notify group.
+            if (wasHost)
+            {
+                await _hubService.NotifyLobbyCancelled(lobbyId, cancelReason!);
+            }
+            else
+            {
+                await _hubService.NotifyMemberLeft(lobbyId, memberId);
+            }
 
             return MapLobbyDto(lobby);
         }
@@ -217,6 +263,9 @@ namespace BoardVerse.Services.Services
             lobby.UpdatedAt = DateTime.UtcNow;
 
             await _lobbyRepository.SaveChangesAsync();
+
+            // Realtime: Host vừa khóa phòng → báo cho cả nhóm biết đã đủ điều kiện đặt chỗ.
+            await _hubService.NotifyLobbyFull(lobbyId);
 
             return MapLobbyDto(lobby);
         }

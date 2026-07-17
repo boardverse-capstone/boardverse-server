@@ -204,7 +204,10 @@ internal static class IntegrationTestDataBootstrapper
                 ManagerId = IntegrationTestFixtures.ManagerUserId,
                 CreatedAt = DateTime.UtcNow,
                 IsActive = true,
-                PartnerOperationalStatus = CafePartnerOperationalStatus.Active
+                PartnerOperationalStatus = CafePartnerOperationalStatus.Active,
+                // Gap 4: Cafe SePay config for settlement destination
+                SePayAccountNumber = "0855199924",
+                SePayBankCode = "MBBank"
             };
             GeoLocationHelper.ApplyCoordinates(
                 cafe,
@@ -217,6 +220,8 @@ internal static class IntegrationTestDataBootstrapper
             cafe.ManagerId = IntegrationTestFixtures.ManagerUserId;
             cafe.IsActive = true;
             cafe.PartnerOperationalStatus = CafePartnerOperationalStatus.Active;
+            cafe.SePayAccountNumber = "0855199924";
+            cafe.SePayBankCode = "MBBank";
             GeoLocationHelper.ApplyCoordinates(
                 cafe,
                 DevSeedConstants.DemoCafeLatitude,

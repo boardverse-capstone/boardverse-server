@@ -118,5 +118,18 @@ namespace BoardVerse.Data.Repositories
                 .Where(s => s.Status == GroupSessionStatus.Unpaid && !string.IsNullOrWhiteSpace(s.OrderId))
                 .ToListAsync();
         }
+
+        public Task<ActiveSessionGame?> GetSessionGameByIdAsync(Guid sessionGameId)
+        {
+            return _db.ActiveSessionGames
+                .Include(g => g.GameTemplate)
+                .FirstOrDefaultAsync(g => g.Id == sessionGameId);
+        }
+
+        public Task UpdateSessionGameAsync(ActiveSessionGame sessionGame)
+        {
+            _db.ActiveSessionGames.Update(sessionGame);
+            return Task.CompletedTask;
+        }
     }
 }

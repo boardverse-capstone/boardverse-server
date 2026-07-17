@@ -44,8 +44,8 @@ namespace BoardVerse.Services.Services
                 Id = Guid.NewGuid(),
                 CafeId = cafeId,
                 HostId = hostUserId,
-                CafeTableId = request.CafeTableId,
-                CafeInventoryBoxId = Guid.Empty,
+                CafeTableId = request.CafeTableId == Guid.Empty ? null : request.CafeTableId,
+                CafeInventoryBoxId = null, // attach game after start (BR-06-like)
                 GameTemplateId = request.GameTemplateId,
                 LobbyId = request.LobbyId,
                 Status = GroupSessionStatus.Active,
@@ -693,6 +693,74 @@ namespace BoardVerse.Services.Services
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Submit component checklist cho một game trong phiên chơi (BR-12).
+        /// Nhân viên POS scan linh kiện thực tế; nếu thiếu thì hệ thống cộng phí phạt
+        /// lên <see cref="ActiveSessionGame.TotalPenaltyAmount"/> và đánh dấu
+        /// <see cref="ComponentCheckStatus.MissingComponents"/>. Đủ linh kiện thì đánh dấu
+        /// <see cref="ComponentCheckStatus.Verified"/>.
+        /// </summary>
+        public async Task<ActiveSessionResponseDto> SubmitComponentCheckAsync(Guid cafeId, Guid sessionId, SubmitComponentCheckRequestDto request)
+        {
+            var session = await _activeSessionRepository.GetByIdAsync(sessionId)
+                ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
+
+            if (session.CafeId != cafeId)
+            {
+                throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
+            }
+
+            // BR-12: Chỉ cho phép checklist khi đang ở trạng thái CHECKING (sau EndGameSession/PartialCheckout)
+            if (session.Status != GroupSessionStatus.Checking)
+            {
+                throw new ConflictException("Chỉ kiểm kê linh kiện khi phiên đang ở trạng thái CHECKING.");
+            }
+
+            var sessionGame = await _activeSessionRepository.GetSessionGameByIdAsync(request.SessionGameId)
+                ?? throw new NotFoundException($"Không tìm thấy game '{request.SessionGameId}' trong phiên.");
+
+            if (sessionGame.ActiveSessionId != sessionId)
+            {
+                throw new ConflictException("Game không thuộc phiên chơi này.");
+            }
+
+            // Tính tổng penalty = sum(penalty của từng component thiếu)
+            decimal totalPenalty = 0m;
+            var missingCount = 0;
+            foreach (var result in request.Results)
+            {
+                var penalty = await _posRepository.GetComponentPenaltyAsync(
+                    cafeId, sessionGame.GameTemplateId, result.ComponentId);
+                if (penalty == null)
+                {
+                    continue;
+                }
+
+                if (result.ActualQuantity < penalty.PenaltyFee || result.ActualQuantity <= 0)
+                {
+                    // Thiếu linh kiện hoặc không có → cộng phạt
+                    totalPenalty += penalty.PenaltyFee;
+                    missingCount++;
+                }
+            }
+
+            sessionGame.TotalPenaltyAmount = totalPenalty;
+            sessionGame.CheckStatus = missingCount > 0
+                ? ComponentCheckStatus.MissingComponents
+                : ComponentCheckStatus.Verified;
+            sessionGame.CheckedAt = DateTime.UtcNow;
+
+            await _activeSessionRepository.UpdateSessionGameAsync(sessionGame);
+            await _activeSessionRepository.SaveChangesAsync();
+
+            // Cập nhật session.HasMissingComponents để UI/Checkout biết.
+            session.HasMissingComponents = missingCount > 0;
+            await _activeSessionRepository.UpdateAsync(session);
+            await _activeSessionRepository.SaveChangesAsync();
+
+            return MapSessionDto(session);
         }
     }
 }
