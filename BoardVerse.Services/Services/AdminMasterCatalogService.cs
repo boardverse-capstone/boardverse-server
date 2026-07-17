@@ -229,6 +229,61 @@ namespace BoardVerse.Services.Services
             return await GetGameCategoriesAsync(gameTemplateId);
         }
 
+        public async Task<AdminBoardGameResponseDto> UpdateBoardGameAsync(
+            Guid gameTemplateId,
+            AdminUpdateBoardGameRequestDto request)
+        {
+            var game = await _gameTemplateRepository.GetByIdForUpdateAsync(gameTemplateId);
+            if (game == null)
+                throw new NotFoundException(ApiErrorMessages.AdminCatalog.GameTemplateNotFound(gameTemplateId));
+
+            if (!string.IsNullOrWhiteSpace(request.Name))
+                game.Name = request.Name.Trim();
+
+            if (request.SearchAliases != null)
+                game.SearchAliases = string.IsNullOrWhiteSpace(request.SearchAliases)
+                    ? null
+                    : request.SearchAliases.Trim();
+
+            if (request.Description != null)
+                game.Description = string.IsNullOrWhiteSpace(request.Description)
+                    ? null
+                    : request.Description.Trim();
+
+            if (request.BggId.HasValue)
+                game.BggId = request.BggId.Value;
+
+            if (request.MinPlayers.HasValue)
+                game.MinPlayers = request.MinPlayers.Value;
+
+            if (request.MaxPlayers.HasValue)
+                game.MaxPlayers = request.MaxPlayers.Value;
+
+            if (request.PlayTime.HasValue)
+                game.PlayTime = request.PlayTime.Value;
+
+            if (request.IsActive.HasValue)
+                game.IsActive = request.IsActive.Value;
+
+            game.UpdatedAt = DateTime.UtcNow;
+            await _gameTemplateRepository.SaveChangesAsync();
+            return MapBoardGame(game);
+        }
+
+        public async Task<AdminBoardGameResponseDto> UpdateThumbnailAsync(
+            Guid gameTemplateId,
+            AdminUpdateThumbnailRequestDto request)
+        {
+            var game = await _gameTemplateRepository.GetByIdForUpdateAsync(gameTemplateId);
+            if (game == null)
+                throw new NotFoundException(ApiErrorMessages.AdminCatalog.GameTemplateNotFound(gameTemplateId));
+
+            game.ThumbnailUrl = request.ThumbnailUrl.Trim();
+            game.UpdatedAt = DateTime.UtcNow;
+            await _gameTemplateRepository.SaveChangesAsync();
+            return MapBoardGame(game);
+        }
+
         private async Task EnsureGameTemplateExistsAsync(Guid gameTemplateId)
         {
             if (!await _gameTemplateRepository.ExistsAsync(gameTemplateId))
@@ -288,6 +343,23 @@ namespace BoardVerse.Services.Services
                 ComponentKind = component.ComponentKind,
                 DefaultQuantity = component.DefaultQuantity,
                 CreatedAt = component.CreatedAt
+            };
+
+        private static AdminBoardGameResponseDto MapBoardGame(GameTemplate game) =>
+            new()
+            {
+                Id = game.Id,
+                Name = game.Name,
+                SearchAliases = game.SearchAliases,
+                ThumbnailUrl = game.ThumbnailUrl,
+                Description = game.Description,
+                BggId = game.BggId,
+                IsActive = game.IsActive,
+                MinPlayers = game.MinPlayers,
+                MaxPlayers = game.MaxPlayers,
+                PlayTime = game.PlayTime,
+                CreatedAt = game.CreatedAt,
+                UpdatedAt = game.UpdatedAt
             };
     }
 }

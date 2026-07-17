@@ -78,20 +78,6 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Lấy chi tiết board game (alias của GET theo id). [Role: Public — không cần đăng nhập.]
-        /// </summary>
-        /// <param name="id">Mã định danh board game (GameTemplates.Id).</param>
-        /// <response code="200">Trả về thông tin đầy đủ: ảnh, tên, mô tả, số người, thể loại, components.</response>
-        /// <response code="404">Không tìm thấy board game hoặc game đã bị vô hiệu hóa.</response>
-        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
-        [HttpGet("{id:guid}/details")]
-        public async Task<IActionResult> GetBoardGameDetails(Guid id)
-        {
-            var result = await _boardGameService.GetBoardGameDetailsAsync(id);
-            return NewResponse(200, ApiSuccessMessages.BoardGame.DetailsRetrieved, result);
-        }
-
-        /// <summary>
         /// Kiểm tra cấu hình số người chơi và các chế độ chơi khả dụng (Solo/Nhóm). [Role: Public]
         /// </summary>
         /// <param name="id">Mã định danh board game (GameTemplates.Id).</param>
