@@ -27,12 +27,12 @@ public class ComponentLossReportConfiguration : IEntityTypeConfiguration<Compone
             .HasForeignKey(x => x.CafeId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        builder.HasOne<ActiveSession>()
+        builder.HasOne(x => x.ActiveSession)
             .WithMany()
             .HasForeignKey(x => x.ActiveSessionId)
             .OnDelete(DeleteBehavior.SetNull);
 
-        builder.HasOne<CafeInventoryBox>()
+        builder.HasOne(x => x.CafeInventoryBox)
             .WithMany()
             .HasForeignKey(x => x.CafeInventoryBoxId)
             .OnDelete(DeleteBehavior.SetNull);

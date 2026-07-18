@@ -49,6 +49,7 @@ internal static class IntegrationTestDataBootstrapper
         var deposit = new BookingDeposit
         {
             Id = depositId,
+            UserId = IntegrationTestFixtures.DemoUserId,
             CafeId = IntegrationTestFixtures.DemoCafeId,
             CafeManagerId = IntegrationTestFixtures.ManagerUserId,
             Amount = 50000,

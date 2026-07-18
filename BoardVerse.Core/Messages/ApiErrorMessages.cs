@@ -316,8 +316,11 @@ namespace BoardVerse.Core.Messages
 
         public static class Payment
         {
+            public const string SePayMasterAccountNotFound =
+                "Chưa có tài khoản SePay Master nào được cấu hình. Vui lòng cấu hình trong Admin.";
+
             public const string SePayMerchantIdMissing =
-                "Dịch vụ thanh toán chưa được cấu hình. Hãy đặt SePay:MerchantId.";
+                "Tài khoản SePay Master chưa có MerchantId. Vui lòng cập nhật cấu hình.";
 
             public const string SePayWebhookTokenMissing =
                 "Dịch vụ thanh toán chưa được cấu hình. Hãy đặt SePay:WebhookToken.";

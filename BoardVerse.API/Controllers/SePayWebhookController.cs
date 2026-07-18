@@ -68,7 +68,7 @@ public class SePayWebhookController : ControllerBase
                 OrderId = request.OrderId,
                 Amount = request.Amount,
                 Currency = request.Currency ?? "VND",
-                Status = request.Status,
+                Status = request.Status ?? "success",
                 ReferenceCode = request.ReferenceCode,
                 PaidAt = request.Status == "success" ? DateTime.UtcNow : null
             };

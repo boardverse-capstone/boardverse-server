@@ -4,11 +4,9 @@ using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
-using BoardVerse.Core.Settings;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services.Payments;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace BoardVerse.Services.Services;
 
@@ -21,7 +19,7 @@ public class PaymentService : IPaymentService
     private readonly IActiveSessionRepository _activeSessionRepository;
     private readonly IPaymentGatewayService _paymentGateway;
     private readonly ISePayClient _sePayClient;
-    private readonly SePaySettings _sePaySettings;
+    private readonly ISePayAccountService _sePayAccountService;
     private readonly ILogger<PaymentService> _logger;
 
     public PaymentService(
@@ -32,7 +30,7 @@ public class PaymentService : IPaymentService
         IActiveSessionRepository activeSessionRepository,
         IPaymentGatewayService paymentGateway,
         ISePayClient sePayClient,
-        IOptions<SePaySettings> sePaySettings,
+        ISePayAccountService sePayAccountService,
         ILogger<PaymentService> logger)
     {
         _depositService = depositService;
@@ -42,7 +40,7 @@ public class PaymentService : IPaymentService
         _activeSessionRepository = activeSessionRepository;
         _paymentGateway = paymentGateway;
         _sePayClient = sePayClient;
-        _sePaySettings = sePaySettings.Value;
+        _sePayAccountService = sePayAccountService;
         _logger = logger;
     }
 
@@ -64,10 +62,23 @@ public class PaymentService : IPaymentService
         // Sinh TransferContent ngẫu nhiên để khách nhập khi chuyển khoản ngân hàng
         var transferContent = $"BV-{Guid.NewGuid():N}";
 
-        // Deposit payment: dùng SePaySettings (appsettings.json) — central merchant
-        var bankCode = _sePaySettings.BankCode;
-        var accountNumber = _sePaySettings.AccountNumber;
-        var accountHolder = _sePaySettings.AccountHolder;
+        // Deposit payment: Lấy bank info từ DB (Master Account)
+        var bankCode = string.Empty;
+        var accountNumber = string.Empty;
+        var accountHolder = string.Empty;
+
+        var masterAccount = await _sePayAccountService.GetMasterAccountAsync();
+        if (masterAccount != null)
+        {
+            bankCode = masterAccount.BankCode ?? string.Empty;
+            accountNumber = masterAccount.MaskedAccountNumber ?? string.Empty;
+            accountHolder = masterAccount.AccountHolder ?? string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(bankCode) || string.IsNullOrWhiteSpace(accountNumber))
+        {
+            throw new PaymentException(ApiErrorMessages.Payment.SePayMasterAccountNotFound);
+        }
 
         var paymentRequest = new PaymentGatewayRequest
         {
@@ -132,10 +143,23 @@ public class PaymentService : IPaymentService
             throw new ConflictException($"Chỉ có thể tạo lại QR cho đơn cọc đang PENDING. Trạng thái hiện tại: '{deposit.Status}'.");
         }
 
-        // Deposit regeneration: dùng SePaySettings (appsettings.json)
-        var bankCode = _sePaySettings.BankCode;
-        var accountNumber = _sePaySettings.AccountNumber;
-        var accountHolder = _sePaySettings.AccountHolder;
+        // Deposit regeneration: Lấy bank info từ DB (Master Account)
+        var bankCode = string.Empty;
+        var accountNumber = string.Empty;
+        var accountHolder = string.Empty;
+
+        var masterAccount = await _sePayAccountService.GetMasterAccountAsync();
+        if (masterAccount != null)
+        {
+            bankCode = masterAccount.BankCode ?? string.Empty;
+            accountNumber = masterAccount.MaskedAccountNumber ?? string.Empty;
+            accountHolder = masterAccount.AccountHolder ?? string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(bankCode) || string.IsNullOrWhiteSpace(accountNumber))
+        {
+            throw new PaymentException(ApiErrorMessages.Payment.SePayMasterAccountNotFound);
+        }
 
         // Sinh TransferContent ngẫu nhiên mới cho mỗi lần tạo QR
         var transferContent = $"BV-{Guid.NewGuid():N}";
@@ -226,10 +250,23 @@ public class PaymentService : IPaymentService
         var cafe = await _cafeRepository.GetByIdAsync(session.CafeId)
             ?? throw new NotFoundException($"Không tìm thấy cafe với ID: {session.CafeId}");
 
-        if (string.IsNullOrWhiteSpace(cafe.SePayBankCode) ||
-            string.IsNullOrWhiteSpace(cafe.SePayAccountNumber))
+        var bankCode = string.Empty;
+        var accountNumber = string.Empty;
+
+        // Lấy từ SePayAccount nếu cafe đã được configure
+        if (cafe.SePayAccountId.HasValue)
         {
-            throw new PaymentException($"Cafe '{cafe.Name}' chưa được cấu hình thông tin ngân hàng (SePayBankCode / SePayAccountNumber).");
+            var sepayAccount = await _sePayAccountService.GetByIdAsync(cafe.SePayAccountId.Value);
+            if (sepayAccount != null)
+            {
+                bankCode = sepayAccount.BankCode ?? string.Empty;
+                accountNumber = sepayAccount.MaskedAccountNumber ?? string.Empty;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(bankCode) || string.IsNullOrWhiteSpace(accountNumber))
+        {
+            throw new PaymentException($"Cafe '{cafe.Name}' chưa được cấu hình SePay account.");
         }
 
         var paymentRequest = new PaymentGatewayRequest
@@ -242,10 +279,11 @@ public class PaymentService : IPaymentService
             {
                 ["sessionId"] = session.Id.ToString(),
                 ["cafeId"] = session.CafeId.ToString(),
+                ["sepayAccountId"] = cafe.SePayAccountId.ToString(),
                 ["notes"] = request.Notes ?? string.Empty
             },
-            BankCode = cafe.SePayBankCode ?? throw new PaymentException($"Cafe '{cafe.Name}' chưa cấu hình SePayBankCode."),
-            AccountNumber = cafe.SePayAccountNumber ?? throw new PaymentException($"Cafe '{cafe.Name}' chưa cấu hình SePayAccountNumber."),
+            BankCode = bankCode,
+            AccountNumber = accountNumber,
             AccountName = cafe.Name
         };
 
@@ -299,10 +337,23 @@ public class PaymentService : IPaymentService
         var cafe = await _cafeRepository.GetByIdAsync(session.CafeId)
             ?? throw new NotFoundException($"Không tìm thấy cafe với ID: {session.CafeId}");
 
-        if (string.IsNullOrWhiteSpace(cafe.SePayBankCode) ||
-            string.IsNullOrWhiteSpace(cafe.SePayAccountNumber))
+        var bankCode = string.Empty;
+        var accountNumber = string.Empty;
+
+        // Lấy từ SePayAccount nếu cafe đã được configure
+        if (cafe.SePayAccountId.HasValue)
         {
-            throw new PaymentException($"Cafe '{cafe.Name}' chưa được cấu hình thông tin ngân hàng.");
+            var sepayAccount = await _sePayAccountService.GetByIdAsync(cafe.SePayAccountId.Value);
+            if (sepayAccount != null)
+            {
+                bankCode = sepayAccount.BankCode ?? string.Empty;
+                accountNumber = sepayAccount.MaskedAccountNumber ?? string.Empty;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(bankCode) || string.IsNullOrWhiteSpace(accountNumber))
+        {
+            throw new PaymentException($"Cafe '{cafe.Name}' chưa được cấu hình SePay account.");
         }
 
         // Tạo order ID mới nếu chưa có
@@ -324,10 +375,11 @@ public class PaymentService : IPaymentService
             {
                 ["sessionId"] = session.Id.ToString(),
                 ["cafeId"] = session.CafeId.ToString(),
+                ["sepayAccountId"] = cafe.SePayAccountId.ToString(),
                 ["regenerated"] = "true"
             },
-            BankCode = cafe.SePayBankCode ?? throw new PaymentException($"Cafe '{cafe.Name}' chưa cấu hình SePayBankCode."),
-            AccountNumber = cafe.SePayAccountNumber ?? throw new PaymentException($"Cafe '{cafe.Name}' chưa cấu hình SePayAccountNumber."),
+            BankCode = bankCode,
+            AccountNumber = accountNumber,
             AccountName = cafe.Name
         };
 

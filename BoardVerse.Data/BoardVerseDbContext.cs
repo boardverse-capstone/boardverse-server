@@ -36,6 +36,7 @@ namespace BoardVerse.Data
         public DbSet<KarmaLog> KarmaLogs => Set<KarmaLog>();
         public DbSet<SystemConfiguration> SystemConfigurations => Set<SystemConfiguration>();
         public DbSet<PaymentMasterAccount> PaymentMasterAccounts => Set<PaymentMasterAccount>();
+        public DbSet<SePayAccount> SePayAccounts => Set<SePayAccount>();
         public DbSet<BookingDeposit> BookingDeposits => Set<BookingDeposit>();
         public DbSet<CafeSettlement> CafeSettlements => Set<CafeSettlement>();
         public DbSet<ComponentLossReport> ComponentLossReports => Set<ComponentLossReport>();

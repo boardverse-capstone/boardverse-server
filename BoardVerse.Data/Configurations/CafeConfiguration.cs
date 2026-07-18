@@ -91,10 +91,10 @@ namespace BoardVerse.Data.Configurations
                 .HasMaxLength(100);
 
             builder.Property(c => c.SePayApiKey)
-                .HasMaxLength(200);
+                .HasMaxLength(500);
 
             builder.Property(c => c.SePaySecretKey)
-                .HasMaxLength(200);
+                .HasMaxLength(500);
 
             builder.Property(c => c.SePayReturnUrl)
                 .HasMaxLength(500);
@@ -104,6 +104,10 @@ namespace BoardVerse.Data.Configurations
 
             builder.Property(c => c.SePayAccountNumber)
                 .HasMaxLength(50);
+
+            // FK to SePayAccount (optional, ưu tiên dùng SePayAccount)
+            builder.Property(c => c.SePayAccountId)
+                .IsRequired(false);
 
             builder.HasOne(c => c.Manager)
                 .WithMany()

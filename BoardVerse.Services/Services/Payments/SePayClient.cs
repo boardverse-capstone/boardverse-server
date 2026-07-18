@@ -2,17 +2,17 @@ using System.Security.Cryptography;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using BoardVerse.Core.Entities;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
-using BoardVerse.Core.Settings;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace BoardVerse.Services.Services.Payments;
 
 /// <summary>
-/// Chỉ dùng cho transfer (settlement) và webhook verification.
-/// Checkout đã chuyển hoàn toàn sang VietQR tĩnh.
+/// SePay client đọc credentials từ Database (SePayAccount Master).
+/// Không dùng appsettings.json cho credentials.
 /// </summary>
 public interface ISePayClient
 {
@@ -25,30 +25,46 @@ public interface ISePayClient
 
 public class SePayClient : ISePayClient
 {
-    private readonly SePaySettings _settings;
+    private readonly ISePayAccountRepository _sepayAccountRepository;
     private readonly HttpClient _httpClient;
     private readonly ILogger<SePayClient> _logger;
 
     public SePayClient(
+        ISePayAccountRepository sepayAccountRepository,
         HttpClient httpClient,
-        IOptions<SePaySettings> settings,
         ILogger<SePayClient> logger)
     {
+        _sepayAccountRepository = sepayAccountRepository;
         _httpClient = httpClient;
-        _settings = settings.Value;
         _logger = logger;
+    }
+
+    private async Task<SePayAccount> GetMasterAccountAsync()
+    {
+        var account = await _sepayAccountRepository.GetMasterAccountAsync();
+        if (account == null)
+        {
+            throw new PaymentException(ApiErrorMessages.Payment.SePayMasterAccountNotFound);
+        }
+        if (!account.IsActive)
+        {
+            throw new PaymentException("Master SePay account is not active.");
+        }
+        return account;
     }
 
     public async Task<SePayTransferResponse> CreateTransferAsync(CreateTransferRequest request, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(_settings.MerchantId))
+        var masterAccount = await GetMasterAccountAsync();
+
+        if (string.IsNullOrWhiteSpace(masterAccount.MerchantId))
         {
             throw new PaymentException(ApiErrorMessages.Payment.SePayMerchantIdMissing);
         }
 
         var payload = new
         {
-            merchant_id = _settings.MerchantId,
+            merchant_id = masterAccount.MerchantId,
             to_bank_account = request.ToBankAccount,
             to_account_number = request.ToAccountNumber,
             amount = request.Amount,
@@ -57,15 +73,17 @@ public class SePayClient : ISePayClient
             reference_id = request.ReferenceId
         };
 
-        var baseUrl = _settings.ApiBaseUrl.Trim().TrimEnd('/');
+        var baseUrl = (masterAccount.ApiBaseUrl ?? "https://pgapi.sepay.vn").Trim().TrimEnd('/');
         var uri = new Uri($"{baseUrl}/v1/transfer/init");
 
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, uri)
         {
             Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
         };
+
+        var secretKey = masterAccount.SecretKey ?? string.Empty;
         var basicAuth = Convert.ToBase64String(
-            Encoding.UTF8.GetBytes($"{_settings.MerchantId}:{_settings.SecretKey}"));
+            Encoding.UTF8.GetBytes($"{masterAccount.MerchantId}:{secretKey}"));
         httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Basic", basicAuth);
 
         var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
@@ -89,16 +107,18 @@ public class SePayClient : ISePayClient
         return transferResponse;
     }
 
-    public Task<bool> VerifyWebhookAsync(string signature, string payload)
+    public async Task<bool> VerifyWebhookAsync(string signature, string payload)
     {
-        if (string.IsNullOrWhiteSpace(_settings.WebhookToken))
+        var masterAccount = await GetMasterAccountAsync();
+
+        if (string.IsNullOrWhiteSpace(masterAccount.WebhookToken))
         {
             throw new PaymentException(ApiErrorMessages.Payment.SePayWebhookTokenMissing);
         }
 
         // VietQR tĩnh: webhook đến từ SePay khi có giao dịch vào tài khoản.
         // Signature là WebhookToken đã được Base64-encode bởi SePay.
-        var expected = Convert.ToBase64String(Encoding.UTF8.GetBytes(_settings.WebhookToken)).Trim();
+        var expected = Convert.ToBase64String(Encoding.UTF8.GetBytes(masterAccount.WebhookToken)).Trim();
         var normalizedSignature = signature?.Trim() ?? string.Empty;
 
         var isValid = string.Equals(expected, normalizedSignature, StringComparison.OrdinalIgnoreCase);
@@ -107,7 +127,7 @@ public class SePayClient : ISePayClient
             _logger.LogWarning("SePay webhook signature invalid.");
         }
 
-        return Task.FromResult(isValid);
+        return isValid;
     }
 }
 

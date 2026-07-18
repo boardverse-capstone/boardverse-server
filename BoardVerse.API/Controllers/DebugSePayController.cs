@@ -1,12 +1,11 @@
 using BoardVerse.API.Infrastructure;
 using BoardVerse.Core.Data;
 using BoardVerse.Core.Enum;
-using BoardVerse.Core.Settings;
+using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services.Payments;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace BoardVerse.API.Controllers;
 
@@ -18,18 +17,18 @@ namespace BoardVerse.API.Controllers;
 [Route("api/debug/sepay")]
 public class DebugSePayController : ControllerBase
 {
-    private readonly SePaySettings _sePaySettings;
+    private readonly ISePayAccountService _sepayAccountService;
     private readonly IVietQrClient _vietQrClient;
     private readonly IWebHostEnvironment _env;
     private readonly ILogger<DebugSePayController> _logger;
 
     public DebugSePayController(
-        IOptions<SePaySettings> sePaySettings,
+        ISePayAccountService sepayAccountService,
         IVietQrClient vietQrClient,
         IWebHostEnvironment env,
         ILogger<DebugSePayController> logger)
     {
-        _sePaySettings = sePaySettings.Value;
+        _sepayAccountService = sepayAccountService;
         _vietQrClient = vietQrClient;
         _env = env;
         _logger = logger;
@@ -40,19 +39,21 @@ public class DebugSePayController : ControllerBase
     /// Trả về JSON với QR image URL và thông tin thanh toán.
     /// </summary>
     [HttpGet("checkout")]
-    public IActionResult GetCheckout([FromQuery] string? orderId = null, [FromQuery] decimal? amount = null)
+    public async Task<IActionResult> GetCheckout([FromQuery] string? orderId = null, [FromQuery] decimal? amount = null)
     {
         if (!IsDebugEnabled()) return NotFound();
 
         var orderIdValue = orderId ?? $"TEST-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}";
         var amountValue = amount ?? 100m;
 
+        var masterAccount = await _sepayAccountService.GetMasterAccountAsync();
+
         var qrUrl = _vietQrClient.GenerateQrUrl(
-            _sePaySettings.BankCode,
-            _sePaySettings.AccountNumber,
+            masterAccount.BankCode ?? string.Empty,
+            masterAccount.MaskedAccountNumber ?? string.Empty,
             amountValue,
             description: $"BoardVerse debug test - {orderIdValue}",
-            accountHolder: _sePaySettings.AccountHolder);
+            accountHolder: masterAccount.AccountHolder);
 
         return Ok(new
         {
@@ -66,34 +67,35 @@ public class DebugSePayController : ControllerBase
             message = "Quét mã QR để thanh toán.",
             settings = new
             {
-                environment = _sePaySettings.Environment,
-                merchantId = _sePaySettings.MerchantId,
-                bankCode = _sePaySettings.BankCode,
-                accountNumber = _sePaySettings.AccountNumber,
-                accountHolder = _sePaySettings.AccountHolder,
-                webhookTokenSet = !string.IsNullOrWhiteSpace(_sePaySettings.WebhookToken)
+                environment = masterAccount.Environment,
+                merchantId = masterAccount.MerchantId,
+                bankCode = masterAccount.BankCode,
+                accountNumber = masterAccount.MaskedAccountNumber,
+                accountHolder = masterAccount.AccountHolder,
+                webhookTokenSet = !string.IsNullOrWhiteSpace(masterAccount.MaskedAccountNumber)
             }
         });
     }
 
     /// <summary>
-    /// Health check — kiểm tra config hiện tại.
+    /// Health check — kiểm tra config hiện tại từ DB.
     /// </summary>
     [HttpGet("health")]
-    public IActionResult GetHealth()
+    public async Task<IActionResult> GetHealth()
     {
         if (!IsDebugEnabled()) return NotFound();
 
+        var masterAccount = await _sepayAccountService.GetMasterAccountAsync();
+
         return Ok(new
         {
-            environment = _sePaySettings.Environment,
-            merchantId = _sePaySettings.MerchantId,
-            secretKeySet = !string.IsNullOrWhiteSpace(_sePaySettings.SecretKey),
-            webhookTokenSet = !string.IsNullOrWhiteSpace(_sePaySettings.WebhookToken),
-            apiBaseUrl = _sePaySettings.ApiBaseUrl,
-            bankCode = _sePaySettings.BankCode,
-            accountNumber = _sePaySettings.AccountNumber,
-            accountHolder = _sePaySettings.AccountHolder,
+            environment = masterAccount.Environment,
+            merchantId = masterAccount.MerchantId,
+            webhookTokenSet = !string.IsNullOrWhiteSpace(masterAccount.MaskedAccountNumber),
+            apiBaseUrl = masterAccount.ApiBaseUrl,
+            bankCode = masterAccount.BankCode,
+            accountNumber = masterAccount.MaskedAccountNumber,
+            accountHolder = masterAccount.AccountHolder,
             paymentMode = "VietQr_Static"
         });
     }
@@ -109,6 +111,7 @@ public class DebugSePayController : ControllerBase
 
         var scope = HttpContext.RequestServices.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<BoardVerse.Data.BoardVerseDbContext>();
+        var masterAccount = await _sepayAccountService.GetMasterAccountAsync();
 
         var cafe = await db.Cafes.FirstOrDefaultAsync(c => c.Id == DevSeedConstants.DemoCafeId);
         if (cafe == null)
@@ -150,11 +153,11 @@ public class DebugSePayController : ControllerBase
              NULL, NULL, {(int)BookingDepositStatus.Pending}, '{transferContent}', '{now:O}')");
 
         var qrUrl = _vietQrClient.GenerateQrUrl(
-            _sePaySettings.BankCode,
-            _sePaySettings.AccountNumber,
+            masterAccount.BankCode ?? string.Empty,
+            masterAccount.MaskedAccountNumber ?? string.Empty,
             depositAmount,
             description: transferContent,
-            accountHolder: _sePaySettings.AccountHolder);
+            accountHolder: masterAccount.AccountHolder);
 
         await db.Database.ExecuteSqlRawAsync($@"
             UPDATE ""BookingDeposits""
@@ -234,6 +237,7 @@ public class DebugSePayController : ControllerBase
 
         var scope = HttpContext.RequestServices.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<BoardVerse.Data.BoardVerseDbContext>();
+        var masterAccount = await _sepayAccountService.GetMasterAccountAsync();
 
         var cafe = await db.Cafes.FirstOrDefaultAsync(c => c.Id == DevSeedConstants.DemoCafeId);
         if (cafe == null)
@@ -273,17 +277,23 @@ public class DebugSePayController : ControllerBase
              NULL, NULL, {(int)BookingDepositStatus.Pending}, '{transferContent}', '{now:O}')");
 
         var qrUrl = _vietQrClient.GenerateQrUrl(
-            _sePaySettings.BankCode,
-            _sePaySettings.AccountNumber,
+            masterAccount.BankCode ?? string.Empty,
+            masterAccount.MaskedAccountNumber ?? string.Empty,
             depositAmount,
             description: transferContent,
-            accountHolder: _sePaySettings.AccountHolder);
+            accountHolder: masterAccount.AccountHolder);
 
         await db.Database.ExecuteSqlRawAsync($@"
             UPDATE ""BookingDeposits""
             SET ""QrUrl"" = '{qrUrl.Replace("'", "''")}',
                 ""QrExpiresAt"" = NULL::timestamp
             WHERE ""Id"" = '{depositId}'");
+
+        var bankCode = masterAccount.BankCode ?? string.Empty;
+        var accountNumber = masterAccount.MaskedAccountNumber ?? string.Empty;
+        var maskedAccount = accountNumber.Length > 4
+            ? new string('*', accountNumber.Length - 4) + accountNumber[^4..]
+            : accountNumber;
 
         var html = $@"<!DOCTYPE html>
 <html lang=""vi"">
@@ -357,7 +367,7 @@ public class DebugSePayController : ControllerBase
     <p style=""text-align:center; color:#64748b; font-size:13px;"">
       Nội dung: <strong style=""color:#f1f5f9;"">{transferContent}</strong><br>
       Số tiền: <strong style=""color:#f1f5f9;"">{depositAmount:N0} ₫</strong><br>
-      Ngân hàng: <strong style=""color:#f1f5f9;"">{_sePaySettings.BankCode}</strong> - {(_sePaySettings.AccountNumber).Substring(0, 3)}****{(_sePaySettings.AccountNumber).Substring((_sePaySettings.AccountNumber).Length - 4)}
+      Ngân hàng: <strong style=""color:#f1f5f9;"">{bankCode}</strong> - {maskedAccount}
     </p>
   </div>
 

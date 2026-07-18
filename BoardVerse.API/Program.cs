@@ -68,6 +68,8 @@ if (!string.IsNullOrWhiteSpace(envDatabaseUrl))
 builder.Services.AddDbContext<BoardVerseDbContext>(options =>
     BoardVerseDbContextOptions.UseBoardVersePostgreSql(options, resolvedConnectionString));
 
+builder.Services.AddHttpContextAccessor();
+
 // Add Authentication
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var securityKey = jwtSettings["SecurityKey"] ?? throw new InvalidOperationException("JwtSettings:SecurityKey not configured");
@@ -104,7 +106,7 @@ builder.Services.AddBoardVerseRedis(builder.Configuration);
 
 builder.Services.AddBoardVerseEmail(builder.Configuration);
 builder.Services.AddBoardVerseBgg(builder.Configuration);
-builder.Services.AddBoardVersePayment(builder.Configuration);
+builder.Services.AddBoardVersePayment();
 builder.Services.AddScoped<IAuthRepository, AuthRepository>();
 builder.Services.AddScoped<IUserProfileRepository, UserProfileRepository>();
 builder.Services.AddScoped<IUserManagementRepository, UserManagementRepository>();
@@ -147,6 +149,8 @@ builder.Services.AddScoped<ISystemConfigurationProvider>(sp => sp.GetRequiredSer
 builder.Services.AddScoped<IAdminSystemConfigurationService>(sp => sp.GetRequiredService<SystemConfigurationService>());
 builder.Services.AddScoped<IKarmaConfigurationService, KarmaConfigurationService>();
 builder.Services.AddScoped<ICafePartnerApplicationService, CafePartnerApplicationService>();
+builder.Services.AddScoped<ISePayAccountRepository, SePayAccountRepository>();
+builder.Services.AddScoped<ISePayAccountService, SePayAccountService>();
 
 // Background Jobs for Lobby expiration — skip in Testing env (KarmaWindowJob interferes with integration tests)
 if (!builder.Environment.IsEnvironment("Testing"))
@@ -286,6 +290,8 @@ using (var scope = app.Services.CreateScope())
     var inventoryRepo = scope.ServiceProvider.GetRequiredService<ICafeInventoryRepository>();
     await inventoryRepo.BackfillMissingInventoryBoxesAsync();
     app.Logger.LogInformation("Inventory box backfill completed.");
+
+    // SePay Master Account cần được tạo thủ công qua Admin API: POST /api/sepay-accounts
 
     // PaymentTestSeed disabled - tests use their own bootstrapper with unique data
     // await PaymentTestSeed.SeedAsync(app.Services);

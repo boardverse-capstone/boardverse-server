@@ -9,7 +9,7 @@ public interface IBookingDepositService
     /// Tạo đơn cọc mới với validation BR-02, BR-03.
     /// </summary>
     Task<BookingDeposit> CreateAsync(
-        Guid activeSessionId,
+        Guid userId,
         Guid cafeId,
         Guid cafeManagerId,
         decimal amount,

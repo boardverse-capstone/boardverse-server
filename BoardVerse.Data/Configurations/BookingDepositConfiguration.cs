@@ -15,6 +15,7 @@ public class BookingDepositConfiguration : IEntityTypeConfiguration<BookingDepos
         builder.Property(d => d.Id).ValueGeneratedNever();
         builder.Property(d => d.OrderId).IsRequired().HasMaxLength(50);
         builder.Property(d => d.ActiveSessionId);
+        builder.Property(d => d.UserId).IsRequired();
         builder.Property(d => d.CafeId).IsRequired();
         builder.Property(d => d.CafeManagerId).IsRequired();
         builder.Property(d => d.Amount).IsRequired();
@@ -38,6 +39,11 @@ public class BookingDepositConfiguration : IEntityTypeConfiguration<BookingDepos
             .HasForeignKey(d => d.CafeId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        builder.HasOne(d => d.User)
+            .WithMany()
+            .HasForeignKey(d => d.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
         builder.HasOne(d => d.ActiveSession)
             .WithMany()
             .HasForeignKey(d => d.ActiveSessionId)
@@ -47,5 +53,6 @@ public class BookingDepositConfiguration : IEntityTypeConfiguration<BookingDepos
         builder.HasIndex(d => d.ActiveSessionId).HasFilter("\"ActiveSessionId\" IS NOT NULL");
         builder.HasIndex(d => new { d.CafeId, d.Status });
         builder.HasIndex(d => d.SePayTransactionId).HasFilter("\"SePayTransactionId\" IS NOT NULL");
+        builder.HasIndex(d => d.UserId);
     }
 }

@@ -17,6 +17,10 @@ public static class IntegrationTestFixtures
     public static Guid DemoPosTableId { get; internal set; }
     public static Guid DemoCatanInventoryId { get; internal set; }
     public static Guid DemoBookingDepositId { get; internal set; }
+
+    /// <summary>Alias for DemoPlayer1UserId — used as the default demo user for booking deposits.</summary>
+    public static Guid DemoUserId => DemoPlayer1UserId;
+
     public static string CatanBarcode { get; internal set; } = string.Empty;
     public static string PosBoxBarcode { get; internal set; } = string.Empty;
 

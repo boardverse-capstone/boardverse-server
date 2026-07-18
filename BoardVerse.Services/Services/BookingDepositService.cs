@@ -25,7 +25,7 @@ public class BookingDepositService : IBookingDepositService
     }
 
     public async Task<BookingDeposit> CreateAsync(
-        Guid activeSessionId,
+        Guid userId,
         Guid cafeId,
         Guid cafeManagerId,
         decimal amount,
@@ -50,7 +50,7 @@ public class BookingDepositService : IBookingDepositService
         var deposit = new BookingDeposit
         {
             Id = Guid.NewGuid(),
-            ActiveSessionId = activeSessionId,
+            UserId = userId,
             CafeId = cafeId,
             CafeManagerId = cafeManagerId,
             Amount = amount,

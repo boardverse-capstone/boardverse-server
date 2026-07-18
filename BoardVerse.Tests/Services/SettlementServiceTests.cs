@@ -181,6 +181,7 @@ public class SettlementServiceTests
         {
             Id = depositId,
             ActiveSessionId = sessionId,
+            UserId = Guid.NewGuid(),
             Amount = 50_000m,
             Status = BookingDepositStatus.Pending
         };
@@ -220,6 +221,7 @@ public class SettlementServiceTests
         {
             Id = depositId,
             ActiveSessionId = sessionId,
+            UserId = Guid.NewGuid(),
             Amount = 50_000m,
             Status = BookingDepositStatus.Paid
         };
@@ -275,6 +277,7 @@ public class SettlementServiceTests
         {
             Id = depositId,
             ActiveSessionId = sessionId,
+            UserId = Guid.NewGuid(),
             Amount = 50_000m,
             Status = BookingDepositStatus.Paid
         };

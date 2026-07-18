@@ -3,12 +3,10 @@ using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
-using BoardVerse.Core.Settings;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
 using BoardVerse.Services.Services.Payments;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Moq;
 
 namespace BoardVerse.Tests.Services;
@@ -22,8 +20,8 @@ public class PaymentServiceTests
     private readonly Mock<IActiveSessionRepository> _mockSessionRepo;
     private readonly Mock<IPaymentGatewayService> _mockGateway;
     private readonly Mock<ISePayClient> _mockSePayClient;
+    private readonly Mock<ISePayAccountService> _mockSePayAccountService;
     private readonly Mock<ILogger<PaymentService>> _mockLogger;
-    private readonly IOptions<SePaySettings> _sePaySettings;
     private readonly PaymentService _service;
 
     public PaymentServiceTests()
@@ -36,14 +34,20 @@ public class PaymentServiceTests
         _mockSessionRepo.Setup(r => r.GetAllUnpaidAsync()).ReturnsAsync(new List<ActiveSession>());
         _mockGateway = new Mock<IPaymentGatewayService>();
         _mockSePayClient = new Mock<ISePayClient>();
+        _mockSePayAccountService = new Mock<ISePayAccountService>();
         _mockLogger = new Mock<ILogger<PaymentService>>();
 
-        _sePaySettings = Options.Create(new SePaySettings
-        {
-            BankCode = "MBBank",
-            AccountNumber = "0855199924",
-            AccountHolder = "TEST HOLDER"
-        });
+        // Setup mock Master Account từ DB
+        _mockSePayAccountService.Setup(s => s.GetMasterAccountAsync())
+            .ReturnsAsync(new SePayAccountDto
+            {
+                Id = Guid.NewGuid(),
+                AccountType = SePayAccountType.Master,
+                BankCode = "MBBank",
+                MaskedAccountNumber = "0855199924",
+                AccountHolder = "TEST HOLDER",
+                IsActive = true
+            });
 
         _service = new PaymentService(
             _mockDepositService.Object,
@@ -53,7 +57,7 @@ public class PaymentServiceTests
             _mockSessionRepo.Object,
             _mockGateway.Object,
             _mockSePayClient.Object,
-            _sePaySettings,
+            _mockSePayAccountService.Object,
             _mockLogger.Object);
     }
 
@@ -445,6 +449,7 @@ public class PaymentServiceTests
             Id = id ?? Guid.NewGuid(),
             OrderId = $"BV{DateTime.UtcNow.Ticks % 100_000_000:D8}",
             ActiveSessionId = Guid.NewGuid(),
+            UserId = Guid.NewGuid(),
             CafeId = cafeId ?? Guid.NewGuid(),
             CafeManagerId = Guid.NewGuid(),
             MasterAccountId = Guid.NewGuid(),

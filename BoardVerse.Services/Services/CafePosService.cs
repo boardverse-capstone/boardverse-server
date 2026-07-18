@@ -280,7 +280,7 @@ namespace BoardVerse.Services.Services
             var now = DateTime.UtcNow;
             var gameTemplateId = box.CafeGameInventory.GameTemplateId;
 
-            // Tạo session - BookingDeposit link sẽ set sau khi session được tạo
+            // Tạo session - sử dụng UserId từ BookingDeposit làm HostId
             var session = new ActiveSession
             {
                 Id = Guid.NewGuid(),
@@ -288,7 +288,7 @@ namespace BoardVerse.Services.Services
                 CafeTableId = table.Id,
                 CafeInventoryBoxId = box.Id,
                 GameTemplateId = gameTemplateId,
-                HostId = deposit.CafeManagerId, // Host = người đã đặt chỗ (đã cọc)
+                HostId = deposit.UserId, // ✅ Đúng: UserId của người đặt chỗ (Host)
                 LobbyId = null, // Có thể liên kết Lobby nếu có
                 Status = GroupSessionStatus.Active,
                 StartedAt = now,
@@ -300,7 +300,7 @@ namespace BoardVerse.Services.Services
             {
                 Id = Guid.NewGuid(),
                 ActiveSessionId = session.Id,
-                UserId = deposit.CafeManagerId,
+                UserId = deposit.UserId, // ✅ Đúng: Host là người đặt chỗ
                 JoinedAt = now,
                 Status = IndividualSessionStatus.Playing
             };

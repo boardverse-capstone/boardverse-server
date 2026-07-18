@@ -13,6 +13,8 @@ public class BookingDeposit
     public string OrderId { get; set; } = string.Empty;
     /// <summary>ActiveSession liên kết. Nullable vì deposit tạo TRƯỚC khi check-in.</summary>
     public Guid? ActiveSessionId { get; set; }
+    /// <summary>UserId của người đặt chỗ (Host). Dùng làm HostId khi check-in tạo ActiveSession.</summary>
+    public Guid UserId { get; set; }
     public Guid CafeId { get; set; }
     public Guid CafeManagerId { get; set; }
     public Guid? MasterAccountId { get; set; }
@@ -35,5 +37,6 @@ public class BookingDeposit
 
     public virtual PaymentMasterAccount? MasterAccount { get; set; }
     public virtual Cafe Cafe { get; set; } = null!;
+    public virtual User User { get; set; } = null!;
     public virtual ActiveSession? ActiveSession { get; set; }
 }

@@ -38,7 +38,7 @@ public class BookingDepositServiceTests
 
         var ex = await Assert.ThrowsAsync<NotFoundException>(
             () => _service.CreateAsync(
-                activeSessionId: Guid.NewGuid(),
+                userId: Guid.NewGuid(),
                 cafeId: cafeId,
                 cafeManagerId: Guid.NewGuid(),
                 amount: 50_000m,
@@ -57,7 +57,7 @@ public class BookingDepositServiceTests
 
         var ex = await Assert.ThrowsAsync<BadRequestException>(
             () => _service.CreateAsync(
-                activeSessionId: Guid.NewGuid(),
+                userId: Guid.NewGuid(),
                 cafeId: cafeId,
                 cafeManagerId: Guid.NewGuid(),
                 amount: 75_000m, // exceeds 50,000đ cap
@@ -77,7 +77,7 @@ public class BookingDepositServiceTests
 
         var exZero = await Assert.ThrowsAsync<BadRequestException>(
             () => _service.CreateAsync(
-                activeSessionId: Guid.NewGuid(),
+                userId: Guid.NewGuid(),
                 cafeId: cafeId,
                 cafeManagerId: Guid.NewGuid(),
                 amount: 0m,
@@ -98,7 +98,7 @@ public class BookingDepositServiceTests
         _mockDepositRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
 
         var result = await _service.CreateAsync(
-            activeSessionId: Guid.NewGuid(),
+            userId: Guid.NewGuid(),
             cafeId: cafeId,
             cafeManagerId: Guid.NewGuid(),
             amount: 50_000m, // exactly 50%
@@ -124,14 +124,13 @@ public class BookingDepositServiceTests
         _mockDepositRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
 
         var result = await _service.CreateAsync(
-            activeSessionId: activeSessionId,
+            userId: Guid.NewGuid(),
             cafeId: cafeId,
             cafeManagerId: cafeManagerId,
             amount: amount,
             refundPolicy: DepositRefundPolicy.Full,
             scheduledAt: scheduledAt);
 
-        Assert.Equal(activeSessionId, result.ActiveSessionId);
         Assert.Equal(cafeId, result.CafeId);
         Assert.Equal(cafeManagerId, result.CafeManagerId);
         Assert.Equal(amount, result.Amount);
@@ -419,6 +418,7 @@ public class BookingDepositServiceTests
             Id = id ?? Guid.NewGuid(),
             OrderId = $"BV{DateTime.UtcNow.Ticks % 100_000_000:D8}",
             ActiveSessionId = Guid.NewGuid(),
+            UserId = Guid.NewGuid(),
             CafeId = cafeId ?? Guid.NewGuid(),
             CafeManagerId = Guid.NewGuid(),
             MasterAccountId = Guid.NewGuid(),

@@ -92,6 +92,11 @@ namespace BoardVerse.Core.Entities
         /// <summary>Số tài khoản ngân hàng cho VietQR fallback.</summary>
         public string? SePayAccountNumber { get; set; }
 
+        /// <summary>
+        /// FK đến SePayAccount. Ưu tiên dùng SePayAccount, fallback về local fields.
+        /// </summary>
+        public Guid? SePayAccountId { get; set; }
+
         // === Audit ===
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? UpdatedAt { get; set; }
@@ -100,6 +105,7 @@ namespace BoardVerse.Core.Entities
         // === Navigation ===
         public virtual User Manager { get; set; } = null!;
         public virtual CafePartnerApplication? PartnerApplication { get; set; }
+        public virtual SePayAccount? SePayAccount { get; set; }
         public virtual ICollection<CafeStaff> StaffMembers { get; set; } = new List<CafeStaff>();
         public virtual ICollection<CafeTable> Tables { get; set; } = new List<CafeTable>();
         public virtual ICollection<CafeGameInventory> Inventories { get; set; } = new List<CafeGameInventory>();

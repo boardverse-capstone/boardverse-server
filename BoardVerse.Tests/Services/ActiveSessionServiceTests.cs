@@ -965,6 +965,7 @@ public class ActiveSessionServiceTests
         {
             Id = depositId,
             ActiveSessionId = sessionId,
+            UserId = Guid.NewGuid(),
             Amount = 50_000m,
             Status = BookingDepositStatus.Paid
         };
