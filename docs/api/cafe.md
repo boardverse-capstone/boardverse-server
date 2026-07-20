@@ -13,6 +13,7 @@
 | `/{cafeId}/staff/promote` | POST | Manager (chủ quán) |
 | `/{cafeId}/staff` | GET | Manager (chủ quán) |
 | `/{cafeId}/staff/{staffId}` | DELETE | Manager (chủ quán) |
+| `/{id}/sepay-config` | PUT | Manager (chủ quán) |
 
 > Lấy `cafeId` qua [GET /api/manager/my-cafes](./manager.md) thay vì hardcode.
 
@@ -233,3 +234,34 @@ Danh sách staff (`GET .../staff`) chỉ gồm user có `isActive = true`.
 **Query:** `pageNumber`, `pageSize` (thống nhất với inventory — không dùng `page`).
 
 **Response:** `userId`, `email`, `username`, `joinedAt`.
+
+---
+
+## PUT /api/cafes/{id}/sepay-config
+
+Cập nhật cấu hình SePay cho quán — dùng cho session payment (POS). Endpoint rút gọn so với `SePayAccountController.my-cafe`, manager không cần biết `accountId`, chỉ cần `cafeId`.
+
+**Body** (`UpdateSePayConfigRequestDto`):
+```json
+{
+  "merchantId": "...",
+  "secretKey": "...",
+  "bankCode": "VCB",
+  "accountNumber": "...",
+  "environment": "Test"
+}
+```
+
+| Field | Ràng buộc |
+|-------|-----------|
+| `merchantId` | Bắt buộc |
+| `secretKey` | Bắt buộc |
+| `bankCode` | Mã ngân hàng |
+| `accountNumber` | Số tài khoản nhận tiền |
+| `environment` | `Test` / `Production` |
+
+**Response 200:** message "SePay config updated successfully".
+
+**Lỗi:** `400` dữ liệu không hợp lệ; `403` không phải manager của cafe; `404` không tìm thấy cafe.
+
+> **Liên quan:** [sepay-account.md](./sepay-account.md), [sepay-webhook.md](./sepay-webhook.md).

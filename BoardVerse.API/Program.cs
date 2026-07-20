@@ -151,6 +151,8 @@ builder.Services.AddScoped<IKarmaConfigurationService, KarmaConfigurationService
 builder.Services.AddScoped<ICafePartnerApplicationService, CafePartnerApplicationService>();
 builder.Services.AddScoped<ISePayAccountRepository, SePayAccountRepository>();
 builder.Services.AddScoped<ISePayAccountService, SePayAccountService>();
+builder.Services.AddScoped<ITournamentRepository, TournamentRepository>();
+builder.Services.AddScoped<ITournamentService, TournamentService>();
 
 // Background Jobs for Lobby expiration — skip in Testing env (KarmaWindowJob interferes with integration tests)
 if (!builder.Environment.IsEnvironment("Testing"))
@@ -159,6 +161,9 @@ if (!builder.Environment.IsEnvironment("Testing"))
     builder.Services.AddHostedService<KarmaWindowJob>();
     builder.Services.AddHostedService<BookingDepositExpiryJob>();
     builder.Services.AddHostedService<SettlementRetryJob>();
+    builder.Services.AddHostedService<TournamentExpiryJob>();
+    builder.Services.AddHostedService<TournamentReminderJob>();
+    builder.Services.AddHostedService<TournamentNoShowDetectionJob>();
 }
 
 // SignalR Hubs for real-time updates

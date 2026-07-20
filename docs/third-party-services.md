@@ -111,11 +111,28 @@ Chi tiết: [docs/api/auth.md](./api/auth.md), [docs/api/cafe-partner.md](./api/
 
 Chi tiết: [docs/api/bgg.md](./api/bgg.md)
 
+### 4.3 SePay (Payment gateway)
+
+- **Mục đích:** Cổng thanh toán QR cho booking deposit + session payment
+- **Config:** `SePay:MerchantId`, `SecretKey`, `ApiBaseUrl`, `Environment` (`Test` / `Production`)
+- **Code:** `ISePayClient` → `SePayClient`, `IPaymentService`, `IPaymentGatewayService`
+- **Endpoints:**
+  - Checkout (cafe): `POST https://pgapi.sepay.vn/v1/checkout/init`
+  - Checkout (boardverse central): `GET https://pay.sepay.vn/v1/checkout/init?…`
+  - Webhook receive: `POST /api/payments/sepay/webhook`
+- **Bắt buộc:** Có (production); dev có thể dùng VietQR fallback
+- **Luồng thanh toán:**
+  - Deposit payment → BoardVerse master merchant (gom tiền cọc)
+  - Session payment → Cafe SePay merchant (POS tại quán)
+- **Security:** HMAC-SHA256 signature với cùng field order cho checkout + webhook
+
+Chi tiết: [docs/api/sepay-webhook.md](./api/sepay-webhook.md), [docs/api/sepay-account.md](./api/sepay-account.md), [.cursor/rules/sepay-payment-flow.mdc](../.cursor/rules/sepay-payment-flow.mdc)
+
 ---
 
 ## 5. Không sử dụng
 
-- Payment: Stripe, PayPal, VNPay, MoMo
+- Payment: Stripe, PayPal, VNPay, MoMo (chỉ dùng SePay + VietQR fallback)
 - SMS / OTP: Twilio
 - Push notification: Firebase FCM, OneSignal
 - File upload / CDN: AWS S3, Cloudinary, Imgur
@@ -128,6 +145,7 @@ Chi tiết: [docs/api/bgg.md](./api/bgg.md)
 - `https://oauth2.googleapis.com` — Google token validation
 - `https://api.brevo.com` — Brevo email
 - `https://boardgamegeek.com/xmlapi2` — BGG game catalog
+- `https://pgapi.sepay.vn` / `https://pay.sepay.vn` — SePay payment gateway
 - `*.aws.neon.tech` — Neon PostgreSQL
 - `<REDIS_URL host>` — Redis (tùy chọn, production)
 
@@ -163,6 +181,12 @@ Chi tiết: [docs/api/bgg.md](./api/bgg.md)
 
 - **Dịch vụ:** BoardGameGeek API
 
+### `SePay__MerchantId` / `SePay__SecretKey` / `SePay__ApiBaseUrl` / `SePay__Environment`
+
+- **Dịch vụ:** SePay payment gateway
+- **Environment:** `Test` (sandbox) / `Production`
+- **Lưu ý:** Config từ DB (`SePayAccount`) sẽ override config từ appsettings ở runtime
+
 ---
 
 ## 8. Ghi chú triển khai
@@ -186,4 +210,4 @@ Chi tiết: [docs/api/bgg.md](./api/bgg.md)
 - **Authentication:** Google OAuth, JWT (nội bộ), BCrypt
 - **Storage:** Neon PostgreSQL + PostGIS, Redis (optional), không file storage bên thứ 3
 - **AI APIs:** Không
-- **Khác:** Brevo (email), BoardGameGeek API (game catalog)
+- **Khác:** Brevo (email), BoardGameGeek API (game catalog), SePay (payment gateway)

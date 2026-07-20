@@ -18,6 +18,8 @@ Quản lý **master catalog**: thể loại (`Categories`), linh kiện và gán
 | `/master-games/{gameTemplateId}/components/{componentId}` | DELETE | Xóa linh kiện |
 | `/master-games/{gameTemplateId}/categories` | GET | Thể loại đang gán |
 | `/master-games/{gameTemplateId}/categories` | PUT | Gán lại toàn bộ thể loại |
+| `/master-games/{gameTemplateId}` | PUT | Cập nhật metadata master game |
+| `/master-games/{gameTemplateId}/thumbnail` | PATCH | Cập nhật thumbnail |
 
 Import game từ BGG (kèm auto-map categories): [BGG API](./bgg.md).
 
@@ -130,3 +132,55 @@ Danh sách thể loại đang gán cho game.
 ```
 
 Chỉ chấp nhận category **active**. **Lỗi `400`** nếu id không tồn tại hoặc inactive.
+
+---
+
+## PUT /api/v1/admin/master-games/{gameTemplateId}
+
+Cập nhật metadata của master game (tên, mô tả, min/max players, play time, designer, …).
+
+**Body (partial):**
+```json
+{
+  "name": "Catan (Updated)",
+  "description": "...",
+  "minPlayers": 3,
+  "maxPlayers": 4,
+  "playTimeMinutes": 90,
+  "designer": "Klaus Teuber",
+  "yearPublished": 1995
+}
+```
+
+| Field | Ràng buộc |
+|-------|-----------|
+| `name` | Optional, 2-200 ký tự |
+| `minPlayers` | ≥ 1 |
+| `maxPlayers` | ≥ `minPlayers` |
+| `playTimeMinutes` | > 0 |
+| `designer` | Optional |
+| `yearPublished` | Optional, 1900-2100 |
+
+**Response codes:**
+- `200` — Cập nhật thành công
+- `400` — Dữ liệu không hợp lệ (vd: `maxPlayers < minPlayers`)
+- `404` — Không tìm thấy game
+- `409` — Tên trùng với game khác
+
+---
+
+## PATCH /api/v1/admin/master-games/{gameTemplateId}/thumbnail
+
+Cập nhật riêng thumbnail URL của game (tách thành endpoint riêng vì file ảnh lớn + thường xuyên đổi).
+
+**Body:**
+```json
+{ "thumbnailUrl": "https://cdn.boardverse.vn/games/catan.jpg" }
+```
+
+**Response codes:**
+- `200` — Cập nhật thành công
+- `400` — URL không hợp lệ
+- `404` — Không tìm thấy game
+
+> **Lưu ý:** Backend không upload file — chỉ lưu URL do client cung cấp. Xem [third-party-services.md](../third-party-services.md) — không có CDN/file storage tích hợp.

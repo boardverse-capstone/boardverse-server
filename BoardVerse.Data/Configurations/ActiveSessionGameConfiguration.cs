@@ -24,6 +24,7 @@ namespace BoardVerse.Data.Configurations
                 .IsRequired();
             builder.Property(g => g.TotalPenaltyAmount)
                 .HasPrecision(18, 2);
+            builder.Property(g => g.CheckedByStaffId);
 
             builder.HasOne(g => g.ActiveSession)
                 .WithMany(s => s.Games)
@@ -39,6 +40,11 @@ namespace BoardVerse.Data.Configurations
                 .WithMany()
                 .HasForeignKey(g => g.GameTemplateId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            builder.HasOne(g => g.CheckedByStaff)
+                .WithMany()
+                .HasForeignKey(g => g.CheckedByStaffId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             builder.HasIndex(g => g.ActiveSessionId);
             builder.HasIndex(g => g.CafeInventoryBoxId);

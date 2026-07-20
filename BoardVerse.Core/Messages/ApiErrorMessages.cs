@@ -757,6 +757,9 @@ namespace BoardVerse.Core.Messages
 
             public const string ChangePasswordInvalidUserId =
                 "Không thể đổi mật khẩu. Access token thiếu mã định danh người dùng hợp lệ.";
+
+            public static string InvalidQueryParameter(string name, string allowedValues)
+                => $"Giá trị tham số '{name}' không hợp lệ. Cho phép: {allowedValues}.";
         }
 
         public static class Validation
@@ -868,6 +871,219 @@ namespace BoardVerse.Core.Messages
             public const string TieredBlockMinutesRange = "Thời gian block tính tiền phải từ 1 đến 1440 phút.";
             public const string TieredBlockRateRequired = "Với mô hình TIME_BASED, giá block lũy tiến là bắt buộc.";
             public const string DepositPercentageRange = "Phần trăm cọc không được vượt quá 50%.";
+        }
+
+        public static class Tournament
+        {
+            public static string NotFound(Guid tournamentId) =>
+                $"Không tìm thấy giải đấu '{tournamentId}'.";
+
+            public static string NotFoundForManager(Guid tournamentId, Guid cafeId) =>
+                $"Không tìm thấy giải đấu '{tournamentId}' thuộc quán '{cafeId}'.";
+
+            public static string ManagerForbidden(Guid cafeId) =>
+                $"Bạn không phải quản lý của quán '{cafeId}' nên không thể thao tác tournament.";
+
+            public const string SplendorGameNotFound =
+                "Không tìm thấy game Splendor trong hệ thống. Hãy import Splendor trước khi tạo tournament.";
+
+            public const string SplendorRequired =
+                "Hiện tại hệ thống chỉ hỗ trợ tournament cho game Splendor. GameTemplateId phải là Splendor.";
+
+            public const string TitleRequired =
+                "Tên giải đấu là bắt buộc và phải từ 5 đến 200 ký tự.";
+
+            public const string StartTimeRequired =
+                "Thời gian bắt đầu giải đấu là bắt buộc.";
+
+            public const string StartTimeMustBeFuture =
+                "Thời gian bắt đầu giải đấu phải ở tương lai.";
+
+            public const string RegistrationDeadlineAfterStartTime =
+                "Hạn chót đăng ký phải trước thời gian bắt đầu giải.";
+
+            public const string RegistrationDeadlinePassed =
+                "Đã quá hạn đăng ký giải đấu.";
+
+            public const string OnlyOnGoingCompletable =
+                "Chỉ có thể hoàn thành giải đang diễn ra.";
+
+            public const string FinalMatchNotCompleted =
+                "Bàn chung kết chưa hoàn thành. Hãy ghi nhận kết quả Final trước.";
+
+            public static string ParticipantNotRegistered(Guid tournamentId) =>
+                $"Bạn chưa đăng ký giải đấu '{tournamentId}'.";
+
+            public const string ParticipantNotFound =
+                "Không tìm thấy người chơi.";
+
+            public const string ParticipantNotInTournament =
+                "Người chơi không thuộc giải đấu này.";
+
+            public const string WalkInDisplayNameRequired =
+                "Vui lòng nhập tên hiển thị cho khách vãng lai.";
+
+            public const string GameTemplateIdRequired =
+                "gameTemplateId là bắt buộc.";
+
+            public const string MatchAlreadyStartedOrFinished =
+                "Bàn đấu đã bắt đầu hoặc đã kết thúc.";
+
+            public const string CancelMatchReasonRequired =
+                "Vui lòng nhập lý do hủy ván đấu.";
+
+            public const string CorrectionReasonRequired =
+                "Vui lòng nhập lý do sửa kết quả (audit trail).";
+
+            public static string MatchNotFoundById =>
+                "Không tìm thấy ván đấu.";
+
+            public const string MatchNumbersMustBeUnique =
+                "MatchNumber không được trùng giữa các bàn.";
+
+            public const string PlayerCannotAppearInMultipleTables =
+                "Cùng 1 người chơi không thể xuất hiện ở 2 bàn khác nhau.";
+
+            public const string MatchIdBodyMismatch =
+                "MatchId trong body phải trùng với URL.";
+
+            public const string MaxParticipantsMustBeMultipleOf4 =
+                "Số người tối đa phải là bội số của 4 (4, 8, 12, 16, 20, 24, 28, 32) để chia đều các bàn.";
+
+            public static string OnlyDraftEditable(Guid tournamentId) =>
+                $"Chỉ có thể chỉnh sửa giải đấu '{tournamentId}' khi đang ở trạng thái Draft.";
+
+            public static string CannotOpenRegistration(Guid tournamentId) =>
+                $"Không thể mở đăng ký cho giải '{tournamentId}' vì không ở trạng thái Draft hoặc đã quá hạn.";
+
+            public static string RegistrationNotOpen(Guid tournamentId) =>
+                $"Giải đấu '{tournamentId}' chưa mở đăng ký hoặc đã đóng.";
+
+            public static string AlreadyRegistered(Guid tournamentId) =>
+                $"Bạn đã đăng ký giải đấu '{tournamentId}' rồi.";
+
+            public static string TournamentFull(Guid tournamentId) =>
+                $"Giải đấu '{tournamentId}' đã đủ người tối đa.";
+
+            public static string KarmaRequirementNotMet(int required, int current) =>
+                $"Bạn cần đạt tối thiểu {required} điểm Karma để đăng ký. Hiện tại của bạn là {current}.";
+
+            public static string CannotStartNotEnoughParticipants(int required, int current) =>
+                $"Không thể bắt đầu giải: cần tối thiểu {required} người đã check-in, hiện tại mới có {current}.";
+
+            public static string CannotStartRegistrationOpen(Guid tournamentId) =>
+                $"Giải '{tournamentId}' chưa đóng đăng ký. Hãy đóng đăng ký trước khi bắt đầu.";
+
+            public static string NotCheckInStatus(Guid tournamentId) =>
+                $"Bạn chưa check-in tại giải '{tournamentId}'.";
+
+            public const string AlreadyCheckedIn =
+                "Bạn đã check-in giải đấu này rồi.";
+
+            public const string NotCheckedIn =
+                "Người chơi chưa check-in tại quán.";
+
+            public static string PlayerNotInMatch(Guid matchId, Guid userId) =>
+                $"Người chơi '{userId}' không tham gia bàn đấu '{matchId}'.";
+
+            public static string WinnerMustBePlayer(Guid matchId) =>
+                $"Người thắng phải là 1 trong 4 người chơi của bàn đấu '{matchId}'.";
+
+            public static string MatchNotFound(Guid matchId) =>
+                $"Không tìm thấy bàn đấu '{matchId}'.";
+
+            public static string MatchNotOnGoing(Guid matchId) =>
+                $"Bàn đấu '{matchId}' không ở trạng thái đang diễn ra.";
+
+            public static string AlreadyWithdrawn(Guid tournamentId) =>
+                $"Bạn đã rút lui khỏi giải '{tournamentId}' rồi.";
+
+            public static string CannotCancelNotDraft(Guid tournamentId) =>
+                $"Chỉ có thể hủy giải đấu '{tournamentId}' khi chưa bắt đầu.";
+
+            public static string CannotCancelCompleted(Guid tournamentId) =>
+                $"Giải đấu '{tournamentId}' đã hoàn thành và không thể hủy.";
+
+            public static string AlreadyCancelled(Guid tournamentId) =>
+                $"Giải đấu '{tournamentId}' đã được hủy trước đó.";
+
+            public static string AlreadyCompleted(Guid tournamentId) =>
+                $"Giải đấu '{tournamentId}' đã được hoàn thành trước đó.";
+
+            public static string CancellationReasonRequired =>
+                "Lý do hủy là bắt buộc khi hủy giải đấu đã có người đăng ký.";
+
+            public static string CannotReopenRegistration(Guid tournamentId) =>
+                $"Không thể mở lại đăng ký: giải đấu phải ở trạng thái RegistrationClosed.";
+
+            public static string CannotRecordNoScores(Guid matchId) =>
+                $"Không thể ghi nhận kết quả cho bàn '{matchId}' nếu chưa nhập điểm các người chơi.";
+
+            public static string InvalidAutoShortenMode(string mode) =>
+                $"AutoShortenMode '{mode}' không hợp lệ. Chỉ chấp nhận 'Auto' hoặc 'Manual'.";
+
+            public static string InvalidReducedRounds(int rounds) =>
+                $"ReducedRounds '{rounds}' không hợp lệ. Phải nằm trong khoảng 1-5.";
+
+            public static string RegistrationAutoExtended(
+                int currentExtensionCount, int maxExtensions, int minutesPerExtension,
+                int currentCheckedIn, int required) =>
+                $"Đã tự động gia hạn đăng ký thêm {minutesPerExtension} phút (lần {currentExtensionCount}/{maxExtensions}). Hiện có {currentCheckedIn}/{required} người. Vui lòng chờ thêm người đăng ký hoặc thử lại.";
+
+            public static string CannotExtendRegistrationNotOpen(Guid tournamentId) =>
+                $"Không thể gia hạn đăng ký cho giải '{tournamentId}' vì đăng ký không còn mở.";
+
+            public static string CannotExtendRegistrationMaxReached(int maxExtensions, int minutesPerExtension) =>
+                $"Đã đạt giới hạn gia hạn ({maxExtensions} lần × {minutesPerExtension} phút = {maxExtensions * minutesPerExtension} phút). Hãy hủy giải hoặc dùng force-start.";
+
+            public static string CannotAdvanceRoundNotOnGoing(Guid tournamentId) =>
+                $"Chỉ có thể chuyển vòng cho giải đấu '{tournamentId}' đang ở trạng thái OnGoing.";
+
+            public static string CannotAdvanceRoundAlreadyCompleted(Guid tournamentId) =>
+                $"Giải đấu '{tournamentId}' đã hoàn thành toàn bộ vòng đấu.";
+
+            public static string CannotAdvanceRoundCurrentNotFinished(int currentRound) =>
+                $"Vòng hiện tại (Round {currentRound}) chưa kết thúc toàn bộ các bàn đấu. Hãy ghi nhận kết quả các bàn trước khi chuyển vòng.";
+
+            public static string CannotAdvanceRoundFinalAlreadyBuilt(Guid tournamentId) =>
+                $"Giải đấu '{tournamentId}' đã có bàn chung kết. Không thể chuyển sang vòng khác.";
+
+            public static string CannotWithdrawAfterCheckIn(TournamentParticipantStatus currentStatus)
+            {
+                var message = currentStatus switch
+                {
+                    TournamentParticipantStatus.CheckedIn =>
+                        "Không thể rút lui sau khi đã check-in tại quán. Hãy liên hệ nhân viên quán để được hỗ trợ.",
+                    TournamentParticipantStatus.Active =>
+                        "Không thể rút lui khi giải đã bắt đầu.",
+                    TournamentParticipantStatus.Finished =>
+                        "Không thể rút lui khi đã hoàn thành giải đấu.",
+                    _ => "Không thể rút lui ở trạng thái hiện tại."
+                };
+                return $"[{currentStatus}] {message}";
+            }
+
+            public static string WalkInClosedAfterRoundOne =>
+                "Vòng 1 của giải đã hoàn thành. Không thể thêm khách vãng lai. Hãy đăng ký giải tuần sau hoặc liên hệ nhân viên để biết thêm.";
+
+            public static string FinalRequiresFourActiveParticipants(int current, int required) =>
+                $"Bàn chung kết cần đủ {required} người chơi Active, hiện chỉ có {current}. Hãy thêm người chơi hoặc tăng shortage tolerance.";
+
+            // === Notification Messages ===
+            public static string Reminder30Minutes(string tournamentTitle, DateTime startTime, string cafeName) =>
+                $"Giải đấu '{tournamentTitle}' bắt đầu sau 30 phút ({startTime:HH:mm}) tại {cafeName}. Vui lòng check-in sớm!";
+
+            public static string Reminder15Minutes(string tournamentTitle, DateTime startTime, string cafeName) =>
+                $"Nhắc nhở: Giải đấu '{tournamentTitle}' bắt đầu sau 15 phút ({startTime:HH:mm}) tại {cafeName}. Hãy có mặt ngay!";
+
+            public static string Reminder5Minutes(string tournamentTitle, DateTime startTime, string cafeName) =>
+                $"Cảnh báo: Giải đấu '{tournamentTitle}' bắt đầu sau 5 phút ({startTime:HH:mm}) tại {cafeName}. Vui lòng check-in ngay!";
+
+            public static string NoShowMarked(string tournamentTitle, int karmaPenalty) =>
+                $"Bạn đã không có mặt tại giải đấu '{tournamentTitle}' và bị đánh dấu no-show. Điểm uy tín bị trừ {karmaPenalty} điểm.";
+
+            public static string RegistrationExtended(string tournamentTitle, DateTime newDeadline, int minutes) =>
+                $"Giải đấu '{tournamentTitle}' đã được gia hạn thêm {minutes} phút. Hạn chót mới: {newDeadline:HH:mm}.";
         }
 
         public static class Entity

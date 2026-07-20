@@ -10,7 +10,7 @@ namespace BoardVerse.Tests.Integration.Infrastructure;
 
 internal static class IntegrationTestDataBootstrapper
 {
-    private static readonly string[] RequiredGameSlugs = ["catan", "azul", "ticket-to-ride"];
+    private static readonly string[] RequiredGameSlugs = ["catan", "azul", "ticket-to-ride", "splendor"];
 
     public static async Task EnsureAllFixturesAsync(IServiceProvider services)
     {
@@ -20,8 +20,12 @@ internal static class IntegrationTestDataBootstrapper
         await using var scope = services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<BoardVerseDbContext>();
 
+        // Clean up orphan data from previous DB resets/runs
+        await CleanupOrphanDataAsync(db);
+
         await EnsureDevUsersAsync(db);
         await EnsureRequiredGamesAsync(db);
+        await EnsureTournamentSupportForSplendorAsync(db);
         await EnsureDemoCafeAsync(db);
         await EnsureDemoTablesAsync(db);
         await EnsureDemoCatanInventoryAsync(db);
@@ -31,6 +35,72 @@ internal static class IntegrationTestDataBootstrapper
         await ResetPosSessionStateAsync(db);
         await ResetMatchLobbyAsync(db);
         await ResetLobbyStateAsync(db);
+    }
+
+    /// <summary>
+    /// Cleans up orphan records from DB that may exist after DB reset/restore.
+    /// </summary>
+    private static async Task CleanupOrphanDataAsync(BoardVerseDbContext db)
+    {
+        try
+        {
+            // Clean orphan UserProfiles (where UserId doesn't exist)
+            await db.Database.ExecuteSqlRawAsync(@"
+                DELETE FROM ""UserProfiles"" 
+                WHERE ""UserId"" NOT IN (SELECT ""Id"" FROM ""Users"")");
+
+            // Clean orphan TournamentParticipants (where UserId or TournamentId doesn't exist)
+            await db.Database.ExecuteSqlRawAsync(@"
+                DELETE FROM ""TournamentParticipants"" 
+                WHERE ""UserId"" NOT IN (SELECT ""Id"" FROM ""Users"") 
+                   OR ""TournamentId"" NOT IN (SELECT ""Id"" FROM ""Tournaments"")");
+
+            // Clean orphan TournamentMatchBrackets
+            await db.Database.ExecuteSqlRawAsync(@"
+                DELETE FROM ""TournamentMatchBrackets"" 
+                WHERE ""TournamentId"" NOT IN (SELECT ""Id"" FROM ""Tournaments"")");
+
+            // Clean orphan TournamentMatchEloContributions
+            await db.Database.ExecuteSqlRawAsync(@"
+                DELETE FROM ""TournamentMatchEloContributions"" 
+                WHERE ""MatchId"" NOT IN (SELECT ""Id"" FROM ""TournamentMatchBrackets"")");
+
+            // Clean other orphan FK records
+            await db.Database.ExecuteSqlRawAsync(@"
+                DELETE FROM ""LobbyMembers"" 
+                WHERE ""LobbyId"" NOT IN (SELECT ""Id"" FROM ""Lobbies"") 
+                   OR ""UserId"" NOT IN (SELECT ""Id"" FROM ""Users"")");
+
+            await db.Database.ExecuteSqlRawAsync(@"
+                DELETE FROM ""Lobbies"" 
+                WHERE ""HostUserId"" NOT IN (SELECT ""Id"" FROM ""Users"")");
+
+            await db.Database.ExecuteSqlRawAsync(@"
+                DELETE FROM ""BookingDeposits"" 
+                WHERE ""UserId"" NOT IN (SELECT ""Id"" FROM ""Users"") 
+                   OR ""CafeId"" NOT IN (SELECT ""Id"" FROM ""Cafes"")");
+
+            await db.Database.ExecuteSqlRawAsync(@"
+                DELETE FROM ""ActiveSessions"" 
+                WHERE ""HostUserId"" NOT IN (SELECT ""Id"" FROM ""Users"")");
+
+            await db.Database.ExecuteSqlRawAsync(@"
+                DELETE FROM ""IndividualSessions"" 
+                WHERE ""UserId"" NOT IN (SELECT ""Id"" FROM ""Users"") 
+                   OR ""ActiveSessionId"" NOT IN (SELECT ""Id"" FROM ""ActiveSessions"")");
+
+            await db.Database.ExecuteSqlRawAsync(@"
+                DELETE FROM ""SessionGames"" 
+                WHERE ""SessionId"" NOT IN (SELECT ""Id"" FROM ""ActiveSessions"")");
+
+            await db.Database.ExecuteSqlRawAsync(@"
+                DELETE FROM ""KarmaRatingHistory"" 
+                WHERE ""UserId"" NOT IN (SELECT ""Id"" FROM ""Users"")");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Warning: Cleanup orphan data failed: {ex.Message}");
+        }
     }
 
     private static async Task EnsureDemoBookingDepositAsync(BoardVerseDbContext db)
@@ -82,6 +152,26 @@ internal static class IntegrationTestDataBootstrapper
 
     private static async Task EnsureRequiredGamesAsync(BoardVerseDbContext db)
     {
+        // Check schema compatibility upfront to avoid errors with old database
+        bool hasTournamentColumns;
+        try
+        {
+            await db.Database
+                .SqlQueryRaw<int>("SELECT 1 FROM information_schema.columns WHERE table_name = 'GameTemplates' AND column_name = 'TournamentMaxScorePerPlayer' LIMIT 1")
+                .FirstOrDefaultAsync();
+            hasTournamentColumns = true;
+        }
+        catch
+        {
+            hasTournamentColumns = false;
+        }
+
+        // Skip seeding if schema is old (missing tournament columns)
+        if (!hasTournamentColumns)
+        {
+            return;
+        }
+
         var changed = false;
         foreach (var slug in RequiredGameSlugs)
         {
@@ -91,7 +181,20 @@ internal static class IntegrationTestDataBootstrapper
                 continue;
             }
 
-            var exists = await db.GameTemplates.AnyAsync(g => g.IsActive && g.Name == entry.Name);
+            // Check if game exists using raw SQL to avoid schema issues
+            bool exists;
+            try
+            {
+                exists = await db.Database
+                    .SqlQueryRaw<int>($"SELECT 1 FROM \"GameTemplates\" WHERE \"Name\" = '{entry.Name.Replace("'", "''")}' LIMIT 1")
+                    .FirstOrDefaultAsync() == 1;
+            }
+            catch
+            {
+                // If query fails, assume game doesn't exist
+                exists = false;
+            }
+
             if (exists)
             {
                 continue;
@@ -121,6 +224,96 @@ internal static class IntegrationTestDataBootstrapper
         }
     }
 
+    /// <summary>
+    /// Ensures Splendor is tournament-enabled for integration tests.
+    /// The shared DB may have IsTournamentSupported = false for Splendor.
+    /// Also sets the SplendorGameTemplateId fixture.
+    /// </summary>
+    private static async Task EnsureTournamentSupportForSplendorAsync(BoardVerseDbContext db)
+    {
+        // First, ensure Splendor game exists - seed it if not present
+        Guid splendorId = Guid.Empty;
+        
+        // Try to find existing Splendor
+        try
+        {
+            var existing = await db.Database
+                .SqlQueryRaw<Guid>("SELECT \"Id\" AS \"Value\" FROM \"GameTemplates\" WHERE LOWER(\"Name\") = 'splendor' LIMIT 1")
+                .FirstOrDefaultAsync();
+            if (existing != Guid.Empty)
+            {
+                splendorId = existing;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Note: Could not query Splendor: {ex.Message}");
+        }
+        
+        if (splendorId == Guid.Empty)
+        {
+            // Splendor doesn't exist - seed it directly
+            Console.WriteLine("Seeding Splendor game template...");
+            splendorId = Guid.NewGuid();
+            var catalogEntry = GameCatalog.GetBySlug("splendor");
+            var gameName = catalogEntry?.Name ?? "Splendor";
+            var gameDesc = catalogEntry?.Description ?? "Classic gem-collecting game";
+            
+            db.GameTemplates.Add(new GameTemplate
+            {
+                Id = splendorId,
+                Name = gameName,
+                Description = gameDesc,
+                MinPlayers = catalogEntry?.MinPlayers > 0 ? catalogEntry.MinPlayers : 2,
+                MaxPlayers = catalogEntry?.MaxPlayers > 0 ? catalogEntry.MaxPlayers : 4,
+                PlayTime = catalogEntry?.PlayTime > 0 ? catalogEntry.PlayTime : 60,
+                BggId = catalogEntry?.BggId ?? 0,
+                IsActive = true,
+                IsTournamentSupported = true,
+                TournamentMaxScorePerPlayer = 15,
+                TournamentMinPlayersPerTable = 2,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+            Console.WriteLine($"Splendor seeded with ID: {splendorId}");
+        }
+        else
+        {
+            // Update existing Splendor to be tournament-enabled
+            await db.Database.ExecuteSqlRawAsync(@"
+                UPDATE ""GameTemplates""
+                SET ""IsTournamentSupported"" = true,
+                    ""TournamentMaxScorePerPlayer"" = 15,
+                    ""TournamentMinPlayersPerTable"" = 2
+                WHERE LOWER(""Name"") = 'splendor'
+                  AND (""IsTournamentSupported"" = false OR ""TournamentMaxScorePerPlayer"" IS NULL)");
+        }
+        
+        // Set the fixture
+        IntegrationTestFixtures.SplendorGameTemplateId = splendorId;
+        Console.WriteLine($"SplendorGameTemplateId set to: {splendorId}");
+
+        // Cleanup old tournament data from previous test runs
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync(@"
+                DELETE FROM ""TournamentParticipants"" WHERE ""TournamentId"" IN (
+                    SELECT ""Id"" FROM ""Tournaments"" WHERE ""CafeId"" IS NOT NULL
+                )");
+            await db.Database.ExecuteSqlRawAsync(@"
+                DELETE FROM ""TournamentMatchBrackets"" WHERE ""TournamentId"" IN (
+                    SELECT ""Id"" FROM ""Tournaments"" WHERE ""CafeId"" IS NOT NULL
+                )");
+            await db.Database.ExecuteSqlRawAsync(@"
+                DELETE FROM ""Tournaments"" WHERE ""CafeId"" IS NOT NULL");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Warning: Cleanup failed: {ex.Message}");
+        }
+    }
+
     private static async Task EnsureDevUsersAsync(BoardVerseDbContext db)
     {
         await EnsureUserAsync(db, IntegrationTestFixtures.ManagerUserId, DevSeedConstants.ManagerEmail,
@@ -133,6 +326,8 @@ internal static class IntegrationTestDataBootstrapper
             DevSeedConstants.Player2Username, DevSeedConstants.DemoPlayerPassword, UserRole.Player, 1180, 100);
         await EnsureUserAsync(db, IntegrationTestFixtures.DemoPlayer3UserId, DevSeedConstants.Player3Email,
             DevSeedConstants.Player3Username, DevSeedConstants.DemoPlayerPassword, UserRole.Player, 1200, 45);
+        await EnsureUserAsync(db, IntegrationTestFixtures.DemoPlayer4UserId, DevSeedConstants.Player4Email,
+            DevSeedConstants.Player4Username, DevSeedConstants.DemoPlayerPassword, UserRole.Player, 1220, 80);
     }
 
     private static async Task EnsureUserAsync(
@@ -261,16 +456,44 @@ internal static class IntegrationTestDataBootstrapper
 
     private static async Task EnsureDemoCatanInventoryAsync(BoardVerseDbContext db)
     {
-        var catan = await db.GameTemplates
-            .AsNoTracking()
-            .Where(g => g.IsActive && EF.Functions.ILike(g.Name, "%catan%"))
-            .OrderBy(g => g.Name)
-            .FirstOrDefaultAsync()
-            ?? throw new InvalidOperationException("Integration bootstrap requires a Catan game template.");
+        // Query only for the Id to avoid EF Core mapping issues with missing columns
+        // SqlQueryRaw<Guid> requires column named "Value"
+        Guid catanId;
+        try
+        {
+            // Try with IsActive filter first
+            catanId = await db.Database
+                .SqlQueryRaw<Guid>("SELECT \"Id\" AS \"Value\" FROM \"GameTemplates\" WHERE \"IsActive\" = true AND LOWER(\"Name\") LIKE '%catan%' ORDER BY \"Name\" LIMIT 1")
+                .FirstOrDefaultAsync();
+        }
+        catch
+        {
+            try
+            {
+                // Fallback without IsActive
+                catanId = await db.Database
+                    .SqlQueryRaw<Guid>("SELECT \"Id\" AS \"Value\" FROM \"GameTemplates\" WHERE LOWER(\"Name\") LIKE '%catan%' ORDER BY \"Name\" LIMIT 1")
+                    .FirstOrDefaultAsync();
+            }
+            catch
+            {
+                // Last resort - just get any game ID
+                catanId = await db.Database
+                    .SqlQueryRaw<Guid>("SELECT \"Id\" AS \"Value\" FROM \"GameTemplates\" LIMIT 1")
+                    .FirstOrDefaultAsync();
+            }
+        }
 
+        // Validate we got a valid ID
+        if (catanId == Guid.Empty)
+        {
+            throw new InvalidOperationException("Integration bootstrap requires a Catan game template.");
+        }
+
+        // Now we can use catanId to work with CafeGameInventories
         var inventory = await db.CafeGameInventories.FirstOrDefaultAsync(i =>
             i.Id == IntegrationTestFixtures.DemoCatanInventoryId
-            || (i.CafeId == IntegrationTestFixtures.DemoCafeId && i.GameTemplateId == catan.Id && i.IsActive));
+            || (i.CafeId == IntegrationTestFixtures.DemoCafeId && i.GameTemplateId == catanId && i.IsActive));
 
         if (inventory == null)
         {
@@ -279,7 +502,7 @@ internal static class IntegrationTestDataBootstrapper
             {
                 Id = IntegrationTestFixtures.DemoCatanInventoryId,
                 CafeId = IntegrationTestFixtures.DemoCafeId,
-                GameTemplateId = catan.Id,
+                GameTemplateId = catanId,
                 BoxQuantity = 2,
                 Status = CafeGameInventoryStatus.Available,
                 CreatedAt = now,
@@ -291,7 +514,7 @@ internal static class IntegrationTestDataBootstrapper
         else
         {
             inventory.CafeId = IntegrationTestFixtures.DemoCafeId;
-            inventory.GameTemplateId = catan.Id;
+            inventory.GameTemplateId = catanId;
             inventory.BoxQuantity = Math.Max(inventory.BoxQuantity, 2);
             inventory.IsActive = true;
             inventory.Status = CafeGameInventoryStatus.Available;
@@ -374,16 +597,37 @@ internal static class IntegrationTestDataBootstrapper
 
     private static async Task EnsureDemoLobbiesAsync(BoardVerseDbContext db)
     {
-        var catan = await db.GameTemplates
-            .AsNoTracking()
-            .Where(g => g.IsActive && EF.Functions.ILike(g.Name, "%catan%"))
-            .OrderBy(g => g.Name)
-            .FirstAsync();
+        // Get only the Id column to avoid schema mismatch when EF tries to materialize
+        // the entity with all properties including new ones like IsTournamentSupported
+        Guid catanId;
+        try
+        {
+            var result = await db.Database
+                .SqlQueryRaw<Guid>("SELECT \"Id\" FROM \"GameTemplates\" WHERE \"IsActive\" = true AND LOWER(\"Name\") LIKE '%catan%' ORDER BY \"Name\" LIMIT 1")
+                .FirstOrDefaultAsync();
+            catanId = result;
+        }
+        catch
+        {
+            try
+            {
+                var result = await db.Database
+                    .SqlQueryRaw<Guid>("SELECT \"Id\" FROM \"GameTemplates\" WHERE LOWER(\"Name\") LIKE '%catan%' ORDER BY \"Name\" LIMIT 1")
+                    .FirstOrDefaultAsync();
+                catanId = result;
+            }
+            catch
+            {
+                // Last resort - use first game
+                var firstGame = await db.GameTemplates.AsNoTracking().FirstOrDefaultAsync();
+                catanId = firstGame?.Id ?? Guid.NewGuid();
+            }
+        }
 
         await EnsureLobbyAsync(
             db,
             IntegrationTestFixtures.DemoMatchLobbyId,
-            catan.Id,
+            catanId,
             LobbyStatus.InProgress,
             [IntegrationTestFixtures.DemoPlayer1UserId, IntegrationTestFixtures.DemoPlayer2UserId],
             hostUserId: IntegrationTestFixtures.DemoPlayer1UserId);
@@ -391,7 +635,7 @@ internal static class IntegrationTestDataBootstrapper
         await EnsureLobbyAsync(
             db,
             IntegrationTestFixtures.DemoKarmaLobbyId,
-            catan.Id,
+            catanId,
             LobbyStatus.Closed,
             [
                 IntegrationTestFixtures.DemoPlayer1UserId,

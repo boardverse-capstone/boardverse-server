@@ -12,6 +12,8 @@ namespace BoardVerse.Core.IRepositories
         Task<GameTemplate?> GetActiveByIdWithComponentsAsync(Guid id);
         Task<GameTemplate?> GetByIdWithCategoriesForUpdateAsync(Guid id);
         Task<GameTemplate?> GetByIdForUpdateAsync(Guid id);
+        Task<GameTemplate?> GetByIdAsync(Guid id);
+        Task<GameTemplate?> GetByNameAsync(string name);
         Task<bool> ExistsAsync(Guid id);
         Task<Dictionary<Guid, int>> GetComponentCountsByGameIdsAsync(IReadOnlyCollection<Guid> gameIds);
         Task SaveChangesAsync();

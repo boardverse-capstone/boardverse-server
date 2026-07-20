@@ -1,77 +1,99 @@
-# BookingController
+# Booking flow & Payment
 
-**Base route:** `/api/v1/bookings`  
-**Controller:** `BookingController.cs`  
-**Role:** Player — đã đăng nhập
+> **Lưu ý quan trọng:** Tài liệu này tham chiếu tới `BookingController` đã cũ. Hiện tại **không có** `BookingController` riêng — flow booking/deposit đi qua `PaymentController` và webhook SePay.
 
-API đặt chỗ trực tuyến: tạo đơn, giữ ghế, xác nhận sau khi thanh toán cọc, hủy đơn và tra cứu trạng thái đơn. Tuân thủ BR-05, BR-06, BR-09.
+## Vị trí thực tế của các endpoint
 
-|| Endpoint | Method | Mô tả |
-|----------|--------|--------|
-|| `/` | POST | Tạo đơn đặt chỗ mới |
-|| `/{bookingId}/confirm` | POST | Xác nhận thanh toán cọc thành công |
-|| `/{bookingId}/cancel` | POST | Hủy đơn đặt chỗ |
-|| `/{bookingId}` | GET | Tra cứu chi tiết đơn |
+| Tính năng | Controller thực tế | Endpoint |
+|-----------|---------------------|----------|
+| Tạo booking + tạo deposit | `PaymentController` | `POST /api/payments/booking-deposit` |
+| Regenerate QR cho deposit | `PaymentController` | `POST /api/payments/booking-deposit/{depositId}/regenerate-qr` |
+| Refund booking | `PaymentController` | `POST /api/payments/booking-deposit/refund` |
+| Webhook SePay xử lý thanh toán deposit | `SePayWebhookController` | `POST /api/payments/sepay/webhook` |
+| Thanh toán session (POS) | `PaymentController` | `POST /api/payments/session-payment` |
+| Manual confirm (fallback) | `PaymentController` | `POST /api/payments/manual-confirm` |
+
+> **Xem đầy đủ:** [sepay-webhook.md](./sepay-webhook.md), [sepay-account.md](./sepay-account.md), [sepay-payment-flow.mdc](../../.cursor/rules/sepay-payment-flow.mdc).
 
 ---
-## POST /api/v1/bookings
 
-Tạo đơn đặt chỗ. Hệ thống kiểm tra số ghế còn trống theo khung giờ, tạo `Booking` ở `PENDING_DEPOSIT` và chuyển ghế sang `HOLDING` trong 5 phút.
+## Luồng booking — cập nhật
 
-**Body mẫu:**
+### Happy path
 
-```json
-{
-  "cafeId": "cafe-id",
-  "gameTemplateId": "game-id",
-  "seatCount": 4,
-  "scheduledStartTime": "2026-07-10T19:00:00Z",
-  "holdDurationMinutes": 30,
-  "refundPolicy": "Full"
-}
+```
+1. Mobile: POST /api/v1/lobbies (tạo lobby)
+   → Lobby status = Open
+
+2. Members join → LobbyFull
+   → Server tạo "intent" để đặt cọc
+
+3. Mobile: POST /api/payments/booking-deposit
+   Body: { cafeId, lobbyId?, scheduledStartTime, seatCount, amount }
+   → Status: PENDING_DEPOSIT
+   → BookingDeposit.QrUrl, QrExpiresAt = Now + 5min
+   → SeatSlot: AVAILABLE → HOLDING
+
+4. Customer quét QR → thanh toán qua SePay/VietQR
+   → SePay gửi webhook → SePayWebhookController
+   → POST /api/payments/sepay/webhook
+   → PaymentService.HandleSePayWebhookAsync
+   → BookingDeposit.Status = Paid
+   → SeatSlot: HOLDING → RESERVED
+   → Lobby.Status = Full → Ready for check-in
+
+5. Customer đến quán → POS quét QR booking
+   → ActiveSession tạo với DepositAppliedAmount
+   → SeatSlot: RESERVED → IN_USE
 ```
 
-**Response 201:** `BookingResponseDto` — `status = PENDING_DEPOSIT`, `expiresAt = scheduledStartTime + holdDurationMinutes`.
+### Exception paths
 
-**Lỗi:** `400` thiếu field; `404` không tìm thấy quán/game; `409` quán hết chỗ cho khung giờ.
+| Tình huống | Xử lý |
+|------------|-------|
+| Quá 5 phút không thanh toán (BR-06) | Background job → `BookingDeposit.Status = Expired`, SeatSlot về `AVAILABLE` |
+| Quán hết chỗ thực tế (Exception 1) | Trả 409 + suggest quán thay thế qua `ActiveSessionController.GetAlternativeCafes` |
+| Khách đến muộn quá 30 phút (Exception 5) | `BookingDeposit.Status = Expired`, tịch thu cọc theo `DepositRefundPolicy` |
+| Webhook SePay timeout/fail | Retry exponential backoff (max 3 lần); fallback VietQR static QR |
+| Quán hủy vì bất khả kháng (Exception 9, BR-18) | `BookingDeposit.Status = Refunded`, hoàn 100% cọc |
 
 ---
-## POST /api/v1/bookings/{bookingId}/confirm
 
-Xác nhận đơn sau khi nhận được `Payment: Success` từ cổng thanh toán. Booking chuyển sang `CONFIRMED`; ghế chuyển `RESERVED`.
+## State machine — `BookingDeposit`
 
-```json
-{
-  "paymentTransactionId": "transaction-id"
-}
+```mermaid
+stateDiagram-v2
+    [*] --> Pending: POST /booking-deposit
+    Pending --> Paid: SePay webhook success
+    Pending --> Expired: Quá 5 phút không thanh toán (BR-06)
+    Pending --> CancelledByPlayer: Khách hủy
+    Paid --> Refunded: Quán hủy vì bất khả kháng (BR-18)
+    Paid --> Forfeited: Không đến + hết thời gian cho phép
+    Expired --> [*]: Giải phóng ghế
+    CancelledByPlayer --> [*]
+    Refunded --> [*]: Hoàn 100% cọc
+    Forfeited --> [*]: Tịch thu cọc
 ```
 
-**Lỗi:** `400` mã giao dịch không hợp lệ; `404` không tìm thấy đơn; `409` đơn đã xác nhận hoặc hết hạn giữ chỗ.
+## State machine — `SeatSlot`
 
----
-## POST /api/v1/bookings/{bookingId}/cancel
-
-Hủy đơn đặt chỗ của người dùng. Ghế được giải phóng về `AVAILABLE`.
-
-```json
-{
-  "reason": "Đổi kế hoạch."
-}
+```mermaid
+stateDiagram-v2
+    [*] --> Available
+    Available --> Holding: Booking tạo (5 phút giữ)
+    Holding --> Reserved: Payment success (BR-05)
+    Holding --> Available: Quá 5 phút
+    Reserved --> InUse: Check-in tại quán
+    Reserved --> Available: Booking EXPIRED/CANCELLED
+    InUse --> Available: Session PAID (giải phóng)
 ```
 
-**Lỗi:** `400` lý do không hợp lệ; `404` không tìm thấy đơn; `409` đơn không thể hủy.
-
 ---
-## GET /api/v1/bookings/{bookingId}
 
-Tra cứu chi tiết đơn đặt chỗ của người dùng.
+## API liên quan
 
-**Lỗi:** `401` thiếu token; `403` không đủ quyền; `404` không tìm thấy đơn.
-
----
-## Luồng tích hợp
-
-1. Mobile tạo `POST /api/v1/bookings` → `PENDING_DEPOSIT`, ghế `HOLDING`.
-2. Người dùng thanh toán cọc → `POST /api/v1/bookings/{id}/confirm` → `CONFIRMED`, ghế `RESERVED`.
-3. Nhân viên POS quét QR Host → kích hoạt `ActiveSession`, ghế `IN_USE`.
-4. Quá hạn không đến → chuyển `EXPIRED`, tịch thu cọc, giải phóng ghế.
+- **Deposit flow:** [sepay-webhook.md](./sepay-webhook.md), [sepay-account.md](./sepay-account.md)
+- **Lobby flow:** [lobby.md](./lobby.md)
+- **POS session flow:** [cafe-pos.md](./cafe-pos.md), [active-session.md](./active-session.md)
+- **Settlement (giải ngân):** [settlement.md](./settlement.md)
+- **Business rules:** [sepay-payment-flow.mdc](../../.cursor/rules/sepay-payment-flow.mdc), [boardverse.mdc](../../.cursor/rules/boardverse.mdc) (BR-05, BR-06, BR-09)

@@ -55,6 +55,25 @@ namespace BoardVerse.Core.Entities
 
         public bool IsActive { get; set; } = true;
 
+        // === Tournament Support ===
+        /// <summary>
+        /// Game có hỗ trợ tournament mode không. False = không thể tạo tournament với game này.
+        /// Thay thế cho việc hardcode tên "Splendor".
+        /// </summary>
+        public bool IsTournamentSupported { get; set; } = false;
+
+        /// <summary>
+        /// Số điểm tối đa hợp lệ cho một player trong một bàn tournament.
+        /// Splendor = 15 (max prestige). Splendor Duel = 20. Mặc định 15.
+        /// </summary>
+        public int TournamentMaxScorePerPlayer { get; set; } = 15;
+
+        /// <summary>
+        /// Số player tối thiểu để có thể tổ chức tournament 1 vòng.
+        /// Splendor = 2 (chơi được 2 người). Mặc định 2.
+        /// </summary>
+        public int TournamentMinPlayersPerTable { get; set; } = 2;
+
         public int MinPlayers
         {
             get => _minPlayers;

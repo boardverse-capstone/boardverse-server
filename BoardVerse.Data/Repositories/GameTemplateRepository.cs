@@ -42,20 +42,25 @@ namespace BoardVerse.Data.Repositories
             baseQuery = ApplyFilters(baseQuery, query).OrderBy(g => g.Name);
 
             var totalItems = await baseQuery.CountAsync();
-            var items = await baseQuery
-                .Skip((query.PageNumber - 1) * query.PageSize)
-                .Take(query.PageSize)
-                .ToListAsync();
+            var skipPagination = query.SkipPagination;
+            var items = skipPagination
+                ? await baseQuery.ToListAsync()
+                : await baseQuery
+                    .Skip((query.PageNumber - 1) * query.PageSize)
+                    .Take(query.PageSize)
+                    .ToListAsync();
 
-            var totalPages = (int)Math.Ceiling(totalItems / (double)query.PageSize);
+            var totalPages = skipPagination
+                ? (totalItems == 0 ? 0 : 1)
+                : (int)Math.Ceiling(totalItems / (double)query.PageSize);
 
             return new PaginatedResponse<GameTemplate>
             {
                 Data = items,
                 Meta = new PaginationMeta
                 {
-                    CurrentPage = query.PageNumber,
-                    PageSize = query.PageSize,
+                    CurrentPage = skipPagination ? 1 : query.PageNumber,
+                    PageSize = skipPagination ? totalItems : query.PageSize,
                     TotalItems = totalItems,
                     TotalPages = totalPages
                 }
@@ -129,6 +134,16 @@ namespace BoardVerse.Data.Repositories
         public Task<GameTemplate?> GetByIdForUpdateAsync(Guid id) =>
             _context.GameTemplates
                 .FirstOrDefaultAsync(g => g.Id == id);
+
+        public Task<GameTemplate?> GetByIdAsync(Guid id) =>
+            _context.GameTemplates
+                .AsNoTracking()
+                .FirstOrDefaultAsync(g => g.Id == id);
+
+        public Task<GameTemplate?> GetByNameAsync(string name) =>
+            _context.GameTemplates
+                .AsNoTracking()
+                .FirstOrDefaultAsync(g => g.Name.ToLower() == name.ToLower() && g.IsActive);
 
         public Task<bool> ExistsAsync(Guid id) =>
             _context.GameTemplates.AsNoTracking().AnyAsync(g => g.Id == id);

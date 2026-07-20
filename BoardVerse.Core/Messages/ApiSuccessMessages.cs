@@ -191,6 +191,48 @@ namespace BoardVerse.Core.Messages
             public const string ResultSubmitted = "Gửi kết quả trận đấu thành công.";
         }
 
+        public static class Tournament
+        {
+            public const string Created = "Tạo giải đấu thành công.";
+            public const string Updated = "Cập nhật giải đấu thành công.";
+            public const string Retrieved = "Lấy thông tin giải đấu thành công.";
+            public const string ListRetrieved = "Lấy danh sách giải đấu thành công.";
+            public const string RegistrationOpened = "Mở đăng ký giải đấu thành công.";
+            public const string RegistrationClosed = "Đóng đăng ký giải đấu thành công.";
+            public const string RegistrationReopened = "Mở lại đăng ký giải đấu thành công.";
+            public const string Started = "Bắt đầu giải đấu thành công.";
+            public const string StartedWithOptions = "Bắt đầu giải đấu với tùy chọn shortage thành công.";
+            public const string RegistrationExtended = "Gia hạn đăng ký giải đấu thành công.";
+            public const string Cancelled = "Hủy giải đấu thành công.";
+            public const string Completed = "Hoàn thành giải đấu thành công.";
+
+            public const string Registered = "Đăng ký giải đấu thành công.";
+            public const string Unregistered = "Hủy đăng ký giải đấu thành công.";
+            public const string CheckedIn = "Check-in giải đấu thành công.";
+            public const string Withdrawn = "Rút lui khỏi giải đấu thành công.";
+            public const string WalkInAdded = "Thêm khách vãng lai thành công.";
+
+            public const string ParticipantsRetrieved = "Lấy danh sách người chơi thành công.";
+            public const string ParticipantStatusUpdated = "Cập nhật trạng thái người chơi thành công.";
+
+            public const string MatchesRetrieved = "Lấy danh sách bàn đấu thành công.";
+            public const string RoundMatchesRetrieved = "Lấy danh sách bàn đấu theo vòng thành công.";
+            public const string MatchStarted = "Bắt đầu bàn đấu thành công.";
+            public const string MatchResultRecorded = "Ghi nhận kết quả bàn đấu thành công.";
+            public const string MatchResultCorrected = "Sửa kết quả bàn đấu thành công.";
+            public const string MatchCancelled = "Hủy bàn đấu thành công.";
+            public const string RoundAdvanced = "Chuyển vòng đấu thành công.";
+
+            // Manual pairing
+            public const string PairingsPreviewed = "Preview pairings thành công.";
+            public const string PairingsUpdated = "Cập nhật manual pairings thành công.";
+
+            // Player personal data
+            public const string MyRegistrationsRetrieved = "Lấy danh sách giải đấu của bạn thành công.";
+            public const string EloHistoryRetrieved = "Lấy lịch sử Elo thành công.";
+            public const string LeaderboardRetrieved = "Lấy bảng xếp hạng Elo thành công.";
+        }
+
         public static class Staff
         {
             public const string WorkplacesRetrieved = "Lấy danh sách nơi làm việc thành công.";

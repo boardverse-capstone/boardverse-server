@@ -19,7 +19,10 @@ namespace BoardVerse.Data.Configurations
             builder.Property(g => g.MinPlayers).IsRequired();
             builder.Property(g => g.MaxPlayers).IsRequired();
             builder.Property(g => g.PlayTime).IsRequired();
-            builder.Property(g => g.IsActive).IsRequired().HasDefaultValue(true);
+        builder.Property(g => g.IsActive).IsRequired().HasDefaultValue(true);
+            builder.Property(g => g.IsTournamentSupported).IsRequired().HasDefaultValue(false);
+            builder.Property(g => g.TournamentMaxScorePerPlayer).IsRequired().HasDefaultValue(15);
+            builder.Property(g => g.TournamentMinPlayersPerTable).IsRequired().HasDefaultValue(2);
             builder.Property(g => g.BggId);
             builder.Property(g => g.BggSyncedAt);
             builder.HasIndex(g => g.BggId).IsUnique().HasFilter("\"BggId\" IS NOT NULL");
@@ -77,6 +80,9 @@ namespace BoardVerse.Data.Configurations
                     MinPlayers = 2,
                     MaxPlayers = 4,
                     PlayTime = 30,
+                    IsTournamentSupported = true,
+                    TournamentMaxScorePerPlayer = 15,
+                    TournamentMinPlayersPerTable = 2,
                     CreatedAt = seedDate,
                     UpdatedAt = seedDate
                 },

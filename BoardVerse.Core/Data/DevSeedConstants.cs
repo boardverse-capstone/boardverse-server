@@ -29,9 +29,11 @@ namespace BoardVerse.Core.Data
         public const string Player1Email = "player1@boardverse.dev";
         public const string Player2Email = "player2@boardverse.dev";
         public const string Player3Email = "player3@boardverse.dev";
+        public const string Player4Email = "player4@boardverse.dev";
         public const string Player1Username = "demoplayer1";
         public const string Player2Username = "demoplayer2";
         public const string Player3Username = "demoplayer3";
+        public const string Player4Username = "demoplayer4";
         public const string DemoPlayerPassword = "Player@123";
         public const string DemoCafeName = "BoardVerse Demo Cafe";
         public const string DemoCafeAddress = "123 Board Game Street, Ho Chi Minh City";

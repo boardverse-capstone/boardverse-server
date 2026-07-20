@@ -79,6 +79,8 @@ Tìm kiếm và lọc board game (AC 1.1, 1.2).
 | `pageNumber` | Trang | 1 |
 | `pageSize` | Kích thước trang | 10 (max 100) |
 
+> **Mobile behavior — "Get All":** Nếu request **không truyền bất kỳ filter nào** (`search`, `category_ids`, `player_count`, `duration_range`), API tự động **bỏ qua phân trang** và trả về **toàn bộ** board game đang hoạt động. Response trả về `pageNumber=1`, `pageSize=<tổng số>`, `totalPages=1`, `hasPrevious=false`, `hasNext=false`. Ngay khi có ít nhất 1 filter, phân trang hoạt động bình thường với `pageSize=10`.
+
 ### Giá trị `duration_range`
 
 | Enum | Ý nghĩa | Điều kiện `playTime` |

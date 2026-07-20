@@ -67,6 +67,15 @@ public static class ApiTestClient
     public static async Task<HttpResponseMessage> PutJsonAsync<T>(HttpClient client, string path, T body) =>
         await client.PutAsJsonAsync(path, body);
 
+    public static async Task<HttpResponseMessage> PatchJsonAsync<T>(HttpClient client, string path, T body)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Patch, path)
+        {
+            Content = JsonContent.Create(body)
+        };
+        return await client.SendAsync(request);
+    }
+
     public static async Task<HttpResponseMessage> DeleteAsync(HttpClient client, string path) =>
         await client.DeleteAsync(path);
 

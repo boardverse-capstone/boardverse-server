@@ -41,6 +41,10 @@ namespace BoardVerse.Data
         public DbSet<CafeSettlement> CafeSettlements => Set<CafeSettlement>();
         public DbSet<ComponentLossReport> ComponentLossReports => Set<ComponentLossReport>();
         public DbSet<Transaction> Transactions => Set<Transaction>();
+        public DbSet<Tournament> Tournaments => Set<Tournament>();
+        public DbSet<TournamentParticipant> TournamentParticipants => Set<TournamentParticipant>();
+        public DbSet<TournamentMatchBracket> TournamentMatchBrackets => Set<TournamentMatchBracket>();
+        public DbSet<TournamentMatchEloContribution> TournamentMatchEloContributions => Set<TournamentMatchEloContribution>();
 
     public BoardVerseDbContext(DbContextOptions<BoardVerseDbContext> options) : base(options)
     {

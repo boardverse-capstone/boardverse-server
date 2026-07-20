@@ -8,6 +8,16 @@ namespace BoardVerse.Core.DTOs.Game
         public List<Guid>? CategoryIds { get; set; }
         public int? PlayerCount { get; set; }
         public List<PlayTimeRange>? DurationRange { get; set; }
+
+        /// <summary>
+        /// True nếu có ít nhất 1 filter — dùng để mobile gọi Get All không paginate.
+        /// </summary>
+        public bool HasFilter =>
+            !string.IsNullOrWhiteSpace(Search)
+            || (CategoryIds is { Count: > 0 })
+            || PlayerCount.HasValue
+            || (DurationRange is { Count: > 0 });
+
         private int _pageNumber = 1;
         private int _pageSize = 10;
 
@@ -19,7 +29,11 @@ namespace BoardVerse.Core.DTOs.Game
 
         public int PageSize
         {
-            get => _pageSize;
+            get
+            {
+                if (!HasFilter) return int.MaxValue;
+                return _pageSize;
+            }
             set => _pageSize = value < 1 ? 10 : (value > 100 ? 100 : value);
         }
 

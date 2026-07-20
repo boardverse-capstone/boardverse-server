@@ -26,11 +26,15 @@ namespace BoardVerse.Core.Entities
         /// <summary>Thời điểm kiểm kê xong.</summary>
         public DateTime? CheckedAt { get; set; }
 
+        /// <summary>Staff đã thực hiện kiểm kê linh kiện.</summary>
+        public Guid? CheckedByStaffId { get; set; }
+
         /// <summary>Tổng tiền phạt từ kiểm kê (số âm = thiếu).</summary>
         public decimal TotalPenaltyAmount { get; set; }
 
         public virtual ActiveSession ActiveSession { get; set; } = null!;
         public virtual CafeInventoryBox CafeInventoryBox { get; set; } = null!;
         public virtual GameTemplate GameTemplate { get; set; } = null!;
+        public virtual User? CheckedByStaff { get; set; }
     }
 }

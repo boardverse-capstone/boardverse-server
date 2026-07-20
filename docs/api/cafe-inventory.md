@@ -12,6 +12,7 @@
 | `/{inventoryId}` | PUT | Manager (chủ quán) |
 | `/{inventoryId}/restore` | POST | Manager (chủ quán) |
 | `/{inventoryId}/sync-penalties` | POST | Manager (chủ quán) |
+| `/{inventoryId}/sync-boxes` | POST | Manager (chủ quán) — đồng bộ hộp game từ master catalog |
 | `/{inventoryId}` | DELETE | Manager (chủ quán) |
 
 ---
@@ -207,3 +208,18 @@ Khôi phục mục đã xóa mềm. Trả `409` nếu game đã có bản active
 ## POST /api/cafes/{cafeId}/inventory/{inventoryId}/sync-penalties
 
 Thêm penalty rows cho component mới từ master game (phí mặc định `0`). Không xóa penalty cũ.
+
+---
+
+## POST /api/cafes/{cafeId}/inventory/{inventoryId}/sync-boxes
+
+Đồng bộ số lượng hộp game (`boxQuantity`) trong kho với master catalog. Dùng khi admin cập nhật master game và manager muốn áp dụng lại.
+
+**Body:**
+```json
+{ "boxQuantity": 4 }
+```
+
+**Response 200:** inventory đã cập nhật.
+
+**Lỗi:** `400` `boxQuantity < 0`; `404` không tìm thấy inventory.
