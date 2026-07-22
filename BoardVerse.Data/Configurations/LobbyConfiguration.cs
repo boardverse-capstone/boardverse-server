@@ -148,10 +148,12 @@ namespace BoardVerse.Data.Configurations
                 .HasForeignKey(m => m.LobbyId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            // Sender is nullable for system messages (IsSystem = true)
             builder.HasOne(m => m.Sender)
                 .WithMany()
                 .HasForeignKey(m => m.SenderId)
-                .OnDelete(DeleteBehavior.Restrict);
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired(false);
 
             builder.HasIndex(m => new { m.LobbyId, m.CreatedAt });
         }

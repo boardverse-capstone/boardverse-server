@@ -100,7 +100,7 @@ namespace BoardVerse.Services.Services
             {
                 Id = Guid.NewGuid(),
                 LobbyId = lobbyId,
-                SenderId = Guid.Empty,
+                SenderId = null, // System message has no sender
                 Content = content,
                 IsSystem = true,
                 CreatedAt = DateTime.UtcNow
@@ -112,7 +112,7 @@ namespace BoardVerse.Services.Services
             {
                 Id = msg.Id,
                 LobbyId = lobbyId,
-                SenderId = Guid.Empty,
+                SenderId = null,
                 SenderName = "Hệ thống",
                 Content = msg.Content,
                 IsSystem = true,
