@@ -21,7 +21,7 @@ public interface ITournamentService
 
     // === Queries ===
     Task<TournamentResponseDto> GetTournamentAsync(Guid tournamentId, Guid? currentUserId);
-    Task<IReadOnlyList<TournamentResponseDto>> GetOpenTournamentsAsync(Guid gameTemplateId, Guid? currentUserId);
+    Task<IReadOnlyList<TournamentResponseDto>> GetOpenTournamentsAsync(Guid? currentUserId);
     Task<IReadOnlyList<TournamentResponseDto>> GetCafeTournamentsAsync(Guid cafeId, Guid? currentUserId, string? status);
 
     // === Player: Register / Withdraw / Check-in ===

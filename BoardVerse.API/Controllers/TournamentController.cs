@@ -26,22 +26,16 @@ public class TournamentController : BaseApiController
     }
 
     /// <summary>
-    /// Lấy danh sách giải Splendor đang mở đăng ký theo gameTemplateId. [Role: Player]
+    /// Lấy danh sách tất cả tournament đang mở đăng ký (mọi game). [Role: Player]
     /// </summary>
-    /// <param name="gameTemplateId">Mã game template (Splendor).</param>
     /// <response code="200">Danh sách giải đang mở đăng ký.</response>
-    /// <response code="400">Thiếu gameTemplateId.</response>
     /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
     /// <response code="500">Lỗi hệ thống không mong đợi.</response>
     [HttpGet("open")]
-    public async Task<IActionResult> GetOpenTournaments([FromQuery] Guid gameTemplateId)
+    public async Task<IActionResult> GetOpenTournaments()
     {
-        if (gameTemplateId == Guid.Empty)
-        {
-            throw new BadRequestException(ApiErrorMessages.Tournament.GameTemplateIdRequired);
-        }
         var userId = GetUserIdFromClaims();
-        var result = await _tournamentService.GetOpenTournamentsAsync(gameTemplateId, userId);
+        var result = await _tournamentService.GetOpenTournamentsAsync(userId);
         return this.NewResponse(200, ApiSuccessMessages.Tournament.ListRetrieved, result);
     }
 

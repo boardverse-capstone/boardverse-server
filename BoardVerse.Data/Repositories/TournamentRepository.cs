@@ -49,12 +49,11 @@ public class TournamentRepository : ITournamentRepository
             .ToListAsync();
     }
 
-    public async Task<IReadOnlyList<Tournament>> GetOpenTournamentsForGameAsync(Guid gameTemplateId)
+    public async Task<IReadOnlyList<Tournament>> GetAllOpenAsync()
     {
         return await _db.Tournaments
             .Include(t => t.Participants)
-            .Where(t => t.GameTemplateId == gameTemplateId
-                && t.Status == TournamentStatus.RegistrationOpen
+            .Where(t => t.Status == TournamentStatus.RegistrationOpen
                 && t.RegistrationDeadline > DateTime.UtcNow)
             .OrderBy(t => t.StartTime)
             .ToListAsync();

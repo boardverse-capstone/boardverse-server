@@ -9,7 +9,8 @@ public interface ITournamentRepository
     Task<Tournament?> GetByIdAsync(Guid tournamentId);
     Task<Tournament?> GetByIdWithDetailsAsync(Guid tournamentId);
     Task<IReadOnlyList<Tournament>> GetByCafeAsync(Guid cafeId, TournamentStatus? status);
-    Task<IReadOnlyList<Tournament>> GetOpenTournamentsForGameAsync(Guid gameTemplateId);
+    /// <summary>Lấy tất cả tournament đang mở đăng ký (mọi game), status RegistrationOpen + deadline còn hạn.</summary>
+    Task<IReadOnlyList<Tournament>> GetAllOpenAsync();
     Task<IReadOnlyList<Tournament>> GetUpcomingForClosingAsync(DateTime cutoffTime);
 
     /// <summary>

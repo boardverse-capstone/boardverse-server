@@ -633,10 +633,9 @@ public class TournamentService : ITournamentService
         return await BuildResponseAsync(tournament, currentUserId);
     }
 
-    public async Task<IReadOnlyList<TournamentResponseDto>> GetOpenTournamentsAsync(
-        Guid gameTemplateId, Guid? currentUserId)
+    public async Task<IReadOnlyList<TournamentResponseDto>> GetOpenTournamentsAsync(Guid? currentUserId)
     {
-        var tournaments = await _tournamentRepository.GetOpenTournamentsForGameAsync(gameTemplateId);
+        var tournaments = await _tournamentRepository.GetAllOpenAsync();
         var responses = new List<TournamentResponseDto>();
         foreach (var t in tournaments)
         {
