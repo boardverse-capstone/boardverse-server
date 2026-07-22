@@ -1911,7 +1911,8 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
             }
             if (!requested.IsTournamentSupported)
             {
-                throw new BadRequestException(ApiErrorMessages.Tournament.SplendorRequired);
+                throw new BadRequestException(
+                    string.Format(ApiErrorMessages.Tournament.SplendorRequired, requested.Name));
             }
             return requested.Id;
         }

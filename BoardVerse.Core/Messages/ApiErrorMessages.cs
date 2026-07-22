@@ -1071,7 +1071,7 @@ namespace BoardVerse.Core.Messages
                 "Không tìm thấy game Splendor trong hệ thống. Hãy import Splendor trước khi tạo tournament.";
 
             public const string SplendorRequired =
-                "Hiện tại hệ thống chỉ hỗ trợ tournament cho game Splendor. GameTemplateId phải là Splendor.";
+                "Game '{0}' chưa được bật hỗ trợ tournament. Hiện tại hệ thống chỉ hỗ trợ tournament cho game Splendor. Vui lòng liên hệ admin để kích hoạt.";
 
             public const string TitleRequired =
                 "Tên giải đấu là bắt buộc và phải từ 5 đến 200 ký tự.";
