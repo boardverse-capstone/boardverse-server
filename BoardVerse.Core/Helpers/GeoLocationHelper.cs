@@ -80,5 +80,26 @@ namespace BoardVerse.Core.Helpers
 
         public static bool HasLastKnownLocation(UserProfile profile) =>
             profile.LastKnownLatitude.HasValue && profile.LastKnownLongitude.HasValue;
+
+        /// <summary>
+        /// Tính khoảng cách giữa 2 điểm (lat1, lon1) và (lat2, lon2) bằng Haversine formula.
+        /// LOBBY-P0-FIX-9: Clamp a ∈ [0, 1] để tránh NaN ở vĩ độ cao.
+        /// </summary>
+        public static double HaversineKm(double lat1, double lon1, double lat2, double lon2)
+        {
+            const double earthRadiusKm = 6371.0;
+            var lat1Rad = lat1 * Math.PI / 180.0;
+            var lat2Rad = lat2 * Math.PI / 180.0;
+            var dLat = (lat2 - lat1) * Math.PI / 180.0;
+            var dLon = (lon2 - lon1) * Math.PI / 180.0;
+
+            var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2)
+                + Math.Cos(lat1Rad) * Math.Cos(lat2Rad)
+                   * Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+
+            a = Math.Min(1.0, Math.Max(0.0, a));
+            var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+            return earthRadiusKm * c;
+        }
     }
 }

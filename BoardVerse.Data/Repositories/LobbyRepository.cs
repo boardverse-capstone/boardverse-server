@@ -19,6 +19,11 @@ namespace BoardVerse.Data.Repositories
         {
             return await _db.Lobbies
                 .Include(l => l.Members)
+                    .ThenInclude(m => m.User)
+                        .ThenInclude(u => u.Profile)
+                .Include(l => l.GameTemplate)
+                .Include(l => l.Cafe)
+                .Include(l => l.Booking)
                 .FirstOrDefaultAsync(l => l.Id == lobbyId);
         }
 
@@ -26,6 +31,7 @@ namespace BoardVerse.Data.Repositories
         {
             return await _db.Lobbies
                 .Include(l => l.Members)
+                    .ThenInclude(m => m.User)
                 .FirstOrDefaultAsync(l => l.ActiveSessionId == activeSessionId);
         }
 
@@ -36,6 +42,18 @@ namespace BoardVerse.Data.Repositories
                     .ThenInclude(m => m.User)
                 .Include(l => l.GameTemplate)
                 .FirstOrDefaultAsync(l => l.Id == lobbyId);
+        }
+
+        public async Task<Lobby?> GetByShareCodeAsync(string shareCode)
+        {
+            if (string.IsNullOrWhiteSpace(shareCode))
+                return null;
+
+            return await _db.Lobbies
+                .Include(l => l.Members)
+                    .ThenInclude(m => m.User)
+                .Include(l => l.GameTemplate)
+                .FirstOrDefaultAsync(l => l.ShareCode == shareCode.ToUpperInvariant());
         }
 
         public async Task<IReadOnlyList<Lobby>> GetActiveLobbiesForGameAsync(Guid gameTemplateId, Guid? excludeLobbyId)
@@ -57,6 +75,7 @@ namespace BoardVerse.Data.Repositories
         /// <summary>
         /// BR-10: Search lobbies by game, geo proximity, and karma filter.
         /// Uses Haversine distance formula for accurate radius filtering.
+        /// LOBBY-P0-FIX-9: Clamp at high latitudes to avoid NaN.
         /// </summary>
         public async Task<IReadOnlyList<Lobby>> SearchLobbiesNearbyAsync(
             Guid gameTemplateId,
@@ -65,21 +84,20 @@ namespace BoardVerse.Data.Repositories
             double radiusKm,
             int? minKarmaScore)
         {
-            // Haversine formula for distance calculation
-            // distance(km) = 6371 * acos(sin(lat1)*sin(lat2) + cos(lat1)*cos(lat2)*cos(deltaLon))
+            // LOBBY-P0-FIX-9: Clamp at high latitudes where cos(lat) → 0
             var latRad = latitude * Math.PI / 180.0;
             var lonRad = longitude * Math.PI / 180.0;
 
-            // Using a bounding box pre-filter for efficiency, then precise distance check
+            // Bounding box pre-filter: clamp cos(lat) để tránh NaN/inf ở vĩ độ ±90
             var latDelta = radiusKm / 6371.0 * 180.0 / Math.PI;
-            var lonDelta = radiusKm / (6371.0 * Math.Cos(latRad)) * 180.0 / Math.PI;
+            var cosLat = Math.Max(0.0001, Math.Abs(Math.Cos(latRad))); // floor at 0.0001 rad ~ 0.006°
+            var lonDelta = radiusKm / (6371.0 * cosLat) * 180.0 / Math.PI;
 
-            var minLat = latitude - latDelta;
-            var maxLat = latitude + latDelta;
+            var minLat = Math.Max(-90, latitude - latDelta);
+            var maxLat = Math.Min(90, latitude + latDelta);
             var minLon = longitude - lonDelta;
             var maxLon = longitude + lonDelta;
 
-            // Use raw SQL for distance calculation since EF Core doesn't support Haversine natively
             var lobbies = await _db.Lobbies
                 .Include(l => l.Members)
                     .ThenInclude(m => m.User)
@@ -87,7 +105,8 @@ namespace BoardVerse.Data.Repositories
                 .Include(l => l.GameTemplate)
                 .Where(l => l.GameTemplateId == gameTemplateId && l.Status == LobbyStatus.Open)
                 .Where(l => l.Latitude.HasValue && l.Longitude.HasValue)
-                .Where(l => l.Latitude >= minLat && l.Latitude <= maxLat && l.Longitude >= minLon && l.Longitude <= maxLon)
+                .Where(l => l.Latitude >= minLat && l.Latitude <= maxLat
+                    && l.Longitude >= minLon && l.Longitude <= maxLon)
                 .ToListAsync();
 
             // Precise distance filter using Haversine
@@ -95,18 +114,23 @@ namespace BoardVerse.Data.Repositories
             lobbies = lobbies
                 .Where(l =>
                 {
-                    var dLat = (l.Latitude!.Value - latitude) * Math.PI / 180.0;
-                    var dLon = (l.Longitude!.Value - longitude) * Math.PI / 180.0;
+                    var lLat = l.Latitude!.Value;
+                    var lLng = l.Longitude!.Value;
+
+                    var dLat = (lLat - latitude) * Math.PI / 180.0;
+                    var dLon = (lLng - longitude) * Math.PI / 180.0;
                     var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2)
-                        + Math.Cos(latRad) * Math.Cos(l.Latitude!.Value * Math.PI / 180.0)
+                        + Math.Cos(latRad) * Math.Cos(lLat * Math.PI / 180.0)
                            * Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+
+                    // Clamp để tránh floating point tạo a > 1
+                    a = Math.Min(1.0, Math.Max(0.0, a));
                     var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
                     var distance = earthRadiusKm * c;
                     return distance <= radiusKm;
                 })
                 .ToList();
 
-            // BR-10: Filter by karma (no Elo filter)
             if (minKarmaScore.HasValue)
             {
                 lobbies = lobbies
@@ -115,6 +139,37 @@ namespace BoardVerse.Data.Repositories
             }
 
             return lobbies;
+        }
+
+        public async Task<IReadOnlyList<Lobby>> GetLobbiesByHostAsync(Guid hostUserId)
+        {
+            return await _db.Lobbies
+                .Include(l => l.Members)
+                    .ThenInclude(m => m.User)
+                .Include(l => l.GameTemplate)
+                .Where(l => l.HostUserId == hostUserId)
+                .OrderByDescending(l => l.CreatedAt)
+                .Take(50)
+                .ToListAsync();
+        }
+
+        public async Task<IReadOnlyList<Lobby>> GetJoinedLobbiesAsync(Guid userId)
+        {
+            return await _db.Lobbies
+                .Include(l => l.Members)
+                    .ThenInclude(m => m.User)
+                .Include(l => l.GameTemplate)
+                .Where(l => l.Members.Any(m => m.UserId == userId && m.IsActive)
+                    && (l.Status == LobbyStatus.Open || l.Status == LobbyStatus.Full
+                        || l.Status == LobbyStatus.InProgress || l.Status == LobbyStatus.RatingOpen))
+                .OrderByDescending(l => l.ScheduledStartTime ?? l.CreatedAt)
+                .Take(50)
+                .ToListAsync();
+        }
+
+        public async Task<BookingDeposit?> GetBookingByIdAsync(Guid bookingId)
+        {
+            return await _db.BookingDeposits.FirstOrDefaultAsync(b => b.Id == bookingId);
         }
 
         public Task AddAsync(Lobby lobby)
@@ -126,6 +181,12 @@ namespace BoardVerse.Data.Repositories
         public Task AddMemberAsync(LobbyMember member)
         {
             _db.LobbyMembers.Add(member);
+            return Task.CompletedTask;
+        }
+
+        public Task AddReportAsync(LobbyReport report)
+        {
+            _db.LobbyReports.Add(report);
             return Task.CompletedTask;
         }
 

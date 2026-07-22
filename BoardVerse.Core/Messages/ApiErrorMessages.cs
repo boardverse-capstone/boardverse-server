@@ -873,6 +873,189 @@ namespace BoardVerse.Core.Messages
             public const string DepositPercentageRange = "Phần trăm cọc không được vượt quá 50%.";
         }
 
+        public static class Friend
+        {
+            public static string UserNotFound(Guid userId) =>
+                $"Không tìm thấy người dùng '{userId}'.";
+
+            public const string CannotSendToSelf =
+                "Không thể gửi lời mời kết bạn cho chính mình.";
+
+            public const string PendingRequestAlreadyExists =
+                "Đã có lời mời kết bạn đang chờ với người dùng này.";
+
+            public const string AlreadyFriends =
+                "Bạn và người dùng này đã là bạn bè.";
+
+            public const string NotFriendRequestRecipient =
+                "Bạn không phải người nhận của lời mời kết bạn này.";
+
+            public const string FriendRequestNotPending =
+                "Lời mời kết bạn này không ở trạng thái chờ phản hồi.";
+
+            public static string FriendshipNotFound(Guid id) =>
+                $"Không tìm thấy quan hệ bạn bè '{id}'.";
+
+            public const string CannotRemoveAcceptedByOther =
+                "Chỉ có thể xóa quan hệ bạn bè khi nó đang ở trạng thái Accepted.";
+
+            public const string BlockedByOtherParty =
+                "Không thể thực hiện hành động này vì bạn đã bị người dùng này chặn.";
+
+            public const string AlreadyBlockedOtherParty =
+                "Bạn đã chặn người dùng này. Hãy bỏ chặn trước khi gửi lời mời.";
+
+            public const string RequesterNotActive =
+                "Không thể chấp nhận vì tài khoản người gửi không còn hoạt động.";
+
+            public const string AddresseeNotActive =
+                "Không thể chấp nhận vì tài khoản của bạn không ở trạng thái hoạt động.";
+
+            public const string RateLimitExceeded =
+                "Bạn đã gửi quá nhiều lời mời kết bạn. Vui lòng chờ vài phút rồi thử lại.";
+
+            public const string FriendListPrivate =
+                "Người dùng này đã ẩn danh sách bạn bè.";
+
+            public const string CannotBlockAdmin =
+                "Không thể chặn tài khoản quản trị viên.";
+
+            public const string CannotBlockSelf =
+                "Không thể chặn chính mình.";
+
+            public const string CannotReportSelf =
+                "Không thể báo cáo chính mình.";
+
+            public const string CannotReportAdmin =
+                "Không thể báo cáo tài khoản quản trị viên.";
+
+            public const string CannotReportNotFriend =
+                "Chỉ có thể báo cáo người dùng đang là bạn bè hoặc đã từng kết bạn.";
+
+            public static string ReportReasonRequired =>
+                "Lý do báo cáo là bắt buộc và phải từ 5 đến 1000 ký tự.";
+
+            public static string ReportAlreadyExists(Guid targetUserId) =>
+                $"Bạn đã gửi báo cáo cho người dùng '{targetUserId}' và đang được xử lý.";
+
+            public static string ReportNotFound(Guid id) =>
+                $"Không tìm thấy báo cáo '{id}'.";
+
+            public const string CannotSuggestToSelf =
+                "Không thể lấy gợi ý kết bạn cho chính mình.";
+
+            public const string NoSuggestionsAvailable =
+                "Hiện chưa có gợi ý kết bạn phù hợp với bạn.";
+
+            public const string CannotViewOwnFriendList =
+                "Không thể truy vấn chính mình qua endpoint này. Hãy dùng GET /api/v1/friends.";
+
+            public const string CannotNoteSelf =
+                "Không thể tạo ghi chú cho chính mình.";
+
+            public static string NoteNotFound(Guid noteId) =>
+                $"Không tìm thấy ghi chú '{noteId}'.";
+
+            public static string NoteNotOwner(Guid noteId) =>
+                $"Bạn không phải chủ sở hữu của ghi chú '{noteId}'.";
+
+            public const string PrivacyRequestNotAccepting =
+                "Người dùng này đã tắt nhận lời mời kết bạn từ người lạ.";
+
+            public const string CannotSendRequestToInactive =
+                "Tài khoản người nhận không hoạt động nên không thể gửi lời mời.";
+
+            public const string CannotRemoveFriendshipNotMember =
+                "Bạn không có quyền xóa quan hệ bạn bè này.";
+
+            public const string CannotBlockInactiveAccount =
+                "Không thể chặn tài khoản không hoạt động.";
+
+            public const string UnblockNotFound =
+                "Không có quan hệ chặn nào giữa bạn và người dùng này để bỏ chặn.";
+
+            public const string CannotUnblockNotBlocker =
+                "Bạn không phải người đã chặn người dùng này.";
+
+            public const string ProfileNotYetCreated =
+                "Hồ sơ người dùng chưa được tạo. Vui lòng hoàn tất hồ sơ trước khi sử dụng tính năng này.";
+        }
+
+        public static class LobbyInvite
+        {
+            public static string InviteNotFound(Guid id) =>
+                $"Không tìm thấy lời mời '{id}'.";
+
+            public const string CannotInviteSelf =
+                "Không thể mời chính mình vào phòng chờ.";
+
+            public const string InviteeAlreadyMember =
+                "Người được mời đã là thành viên của phòng chờ.";
+
+            public const string PendingInviteAlreadyExists =
+                "Đã có lời mời đang chờ với người dùng này cho lobby này.";
+
+            public const string InviterNotMember =
+                "Chỉ thành viên của phòng chờ mới có thể gửi lời mời.";
+
+            public const string InviteNotPending =
+                "Lời mời này không ở trạng thái chờ phản hồi.";
+
+            public const string NotInviteRecipient =
+                "Bạn không phải người nhận của lời mời này.";
+
+            public const string InviteExpired =
+                "Lời mời đã hết hạn hoặc lobby không còn khả dụng.";
+
+            public const string PrivateLobbyRequiresInvite =
+                "Phòng chờ riêng tư chỉ có thể tham gia qua lời mời hoặc share code.";
+
+            public static string ShareCodeInvalid =>
+                "Mã chia sẻ không hợp lệ hoặc không tồn tại.";
+        }
+
+        public static class Lobby
+        {
+            public static string NotFound(Guid lobbyId) =>
+                $"Không tìm thấy phòng chờ '{lobbyId}'.";
+
+            public const string AlreadyMember =
+                "Bạn đã là thành viên của phòng này.";
+
+            public const string NotMember =
+                "Bạn không phải là thành viên của phòng này.";
+
+            public const string NotOpen =
+                "Phòng chờ này không còn mở.";
+
+            public const string AlreadyClosed =
+                "Phòng chờ đã đóng.";
+
+            public const string SeatCountExceeded =
+                "Số thành viên đã vượt quá số ghế cho phép.";
+
+            public static string MaxMembersOutOfRange(int min, int max, int requested) =>
+                $"Số người tối đa ({requested}) phải nằm trong khoảng [{min}, {max}].";
+
+            public static string MinPlayersInvalid(int currentCount, int minPlayers) =>
+                $"Phòng chờ cần ít nhất {minPlayers} người để khóa (hiện có {currentCount}).";
+
+            public const string HostCannotKickSelf =
+                "Host không thể tự kick mình. Hãy dùng Leave thay thế.";
+
+            public const string NotHost =
+                "Chỉ Host mới có thể thực hiện thao tác này.";
+
+            public const string AlreadyHost =
+                "Bạn đã là Host rồi.";
+
+            public const string CannotReportOwnLobby =
+                "Bạn không thể báo cáo phòng chờ mà bạn là Host.";
+
+            public static string NotActiveMember(Guid lobbyId) =>
+                $"Bạn không phải thành viên đang hoạt động của phòng '{lobbyId}'.";
+        }
+
         public static class Tournament
         {
             public static string NotFound(Guid tournamentId) =>

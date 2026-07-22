@@ -27,7 +27,7 @@ public class LobbyServiceTests
 
         var lobbyRepo = new Mock<ILobbyRepository>();
 
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         var request = new CreateLobbyRequestDto
         {
@@ -66,7 +66,7 @@ public class LobbyServiceTests
 
         var gameRepo = new Mock<IGameTemplateRepository>();
 
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         await Assert.ThrowsAsync<ConflictException>(() => service.JoinLobbyAsync(lobbyId, Guid.NewGuid()));
     }
@@ -81,7 +81,7 @@ public class LobbyServiceTests
 
         var gameRepo = new Mock<IGameTemplateRepository>();
         var lobbyRepo = new Mock<ILobbyRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         var request = new CreateLobbyRequestDto
         {
@@ -103,8 +103,16 @@ public class LobbyServiceTests
         var gameId = Guid.NewGuid();
 
         var gameRepo = new Mock<IGameTemplateRepository>();
+        gameRepo.Setup(r => r.GetByIdWithComponentsAsync(gameId)).ReturnsAsync(new GameTemplate
+        {
+            Id = gameId,
+            Name = "Catan",
+            MinPlayers = 2,
+            MaxPlayers = 8,
+            IsActive = true
+        });
         var lobbyRepo = new Mock<ILobbyRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         var request = new CreateLobbyRequestDto
         {
@@ -116,7 +124,7 @@ public class LobbyServiceTests
         var ex = await Assert.ThrowsAsync<BadRequestException>(
             () => service.CreateLobbyAsync(hostId, request));
 
-        Assert.Contains("ít nhất 2", ex.Message);
+        Assert.Contains("Số người tối đa", ex.Message);
     }
 
     [Fact]
@@ -129,7 +137,7 @@ public class LobbyServiceTests
         gameRepo.Setup(r => r.GetByIdWithComponentsAsync(gameId)).ReturnsAsync((GameTemplate?)null);
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         var request = new CreateLobbyRequestDto
         {
@@ -157,7 +165,7 @@ public class LobbyServiceTests
         });
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         var request = new CreateLobbyRequestDto
         {
@@ -190,7 +198,7 @@ public class LobbyServiceTests
         lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync((Lobby?)null);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         await Assert.ThrowsAsync<NotFoundException>(
             () => service.JoinLobbyAsync(lobbyId, Guid.NewGuid()));
@@ -213,7 +221,7 @@ public class LobbyServiceTests
         lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         await Assert.ThrowsAsync<ConflictException>(
             () => service.JoinLobbyAsync(lobbyId, Guid.NewGuid()));
@@ -240,7 +248,7 @@ public class LobbyServiceTests
         lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         await Assert.ThrowsAsync<ConflictException>(
             () => service.JoinLobbyAsync(lobbyId, userId));
@@ -269,7 +277,7 @@ public class LobbyServiceTests
         lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         await Assert.ThrowsAsync<ConflictException>(
             () => service.JoinLobbyAsync(lobbyId, userId));
@@ -297,7 +305,7 @@ public class LobbyServiceTests
         lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         var result = await service.JoinLobbyAsync(lobbyId, newUserId);
 
@@ -327,7 +335,7 @@ public class LobbyServiceTests
         lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         var result = await service.JoinLobbyAsync(lobbyId, user1Id);
 
@@ -345,7 +353,7 @@ public class LobbyServiceTests
         var lobbyRepo = new Mock<ILobbyRepository>();
         lobbyRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((Lobby?)null);
         var gameRepo = new Mock<IGameTemplateRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         await Assert.ThrowsAsync<NotFoundException>(
             () => service.LeaveLobbyAsync(Guid.NewGuid(), Guid.NewGuid()));
@@ -365,7 +373,7 @@ public class LobbyServiceTests
         var lobbyRepo = new Mock<ILobbyRepository>();
         lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
         var gameRepo = new Mock<IGameTemplateRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         await Assert.ThrowsAsync<NotFoundException>(
             () => service.LeaveLobbyAsync(lobbyId, Guid.NewGuid()));
@@ -390,7 +398,7 @@ public class LobbyServiceTests
         var lobbyRepo = new Mock<ILobbyRepository>();
         lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
         var gameRepo = new Mock<IGameTemplateRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         var result = await service.LeaveLobbyAsync(lobbyId, hostId);
 
@@ -420,7 +428,7 @@ public class LobbyServiceTests
         var lobbyRepo = new Mock<ILobbyRepository>();
         lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
         var gameRepo = new Mock<IGameTemplateRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         var result = await service.LeaveLobbyAsync(lobbyId, memberId);
 
@@ -451,7 +459,7 @@ public class LobbyServiceTests
         var lobbyRepo = new Mock<ILobbyRepository>();
         lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
         var gameRepo = new Mock<IGameTemplateRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         await Assert.ThrowsAsync<ForbiddenException>(
             () => service.LockLobbyAsync(lobbyId, nonHostId));
@@ -476,7 +484,7 @@ public class LobbyServiceTests
         var lobbyRepo = new Mock<ILobbyRepository>();
         lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
         var gameRepo = new Mock<IGameTemplateRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         await Assert.ThrowsAsync<ConflictException>(
             () => service.LockLobbyAsync(lobbyId, hostId));
@@ -495,14 +503,15 @@ public class LobbyServiceTests
             MaxMembers = 4,
             Members = new List<LobbyMember>
             {
-                new LobbyMember { Id = Guid.NewGuid(), UserId = hostId, IsActive = true, IsHost = true }
+                new LobbyMember { Id = Guid.NewGuid(), UserId = hostId, IsActive = true, IsHost = true },
+                new LobbyMember { Id = Guid.NewGuid(), UserId = Guid.NewGuid(), IsActive = true, IsHost = false }
             }
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
         lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
         var gameRepo = new Mock<IGameTemplateRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         var result = await service.LockLobbyAsync(lobbyId, hostId);
 
@@ -528,7 +537,7 @@ public class LobbyServiceTests
         lobbyRepo.Setup(r => r.GetActiveLobbiesForGameAsync(gameId, null)).ReturnsAsync(lobbies);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         var request = new SearchLobbiesRequestDto { GameTemplateId = gameId };
         var result = await service.SearchLobbiesAsync(request);
@@ -571,7 +580,7 @@ public class LobbyServiceTests
         lobbyRepo.Setup(r => r.GetActiveLobbiesForGameAsync(gameId, null)).ReturnsAsync(lobbies);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         var request = new SearchLobbiesRequestDto { GameTemplateId = gameId, MinKarmaScore = 80 };
         var result = await service.SearchLobbiesAsync(request);
@@ -602,10 +611,10 @@ public class LobbyServiceTests
         var lobbyRepo = new Mock<ILobbyRepository>();
         lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
         var gameRepo = new Mock<IGameTemplateRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         await Assert.ThrowsAsync<ForbiddenException>(
-            () => service.CloseLobbyAsync(lobbyId, nonHostId));
+            () => service.CloseLobbyAsync(lobbyId, nonHostId, null));
     }
 
     [Fact]
@@ -627,9 +636,9 @@ public class LobbyServiceTests
         var lobbyRepo = new Mock<ILobbyRepository>();
         lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
         var gameRepo = new Mock<IGameTemplateRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
-        var result = await service.CloseLobbyAsync(lobbyId, hostId);
+        var result = await service.CloseLobbyAsync(lobbyId, hostId, null);
 
         Assert.Equal(LobbyStatus.Closed, result.Status);
     }
@@ -655,7 +664,7 @@ public class LobbyServiceTests
         var lobbyRepo = new Mock<ILobbyRepository>();
         lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
         var gameRepo = new Mock<IGameTemplateRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         await Assert.ThrowsAsync<ForbiddenException>(
             () => service.OpenKarmaWindowAsync(lobbyId, nonHostId));
@@ -678,7 +687,7 @@ public class LobbyServiceTests
         var lobbyRepo = new Mock<ILobbyRepository>();
         lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
         var gameRepo = new Mock<IGameTemplateRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<ILobbyHubService>().Object);
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object);
 
         var result = await service.OpenKarmaWindowAsync(lobbyId, hostId);
 
@@ -687,3 +696,4 @@ public class LobbyServiceTests
 
     #endregion
 }
+

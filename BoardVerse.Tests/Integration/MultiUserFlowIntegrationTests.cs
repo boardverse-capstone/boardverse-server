@@ -52,7 +52,10 @@ public class MultiUserFlowIntegrationTests
             return;
         }
 
-        Assert.Equal(HttpStatusCode.Created, lobbyResponse.StatusCode);
+        var lobbyBody = await lobbyResponse.Content.ReadAsStringAsync();
+        Assert.True(
+            lobbyResponse.StatusCode == HttpStatusCode.Created,
+            $"Lobby create expected 201 but got {lobbyResponse.StatusCode}. Body: {lobbyBody}");
         var lobbyId = (await ApiTestClient.ReadApiResponseAsync<FourPlayerLobbyDto>(lobbyResponse)).Data!.Id;
 
         // Step 2: Player2 join lobby

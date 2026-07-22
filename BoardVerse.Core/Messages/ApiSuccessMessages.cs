@@ -191,6 +191,39 @@ namespace BoardVerse.Core.Messages
             public const string ResultSubmitted = "Gửi kết quả trận đấu thành công.";
         }
 
+        public static class Friend
+        {
+            public const string RequestSent = "Gửi lời mời kết bạn thành công.";
+            public const string RequestAccepted = "Đã chấp nhận lời mời kết bạn.";
+            public const string RequestDeclined = "Đã từ chối lời mời kết bạn.";
+            public const string Removed = "Đã xóa quan hệ bạn bè.";
+            public const string Blocked = "Đã chặn người dùng.";
+            public const string Unblocked = "Đã bỏ chặn người dùng.";
+            public const string ListRetrieved = "Lấy danh sách bạn bè thành công.";
+            public const string PendingRequestsRetrieved = "Lấy danh sách lời mời kết bạn thành công.";
+            public const string SearchCompleted = "Tìm kiếm người dùng thành công.";
+
+            public const string ActivityRetrieved = "Lấy trạng thái hoạt động của bạn bè thành công.";
+            public const string SuggestionsRetrieved = "Lấy danh sách gợi ý kết bạn thành công.";
+            public const string PrivacyUpdated = "Cập nhật quyền riêng tư thành công.";
+            public const string ReportSubmitted = "Gửi báo cáo thành công. Đội ngũ kiểm duyệt sẽ xem xét.";
+            public const string NoteCreated = "Tạo ghi chú bạn bè thành công.";
+            public const string NoteUpdated = "Cập nhật ghi chú bạn bè thành công.";
+            public const string NoteDeleted = "Xóa ghi chú bạn bè thành công.";
+            public const string NotesRetrieved = "Lấy danh sách ghi chú bạn bè thành công.";
+            public const string MutualFriendsRetrieved = "Lấy danh sách bạn chung thành công.";
+        }
+
+        public static class LobbyInvite
+        {
+            public const string InviteSent = "Gửi lời mời vào lobby thành công.";
+            public const string InviteAccepted = "Đã chấp nhận lời mời tham gia lobby.";
+            public const string InviteDeclined = "Đã từ chối lời mời tham gia lobby.";
+            public const string InviteCancelled = "Đã hủy lời mời tham gia lobby.";
+            public const string InvitesRetrieved = "Lấy danh sách lời mời lobby thành công.";
+            public const string ShareInfoRetrieved = "Lấy thông tin chia sẻ lobby thành công.";
+        }
+
         public static class Tournament
         {
             public const string Created = "Tạo giải đấu thành công.";

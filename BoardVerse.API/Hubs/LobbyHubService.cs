@@ -85,4 +85,64 @@ public class LobbyHubService : ILobbyHubService
         });
         _logger.LogInformation("Broadcast BookingConfirmed to lobby {LobbyId}: booking {BookingId}", lobbyId, bookingId);
     }
+
+    public async Task NotifyMemberKicked(Guid lobbyId, Guid userId)
+    {
+        await _hubContext.Clients.Group(lobbyId.ToString()).SendAsync("MemberKicked", new
+        {
+            LobbyId = lobbyId,
+            UserId = userId,
+            Timestamp = DateTime.UtcNow
+        });
+        _logger.LogInformation("Broadcast MemberKicked to lobby {LobbyId}: user {UserId}", lobbyId, userId);
+    }
+
+    public async Task NotifyMemberReady(Guid lobbyId, Guid userId, bool isReady)
+    {
+        await _hubContext.Clients.Group(lobbyId.ToString()).SendAsync("MemberReady", new
+        {
+            LobbyId = lobbyId,
+            UserId = userId,
+            IsReady = isReady,
+            Timestamp = DateTime.UtcNow
+        });
+        _logger.LogInformation("Broadcast MemberReady to lobby {LobbyId}: user {UserId} ready={IsReady}", lobbyId, userId, isReady);
+    }
+
+    public async Task NotifyHostChanged(Guid lobbyId, Guid newHostUserId)
+    {
+        await _hubContext.Clients.Group(lobbyId.ToString()).SendAsync("HostChanged", new
+        {
+            LobbyId = lobbyId,
+            NewHostUserId = newHostUserId,
+            Timestamp = DateTime.UtcNow
+        });
+        _logger.LogInformation("Broadcast HostChanged to lobby {LobbyId}: new host {UserId}", lobbyId, newHostUserId);
+    }
+
+    public async Task NotifyLobbyUpdated(Guid lobbyId)
+    {
+        await _hubContext.Clients.Group(lobbyId.ToString()).SendAsync("LobbyUpdated", new
+        {
+            LobbyId = lobbyId,
+            Timestamp = DateTime.UtcNow
+        });
+    }
+
+    public async Task NotifyLobbyInProgress(Guid lobbyId)
+    {
+        await _hubContext.Clients.Group(lobbyId.ToString()).SendAsync("LobbyInProgress", new
+        {
+            LobbyId = lobbyId,
+            Message = "All members ready. Lobby transitioned to InProgress.",
+            Timestamp = DateTime.UtcNow
+        });
+        _logger.LogInformation("Broadcast LobbyInProgress to lobby {LobbyId}", lobbyId);
+    }
+
+    public async Task NotifyMessagePosted(Guid lobbyId, LobbyMessageDto message)
+    {
+        await _hubContext.Clients.Group(lobbyId.ToString()).SendAsync("MessagePosted", message);
+        _logger.LogInformation("Broadcast MessagePosted to lobby {LobbyId} from {SenderId}", lobbyId, message.SenderId);
+    }
 }

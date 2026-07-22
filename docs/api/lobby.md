@@ -23,6 +23,49 @@ Tuân thủ business rules:
 
 ## REST Endpoints
 
+## Visibility — Public vs Private lobby
+
+| Trường | Public (mặc định) | Private |
+|--------|-------------------|---------|
+| `IsPrivate` | `false` | `true` |
+| Hiện trong `/search` | ✅ | ❌ |
+| Join qua `/search` + `/{id}/join` | ✅ | ❌ |
+| Join qua share code (`/join-by-code`) | ✅ | ✅ |
+| Join qua invite (`/invites/.../accept`) | ✅ | ✅ |
+| Host gửi invite cho bạn bè | ✅ | ✅ |
+
+> Lobby response luôn trả về `lobbyId` (Guid) và `shareCode` (8 ký tự). Thành viên dùng `GET /{lobbyId}/share-info` để lấy mã copy &amp; share.
+
+## Luồng mời bạn vào lobby
+
+```
+1. Player A tạo lobby: POST /api/v1/lobbies (IsPrivate = false/true)
+   → Response có lobbyId + shareCode
+
+2a. Mời qua friend list (recommended cho private lobby):
+    - Player A mời Player B làm bạn: POST /api/v1/friends/requests
+    - Player B accept: POST /api/v1/friends/requests/{id}/accept
+    - Player A gửi lobby invite: POST /api/v1/lobbies/{lobbyId}/invites
+       Body: { inviteeId: "<Player B id>" }
+    - Player B accept invite: POST /api/v1/lobbies/invites/{inviteId}/accept
+      → Tự động join lobby
+
+2b. Share code (nhanh cho cả public/private):
+    - Player A copy shareCode: GET /api/v1/lobbies/{lobbyId}/share-info
+    - Gửi qua Messenger / Zalo
+    - Player B vào app → POST /api/v1/lobbies/join-by-code
+       Body: { shareCode: "K7H3NP9X" }
+    → Đã join lobby
+```
+
+Xem chi tiết API:
+- Friend: [friend.md](./friend.md)
+- Lobby invite + share code: [lobby-invite.md](./lobby-invite.md)
+
+---
+
+## REST Endpoints
+
 | Endpoint | Method | Mô tả | Auth |
 |----------|--------|--------|------|
 | `/` | POST | Tạo phòng chờ mới | Player |
@@ -33,6 +76,14 @@ Tuân thủ business rules:
 | `/{lobbyId}/close` | POST | Đóng phòng (Host only) | Host |
 | `/{lobbyId}/lock` | POST | Khóa phòng để ghép đội (Host only) | Host |
 | `/{lobbyId}/open-karma-window` | POST | Mở cửa sổ đánh giá Karma sau thanh toán (Host only) | Host |
+| `/{lobbyId}/invites` | POST | Gửi lời mời tham gia lobby | Member |
+| `/invites/{inviteId}/accept` | POST | Accept lời mời (tự động join) | Invitee |
+| `/invites/{inviteId}/decline` | POST | Từ chối lời mời | Invitee |
+| `/invites/{inviteId}` | DELETE | Hủy lời mời đã gửi | Inviter |
+| `/invites/me/pending` | GET | Inbox: lời mời lobby đang chờ | Player |
+| `/invites/me?status=` | GET | Tất cả lời mời lobby (filter) | Player |
+| `/{lobbyId}/share-info` | GET | Lấy Lobby ID + Share Code để copy | Member |
+| `/join-by-code` | POST | Join lobby bằng share code | Player |
 
 > **Auth:** Tất cả endpoints yêu cầu `Authorization: Bearer <jwt>`. Token lấy từ `/api/v1/auth/login`.
 

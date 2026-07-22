@@ -91,7 +91,7 @@ Bàn đấu của một vòng cụ thể.
 - Chưa đăng ký trước đó.
 - Chưa đầy `MaxParticipants`.
 
-**Response 200:** `TournamentParticipantResponseDto` — `status = Registered`.
+**Response 201:** `TournamentParticipantResponseDto` — `status = Registered`.
 
 **Lỗi:**
 - `401` thiếu token.
@@ -152,10 +152,10 @@ Top N người chơi theo `GlobalElo` (mặc định 100).
 ## Luồng tích hợp
 
 1. Player mở app → `GET /tournaments/open?gameTemplateId=...` xem các giải Splendor đang tuyển.
-2. `POST /tournaments/{id}/register` để đăng ký.
-3. Đến giờ → check-in tại quán bằng QR code (qua POS).
-4. Theo dõi vòng đấu: `GET /tournaments/{id}/matches/round/{n}`.
-5. Sau khi giải kết thúc → Karma cộng vào profile, lịch sử Elo cập nhật.
+2. `POST /tournaments/{id}/register` để đăng ký (status 201 Created).
+3. Theo dõi vòng đấu: `GET /tournaments/{id}/matches/round/{n}`.
+4. Check-in tại quán: Manager dùng POS (`POST /api/v1/pos/tournaments/{id}/participants/{participantId}/check-in`).
+5. Sau khi giải kết thúc → Karma cộng vào profile, lịch sử Elo cập nhật (`GET /my-elo-history`).
 
 ---
 

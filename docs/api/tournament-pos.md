@@ -15,14 +15,17 @@ API dành cho máy POS tại quán: tạo/cập nhật/hủy giải, mở/đóng
 | `/cafes/{cafeId}` | GET | Danh sách giải theo cafe |
 | `/cafes/{cafeId}/active` | GET | Giải đang OnGoing của cafe (POS auto-load) |
 | `/{tournamentId}/open-registration` | POST | Mở đăng ký |
+| `/{tournamentId}/reopen-registration` | POST | Mở lại đăng ký (RegistrationClosed → RegistrationOpen) |
 | `/{tournamentId}/close-registration` | POST | Đóng đăng ký |
 | `/{tournamentId}/start` | POST | Bắt đầu giải (build Round 1) |
+| `/{tournamentId}/start-with-options` | POST | Bắt đầu giải với shortage handling (force-start/auto-shorten) |
+| `/{tournamentId}/extend-registration` | POST | Gia hạn deadline đăng ký (+30 phút) |
 | `/{tournamentId}/cancel` | POST | Hủy giải |
 | `/{tournamentId}/complete` | POST | Hoàn thành giải (apply Karma + Elo) |
 | `/{tournamentId}/advance-round` | POST | Chuyển sang vòng tiếp theo |
-| `/{tournamentId}/pairing-mode` | PATCH | Chuyển Auto ↔ Manual pairing |
-| `/{tournamentId}/preview-pairings/{roundNumber}` | GET | Preview pairings trước khi set |
-| `/{tournamentId}/pairings/{roundNumber}` | PUT | Set pairings thủ công |
+| `/{tournamentId}/pairing-mode` | POST | Chuyển Auto ↔ Manual pairing |
+| `/{tournamentId}/pairings/{roundNumber}/preview` | GET | Preview pairings trước khi set |
+| `/{tournamentId}/pairings` | POST | Set pairings thủ công (RoundNumber trong body) |
 | `/{tournamentId}/pairings/{roundNumber}` | DELETE | Xóa pairings thủ công, dùng Auto |
 | `/{tournamentId}/participants/{participantId}/check-in` | POST | Check-in participant |
 | `/{tournamentId}/participants/{participantId}/no-show` | POST | Đánh dấu no-show (Karma penalty) |
@@ -112,6 +115,20 @@ Chuyển `RegistrationOpen → RegistrationClosed`. Cũng được gọi tự đ
 
 ---
 
+## POST /api/v1/pos/tournaments/{tournamentId}/reopen-registration
+
+Chuyển `RegistrationClosed → RegistrationOpen`. Dùng khi: close nhầm, hoặc muốn tuyển thêm người sau khi auto-extend không đủ.
+
+**Response 200:** `TournamentResponseDto` — `status = RegistrationOpen`.
+
+**Lỗi:**
+- `401` thiếu token.
+- `403` không phải Manager của cafe.
+- `404` không tìm thấy giải.
+- `409` giải không ở trạng thái `RegistrationClosed`.
+
+---
+
 ## POST /api/v1/pos/tournaments/{tournamentId}/start
 
 Bắt đầu giải (`RegistrationClosed → OnGoing`). Tự động build Swiss Round 1 từ các participants đã check-in.
@@ -121,6 +138,51 @@ Bắt đầu giải (`RegistrationClosed → OnGoing`). Tự động build Swiss
 **Response 200:** `TournamentResponseDto` — `currentRound = 1`.
 
 **Lỗi:** `409` chưa đóng đăng ký / chưa đủ người.
+
+---
+
+## POST /api/v1/pos/tournaments/{tournamentId}/start-with-options
+
+Bắt đầu giải với options nâng cao khi thiếu người. Hỗ trợ force-start (bỏ qua MinParticipants), auto-shorten rounds, manual rounds override.
+
+**Body mẫu:**
+
+```json
+{
+  "allowPartialStart": true,
+  "reducedRounds": null,
+  "autoShortenMode": "Auto",
+  "reason": "Giải chỉ có 6 người - giảm rounds cho phù hợp"
+}
+```
+
+| Field | Type | Required | Mô tả |
+|-------|------|----------|--------|
+| `allowPartialStart` | bool | ✅ | Bỏ qua `MinParticipants` check. |
+| `reducedRounds` | int? | ❌ | Override số rounds Swiss. Null = auto-calculate. |
+| `autoShortenMode` | string | ✅ | `"Auto"` hoặc `"Manual"`. |
+| `reason` | string | ❌ | Lý do (audit trail). Bắt buộc khi `allowPartialStart = true`. |
+
+**Response 200:** `TournamentResponseDto` — có thể kèm `startedWithShortage = true` và `actualPreliminaryRounds`.
+
+**Lỗi:**
+- `400` `AutoShortenMode` / `ReducedRounds` không hợp lệ.
+- `403` không phải Manager.
+- `404` không tìm thấy giải.
+- `409` trạng thái tournament không hợp lệ.
+
+---
+
+## POST /api/v1/pos/tournaments/{tournamentId}/extend-registration
+
+Gia hạn deadline đăng ký thêm `ExtensionMinutesPerAttempt` (mặc định 30 phút). Tối đa `MaxExtensionCount` lần (mặc định 2).
+
+**Response 200:** `TournamentResponseDto` — `registrationDeadline` đã được dời, `extensionCount` tăng 1.
+
+**Lỗi:**
+- `403` không phải Manager.
+- `404` không tìm thấy giải.
+- `409` đăng ký không mở hoặc đã đạt `MaxExtensionCount`.
 
 ---
 
@@ -335,7 +397,7 @@ Sửa kết quả bàn đấu đã ghi (chỉ cho Swiss rounds, không cho Final
 
 ---
 
-## PATCH /api/v1/pos/tournaments/{tournamentId}/pairing-mode
+## POST /api/v1/pos/tournaments/{tournamentId}/pairing-mode
 
 Chuyển chế độ pairing: Auto ↔ Manual.
 
@@ -354,7 +416,7 @@ Chuyển chế độ pairing: Auto ↔ Manual.
 
 ---
 
-## GET /api/v1/pos/tournaments/{tournamentId}/preview-pairings/{roundNumber}
+## GET /api/v1/pos/tournaments/{tournamentId}/pairings/{roundNumber}/preview
 
 Preview pairings cho round N (dùng Auto algorithm) mà không apply.
 
@@ -362,24 +424,28 @@ Preview pairings cho round N (dùng Auto algorithm) mà không apply.
 
 ---
 
-## PUT /api/v1/pos/tournaments/{tournamentId}/pairings/{roundNumber}
+## POST /api/v1/pos/tournaments/{tournamentId}/pairings
 
-Set pairings thủ công cho round N (chỉ khi `PairingMode = Manual`).
+Set pairings thủ công cho 1 round (chỉ khi `PairingMode = Manual`). `RoundNumber` nằm trong body.
 
-**Body:**
+**Body mẫu:**
 
 ```json
 {
+  "roundNumber": 2,
   "tables": [
-    { "playerIds": ["<guid1>", "<guid2>", "<guid3>", "<guid4>"] },
-    { "playerIds": ["<guid5>", "<guid6>", "<guid7>", "<guid8>"] }
+    { "matchNumber": 1, "playerIds": ["<guid1>", "<guid2>", "<guid3>", "<guid4>"] },
+    { "matchNumber": 2, "playerIds": ["<guid5>", "<guid6>", "<guid7>", "<guid8>"] }
   ]
 }
 ```
 
 **Validation:**
-- Số players = bội số của 4 (hoặc remainder table nếu có <4)
-- Không repeat pairing (2 players đã đấu nhau ở round trước)
+- `RoundNumber` 1-4 (1-3 Swiss, 4 Final).
+- Không trùng `MatchNumber`.
+- Không trùng `PlayerId`.
+- `UserId` phải thuộc tournament.
+- Mỗi bàn 2-4 người.
 
 **Response 200:** `RoundPairingsResponseDto`.
 

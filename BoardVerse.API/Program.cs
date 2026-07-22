@@ -153,6 +153,18 @@ builder.Services.AddScoped<ISePayAccountRepository, SePayAccountRepository>();
 builder.Services.AddScoped<ISePayAccountService, SePayAccountService>();
 builder.Services.AddScoped<ITournamentRepository, TournamentRepository>();
 builder.Services.AddScoped<ITournamentService, TournamentService>();
+builder.Services.AddScoped<IFriendshipRepository, FriendshipRepository>();
+builder.Services.AddScoped<IFriendNoteRepository, FriendNoteRepository>();
+builder.Services.AddScoped<IFriendReportRepository, FriendReportRepository>();
+builder.Services.AddScoped<ILobbyMemberRepository, LobbyMemberRepository>();
+builder.Services.AddScoped<LobbyInviteRepository>();
+builder.Services.AddScoped<ILobbyInviteRepository>(sp => sp.GetRequiredService<LobbyInviteRepository>());
+builder.Services.AddScoped<IFriendService, FriendService>();
+builder.Services.AddScoped<IFriendNoteService, FriendNoteService>();
+builder.Services.AddScoped<IFriendReportService, FriendReportService>();
+builder.Services.AddScoped<ILobbyInviteService, LobbyInviteService>();
+builder.Services.AddScoped<ILobbyMessageRepository, LobbyMessageRepository>();
+builder.Services.AddScoped<ILobbyMessageService, LobbyMessageService>();
 
 // Background Jobs for Lobby expiration — skip in Testing env (KarmaWindowJob interferes with integration tests)
 if (!builder.Environment.IsEnvironment("Testing"))
@@ -162,8 +174,10 @@ if (!builder.Environment.IsEnvironment("Testing"))
     builder.Services.AddHostedService<BookingDepositExpiryJob>();
     builder.Services.AddHostedService<SettlementRetryJob>();
     builder.Services.AddHostedService<TournamentExpiryJob>();
+    builder.Services.AddHostedService<LobbyCleanupJob>();
     builder.Services.AddHostedService<TournamentReminderJob>();
     builder.Services.AddHostedService<TournamentNoShowDetectionJob>();
+    builder.Services.AddHostedService<FriendRequestExpiryJob>();
 }
 
 // SignalR Hubs for real-time updates

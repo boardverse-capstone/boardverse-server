@@ -165,5 +165,11 @@ namespace BoardVerse.Data.Repositories
         {
             return _context.SaveChangesAsync();
         }
+
+        public async Task<bool> CafeHasGameAsync(Guid cafeId, Guid gameTemplateId)
+        {
+            return await _context.CafeGameInventories
+                .AnyAsync(c => c.CafeId == cafeId && c.GameTemplateId == gameTemplateId && c.BoxQuantity > 0);
+        }
     }
 }

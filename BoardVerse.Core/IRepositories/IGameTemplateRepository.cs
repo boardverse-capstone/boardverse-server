@@ -16,6 +16,12 @@ namespace BoardVerse.Core.IRepositories
         Task<GameTemplate?> GetByNameAsync(string name);
         Task<bool> ExistsAsync(Guid id);
         Task<Dictionary<Guid, int>> GetComponentCountsByGameIdsAsync(IReadOnlyCollection<Guid> gameIds);
+
+        /// <summary>
+        /// Kiểm tra cafe có trong kho (CafeGameInventory) game này không.
+        /// </summary>
+        Task<bool> CafeHasGameAsync(Guid cafeId, Guid gameTemplateId);
+
         Task SaveChangesAsync();
     }
 }

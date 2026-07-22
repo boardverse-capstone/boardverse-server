@@ -227,4 +227,10 @@ namespace BoardVerse.Core.Exceptions
         public PaymentException(string message = "Thanh toán thất bại.") : base(message) { }
         public PaymentException(string message, Exception innerException) : base(message, innerException) { }
     }
+
+    public class TooManyRequestsException : AppException
+    {
+        public TooManyRequestsException(string message = "Quá nhiều yêu cầu. Vui lòng thử lại sau.") : base(message, 429) { }
+        public TooManyRequestsException(string message, Exception innerException) : base(message, 429, innerException) { }
+    }
 }

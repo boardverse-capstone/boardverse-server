@@ -45,6 +45,12 @@ namespace BoardVerse.Data
         public DbSet<TournamentParticipant> TournamentParticipants => Set<TournamentParticipant>();
         public DbSet<TournamentMatchBracket> TournamentMatchBrackets => Set<TournamentMatchBracket>();
         public DbSet<TournamentMatchEloContribution> TournamentMatchEloContributions => Set<TournamentMatchEloContribution>();
+        public DbSet<Friendship> Friendships => Set<Friendship>();
+        public DbSet<LobbyInvite> LobbyInvites => Set<LobbyInvite>();
+        public DbSet<FriendNote> FriendNotes => Set<FriendNote>();
+        public DbSet<FriendReport> FriendReports => Set<FriendReport>();
+        public DbSet<LobbyMessage> LobbyMessages => Set<LobbyMessage>();
+        public DbSet<LobbyReport> LobbyReports => Set<LobbyReport>();
 
     public BoardVerseDbContext(DbContextOptions<BoardVerseDbContext> options) : base(options)
     {
@@ -194,6 +200,21 @@ namespace BoardVerse.Data
                     .HasConversion<string>()
                     .HasMaxLength(20);
 
+                // === Privacy & social ===
+                entity.Property(p => p.IsFriendListPublic)
+                    .HasDefaultValue(true);
+
+                entity.Property(p => p.AcceptFriendRequestsFrom)
+                    .HasMaxLength(30)
+                    .HasDefaultValue("Everyone");
+
+                entity.Property(p => p.FriendLimit)
+                    .HasDefaultValue(0);
+
+                entity.Property(p => p.LastActiveAt);
+
+                entity.HasIndex(p => p.LastActiveAt);
+
                 entity.HasOne(p => p.User)
                     .WithOne(u => u.Profile)
                     .HasForeignKey<UserProfile>(p => p.UserId)
@@ -292,6 +313,11 @@ namespace BoardVerse.Data
             // Note: GameTemplate and GameComponentTemplate configurations are now handled
             // by IEntityTypeConfiguration<T> classes in the Configurations folder
             // and are automatically applied via ApplyConfigurationsFromAssembly
+
+            // Friendship entity configuration is in Configurations/FriendshipConfiguration.cs
+
+            // Lobby + LobbyInvite configurations are in Configurations/LobbyConfiguration.cs
+            // and Configurations/LobbyInviteConfiguration.cs
         }
     }
 }

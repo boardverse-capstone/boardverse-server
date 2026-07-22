@@ -41,6 +41,19 @@ namespace BoardVerse.Core.Entities
         /// </summary>
         public bool IsActive { get; set; } = true;
 
+        // --- Privacy & Social ---
+        /// <summary>true = công khai danh sách bạn bè cho mọi người; false = chỉ bạn bè xem được.</summary>
+        public bool IsFriendListPublic { get; set; } = true;
+
+        /// <summary>Ai có thể gửi lời mời kết bạn: Everyone (mọi người) / FriendsOfFriends (chỉ bạn của bạn).</summary>
+        public string AcceptFriendRequestsFrom { get; set; } = "Everyone";
+
+        /// <summary>Số bạn bè tối đa được phép (BR-FRIEND-CAP-01). 0 = không giới hạn.</summary>
+        public int FriendLimit { get; set; } = 0;
+
+        /// <summary>Hoạt động online cuối cùng (cập nhật khi có request tới server).</summary>
+        public DateTime? LastActiveAt { get; set; }
+
         public virtual User User { get; set; } = null!;
     }
 }

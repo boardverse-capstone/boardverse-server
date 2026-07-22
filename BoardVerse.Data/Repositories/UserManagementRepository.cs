@@ -89,6 +89,42 @@ namespace BoardVerse.Data.Repositories
             return _context.Users.Include(u => u.Profile).FirstOrDefaultAsync(u => u.Id == userId);
         }
 
+        public async Task<IReadOnlyList<User>> SearchByUsernameAsync(string keyword, Guid excludeUserId, int limit = 20)
+        {
+            if (string.IsNullOrWhiteSpace(keyword))
+                return Array.Empty<User>();
+
+            var pattern = keyword.Trim().ToLower();
+            return await _context.Users
+                .Include(u => u.Profile)
+                .Where(u => u.Id != excludeUserId
+                    && u.IsActive
+                    && u.AccountStatus == UserAccountStatus.Active
+                    && u.Username.ToLower().Contains(pattern))
+                .OrderBy(u => u.Username)
+                .Take(Math.Clamp(limit, 1, 50))
+                .ToListAsync();
+        }
+
+        public async Task<IReadOnlyList<User>> GetByIdsAsync(IReadOnlyCollection<Guid> userIds)
+        {
+            if (userIds == null || userIds.Count == 0) return Array.Empty<User>();
+            var ids = userIds.ToHashSet();
+            return await _context.Users
+                .Include(u => u.Profile)
+                .Where(u => ids.Contains(u.Id) && u.IsActive && u.AccountStatus == UserAccountStatus.Active)
+                .ToListAsync();
+        }
+
+        public async Task UpdateLastActiveAsync(Guid userId, DateTime lastActiveAt)
+        {
+            var profile = await _context.UserProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
+            if (profile == null) return;
+            profile.LastActiveAt = lastActiveAt;
+            profile.UpdatedAt = lastActiveAt;
+            await _context.SaveChangesAsync();
+        }
+
         public Task AddUserAsync(User user)
         {
             _context.Users.Add(user);

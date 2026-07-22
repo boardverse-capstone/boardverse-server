@@ -13,7 +13,7 @@
 | Thanh toán session (POS) | `PaymentController` | `POST /api/payments/session-payment` |
 | Manual confirm (fallback) | `PaymentController` | `POST /api/payments/manual-confirm` |
 
-> **Xem đầy đủ:** [sepay-webhook.md](./sepay-webhook.md), [sepay-account.md](./sepay-account.md), [sepay-payment-flow.mdc](../../.cursor/rules/sepay-payment-flow.mdc).
+> **Xem đầy đủ:** [payment.md](./payment.md), [sepay-webhook.md](./sepay-webhook.md), [sepay-account.md](./sepay-account.md), [sepay-payment-flow.mdc](../../.cursor/rules/sepay-payment-flow.mdc).
 
 ---
 
@@ -92,6 +92,7 @@ stateDiagram-v2
 
 ## API liên quan
 
+- **Payment API chi tiết:** [payment.md](./payment.md) — tất cả endpoint của `PaymentController`.
 - **Deposit flow:** [sepay-webhook.md](./sepay-webhook.md), [sepay-account.md](./sepay-account.md)
 - **Lobby flow:** [lobby.md](./lobby.md)
 - **POS session flow:** [cafe-pos.md](./cafe-pos.md), [active-session.md](./active-session.md)
