@@ -22,16 +22,16 @@ public class UpdateTournamentRequestDto
     [Range(4, 32)]
     public int? MaxParticipants { get; set; }
 
-    [Range(0, 1000)]
+    [Range(0, 100)]
     public int? MinKarmaRequirement { get; set; }
 
-    [Range(0, 500)]
-    public int? WinnerKarmaBonus { get; set; }
+    [Range(0, 5000)]
+    public int? MinEloRequirement { get; set; }
 
-    [Range(0, 500)]
-    public int? FinalistKarmaBonus { get; set; }
+    [Range(0, 5000)]
+    public int? MaxEloRequirement { get; set; }
 
-    [Range(-500, 0)]
+    [Range(-100, 0)]
     public int? NoShowKarmaPenalty { get; set; }
 
     /// <summary>Manager bật/tắt tự động extend registration khi thiếu người.</summary>

@@ -2,6 +2,7 @@ using BoardVerse.Core.DTOs.Admin;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.Services;
 using Moq;
@@ -94,7 +95,7 @@ public class AdminModerationServiceTests
     public async Task AdjustKarmaAsync_AppliesDeltaAndLogs()
     {
         var repo = new Mock<IAdminModerationRepository>();
-        var profile = new UserProfile { UserId = TargetId, KarmaPoints = 100, GamerTier = GamerTier.Bronze };
+        var profile = new UserProfile { UserId = TargetId, KarmaPoints = 100, GamerTier = GamerTier.Gold };
         repo.Setup(r => r.GetProfileForUpdateAsync(TargetId)).ReturnsAsync(profile);
 
         var service = new AdminModerationService(repo.Object);
@@ -130,6 +131,6 @@ public class AdminModerationServiceTests
         Email = "player@test.dev",
         Username = "player",
         Role = UserRole.Player,
-        Profile = new UserProfile { UserId = TargetId, KarmaPoints = karma, GamerTier = GamerTier.Bronze }
+        Profile = new UserProfile { UserId = TargetId, KarmaPoints = karma, GamerTier = KarmaRatingHelper.ResolveTier(karma) }
     };
 }

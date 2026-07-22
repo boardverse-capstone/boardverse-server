@@ -48,9 +48,9 @@ Manager cấu hình khi tạo giải:
 | FinalistCount | 4 | 2-8 | Số người vào Final |
 | MinKarmaRequirement | 0 | 0-100 | Karma tối thiểu để đăng ký |
 | PairingMode | Auto | Auto/Manual | Auto Swiss hoặc Manager tự chọn |
-| WinnerKarmaBonus | +50 | -100/+100 | Karma thưởng nhà vô địch |
-| FinalistKarmaBonus | +20 | -100/+100 | Karma thưởng Top 2-4 |
-| NoShowKarmaPenalty | -30 | -100/+100 | Karma phạt bùng kèo |
+| WinnerKarmaBonus | +5 | -100/+100 | Karma thưởng nhà vô địch (BR: max Karma = 100) |
+| FinalistKarmaBonus | +3 (rank 2), +2 (rank 3), +1 (rank 4) | -100/+100 | Karma thưởng Top 2-4 (giảm tuyến tính) |
+| NoShowKarmaPenalty | -10 | -100/+100 | Karma phạt bùng kèo |
 | AutoExtendOnShortage | false | — | Tự extend khi thiếu người |
 | MaxExtensionCount | 2 | ≥ 0 | Số lần extend tối đa |
 | ExtensionMinutesPerAttempt | 30 | > 0 | Phút mỗi lần extend |
@@ -243,8 +243,8 @@ stateDiagram-v2
    - Mark tất cả Active → Finished
    - Status = Completed
 4. **Apply Karma rewards**:
-   - Winner → KarmaPoints += WinnerKarmaBonus (+50 default)
-   - Top 2-4 → KarmaPoints += FinalistKarmaBonus (+20 default)
+   - Winner → KarmaPoints += WinnerKarmaBonus (+5 default, BR quy định max Karma = 100)
+   - Top 2-4 → KarmaPoints += FinalistKarmaBonus (rank 2: +3, rank 3: +2, rank 4: +1)
    - Ghi KarmaLog với source = TournamentReward
 5. **Apply Elo finalization**:
    - FinalElo = InitialElo + EloDelta

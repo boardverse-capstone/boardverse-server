@@ -154,67 +154,6 @@ public class TournamentController : BaseApiController
     }
 
     /// <summary>
-    /// Manager bấm bắt đầu tournament (chuẩn). Throw 409 nếu thiếu người.
-    /// Dùng API start-with-options nếu muốn force-start với số người thiếu. [Role: Manager — phải là chủ quán]
-    /// </summary>
-    /// <param name="tournamentId">Mã định danh tournament.</param>
-    /// <response code="200">Tournament bắt đầu thành công.</response>
-    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
-    /// <response code="403">Không phải Manager của quán sở hữu tournament.</response>
-    /// <response code="404">Không tìm thấy tournament.</response>
-    /// <response code="409">Số người check-in dưới MinParticipants hoặc trạng thái không hợp lệ.</response>
-    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
-    [HttpPost("{tournamentId:guid}/start")]
-    public async Task<IActionResult> StartTournament(Guid tournamentId)
-    {
-        var managerId = GetUserIdFromClaims();
-        var result = await _tournamentService.StartTournamentAsync(managerId, tournamentId);
-        return this.NewResponse(200, ApiSuccessMessages.Tournament.Started, result);
-    }
-
-    /// <summary>
-    /// Manager bấm bắt đầu tournament với options nâng cao khi thiếu người.
-    /// Hỗ trợ force-start (bỏ qua MinParticipants), auto-shorten rounds, manual rounds override. [Role: Manager — phải là chủ quán]
-    /// </summary>
-    /// <param name="tournamentId">Mã định danh tournament.</param>
-    /// <param name="options">StartTournamentOptionsDto (allowPartialStart, reducedRounds, autoShortenMode, reason).</param>
-    /// <response code="200">Tournament bắt đầu với shortage handling.</response>
-    /// <response code="400">Options không hợp lệ (AutoShortenMode/ReducedRounds).</response>
-    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
-    /// <response code="403">Không phải Manager của quán sở hữu tournament.</response>
-    /// <response code="404">Không tìm thấy tournament.</response>
-    /// <response code="409">Trạng thái tournament không hợp lệ.</response>
-    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
-    [HttpPost("{tournamentId:guid}/start-with-options")]
-    public async Task<IActionResult> StartTournamentWithOptions(
-        Guid tournamentId,
-        [FromBody] StartTournamentOptionsDto options)
-    {
-        var managerId = GetUserIdFromClaims();
-        var result = await _tournamentService.StartTournamentWithOptionsAsync(managerId, tournamentId, options);
-        return this.NewResponse(200, ApiSuccessMessages.Tournament.StartedWithOptions, result);
-    }
-
-    /// <summary>
-    /// Manager gia hạn deadline đăng ký thêm ExtensionMinutesPerAttempt (mặc định 30 phút).
-    /// Tối đa MaxExtensionCount lần (mặc định 2). [Role: Manager — phải là chủ quán]
-    /// </summary>
-    /// <param name="tournamentId">Mã định danh tournament.</param>
-    /// <response code="200">Gia hạn đăng ký thành công, trả về deadline mới.</response>
-    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
-    /// <response code="403">Không phải Manager của quán sở hữu tournament.</response>
-    /// <response code="404">Không tìm thấy tournament.</response>
-    /// <response code="409">Đăng ký không mở hoặc đã đạt MaxExtensionCount.</response>
-    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
-    [HttpPost("{tournamentId:guid}/extend-registration")]
-    public async Task<IActionResult> ExtendRegistration(Guid tournamentId)
-    {
-        var managerId = GetUserIdFromClaims();
-        var result = await _tournamentService.ExtendRegistrationAsync(managerId, tournamentId);
-        return this.NewResponse(200, ApiSuccessMessages.Tournament.RegistrationExtended, result);
-    }
-
-    /// <summary>
     /// Lấy lịch sử Elo của user hiện tại qua các tournament đã/đang tham gia. [Role: Player]
     /// </summary>
     /// <response code="200">Lịch sử Elo.</response>

@@ -74,8 +74,7 @@ public class TournamentFlowIntegrationTests
             ["startTime"] = startTime,
             ["maxParticipants"] = 16,
             ["minParticipants"] = 4,
-            ["winnerKarmaBonus"] = 10,
-            ["finalistKarmaBonus"] = 5,
+            // winnerKarmaBonus / finalistKarmaBonus do hệ thống tự tính, không gửi từ client.
             ["noShowKarmaPenalty"] = -2  // Must be negative (penalty)
         };
         

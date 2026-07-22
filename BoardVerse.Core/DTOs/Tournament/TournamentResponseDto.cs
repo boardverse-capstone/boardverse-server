@@ -33,9 +33,16 @@ public class TournamentResponseDto
     public DateTime? StartedAt { get; set; }
 
     public int MinKarmaRequirement { get; set; }
+    public int MinEloRequirement { get; set; }
+    public int MaxEloRequirement { get; set; }
+    public int NoShowKarmaPenalty { get; set; }
+
+    /// <summary>
+    /// Karma bonus cho winner/finalist do hệ thống tự tính theo rank (linear giảm dần).
+    /// FinalistBonus theo FinalistCount hiện tại của tournament.
+    /// </summary>
     public int WinnerKarmaBonus { get; set; }
     public int FinalistKarmaBonus { get; set; }
-    public int NoShowKarmaPenalty { get; set; }
     public string? CancellationReason { get; set; }
     public DateTime? CancelledAt { get; set; }
     public TournamentStatus Status { get; set; }

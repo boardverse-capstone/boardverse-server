@@ -21,7 +21,6 @@ using System.Text.Json.Serialization;
 using BoardVerse.Core.DTOs.Common;
 using BoardVerse.Core.Json;
 using BoardVerse.Core.Settings;
-using BoardVerse.API.Infrastructure;
 using System.Reflection;
 using Microsoft.Extensions.FileProviders;
 
@@ -264,56 +263,8 @@ var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<BoardVerseDbContext>();
-
-    // Fix QrUrl column width for SePay full checkout URLs (can exceed 500 chars)
-    try
-    {
-        await db.Database.ExecuteSqlRawAsync($@"
-            ALTER TABLE ""BookingDeposits"" ALTER COLUMN ""QrUrl"" TYPE varchar(2000)");
-        app.Logger.LogInformation("BookingDeposits.QrUrl column extended to varchar(2000)");
-    }
-    catch (Exception ex)
-    {
-        app.Logger.LogWarning(ex, "Could not alter QrUrl column (may already be wide enough)");
-    }
-
-    // Gap 3 fix: add RetryCount + NextRetryAt to CafeSettlements for SettlementRetryJob
-    try
-    {
-        await db.Database.ExecuteSqlRawAsync($@"
-            ALTER TABLE ""CafeSettlements""
-                ADD COLUMN IF NOT EXISTS ""RetryCount"" integer NOT NULL DEFAULT 0,
-                ADD COLUMN IF NOT EXISTS ""NextRetryAt"" timestamp with time zone NULL");
-        app.Logger.LogInformation("CafeSettlements.RetryCount + NextRetryAt columns ensured.");
-    }
-    catch (Exception ex)
-    {
-        app.Logger.LogWarning(ex, "Could not alter CafeSettlements retry columns (may already exist)");
-    }
-
-    // Gap 6 fix: make CafeTableId + CafeInventoryBoxId nullable on ActiveSessions
-    try
-    {
-        await db.Database.ExecuteSqlRawAsync($@"
-            ALTER TABLE ""ActiveSessions""
-                ALTER COLUMN ""CafeTableId"" DROP NOT NULL,
-                ALTER COLUMN ""CafeInventoryBoxId"" DROP NOT NULL");
-        app.Logger.LogInformation("ActiveSessions.CafeTableId + CafeInventoryBoxId made nullable.");
-    }
-    catch (Exception ex)
-    {
-        app.Logger.LogWarning(ex, "Could not alter ActiveSessions FK columns (may already be nullable)");
-    }
-
-    var inventoryRepo = scope.ServiceProvider.GetRequiredService<ICafeInventoryRepository>();
-    await inventoryRepo.BackfillMissingInventoryBoxesAsync();
-    app.Logger.LogInformation("Inventory box backfill completed.");
-
-    // SePay Master Account cần được tạo thủ công qua Admin API: POST /api/sepay-accounts
-
-    // PaymentTestSeed disabled - tests use their own bootstrapper with unique data
-    // await PaymentTestSeed.SeedAsync(app.Services);
+    _ = scope.ServiceProvider.GetRequiredService<BoardVerseDbContext>();
+    app.Logger.LogInformation("Database connection initialized. Schema migrations + seed must be run out-of-band.");
 }
 
 var redisInfo = app.Services.GetRequiredService<RedisCacheStartupInfo>();

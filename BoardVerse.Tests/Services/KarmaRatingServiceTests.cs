@@ -19,7 +19,7 @@ public class KarmaRatingServiceTests
     {
         var repo = new Mock<IKarmaRatingRepository>();
         var lobby = BuildLobby(LobbyStatus.InProgress);
-        var targetProfile = new UserProfile { UserId = Player2, KarmaPoints = 100, GamerTier = GamerTier.Bronze };
+        var targetProfile = new UserProfile { UserId = Player2, KarmaPoints = 95, GamerTier = GamerTier.Gold };
 
         repo.Setup(r => r.GetLobbyForRatingAsync(LobbyId)).ReturnsAsync(lobby);
         // Inside the loop: HasRatingAsync is called BEFORE GetProfileForUpdateAsync

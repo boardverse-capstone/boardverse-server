@@ -1,5 +1,6 @@
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Helpers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -39,9 +40,13 @@ public class TournamentConfiguration : IEntityTypeConfiguration<Tournament>
         builder.Property(t => t.CurrentRound).IsRequired().HasDefaultValue(0);
 
         builder.Property(t => t.MinKarmaRequirement).IsRequired().HasDefaultValue(0);
-        builder.Property(t => t.WinnerKarmaBonus).IsRequired().HasDefaultValue(50);
-        builder.Property(t => t.FinalistKarmaBonus).IsRequired().HasDefaultValue(20);
-        builder.Property(t => t.NoShowKarmaPenalty).IsRequired().HasDefaultValue(-30);
+        builder.Property(t => t.MinEloRequirement).IsRequired().HasDefaultValue(800);
+        builder.Property(t => t.MaxEloRequirement).IsRequired().HasDefaultValue(2400);
+        // WinnerKarmaBonus / FinalistKarmaBonus: hệ thống tự tính theo rank — không nhập tay.
+        // Cột vẫn tồn tại để cache kết quả và đọc nhanh trong query.
+        builder.Property(t => t.WinnerKarmaBonus).IsRequired().HasDefaultValue(0);
+        builder.Property(t => t.FinalistKarmaBonus).IsRequired().HasDefaultValue(0);
+        builder.Property(t => t.NoShowKarmaPenalty).IsRequired().HasDefaultValue(TournamentKarmaPolicy.NoShowPenalty);
 
         // === Pairing mode ===
         builder.Property(t => t.PairingMode)

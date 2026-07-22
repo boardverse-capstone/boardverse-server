@@ -412,7 +412,7 @@ internal static class IntegrationTestDataBootstrapper
                 UserId = userId,
                 GlobalElo = globalElo,
                 KarmaPoints = karmaPoints,
-                GamerTier = karmaPoints >= 150 ? GamerTier.Silver : GamerTier.Bronze,
+                GamerTier = KarmaRatingHelper.ResolveTier(karmaPoints),
                 UpdatedAt = DateTime.UtcNow,
                 IsActive = true
             });

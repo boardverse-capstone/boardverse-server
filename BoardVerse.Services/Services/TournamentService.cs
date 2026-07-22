@@ -74,6 +74,12 @@ public class TournamentService : ITournamentService
             throw new BadRequestException(ApiErrorMessages.Tournament.RegistrationDeadlineAfterStartTime);
         }
 
+        if (request.MinEloRequirement > request.MaxEloRequirement)
+        {
+            throw new BadRequestException(
+                $"MinElo ({request.MinEloRequirement}) phải nhỏ hơn hoặc bằng MaxElo ({request.MaxEloRequirement}).");
+        }
+
         var tournament = new Tournament
         {
             Id = Guid.NewGuid(),
@@ -92,10 +98,12 @@ public class TournamentService : ITournamentService
             PreliminaryRounds = 3,
             FinalistCount = 4,
             CurrentRound = 0,
-            MinKarmaRequirement = request.MinKarmaRequirement,
-            WinnerKarmaBonus = request.WinnerKarmaBonus,
-            FinalistKarmaBonus = request.FinalistKarmaBonus,
-            NoShowKarmaPenalty = request.NoShowKarmaPenalty,
+            MinKarmaRequirement = TournamentKarmaPolicy.ClampKarma(request.MinKarmaRequirement),
+            MinEloRequirement = request.MinEloRequirement,
+            MaxEloRequirement = request.MaxEloRequirement,
+            WinnerKarmaBonus = TournamentKarmaPolicy.WinnerBonus,
+            FinalistKarmaBonus = TournamentKarmaPolicy.GetFinalistBonus(2, 4),
+            NoShowKarmaPenalty = TournamentKarmaPolicy.ClampPenalty(request.NoShowKarmaPenalty),
             PairingMode = request.PairingMode,
             Status = TournamentStatus.Draft,
             CreatedAt = now,
@@ -181,23 +189,31 @@ public class TournamentService : ITournamentService
 
         if (request.MinKarmaRequirement.HasValue)
         {
-            tournament.MinKarmaRequirement = request.MinKarmaRequirement.Value;
+            tournament.MinKarmaRequirement = TournamentKarmaPolicy.ClampKarma(request.MinKarmaRequirement.Value);
         }
 
-        if (request.WinnerKarmaBonus.HasValue)
+        if (request.MinEloRequirement.HasValue || request.MaxEloRequirement.HasValue)
         {
-            tournament.WinnerKarmaBonus = request.WinnerKarmaBonus.Value;
-        }
-
-        if (request.FinalistKarmaBonus.HasValue)
-        {
-            tournament.FinalistKarmaBonus = request.FinalistKarmaBonus.Value;
+            var minElo = request.MinEloRequirement ?? tournament.MinEloRequirement;
+            var maxElo = request.MaxEloRequirement ?? tournament.MaxEloRequirement;
+            if (minElo > maxElo)
+            {
+                throw new BadRequestException(
+                    $"MinElo ({minElo}) phải nhỏ hơn hoặc bằng MaxElo ({maxElo}).");
+            }
+            tournament.MinEloRequirement = minElo;
+            tournament.MaxEloRequirement = maxElo;
         }
 
         if (request.NoShowKarmaPenalty.HasValue)
         {
-            tournament.NoShowKarmaPenalty = request.NoShowKarmaPenalty.Value;
+            tournament.NoShowKarmaPenalty = TournamentKarmaPolicy.ClampPenalty(request.NoShowKarmaPenalty.Value);
         }
+
+        // WinnerKarmaBonus / FinalistKarmaBonus: hệ thống tự tính theo rank, không cho manager nhập tay.
+        // Re-derive nếu FinalistCount thay đổi (hiện chưa expose API đổi nhưng giữ logic phòng trường hợp).
+        tournament.WinnerKarmaBonus = TournamentKarmaPolicy.WinnerBonus;
+        tournament.FinalistKarmaBonus = TournamentKarmaPolicy.GetFinalistBonus(2, tournament.FinalistCount);
 
         tournament.UpdatedAt = DateTime.UtcNow;
         await _tournamentRepository.SaveChangesAsync();
@@ -716,6 +732,13 @@ public class TournamentService : ITournamentService
                 ApiErrorMessages.Tournament.KarmaRequirementNotMet(tournament.MinKarmaRequirement, currentKarma));
         }
 
+        var currentElo = user.Profile.GlobalElo > 0 ? user.Profile.GlobalElo : EloRatingHelper.DefaultRating;
+        if (currentElo < tournament.MinEloRequirement || currentElo > tournament.MaxEloRequirement)
+        {
+            throw new ForbiddenException(
+                $"Elo hiện tại ({currentElo}) nằm ngoài khoảng cho phép [{tournament.MinEloRequirement}, {tournament.MaxEloRequirement}] của giải đấu này.");
+        }
+
         var now = DateTime.UtcNow;
         var karmaSnapshot = currentKarma;
         var eloSnapshot = user.Profile.GlobalElo > 0 ? user.Profile.GlobalElo : EloRatingHelper.DefaultRating;
@@ -994,10 +1017,11 @@ public class TournamentService : ITournamentService
             if (profile != null)
             {
                 var before = profile.KarmaPoints;
-                var after = Math.Max(0, before + tournament.NoShowKarmaPenalty);
+                var after = TournamentKarmaPolicy.ClampKarma(before + tournament.NoShowKarmaPenalty);
                 var actualDelta = after - before;
 
                 profile.KarmaPoints = after;
+                profile.GamerTier = KarmaRatingHelper.ResolveTier(after);
                 profile.UpdatedAt = DateTime.UtcNow;
 
                 await _karmaRatingRepository.AddKarmaLogAsync(new KarmaLog
@@ -2237,9 +2261,10 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
         foreach (var p in finalists)
         {
-            if (tournament.FinalistKarmaBonus > 0 && !p.IsWalkIn && p.UserId.HasValue)
+            var bonus = TournamentKarmaPolicy.GetFinalistBonus(p.FinalRank!.Value, tournament.FinalistCount);
+            if (bonus > 0 && !p.IsWalkIn && p.UserId.HasValue)
             {
-                await ApplyKarmaDeltaAsync(p.UserId.Value, tournament.FinalistKarmaBonus,
+                await ApplyKarmaDeltaAsync(p.UserId.Value, bonus,
                     $"Top {p.FinalRank} tournament Splendor", tournament.Id, performer);
             }
         }
@@ -2247,12 +2272,16 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
     /// <summary>
     /// Sync FinalElo từ mỗi TournamentParticipant về UserProfile.GlobalElo.
-    /// Winner nhận thêm WinnerEloBonus (mặc định +50 elo bonus).
+    /// Winner nhận thêm WinnerEloBonus (mặc định +20 elo bonus).
     /// Chỉ chạy khi Tournament.Status = Completed.
     /// </summary>
     private async Task SyncFinalEloToProfilesAsync(Tournament tournament)
     {
-        const int WinnerEloBonus = 50; // Có thể promote thành Tournament field nếu cần config
+        // Bonus winner sau tournament Completed. Chỉ áp dụng khi FinalRank = 1.
+        // Giá trị +20 ~ bằng 1 Swiss win thắng bình thường (delta +12~+20 tuỳ split rating)
+        // → winner bonus không lấn át phần Elo tích lũy từ các ván Swiss đã chơi.
+        // Có thể promote thành Tournament field nếu sau này cần config per-tournament.
+        const int WinnerEloBonus = 20;
 
         foreach (var participant in tournament.Participants
             .Where(p => p.Status == TournamentParticipantStatus.Finished
@@ -2283,7 +2312,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         if (profile == null) return;
 
         var before = profile.KarmaPoints;
-        var after = Math.Max(0, before + delta);
+        var after = TournamentKarmaPolicy.ClampKarma(before + delta);
         var actualDelta = after - before;
 
         profile.KarmaPoints = after;

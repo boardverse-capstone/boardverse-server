@@ -28,7 +28,7 @@ public class UserProfileServiceTests
         {
             UserId = id,
             KarmaPoints = 100,
-            GamerTier = GamerTier.Bronze,
+            GamerTier = GamerTier.Gold,
             GlobalElo = 1200,
             Level = 1,
             IsActive = true
@@ -57,7 +57,7 @@ public class UserProfileServiceTests
             UserId = userId,
             Bio = "Cat lover",
             AvatarUrl = "avatar.png",
-            KarmaPoints = 150,
+            KarmaPoints = 80,
             GamerTier = GamerTier.Silver,
             GlobalElo = 1400,
             Level = 5,
@@ -71,7 +71,7 @@ public class UserProfileServiceTests
 
         Assert.Equal(userId, result.UserId);
         Assert.Equal("Cat lover", result.Bio);
-        Assert.Equal(150, result.KarmaPoints);
+        Assert.Equal(80, result.KarmaPoints);
         Assert.Equal(GamerTier.Silver.ToString(), result.GamerTier);
         Assert.True(result.HasProfile);
     }
@@ -326,7 +326,7 @@ public class UserProfileServiceTests
         var result = await svc.GetKarmaStateAsync(userId);
 
         Assert.Equal(100, result.KarmaPoints);
-        Assert.Equal(GamerTier.Bronze.ToString(), result.GamerTier);
+        Assert.Equal(GamerTier.Gold.ToString(), result.GamerTier);
     }
 
     #endregion

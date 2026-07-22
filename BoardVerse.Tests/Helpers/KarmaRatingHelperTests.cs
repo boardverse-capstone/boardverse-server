@@ -6,9 +6,9 @@ namespace BoardVerse.Tests.Helpers;
 public class KarmaRatingHelperTests
 {
     [Theory]
-    [InlineData(KarmaRatingTag.Friendly, KarmaRatingTag.OnTime, 1.0)]
-    [InlineData(KarmaRatingTag.Toxic, KarmaRatingTag.NoShow, -4.0)]
-    [InlineData(KarmaRatingTag.Friendly, KarmaRatingTag.Toxic, -1.5)]
+    [InlineData(KarmaRatingTag.Friendly, KarmaRatingTag.OnTime, 0.2)]
+    [InlineData(KarmaRatingTag.Toxic, KarmaRatingTag.NoShow, -2.0)]
+    [InlineData(KarmaRatingTag.Friendly, KarmaRatingTag.Toxic, -0.9)]
     public void CalculateDelta_SumsDistinctTagWeights(
         KarmaRatingTag first,
         KarmaRatingTag second,
@@ -22,14 +22,16 @@ public class KarmaRatingHelperTests
     public void CalculateDelta_IgnoresDuplicateTags()
     {
         var delta = KarmaRatingHelper.CalculateDelta([KarmaRatingTag.Friendly, KarmaRatingTag.Friendly]);
-        Assert.Equal(0.5m, delta);
+        Assert.Equal(0.1m, delta);
     }
 
     [Theory]
-    [InlineData(100, 1.0, 101)]
-    [InlineData(100, -1.5, 99)]
-    [InlineData(1, -5.0, 0)]
-    public void ApplyDeltaToKarmaPoints_RoundsAndFloorsAtZero(
+    [InlineData(100, 0.5, 100)] // cap tại 100
+    [InlineData(100, -0.3, 100)]
+    [InlineData(95, 0.5, 96)]
+    [InlineData(1, -5.0, 0)] // floor tại 0
+    [InlineData(50, 0.0, 50)]
+    public void ApplyDeltaToKarmaPoints_ClampsBetween0And100(
         int current,
         decimal delta,
         int expected)
@@ -40,8 +42,11 @@ public class KarmaRatingHelperTests
 
     [Theory]
     [InlineData(40, GamerTier.Bronze)]
-    [InlineData(150, GamerTier.Silver)]
-    [InlineData(300, GamerTier.Gold)]
+    [InlineData(69, GamerTier.Bronze)]
+    [InlineData(70, GamerTier.Silver)]
+    [InlineData(89, GamerTier.Silver)]
+    [InlineData(90, GamerTier.Gold)]
+    [InlineData(100, GamerTier.Gold)]
     public void ResolveTier_MapsKarmaThresholds(int karma, GamerTier expectedTier)
     {
         Assert.Equal(expectedTier, KarmaRatingHelper.ResolveTier(karma));

@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Helpers;
 
 namespace BoardVerse.Core.DTOs.Tournament;
 
@@ -34,18 +35,24 @@ public class CreateTournamentRequestDto
     [Range(4, 32)]
     public int MaxParticipants { get; set; } = 32;
 
-    /// <summary>Điểm Karma tối thiểu để đăng ký. Default 0.</summary>
-    [Range(0, 1000)]
+    /// <summary>Điểm Karma tối thiểu để đăng ký (gate). Range 0-100. Default 0 = không yêu cầu.</summary>
+    [Range(0, 100)]
     public int MinKarmaRequirement { get; set; } = 0;
 
-    [Range(0, 500)]
-    public int WinnerKarmaBonus { get; set; } = 50;
+    /// <summary>Điểm Elo tối thiểu để đăng ký. Default 800.</summary>
+    [Range(0, 5000)]
+    public int MinEloRequirement { get; set; } = 800;
 
-    [Range(0, 500)]
-    public int FinalistKarmaBonus { get; set; } = 20;
+    /// <summary>Điểm Elo tối đa để đăng ký. Default 2400.</summary>
+    [Range(0, 5000)]
+    public int MaxEloRequirement { get; set; } = 2400;
 
-    [Range(-500, 0)]
-    public int NoShowKarmaPenalty { get; set; } = -30;
+    /// <summary>
+    /// Phạt Karma khi không đến tham dự (no-show). Range -100 → 0. Default -10 (theo <see cref="BoardVerse.Core.Helpers.TournamentKarmaPolicy.NoShowPenalty"/>).
+    /// Winner/Finalist bonus do hệ thống tự tính (không nhập tay) theo rank.
+    /// </summary>
+    [Range(-100, 0)]
+    public int NoShowKarmaPenalty { get; set; } = TournamentKarmaPolicy.NoShowPenalty;
 
     /// <summary>Pairing mode: Auto (mặc định) hoặc Manual. Manager có thể đổi sau qua /pairing-mode endpoint.</summary>
     public TournamentPairingMode PairingMode { get; set; } = TournamentPairingMode.Auto;

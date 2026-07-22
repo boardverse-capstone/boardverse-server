@@ -93,8 +93,7 @@ public class TournamentServiceTests
             StartTime = DateTime.UtcNow.AddDays(7),
             RoundDurationMinutes = 45,
             MaxParticipants = 8,
-            WinnerKarmaBonus = 50,
-            FinalistKarmaBonus = 20,
+            // winnerKarmaBonus/finalistKarmaBonus auto-calculated by service
             NoShowKarmaPenalty = -30
         });
 
@@ -1800,8 +1799,7 @@ public class TournamentServiceTests
         StartTime = DateTime.UtcNow.AddDays(7),
         RoundDurationMinutes = 45,
         MaxParticipants = 8,
-        WinnerKarmaBonus = 50,
-        FinalistKarmaBonus = 20,
+        // winnerKarmaBonus/finalistKarmaBonus auto-calculated by service
         NoShowKarmaPenalty = -30
     };
 

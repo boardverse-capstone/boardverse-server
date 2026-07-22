@@ -124,6 +124,7 @@ namespace BoardVerse.Services.Services
 
             var karmaBefore = profile.KarmaPoints;
             var karmaAfter = KarmaRatingHelper.ApplyDeltaToKarmaPoints(karmaBefore, request.Amount);
+            var actualDelta = karmaAfter - karmaBefore;
             profile.KarmaPoints = karmaAfter;
             profile.GamerTier = KarmaRatingHelper.ResolveTier(karmaAfter);
             profile.UpdatedAt = DateTime.UtcNow;
@@ -134,7 +135,7 @@ namespace BoardVerse.Services.Services
                 UserId = targetUserId,
                 ViolationCategory = KarmaViolationCategory.AdminManual,
                 Source = KarmaLogSource.AdminManual,
-                KarmaPointsChange = request.Amount,
+                KarmaPointsChange = actualDelta,
                 KarmaBefore = karmaBefore,
                 KarmaAfter = karmaAfter,
                 Reason = request.Reason.Trim(),

@@ -52,18 +52,28 @@ Tạo giải đấu Splendor mới ở trạng thái `Draft`.
   "registrationDeadline": "<optional, mặc định startTime - 24h>",
   "roundDurationMinutes": 45,
   "maxParticipants": 16,
+  "minParticipants": null,
   "minKarmaRequirement": 0,
-  "winnerKarmaBonus": 50,
-  "finalistKarmaBonus": 20,
-  "noShowKarmaPenalty": -30
+  "minEloRequirement": 800,
+  "maxEloRequirement": 2400,
+  "noShowKarmaPenalty": -10,
+  "pairingMode": "Auto"
 }
 ```
 
-**Validation:**
+**Validation & Defaults:**
 - `Title`: 5-200 ký tự.
 - `StartTime > now`.
-- `MaxParticipants`: 4-32, là bội số của 4.
+- `MaxParticipants`: 4-32, là bội số của 4. Default 32.
+- `MinParticipants`: 2-32, optional. Null = dùng `GameTemplate.TournamentMinPlayersPerTable` (Manager có thể override cao hơn nhưng không thấp hơn config).
 - `RegistrationDeadline < StartTime`.
+- `RoundDurationMinutes`: 15-240, default 45.
+- `MinKarmaRequirement`: 0-100, default 0.
+- `MinEloRequirement` / `MaxEloRequirement`: 0-5000, default 800 / 2400.
+- `NoShowKarmaPenalty`: -100..0, default -10 (theo `TournamentKarmaPolicy.NoShowPenalty`). Manager có thể override qua DTO này.
+- `PairingMode`: `Auto` (mặc định) hoặc `Manual`. Có thể đổi sau qua `/pairing-mode`.
+
+> **Karma bonus (Winner/Finalist) do hệ thống tự tính theo rank** (`TournamentKarmaPolicy`) — không nhập tay. Winner: +5, Finalist rank 2..4: linear giảm (3, 2, 1). Tất cả giá trị Karma clamp về [0, 100].
 
 **Response 201:** `TournamentResponseDto` — `status = Draft`.
 
@@ -75,7 +85,26 @@ Tạo giải đấu Splendor mới ở trạng thái `Draft`.
 
 Cập nhật thông tin (partial). Chỉ hoạt động khi Tournament đang ở trạng thái `Draft`.
 
-**Body:** các trường optional (chỉ gửi field muốn đổi).
+**Body:** các trường optional (chỉ gửi field muốn đổi). Hỗ trợ:
+
+| Field | Type | Range / Default | Mô tả |
+|-------|------|-----------------|--------|
+| `title` | string | 5-200 ký tự | |
+| `description` | string? | <= 2000 ký tự | |
+| `startTime` | DateTime? | > now | |
+| `registrationDeadline` | DateTime? | < startTime | |
+| `roundDurationMinutes` | int? | 15-240 | Phút/vòng |
+| `maxParticipants` | int? | 4-32, bội số của 4 | |
+| `minKarmaRequirement` | int? | 0-100, default 0 | Karma gate |
+| `minEloRequirement` | int? | 0-5000, default 800 | Elo gate (min) |
+| `maxEloRequirement` | int? | 0-5000, default 2400 | Elo gate (max) |
+| `noShowKarmaPenalty` | int? | -100..0, default -10 | Manager override |
+| `autoExtendOnShortage` | bool? | | Bật/tắt tự extend |
+| `maxExtensionCount` | int? | 0-5 | Số lần extend tối đa |
+| `extensionMinutesPerAttempt` | int? | 5-120 | Phút mỗi lần extend |
+| `preliminaryRounds` | int? | 1-5 | Manager override Swiss rounds |
+
+> `winnerKarmaBonus` / `finalistKarmaBonus` KHÔNG update được qua PATCH — hệ thống tự tính theo rank (`TournamentKarmaPolicy`).
 
 **Response 200:** `TournamentResponseDto`.
 
@@ -247,8 +276,8 @@ Hủy giải. Yêu cầu lý do nếu đã có người đăng ký.
 Hoàn thành giải đấu. Yêu cầu Final match đã `Completed`.
 
 **Side effects:**
-- Apply `WinnerKarmaBonus` + `FinalistKarmaBonus` cho các participant (ghi `KarmaLog`).
-- Sync `FinalElo` + bonus vào `UserProfile.GlobalElo` (Winner +50 Elo bonus).
+- Apply `WinnerKarmaBonus` (+5, mặc định) và `FinalistKarmaBonus` (rank 2..4, linear giảm) cho các participant (ghi `KarmaLog`). Tất cả clamp về [0, 100].
+- Sync `FinalElo` + bonus (`WinnerEloBonus = 20`) vào `UserProfile.GlobalElo`.
 - Set `FinalRank` cho 4 finalist.
 
 **Response 200:** `TournamentResponseDto` — `status = Completed`.
@@ -285,7 +314,7 @@ Check-in participant tại quán.
 
 ## POST /api/v1/pos/tournaments/{tournamentId}/participants/{participantId}/no-show
 
-Đánh dấu no-show. Áp dụng `NoShowKarmaPenalty` (mặc định -30) vào profile + ghi `KarmaLog` audit.
+Đánh dấu no-show. Áp dụng `NoShowKarmaPenalty` (mặc định -10, range -100..0) vào profile + ghi `KarmaLog` audit. Sau khi áp dụng, recompute `GamerTier` theo threshold mới (>=90 Gold, >=70 Silver, else Bronze).
 
 **Response 200:** `TournamentParticipantResponseDto` — `status = NoShow`.
 
@@ -510,12 +539,48 @@ Chạy mỗi 1 phút, tự động đánh dấu no-show cho participants đã đ
 
 **Side effects:**
 - Đánh dấu participant `Status = NoShow`
-- Áp dụng `NoShowKarmaPenalty` (mặc định -30 điểm) vào `UserProfile.KarmaPoints`
+- Áp dụng `NoShowKarmaPenalty` (mặc định -10, range -100..0) vào `UserProfile.KarmaPoints` — clamp về [0, 100]
+- Recompute `GamerTier` (>=90 Gold, >=70 Silver, else Bronze)
 - Ghi `KarmaLog` audit trail
 - Gửi notification thông báo bị no-show
 
 ## TournamentResponseDto fields
 
-| Field | Mô tả |
-|-------|--------|
-| `StartedAt` | Thời điểm bắt đầu giải (khi chuyển sang OnGoing). Dùng để track khi nào tournament start để detect no-show. |
+| Field | Type | Mô tả |
+|-------|------|--------|
+| `id` | Guid | |
+| `cafeId` | Guid | |
+| `cafeName` | string | |
+| `createdByManagerId` | Guid | |
+| `title` | string | |
+| `description` | string? | |
+| `gameTemplateId` | Guid | |
+| `gameName` | string | |
+| `startTime` | DateTime | |
+| `registrationDeadline` | DateTime | |
+| `roundDurationMinutes` | int | |
+| `minParticipants` | int | |
+| `maxParticipants` | int | |
+| `entryFee` | decimal | |
+| `totalRounds` | int | |
+| `preliminaryRounds` | int | |
+| `finalistCount` | int | |
+| `currentRound` | int | |
+| `startedAt` | DateTime? | Thời điểm chuyển sang OnGoing. Dùng để detect no-show trong `TournamentNoShowDetectionJob`. |
+| `minKarmaRequirement` | int | Karma gate (0-100). |
+| `minEloRequirement` | int | Elo gate (min, 0-5000). |
+| `maxEloRequirement` | int | Elo gate (max, 0-5000). |
+| `noShowKarmaPenalty` | int | Karma penalty (-100..0). |
+| `winnerKarmaBonus` | int | Hệ thống tự tính theo `TournamentKarmaPolicy.WinnerBonus` (+5). |
+| `finalistKarmaBonus` | int | Hệ thống tự tính theo `TournamentKarmaPolicy.GetFinalistBonus(2, FinalistCount)`. |
+| `cancellationReason` | string? | |
+| `cancelledAt` | DateTime? | |
+| `status` | TournamentStatus | Draft / RegistrationOpen / RegistrationClosed / OnGoing / Completed / Cancelled. |
+| `registeredCount` | int | Player đã đăng ký, chưa check-in. |
+| `checkedInCount` | int | Player đã có mặt tại quán, chưa Finished. |
+| `createdAt` | DateTime | |
+| `updatedAt` | DateTime? | |
+| `currentUserRegistered` | bool? | True nếu user hiện tại đã đăng ký (set bởi controller). |
+| `currentUserParticipantStatus` | TournamentParticipantStatus? | Trạng thái đăng ký của user hiện tại. |
+| `pairingMode` | TournamentPairingMode | Auto / Manual. |
+| `manualPairings` | ManualPairingsSummaryDto | Round1Set/Round2Set/Round3Set/FinalSet. |

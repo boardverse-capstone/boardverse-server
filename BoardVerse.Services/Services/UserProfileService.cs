@@ -219,7 +219,7 @@ namespace BoardVerse.Services.Services
                 UserId = user.Id,
                 Username = user.Username,
                 KarmaPoints = profile?.KarmaPoints ?? 100,
-                GamerTier = profile?.GamerTier.ToString() ?? GamerTier.Bronze.ToString(),
+                GamerTier = profile?.GamerTier.ToString() ?? GamerTier.Gold.ToString(),
                 AvatarUrl = profile?.AvatarUrl,
                 UpdatedAt = profile?.UpdatedAt ?? user.UpdatedAt
             };

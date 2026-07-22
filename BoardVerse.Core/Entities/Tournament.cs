@@ -1,4 +1,5 @@
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Helpers;
 
 namespace BoardVerse.Core.Entities;
 
@@ -76,8 +77,15 @@ public class Tournament
     public DateTime? StartedAt { get; set; }
 
     // === Karma gating ===
-    /// <summary>Điểm Karma tối thiểu để đăng ký. Mặc định 0 (= không yêu cầu).</summary>
+    /// <summary>Điểm Karma tối thiểu để đăng ký. Mặc định 0 (= không yêu cầu). Range 0-100.</summary>
     public int MinKarmaRequirement { get; set; } = 0;
+
+    // === Elo gating ===
+    /// <summary>Elo tối thiểu để đăng ký. Mặc định 800.</summary>
+    public int MinEloRequirement { get; set; } = 800;
+
+    /// <summary>Elo tối đa để đăng ký. Mặc định 2400.</summary>
+    public int MaxEloRequirement { get; set; } = 2400;
 
     // === Pairing mode ===
     /// <summary>
@@ -102,14 +110,14 @@ public class Tournament
     public string? FinalPairingsJson { get; set; }
 
     // === Karma bonus ===
-    /// <summary>Điểm Karma cộng cho người thắng cuộc. Mặc định 50.</summary>
-    public int WinnerKarmaBonus { get; set; } = 50;
+    /// <summary>Điểm Karma cộng cho người thắng cuộc. Hệ thống tự tính theo <see cref="BoardVerse.Core.Helpers.TournamentKarmaPolicy.WinnerBonus"/> (mặc định +5). Manager không nhập tay.</summary>
+    public int WinnerKarmaBonus { get; set; } = TournamentKarmaPolicy.WinnerBonus;
 
-    /// <summary>Điểm Karma cộng cho runner-up (Top 2-4). Mặc định 20.</summary>
-    public int FinalistKarmaBonus { get; set; } = 20;
+    /// <summary>Điểm Karma cộng cho runner-up (Top 2-4). Hệ thống tự tính theo <see cref="BoardVerse.Core.Helpers.TournamentKarmaPolicy.GetFinalistBonus(int,int)"/>.</summary>
+    public int FinalistKarmaBonus { get; set; } = TournamentKarmaPolicy.WinnerBonus;
 
-    /// <summary>Điểm Karma trừ cho người không đến (no-show). Mặc định -30.</summary>
-    public int NoShowKarmaPenalty { get; set; } = -30;
+    /// <summary>Điểm Karma trừ cho người không đến (no-show). Mặc định -10, manager có thể override qua DTO.</summary>
+    public int NoShowKarmaPenalty { get; set; } = TournamentKarmaPolicy.NoShowPenalty;
 
     // === Cancellation ===
     public string? CancellationReason { get; set; }

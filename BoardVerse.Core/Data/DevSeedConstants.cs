@@ -11,6 +11,7 @@ namespace BoardVerse.Core.Data
         public static readonly Guid DemoPlayer1UserId = new("dddddddd-dddd-dddd-dddd-dddddddddd01");
         public static readonly Guid DemoPlayer2UserId = new("dddddddd-dddd-dddd-dddd-dddddddddd02");
         public static readonly Guid DemoPlayer3UserId = new("dddddddd-dddd-dddd-dddd-dddddddddd03");
+        public static readonly Guid DemoPlayer4UserId = new("dddddddd-dddd-dddd-dddd-dddddddddd04");
         public static readonly Guid DemoMatchLobbyId = new("eeeeeeee-eeee-eeee-eeee-eeeeeeeeee01");
         public static readonly Guid DemoKarmaLobbyId = new("eeeeeeee-eeee-eeee-eeee-eeeeeeeeee02");
         public static readonly Guid DemoPosTableId = new("ffffffff-ffff-ffff-ffff-ffffffff0001");

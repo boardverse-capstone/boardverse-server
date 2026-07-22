@@ -10,7 +10,7 @@ API Tournament dành cho mobile app (Player): xem danh sách giải đang mở, 
 
 | Endpoint | Method | Mô tả |
 |----------|--------|--------|
-| `/open` | GET | Danh sách giải Splendor đang mở đăng ký |
+| `/open` | GET | Danh sách giải đang mở đăng ký (mọi game) |
 | `/{tournamentId}` | GET | Chi tiết giải đấu |
 | `/{tournamentId}/participants` | GET | Danh sách người chơi đã đăng ký |
 | `/{tournamentId}/matches` | GET | Danh sách toàn bộ bàn đấu |
@@ -25,13 +25,7 @@ API Tournament dành cho mobile app (Player): xem danh sách giải đang mở, 
 
 ## GET /api/v1/tournaments/open
 
-Lấy danh sách giải Splendor đang mở đăng ký theo `gameTemplateId`.
-
-**Query:**
-
-| Param | Type | Required | Mô tả |
-|-------|------|----------|--------|
-| `gameTemplateId` | Guid | ✅ | Mã game template (Splendor) |
+Lấy danh sách tournament đang mở đăng ký (mọi game — Player lọc theo `gameTemplateId` ở client).
 
 **Response 200:** danh sách `TournamentResponseDto`.
 
@@ -87,7 +81,8 @@ Bàn đấu của một vòng cụ thể.
 
 **Điều kiện:**
 - Tournament `Status = RegistrationOpen` và `RegistrationDeadline > now`.
-- Karma hiện tại `>= MinKarmaRequirement`.
+- Karma hiện tại `>= MinKarmaRequirement` (range 0-100).
+- Elo hiện tại nằm trong `[MinEloRequirement, MaxEloRequirement]` (mặc định 800-2400).
 - Chưa đăng ký trước đó.
 - Chưa đầy `MaxParticipants`.
 
@@ -95,7 +90,7 @@ Bàn đấu của một vòng cụ thể.
 
 **Lỗi:**
 - `401` thiếu token.
-- `403` không đủ Karma.
+- `403` không đủ Karma hoặc Elo ngoài range.
 - `404` không tìm thấy giải.
 - `409` giải không mở / đã quá hạn / đã đăng ký / đầy chỗ.
 
@@ -151,11 +146,17 @@ Top N người chơi theo `GlobalElo` (mặc định 100).
 
 ## Luồng tích hợp
 
-1. Player mở app → `GET /tournaments/open?gameTemplateId=...` xem các giải Splendor đang tuyển.
+1. Player mở app → `GET /tournaments/open` xem các giải đang tuyển (lọc game ở client).
 2. `POST /tournaments/{id}/register` để đăng ký (status 201 Created).
 3. Theo dõi vòng đấu: `GET /tournaments/{id}/matches/round/{n}`.
 4. Check-in tại quán: Manager dùng POS (`POST /api/v1/pos/tournaments/{id}/participants/{participantId}/check-in`).
 5. Sau khi giải kết thúc → Karma cộng vào profile, lịch sử Elo cập nhật (`GET /my-elo-history`).
+
+---
+
+## Lưu ý phân quyền
+
+`TournamentController` (Player-facing) chỉ phục vụ flow xem + đăng ký/rút lui. Mọi thao tác vận hành (tạo giải, start, extend-registration, ghi kết quả, complete, hủy, pairing-mode, walk-in, no-show) đều nằm trong `TournamentPosController` xem tại `docs/api/tournament-pos.md`.
 
 ---
 

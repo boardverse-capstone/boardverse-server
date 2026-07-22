@@ -91,7 +91,9 @@ namespace BoardVerse.Services.Services
                 }
 
                 var karmaBefore = profile.KarmaPoints;
-                profile.KarmaPoints = KarmaRatingHelper.ApplyDeltaToKarmaPoints(profile.KarmaPoints, delta);
+                var karmaAfter = KarmaRatingHelper.ApplyDeltaToKarmaPoints(profile.KarmaPoints, delta);
+                var actualDelta = karmaAfter - karmaBefore;
+                profile.KarmaPoints = karmaAfter;
                 profile.GamerTier = KarmaRatingHelper.ResolveTier(profile.KarmaPoints);
                 profile.UpdatedAt = DateTime.UtcNow;
 
@@ -102,7 +104,7 @@ namespace BoardVerse.Services.Services
                     RaterUserId = raterUserId,
                     TargetUserId = entry.TargetUserId,
                     TagsJson = JsonSerializer.Serialize(distinctTags, TagJsonOptions),
-                    KarmaDeltaApplied = delta,
+                    KarmaDeltaApplied = actualDelta,
                     CreatedAt = DateTime.UtcNow
                 });
 
@@ -112,7 +114,7 @@ namespace BoardVerse.Services.Services
                     UserId = entry.TargetUserId,
                     ViolationCategory = ResolveViolationCategory(distinctTags),
                     Source = KarmaLogSource.PlayerCrossRating,
-                    KarmaPointsChange = delta,
+                    KarmaPointsChange = actualDelta,
                     KarmaBefore = karmaBefore,
                     KarmaAfter = profile.KarmaPoints,
                     Reason = ApiErrorMessages.Rating.CrossRatingTagsReason(distinctTags),

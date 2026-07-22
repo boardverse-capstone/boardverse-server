@@ -27,11 +27,11 @@ Trả ngữ cảnh cho màn đánh giá chéo (AC 3.2): danh sách thành viên 
     "lobbyStatus": "RatingOpen",
     "canSubmitRatings": true,
     "availableTags": [
-      { "tag": "OnTime", "karmaWeight": 0.5 },
-      { "tag": "Civil", "karmaWeight": 0.5 },
-      { "tag": "Friendly", "karmaWeight": 0.5 },
-      { "tag": "Toxic", "karmaWeight": -2 },
-      { "tag": "NoShow", "karmaWeight": -2 }
+      { "tag": "OnTime", "karmaWeight": 0.1 },
+      { "tag": "Civil", "karmaWeight": 0.1 },
+      { "tag": "Friendly", "karmaWeight": 0.1 },
+      { "tag": "Toxic", "karmaWeight": -1 },
+      { "tag": "NoShow", "karmaWeight": -1 }
     ],
     "membersToRate": [
       {
@@ -78,13 +78,13 @@ Tiếp nhận mảng đánh giá chéo và cập nhật `UserProfiles.KarmaPoint
 
 | Tag | Trọng số karma |
 |-----|----------------|
-| `OnTime` (Đúng giờ) | +0.5 |
-| `Civil` (Văn minh) | +0.5 |
-| `Friendly` (Thân thiện) | +0.5 |
-| `Toxic` | -2 |
-| `NoShow` | -2 |
+| `OnTime` (Đúng giờ) | +0.1 |
+| `Civil` (Văn minh) | +0.1 |
+| `Friendly` (Thân thiện) | +0.1 |
+| `Toxic` | -1 |
+| `NoShow` | -1 |
 
-Các tag trong một entry được **cộng dồn** (vd. OnTime + Friendly = +1.0, làm tròn khi ghi vào profile).
+Các tag trong một entry được **cộng dồn** (vd. OnTime + Friendly = +0.2, làm tròn khi ghi vào profile).
 
 ### Ràng buộc
 
@@ -105,9 +105,9 @@ Các tag trong một entry được **cộng dồn** (vd. OnTime + Friendly = +1
       {
         "targetUserId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
         "tags": ["OnTime", "Friendly"],
-        "karmaDeltaApplied": 1.0,
-        "targetKarmaPointsAfter": 101,
-        "targetGamerTier": "Bronze"
+        "karmaDeltaApplied": 0.2,
+        "targetKarmaPointsAfter": 100,
+        "targetGamerTier": "Gold"
       }
     ]
   }
