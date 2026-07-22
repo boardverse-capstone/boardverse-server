@@ -221,6 +221,51 @@ Tìm phòng chờ đang mở theo tựa game + location + Karma filter (BR-10).
 
 ---
 
+## GET /api/v1/lobbies/discoverable
+
+Khám phá tất cả lobby **public + đang mở** (`IsPrivate = false`, `Status = Open`) để bất kỳ player nào cũng có thể thấy và join.
+
+Khác với `POST /search`, endpoint này **không bắt buộc `gameTemplateId`** — phù hợp cho màn hình "Browse lobbies" trên mobile. Có thể filter optional theo game + bán kính địa lý, sort theo khoảng cách khi có geo.
+
+**Role:** Player — đã đăng nhập
+
+**Query params:**
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `gameTemplateId` | ❌ | UUID tựa game — chỉ lấy lobby của game này |
+| `latitude` | ❌ | Vĩ độ của user (bắt buộc cùng `longitude` + `radiusKm`) |
+| `longitude` | ❌ | Kinh độ của user |
+| `radiusKm` | ❌ | Bán kính (km), `(0, 500]` |
+| `limit` | ❌ | Số lobby tối đa, `1–100`, mặc định `50` |
+
+**Ví dụ:**
+
+```http
+GET /api/v1/lobbies/discoverable?gameTemplateId=44444444-4444-4444-4444-444444444444&latitude=10.78&longitude=106.70&radiusKm=10&limit=20
+Authorization: Bearer <jwt>
+```
+
+**Response 200:** danh sách `LobbyResponseDto` (kèm `distanceKm` nếu truyền geo).
+
+**Behavior:**
+- Lobby private bị **loại hoàn toàn** khỏi kết quả.
+- Lobby status khác `Open` (Full / InProgress / TimeoutFailed / Closed / HostCancelled) bị loại.
+- Nếu có geo: áp dụng bounding-box pre-filter ở DB, sau đó Haversine precise + filter `distanceKm <= radiusKm`, sort theo distance asc.
+- Không có geo: sort theo `CreatedAt` desc.
+
+**Response codes:**
+- `200` — Trả về danh sách (có thể rỗng)
+- `400` — Thiếu 1 trong 3 tham số geo, hoặc `limit`/`radiusKm` ngoài phạm vi
+- `401` — Thiếu token
+- `500` — Lỗi hệ thống
+
+**Khi nào dùng:**
+- Màn hình "Browse lobbies" / "Khám phá" — list tất cả phòng public mở gần user.
+- Kết hợp với `GET /hosted` + `GET /joined` để hiển thị đầy đủ các lobby liên quan tới user trên mobile.
+
+---
+
 ## POST /api/v1/lobbies/{lobbyId}/close
 
 Đóng phòng chờ thủ công (host muốn giải tán trước giờ).

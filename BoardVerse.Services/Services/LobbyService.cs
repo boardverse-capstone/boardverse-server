@@ -388,6 +388,50 @@ namespace BoardVerse.Services.Services
             return allLobbies.Select(l => MapLobbyDto(l, null)).ToList();
         }
 
+        public async Task<IReadOnlyList<LobbyResponseDto>> GetDiscoverableLobbiesAsync(
+            Guid? gameTemplateId,
+            double? latitude,
+            double? longitude,
+            double? radiusKm,
+            int limit = 50)
+        {
+            // BR-10: Lobby phải là public + status Open. Private bị ẩn hoàn toàn.
+            // Áp dụng bounding-box pre-filter trong repo, Haversine precise sort ở đây.
+            var lobbies = await _lobbyRepository.GetDiscoverablePublicLobbiesAsync(
+                gameTemplateId, latitude, longitude, radiusKm, limit);
+
+            var result = new List<LobbyResponseDto>();
+            foreach (var l in lobbies)
+            {
+                double? distance = null;
+                if (latitude.HasValue && longitude.HasValue
+                    && l.Latitude.HasValue && l.Longitude.HasValue)
+                {
+                    distance = GeoHelper.HaversineKm(
+                        latitude.Value, longitude.Value,
+                        l.Latitude.Value, l.Longitude.Value);
+
+                    // Nếu có radius filter nhưng vượt quá (do bbox không vuông) thì skip
+                    if (radiusKm.HasValue && distance.Value > radiusKm.Value)
+                    {
+                        continue;
+                    }
+                }
+                result.Add(MapLobbyDto(l, distance));
+            }
+
+            // Nếu filter theo khoảng cách, sort theo distance asc; ngược lại giữ CreatedAt desc
+            if (latitude.HasValue && longitude.HasValue && radiusKm.HasValue)
+            {
+                result = result
+                    .OrderBy(r => r.DistanceKm ?? double.MaxValue)
+                    .ThenByDescending(r => r.CreatedAt)
+                    .ToList();
+            }
+
+            return result;
+        }
+
         public async Task<LobbyResponseDto> CloseLobbyAsync(Guid lobbyId, Guid hostUserId, string? reason)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)

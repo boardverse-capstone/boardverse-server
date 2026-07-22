@@ -20,7 +20,26 @@ namespace BoardVerse.Services.IServices
         /// </summary>
         Task<LobbyResponseDto> GetLobbyAsync(Guid lobbyId, Guid? requestingUserId = null);
 
+        /// <summary>
+        /// BR-10: Tìm lobby public theo game + filter địa lý + karma.
+        /// </summary>
         Task<IReadOnlyList<LobbyResponseDto>> SearchLobbiesAsync(SearchLobbiesRequestDto request);
+
+        /// <summary>
+        /// Lấy danh sách lobby public đang mở (status=Open, IsPrivate=false)
+        /// để player khác có thể thấy và join. Hỗ trợ filter optional theo game và khu vực.
+        /// </summary>
+        /// <param name="gameTemplateId">Optional: chỉ lấy lobby của game này.</param>
+        /// <param name="latitude">Optional: latitude user để sort theo khoảng cách.</param>
+        /// <param name="longitude">Optional: longitude user.</param>
+        /// <param name="radiusKm">Optional: chỉ lấy lobby trong bán kính này (km).</param>
+        /// <param name="limit">Số lobby tối đa trả về (default 50).</param>
+        Task<IReadOnlyList<LobbyResponseDto>> GetDiscoverableLobbiesAsync(
+            Guid? gameTemplateId,
+            double? latitude,
+            double? longitude,
+            double? radiusKm,
+            int limit = 50);
 
         /// <summary>
         /// Host đóng lobby (Closed status). Có thể kèm lý do.

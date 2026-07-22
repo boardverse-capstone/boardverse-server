@@ -14,6 +14,18 @@ namespace BoardVerse.Core.IRepositories
         Task<Lobby?> GetByShareCodeAsync(string shareCode);
 
         Task<IReadOnlyList<Lobby>> GetActiveLobbiesForGameAsync(Guid gameTemplateId, Guid? excludeLobbyId);
+
+        /// <summary>
+        /// Lấy các lobby public đang mở (status=Open, IsPrivate=false) mà bất kỳ player nào cũng có thể thấy/join.
+        /// Lọc theo game (optional), khoảng cách địa lý (optional).
+        /// </summary>
+        Task<IReadOnlyList<Lobby>> GetDiscoverablePublicLobbiesAsync(
+            Guid? gameTemplateId,
+            double? latitude,
+            double? longitude,
+            double? radiusKm,
+            int limit);
+
         Task<IReadOnlyList<Lobby>> SearchLobbiesNearbyAsync(Guid gameTemplateId, double latitude, double longitude, double radiusKm, int? minKarmaScore);
 
         /// <summary>

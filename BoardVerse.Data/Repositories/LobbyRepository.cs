@@ -73,6 +73,61 @@ namespace BoardVerse.Data.Repositories
         }
 
         /// <summary>
+        /// Lấy các lobby public đang mở (IsPrivate=false, Status=Open) để bất kỳ player nào cũng có thể xem/join.
+        /// Hỗ trợ filter optional theo game và khu vực địa lý (bounding-box pre-filter).
+        /// Service sẽ áp dụng Haversine chính xác + sort theo khoảng cách.
+        /// </summary>
+        public async Task<IReadOnlyList<Lobby>> GetDiscoverablePublicLobbiesAsync(
+            Guid? gameTemplateId,
+            double? latitude,
+            double? longitude,
+            double? radiusKm,
+            int limit)
+        {
+            var query = _db.Lobbies
+                .Include(l => l.Members)
+                    .ThenInclude(m => m.User)
+                        .ThenInclude(u => u.Profile)
+                .Include(l => l.GameTemplate)
+                .Include(l => l.HostUser)
+                    .ThenInclude(u => u.Profile)
+                .Where(l => !l.IsPrivate && l.Status == LobbyStatus.Open);
+
+            if (gameTemplateId.HasValue)
+            {
+                query = query.Where(l => l.GameTemplateId == gameTemplateId.Value);
+            }
+
+            // Bounding-box pre-filter khi filter địa lý (giảm IO trước khi Haversine)
+            if (latitude.HasValue && longitude.HasValue && radiusKm.HasValue && radiusKm.Value > 0)
+            {
+                var latRad = latitude.Value * Math.PI / 180.0;
+                var latDelta = radiusKm.Value / 6371.0 * 180.0 / Math.PI;
+                var cosLat = Math.Max(0.0001, Math.Abs(Math.Cos(latRad)));
+                var lonDelta = radiusKm.Value / (6371.0 * cosLat) * 180.0 / Math.PI;
+
+                var minLat = Math.Max(-90, latitude.Value - latDelta);
+                var maxLat = Math.Min(90, latitude.Value + latDelta);
+                var minLon = longitude.Value - lonDelta;
+                var maxLon = longitude.Value + lonDelta;
+
+                query = query.Where(l => l.Latitude.HasValue && l.Longitude.HasValue
+                    && l.Latitude >= minLat && l.Latitude <= maxLat
+                    && l.Longitude >= minLon && l.Longitude <= maxLon);
+            }
+            else
+            {
+                // Không filter geo: chỉ lấy lobby có toạ độ (nếu có) để không thiếu
+                // Khi sort theo ngày tạo
+            }
+
+            return await query
+                .OrderByDescending(l => l.CreatedAt)
+                .Take(limit)
+                .ToListAsync();
+        }
+
+        /// <summary>
         /// BR-10: Search lobbies by game, geo proximity, and karma filter.
         /// Uses Haversine distance formula for accurate radius filtering.
         /// LOBBY-P0-FIX-9: Clamp at high latitudes to avoid NaN.

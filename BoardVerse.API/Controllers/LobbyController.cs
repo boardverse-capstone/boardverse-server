@@ -1,5 +1,6 @@
-using BoardVerse.Core.Messages;
 using BoardVerse.Core.DTOs.Lobby;
+using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -107,6 +108,49 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> SearchLobbies([FromBody] SearchLobbiesRequestDto request)
         {
             var result = await _lobbyService.SearchLobbiesAsync(request);
+            return this.NewResponse(200, ApiSuccessMessages.Lobby.LobbiesRetrieved, result);
+        }
+
+        /// <summary>
+        /// Khám phá các lobby public đang mở (status=Open, IsPrivate=false) để player khác có thể thấy và join.
+        /// Hỗ trợ filter optional theo game và khoảng cách địa lý.
+        /// Đây là API dành cho màn hình "Browse lobbies" trên mobile — không bắt buộc gameTemplateId như /search. [Role: Player]
+        /// </summary>
+        /// <param name="gameTemplateId">Optional: chỉ lấy lobby của game này.</param>
+        /// <param name="latitude">Optional: latitude của user (kết hợp longitude + radiusKm).</param>
+        /// <param name="longitude">Optional: longitude của user.</param>
+        /// <param name="radiusKm">Optional: chỉ lấy lobby trong bán kính này (km).</param>
+        /// <param name="limit">Số lobby tối đa trả về (1-100, default 50).</param>
+        /// <response code="200">Danh sách lobby public đang mở, có kèm DistanceKm khi filter theo geo.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpGet("discoverable")]
+        public async Task<IActionResult> GetDiscoverableLobbies(
+            [FromQuery] Guid? gameTemplateId,
+            [FromQuery] double? latitude,
+            [FromQuery] double? longitude,
+            [FromQuery] double? radiusKm,
+            [FromQuery] int limit = 50)
+        {
+            if (limit < 1 || limit > 100)
+            {
+                throw new BadRequestException("Limit phải nằm trong khoảng 1-100.");
+            }
+
+            // Nếu truyền 1 trong 3 tham số geo thì bắt buộc cả 3
+            var geoProvided = new[] { latitude.HasValue, longitude.HasValue, radiusKm.HasValue };
+            if (geoProvided.Any(x => x) && !geoProvided.All(x => x))
+            {
+                throw new BadRequestException("latitude, longitude, radiusKm phải truyền đồng thời nếu muốn filter theo khu vực.");
+            }
+
+            if (radiusKm.HasValue && (radiusKm.Value <= 0 || radiusKm.Value > 500))
+            {
+                throw new BadRequestException("radiusKm phải nằm trong khoảng (0, 500] km.");
+            }
+
+            var result = await _lobbyService.GetDiscoverableLobbiesAsync(
+                gameTemplateId, latitude, longitude, radiusKm, limit);
             return this.NewResponse(200, ApiSuccessMessages.Lobby.LobbiesRetrieved, result);
         }
 
