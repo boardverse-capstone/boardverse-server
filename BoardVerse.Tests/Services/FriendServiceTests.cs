@@ -19,6 +19,14 @@ public class FriendServiceTests
     private readonly Mock<ILobbyInviteRepository> _lobbyInviteRepo = new();
     private readonly Mock<ILogger<FriendService>> _logger = new();
 
+    public FriendServiceTests()
+    {
+        // Default: không có user bị chặn — áp dụng cho tất cả test trừ khi override.
+        _friendshipRepo
+            .Setup(r => r.GetBlockedUserIdsAsync(It.IsAny<Guid>()))
+            .ReturnsAsync(Array.Empty<Guid>());
+    }
+
     private FriendService CreateService() => new(
         _friendshipRepo.Object,
         _userRepo.Object,
@@ -569,7 +577,7 @@ public class FriendServiceTests
         var otherId = Guid.NewGuid();
         var found = new List<User> { BuildUser(otherId, "alice") };
 
-        _userRepo.Setup(r => r.SearchByUsernameAsync("ali", meId, 20)).ReturnsAsync(found);
+        _userRepo.Setup(r => r.SearchByUsernameAsync("ali", meId, 20, It.IsAny<IReadOnlyCollection<Guid>?>())).ReturnsAsync(found);
         _friendshipRepo.Setup(r => r.GetByPairAsync(meId, otherId)).ReturnsAsync((Friendship?)null);
         _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, otherId)).ReturnsAsync(3);
 
@@ -580,7 +588,490 @@ public class FriendServiceTests
         Assert.Single(result);
         Assert.Equal(otherId, result[0].UserId);
         Assert.Null(result[0].FriendshipStatus);
+        Assert.Equal(FriendshipRelationshipDirection.None, result[0].RelationshipDirection);
         Assert.Equal(3, result[0].MutualFriendsCount);
+    }
+
+    [Fact]
+    public async Task SearchUsersAsync_PendingWhereCurrentUserIsRequester_ReturnsOutgoingRequest()
+    {
+        // BR-FRIEND-UI-DIRECTION-01: Jonny gửi cho player5; player5 search Jonny thấy IncomingRequest.
+        var meId = Guid.NewGuid();
+        var otherId = Guid.NewGuid();
+        var found = new List<User> { BuildUser(otherId, "jonny") };
+
+        _userRepo.Setup(r => r.SearchByUsernameAsync("jon", meId, 20, It.IsAny<IReadOnlyCollection<Guid>?>())).ReturnsAsync(found);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, otherId))
+            .ReturnsAsync(new Friendship
+            {
+                Id = Guid.NewGuid(),
+                RequesterId = meId,             // me gửi
+                AddresseeId = otherId,
+                Status = FriendshipStatus.Pending,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, otherId)).ReturnsAsync(0);
+
+        var svc = CreateService();
+        var result = await svc.SearchUsersAsync(meId, "jon", 20);
+
+        Assert.Equal(FriendshipRelationshipDirection.OutgoingRequest, result[0].RelationshipDirection);
+    }
+
+    [Fact]
+    public async Task SearchUsersAsync_PendingWhereCurrentUserIsAddressee_ReturnsIncomingRequest()
+    {
+        // BR-FRIEND-UI-DIRECTION-01: Jonny gửi cho me; me search Jonny → phải thấy IncomingRequest
+        // (UI hiển thị "Chấp nhận / Từ chối"), KHÔNG được OutgoingRequest.
+        var meId = Guid.NewGuid();
+        var otherId = Guid.NewGuid();
+        var found = new List<User> { BuildUser(otherId, "jonny") };
+
+        _userRepo.Setup(r => r.SearchByUsernameAsync("jon", meId, 20, It.IsAny<IReadOnlyCollection<Guid>?>())).ReturnsAsync(found);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, otherId))
+            .ReturnsAsync(new Friendship
+            {
+                Id = Guid.NewGuid(),
+                RequesterId = otherId,          // jonny gửi
+                AddresseeId = meId,             // me nhận
+                Status = FriendshipStatus.Pending,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, otherId)).ReturnsAsync(0);
+
+        var svc = CreateService();
+        var result = await svc.SearchUsersAsync(meId, "jon", 20);
+
+        Assert.Equal(FriendshipRelationshipDirection.IncomingRequest, result[0].RelationshipDirection);
+    }
+
+    [Fact]
+    public async Task SearchUsersAsync_Accepted_ReturnsAccepted()
+    {
+        var meId = Guid.NewGuid();
+        var otherId = Guid.NewGuid();
+        var found = new List<User> { BuildUser(otherId, "alice") };
+
+        _userRepo.Setup(r => r.SearchByUsernameAsync("ali", meId, 20, It.IsAny<IReadOnlyCollection<Guid>?>())).ReturnsAsync(found);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, otherId))
+            .ReturnsAsync(new Friendship
+            {
+                Id = Guid.NewGuid(),
+                RequesterId = meId,
+                AddresseeId = otherId,
+                Status = FriendshipStatus.Accepted,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, otherId)).ReturnsAsync(0);
+
+        var svc = CreateService();
+        var result = await svc.SearchUsersAsync(meId, "ali", 20);
+
+        Assert.Equal(FriendshipRelationshipDirection.Accepted, result[0].RelationshipDirection);
+    }
+
+    [Fact]
+    public async Task SearchUsersAsync_BlockedByMe_ReturnsBlockedByMe()
+    {
+        // BR-FRIEND-BLOCK-VIEW: me là người chặn → BlockerUserId == meId
+        var meId = Guid.NewGuid();
+        var otherId = Guid.NewGuid();
+        var found = new List<User> { BuildUser(otherId, "alice") };
+
+        _userRepo.Setup(r => r.SearchByUsernameAsync("ali", meId, 20, It.IsAny<IReadOnlyCollection<Guid>?>())).ReturnsAsync(found);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, otherId))
+            .ReturnsAsync(new Friendship
+            {
+                Id = Guid.NewGuid(),
+                RequesterId = meId,
+                AddresseeId = otherId,
+                Status = FriendshipStatus.Blocked,
+                BlockerUserId = meId,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, otherId)).ReturnsAsync(0);
+
+        var svc = CreateService();
+        var result = await svc.SearchUsersAsync(meId, "ali", 20);
+
+        Assert.Equal(FriendshipRelationshipDirection.BlockedByMe, result[0].RelationshipDirection);
+    }
+
+    [Fact]
+    public async Task SearchUsersAsync_BlockedByThem_ReturnsBlockedByThem()
+    {
+        // otherId đã chặn me → me search thấy BlockedByThem (ẩn/disable UI).
+        var meId = Guid.NewGuid();
+        var otherId = Guid.NewGuid();
+        var found = new List<User> { BuildUser(otherId, "alice") };
+
+        _userRepo.Setup(r => r.SearchByUsernameAsync("ali", meId, 20, It.IsAny<IReadOnlyCollection<Guid>?>())).ReturnsAsync(found);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, otherId))
+            .ReturnsAsync(new Friendship
+            {
+                Id = Guid.NewGuid(),
+                RequesterId = otherId,
+                AddresseeId = meId,
+                Status = FriendshipStatus.Blocked,
+                BlockerUserId = otherId,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, otherId)).ReturnsAsync(0);
+
+        var svc = CreateService();
+        var result = await svc.SearchUsersAsync(meId, "ali", 20);
+
+        Assert.Equal(FriendshipRelationshipDirection.BlockedByThem, result[0].RelationshipDirection);
+    }
+
+    [Fact]
+    public async Task SearchUsersAsync_RemovedStatus_ReturnsNone()
+    {
+        var meId = Guid.NewGuid();
+        var otherId = Guid.NewGuid();
+        var found = new List<User> { BuildUser(otherId, "alice") };
+
+        _userRepo.Setup(r => r.SearchByUsernameAsync("ali", meId, 20, It.IsAny<IReadOnlyCollection<Guid>?>())).ReturnsAsync(found);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, otherId))
+            .ReturnsAsync(new Friendship
+            {
+                Id = Guid.NewGuid(),
+                RequesterId = meId,
+                AddresseeId = otherId,
+                Status = FriendshipStatus.Removed,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, otherId)).ReturnsAsync(0);
+
+        var svc = CreateService();
+        var result = await svc.SearchUsersAsync(meId, "ali", 20);
+
+        Assert.Equal(FriendshipRelationshipDirection.None, result[0].RelationshipDirection);
+    }
+
+    // ===== GetByDirectionAsync =====
+
+    [Fact]
+    public async Task GetByDirectionAsync_NoneDirection_ReturnsEmptyList()
+    {
+        var meId = Guid.NewGuid();
+        var svc = CreateService();
+
+        var result = await svc.GetByDirectionAsync(meId, FriendshipRelationshipDirection.None, 50);
+
+        Assert.Empty(result);
+        _friendshipRepo.Verify(r => r.GetByDirectionAsync(It.IsAny<Guid>(), It.IsAny<FriendshipRelationshipDirection>(), It.IsAny<int>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetByDirectionAsync_IncomingRequest_CallsRepoAndMaps()
+    {
+        var meId = Guid.NewGuid();
+        var otherId = Guid.NewGuid();
+        var pending = new List<Friendship>
+        {
+            new()
+            {
+                Id = Guid.NewGuid(),
+                RequesterId = otherId,
+                AddresseeId = meId,
+                Status = FriendshipStatus.Pending,
+                CreatedAt = DateTime.UtcNow.AddMinutes(-5),
+                UpdatedAt = DateTime.UtcNow.AddMinutes(-5),
+                Requester = BuildUser(otherId, "bob")
+            }
+        };
+        _friendshipRepo.Setup(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.IncomingRequest, 50))
+            .ReturnsAsync(pending);
+
+        var svc = CreateService();
+        var result = await svc.GetByDirectionAsync(meId, FriendshipRelationshipDirection.IncomingRequest, 50);
+
+        Assert.Single(result);
+        Assert.Equal(otherId, result[0].OtherUserId);
+        Assert.False(result[0].IsRequester); // me là addressee
+    }
+
+    [Fact]
+    public async Task GetByDirectionAsync_OutgoingRequest_CallsRepo()
+    {
+        var meId = Guid.NewGuid();
+        var otherId = Guid.NewGuid();
+        var pending = new List<Friendship>
+        {
+            new()
+            {
+                Id = Guid.NewGuid(),
+                RequesterId = meId,
+                AddresseeId = otherId,
+                Status = FriendshipStatus.Pending,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+                Addressee = BuildUser(otherId, "alice")
+            }
+        };
+        _friendshipRepo.Setup(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.OutgoingRequest, 20))
+            .ReturnsAsync(pending);
+
+        var svc = CreateService();
+        var result = await svc.GetByDirectionAsync(meId, FriendshipRelationshipDirection.OutgoingRequest, 20);
+
+        Assert.Single(result);
+        Assert.True(result[0].IsRequester); // me là requester
+    }
+
+    [Fact]
+    public async Task GetByDirectionAsync_Accepted_ReturnsMutualResults()
+    {
+        var meId = Guid.NewGuid();
+        var friendships = new List<Friendship>
+        {
+            new()
+            {
+                Id = Guid.NewGuid(),
+                RequesterId = meId,
+                AddresseeId = Guid.NewGuid(),
+                Status = FriendshipStatus.Accepted,
+                CreatedAt = DateTime.UtcNow.AddDays(-10),
+                UpdatedAt = DateTime.UtcNow.AddDays(-5),
+                AcceptedAt = DateTime.UtcNow.AddDays(-5),
+                Addressee = BuildUser(Guid.NewGuid(), "alice")
+            }
+        };
+        _friendshipRepo.Setup(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.Accepted, 50))
+            .ReturnsAsync(friendships);
+
+        var svc = CreateService();
+        var result = await svc.GetByDirectionAsync(meId, FriendshipRelationshipDirection.Accepted, 50);
+
+        Assert.Single(result);
+        Assert.True(result[0].IsRequester);
+    }
+
+    [Fact]
+    public async Task GetByDirectionAsync_NoMatch_ReturnsEmptyList()
+    {
+        var meId = Guid.NewGuid();
+        _friendshipRepo.Setup(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.BlockedByMe, 50))
+            .ReturnsAsync(new List<Friendship>());
+
+        var svc = CreateService();
+        var result = await svc.GetByDirectionAsync(meId, FriendshipRelationshipDirection.BlockedByMe, 50);
+
+        Assert.Empty(result);
+    }
+
+    // ===== CancelFriendRequestAsync =====
+
+    [Fact]
+    public async Task CancelFriendRequestAsync_AsRequester_Succeeds()
+    {
+        var meId = Guid.NewGuid();
+        var f = new Friendship
+        {
+            Id = Guid.NewGuid(),
+            RequesterId = meId,
+            AddresseeId = Guid.NewGuid(),
+            Status = FriendshipStatus.Pending,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
+
+        var svc = CreateService();
+        await svc.CancelFriendRequestAsync(meId, f.Id);
+
+        Assert.Equal(FriendshipStatus.Removed, f.Status);
+        _friendshipRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task CancelFriendRequestAsync_AsAddressee_ThrowsForbidden()
+    {
+        var meId = Guid.NewGuid();
+        var f = new Friendship
+        {
+            Id = Guid.NewGuid(),
+            RequesterId = Guid.NewGuid(),
+            AddresseeId = meId,
+            Status = FriendshipStatus.Pending
+        };
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
+
+        var svc = CreateService();
+
+        await Assert.ThrowsAsync<ForbiddenException>(() =>
+            svc.CancelFriendRequestAsync(meId, f.Id));
+    }
+
+    [Fact]
+    public async Task CancelFriendRequestAsync_WhenAccepted_ThrowsBadRequest()
+    {
+        var meId = Guid.NewGuid();
+        var f = new Friendship
+        {
+            Id = Guid.NewGuid(),
+            RequesterId = meId,
+            AddresseeId = Guid.NewGuid(),
+            Status = FriendshipStatus.Accepted
+        };
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
+
+        var svc = CreateService();
+
+        await Assert.ThrowsAsync<BadRequestException>(() =>
+            svc.CancelFriendRequestAsync(meId, f.Id));
+    }
+
+    // ===== GetFriendRequestByIdAsync =====
+
+    [Fact]
+    public async Task GetFriendRequestByIdAsync_AsAddressee_ReturnsDto()
+    {
+        var meId = Guid.NewGuid();
+        var senderId = Guid.NewGuid();
+        var f = new Friendship
+        {
+            Id = Guid.NewGuid(),
+            RequesterId = senderId,
+            AddresseeId = meId,
+            Status = FriendshipStatus.Pending,
+            Message = "Hi!",
+            Requester = BuildUser(senderId, "bob")
+        };
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
+
+        var svc = CreateService();
+        var result = await svc.GetFriendRequestByIdAsync(meId, f.Id);
+
+        Assert.Equal(senderId, result.OtherUserId);
+        Assert.Equal("Hi!", result.Message);
+        Assert.False(result.IsRequester);
+    }
+
+    [Fact]
+    public async Task GetFriendRequestByIdAsync_AsOutsider_ThrowsForbidden()
+    {
+        var meId = Guid.NewGuid();
+        var f = new Friendship
+        {
+            Id = Guid.NewGuid(),
+            RequesterId = Guid.NewGuid(),
+            AddresseeId = Guid.NewGuid(),
+            Status = FriendshipStatus.Pending
+        };
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
+
+        var svc = CreateService();
+
+        await Assert.ThrowsAsync<ForbiddenException>(() =>
+            svc.GetFriendRequestByIdAsync(meId, f.Id));
+    }
+
+    [Fact]
+    public async Task GetFriendRequestByIdAsync_BlockedByOther_ThrowsForbidden()
+    {
+        var meId = Guid.NewGuid();
+        var otherId = Guid.NewGuid();
+        var f = new Friendship
+        {
+            Id = Guid.NewGuid(),
+            RequesterId = meId,
+            AddresseeId = otherId,
+            Status = FriendshipStatus.Blocked,
+            BlockerUserId = otherId // bị addressee chặn
+        };
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
+
+        var svc = CreateService();
+
+        await Assert.ThrowsAsync<ForbiddenException>(() =>
+            svc.GetFriendRequestByIdAsync(meId, f.Id));
+    }
+
+    // ===== GetBlockedUsersAsync / GetBlockedByUsersAsync =====
+
+    [Fact]
+    public async Task GetBlockedUsersAsync_CallsRepoWithBlockedByMe()
+    {
+        var meId = Guid.NewGuid();
+        _friendshipRepo.Setup(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.BlockedByMe, 100))
+            .ReturnsAsync(new List<Friendship>());
+
+        var svc = CreateService();
+        var result = await svc.GetBlockedUsersAsync(meId);
+
+        Assert.Empty(result);
+        _friendshipRepo.Verify(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.BlockedByMe, 100), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetBlockedByUsersAsync_CallsRepoWithBlockedByThem()
+    {
+        var meId = Guid.NewGuid();
+        _friendshipRepo.Setup(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.BlockedByThem, 100))
+            .ReturnsAsync(new List<Friendship>());
+
+        var svc = CreateService();
+        var result = await svc.GetBlockedByUsersAsync(meId);
+
+        Assert.Empty(result);
+        _friendshipRepo.Verify(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.BlockedByThem, 100), Times.Once);
+    }
+
+    // ===== SearchUsers/Suggestions filter blocked =====
+
+    [Fact]
+    public async Task SearchUsersAsync_FiltersBlockedUsers()
+    {
+        var meId = Guid.NewGuid();
+        var blockedId = Guid.NewGuid();
+        var visibleId = Guid.NewGuid();
+
+        _friendshipRepo.Setup(r => r.GetBlockedUserIdsAsync(meId))
+            .ReturnsAsync(new List<Guid> { blockedId });
+
+        _userRepo.Setup(r => r.SearchByUsernameAsync("a", meId, 20,
+                It.Is<IReadOnlyCollection<Guid>>(ids => ids.Contains(blockedId))))
+            .ReturnsAsync(new List<User> { BuildUser(visibleId, "alice") });
+
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, visibleId)).ReturnsAsync((Friendship?)null);
+        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, visibleId)).ReturnsAsync(0);
+
+        var svc = CreateService();
+        var result = await svc.SearchUsersAsync(meId, "a", 20);
+
+        Assert.Single(result);
+        Assert.Equal(visibleId, result[0].UserId);
+    }
+
+    [Fact]
+    public async Task GetFriendSuggestionsAsync_FiltersBlockedUsers()
+    {
+        var meId = Guid.NewGuid();
+        var friendId = Guid.NewGuid();
+        var blockedId = Guid.NewGuid();
+
+        _friendshipRepo.Setup(r => r.GetFriendUserIdsAsync(meId))
+            .ReturnsAsync(new List<Guid> { friendId });
+        _friendshipRepo.Setup(r => r.GetBlockedUserIdsAsync(meId))
+            .ReturnsAsync(new List<Guid> { blockedId });
+        // Friend-of-friend chỉ trả blocked user — phải bị filter.
+        _friendshipRepo.Setup(r => r.GetFriendUserIdsAsync(friendId))
+            .ReturnsAsync(new List<Guid> { blockedId });
+        _lobbyMemberRepo.Setup(r => r.GetRecentMemberUserIdsAsync(meId, It.IsAny<int>(), It.IsAny<int>()))
+            .ReturnsAsync(new List<Guid>());
+
+        var svc = CreateService();
+        var result = await svc.GetFriendSuggestionsAsync(meId, 10);
+
+        Assert.Empty(result);
     }
 
     [Fact]
@@ -716,7 +1207,7 @@ public class FriendServiceTests
         var meId = Guid.NewGuid();
         var suggestedId = Guid.NewGuid();
         _friendshipRepo.Setup(r => r.GetFriendUserIdsAsync(meId)).ReturnsAsync(new List<Guid>());
-        _lobbyMemberRepo.Setup(r => r.GetRecentMemberUserIdsAsync(meId, 30, 50)).ReturnsAsync(new List<Guid> { suggestedId });
+        _lobbyMemberRepo.Setup(r => r.GetRecentMemberUserIdsAsync(meId, It.IsAny<int>(), It.IsAny<int>())).ReturnsAsync(new List<Guid> { suggestedId });
         _userRepo.Setup(r => r.GetByIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>())).ReturnsAsync(new List<User> { BuildUser(suggestedId, "suggested") });
 
         var svc = CreateService();

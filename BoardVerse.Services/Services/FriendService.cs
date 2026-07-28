@@ -227,6 +227,69 @@ public class FriendService : IFriendService
         return await MapToResponseDtoAsync(friendship, currentUserId);
     }
 
+    public async Task CancelFriendRequestAsync(Guid currentUserId, Guid friendshipId)
+    {
+        var friendship = await _friendshipRepository.GetByIdAsync(friendshipId)
+            ?? throw new NotFoundException(ApiErrorMessages.Friend.FriendshipNotFound(friendshipId));
+
+        if (friendship.RequesterId != currentUserId)
+        {
+            throw new ForbiddenException(ApiErrorMessages.Friend.CannotCancelRequestNotRequester);
+        }
+
+        if (friendship.Status != FriendshipStatus.Pending)
+        {
+            throw new BadRequestException(ApiErrorMessages.Friend.CannotCancelNonPendingRequest);
+        }
+
+        friendship.Status = FriendshipStatus.Removed;
+        friendship.UpdatedAt = DateTime.UtcNow;
+
+        await _friendshipRepository.SaveChangesAsync();
+    }
+
+    public async Task<FriendshipResponseDto> GetFriendRequestByIdAsync(Guid currentUserId, Guid friendshipId)
+    {
+        var friendship = await _friendshipRepository.GetByIdAsync(friendshipId)
+            ?? throw new NotFoundException(ApiErrorMessages.Friend.FriendshipNotFound(friendshipId));
+
+        if (friendship.RequesterId != currentUserId && friendship.AddresseeId != currentUserId)
+        {
+            throw new ForbiddenException(ApiErrorMessages.Friend.CannotViewRequestNotMember);
+        }
+
+        // Ẩn thông tin nếu status = Blocked và mình không phải người chặn
+        if (friendship.Status == FriendshipStatus.Blocked
+            && friendship.BlockerUserId != currentUserId)
+        {
+            throw new ForbiddenException(ApiErrorMessages.Friend.CannotViewBlockedRequest);
+        }
+
+        return await MapToResponseDtoAsync(friendship, currentUserId);
+    }
+
+    public async Task<IReadOnlyList<FriendshipResponseDto>> GetBlockedUsersAsync(Guid currentUserId)
+    {
+        var list = await _friendshipRepository.GetByDirectionAsync(
+            currentUserId,
+            FriendshipRelationshipDirection.BlockedByMe,
+            limit: 100);
+
+        return (await Task.WhenAll(list.Select(f => MapToResponseDtoAsync(f, currentUserId))))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<FriendshipResponseDto>> GetBlockedByUsersAsync(Guid currentUserId)
+    {
+        var list = await _friendshipRepository.GetByDirectionAsync(
+            currentUserId,
+            FriendshipRelationshipDirection.BlockedByThem,
+            limit: 100);
+
+        return (await Task.WhenAll(list.Select(f => MapToResponseDtoAsync(f, currentUserId))))
+            .ToList();
+    }
+
     public async Task RemoveFriendshipAsync(Guid currentUserId, Guid friendshipId)
     {
         var friendship = await _friendshipRepository.GetByIdAsync(friendshipId)
@@ -371,9 +434,28 @@ public class FriendService : IFriendService
             .ToList();
     }
 
+    public async Task<IReadOnlyList<FriendshipResponseDto>> GetByDirectionAsync(
+        Guid currentUserId,
+        FriendshipRelationshipDirection direction,
+        int limit = 50)
+    {
+        if (direction == FriendshipRelationshipDirection.None)
+            return Array.Empty<FriendshipResponseDto>();
+
+        var list = await _friendshipRepository.GetByDirectionAsync(currentUserId, direction, limit);
+        return (await Task.WhenAll(list.Select(f => MapToResponseDtoAsync(f, currentUserId))))
+            .ToList();
+    }
+
     public async Task<IReadOnlyList<UserSearchResultDto>> SearchUsersAsync(Guid currentUserId, string keyword, int limit = 20)
     {
-        var users = await _userRepository.SearchByUsernameAsync(keyword, currentUserId, limit);
+        // BR-FRIEND-SEARCH-BLOCK-FILTER: loại bỏ user bị chặn (cả 2 chiều) khỏi kết quả.
+        var blockedUserIds = await _friendshipRepository.GetBlockedUserIdsAsync(currentUserId);
+        var users = await _userRepository.SearchByUsernameAsync(
+            keyword,
+            currentUserId,
+            limit,
+            blockedUserIds);
 
         var result = new List<UserSearchResultDto>(users.Count);
         foreach (var user in users)
@@ -387,10 +469,43 @@ public class FriendService : IFriendService
                 AvatarUrl = user.Profile?.AvatarUrl,
                 KarmaPoints = user.Profile?.KarmaPoints ?? 100,
                 FriendshipStatus = pair?.Status.ToString(),
+                RelationshipDirection = ResolveDirection(currentUserId, user.Id, pair),
                 MutualFriendsCount = mutualCount
             });
         }
         return result;
+    }
+
+    /// <summary>
+    /// Tính direction quan hệ từ góc nhìn current user (BR-FRIEND-UI-DIRECTION-01).
+    /// </summary>
+    private static FriendshipRelationshipDirection ResolveDirection(
+        Guid currentUserId,
+        Guid otherUserId,
+        Friendship? pair)
+    {
+        if (pair is null) return FriendshipRelationshipDirection.None;
+
+        var isRequester = pair.RequesterId == currentUserId;
+        var isAddressee = pair.AddresseeId == currentUserId;
+        // pair trả về từ GetByPairAsync luôn có 1 trong 2 == currentUserId;
+        // nhưng check cả 2 để chắc chắn (phòng trường hợp 1 user self-search).
+
+        return pair.Status switch
+        {
+            FriendshipStatus.Pending when isRequester => FriendshipRelationshipDirection.OutgoingRequest,
+            FriendshipStatus.Pending when isAddressee => FriendshipRelationshipDirection.IncomingRequest,
+
+            FriendshipStatus.Accepted => FriendshipRelationshipDirection.Accepted,
+
+            FriendshipStatus.Blocked when pair.BlockerUserId == currentUserId
+                => FriendshipRelationshipDirection.BlockedByMe,
+            FriendshipStatus.Blocked when pair.BlockerUserId == otherUserId
+                => FriendshipRelationshipDirection.BlockedByThem,
+
+            FriendshipStatus.Removed => FriendshipRelationshipDirection.None,
+            _ => FriendshipRelationshipDirection.None
+        };
     }
 
     public async Task<IReadOnlyList<FriendActivityDto>> GetFriendsActivityAsync(Guid userId)
@@ -423,6 +538,9 @@ public class FriendService : IFriendService
         var currentFriends = (await _friendshipRepository.GetFriendUserIdsAsync(userId)).ToHashSet();
         currentFriends.Add(userId);
 
+        // BR-FRIEND-SUGGEST-BLOCK-FILTER: loại bỏ user bị chặn (cả 2 chiều).
+        var blockedUserIds = (await _friendshipRepository.GetBlockedUserIdsAsync(userId)).ToHashSet();
+
         // 1. Friends-of-friends (BR-FRIEND-SUGGEST-01).
         var candidates = new Dictionary<Guid, int>();
         var friendIds = currentFriends.ToList();
@@ -432,6 +550,7 @@ public class FriendService : IFriendService
             foreach (var fofId in friendsOfFriend)
             {
                 if (currentFriends.Contains(fofId)) continue;
+                if (blockedUserIds.Contains(fofId)) continue;
                 candidates.TryGetValue(fofId, out var count);
                 candidates[fofId] = count + 1;
             }
@@ -442,6 +561,7 @@ public class FriendService : IFriendService
         foreach (var lm in lobbyMembers)
         {
             if (currentFriends.Contains(lm)) continue;
+            if (blockedUserIds.Contains(lm)) continue;
             candidates.TryGetValue(lm, out var count);
             candidates[lm] = count + 2; // weight cao hơn FOF
         }

@@ -40,6 +40,24 @@ public interface IFriendshipRepository
     /// </summary>
     Task<IReadOnlyList<Friendship>> GetExpiredPendingAsync(DateTime cutoff);
 
+    /// <summary>
+    /// Lấy danh sách UserId bị block (cả 2 chiều: tôi chặn họ + họ chặn tôi).
+    /// Dùng để filter khỏi Search/Suggestions (BR-FRIEND-SEARCH-BLOCK-FILTER).
+    /// </summary>
+    Task<IReadOnlyList<Guid>> GetBlockedUserIdsAsync(Guid userId);
+
+    /// <summary>
+    /// Lọc Friendship theo direction tính từ góc nhìn currentUser (BR-FRIEND-UI-DIRECTION-01).
+    /// Direction được dịch sang WHERE clause dựa trên Status + RequesterId/AddresseeId/BlockerUserId.
+    /// </summary>
+    /// <param name="currentUserId">User hiện tại (góc nhìn).</param>
+    /// <param name="direction">Direction cần lọc (None trả về empty list).</param>
+    /// <param name="limit">Giới hạn số kết quả.</param>
+    Task<IReadOnlyList<Friendship>> GetByDirectionAsync(
+        Guid currentUserId,
+        FriendshipRelationshipDirection direction,
+        int limit = 50);
+
     Task AddAsync(Friendship friendship);
     Task SaveChangesAsync();
 }
