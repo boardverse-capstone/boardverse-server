@@ -982,6 +982,9 @@ namespace BoardVerse.Core.Messages
 
             public const string ProfileNotYetCreated =
                 "Hồ sơ người dùng chưa được tạo. Vui lòng hoàn tất hồ sơ trước khi sử dụng tính năng này.";
+
+            public const string BlockedCannotViewProfile =
+                "Không thể xem hồ sơ của người dùng này vì phía bên kia đã chặn bạn.";
         }
 
         public static class LobbyInvite

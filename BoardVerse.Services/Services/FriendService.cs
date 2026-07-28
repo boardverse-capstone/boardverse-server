@@ -291,13 +291,9 @@ public class FriendService : IFriendService
 
         if (existing != null)
         {
-            // BR-FRIEND-BLOCK-01: Block từ phía currentUser, không phải từ target.
-            if (!existing.BlockerIsRequester(existing, currentUserId))
-            {
-                // Đảo chiều: tạo record mới với currentUser là Requester.
-                existing.RequesterId = currentUserId;
-                existing.AddresseeId = targetUserId;
-            }
+            // BR-FRIEND-BLOCK-VIEW: Giữ nguyên Requester/Addressee (không đảo chiều)
+            // để phân biệt được chiều block. Chỉ cập nhật BlockerUserId thành currentUser.
+            existing.BlockerUserId = currentUserId;
             existing.Status = FriendshipStatus.Blocked;
             existing.UpdatedAt = DateTime.UtcNow;
         }
@@ -308,6 +304,7 @@ public class FriendService : IFriendService
                 Id = Guid.NewGuid(),
                 RequesterId = currentUserId,
                 AddresseeId = targetUserId,
+                BlockerUserId = currentUserId,
                 Status = FriendshipStatus.Blocked,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
@@ -327,11 +324,17 @@ public class FriendService : IFriendService
         }
 
         // BR-FRIEND-BLOCK-02: Chỉ người đã block mới có thể bỏ block.
-        if (!existing.BlockerIsRequester(existing, currentUserId))
+        // Sau migration: kiểm tra BlockerUserId thay vì RequesterId.
+        if (existing.BlockerUserId != currentUserId)
         {
             throw new ForbiddenException(ApiErrorMessages.Friend.CannotUnblockNotBlocker);
         }
 
+        // Clear block - nếu người kia vẫn còn block mình thì giữ Status nhưng clear BlockerUserId
+        // để tránh throw trên lần check unblock tiếp theo.
+        // Tuy nhiên Status = Blocked vẫn giữ để chiều kia vẫn bị chặn view profile.
+        existing.BlockerUserId = null;
+        // Nếu Status chỉ là Blocked do chính currentUser → chuyển sang Removed cho sạch.
         existing.Status = FriendshipStatus.Removed;
         existing.UpdatedAt = DateTime.UtcNow;
 
@@ -624,6 +627,17 @@ public class FriendService : IFriendService
 
         // Quan hệ giữa current user và target.
         var pair = await _friendshipRepository.GetByPairAsync(currentUserId, targetUserId);
+
+        // BR-FRIEND-BLOCK-VIEW: Nếu target đã block current (BlockerUserId == targetUserId)
+        // → current không được xem profile target.
+        // Case cả 2 block nhau: vẫn áp dụng (BlockerUserId == targetUserId là vì target block current
+        // hoặc target là người block sau cùng — kết quả current đều bị chặn xem).
+        // Current tự block target (BlockerUserId == currentUserId) → current vẫn xem được profile target.
+        if (pair?.Status == FriendshipStatus.Blocked && pair.BlockerUserId == targetUserId)
+        {
+            throw new ForbiddenException(ApiErrorMessages.Friend.BlockedCannotViewProfile);
+        }
+
         var relationship = BuildRelationshipDto(pair, currentUserId);
 
         // BR-FRIEND-REPORT-01: chỉ report được người đang là bạn (Accepted).
@@ -692,8 +706,9 @@ public class FriendService : IFriendService
             },
             FriendshipStatus.Blocked => new RelationshipDto
             {
-                // Blocked record luôn có Requester = người block (do BlockUserAsync enforce).
-                Status = pair.RequesterId == currentUserId ? "BlockedByMe" : "BlockedByThem",
+                // BR-FRIEND-BLOCK-VIEW: Dùng BlockerUserId để xác định chiều block
+                // (không phụ thuộc Requester/Addressee, vì sau migration có thể cả 2 đã block nhau).
+                Status = pair.BlockerUserId == currentUserId ? "BlockedByMe" : "BlockedByThem",
                 FriendshipId = pair.Id
             },
             _ => new RelationshipDto { Status = "None" }
@@ -786,8 +801,17 @@ internal static class FriendshipStatusExtensions
 {
     /// <summary>
     /// Phân biệt chiều block: trả về true nếu userId là người đã thực hiện block.
-    /// Quy ước: người block là Requester (vì BlockUserAsync luôn set Requester = currentUser).
+    /// BR-FRIEND-BLOCK-VIEW: Sau migration, BlockerUserId là nguồn sự thật duy nhất
+    /// để biết ai đã block (không phụ thuộc Requester/Addressee).
+    /// Backward-compatible: nếu BlockerUserId null (data cũ) thì fallback theo Requester.
     /// </summary>
     public static bool BlockerIsRequester(this Friendship f, Friendship friendship, Guid userId)
-        => friendship.Status == FriendshipStatus.Blocked && friendship.RequesterId == userId;
+    {
+        if (friendship.Status != FriendshipStatus.Blocked) return false;
+        if (friendship.BlockerUserId.HasValue)
+        {
+            return friendship.BlockerUserId.Value == userId;
+        }
+        return friendship.RequesterId == userId;
+    }
 }

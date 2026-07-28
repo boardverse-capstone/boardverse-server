@@ -53,7 +53,8 @@ public class FriendServiceTests
         Guid requesterId,
         Guid addresseeId,
         FriendshipStatus status = FriendshipStatus.Pending,
-        DateTime? createdAt = null)
+        DateTime? createdAt = null,
+        Guid? blockerUserId = null)
     {
         return new Friendship
         {
@@ -61,6 +62,11 @@ public class FriendServiceTests
             RequesterId = requesterId,
             AddresseeId = addresseeId,
             Status = status,
+            // BR-FRIEND-BLOCK-VIEW: Block status implies BlockerUserId = requesterId (the one who blocked)
+            // by convention. Tests that need explicit override pass blockerUserId.
+            BlockerUserId = status == FriendshipStatus.Blocked
+                ? (blockerUserId ?? requesterId)
+                : blockerUserId,
             CreatedAt = createdAt ?? DateTime.UtcNow.AddMinutes(-10),
             UpdatedAt = createdAt ?? DateTime.UtcNow.AddMinutes(-10),
             Requester = BuildUser(requesterId, "requester"),
@@ -503,7 +509,15 @@ public class FriendServiceTests
     {
         var userId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
-        var f = new Friendship { Id = Guid.NewGuid(), RequesterId = userId, AddresseeId = targetId, Status = FriendshipStatus.Blocked };
+        // BR-FRIEND-BLOCK-VIEW: BlockerUserId = người đã block hiện tại
+        var f = new Friendship
+        {
+            Id = Guid.NewGuid(),
+            RequesterId = userId,
+            AddresseeId = targetId,
+            BlockerUserId = userId,
+            Status = FriendshipStatus.Blocked
+        };
         _friendshipRepo.Setup(r => r.GetByPairAsync(userId, targetId)).ReturnsAsync(f);
 
         var svc = CreateService();
@@ -511,6 +525,7 @@ public class FriendServiceTests
         await svc.UnblockUserAsync(userId, targetId);
 
         Assert.Equal(FriendshipStatus.Removed, f.Status);
+        Assert.Null(f.BlockerUserId); // Sau unblock → clear BlockerUserId
         _friendshipRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
     }
 
@@ -953,12 +968,13 @@ public class FriendServiceTests
     }
 
     [Fact]
-    public async Task GetPlayerProfileAsync_BlockedByMe_CannotSendOrReport()
+    public async Task GetPlayerProfileAsync_BlockedByMe_StillReturnsProfile()
     {
+        // BR-FRIEND-BLOCK-VIEW: Mình block họ → mình VẪN xem được profile của họ
+        // (chỉ có họ không xem được profile mình, và chỉ khi họ cũng bị mình block).
         var meId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
-        // Blocked record: Requester = người đã chặn (meId)
-        var f = BuildFriendship(Guid.NewGuid(), meId, targetId, FriendshipStatus.Blocked);
+        var f = BuildFriendship(Guid.NewGuid(), meId, targetId, FriendshipStatus.Blocked, blockerUserId: meId);
 
         var target = BuildUser(targetId, "blocked-target");
         _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
@@ -973,29 +989,44 @@ public class FriendServiceTests
         Assert.Equal(f.Id, result.Relationship.FriendshipId);
         Assert.False(result.CanSendFriendRequest);
         Assert.False(result.CanReport);
+        // Vẫn nhận được thông tin profile bình thường.
+        Assert.Equal(targetId, result.UserId);
+        Assert.Equal("blocked-target", result.Username);
     }
 
     [Fact]
-    public async Task GetPlayerProfileAsync_BlockedByThem_CannotSendOrReport()
+    public async Task GetPlayerProfileAsync_BlockedByThem_ThrowsForbidden()
     {
+        // BR-FRIEND-BLOCK-VIEW: Họ block mình → mình KHÔNG được xem profile của họ → 403.
         var meId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
-        // Blocked record: Requester = người đã chặn (targetId)
-        var f = BuildFriendship(Guid.NewGuid(), targetId, meId, FriendshipStatus.Blocked);
+        var f = BuildFriendship(Guid.NewGuid(), targetId, meId, FriendshipStatus.Blocked, blockerUserId: targetId);
 
         var target = BuildUser(targetId, "blocker");
         _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
         _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync(f);
-        _friendshipRepo.Setup(r => r.CountFriendsAsync(targetId)).ReturnsAsync(0);
 
         var svc = CreateService();
 
-        var result = await svc.GetPlayerProfileAsync(meId, targetId);
+        await Assert.ThrowsAsync<ForbiddenException>(() => svc.GetPlayerProfileAsync(meId, targetId));
+    }
 
-        Assert.Equal("BlockedByThem", result.Relationship.Status);
-        Assert.False(result.Relationship.IsRequester);
-        Assert.False(result.CanSendFriendRequest);
-        Assert.False(result.CanReport);
+    [Fact]
+    public async Task GetPlayerProfileAsync_MutualBlock_ThrowsForbidden()
+    {
+        // BR-FRIEND-BLOCK-VIEW: Cả 2 đều block nhau → cả 2 không xem được nhau → 403.
+        // Block mới nhất là target (do target block current sau cùng) → BlockerUserId = targetId.
+        var meId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+        var f = BuildFriendship(Guid.NewGuid(), meId, targetId, FriendshipStatus.Blocked, blockerUserId: targetId);
+
+        var target = BuildUser(targetId, "mutual-blocker");
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync(f);
+
+        var svc = CreateService();
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => svc.GetPlayerProfileAsync(meId, targetId));
     }
 
     [Fact]
