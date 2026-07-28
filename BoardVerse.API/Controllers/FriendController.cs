@@ -233,6 +233,23 @@ public class FriendController : BaseApiController
     }
 
     /// <summary>
+    /// Xem chi tiết public profile của 1 player: thông tin cơ bản, gamer stats, số bạn chung, quan hệ hiện tại và các permission flags (canSendFriendRequest, canReport). [Role: Player — đã đăng nhập]
+    /// </summary>
+    /// <param name="userId">Mã player cần xem.</param>
+    /// <response code="200">Lấy thông tin chi tiết player thành công.</response>
+    /// <response code="400">userId trùng với current user.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="404">Không tìm thấy player hoặc tài khoản không hoạt động.</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpGet("{userId:guid}/profile")]
+    public async Task<IActionResult> GetPlayerProfile(Guid userId)
+    {
+        var currentUserId = GetUserIdFromClaims();
+        var result = await _friendService.GetPlayerProfileAsync(currentUserId, userId);
+        return this.NewResponse(200, ApiSuccessMessages.Friend.PlayerProfileRetrieved, result);
+    }
+
+    /// <summary>
     /// Xem friend list của user khác (tôn trọng IsFriendListPublic). [Role: Player]
     /// </summary>
     /// <param name="otherUserId">Mã user khác.</param>

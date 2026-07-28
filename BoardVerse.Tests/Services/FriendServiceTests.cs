@@ -785,4 +785,284 @@ public class FriendServiceTests
     }
 
     #endregion
+
+    #region GetPlayerProfileAsync
+
+    [Fact]
+    public async Task GetPlayerProfileAsync_WhenTargetIsSelf_ThrowsBadRequest()
+    {
+        var meId = Guid.NewGuid();
+
+        var svc = CreateService();
+
+        await Assert.ThrowsAsync<BadRequestException>(() => svc.GetPlayerProfileAsync(meId, meId));
+    }
+
+    [Fact]
+    public async Task GetPlayerProfileAsync_WhenTargetNotFound_ThrowsNotFound()
+    {
+        var meId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync((User?)null);
+
+        var svc = CreateService();
+
+        await Assert.ThrowsAsync<NotFoundException>(() => svc.GetPlayerProfileAsync(meId, targetId));
+    }
+
+    [Fact]
+    public async Task GetPlayerProfileAsync_WhenTargetInactive_ThrowsNotFound()
+    {
+        var meId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+        var target = BuildUser(targetId, "inactive-guy", active: false);
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
+
+        var svc = CreateService();
+
+        // Phải 404 để không leak thông tin user bị khóa — message giống "không tồn tại".
+        await Assert.ThrowsAsync<NotFoundException>(() => svc.GetPlayerProfileAsync(meId, targetId));
+    }
+
+    [Fact]
+    public async Task GetPlayerProfileAsync_WhenTargetBanned_ThrowsNotFound()
+    {
+        var meId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+        var target = BuildUser(targetId, "banned-guy");
+        target.AccountStatus = UserAccountStatus.Banned;
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
+
+        var svc = CreateService();
+
+        await Assert.ThrowsAsync<NotFoundException>(() => svc.GetPlayerProfileAsync(meId, targetId));
+    }
+
+    [Fact]
+    public async Task GetPlayerProfileAsync_NoRelationship_ReturnsNoneAndDefaults()
+    {
+        var meId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+        var createdAt = DateTime.UtcNow.AddDays(-30);
+        var lastActive = DateTime.UtcNow.AddMinutes(-2);
+        var target = BuildUser(targetId, "stranger");
+        target.CreatedAt = createdAt;
+        target.Profile!.KarmaPoints = 80;
+        target.Profile!.GlobalElo = 1450;
+        target.Profile!.Level = 7;
+        target.Profile!.LastActiveAt = lastActive;
+
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync((Friendship?)null);
+        _friendshipRepo.Setup(r => r.CountFriendsAsync(targetId)).ReturnsAsync(42);
+
+        var svc = CreateService();
+
+        var result = await svc.GetPlayerProfileAsync(meId, targetId);
+
+        Assert.NotNull(result);
+        Assert.Equal(targetId, result.UserId);
+        Assert.Equal("stranger", result.Username);
+        Assert.Equal(80, result.KarmaPoints);
+        Assert.Equal(1450, result.GlobalElo);
+        Assert.Equal(7, result.Level);
+        Assert.Equal(createdAt, result.JoinedAt);
+        Assert.Equal(lastActive, result.LastActiveAt);
+        Assert.Equal("Online", result.ActivityStatus);
+        Assert.Equal(42, result.FriendsCount);
+        Assert.Equal(0, result.MutualFriendsCount);
+        Assert.Equal("None", result.Relationship.Status);
+        Assert.Null(result.Relationship.FriendshipId);
+        Assert.True(result.CanSendFriendRequest);
+        Assert.False(result.CanReport); // chỉ bạn mới report được (BR-FRIEND-REPORT-01)
+    }
+
+    [Fact]
+    public async Task GetPlayerProfileAsync_PendingSentFromMe_CannotSendRequest()
+    {
+        var meId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+        var f = BuildFriendship(Guid.NewGuid(), meId, targetId, FriendshipStatus.Pending);
+        f.Message = "hi friend";
+
+        var target = BuildUser(targetId, "pending-out");
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync(f);
+
+        var svc = CreateService();
+
+        var result = await svc.GetPlayerProfileAsync(meId, targetId);
+
+        Assert.Equal("PendingSent", result.Relationship.Status);
+        Assert.True(result.Relationship.IsRequester);
+        Assert.Equal(f.Id, result.Relationship.FriendshipId);
+        Assert.Equal("hi friend", result.Relationship.Message);
+        Assert.False(result.CanSendFriendRequest);
+        Assert.False(result.CanReport);
+    }
+
+    [Fact]
+    public async Task GetPlayerProfileAsync_PendingReceivedByMe_CannotSendRequest()
+    {
+        var meId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+        // current user là addressee → requester là target
+        var f = BuildFriendship(Guid.NewGuid(), targetId, meId, FriendshipStatus.Pending);
+
+        var target = BuildUser(targetId, "pending-in");
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync(f);
+
+        var svc = CreateService();
+
+        var result = await svc.GetPlayerProfileAsync(meId, targetId);
+
+        Assert.Equal("PendingReceived", result.Relationship.Status);
+        Assert.False(result.Relationship.IsRequester);
+        Assert.False(result.CanSendFriendRequest);
+        Assert.False(result.CanReport);
+    }
+
+    [Fact]
+    public async Task GetPlayerProfileAsync_Accepted_EnablesReportAndComputesMutual()
+    {
+        var meId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+        var since = DateTime.UtcNow.AddDays(-15);
+        var f = BuildFriendship(Guid.NewGuid(), targetId, meId, FriendshipStatus.Accepted);
+        f.AcceptedAt = since;
+
+        var target = BuildUser(targetId, "bestie");
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.CountFriendsAsync(targetId)).ReturnsAsync(10);
+        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, targetId)).ReturnsAsync(3);
+
+        var svc = CreateService();
+
+        var result = await svc.GetPlayerProfileAsync(meId, targetId);
+
+        Assert.Equal("Accepted", result.Relationship.Status);
+        Assert.False(result.Relationship.IsRequester);
+        Assert.Equal(f.Id, result.Relationship.FriendshipId);
+        Assert.Equal(since, result.Relationship.FriendsSince);
+        Assert.Equal(10, result.FriendsCount);
+        Assert.Equal(3, result.MutualFriendsCount);
+        Assert.False(result.CanSendFriendRequest);
+        Assert.True(result.CanReport);
+    }
+
+    [Fact]
+    public async Task GetPlayerProfileAsync_BlockedByMe_CannotSendOrReport()
+    {
+        var meId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+        // Blocked record: Requester = người đã chặn (meId)
+        var f = BuildFriendship(Guid.NewGuid(), meId, targetId, FriendshipStatus.Blocked);
+
+        var target = BuildUser(targetId, "blocked-target");
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.CountFriendsAsync(targetId)).ReturnsAsync(0);
+
+        var svc = CreateService();
+
+        var result = await svc.GetPlayerProfileAsync(meId, targetId);
+
+        Assert.Equal("BlockedByMe", result.Relationship.Status);
+        Assert.Equal(f.Id, result.Relationship.FriendshipId);
+        Assert.False(result.CanSendFriendRequest);
+        Assert.False(result.CanReport);
+    }
+
+    [Fact]
+    public async Task GetPlayerProfileAsync_BlockedByThem_CannotSendOrReport()
+    {
+        var meId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+        // Blocked record: Requester = người đã chặn (targetId)
+        var f = BuildFriendship(Guid.NewGuid(), targetId, meId, FriendshipStatus.Blocked);
+
+        var target = BuildUser(targetId, "blocker");
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.CountFriendsAsync(targetId)).ReturnsAsync(0);
+
+        var svc = CreateService();
+
+        var result = await svc.GetPlayerProfileAsync(meId, targetId);
+
+        Assert.Equal("BlockedByThem", result.Relationship.Status);
+        Assert.False(result.Relationship.IsRequester);
+        Assert.False(result.CanSendFriendRequest);
+        Assert.False(result.CanReport);
+    }
+
+    [Fact]
+    public async Task GetPlayerProfileAsync_PrivateFriendListAndNotFriends_HidesCountAndDoesNotQueryMutual()
+    {
+        var meId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+        var target = BuildUser(targetId, "privacy-strict");
+        target.Profile!.IsFriendListPublic = false;
+
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync((Friendship?)null);
+
+        var svc = CreateService();
+
+        var result = await svc.GetPlayerProfileAsync(meId, targetId);
+
+        Assert.Equal(0, result.FriendsCount);
+        // friendsCount phải 0 → CountFriendsAsync KHÔNG được gọi.
+        _friendshipRepo.Verify(r => r.CountFriendsAsync(It.IsAny<Guid>()), Times.Never);
+        // Status None → không cần mutual.
+        _friendshipRepo.Verify(r => r.CountMutualFriendsAsync(It.IsAny<Guid>(), It.IsAny<Guid>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetPlayerProfileAsync_PublicFriendList_ReturnsCountFromRepository()
+    {
+        var meId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+        var target = BuildUser(targetId, "open-book"); // mặc định IsFriendListPublic=true
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync((Friendship?)null);
+        _friendshipRepo.Setup(r => r.CountFriendsAsync(targetId)).ReturnsAsync(99);
+
+        var svc = CreateService();
+
+        var result = await svc.GetPlayerProfileAsync(meId, targetId);
+
+        Assert.Equal(99, result.FriendsCount);
+        _friendshipRepo.Verify(r => r.CountFriendsAsync(targetId), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(null, "Offline")]                 // chưa từng active
+    [InlineData(-3, "Online")]                    // ≤ 5 phút
+    [InlineData(-30, "RecentlyActive")]           // ≤ 1 giờ
+    [InlineData(-180, "Away")]                    // ≤ 7 ngày
+    [InlineData(-60 * 24 * 8, "Offline")]        // > 7 ngày
+    public async Task GetPlayerProfileAsync_ActivityStatus_MapsCorrectly(int? minutesAgo, string expected)
+    {
+        var meId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+        var target = BuildUser(targetId, "activity-test");
+        target.Profile!.LastActiveAt = minutesAgo.HasValue
+            ? DateTime.UtcNow.AddMinutes(minutesAgo.Value)
+            : (DateTime?)null;
+
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync((Friendship?)null);
+        _friendshipRepo.Setup(r => r.CountFriendsAsync(targetId)).ReturnsAsync(0);
+
+        var svc = CreateService();
+
+        var result = await svc.GetPlayerProfileAsync(meId, targetId);
+
+        Assert.Equal(expected, result.ActivityStatus);
+    }
+
+    #endregion
 }

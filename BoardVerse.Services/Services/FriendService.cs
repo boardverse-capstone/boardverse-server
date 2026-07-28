@@ -604,6 +604,102 @@ public class FriendService : IFriendService
         return expired.Count;
     }
 
+    public async Task<PlayerProfileDto> GetPlayerProfileAsync(Guid currentUserId, Guid targetUserId)
+    {
+        if (currentUserId == targetUserId)
+        {
+            throw new BadRequestException(ApiErrorMessages.Friend.CannotViewOwnProfile);
+        }
+
+        var target = await _userRepository.GetByIdWithProfileAsync(targetUserId)
+            ?? throw new NotFoundException(ApiErrorMessages.Friend.UserNotFound(targetUserId));
+
+        // Ẩn profile khi account không còn active (Banned / Suspended) — trả 404 tránh leak thông tin.
+        if (!target.IsActive || target.AccountStatus != UserAccountStatus.Active)
+        {
+            throw new NotFoundException(ApiErrorMessages.Friend.UserNotFound(targetUserId));
+        }
+
+        var profile = target.Profile;
+
+        // Quan hệ giữa current user và target.
+        var pair = await _friendshipRepository.GetByPairAsync(currentUserId, targetUserId);
+        var relationship = BuildRelationshipDto(pair, currentUserId);
+
+        // BR-FRIEND-REPORT-01: chỉ report được người đang là bạn (Accepted).
+        var canReport = relationship.Status == "Accepted";
+
+        // Privacy: chỉ trả friendsCount nếu list public hoặc 2 bên là bạn.
+        var showFriendsCount = profile?.IsFriendListPublic ?? true;
+        var friendsCount = showFriendsCount
+            ? await _friendshipRepository.CountFriendsAsync(targetUserId)
+            : 0;
+
+        var mutualCount = relationship.Status == "Accepted"
+            ? await _friendshipRepository.CountMutualFriendsAsync(currentUserId, targetUserId)
+            : 0;
+
+        // canSendFriendRequest: không thể gửi nếu đã chặn / bị block / đã là bạn / pending tồn tại.
+        var canSendFriendRequest = relationship.Status == "None";
+
+        return new PlayerProfileDto
+        {
+            UserId = target.Id,
+            Username = target.Username,
+            AvatarUrl = profile?.AvatarUrl,
+            AvatarBorderUrl = profile?.AvatarBorderUrl,
+            Bio = profile?.Bio,
+            FirstName = profile?.FirstName,
+            LastName = profile?.LastName,
+            GlobalElo = profile?.GlobalElo ?? 1200,
+            KarmaPoints = profile?.KarmaPoints ?? 100,
+            GamerTier = profile?.GamerTier.ToString() ?? "Bronze",
+            Level = profile?.Level ?? 1,
+            FriendsCount = friendsCount,
+            MutualFriendsCount = mutualCount,
+            ActivityStatus = ComputeActivityStatus(profile?.LastActiveAt),
+            LastActiveAt = profile?.LastActiveAt,
+            JoinedAt = target.CreatedAt,
+            Relationship = relationship,
+            CanSendFriendRequest = canSendFriendRequest,
+            CanReport = canReport
+        };
+    }
+
+    private RelationshipDto BuildRelationshipDto(Friendship? pair, Guid currentUserId)
+    {
+        if (pair == null)
+        {
+            return new RelationshipDto { Status = "None" };
+        }
+
+        return pair.Status switch
+        {
+            FriendshipStatus.Accepted => new RelationshipDto
+            {
+                Status = "Accepted",
+                FriendshipId = pair.Id,
+                IsRequester = pair.RequesterId == currentUserId,
+                FriendsSince = pair.AcceptedAt ?? pair.UpdatedAt
+            },
+            FriendshipStatus.Pending => new RelationshipDto
+            {
+                // Phân biệt PendingSent vs PendingReceived dựa trên chiều requester.
+                Status = pair.RequesterId == currentUserId ? "PendingSent" : "PendingReceived",
+                FriendshipId = pair.Id,
+                IsRequester = pair.RequesterId == currentUserId,
+                Message = pair.Message
+            },
+            FriendshipStatus.Blocked => new RelationshipDto
+            {
+                // Blocked record luôn có Requester = người block (do BlockUserAsync enforce).
+                Status = pair.RequesterId == currentUserId ? "BlockedByMe" : "BlockedByThem",
+                FriendshipId = pair.Id
+            },
+            _ => new RelationshipDto { Status = "None" }
+        };
+    }
+
     // === Helpers ===
 
     private async Task<int> CountSentRequestsInWindowAsync(Guid requesterId, TimeSpan window)

@@ -92,4 +92,14 @@ public interface IFriendService
     /// Auto-expire các friend request Pending quá hạn (BR-FRIEND-05).
     /// </summary>
     Task<int> ExpireOldPendingRequestsAsync(int expiryDays = 30);
+
+    /// <summary>
+    /// Xem chi tiết public profile của 1 player, kèm:
+    /// - Quan hệ hiện tại giữa current user và target (None / PendingSent / PendingReceived / Accepted / Blocked).
+    /// - Số bạn chung.
+    /// - Số bạn bè (tôn trọng IsFriendListPublic: chỉ trả count, không trả list).
+    /// - Permission flags (canSendFriendRequest, canReport) — canReport chỉ true khi đã Accepted (BR-FRIEND-REPORT-01).
+    /// Trả 404 nếu target không tồn tại, bị block 2 chiều, hoặc account không Active.
+    /// </summary>
+    Task<PlayerProfileDto> GetPlayerProfileAsync(Guid currentUserId, Guid targetUserId);
 }

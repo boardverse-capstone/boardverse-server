@@ -950,6 +950,9 @@ namespace BoardVerse.Core.Messages
             public const string CannotViewOwnFriendList =
                 "Không thể truy vấn chính mình qua endpoint này. Hãy dùng GET /api/v1/friends.";
 
+            public const string CannotViewOwnProfile =
+                "Không thể truy vấn profile của chính mình qua endpoint này. Hãy dùng GET /api/v1/players/me.";
+
             public const string CannotNoteSelf =
                 "Không thể tạo ghi chú cho chính mình.";
 
