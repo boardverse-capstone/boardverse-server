@@ -33,18 +33,6 @@ public class FriendActivityDto
 }
 
 /// <summary>
-/// Bạn bè đang online - dùng để host mời vào private lobby.
-/// </summary>
-public class OnlineFriendDto
-{
-    public Guid UserId { get; set; }
-    public string Username { get; set; } = string.Empty;
-    public string? AvatarUrl { get; set; }
-    public int KarmaPoints { get; set; }
-    public string? GamerTier { get; set; }
-}
-
-/// <summary>
 /// Gợi ý kết bạn (chơi chung lobby cùng cafe, friend-of-friend).
 /// </summary>
 public class FriendSuggestionDto

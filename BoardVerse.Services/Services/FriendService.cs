@@ -531,33 +531,6 @@ public class FriendService : IFriendService
         return result;
     }
 
-    public async Task<IReadOnlyList<OnlineFriendDto>> GetOnlineFriendsAsync(Guid userId)
-    {
-        var friendships = await _friendshipRepository.GetFriendsAsync(userId);
-        var onlineFriends = new List<OnlineFriendDto>();
-
-        foreach (var f in friendships)
-        {
-            var other = f.RequesterId == userId ? f.Addressee : f.Requester;
-            var lastActive = other.Profile?.LastActiveAt;
-
-            // Online = LastActiveAt within 5 minutes
-            if (lastActive.HasValue && lastActive.Value >= DateTime.UtcNow.AddMinutes(-5))
-            {
-                onlineFriends.Add(new OnlineFriendDto
-                {
-                    UserId = other.Id,
-                    Username = other.Username,
-                    AvatarUrl = other.Profile?.AvatarUrl,
-                    KarmaPoints = other.Profile?.KarmaPoints ?? 100,
-                    GamerTier = other.Profile?.GamerTier.ToString()
-                });
-            }
-        }
-
-        return onlineFriends;
-    }
-
     public async Task<IReadOnlyList<FriendSuggestionDto>> GetFriendSuggestionsAsync(Guid userId, int limit = 20)
     {
         if (userId == Guid.Empty) throw new BadRequestException(ApiErrorMessages.Friend.CannotSuggestToSelf);

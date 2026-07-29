@@ -66,23 +66,44 @@ Lấy hồ sơ **của chính user đang đăng nhập** (không cần truyền 
   "data": {
     "userId": "guid",
     "username": "alice",
+    "phoneNumber": "+84901234567",
     "avatarUrl": null,
+    "avatarBorderUrl": null,
     "bio": "Board game fan",
+    "firstName": "Alice",
+    "lastName": "Nguyen",
+    "dateOfBirth": "1998-01-01",
     "karmaPoints": 0,
     "gamerTier": "Bronze",
     "globalElo": 1200,
     "level": 1,
-    "updatedAt": "2026-06-08T12:00:00Z"
+    "currentExp": 0,
+    "lastActiveAt": "2026-06-08T12:00:00Z",
+    "updatedAt": "2026-06-08T12:00:00Z",
+    "hasProfile": true,
+    "isFriendListPublic": true,
+    "acceptFriendRequestsFrom": "Everyone",
+    "friendLimit": 0
   }
 }
 ```
 
 | Field | Mô tả |
 |-------|--------|
+| `phoneNumber` | Số điện thoại đã xác thực (nullable) |
+| `avatarBorderUrl` | URL viền avatar trang trí (nullable) |
+| `firstName`, `lastName` | Họ tên thật (BR-AUTH-11: identity matching) |
+| `dateOfBirth` | Ngày sinh (BR-AUTH-11: required ≥ 13 tuổi) |
 | `karmaPoints` | Điểm karma tích lũy |
 | `gamerTier` | Hạng (Bronze, Silver, …) theo karma |
 | `globalElo` | Điểm Elo toàn cục |
 | `level` | Cấp độ người chơi |
+| `currentExp` | Kinh nghiệm hiện tại trong level (0 → ngưỡng lên level sau) |
+| `lastActiveAt` | Lần cuối user mở app / thao tác (null nếu chưa từng) |
+| `hasProfile` | `true` nếu row `UserProfiles` đã tồn tại; `false` = user chỉ có tài khoản, chưa tạo profile |
+| `isFriendListPublic` | Public profile này hiển thị friend list cho người khác không (BR-FRIEND-PRIVACY-01) |
+| `acceptFriendRequestsFrom` | `Everyone` / `FriendsOfFriends` — ai được gửi lời mời kết bạn |
+| `friendLimit` | Giới hạn số bạn (`0` = không giới hạn) |
 
 **Lỗi:** `401` thiếu/sai token, `403` tài khoản bị chặn, `404` user trong token không tồn tại.
 

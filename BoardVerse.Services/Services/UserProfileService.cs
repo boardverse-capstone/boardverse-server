@@ -38,13 +38,22 @@ namespace BoardVerse.Services.Services
                 Username = user.Username,
                 PhoneNumber = user.PhoneNumber,
                 AvatarUrl = profile?.AvatarUrl,
+                AvatarBorderUrl = profile?.AvatarBorderUrl,
                 Bio = profile?.Bio,
+                FirstName = profile?.FirstName,
+                LastName = profile?.LastName,
+                DateOfBirth = profile?.DateOfBirth,
                 KarmaPoints = profile?.KarmaPoints ?? 100,
                 GamerTier = profile?.GamerTier.ToString() ?? GamerTier.Bronze.ToString(),
                 GlobalElo = profile?.GlobalElo ?? 1200,
                 Level = profile?.Level ?? 1,
+                CurrentExp = profile?.CurrentExp ?? 0,
+                LastActiveAt = profile?.LastActiveAt,
                 UpdatedAt = profile?.UpdatedAt ?? user.UpdatedAt,
-                HasProfile = hasProfile
+                HasProfile = hasProfile,
+                IsFriendListPublic = profile?.IsFriendListPublic ?? true,
+                AcceptFriendRequestsFrom = profile?.AcceptFriendRequestsFrom ?? "Everyone",
+                FriendLimit = profile?.FriendLimit ?? 0
             };
         }
 
