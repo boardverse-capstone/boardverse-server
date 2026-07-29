@@ -36,6 +36,16 @@ namespace BoardVerse.Services.IServices
             string userRole,
             StartSessionFromBookingRequestDto request);
 
+        /// <summary>
+        /// Preview booking info trước khi check-in.
+        /// AC 1.1: Hiển thị danh sách thành viên + game info TRƯỚC khi check-in.
+        /// </summary>
+        Task<BookingPreviewDto> GetBookingPreviewAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            string bookingCode);
+
         Task<ActiveSessionDto> EndGameSessionAsync(
             Guid cafeId,
             Guid userId,
@@ -53,5 +63,13 @@ namespace BoardVerse.Services.IServices
             Guid userId,
             string userRole,
             SubmitComponentCheckRequestDto request);
+
+        // Return Game: tính surcharge_fine
+        Task<ReturnGameResponseDto> ReturnGameAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sessionId,
+            ReturnGameRequestDto request);
     }
 }

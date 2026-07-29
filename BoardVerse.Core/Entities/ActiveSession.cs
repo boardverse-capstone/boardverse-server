@@ -66,11 +66,21 @@ namespace BoardVerse.Core.Entities
         /// <summary>Tổng tiền giờ chơi.</summary>
         public decimal Subtotal { get; set; }
 
-        /// <summary>Số tiền deposit đã cấn trừ.</summary>
+        /// <summary>
+        /// Số tiền deposit đã cấn trừ.
+        /// Mô hình mới: Host đặt cọc, tiền đi vào tài khoản BoardVerse → luôn = 0.
+        /// Mỗi thành viên thanh toán 100% tiền giờ khi checkout.
+        /// </summary>
         public decimal DepositAppliedAmount { get; set; }
 
-        /// <summary>Tổng tiền cuối cùng (Subtotal - DepositAppliedAmount).</summary>
+        /// <summary>Tổng tiền cuối cùng (thường = Subtotal vì DepositAppliedAmount = 0).</summary>
         public decimal TotalAmount { get; set; }
+
+        /// <summary>
+        /// Tổng tiền phạt đền bù linh kiện mất/hỏng (surcharge_fine).
+        /// Tính khi return-game, cập nhật vào hóa đơn phiên chơi.
+        /// </summary>
+        public decimal SurchargeFine { get; set; }
 
         // === Audit ===
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

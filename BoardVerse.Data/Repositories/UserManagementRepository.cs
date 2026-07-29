@@ -89,18 +89,31 @@ namespace BoardVerse.Data.Repositories
             return _context.Users.Include(u => u.Profile).FirstOrDefaultAsync(u => u.Id == userId);
         }
 
-        public async Task<IReadOnlyList<User>> SearchByUsernameAsync(string keyword, Guid excludeUserId, int limit = 20)
+        public async Task<IReadOnlyList<User>> SearchByUsernameAsync(
+            string keyword,
+            Guid excludeUserId,
+            int limit = 20,
+            IReadOnlyCollection<Guid>? blockedUserIds = null)
         {
             if (string.IsNullOrWhiteSpace(keyword))
                 return Array.Empty<User>();
 
             var pattern = keyword.Trim().ToLower();
-            return await _context.Users
+            var blocked = blockedUserIds ?? Array.Empty<Guid>();
+
+            var query = _context.Users
                 .Include(u => u.Profile)
                 .Where(u => u.Id != excludeUserId
                     && u.IsActive
                     && u.AccountStatus == UserAccountStatus.Active
-                    && u.Username.ToLower().Contains(pattern))
+                    && u.Username.ToLower().Contains(pattern));
+
+            if (blocked.Count > 0)
+            {
+                query = query.Where(u => !blocked.Contains(u.Id));
+            }
+
+            return await query
                 .OrderBy(u => u.Username)
                 .Take(Math.Clamp(limit, 1, 50))
                 .ToListAsync();

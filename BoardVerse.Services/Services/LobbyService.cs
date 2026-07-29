@@ -853,7 +853,7 @@ namespace BoardVerse.Services.Services
             for (var attempt = 0; attempt < 5; attempt++)
             {
                 var code = new string(
-                    Enumerable.Repeat(chars, 8)
+                    Enumerable.Repeat(chars, 6)
                         .Select(s => s[rng.Next(s.Length)])
                         .ToArray());
 
@@ -864,7 +864,7 @@ namespace BoardVerse.Services.Services
                 }
             }
 
-            return Guid.NewGuid().ToString("N").Substring(0, 8).ToUpperInvariant();
+            return Guid.NewGuid().ToString("N").Substring(0, 6).ToUpperInvariant();
         }
 
         private static LobbyResponseDto MapLobbyDto(Lobby lobby, double? distanceKm)

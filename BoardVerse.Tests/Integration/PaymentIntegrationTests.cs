@@ -213,7 +213,7 @@ public class PaymentIntegrationTests
             $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/sessions/{sessionId}/pay",
             new { notes = "Test payment" });
 
-        // Assert - BR-09: Deposit should be applied once
+        // Assert - BR-09 (updated): Deposit là phí giữ chỗ, KHÔNG trừ vào hóa đơn
         Assert.Equal(HttpStatusCode.OK, payResponse.StatusCode);
     }
 

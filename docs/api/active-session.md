@@ -21,7 +21,7 @@ API vận hành phiên chơi tại quán: truy vấn, thanh toán (một phần/
 | `/{sessionId}/checkout` | POST | Thanh toán toàn bộ sau kiểm kê | BR-15 |
 | `/{sessionId}/partial-checkout` | POST | Thanh toán một phần (về sớm) | BR-12, BR-14 |
 | `/{sessionId}/guest-slots` | POST | Thêm khách vô danh | BR-13 |
-| `/{sessionId}/pay` | POST | Thanh toán hóa đơn tổng | BR-15, BR-09 |
+| `/{sessionId}/pay` | POST | Thanh toán hóa đơn tổng | BR-15 |
 | `/{sessionId}/merge` | POST | Ghép thành viên vào nhóm mới | — |
 | `/{sessionId}/members/add` | POST | Thêm thành viên đến muộn | — |
 | `/{sessionId}/inventory-loss` | POST | Ghi nhận hao hụt trước phiên | — |
@@ -145,7 +145,8 @@ Thêm khách vô danh (BR-13 — không app/điện thoại hết pin). `GuestSl
 Thanh toán hóa đơn tổng của phiên (BR-15):
 
 ```
-TotalAmount = Subtotal (tiền giờ) + PenaltyAmount (phí phạt linh kiện) − DepositAppliedAmount (cọc đã trừ 1 lần BR-09)
+TotalAmount = Subtotal (tiền giờ) + PenaltyAmount (phí phạt linh kiện)
+Note: DepositAppliedAmount = 0 — Thanh toán session KHÔNG trừ tiền cọc (BR-09 mới)
 ```
 
 **Body:**
@@ -262,9 +263,9 @@ stateDiagram-v2
 
 | BR | Áp dụng |
 |----|---------|
-| BR-09 | Cấn trừ deposit 1 lần duy nhất vào hóa đơn tổng |
+| BR-09 | Thanh toán session KHÔNG trừ tiền cọc. Deposit là phí giữ chỗ, không cấn trừ vào hóa đơn. |
 | BR-12 | Khóa in hóa đơn khi `CHECKING` (partial checkout) |
 | BR-13 | `GuestSlot` không chịu trách nhiệm tài sản |
 | BR-14 | Phí phạt không gán vào `GuestSlot` |
-| BR-15 | `TotalAmount = Subtotal + Penalty − DepositApplied` |
+| BR-15 | `TotalAmount = Subtotal + Penalty − DepositApplied` (DepositApplied = 0) |
 | BR-17 | Chỉ nhân viên POS được kết thúc/tách nhóm/tính tiền |

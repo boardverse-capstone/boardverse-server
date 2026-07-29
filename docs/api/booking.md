@@ -43,7 +43,7 @@
    → Lobby.Status = Full → Ready for check-in
 
 5. Customer đến quán → POS quét QR booking
-   → ActiveSession tạo với DepositAppliedAmount
+   → ActiveSession tạo với DepositAppliedAmount = 0 (không trừ cọc)
    → SeatSlot: RESERVED → IN_USE
 ```
 

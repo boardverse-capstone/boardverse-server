@@ -36,6 +36,7 @@ namespace BoardVerse.Core.DTOs.Session
 
     /// <summary>
     /// Response sau khi thanh toán hóa đơn tổng.
+    /// BR-15: TotalAmount = Subtotal + PenaltyAmount - DepositAppliedAmount
     /// </summary>
     public class PaySessionResponseDto
     {
@@ -45,7 +46,6 @@ namespace BoardVerse.Core.DTOs.Session
         public decimal DepositAppliedAmount { get; set; }
         public decimal TotalAmount { get; set; }
         public DateTime PaidAt { get; set; }
-        public string? SettlementStatus { get; set; }
         public ActiveSessionResponseDto Session { get; set; } = null!;
     }
 }

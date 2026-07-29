@@ -210,8 +210,8 @@ public class StateMachineIntegrationTests : IClassFixture<BoardVerseWebApplicati
 
     /// <summary>
     /// MDC: ActiveSession State Machine - UNPAID → PAID
-    /// BR-09: Cấn trừ cọc một lần duy nhất
-    /// BR-15: Tổng tiền = Tiền giờ + Phí phạt - Tiền cọc
+    /// BR-09 (updated): Thanh toán session KHÔNG trừ tiền cọc
+    /// BR-15: Tổng tiền = Tiền giờ + Phí phạt (DepositAppliedAmount = 0)
     /// </summary>
     [IntegrationFact]
     public async Task ActiveSession_PaySession_SessionMovesToPaid()
@@ -252,7 +252,7 @@ public class StateMachineIntegrationTests : IClassFixture<BoardVerseWebApplicati
     }
 
     /// <summary>
-    /// BR-09: Tiền cọc chỉ được trừ một lần vào hóa đơn tổng
+    /// BR-09 (updated): Tiền cọc là phí giữ chỗ, KHÔNG trừ vào hóa đơn
     /// MDC: BR-09 (Bảo lưu dữ liệu tài chính)
     /// </summary>
     [IntegrationFact]

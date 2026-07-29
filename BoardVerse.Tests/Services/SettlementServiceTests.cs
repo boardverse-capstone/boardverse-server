@@ -99,7 +99,7 @@ public class SettlementServiceTests
         var ex = await Assert.ThrowsAsync<ConflictException>(
             () => _service.ReleaseSessionDepositAsync(cafeId, sessionId, sessionId));
 
-        Assert.Contains("deposit", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Chưa cấu hình master account", ex.Message);
     }
 
     /// <summary>

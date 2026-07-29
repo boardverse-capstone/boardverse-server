@@ -13,15 +13,27 @@ namespace BoardVerse.Services.Services
         private readonly ICafePosRepository _posRepository;
         private readonly ICafeRepository _cafeRepository;
         private readonly IBookingDepositRepository _depositRepository;
+        private readonly IActiveSessionRepository _activeSessionRepository;
+        private readonly IPosHubService _posHubService;
+        private readonly ILobbyRepository _lobbyRepository;
+        private readonly IUserProfileRepository _userProfileRepository;
 
         public CafePosService(
             ICafePosRepository posRepository,
             ICafeRepository cafeRepository,
-            IBookingDepositRepository depositRepository)
+            IBookingDepositRepository depositRepository,
+            IActiveSessionRepository activeSessionRepository,
+            IPosHubService posHubService,
+            ILobbyRepository lobbyRepository,
+            IUserProfileRepository userProfileRepository)
         {
             _posRepository = posRepository;
             _cafeRepository = cafeRepository;
             _depositRepository = depositRepository;
+            _activeSessionRepository = activeSessionRepository;
+            _posHubService = posHubService;
+            _lobbyRepository = lobbyRepository;
+            _userProfileRepository = userProfileRepository;
         }
 
         public async Task<IReadOnlyList<CafeTableStatusDto>> GetTablesAsync(
@@ -111,6 +123,91 @@ namespace BoardVerse.Services.Services
                 .OrderBy(s => s.StartedAt)
                 .Select(s => MapSession(s, utcNow))
                 .ToList();
+        }
+
+        /// <summary>
+        /// Preview booking info trước khi check-in.
+        /// AC 1.1: Hiển thị danh sách thành viên + game info TRƯỚC khi check-in.
+        /// </summary>
+        public async Task<BookingPreviewDto> GetBookingPreviewAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            string bookingCode)
+        {
+            await EnsurePosAccessAsync(cafeId, userId, userRole);
+
+            var deposit = await _depositRepository.GetByBookingCodeAsync(bookingCode.Trim());
+            if (deposit == null)
+            {
+                throw new NotFoundException($"Không tìm thấy đơn đặt chỗ với mã '{bookingCode}'.");
+            }
+
+            if (deposit.CafeId != cafeId)
+            {
+                throw new ConflictException("Đơn đặt chỗ này không thuộc quán này.");
+            }
+
+            // Get host profile using available method
+            var hostProfile = await _userProfileRepository.GetByIdWithProfileAsync(deposit.UserId);
+
+            // Get lobby info if available - check via ActiveSessionId link
+            BookingLobbyInfoDto? lobbyInfo = null;
+            if (deposit.ActiveSessionId.HasValue)
+            {
+                var lobby = await _lobbyRepository.GetByActiveSessionIdAsync(deposit.ActiveSessionId.Value);
+                if (lobby != null)
+                {
+                    lobbyInfo = new BookingLobbyInfoDto
+                    {
+                        LobbyId = lobby.Id,
+                        GameName = lobby.GameTemplate?.Name ?? "Unknown",
+                        MinPlayers = lobby.MinPlayers,
+                        MaxPlayers = lobby.MaxMembers,
+                        CurrentMemberCount = 1 // Host only for now
+                    };
+                }
+            }
+
+            // Determine if can check-in
+            bool canCheckIn = deposit.Status == BookingDepositStatus.Paid;
+            string? cannotCheckInReason = null;
+            
+            if (deposit.Status == BookingDepositStatus.Pending)
+            {
+                cannotCheckInReason = "Đơn cọc chưa thanh toán.";
+            }
+            else if (deposit.Status == BookingDepositStatus.Released)
+            {
+                cannotCheckInReason = "Đơn cọc đã được giải ngân.";
+            }
+            else if (deposit.Status == BookingDepositStatus.Refunded)
+            {
+                cannotCheckInReason = "Đơn cọc đã được hoàn tiền.";
+            }
+            else if (deposit.Status == BookingDepositStatus.Forfeited)
+            {
+                cannotCheckInReason = "Đơn cọc đã bị tịch thu.";
+            }
+
+            return new BookingPreviewDto
+            {
+                BookingCode = deposit.OrderId,
+                DepositStatus = deposit.Status.ToString(),
+                DepositAmount = deposit.Amount,
+                ScheduledStartTime = deposit.ScheduledAt,
+                RegisteredMemberCount = 1, // Host only for now
+                CanCheckIn = canCheckIn,
+                CannotCheckInReason = cannotCheckInReason,
+                Host = new BookingMemberInfoDto
+                {
+                    UserId = deposit.UserId,
+                    DisplayName = hostProfile?.Profile?.FirstName ?? hostProfile?.Username ?? "Unknown",
+                    AvatarUrl = hostProfile?.Profile?.AvatarUrl,
+                    KarmaScore = hostProfile?.Profile?.KarmaPoints ?? 0
+                },
+                Lobby = lobbyInfo
+            };
         }
 
         public async Task<ActiveSessionDto> StartGameSessionAsync(
@@ -213,11 +310,11 @@ namespace BoardVerse.Services.Services
         }
 
         /// <summary>
-        /// Host-led check-in: Quét một lần mã đặt chỗ (BookingCode) để kích hoạt phiên chơi cho cả nhóm.
+        /// Host-led check-in: Quét một lần mã đặt chỗ (BookingCode = OrderId) để kích hoạt phiên chơi.
         /// MDC Happy Path Step 9: "Quét một lần mã định danh đặt chỗ trên ứng dụng của người chơi khởi tạo để thực hiện thủ tục vào quán cho cả nhóm"
-        /// BR-05: Booking CONFIRMED mới được check-in
+        /// BR-05: Deposit phải ở trạng thái Paid mới được check-in
         /// BR-06: Quá 30 phút không check-in → Booking EXPIRED
-        /// BR-09: Deposit được bảo lưu, cấn trừ vào hóa đơn tổng khi kết thúc phiên
+        /// BR-09: Deposit chỉ dùng để giữ chỗ, KHÔNG trừ vào hóa đơn session
         /// </summary>
         public async Task<ActiveSessionDto> StartSessionFromBookingAsync(
             Guid cafeId,
@@ -227,24 +324,27 @@ namespace BoardVerse.Services.Services
         {
             await EnsurePosAccessAsync(cafeId, userId, userRole);
 
-            // BR-05: Tìm booking deposit bằng mã đặt chỗ (BookingCode = OrderId)
+            // Tìm deposit bằng BookingCode (OrderId)
             var deposit = await _depositRepository.GetByBookingCodeAsync(request.BookingCode.Trim());
             if (deposit == null)
             {
                 throw new NotFoundException($"Không tìm thấy đơn đặt chỗ với mã '{request.BookingCode}'.");
             }
 
-            // BR-05: Chỉ cho phép check-in khi booking đã CONFIRMED
-            if (deposit.Status != BookingDepositStatus.Paid)
-            {
-                throw new ConflictException($"Đơn đặt chỗ không ở trạng thái đã thanh toán (trạng thái hiện tại: {deposit.Status}). Vui lòng kiểm tra lại mã đặt chỗ hoặc liên hệ khách hàng.");
-            }
-
-            // BR-05: Kiểm tra ghế khả dụng
+            // Kiểm tra deposit thuộc đúng cafe
             if (deposit.CafeId != cafeId)
             {
-                throw new ConflictException($"Đơn đặt chỗ này không thuộc quán này.");
+                throw new ConflictException("Đơn đặt chỗ này không thuộc quán này.");
             }
+
+            // BR-05: Kiểm tra deposit đã Paid
+            if (deposit.Status != BookingDepositStatus.Paid)
+            {
+                throw new ConflictException("Đơn đặt chỗ chưa được thanh toán deposit. Vui lòng liên hệ khách hàng.");
+            }
+
+            // Host là người đặt cọc (UserId trong deposit)
+            var hostId = deposit.UserId;
 
             // Kiểm tra bàn
             var table = await _posRepository.GetTableAsync(cafeId, request.CafeTableId);
@@ -280,7 +380,7 @@ namespace BoardVerse.Services.Services
             var now = DateTime.UtcNow;
             var gameTemplateId = box.CafeGameInventory.GameTemplateId;
 
-            // Tạo session - sử dụng UserId từ BookingDeposit làm HostId
+            // Tạo session với Host là người đặt cọc
             var session = new ActiveSession
             {
                 Id = Guid.NewGuid(),
@@ -288,19 +388,23 @@ namespace BoardVerse.Services.Services
                 CafeTableId = table.Id,
                 CafeInventoryBoxId = box.Id,
                 GameTemplateId = gameTemplateId,
-                HostId = deposit.UserId, // ✅ Đúng: UserId của người đặt chỗ (Host)
-                LobbyId = null, // Có thể liên kết Lobby nếu có
+                HostId = hostId,
+                LobbyId = null,
                 Status = GroupSessionStatus.Active,
                 StartedAt = now,
-                CreatedAt = now
+                CreatedAt = now,
+                // BR-09: DepositAppliedAmount = 0 (không trừ deposit vào session)
+                DepositAppliedAmount = 0,
+                Subtotal = 0,
+                TotalAmount = 0
             };
 
-            // Tạo ActiveSessionMember cho Host
+            // Tạo member cho Host
             var hostMember = new ActiveSessionMember
             {
                 Id = Guid.NewGuid(),
                 ActiveSessionId = session.Id,
-                UserId = deposit.UserId, // ✅ Đúng: Host là người đặt chỗ
+                UserId = hostId,
                 JoinedAt = now,
                 Status = IndividualSessionStatus.Playing
             };
@@ -321,22 +425,70 @@ namespace BoardVerse.Services.Services
             table.Status = CafeTableStatus.InUse;
             table.UpdatedAt = now;
 
-            await _posRepository.AddSessionAsync(session);
-            await _posRepository.AddSessionMemberAsync(hostMember);
-            await _posRepository.AddSessionGameAsync(sessionGame);
-            await _posRepository.SaveChangesAsync();
-
-            // Link BookingDeposit với ActiveSession sau khi session được tạo
+            // Link deposit vào session
             deposit.ActiveSessionId = session.Id;
             deposit.UpdatedAt = now;
+
+            // Lưu
+            await _posRepository.AddSessionAsync(session);
+            await _posRepository.SaveChangesAsync();
+
+            await _posRepository.AddSessionMemberAsync(hostMember);
+            await _posRepository.AddSessionGameAsync(sessionGame);
             await _posRepository.UpdateDepositAsync(deposit);
             await _posRepository.SaveChangesAsync();
+
+            // AC 1.4: Gửi SignalR notification cho mobile app
+            var cafe = await _cafeRepository.GetByIdAsync(cafeId);
+            var memberUserIds = new List<Guid> { hostId };
+            
+            // Get lobby members if available via ActiveSessionId link
+            if (deposit.ActiveSessionId.HasValue)
+            {
+                var lobby = await _lobbyRepository.GetByActiveSessionIdAsync(deposit.ActiveSessionId.Value);
+                if (lobby != null)
+                {
+                    // Get members from lobby - using GetByIdWithMembersAsync
+                    var lobbyWithMembers = await _lobbyRepository.GetByIdWithMembersAsync(lobby.Id);
+                    if (lobbyWithMembers?.Members != null)
+                    {
+                        foreach (var lobbyMember in lobbyWithMembers.Members.Where(m => m.UserId != hostId))
+                        {
+                            var additionalMember = new ActiveSessionMember
+                            {
+                                Id = Guid.NewGuid(),
+                                ActiveSessionId = session.Id,
+                                UserId = lobbyMember.UserId,
+                                JoinedAt = now,
+                                Status = IndividualSessionStatus.Playing
+                            };
+                            await _posRepository.AddSessionMemberAsync(additionalMember);
+                            memberUserIds.Add(lobbyMember.UserId);
+                        }
+                        await _posRepository.SaveChangesAsync();
+                    }
+                }
+            }
+            
+            await _posHubService.NotifySessionActivatedAsync(
+                session.Id,
+                cafeId,
+                cafe?.Name ?? "Unknown Cafe",
+                hostId,
+                memberUserIds);
 
             session.CafeTable = table;
             session.CafeInventoryBox = box;
             session.GameTemplate = box.CafeGameInventory.GameTemplate;
             session.Host = null!;
-            session.Members = [hostMember];
+            session.Members = memberUserIds.Select(uid => new ActiveSessionMember
+            {
+                Id = Guid.NewGuid(),
+                ActiveSessionId = session.Id,
+                UserId = uid,
+                JoinedAt = now,
+                Status = IndividualSessionStatus.Playing
+            }).ToList();
 
             return MapSession(session, now);
         }
@@ -522,6 +674,17 @@ namespace BoardVerse.Services.Services
                     ApiErrorMessages.Pos.ComponentCheckAlreadyDone(request.SessionGameId));
             }
 
+            // AC 3.2: "Tất cả hợp lệ" → skip kiểm tra chi tiết
+            if (request.MarkAllValid)
+            {
+                sessionGame.CheckStatus = ComponentCheckStatus.Verified;
+                sessionGame.CheckedAt = DateTime.UtcNow;
+                sessionGame.TotalPenaltyAmount = 0;
+                await _posRepository.SaveChangesAsync();
+                return await GetComponentChecklistAsync(cafeId, userId, userRole, request.SessionGameId);
+            }
+
+            // Chi tiết từng linh kiện + tính penalty
             var gameTemplateId = sessionGame.GameTemplateId;
             var validComponentIds = sessionGame.GameTemplate.Components
                 .Select(c => c.Id)
@@ -570,6 +733,73 @@ namespace BoardVerse.Services.Services
             await _posRepository.SaveChangesAsync();
 
             return await GetComponentChecklistAsync(cafeId, userId, userRole, request.SessionGameId);
+        }
+
+        // POST /api/cafes/{cafeId}/pos/sessions/{sessionId}/return-game
+        public async Task<ReturnGameResponseDto> ReturnGameAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sessionId,
+            ReturnGameRequestDto request)
+        {
+            await EnsurePosAccessAsync(cafeId, userId, userRole);
+
+            var session = await _activeSessionRepository.GetByIdAsync(sessionId);
+            if (session == null || session.CafeId != cafeId)
+            {
+                throw new NotFoundException($"Không tìm thấy phiên chơi '{sessionId}'.");
+            }
+
+            var box = await _posRepository.GetInventoryBoxByIdAsync(request.InventoryBoxId);
+            if (box == null || box.CafeGameInventory.CafeId != cafeId)
+            {
+                throw new NotFoundException($"Không tìm thấy hộp game '{request.InventoryBoxId}'.");
+            }
+
+            // Tính surcharge_fine
+            decimal totalFine = 0;
+            bool hasDamaged = false;
+
+            foreach (var damaged in request.DamagedComponents)
+            {
+                var penalty = box.CafeGameInventory.ComponentPenalties
+                    .FirstOrDefault(p => p.GameComponentTemplateId == damaged.ComponentId);
+                if (penalty != null)
+                {
+                    var fineForMissing = damaged.MissingQuantity * penalty.PenaltyFee;
+                    var fineForDamaged = damaged.DamagedQuantity * penalty.PenaltyFee;
+                    totalFine += fineForMissing + fineForDamaged;
+
+                    if (damaged.DamagedQuantity > 0)
+                    {
+                        hasDamaged = true;
+                    }
+                }
+            }
+
+            // Cập nhật surcharge_fine vào session
+            session.SurchargeFine = totalFine;
+            await _activeSessionRepository.UpdateAsync(session);
+            await _activeSessionRepository.SaveChangesAsync();
+
+            // Cập nhật trạng thái box thành NeedsMaintenance nếu có linh kiện hỏng
+            if (hasDamaged)
+            {
+                box.Status = CafeGameInventoryStatus.Maintenance;
+                box.UpdatedAt = DateTime.UtcNow;
+                await _posRepository.UpdateInventoryBoxAsync(box);
+                await _posRepository.SaveChangesAsync();
+            }
+
+            return new ReturnGameResponseDto
+            {
+                SessionId = sessionId,
+                InventoryBoxId = request.InventoryBoxId,
+                SurchargeFine = totalFine,
+                HasDamagedComponents = hasDamaged,
+                BoxMaintenanceStatus = box.Status.ToString()
+            };
         }
     }
 }

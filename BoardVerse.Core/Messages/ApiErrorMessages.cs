@@ -1072,6 +1072,9 @@ namespace BoardVerse.Core.Messages
 
             public static string NotActiveMember(Guid lobbyId) =>
                 $"Bạn không phải thành viên đang hoạt động của phòng '{lobbyId}'.";
+
+            public static string VenueCapacityFull(int availableSeats, int requestedSeats) =>
+                $"ERR_VENUE_CAPACITY_FULL: Quán không đủ chỗ ngồi. Chỉ còn {availableSeats} ghế trống, nhưng cần thêm {requestedSeats} ghế cho thành viên mới.";
         }
 
         public static class Tournament

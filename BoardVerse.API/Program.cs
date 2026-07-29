@@ -182,6 +182,7 @@ if (!builder.Environment.IsEnvironment("Testing"))
 // SignalR Hubs for real-time updates
 builder.Services.AddSignalR();
 builder.Services.AddScoped<ILobbyHubService, LobbyHubService>();
+builder.Services.AddScoped<IPosHubService, PosHubService>();
 
 builder.Services.AddControllers(options =>
 {
@@ -323,5 +324,6 @@ app.MapControllers();
 
 // Map SignalR Hubs
 app.MapHub<LobbyHub>("/hubs/lobby");
+app.MapHub<PosHub>("/hubs/pos");
 
 app.Run();

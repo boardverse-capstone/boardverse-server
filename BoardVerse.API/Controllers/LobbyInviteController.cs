@@ -125,7 +125,7 @@ public class LobbyInviteController : BaseApiController
     }
 
     /// <summary>
-    /// Join lobby bằng share code (8 ký tự). [Role: Player]
+    /// Join lobby bằng share code (6 ký tự). [Role: Player]
     /// Dùng cho cả public/private. Private lobby chỉ join được qua share code hoặc invite.
     /// </summary>
     /// <param name="request">Body chứa shareCode.</param>

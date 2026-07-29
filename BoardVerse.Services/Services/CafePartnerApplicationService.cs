@@ -785,12 +785,12 @@ namespace BoardVerse.Services.Services
             };
         }
 
-        private static ManagerCafeProfileResponseDto MapManagerCafeProfile(CafePartnerApplication application, Cafe cafe)
+        private static ManagerCafeProfileResponseDto MapManagerCafeProfile(CafePartnerApplication? application, Cafe cafe)
         {
             var spaceUrls = DeserializeStringList(cafe.SpaceImageUrlsJson);
             var tableNames = DeserializeStringList(cafe.TableLayoutJson);
             var numberOfTables = cafe.NumberOfTables;
-            var blockers = application.Status == CafePartnerApplicationStatus.Approved
+            var blockers = application?.Status == CafePartnerApplicationStatus.Approved
                 ? GetActivationBlockers(cafe)
                 : new List<string>();
 
@@ -802,12 +802,12 @@ namespace BoardVerse.Services.Services
             return new ManagerCafeProfileResponseDto
             {
                 CafeId = cafe.Id,
-                ApplicationId = application.Id,
+                ApplicationId = application?.Id ?? Guid.Empty,
                 Name = cafe.Name,
                 Address = cafe.Address,
                 Latitude = cafe.Latitude,
                 Longitude = cafe.Longitude,
-                PhoneNumber = cafe.PhoneNumber ?? application.PhoneNumber,
+                PhoneNumber = cafe.PhoneNumber ?? application?.PhoneNumber,
                 WorkingHours = MapWorkingHours(cafe),
                 NumberOfTables = numberOfTables,
                 NumberOfPrivateRooms = cafe.NumberOfPrivateRooms,
@@ -823,20 +823,22 @@ namespace BoardVerse.Services.Services
                 DefaultHoldDurationMinutes = cafe.DefaultHoldDurationMinutes,
                 IsPricingLocked = cafe.IsPricingLocked,
                 TableNames = tableNames,
-                ApplicationStatus = CafePartnerStatusMapper.ToApiApplicationStatus(application.Status),
+                ApplicationStatus = application != null 
+                    ? CafePartnerStatusMapper.ToApiApplicationStatus(application.Status) 
+                    : CafePartnerStatusMapper.ToApiApplicationStatus(Core.Enum.CafePartnerApplicationStatus.PendingApproval),
                 OperationalStatus = cafe.PartnerOperationalStatus is { } operational
                     ? CafePartnerStatusMapper.ToApiOperationalStatus(operational)
                     : null,
                 OperationalStatusReason = cafe.PartnerOperationalStatusReason,
                 IsTableLayoutConfigured = tableNames.Count >= numberOfTables && numberOfTables > 0,
-                CanActivate = application.Status == CafePartnerApplicationStatus.Approved &&
+                CanActivate = application?.Status == CafePartnerApplicationStatus.Approved &&
                               CafePartnerOperationalStatusHelper.CanManagerActivate(cafe.PartnerOperationalStatus) &&
                               blockers.Count == 0,
-                CanReopen = application.Status == CafePartnerApplicationStatus.Approved &&
+                CanReopen = application?.Status == CafePartnerApplicationStatus.Approved &&
                             CafePartnerOperationalStatusHelper.CanManagerReopen(cafe.PartnerOperationalStatus) &&
                             blockers.Count == 0,
                 ActivationBlockers = blockers,
-                ApprovedAt = application.ApprovedAt,
+                ApprovedAt = application?.ApprovedAt,
                 OperationalProfileUpdatedAt = cafe.OperationalProfileUpdatedAt
             };
         }

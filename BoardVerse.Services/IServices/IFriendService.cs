@@ -96,6 +96,12 @@ public interface IFriendService
     Task<IReadOnlyList<FriendActivityDto>> GetFriendsActivityAsync(Guid userId);
 
     /// <summary>
+    /// Lấy danh sách bạn bè đang online (chỉ online, không include offline).
+    /// Dùng để host mời bạn bè vào private lobby.
+    /// </summary>
+    Task<IReadOnlyList<OnlineFriendDto>> GetOnlineFriendsAsync(Guid userId);
+
+    /// <summary>
     /// Gợi ý kết bạn: bạn của bạn, người cùng chơi trong lobby gần đây.
     /// </summary>
     Task<IReadOnlyList<FriendSuggestionDto>> GetFriendSuggestionsAsync(Guid userId, int limit = 20);

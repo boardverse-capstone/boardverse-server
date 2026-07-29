@@ -11,6 +11,7 @@ public class BookingDeposit
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public string OrderId { get; set; } = string.Empty;
+
     /// <summary>ActiveSession liên kết. Nullable vì deposit tạo TRƯỚC khi check-in.</summary>
     public Guid? ActiveSessionId { get; set; }
     /// <summary>UserId của người đặt chỗ (Host). Dùng làm HostId khi check-in tạo ActiveSession.</summary>

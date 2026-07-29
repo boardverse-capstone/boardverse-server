@@ -1003,10 +1003,11 @@ public class ActiveSessionServiceTests
 
         var result = await service.PaySessionAsync(cafeId, sessionId, request);
 
-        Assert.Equal(50_000m, result.DepositAppliedAmount);
+        // Deposit chỉ dùng để giữ chỗ, KHÔNG trừ vào session
+        Assert.Equal(0m, result.DepositAppliedAmount);
         // 120 min: 60_000 + ceil(60/15)*10_000 = 60_000 + 4*10_000 = 100_000
-        // TotalAmount = Subtotal(100_000) + PenaltyAmount(0) - DepositAppliedAmount(50_000) = 50_000
-        Assert.Equal(50_000m, result.TotalAmount);
+        // TotalAmount = Subtotal(100_000) + PenaltyAmount(0) = 100_000 (không trừ deposit)
+        Assert.Equal(100_000m, result.TotalAmount);
     }
 
     [Fact]

@@ -354,7 +354,7 @@ Xem chi tiết: [sepay-webhook.md](./sepay-webhook.md) §V.
 |----|---------|
 | **BR-05** | Deposit QR tạo trong `PENDING_DEPOSIT`, confirm khi webhook `success`. |
 | **BR-06** | Giữ chỗ 5 phút (`QrExpiresAt`); quá hạn → status = `EXPIRED`, giải phóng ghế. |
-| **BR-09** | Cấn trừ deposit 1 lần vào `ActiveSession.DepositAppliedAmount` khi kết toán. |
+| **BR-09** | Thanh toán session KHÔNG trừ tiền cọc. Deposit là phí giữ chỗ, không cấn trừ vào hóa đơn. |
 | **BR-15** | `TotalAmount = Subtotal + Penalty - DepositAppliedAmount`. |
 | **BR-18** | Refund/forfeit theo `DepositRefundPolicy` + reason khi quán hủy bất khả kháng. |
 

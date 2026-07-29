@@ -21,7 +21,9 @@ Lấy danh sách bản ghi giải ngân deposit đang chờ xử lý.
 ## Luồng tích hợp
 
 1. POS thanh toán hóa đơn tổng → `POST /api/cafes/{cafeId}/sessions/{sessionId}/pay`
-2. Hệ thống tự động tạo `CafeSettlement` nếu phiên có `DepositAppliedAmount > 0`
+2. Hệ thống tự động tạo `CafeSettlement` sau khi session PAID
+   - Deposit của Host (đã paid) → chuyển về Cafe Manager
+   - Note: Thanh toán session KHÔNG trừ tiền cọc — deposit là phí giữ chỗ
 3. Trạng thái settlement:
    - `Pending`: chờ SePay transfer thành công
    - `Succeeded`: đã chuyển tiền về manager

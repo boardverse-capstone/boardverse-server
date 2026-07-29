@@ -305,6 +305,20 @@ namespace BoardVerse.Data.Repositories
                     p.CafeGameInventory.GameTemplateId == gameTemplateId &&
                     p.GameComponentTemplateId == componentId);
 
+        public async Task<CafeInventoryBox?> GetInventoryBoxByIdAsync(Guid boxId) =>
+            await _context.CafeInventoryBoxes
+                .Include(b => b.CafeGameInventory)
+                    .ThenInclude(i => i.GameTemplate)
+                        .ThenInclude(t => t.Components)
+                .Include(b => b.CafeGameInventory)
+                    .ThenInclude(i => i.ComponentPenalties)
+                .FirstOrDefaultAsync(b => b.Id == boxId && b.IsActive);
+
+        public async Task UpdateInventoryBoxAsync(CafeInventoryBox box)
+        {
+            _context.CafeInventoryBoxes.Update(box);
+        }
+
         public Task SaveChangesAsync() => _context.SaveChangesAsync();
     }
 }

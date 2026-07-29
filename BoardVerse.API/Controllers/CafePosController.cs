@@ -116,6 +116,25 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
+        /// Preview thông tin booking trước khi check-in.
+        /// AC 1.1: Hiển thị danh sách thành viên + game info TRƯỚC khi check-in.
+        /// Nhân viên quét mã đặt chỗ để xem thông tin chi tiết trước khi bấm xác nhận check-in.
+        /// </summary>
+        /// <param name="cafeId">Mã định danh quán.</param>
+        /// <param name="bookingCode">Mã đặt chỗ (BookingCode/OrderId).</param>
+        /// <response code="200">Thông tin booking preview.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy booking.</response>
+        [HttpGet("bookings/{bookingCode}")]
+        public async Task<IActionResult> GetBookingPreview(Guid cafeId, string bookingCode)
+        {
+            var (userId, role) = GetViewerContext();
+            var result = await _posService.GetBookingPreviewAsync(cafeId, userId, role, bookingCode);
+            return this.NewResponse(200, "Lấy thông tin booking thành công.", result);
+        }
+
+        /// <summary>
         /// Giao hộp game cho bàn — bắt đầu phiên chơi (POS scan barcode). [Role: Manager, CafeStaff]
         /// </summary>
         /// <param name="cafeId">Mã định danh quán cafe.</param>
@@ -212,6 +231,27 @@ namespace BoardVerse.API.Controllers
             var (userId, role) = GetViewerContext();
             var result = await _posService.SubmitComponentCheckAsync(cafeId, userId, role, request);
             return this.NewResponse(200, "Xác nhận kiểm kê linh kiện thành công.", result);
+        }
+
+        /// <summary>
+        /// Xử lý trả game: tính surcharge_fine từ linh kiện lỗi, cập nhật box status nếu hỏng.
+        /// POST /api/cafes/{cafeId}/pos/sessions/{sessionId}/return-game
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="sessionId">Mã phiên chơi.</param>
+        /// <param name="request">Mảng linh kiện lỗi (ID, số lượng mất, số lượng hỏng).</param>
+        /// <response code="200">Xử lý thành công, trả surcharge_fine.</response>
+        /// <response code="400">Dữ liệu không hợp lệ.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy phiên chơi hoặc hộp game.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPost("sessions/{sessionId:guid}/return-game")]
+        public async Task<IActionResult> ReturnGame(Guid cafeId, Guid sessionId, [FromBody] ReturnGameRequestDto request)
+        {
+            var (userId, role) = GetViewerContext();
+            var result = await _posService.ReturnGameAsync(cafeId, userId, role, sessionId, request);
+            return this.NewResponse(200, "Xử lý trả game thành công.", result);
         }
 
         private (Guid UserId, string Role) GetViewerContext()

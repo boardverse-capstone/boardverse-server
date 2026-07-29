@@ -43,7 +43,13 @@ namespace BoardVerse.Services.Services
             _logger = logger;
         }
 
-        public async Task<CafeSettlement> ReleaseSessionDepositAsync(Guid cafeId, Guid sessionId, Guid activeSessionId)
+        /// <summary>
+        /// Release deposit của session vào tài khoản cafe.
+        /// </summary>
+        public async Task<CafeSettlement> ReleaseSessionDepositAsync(
+            Guid cafeId,
+            Guid sessionId,
+            Guid activeSessionId)
         {
             var cafe = await _cafeRepository.GetActiveByIdAsync(cafeId)
                 ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
@@ -56,16 +62,10 @@ namespace BoardVerse.Services.Services
                 throw new ConflictException("Phiên đã thanh toán mới được giải ngân deposit.");
             }
 
-            if (session.DepositAppliedAmount <= 0)
-            {
-                throw new ConflictException(ApiErrorMessages.Pos.DepositMissingForSettlement);
-            }
-
             var masterAccount = await _masterAccountRepository.GetActiveAsync()
                 ?? throw new ConflictException(ApiErrorMessages.Pos.MasterAccountNotConfigured);
 
             // Gap 4 (fix): Destination = cafe manager's SePay bank account, KHÔNG phải master account.
-            // Cafe đã có SePayAccountNumber + SePayBankCode cho VietQR fallback — dùng luôn cho transfer.
             if (string.IsNullOrWhiteSpace(cafe.SePayAccountNumber) || string.IsNullOrWhiteSpace(cafe.SePayBankCode))
             {
                 throw new ConflictException(
@@ -97,8 +97,6 @@ namespace BoardVerse.Services.Services
             await _settlementRepository.AddAsync(settlement);
             await _settlementRepository.SaveChangesAsync();
 
-            // Gap 3 (fix): KHÔNG set Released ở đây. Đợi SePay success rồi mới released.
-            // Khi fail → giữ Status=Paid để SettlementRetryJob retry.
             try
             {
                 var transferRequest = new CreateTransferRequest(

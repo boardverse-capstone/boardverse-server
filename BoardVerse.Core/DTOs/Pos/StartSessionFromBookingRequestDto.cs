@@ -4,13 +4,12 @@ namespace BoardVerse.Core.DTOs.Pos;
 
 /// <summary>
 /// Request DTO cho Host-led check-in.
-/// Nhân viên quét mã đặt chỗ (BookingCode) để kích hoạt phiên chơi cho cả nhóm.
-/// MDC Happy Path Step 9: "Quét một lần mã định danh đặt chỗ trên ứng dụng của người chơi khởi tạo để thực hiện thủ tục vào quán cho cả nhóm"
+/// Nhân viên quét mã đặt chỗ của Host để kích hoạt phiên chơi cho cả nhóm.
 /// </summary>
 public class StartSessionFromBookingRequestDto
 {
     /// <summary>
-    /// Mã đặt chỗ (BookingCode) từ ứng dụng của Host.
+    /// Mã đặt chỗ (Booking ID).
     /// </summary>
     [Required(ErrorMessage = "Mã đặt chỗ là bắt buộc.")]
     [StringLength(20, MinimumLength = 4, ErrorMessage = "Mã đặt chỗ phải từ 4-20 ký tự.")]

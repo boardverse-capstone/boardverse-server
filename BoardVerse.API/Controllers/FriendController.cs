@@ -202,6 +202,17 @@ public class FriendController : BaseApiController
     }
 
     /// <summary>
+    /// Danh sách bạn bè đang online (≤5 phút). Dùng để host mời vào private lobby. [Role: Player]
+    /// </summary>
+    [HttpGet("online")]
+    public async Task<IActionResult> GetOnlineFriends()
+    {
+        var userId = GetUserIdFromClaims();
+        var result = await _friendService.GetOnlineFriendsAsync(userId);
+        return this.NewResponse(200, "Lấy danh sách bạn bè online thành công.", result);
+    }
+
+    /// <summary>
     /// Lời mời kết bạn đang chờ mà current user NHẬN ĐƯỢC (inbox). [Role: Player]
     /// </summary>
     [HttpGet("requests/received")]

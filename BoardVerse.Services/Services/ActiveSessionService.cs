@@ -368,26 +368,20 @@ namespace BoardVerse.Services.Services
                 session.PenaltyAmount += persistedPenalty;
             }
 
-            // BR-09: Apply deposit exactly once to the total bill.
-            var deposit = await _depositRepository.GetByActiveSessionIdAsync(session.Id);
-            if (deposit != null && deposit.Status == BookingDepositStatus.Paid)
-            {
-                session.DepositAppliedAmount = deposit.Amount;
-            }
-
-            session.TotalAmount = session.Subtotal + session.PenaltyAmount - session.DepositAppliedAmount;
+            // BR-15: TotalAmount = Subtotal + PenaltyAmount (KHÔNG trừ deposit)
+            // Deposit chỉ dùng để giữ chỗ, không cấn trừ vào hóa đơn
+            session.TotalAmount = session.Subtotal + session.PenaltyAmount;
             session.Status = GroupSessionStatus.Paid;
             session.PaidAt = now;
 
-            await _activeSessionRepository.SaveChangesAsync();
-
-            // BR-09: After payment, trigger settlement to transfer deposit from
-            // master account to the cafe manager's bank account.
-            CafeSettlement? settlement = null;
-            if (session.DepositAppliedAmount > 0)
+            // Mark all members as checked out
+            foreach (var member in session.Members)
             {
-                settlement = await _settlementService.ReleaseSessionDepositAsync(cafeId, sessionId, session.Id);
+                member.IsCheckedOut = true;
+                member.CheckedOutAt = now;
             }
+
+            await _activeSessionRepository.SaveChangesAsync();
 
             // P8 / S8: After payment, close the lobby
             if (session.LobbyId.HasValue)
@@ -411,7 +405,6 @@ namespace BoardVerse.Services.Services
                 DepositAppliedAmount = session.DepositAppliedAmount,
                 TotalAmount = session.TotalAmount,
                 PaidAt = now,
-                SettlementStatus = settlement?.Status.ToString(),
                 Session = MapSessionDto(finalSession!)
             };
         }

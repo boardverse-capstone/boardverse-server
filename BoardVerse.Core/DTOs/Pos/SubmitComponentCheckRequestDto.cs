@@ -7,6 +7,12 @@ namespace BoardVerse.Core.DTOs.Pos
         [Required]
         public Guid SessionGameId { get; set; }
 
+        /// <summary>
+        /// Nếu true = "Tất cả hợp lệ" → skip kiểm tra từng linh kiện, mark Verified ngay.
+        /// Khi false = kiểm tra chi tiết từng linh kiện, tính penalty nếu thiếu.
+        /// </summary>
+        public bool MarkAllValid { get; set; }
+
         public List<ComponentCheckResultDto> Results { get; set; } = [];
     }
 

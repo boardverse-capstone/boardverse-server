@@ -1,0 +1,115 @@
+using BoardVerse.Services.IServices;
+using Microsoft.AspNetCore.SignalR;
+
+namespace BoardVerse.API.Hubs;
+
+/// <summary>
+/// Implementation của IPosHubService - gửi real-time notifications qua SignalR.
+/// AC 1.4: Phát tín hiệu đồng bộ thông báo cho các thiết bị di động.
+/// </summary>
+public class PosHubService : IPosHubService
+{
+    private readonly IHubContext<PosHub> _hubContext;
+    private readonly ILogger<PosHubService> _logger;
+
+    public PosHubService(IHubContext<PosHub> hubContext, ILogger<PosHubService> logger)
+    {
+        _hubContext = hubContext;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Notify tất cả members trong session rằng phiên đã được kích hoạt.
+    /// AC 1.4: Mobile app nhận notification → hiển thị "Đang chơi tại quán".
+    /// </summary>
+    public async Task NotifySessionActivatedAsync(
+        Guid sessionId,
+        Guid cafeId,
+        string cafeName,
+        Guid hostId,
+        IReadOnlyList<Guid> memberUserIds)
+    {
+        var notification = new
+        {
+            EventType = "SessionActivated",
+            SessionId = sessionId,
+            CafeId = cafeId,
+            CafeName = cafeName,
+            HostId = hostId,
+            Timestamp = DateTime.UtcNow
+        };
+
+        // Notify session group
+        await _hubContext.Clients
+            .Group($"session:{sessionId}")
+            .SendAsync("SessionActivated", notification);
+
+        // Notify each member's personal channel
+        foreach (var userId in memberUserIds)
+        {
+            await _hubContext.Clients
+                .Group($"user:{userId}")
+                .SendAsync("SessionActivated", notification);
+        }
+
+        _logger.LogInformation(
+            "Notified {MemberCount} members about session {SessionId} activation",
+            memberUserIds.Count,
+            sessionId);
+    }
+
+    /// <summary>
+    /// Notify một user cụ thể về thay đổi trạng thái session.
+    /// </summary>
+    public async Task NotifyUserSessionUpdateAsync(
+        Guid userId,
+        Guid sessionId,
+        string status,
+        string? message = null)
+    {
+        var notification = new
+        {
+            EventType = "SessionStatusChanged",
+            SessionId = sessionId,
+            Status = status,
+            Message = message,
+            Timestamp = DateTime.UtcNow
+        };
+
+        await _hubContext.Clients
+            .Group($"user:{userId}")
+            .SendAsync("SessionStatusChanged", notification);
+
+        _logger.LogInformation(
+            "Notified user {UserId} about session {SessionId} status change to {Status}",
+            userId,
+            sessionId,
+            status);
+    }
+
+    /// <summary>
+    /// Notify tất cả members trong session về thay đổi.
+    /// </summary>
+    public async Task NotifySessionUpdateAsync(
+        Guid sessionId,
+        string eventType,
+        object? data = null)
+    {
+        var notification = new
+        {
+            EventType = eventType,
+            SessionId = sessionId,
+            Data = data,
+            Timestamp = DateTime.UtcNow
+        };
+
+        await _hubContext.Clients
+            .Group($"session:{sessionId}")
+            .SendAsync(eventType, notification);
+
+        _logger.LogInformation(
+            "Notified session {SessionId} about event {EventType}",
+            sessionId,
+            eventType);
+    }
+}
