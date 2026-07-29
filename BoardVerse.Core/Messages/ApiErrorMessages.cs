@@ -899,6 +899,18 @@ namespace BoardVerse.Core.Messages
             public const string CannotRemoveAcceptedByOther =
                 "Chỉ có thể xóa quan hệ bạn bè khi nó đang ở trạng thái Accepted.";
 
+            public const string CannotCancelRequestNotRequester =
+                "Chỉ người gửi lời mời mới có thể hủy lời mời kết bạn này.";
+
+            public const string CannotCancelNonPendingRequest =
+                "Chỉ có thể hủy lời mời kết bạn đang ở trạng thái chờ phản hồi (Pending).";
+
+            public const string CannotViewRequestNotMember =
+                "Bạn không có quyền xem lời mời kết bạn này vì bạn không phải một bên của quan hệ.";
+
+            public const string CannotViewBlockedRequest =
+                "Không thể xem chi tiết quan hệ đang bị chặn bởi người dùng khác.";
+
             public const string BlockedByOtherParty =
                 "Không thể thực hiện hành động này vì bạn đã bị người dùng này chặn.";
 
@@ -950,6 +962,9 @@ namespace BoardVerse.Core.Messages
             public const string CannotViewOwnFriendList =
                 "Không thể truy vấn chính mình qua endpoint này. Hãy dùng GET /api/v1/friends.";
 
+            public const string CannotViewOwnProfile =
+                "Không thể truy vấn profile của chính mình qua endpoint này. Hãy dùng GET /api/v1/players/me.";
+
             public const string CannotNoteSelf =
                 "Không thể tạo ghi chú cho chính mình.";
 
@@ -979,6 +994,9 @@ namespace BoardVerse.Core.Messages
 
             public const string ProfileNotYetCreated =
                 "Hồ sơ người dùng chưa được tạo. Vui lòng hoàn tất hồ sơ trước khi sử dụng tính năng này.";
+
+            public const string BlockedCannotViewProfile =
+                "Không thể xem hồ sơ của người dùng này vì phía bên kia đã chặn bạn.";
         }
 
         public static class LobbyInvite

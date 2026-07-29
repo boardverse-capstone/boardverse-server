@@ -38,6 +38,14 @@ public class Friendship
     /// <summary>Thời điểm addressee đánh dấu đã đọc lời mời (cho inbox notification).</summary>
     public DateTime? AddresseeReadAt { get; set; }
 
+    /// <summary>
+    /// BR-FRIEND-BLOCK-VIEW: Người đã chặn (set khi Status = Blocked).
+    /// Vì 1 cặp (Requester, Addressee) chỉ có 1 record và cả 2 có thể block nhau,
+    /// cần lưu riêng field này để biết ai đã block trước/sau, không phụ thuộc vào RequesterId.
+    /// Null khi Status != Blocked.
+    /// </summary>
+    public Guid? BlockerUserId { get; set; }
+
     // Navigation
     public virtual User Requester { get; set; } = null!;
     public virtual User Addressee { get; set; } = null!;

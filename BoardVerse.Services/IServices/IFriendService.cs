@@ -1,5 +1,6 @@
 using BoardVerse.Core.DTOs.Friend;
 using BoardVerse.Core.DTOs.Lobby;
+using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Services.IServices;
 
@@ -20,6 +21,28 @@ public interface IFriendService
     /// Từ chối lời mời. Addressee từ chối → record chuyển Removed.
     /// </summary>
     Task<FriendshipResponseDto> DeclineFriendRequestAsync(Guid currentUserId, Guid friendshipId);
+
+    /// <summary>
+    /// Hủy lời mời kết bạn đã gửi. Chỉ requester mới có thể hủy, và chỉ khi còn Pending.
+    /// </summary>
+    Task CancelFriendRequestAsync(Guid currentUserId, Guid friendshipId);
+
+    /// <summary>
+    /// Lấy chi tiết 1 lời mời kết bạn theo id (cho notification deeplink).
+    /// Chỉ requester hoặc addressee mới xem được.
+    /// </summary>
+    Task<FriendshipResponseDto> GetFriendRequestByIdAsync(Guid currentUserId, Guid friendshipId);
+
+    /// <summary>
+    /// Lấy danh sách user mà current user đã chặn (Status=Blocked + BlockerUserId=current).
+    /// </summary>
+    Task<IReadOnlyList<FriendshipResponseDto>> GetBlockedUsersAsync(Guid currentUserId);
+
+    /// <summary>
+    /// Lấy danh sách user đã chặn current user (Status=Blocked + BlockerUserId != current).
+    /// Dùng cho UI debug/explain tại sao action không thành công.
+    /// </summary>
+    Task<IReadOnlyList<FriendshipResponseDto>> GetBlockedByUsersAsync(Guid currentUserId);
 
     /// <summary>
     /// Hủy kết bạn / xóa quan hệ. Cả 2 bên đều có thể xóa.
@@ -50,6 +73,15 @@ public interface IFriendService
     /// Lời mời đã gửi đi nhưng chưa được phản hồi.
     /// </summary>
     Task<IReadOnlyList<FriendshipResponseDto>> GetPendingSentRequestsAsync(Guid userId);
+
+    /// <summary>
+    /// Lấy danh sách quan hệ bạn bè lọc theo direction từ góc nhìn current user (BR-FRIEND-UI-DIRECTION-01).
+    /// <para>Direction = <see cref="FriendshipRelationshipDirection.None"/> trả về empty list.</para>
+    /// </summary>
+    Task<IReadOnlyList<FriendshipResponseDto>> GetByDirectionAsync(
+        Guid currentUserId,
+        FriendshipRelationshipDirection direction,
+        int limit = 50);
 
     /// <summary>
     /// Tìm user theo username cho friend search. Trả về thêm trạng thái quan hệ hiện tại + mutual friend count.
@@ -92,4 +124,14 @@ public interface IFriendService
     /// Auto-expire các friend request Pending quá hạn (BR-FRIEND-05).
     /// </summary>
     Task<int> ExpireOldPendingRequestsAsync(int expiryDays = 30);
+
+    /// <summary>
+    /// Xem chi tiết public profile của 1 player, kèm:
+    /// - Quan hệ hiện tại giữa current user và target (None / PendingSent / PendingReceived / Accepted / Blocked).
+    /// - Số bạn chung.
+    /// - Số bạn bè (tôn trọng IsFriendListPublic: chỉ trả count, không trả list).
+    /// - Permission flags (canSendFriendRequest, canReport) — canReport chỉ true khi đã Accepted (BR-FRIEND-REPORT-01).
+    /// Trả 404 nếu target không tồn tại, bị block 2 chiều, hoặc account không Active.
+    /// </summary>
+    Task<PlayerProfileDto> GetPlayerProfileAsync(Guid currentUserId, Guid targetUserId);
 }

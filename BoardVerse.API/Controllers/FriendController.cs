@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Friend;
+using BoardVerse.Core.Enum;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
@@ -91,6 +92,41 @@ public class FriendController : BaseApiController
         var userId = GetUserIdFromClaims();
         await _friendService.MarkRequestAsReadAsync(userId, id);
         return this.NewResponse(200, "Đã đánh dấu lời mời là đã đọc.", data: null);
+    }
+
+    /// <summary>
+    /// Hủy lời mời kết bạn đã gửi. [Role: Player — chỉ requester, chỉ khi còn Pending]
+    /// <para>Dùng khi gửi nhầm hoặc đổi ý trước khi addressee accept/decline.</para>
+    /// </summary>
+    /// <param name="id">Mã friendship (lời mời).</param>
+    /// <response code="200">Đã hủy lời mời.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải người gửi.</response>
+    /// <response code="404">Không tìm thấy lời mời.</response>
+    /// <response code="409">Lời mời không còn ở trạng thái Pending.</response>
+    [HttpDelete("requests/{id:guid}")]
+    public async Task<IActionResult> CancelFriendRequest(Guid id)
+    {
+        var userId = GetUserIdFromClaims();
+        await _friendService.CancelFriendRequestAsync(userId, id);
+        return this.NewResponse(200, "Đã hủy lời mời kết bạn.", data: null);
+    }
+
+    /// <summary>
+    /// Xem chi tiết 1 lời mời kết bạn theo id (cho notification deeplink). [Role: Player — requester hoặc addressee]
+    /// <para>Trả về <c>FriendshipResponseDto</c> đầy đủ: sender/receiver info, message, status, timestamps.</para>
+    /// </summary>
+    /// <param name="id">Mã friendship.</param>
+    /// <response code="200">Chi tiết lời mời.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải một bên của quan hệ / bị chặn bởi người kia.</response>
+    /// <response code="404">Không tìm thấy.</response>
+    [HttpGet("requests/{id:guid}")]
+    public async Task<IActionResult> GetFriendRequestById(Guid id)
+    {
+        var userId = GetUserIdFromClaims();
+        var result = await _friendService.GetFriendRequestByIdAsync(userId, id);
+        return this.NewResponse(200, ApiSuccessMessages.Friend.PendingRequestsRetrieved, result);
     }
 
     /// <summary>
@@ -188,6 +224,33 @@ public class FriendController : BaseApiController
     }
 
     /// <summary>
+    /// Lấy danh sách quan hệ bạn bè lọc theo direction từ góc nhìn current user (BR-FRIEND-UI-DIRECTION-01).
+    /// <para>Cho phép FE query riêng từng tab: IncomingRequest (inbox), OutgoingRequest (đã gửi),
+    /// Accepted (bạn bè — alias <c>/friends</c>), BlockedByMe (đã chặn).</para>
+    /// <para>Direction = <c>None</c> trả về 200 với mảng rỗng (không có record trong DB).</para>
+    /// </summary>
+    /// <param name="direction">Direction quan hệ (enum, required).</param>
+    /// <param name="limit">Giới hạn kết quả (1-100, mặc định 50).</param>
+    /// <response code="200">Danh sách quan hệ tương ứng với direction.</response>
+    /// <response code="400">Direction không hợp lệ (không nằm trong enum).</response>
+    /// <response code="401">Thiếu token.</response>
+    [HttpGet("by-direction")]
+    public async Task<IActionResult> GetByDirection(
+        [FromQuery] FriendshipRelationshipDirection direction,
+        [FromQuery] int limit = 50)
+    {
+        if (!Enum.IsDefined(typeof(FriendshipRelationshipDirection), direction))
+        {
+            return BadRequest($"Direction không hợp lệ. Giá trị hợp lệ: {string.Join(", ", Enum.GetNames<FriendshipRelationshipDirection>())}");
+        }
+        if (limit < 1 || limit > 100) limit = 50;
+
+        var userId = GetUserIdFromClaims();
+        var result = await _friendService.GetByDirectionAsync(userId, direction, limit);
+        return this.NewResponse(200, ApiSuccessMessages.Friend.ListRetrieved, result);
+    }
+
+    /// <summary>
     /// Tìm user theo username để gửi lời mời kết bạn. Kết quả kèm FriendshipStatus + MutualFriendsCount. [Role: Player]
     /// </summary>
     /// <param name="q">Từ khóa (≥ 2 ký tự).</param>
@@ -221,6 +284,31 @@ public class FriendController : BaseApiController
     }
 
     /// <summary>
+    /// Danh sách user mà current user đã chặn. [Role: Player]
+    /// <para>Dùng cho UI "Privacy / Blocked users" — user muốn xem/bỏ chặn ai đó.</para>
+    /// </summary>
+    [HttpGet("blocked")]
+    public async Task<IActionResult> GetBlockedUsers()
+    {
+        var userId = GetUserIdFromClaims();
+        var result = await _friendService.GetBlockedUsersAsync(userId);
+        return this.NewResponse(200, ApiSuccessMessages.Friend.ListRetrieved, result);
+    }
+
+    /// <summary>
+    /// Danh sách user đã chặn current user. [Role: Player]
+    /// <para>Dùng cho UI debug / giải thích tại sao action không thành công
+    /// (vd. không gửi được friend request, không mời lobby được).</para>
+    /// </summary>
+    [HttpGet("blocked-by")]
+    public async Task<IActionResult> GetBlockedByUsers()
+    {
+        var userId = GetUserIdFromClaims();
+        var result = await _friendService.GetBlockedByUsersAsync(userId);
+        return this.NewResponse(200, ApiSuccessMessages.Friend.ListRetrieved, result);
+    }
+
+    /// <summary>
     /// Lấy danh sách bạn chung giữa current user và otherUser. [Role: Player]
     /// </summary>
     /// <param name="otherUserId">Mã user khác.</param>
@@ -230,6 +318,23 @@ public class FriendController : BaseApiController
         var userId = GetUserIdFromClaims();
         var result = await _friendService.GetMutualFriendsAsync(userId, otherUserId);
         return this.NewResponse(200, ApiSuccessMessages.Friend.MutualFriendsRetrieved, result);
+    }
+
+    /// <summary>
+    /// Xem chi tiết public profile của 1 player: thông tin cơ bản, gamer stats, số bạn chung, quan hệ hiện tại và các permission flags (canSendFriendRequest, canReport). [Role: Player — đã đăng nhập]
+    /// </summary>
+    /// <param name="userId">Mã player cần xem.</param>
+    /// <response code="200">Lấy thông tin chi tiết player thành công.</response>
+    /// <response code="400">userId trùng với current user.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="404">Không tìm thấy player hoặc tài khoản không hoạt động.</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpGet("{userId:guid}/profile")]
+    public async Task<IActionResult> GetPlayerProfile(Guid userId)
+    {
+        var currentUserId = GetUserIdFromClaims();
+        var result = await _friendService.GetPlayerProfileAsync(currentUserId, userId);
+        return this.NewResponse(200, ApiSuccessMessages.Friend.PlayerProfileRetrieved, result);
     }
 
     /// <summary>

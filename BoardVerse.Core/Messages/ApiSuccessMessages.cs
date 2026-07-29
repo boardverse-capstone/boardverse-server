@@ -212,6 +212,7 @@ namespace BoardVerse.Core.Messages
             public const string NoteDeleted = "Xóa ghi chú bạn bè thành công.";
             public const string NotesRetrieved = "Lấy danh sách ghi chú bạn bè thành công.";
             public const string MutualFriendsRetrieved = "Lấy danh sách bạn chung thành công.";
+            public const string PlayerProfileRetrieved = "Lấy thông tin chi tiết người chơi thành công.";
         }
 
         public static class LobbyInvite

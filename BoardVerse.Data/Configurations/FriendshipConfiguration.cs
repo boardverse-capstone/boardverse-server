@@ -38,6 +38,10 @@ public class FriendshipConfiguration : IEntityTypeConfiguration<Friendship>
         builder.HasIndex(f => f.AddresseeId);
         builder.HasIndex(f => new { f.Status, f.CreatedAt });
 
+        // BR-FRIEND-BLOCK-VIEW: cho phép tìm theo BlockerUserId để thống kê.
+        builder.HasIndex(f => f.BlockerUserId)
+            .HasFilter("\"BlockerUserId\" IS NOT NULL");
+
         // Filter cho auto-expire job
         builder.HasIndex(f => f.CreatedAt)
             .HasFilter("\"Status\" = 'Pending'");

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Core.DTOs.Friend;
 
@@ -66,10 +67,22 @@ public class UserSearchResultDto
     public int KarmaPoints { get; set; }
 
     /// <summary>
-    /// Quan hệ bạn bè hiện tại giữa current user và user này.
-    /// Null = chưa có quan hệ; "Pending" = đã gửi/nhận; "Accepted" = bạn bè; "Blocked" = đã chặn.
+    /// Trạng thái quan hệ thô từ DB (Pending / Accepted / Blocked / Removed).
+    /// Chỉ dùng để debug hoặc backend xử lý — UI nên đọc <see cref="RelationshipDirection"/> thay thế.
     /// </summary>
     public string? FriendshipStatus { get; set; }
+
+    /// <summary>
+    /// Hướng quan hệ từ góc nhìn current user (BR-FRIEND-UI-DIRECTION-01).
+    /// UI render theo direction này để hiển thị đúng nút bấm:
+    /// - OutgoingRequest → "Đã gửi lời mời" (disable gửi lại)
+    /// - IncomingRequest  → "Chấp nhận / Từ chối"
+    /// - Accepted         → "Bạn bè" + nút nhắn/mời lobby
+    /// - BlockedByMe      → "Bỏ chặn"
+    /// - BlockedByThem    → Ẩn hoặc disable mọi action
+    /// - None             → "Gửi lời mời kết bạn"
+    /// </summary>
+    public FriendshipRelationshipDirection RelationshipDirection { get; set; } = FriendshipRelationshipDirection.None;
 
     /// <summary>Số bạn chung giữa current user và user này.</summary>
     public int MutualFriendsCount { get; set; }
