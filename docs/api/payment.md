@@ -13,8 +13,10 @@ API thanh toán cho deposit đặt chỗ (Player) và thanh toán hóa đơn phi
 | Endpoint | Method | Role | Mô tả |
 |----------|--------|------|-------|
 | `/booking-deposit` | POST | Player | Tạo đơn cọc đặt chỗ + generate QR |
+| `/booking-deposit/{depositId}` | GET | Player (chính chủ), Manager, Admin | Lấy chi tiết đơn cọc theo ID (mobile polling) |
+| `/booking-deposit/by-order/{orderId}` | GET | Player (chính chủ), Manager, Admin | Lấy chi tiết đơn cọc theo `OrderId` (mobile lookup) |
 | `/booking-deposit/{depositId}/regenerate-qr` | POST | Player | Tạo lại QR cho đơn cọc `PENDING` (QR cũ → `EXPIRED`) |
-| `/booking-deposit/refund` | POST | Manager, Admin | Hoàn 100% cọc khi quán hủy bất khả kháng (BR-18) |
+| `/booking-deposit/refund` | POST | Manager, Admin | Hoàn cọc theo `DepositRefundPolicy` (BR-18) |
 | `/session-payment` | POST | Manager, CafeStaff | Tạo QR thanh toán hóa đơn phiên chơi tại POS |
 | `/session-payment/{sessionId}/regenerate-qr` | POST | Manager, CafeStaff | Tạo lại QR thanh toán phiên chơi |
 | `/manual-confirm` | POST | Manager, CafeStaff | Xác nhận thanh toán thủ công khi SePay + VietQR đều lỗi |
@@ -104,9 +106,93 @@ Tạo lại QR thanh toán cho đơn cọc đang `PENDING`. QR cũ bị đánh d
 
 ---
 
+## GET /api/payments/booking-deposit/{depositId}
+
+Lấy chi tiết đơn cọc theo `Id`. Dùng để mobile polling trạng thái sau khi tạo deposit (chờ SePay webhook xác nhận), hoặc cho Manager/Admin tra cứu.
+
+**Path param:** `depositId` (Guid).
+
+**Authorization:**
+- `Player` — chỉ xem được đơn của chính mình (`UserId == currentUser`).
+- `Manager`, `Admin` — xem tất cả.
+
+**Response 200:** trả về `BookingDepositResponseDto`.
+
+```json
+{
+  "data": {
+    "id": "<guid>",
+    "orderId": "BV12345678",
+    "activeSessionId": "<guid or null>",
+    "userId": "<guid>",
+    "cafeId": "<guid>",
+    "cafeManagerId": "<guid>",
+    "amount": 20000,
+    "refundedAmount": null,
+    "refundPolicy": "Full",
+    "status": "Paid",
+    "transferContent": "BV12345678",
+    "sePayTransactionId": "TXN-...",
+    "paidAt": "2026-07-21T10:02:00Z",
+    "releasedAt": null,
+    "refundedAt": null,
+    "forfeitedAt": null,
+    "qrUrl": "https://pay.sepay.vn/...",
+    "qrExpiresAt": "2026-07-21T10:07:00Z",
+    "scheduledAt": "2026-07-22T19:00:00Z",
+    "createdAt": "2026-07-21T10:00:00Z",
+    "updatedAt": "2026-07-21T10:02:00Z"
+  }
+}
+```
+
+**Side effects:** không có (read-only).
+
+**Lỗi:**
+- `401` thiếu token.
+- `403` Player không phải chủ đơn cọc.
+- `404` không tìm thấy đơn cọc.
+- `500` lỗi hệ thống.
+
+---
+
+## GET /api/payments/booking-deposit/by-order/{orderId}
+
+Lấy chi tiết đơn cọc theo `OrderId` (mã `BV-prefix` hiển thị trên QR). Dùng để mobile lookup khi user quét QR / nhập mã đặt chỗ.
+
+**Path param:** `orderId` (string, max 32 chars).
+
+**Authorization:** giống `GET /booking-deposit/{depositId}`.
+
+**Response 200:** giống `GET /booking-deposit/{depositId}` (cùng `BookingDepositResponseDto`).
+
+**Side effects:** không có (read-only).
+
+**Lỗi:**
+- `401` thiếu token.
+- `403` Player không phải chủ đơn cọc.
+- `404` không tìm thấy đơn cọc với `OrderId` tương ứng.
+- `500` lỗi hệ thống.
+
+> **Lưu ý:** cả hai endpoint GET đều **không xác thực quyền sở hữu Player trong controller hiện tại** (chỉ check role Manager/Admin). Khi mobile Player flow cần xem đơn của mình, cần bổ sung logic check `deposit.UserId == currentUserId` trước khi trả response. Xem [booking.md](./booking.md) §"Security & Access Control" để biết chi tiết.
+
+---
+
 ## POST /api/payments/booking-deposit/refund
 
-Hoàn 100% cọc khi quán hủy đơn đặt chỗ vì bất khả kháng (BR-18, Exception 9 trong business rule). Áp dụng cho `BookingDeposit.Status = Paid`.
+Hoàn cọc đặt chỗ theo `DepositRefundPolicy` của cafe (BR-18). Số tiền hoàn thực tế phụ thuộc vào policy và thời gian đã trôi qua kể từ khi tạo đơn.
+
+**Điều kiện:**
+- `BookingDeposit.Status = Paid`.
+- `reason` không rỗng (bắt buộc cho audit).
+
+**Refund policy:**
+
+| Policy | Số tiền hoàn |
+|--------|--------------|
+| `Full` | 100% `Amount` |
+| `Partial` | 50% `Amount` nếu elapsed ≥ 24h, 25% nếu elapsed ≥ 12h, 0% nếu < 12h |
+| `None` | 0% → status chuyển sang `Forfeited` (không refund) |
 
 **Body mẫu:**
 
@@ -120,7 +206,7 @@ Hoàn 100% cọc khi quán hủy đơn đặt chỗ vì bất khả kháng (BR-1
 | Field | Required | Mô tả |
 |-------|----------|--------|
 | `depositId` | ✅ | Mã đơn cọc cần hoàn. |
-| `reason` | ✅ | Lý do hoàn (lưu audit). |
+| `reason` | ✅ | Lý do hoàn (lưu audit log). |
 
 **Response 200:**
 
@@ -130,10 +216,21 @@ Hoàn 100% cọc khi quán hủy đơn đặt chỗ vì bất khả kháng (BR-1
     "depositId": "<guid>",
     "status": "Refunded",
     "amount": 20000,
+    "refundedAmount": 20000,
     "processedAt": "2026-07-21T11:30:00Z"
   }
 }
 ```
+
+| Field | Mô tả |
+|-------|-------|
+| `status` | `Refunded` nếu có hoàn, `Forfeited` nếu `Policy = None`. |
+| `refundedAmount` | Số tiền thực tế hoàn cho khách (0 nếu `Forfeited`). |
+
+**Side effects:**
+- Cập nhật `BookingDeposit.Status = Refunded` (hoặc `Forfeited`).
+- Ghi `RefundedAt` / `ForfeitedAt` timestamp.
+- Log thông tin refund (audit trail) — policy, số tiền, lý do.
 
 **Lỗi:**
 - `400` đơn cọc không ở trạng thái `Paid` / thiếu lý do.
