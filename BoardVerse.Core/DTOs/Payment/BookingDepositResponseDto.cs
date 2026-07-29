@@ -5,7 +5,7 @@ namespace BoardVerse.Core.DTOs.Payment;
 
 /// <summary>
 /// DTO trả về chi tiết một BookingDeposit cho client.
-/// Tách khỏi Entity để:
+/// Tách khỏi Entity để: 
 /// - Tránh lộ navigation properties không cần thiết (MasterAccount, Cafe, User, ActiveSession).
 /// - Dễ thêm/sửa field cho mobile mà không ảnh hưởng entity.
 /// - Ổn định contract API khi schema database thay đổi.
