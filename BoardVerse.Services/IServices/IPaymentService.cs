@@ -10,6 +10,6 @@ public interface IPaymentService
     Task<CreateSessionPaymentResponseDto> CreateSessionPaymentAsync(CreateSessionPaymentRequestDto request);
     Task<CreateSessionPaymentResponseDto> RegenerateSessionQrAsync(Guid sessionId);
     Task HandleSePayWebhookAsync(SePayWebhookDto webhook);
-    Task<BookingDeposit> RefundDepositAsync(Guid depositId, string reason);
+    Task<RefundDepositResult> RefundDepositAsync(Guid depositId, string reason);
     Task ProcessExpiredDepositsAsync();
 }

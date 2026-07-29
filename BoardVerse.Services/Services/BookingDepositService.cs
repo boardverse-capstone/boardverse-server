@@ -249,6 +249,21 @@ public class BookingDepositService : IBookingDepositService
             depositId, qrExpiresAt);
     }
 
+    /// <summary>
+    /// Tính số tiền hoàn cọc theo BR-18 cho các policy tương ứng.
+    /// Expose public để controller có thể trả về RefundedAmount trong response.
+    /// </summary>
+    public decimal CalculatePartialRefundAmount(BookingDeposit deposit)
+    {
+        return deposit.RefundPolicy switch
+        {
+            DepositRefundPolicy.Full => deposit.Amount,
+            DepositRefundPolicy.None => 0m,
+            DepositRefundPolicy.Partial => CalculatePartialRefund(deposit),
+            _ => 0m
+        };
+    }
+
     private static decimal CalculatePartialRefund(BookingDeposit deposit)
     {
         var elapsedHours = (DateTime.UtcNow - deposit.CreatedAt).TotalHours;

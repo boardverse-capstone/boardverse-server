@@ -61,6 +61,16 @@ public interface IBookingDepositService
     Task<BookingDeposit?> GetBySePayTransactionIdAsync(string sePayTransactionId);
 
     /// <summary>
+    /// Tính số tiền hoàn cọc theo BR-18 và thời gian đã trôi qua kể từ khi tạo đơn.
+    /// Áp dụng cho DepositRefundPolicy = Partial.
+    /// - elapsedHours >= 24 → hoàn 50%
+    /// - elapsedHours >= 12 → hoàn 25%
+    /// - elapsedHours &lt; 12 → hoàn 0%
+    /// Trả về 0 cho các policy khác (Full thì controller tự tính = Amount; None = 0).
+    /// </summary>
+    decimal CalculatePartialRefundAmount(BookingDeposit deposit);
+
+    /// <summary>
     /// Cập nhật QR URL, thời hạn và nội dung chuyển khoản cho đơn cọc.
     /// qrExpiresAt = null khi dùng VietQR tĩnh (QR không hết hạn).
     /// transferContent = nội dung CK dùng trên QR, random unique để webhook match đúng đơn.

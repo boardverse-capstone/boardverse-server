@@ -553,8 +553,9 @@ public class PaymentService : IPaymentService
     /// Hoàn cọc dựa trên chính sách của quán.
     /// BR-18: Hoàn 100% khi hủy do bất khả kháng từ phía quán.
     /// BR-18: Hoàn/phạt theo RefundPolicy khi hủy từ phía khách.
+    /// Trả về RefundDepositResult gồm BookingDeposit (sau update) + số tiền thực tế hoàn cho khách.
     /// </summary>
-    public async Task<BookingDeposit> RefundDepositAsync(Guid depositId, string reason)
+    public async Task<RefundDepositResult> RefundDepositAsync(Guid depositId, string reason)
     {
         var deposit = await _depositService.GetByIdAsync(depositId)
             ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
@@ -564,12 +565,34 @@ public class PaymentService : IPaymentService
             throw new ConflictException($"Không thể hoàn cọc: trạng thái hiện tại là '{deposit.Status}', cần 'Paid'.");
         }
 
-        if (deposit.RefundPolicy == DepositRefundPolicy.None)
+        if (string.IsNullOrWhiteSpace(reason))
         {
-            return await _depositService.ForfeitAsync(depositId);
+            throw new BadRequestException("Lý do hoàn cọc là bắt buộc để phục vụ audit. BR-18.");
         }
 
-        return await _depositService.MarkAsRefundedAsync(depositId);
+        // Tính số tiền hoàn dự kiến theo policy TRƯỚC khi chuyển trạng thái.
+        var expectedRefund = _depositService.CalculatePartialRefundAmount(deposit);
+
+        BookingDeposit updated;
+        if (deposit.RefundPolicy == DepositRefundPolicy.None)
+        {
+            updated = await _depositService.ForfeitAsync(depositId);
+            expectedRefund = 0m;
+        }
+        else
+        {
+            updated = await _depositService.MarkAsRefundedAsync(depositId);
+        }
+
+        _logger.LogInformation(
+            "BookingDeposit refund processed. DepositId={DepositId}, Policy={Policy}, OriginalAmount={Amount}, RefundedAmount={Refunded}, Reason={Reason}",
+            updated.Id, updated.RefundPolicy, updated.Amount, expectedRefund, reason);
+
+        return new RefundDepositResult
+        {
+            Deposit = updated,
+            RefundedAmount = expectedRefund
+        };
     }
 
     /// <summary>
