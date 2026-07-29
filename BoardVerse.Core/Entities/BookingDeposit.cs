@@ -39,4 +39,5 @@ public class BookingDeposit
     public virtual Cafe Cafe { get; set; } = null!;
     public virtual User User { get; set; } = null!;
     public virtual ActiveSession? ActiveSession { get; set; }
+    public virtual Booking? Booking { get; set; }
 }
