@@ -38,6 +38,7 @@ namespace BoardVerse.Data
         public DbSet<PaymentMasterAccount> PaymentMasterAccounts => Set<PaymentMasterAccount>();
         public DbSet<SePayAccount> SePayAccounts => Set<SePayAccount>();
         public DbSet<BookingDeposit> BookingDeposits => Set<BookingDeposit>();
+        public DbSet<Booking> Bookings => Set<Booking>();
         public DbSet<CafeSettlement> CafeSettlements => Set<CafeSettlement>();
         public DbSet<ComponentLossReport> ComponentLossReports => Set<ComponentLossReport>();
         public DbSet<Transaction> Transactions => Set<Transaction>();
