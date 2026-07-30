@@ -125,9 +125,11 @@ builder.Services.AddScoped<ISystemConfigurationRepository, SystemConfigurationRe
 builder.Services.AddScoped<ICafePartnerApplicationRepository, CafePartnerApplicationRepository>();
 builder.Services.AddScoped<IPaymentMasterAccountRepository, PaymentMasterAccountRepository>();
 builder.Services.AddScoped<IBookingDepositRepository, BookingDepositRepository>();
+builder.Services.AddScoped<IBookingRepository, BookingRepository>();
 builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
 builder.Services.AddScoped<ICafeSettlementRepository, CafeSettlementRepository>();
 builder.Services.AddScoped<ISettlementService, SettlementService>();
+builder.Services.AddScoped<IBookingService, BookingService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserProfileService, UserProfileService>();
 builder.Services.AddScoped<IUserManagementService, UserManagementService>();
