@@ -4,7 +4,6 @@ using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.IServices;
-using Microsoft.EntityFrameworkCore;
 
 namespace BoardVerse.Services.Services;
 
@@ -13,20 +12,23 @@ public class BookingService : IBookingService
     private readonly IBookingRepository _bookingRepository;
     private readonly ILobbyRepository _lobbyRepository;
     private readonly ICafeRepository _cafeRepository;
+    private readonly ICafeTableRepository _cafeTableRepository;
 
     public BookingService(
         IBookingRepository bookingRepository,
         ILobbyRepository lobbyRepository,
-        ICafeRepository cafeRepository)
+        ICafeRepository cafeRepository,
+        ICafeTableRepository cafeTableRepository)
     {
         _bookingRepository = bookingRepository;
         _lobbyRepository = lobbyRepository;
         _cafeRepository = cafeRepository;
+        _cafeTableRepository = cafeTableRepository;
     }
 
     public async Task<BookingResponseDto> CreateBookingAsync(Guid hostUserId, CreateBookingRequestDto request)
     {
-        // 1. Validate lobby tồn tại và đã lock (Full)
+        // 1. Validate lobby đã lock (Full)
         var lobby = await _lobbyRepository.GetByIdWithMembersAsync(request.LobbyId)
             ?? throw new NotFoundException($"Không tìm thấy phòng chờ '{request.LobbyId}'.");
 
@@ -41,7 +43,7 @@ public class BookingService : IBookingService
             throw new ConflictException("Phòng chờ phải ở trạng thái Full (đã khóa) mới có thể tạo booking.");
         }
 
-        // 2. Kiểm tra chưa có booking cho lobby này
+        // 2. Chưa có booking cho lobby này
         var existingBooking = await _bookingRepository.GetByLobbyIdAsync(request.LobbyId);
         if (existingBooking != null)
         {
@@ -52,76 +54,81 @@ public class BookingService : IBookingService
         var cafe = await _cafeRepository.GetByIdAsync(request.CafeId)
             ?? throw new NotFoundException($"Không tìm thấy quán cafe '{request.CafeId}'.");
 
-        // 4. Validate thời gian hợp lệ
-        if (request.EndTime <= request.StartTime)
+        // 4. Validate cafeTable thuộc cafe
+        var cafeTable = await _cafeTableRepository.GetByIdAsync(request.CafeTableId)
+            ?? throw new NotFoundException($"Không tìm thấy bàn '{request.CafeTableId}'.");
+
+        if (cafeTable.CafeId != request.CafeId)
         {
-            throw new BadRequestException("Giờ kết thúc phải sau giờ bắt đầu.");
+            throw new BadRequestException("Bàn không thuộc quán đã chọn.");
         }
 
-        if (request.BookingDate < DateTime.UtcNow.Date)
+        // 5. Validate thời gian
+        if (request.ScheduleEndTime <= request.ScheduledStartTime)
         {
-            throw new BadRequestException("Ngày đặt chỗ không được là ngày trong quá khứ.");
+            throw new BadRequestException("Thời gian kết thúc phải sau thời gian bắt đầu.");
         }
 
-        // 5. Tạo Booking
+        if (request.ScheduledStartTime < DateTime.UtcNow)
+        {
+            throw new BadRequestException("Thời gian bắt đầu không được là thời điểm trong quá khứ.");
+        }
+
+        // 6. Validate bàn không bị trùng giờ
+        var conflicts = await _bookingRepository.GetByCafeTableIdAsync(request.CafeTableId);
+        var hasConflict = conflicts.Any(b =>
+            b.Status != BookingStatus.Cancelled &&
+            b.ScheduledStartTime < request.ScheduleEndTime &&
+            b.ScheduleEndTime > request.ScheduledStartTime);
+        if (hasConflict)
+        {
+            throw new ConflictException("Bàn đã có booking khác trong khoảng thời gian này.");
+        }
+
+        // 7. Tạo Booking
         var booking = new Booking
         {
             Id = Guid.NewGuid(),
             LobbyId = request.LobbyId,
             CafeId = request.CafeId,
-            UserId = hostUserId,
-            BookingDate = request.BookingDate.Date,
-            StartTime = request.StartTime,
-            EndTime = request.EndTime,
-            TotalSlot = request.TotalSlot ?? lobby.Members.Count(m => m.IsActive),
-            TableNumber = request.TableNumber,
-            TableCode = request.TableCode,
-            SpecialRequest = request.SpecialRequest,
+            CafeTableId = request.CafeTableId,
+            ScheduledStartTime = request.ScheduledStartTime,
+            ScheduleEndTime = request.ScheduleEndTime,
+            PlayerQuantity = request.PlayerQuantity ?? lobby.Members.Count(m => m.IsActive),
             Status = BookingStatus.PendingDeposit,
-            CreatedAt = DateTime.UtcNow
+            VerificationQRCode = $"BV-{Guid.NewGuid():N}".Substring(0, 20)
         };
 
-        // 6. Update Lobby.BookingId
+        // 8. Update Lobby.BookingId
         lobby.BookingId = booking.Id;
         lobby.UpdatedAt = DateTime.UtcNow;
 
         await _bookingRepository.AddAsync(booking);
         await _bookingRepository.SaveChangesAsync();
 
-        // Load relations for response
         booking.Cafe = cafe;
-        booking.User = lobby.HostUser;
+        booking.CafeTable = cafeTable;
         booking.Lobby = lobby;
 
-        return BookingResponseDto.FromEntity(booking, includeDeposit: false);
+        return BookingResponseDto.FromEntity(booking);
     }
 
     public async Task<BookingResponseDto?> GetByIdAsync(Guid bookingId)
     {
-        var booking = await _bookingRepository.GetByIdWithDepositAsync(bookingId);
-        return booking == null ? null : BookingResponseDto.FromEntity(booking, includeDeposit: true);
+        var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true);
+        return booking == null ? null : BookingResponseDto.FromEntity(booking);
     }
 
     public async Task<BookingResponseDto?> GetByLobbyIdAsync(Guid lobbyId)
     {
         var booking = await _bookingRepository.GetByLobbyIdAsync(lobbyId);
-        return booking == null ? null : BookingResponseDto.FromEntity(booking, includeDeposit: true);
+        return booking == null ? null : BookingResponseDto.FromEntity(booking);
     }
 
-    public async Task<IReadOnlyList<BookingResponseDto>> GetByUserIdAsync(Guid userId, Guid? requestingUserId = null)
+    public async Task<IReadOnlyList<BookingResponseDto>> GetByCafeIdAsync(Guid cafeId, Guid? requestingUserId = null)
     {
-        var bookings = await _bookingRepository.GetByUserIdAsync(userId);
-        return bookings
-            .Select(b => BookingResponseDto.FromEntity(b, includeDeposit: true))
-            .ToList();
-    }
-
-    public async Task<IReadOnlyList<BookingResponseDto>> GetUpcomingByUserIdAsync(Guid userId, int limit = 10)
-    {
-        var bookings = await _bookingRepository.GetUpcomingByUserIdAsync(userId, limit);
-        return bookings
-            .Select(b => BookingResponseDto.FromEntity(b, includeDeposit: true))
-            .ToList();
+        var bookings = await _bookingRepository.GetByCafeIdAsync(cafeId);
+        return bookings.Select(BookingResponseDto.FromEntity).ToList();
     }
 
     public async Task<BookingResponseDto> UpdateBookingAsync(
@@ -129,51 +136,58 @@ public class BookingService : IBookingService
         Guid requestingUserId,
         UpdateBookingRequestDto request)
     {
-        var booking = await _bookingRepository.GetByIdWithDepositAsync(bookingId)
+        var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
             ?? throw new NotFoundException($"Không tìm thấy booking '{bookingId}'.");
 
-        // Chỉ owner hoặc manager mới được sửa
-        if (booking.UserId != requestingUserId)
+        // Chỉ owner (Host lobby) mới được sửa
+        if (booking.Lobby == null)
+        {
+            var lobby = await _lobbyRepository.GetByIdAsync(booking.LobbyId);
+            if (lobby?.HostUserId != requestingUserId)
+            {
+                throw new ForbiddenException("Bạn không có quyền cập nhật booking này.");
+            }
+        }
+        else if (booking.Lobby.HostUserId != requestingUserId)
         {
             throw new ForbiddenException("Bạn không có quyền cập nhật booking này.");
         }
 
         // Chỉ được sửa khi chưa check-in
-        if (booking.Status == BookingStatus.CheckedIn ||
-            booking.Status == BookingStatus.Completed ||
-            booking.Status == BookingStatus.Cancelled)
+        if (booking.Status == BookingStatus.CheckedIn || booking.Status == BookingStatus.Cancelled)
         {
             throw new ConflictException("Không thể cập nhật booking ở trạng thái này.");
         }
 
-        // Áp dụng các trường được phép
-        if (request.BookingDate.HasValue)
-            booking.BookingDate = request.BookingDate.Value.Date;
+        if (request.CafeTableId.HasValue)
+        {
+            var table = await _cafeTableRepository.GetByIdAsync(request.CafeTableId.Value)
+                ?? throw new NotFoundException($"Không tìm thấy bàn '{request.CafeTableId}'.");
+            if (table.CafeId != booking.CafeId)
+            {
+                throw new BadRequestException("Bàn không thuộc quán của booking này.");
+            }
+            booking.CafeTableId = request.CafeTableId.Value;
+        }
 
-        if (request.StartTime.HasValue)
-            booking.StartTime = request.StartTime.Value;
+        if (request.ScheduledStartTime.HasValue)
+            booking.ScheduledStartTime = request.ScheduledStartTime.Value;
 
-        if (request.EndTime.HasValue)
-            booking.EndTime = request.EndTime.Value;
+        if (request.ScheduleEndTime.HasValue)
+            booking.ScheduleEndTime = request.ScheduleEndTime.Value;
 
-        if (request.TotalSlot.HasValue)
-            booking.TotalSlot = request.TotalSlot.Value;
+        if (booking.ScheduleEndTime <= booking.ScheduledStartTime)
+        {
+            throw new BadRequestException("Thời gian kết thúc phải sau thời gian bắt đầu.");
+        }
 
-        if (request.TableNumber.HasValue)
-            booking.TableNumber = request.TableNumber.Value;
-
-        if (request.TableCode != null)
-            booking.TableCode = request.TableCode;
-
-        if (request.SpecialRequest != null)
-            booking.SpecialRequest = request.SpecialRequest;
-
-        booking.UpdatedAt = DateTime.UtcNow;
+        if (request.PlayerQuantity.HasValue)
+            booking.PlayerQuantity = request.PlayerQuantity.Value;
 
         await _bookingRepository.UpdateAsync(booking);
         await _bookingRepository.SaveChangesAsync();
 
-        return BookingResponseDto.FromEntity(booking, includeDeposit: true);
+        return BookingResponseDto.FromEntity(booking);
     }
 
     public async Task<BookingResponseDto> CancelBookingAsync(
@@ -181,34 +195,31 @@ public class BookingService : IBookingService
         Guid requestingUserId,
         string? reason = null)
     {
-        var booking = await _bookingRepository.GetByIdWithDepositAsync(bookingId)
+        var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
             ?? throw new NotFoundException($"Không tìm thấy booking '{bookingId}'.");
 
-        // Chỉ owner hoặc manager mới được hủy
-        if (booking.UserId != requestingUserId)
+        // Chỉ owner (Host lobby) hoặc Manager/Staff mới được hủy
+        if (booking.Lobby != null && booking.Lobby.HostUserId != requestingUserId)
         {
             throw new ForbiddenException("Bạn không có quyền hủy booking này.");
         }
 
-        // Không cho hủy khi đã check-in hoặc completed
-        if (booking.Status == BookingStatus.CheckedIn || booking.Status == BookingStatus.Completed)
+        if (booking.Status == BookingStatus.CheckedIn)
         {
-            throw new ConflictException("Không thể hủy booking đã check-in hoặc hoàn tất.");
+            throw new ConflictException("Không thể hủy booking đã check-in.");
         }
 
         booking.Status = BookingStatus.Cancelled;
-        booking.CancellationReason = reason;
-        booking.UpdatedAt = DateTime.UtcNow;
 
         await _bookingRepository.UpdateAsync(booking);
         await _bookingRepository.SaveChangesAsync();
 
-        return BookingResponseDto.FromEntity(booking, includeDeposit: true);
+        return BookingResponseDto.FromEntity(booking);
     }
 
     public async Task<BookingResponseDto> CheckInAsync(Guid bookingId, Guid staffUserId)
     {
-        var booking = await _bookingRepository.GetByIdWithDepositAsync(bookingId)
+        var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
             ?? throw new NotFoundException($"Không tìm thấy booking '{bookingId}'.");
 
         if (booking.Status != BookingStatus.Confirmed)
@@ -217,18 +228,16 @@ public class BookingService : IBookingService
         }
 
         booking.Status = BookingStatus.CheckedIn;
-        booking.ActualStartTime = DateTime.UtcNow;
-        booking.UpdatedAt = DateTime.UtcNow;
 
         await _bookingRepository.UpdateAsync(booking);
         await _bookingRepository.SaveChangesAsync();
 
-        return BookingResponseDto.FromEntity(booking, includeDeposit: true);
+        return BookingResponseDto.FromEntity(booking);
     }
 
     public async Task<BookingResponseDto> CheckOutAsync(Guid bookingId, Guid staffUserId)
     {
-        var booking = await _bookingRepository.GetByIdWithDepositAsync(bookingId)
+        var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
             ?? throw new NotFoundException($"Không tìm thấy booking '{bookingId}'.");
 
         if (booking.Status != BookingStatus.CheckedIn)
@@ -236,28 +245,28 @@ public class BookingService : IBookingService
             throw new ConflictException("Chỉ booking đã check-in mới có thể check-out.");
         }
 
-        booking.Status = BookingStatus.Completed;
-        booking.ActualEndTime = DateTime.UtcNow;
-        booking.UpdatedAt = DateTime.UtcNow;
+        // Theo ERD: status chỉ có PendingDeposit, Confirmed, CheckedIn, NoShow, Cancelled
+        // Sau khi check-out, booking coi như kết thúc - chuyển về Confirmed (POS đã hoàn tất)
+        // hoặc giữ CheckedIn nếu POS set session_end riêng. Ở đây reset về Confirmed để khớp ERD.
+        booking.Status = BookingStatus.Confirmed;
 
         await _bookingRepository.UpdateAsync(booking);
         await _bookingRepository.SaveChangesAsync();
 
-        return BookingResponseDto.FromEntity(booking, includeDeposit: true);
+        return BookingResponseDto.FromEntity(booking);
     }
 
     public async Task<Booking> ConfirmBookingAsync(Guid bookingId)
     {
-        var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
+        var booking = await _bookingRepository.GetByIdAsync(bookingId)
             ?? throw new NotFoundException($"Không tìm thấy booking '{bookingId}'.");
 
-        if (booking.Status != BookingStatus.PendingPayment)
+        if (booking.Status != BookingStatus.PendingDeposit)
         {
-            throw new ConflictException($"Chỉ booking ở trạng thái PendingPayment mới có thể xác nhận (hiện tại: {booking.Status}).");
+            throw new ConflictException($"Chỉ booking ở trạng thái PendingDeposit mới có thể xác nhận (hiện tại: {booking.Status}).");
         }
 
         booking.Status = BookingStatus.Confirmed;
-        booking.UpdatedAt = DateTime.UtcNow;
 
         await _bookingRepository.UpdateAsync(booking);
         await _bookingRepository.SaveChangesAsync();
@@ -265,13 +274,17 @@ public class BookingService : IBookingService
         return booking;
     }
 
-    public async Task<Booking> UpdateStatusAsync(Guid bookingId, BookingStatus newStatus)
+    public async Task<Booking> MarkAsNoShowAsync(Guid bookingId)
     {
         var booking = await _bookingRepository.GetByIdAsync(bookingId)
             ?? throw new NotFoundException($"Không tìm thấy booking '{bookingId}'.");
 
-        booking.Status = newStatus;
-        booking.UpdatedAt = DateTime.UtcNow;
+        if (booking.Status != BookingStatus.Confirmed && booking.Status != BookingStatus.PendingDeposit)
+        {
+            throw new ConflictException("Chỉ booking ở trạng thái Confirmed hoặc PendingDeposit mới có thể NoShow.");
+        }
+
+        booking.Status = BookingStatus.NoShow;
 
         await _bookingRepository.UpdateAsync(booking);
         await _bookingRepository.SaveChangesAsync();

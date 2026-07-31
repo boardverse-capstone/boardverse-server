@@ -4,7 +4,7 @@ namespace BoardVerse.Core.DTOs.Booking;
 
 /// <summary>
 /// Request tạo Booking từ Lobby đã lock.
-/// Host tạo booking sau khi lobby đã Full và đã khóa (lock).
+/// Theo ERD: lobbyId, cafeId, cafeTableId, scheduledStartTime, scheduleEndTime, playerQuantity.
 /// </summary>
 public class CreateBookingRequestDto
 {
@@ -21,43 +21,26 @@ public class CreateBookingRequestDto
     public Guid CafeId { get; set; }
 
     /// <summary>
-    /// Ngày đặt chỗ (date, không có giờ).
+    /// Bàn cụ thể trong quán — bắt buộc (theo ERD).
     /// </summary>
     [Required]
-    public DateTime BookingDate { get; set; }
+    public Guid CafeTableId { get; set; }
 
     /// <summary>
-    /// Giờ bắt đầu dự kiến (VD: 14:00 = 14:00:00).
+    /// Thời gian bắt đầu dự kiến (timestamp).
     /// </summary>
     [Required]
-    public TimeSpan StartTime { get; set; }
+    public DateTime ScheduledStartTime { get; set; }
 
     /// <summary>
-    /// Giờ kết thúc dự kiến (VD: 18:00 = 18:00:00).
+    /// Thời gian kết thúc dự kiến (timestamp).
     /// </summary>
     [Required]
-    public TimeSpan EndTime { get; set; }
+    public DateTime ScheduleEndTime { get; set; }
 
     /// <summary>
-    /// Tổng số ghế/người chơi. Mặc định = số members trong lobby.
+    /// Số người chơi. Mặc định = số members trong lobby.
     /// </summary>
     [Range(1, 50)]
-    public int? TotalSlot { get; set; }
-
-    /// <summary>
-    /// Số bàn (optional, gán bởi quán).
-    /// </summary>
-    public int? TableNumber { get; set; }
-
-    /// <summary>
-    /// Mã bàn (optional).
-    /// </summary>
-    [StringLength(50)]
-    public string? TableCode { get; set; }
-
-    /// <summary>
-    /// Ghi chú đặc biệt (VD: sinh nhật, team building).
-    /// </summary>
-    [StringLength(1000)]
-    public string? SpecialRequest { get; set; }
+    public int? PlayerQuantity { get; set; }
 }
