@@ -146,5 +146,76 @@ namespace BoardVerse.Data.Repositories
             _db.ActiveSessionGames.Update(sessionGame);
             return Task.CompletedTask;
         }
+
+        /// <summary>
+        /// P0 Fix #2 follow-up: Completes post-payment lifecycle cleanup for a paid session.
+        /// Performs all cleanup in a single SaveChangesAsync call (one DB transaction).
+        /// Steps:
+        ///   1. Mark all members as checked out (BR-12).
+        ///   2. Release board game box (Status = Available).
+        ///   3. Release cafe table (Status = Available, BR-17).
+        ///   4. Close any linked lobby (Status = Closed).
+        /// Idempotent: re-running on already-cleaned state is a no-op.
+        /// </summary>
+        public async Task CompleteSessionPaymentCleanupAsync(Guid sessionId)
+        {
+            var now = DateTime.UtcNow;
+
+            var session = await _db.ActiveSessions
+                .Include(s => s.Members)
+                .FirstOrDefaultAsync(s => s.Id == sessionId);
+
+            if (session == null)
+            {
+                return;
+            }
+
+            // 1. Mark all members as checked out
+            foreach (var member in session.Members)
+            {
+                if (!member.IsCheckedOut)
+                {
+                    member.IsCheckedOut = true;
+                    member.CheckedOutAt ??= now;
+                }
+            }
+
+            // 2. Release the board game box (if attached and still in use)
+            if (session.CafeInventoryBoxId.HasValue)
+            {
+                var box = await _db.CafeInventoryBoxes
+                    .FirstOrDefaultAsync(b => b.Id == session.CafeInventoryBoxId.Value);
+                if (box != null && box.Status != CafeGameInventoryStatus.Available)
+                {
+                    box.Status = CafeGameInventoryStatus.Available;
+                    box.UpdatedAt = now;
+                }
+            }
+
+            // 3. Release the cafe table (if attached and still in use)
+            if (session.CafeTableId.HasValue)
+            {
+                var table = await _db.CafeTables
+                    .FirstOrDefaultAsync(t => t.Id == session.CafeTableId.Value && t.CafeId == session.CafeId);
+                if (table != null && table.Status == CafeTableStatus.InUse)
+                {
+                    table.Status = CafeTableStatus.Available;
+                    table.UpdatedAt = now;
+                }
+            }
+
+            // 4. Close any linked lobby
+            var lobby = await _db.Lobbies
+                .FirstOrDefaultAsync(l => l.ActiveSessionId == sessionId);
+            if (lobby != null && lobby.Status != LobbyStatus.Closed)
+            {
+                lobby.Status = LobbyStatus.Closed;
+                lobby.ClosedAt = now;
+                lobby.UpdatedAt = now;
+            }
+
+            // Persist all changes in a single transaction.
+            await _db.SaveChangesAsync();
+        }
     }
 }

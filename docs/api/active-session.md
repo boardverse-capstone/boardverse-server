@@ -164,6 +164,17 @@ Note: DepositAppliedAmount = 0 — Thanh toán session KHÔNG trừ tiền cọc
 - `400` — Phiên không ở `UNPAID` hoặc dữ liệu sai
 - `409` — Phiên không ở `UNPAID`
 
+**Side effects:**
+- `ActiveSession.Status = PAID`.
+- Tất cả `ActiveSessionMember` của phiên được đánh dấu `IsCheckedOut = true`, `CheckedOutAt = now`.
+- `CafeInventoryBox.Status = Available` (giải phóng hộp board game đang mượn — chỉ set nếu box hiện đang không ở `Available`).
+- `CafeTable.Status = Available` (giải phóng bàn về kho, BR-17).
+- Nếu phiên liên kết `Lobby` → `Lobby.Status = Closed`.
+
+Side effects trên được thực thi qua `IActiveSessionRepository.CompleteSessionPaymentCleanupAsync(sessionId)` — cùng method được gọi bởi `POST /api/payments/manual-confirm` và `POST /api/payments/sepay/webhook` (status=success). Xem [payment.md](./payment.md) §"Session Payment Lifecycle Cleanup" để biết single-source-of-truth.
+
+> **Lưu ý kỹ thuật:** Trước đây PaySessionAsync tự inline cleanup (drag 4+ repo call, ~45 dòng). Sau refactor, chỉ gọi 1 method trên `IActiveSessionRepository` → không còn dependency trực tiếp với `ICafePosRepository.GetInventoryBoxByIdAsync`/`GetTableAsync` cho cleanup path và `ILobbyRepository` đã được loại bỏ khỏi constructor `ActiveSessionService`.
+
 ---
 
 ## POST /api/cafes/{cafeId}/sessions/{sourceSessionId}/merge
@@ -269,3 +280,11 @@ stateDiagram-v2
 | BR-14 | Phí phạt không gán vào `GuestSlot` |
 | BR-15 | `TotalAmount = Subtotal + Penalty − DepositApplied` (DepositApplied = 0) |
 | BR-17 | Chỉ nhân viên POS được kết thúc/tách nhóm/tính tiền |
+
+---
+
+## Liên quan
+
+- **Payment cleanup contract**: [payment.md](./payment.md) §"Session Payment Lifecycle Cleanup" — cùng `IActiveSessionRepository.CompleteSessionPaymentCleanupAsync` được gọi bởi `/pay`, manual-confirm, và SePay webhook. Thay đổi cleanup chỉ cần sửa 1 method.
+- **Webhook handling**: [sepay-webhook.md](./sepay-webhook.md) — SePay/VietQR gateway callback handler.
+- **State machine**: Xem [boardverse.mdc §V](../../.cursor/rules/boardverse.mdc) — đặc tả transition cho `ActiveSession`, `Lobby`, `SeatSlot`.

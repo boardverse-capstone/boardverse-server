@@ -62,10 +62,9 @@ public class ActiveSessionServiceTests
         posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame>());
 
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
 
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new CheckoutRequestDto
         {
@@ -104,10 +103,9 @@ public class ActiveSessionServiceTests
         var posRepo = new Mock<ICafePosRepository>();
         var cafeRepo = new Mock<ICafeRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
 
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new CheckoutRequestDto
         {
@@ -152,10 +150,9 @@ public class ActiveSessionServiceTests
 
         var cafeRepo = new Mock<ICafeRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
 
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new CheckoutRequestDto
         {
@@ -215,10 +212,9 @@ public class ActiveSessionServiceTests
 
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
 
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new AddGuestSlotRequestDto { DisplayName = "Guest 1" };
         var result = await service.AddGuestSlotAsync(cafeId, sessionId, request);
@@ -249,9 +245,8 @@ public class ActiveSessionServiceTests
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new CheckoutRequestDto { ComponentsVerified = true };
 
@@ -284,9 +279,8 @@ public class ActiveSessionServiceTests
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new PartialCheckoutRequestDto { MemberIds = new List<Guid> { Guid.NewGuid() } };
 
@@ -315,9 +309,8 @@ public class ActiveSessionServiceTests
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new PartialCheckoutRequestDto { MemberIds = new List<Guid>() };
 
@@ -355,9 +348,8 @@ public class ActiveSessionServiceTests
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new PartialCheckoutRequestDto { MemberIds = new List<Guid> { memberId } };
 
@@ -398,9 +390,8 @@ public class ActiveSessionServiceTests
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new PartialCheckoutRequestDto { MemberIds = new List<Guid> { memberId } };
 
@@ -448,9 +439,8 @@ public class ActiveSessionServiceTests
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new MergeSessionRequestDto { MemberId = memberId, TargetSessionId = targetSessionId };
 
@@ -500,9 +490,8 @@ public class ActiveSessionServiceTests
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new MergeSessionRequestDto { MemberId = memberId, TargetSessionId = targetSessionId };
 
@@ -552,9 +541,8 @@ public class ActiveSessionServiceTests
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new MergeSessionRequestDto { MemberId = memberId, TargetSessionId = targetSessionId };
 
@@ -604,9 +592,8 @@ public class ActiveSessionServiceTests
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new MergeSessionRequestDto { MemberId = memberId, TargetSessionId = targetSessionId };
 
@@ -661,9 +648,8 @@ public class ActiveSessionServiceTests
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new MergeSessionRequestDto { MemberId = memberId, TargetSessionId = targetSessionId };
 
@@ -700,9 +686,8 @@ public class ActiveSessionServiceTests
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new PaySessionRequestDto();
 
@@ -754,9 +739,8 @@ public class ActiveSessionServiceTests
 
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new PaySessionRequestDto
         {
@@ -822,9 +806,8 @@ public class ActiveSessionServiceTests
         var depositRepo = new Mock<IBookingDepositRepository>();
         depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
 
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new PaySessionRequestDto();
 
@@ -878,9 +861,8 @@ public class ActiveSessionServiceTests
         var depositRepo = new Mock<IBookingDepositRepository>();
         depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
 
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new PaySessionRequestDto();
 
@@ -930,9 +912,8 @@ public class ActiveSessionServiceTests
         var depositRepo = new Mock<IBookingDepositRepository>();
         depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
 
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new PaySessionRequestDto();
 
@@ -995,9 +976,8 @@ public class ActiveSessionServiceTests
         var depositRepo = new Mock<IBookingDepositRepository>();
         depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync(deposit);
 
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new PaySessionRequestDto();
 
@@ -1063,9 +1043,8 @@ public class ActiveSessionServiceTests
         var depositRepo = new Mock<IBookingDepositRepository>();
         depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
 
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new PaySessionRequestDto
         {
@@ -1119,9 +1098,8 @@ public class ActiveSessionServiceTests
 
         var cafeRepo = new Mock<ICafeRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new AttachGameRequestDto { GameBarcode = "BV-EXTRA" };
 
@@ -1161,9 +1139,8 @@ public class ActiveSessionServiceTests
 
         var cafeRepo = new Mock<ICafeRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new AttachGameRequestDto { GameBarcode = "BV-EXTRA" };
 
@@ -1197,9 +1174,8 @@ public class ActiveSessionServiceTests
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new AddLateMemberRequestDto { MemberUserIds = new List<Guid>() };
 
@@ -1228,9 +1204,8 @@ public class ActiveSessionServiceTests
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new AddLateMemberRequestDto { MemberUserIds = new List<Guid> { Guid.NewGuid() } };
 
@@ -1266,9 +1241,8 @@ public class ActiveSessionServiceTests
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new AddLateMemberRequestDto { MemberUserIds = new List<Guid> { newUserId } };
 
@@ -1305,9 +1279,8 @@ public class ActiveSessionServiceTests
 
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var result = await service.GetAlternativeCafesAsync(cafeId, gameId, 3, DateTime.UtcNow.AddHours(2));
 
@@ -1337,9 +1310,8 @@ public class ActiveSessionServiceTests
 
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var result = await service.GetAlternativeCafesAsync(cafeId, gameId, 3, DateTime.UtcNow.AddHours(2));
 
@@ -1370,9 +1342,8 @@ public class ActiveSessionServiceTests
 
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var result = await service.GetAlternativeCafesAsync(cafeId, gameId, 4, DateTime.UtcNow.AddHours(2));
 
@@ -1404,14 +1375,129 @@ public class ActiveSessionServiceTests
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
-        var lobbyRepo = new Mock<ILobbyRepository>();
         var settlementService = new Mock<ISettlementService>();
-        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, lobbyRepo.Object, settlementService.Object);
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
 
         var request = new AddGuestSlotRequestDto { DisplayName = "Guest" };
 
         await Assert.ThrowsAsync<ConflictException>(
             () => service.AddGuestSlotAsync(cafeId, sessionId, request));
+    }
+
+    #endregion
+
+    #region PaySessionAsync Cleanup
+
+    [Fact]
+    public async Task PaySessionAsync_CallsLifecycleCleanup()
+    {
+        // Regression: PaySessionAsync must trigger the same lifecycle cleanup as
+        // manual confirm / SePay webhook, so POS-initiated payments also release
+        // table + box + members + close lobby.
+        var cafeId = Guid.NewGuid();
+        var sessionId = Guid.NewGuid();
+
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Unpaid,
+            StartedAt = DateTime.UtcNow.AddHours(-1),
+            Members = new List<ActiveSessionMember>(),
+            Games = new List<ActiveSessionGame>(),
+            GameTemplate = new GameTemplate { Id = Guid.NewGuid(), Name = "Catan", PlayTime = 60 },
+            CafeTable = new CafeTable { Id = Guid.NewGuid(), Name = "Table 1" },
+            CafeInventoryBox = new CafeInventoryBox { Id = Guid.NewGuid(), Barcode = "BV-001" }
+        };
+
+        var cafe = new Cafe
+        {
+            Id = cafeId,
+            Name = "Test Cafe",
+            Address = "123 St",
+            BillingModel = CafePartnerBillingModel.TimeBased,
+            BasePrice = 60_000m,
+            TieredBlockMinutes = 15,
+            TieredBlockRate = 10_000m
+        };
+
+        var repo = new Mock<IActiveSessionRepository>();
+        repo.SetupSequence(r => r.GetByIdAsync(sessionId))
+            .ReturnsAsync(session)
+            .ReturnsAsync(session)
+            .ReturnsAsync(session);
+
+        var cafeRepo = new Mock<ICafeRepository>();
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(cafe);
+
+        var posRepo = new Mock<ICafePosRepository>();
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame>());
+        var depositRepo = new Mock<IBookingDepositRepository>();
+        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
+
+        var settlementService = new Mock<ISettlementService>();
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
+
+        var request = new PaySessionRequestDto();
+
+        await service.PaySessionAsync(cafeId, sessionId, request);
+
+        // Lifecycle cleanup is delegated to the repository.
+        repo.Verify(r => r.CompleteSessionPaymentCleanupAsync(sessionId), Times.Once);
+    }
+
+    [Fact]
+    public async Task PaySessionAsync_NoTableOrBox_CleanupStillRuns()
+    {
+        // Walk-in session: no attached table/box. Cleanup must still be invoked
+        // (implementation in repo handles null IDs gracefully).
+        var cafeId = Guid.NewGuid();
+        var sessionId = Guid.NewGuid();
+
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Unpaid,
+            StartedAt = DateTime.UtcNow.AddHours(-1),
+            Members = new List<ActiveSessionMember>(),
+            Games = new List<ActiveSessionGame>(),
+            GameTemplate = new GameTemplate { Id = Guid.NewGuid(), Name = "Catan", PlayTime = 60 },
+            CafeTableId = null,
+            CafeInventoryBoxId = null
+        };
+
+        var cafe = new Cafe
+        {
+            Id = cafeId,
+            Name = "Test Cafe",
+            Address = "123 St",
+            BillingModel = CafePartnerBillingModel.TimeBased,
+            BasePrice = 60_000m,
+            TieredBlockMinutes = 15,
+            TieredBlockRate = 10_000m
+        };
+
+        var repo = new Mock<IActiveSessionRepository>();
+        repo.SetupSequence(r => r.GetByIdAsync(sessionId))
+            .ReturnsAsync(session)
+            .ReturnsAsync(session)
+            .ReturnsAsync(session);
+
+        var cafeRepo = new Mock<ICafeRepository>();
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(cafe);
+
+        var posRepo = new Mock<ICafePosRepository>();
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame>());
+        var depositRepo = new Mock<IBookingDepositRepository>();
+        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
+
+        var settlementService = new Mock<ISettlementService>();
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object);
+
+        await service.PaySessionAsync(cafeId, sessionId, new PaySessionRequestDto());
+
+        repo.Verify(r => r.CompleteSessionPaymentCleanupAsync(sessionId), Times.Once);
     }
 
     #endregion

@@ -25,6 +25,14 @@ namespace BoardVerse.Core.IRepositories
         /// </summary>
         Task<bool> TryUpdateStatusAsync(Guid sessionId, GroupSessionStatus expectedStatus, GroupSessionStatus newStatus);
 
+        // === Post-payment lifecycle cleanup ===
+        /// <summary>
+        /// Completes the post-payment lifecycle cleanup for a paid session.
+        /// Marks all members as checked out, releases the board game box and cafe table,
+        /// and closes any linked lobby. Idempotent: safe to call multiple times.
+        /// </summary>
+        Task CompleteSessionPaymentCleanupAsync(Guid sessionId);
+
         // === Game checklist (BR-12) ===
         Task<ActiveSessionGame?> GetSessionGameByIdAsync(Guid sessionGameId);
         Task UpdateSessionGameAsync(ActiveSessionGame sessionGame);

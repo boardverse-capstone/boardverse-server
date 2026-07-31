@@ -15,7 +15,6 @@ namespace BoardVerse.Services.Services
         private readonly IActiveSessionRepository _activeSessionRepository;
         private readonly ICafePosRepository _posRepository;
         private readonly IBookingDepositRepository _depositRepository;
-        private readonly ILobbyRepository _lobbyRepository;
         private readonly ISettlementService _settlementService;
 
         public ActiveSessionService(
@@ -23,14 +22,12 @@ namespace BoardVerse.Services.Services
             IActiveSessionRepository activeSessionRepository,
             ICafePosRepository posRepository,
             IBookingDepositRepository depositRepository,
-            ILobbyRepository lobbyRepository,
             ISettlementService settlementService)
         {
             _cafeRepository = cafeRepository;
             _activeSessionRepository = activeSessionRepository;
             _posRepository = posRepository;
             _depositRepository = depositRepository;
-            _lobbyRepository = lobbyRepository;
             _settlementService = settlementService;
         }
 
@@ -412,49 +409,14 @@ namespace BoardVerse.Services.Services
             session.Status = GroupSessionStatus.Paid;
             session.PaidAt = now;
 
-            // Mark all members as checked out
-            foreach (var member in session.Members)
-            {
-                member.IsCheckedOut = true;
-                member.CheckedOutAt = now;
-            }
-
-            // Fix Bug #1: Free the board game box after payment
-            if (session.CafeInventoryBoxId.HasValue)
-            {
-                var box = await _posRepository.GetInventoryBoxByIdAsync(session.CafeInventoryBoxId.Value);
-                if (box != null)
-                {
-                    box.Status = CafeGameInventoryStatus.Available;
-                    box.UpdatedAt = now;
-                    await _posRepository.UpdateInventoryBoxAsync(box);
-                }
-            }
-
-            // P0 Fix #3: Free the table after payment (persist the change)
-            if (session.CafeTableId.HasValue)
-            {
-                var table = await _posRepository.GetTableAsync(cafeId, session.CafeTableId.Value);
-                if (table != null && table.Status == CafeTableStatus.InUse)
-                {
-                    table.Status = CafeTableStatus.Available;
-                    await _posRepository.UpdateTableAsync(table);
-                }
-            }
-
+            // Persist billing + status changes first — cleanup will use a separate SaveChangesAsync.
             await _activeSessionRepository.SaveChangesAsync();
 
-            // P8 / S8: After payment, close the lobby
-            if (session.LobbyId.HasValue)
-            {
-                var lobby = await _lobbyRepository.GetByActiveSessionIdAsync(session.Id);
-                if (lobby != null)
-                {
-                    lobby.Status = LobbyStatus.Closed;
-                    lobby.UpdatedAt = now;
-                    await _lobbyRepository.SaveChangesAsync();
-                }
-            }
+            // Lifecycle cleanup: mark members checked out, release box + table, close lobby.
+            // Idempotent — safe even if called multiple times.
+            // Also fixes the box/table "ghost" bug where box was force-overwritten to Available
+            // even if it was in a non-rentable state (e.g. Lost/Maintenance).
+            await _activeSessionRepository.CompleteSessionPaymentCleanupAsync(sessionId);
 
             var finalSession = await _activeSessionRepository.GetByIdAsync(sessionId);
 

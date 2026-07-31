@@ -434,10 +434,10 @@ Delta_i = K × (Score_i - Expected_i)
 
 | Outcome | Karma Δ | KarmaLog Source | Violation Category |
 |---|---|---|---|
-| Winner (Rank 1) | +WinnerKarmaBonus (+50) | TournamentReward | — |
-| Finalist (Rank 2-4) | +FinalistKarmaBonus (+20) | TournamentReward | — |
+| Winner (Rank 1) | +WinnerKarmaBonus (+5) | TournamentReward | — |
+| Finalist (Rank 2-4) | +FinalistKarmaBonus (+3 / +2 / +1) | TournamentReward | — |
 | Eliminated (Rank 5+) | 0 | — | — |
-| No-show | +NoShowKarmaPenalty (−30) | TournamentReward | NoShow |
+| No-show | +NoShowKarmaPenalty (−10) | TournamentReward | NoShow |
 | Withdrawn trước start | 0 | — | — |
 
 ---
@@ -451,7 +451,7 @@ Delta_i = K × (Score_i - Expected_i)
 **Xử lý:**
 1. Manager gọi mark no-show
 2. Status = NoShow
-3. Apply NoShowKarmaPenalty (−30)
+3. Apply NoShowKarmaPenalty (−10)
 4. Ghi KarmaLog
 5. Tournament tiếp tục với các player còn lại
 

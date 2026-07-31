@@ -62,7 +62,7 @@ public class ManualPaymentService : IManualPaymentService
                 ? TransactionType.BookingDeposit
                 : TransactionType.GameRental,
             Direction = TransactionDirection.In,
-            Notes = $"Manual confirm by Staff: {staffId}. Method: {request.PaymentMethod}. Type: {paymentType}.",
+            Notes = $"Manual confirm by Staff: {staffId}. Method: {request.PaymentMethod}. Type: {request.PaymentType}.",
             CreatedAt = DateTime.UtcNow,
             CompletedAt = DateTime.UtcNow
         };
@@ -119,7 +119,7 @@ public class ManualPaymentService : IManualPaymentService
 
     private async Task HandleSessionConfirmationAsync(Guid sessionId, decimal amount, Guid staffId, CancellationToken cancellationToken)
     {
-        var session = await _sessionRepository.GetByIdAsync(sessionId)
+        var session = await _sessionRepository.GetByIdWithMembersAsync(sessionId)
             ?? throw new NotFoundException($"Active session not found: {sessionId}");
 
         if (session.Status != GroupSessionStatus.Unpaid)
@@ -127,15 +127,19 @@ public class ManualPaymentService : IManualPaymentService
             throw new ConflictException($"Session is not in Unpaid status. Current: {session.Status}");
         }
 
-        session.Status = GroupSessionStatus.Paid;
-        session.PaidAt = DateTime.UtcNow;
+        var now = DateTime.UtcNow;
 
+        session.Status = GroupSessionStatus.Paid;
+        session.PaidAt = now;
         await _sessionRepository.UpdateAsync(session);
-        // P2 Fix #14: Add missing SaveChangesAsync to persist payment
         await _sessionRepository.SaveChangesAsync();
 
+        // Lifecycle cleanup: mark members checked out, release box + table, close lobby.
+        // Idempotent — safe even if called multiple times (e.g. duplicate webhooks).
+        await _sessionRepository.CompleteSessionPaymentCleanupAsync(sessionId);
+
         _logger.LogInformation(
-            "Session payment confirmed manually. SessionId={SessionId}, Amount={Amount}, StaffId={StaffId}",
+            "Session payment confirmed manually. SessionId={SessionId}, Amount={Amount}, StaffId={StaffId}. Table, board game box and lobby released.",
             sessionId, amount, staffId);
     }
 }

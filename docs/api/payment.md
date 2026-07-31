@@ -328,10 +328,11 @@ Staff xác nhận thanh toán thủ công khi cả SePay và VietQR đều khôn
 
 **Side effects:**
 - `ActiveSession.Status = PAID`.
-- Ghi nhật ký doanh thu phát sinh (audit trail).
-- Giải phóng ghế về `Available` (BR-15).
-
-**Lỗi:**
+- Tất cả `ActiveSessionMember` của phiên được đánh dấu `IsCheckedOut = true`, `CheckedOutAt = now`.
+- `CafeInventoryBox.Status = Available` (giải phóng hộp board game đang mượn).
+- `CafeTable.Status = Available` (giải phóng bàn về kho, BR-17).
+- Nếu phiên liên kết `Lobby` → `Lobby.Status = Closed`.
+- Ghi nhật ký doanh thu phát sinh (audit trail) trong `Transactions`.**Lỗi:**
 - `400` thông tin không hợp lệ / session không ở `UNPAID`.
 - `401` thiếu token.
 - `403` không phải Manager/CafeStaff của cafe.
@@ -344,9 +345,45 @@ Staff xác nhận thanh toán thủ công khi cả SePay và VietQR đều khôn
 
 - Duplicate webhook cho `BookingDeposit.Paid` hoặc `ActiveSession.Paid` → bỏ qua, không cập nhật lại.
 - Amount mismatch → log + dừng xử lý, không cập nhật trạng thái.
-- Lookup ưu tiên: `GatewayTransactionId` → `OrderId` → `SessionId`/`OrderId` prefix.
+- Lookup ưu tiên: `SePayTransactionId` → `OrderId` → `SessionId`/`OrderId` prefix.
 
-Xem chi tiết: [sepay-webhook.md](./sepay-webhook.md) §V.
+## Session Payment Lifecycle Cleanup
+
+Khi phiên chơi (`ActiveSession`) được thanh toán thành công — dù qua cổng nào — hệ thống đảm bảo **giải phóng tài nguyên đã giữ** trong cùng transaction để tránh "ghost reservation":
+
+| Endpoint chạy cleanup | Service method | Điều kiện kích hoạt |
+|---|---|---|
+| `POST /api/payments/manual-confirm` (staff confirm tiền mặt) | `ManualPaymentService.HandleSessionConfirmationAsync` | `PaymentType = "Session"`, session `UNPAID` |
+| `POST /api/payments/sepay/webhook` (SePay/VietQR gateway) | `PaymentService.ProcessSessionPaymentWebhookAsync` | `status=success/paid` + amount khớp + session `UNPAID` |
+| `POST /api/cafes/{cafeId}/sessions/{sessionId}/pay` (POS thanh toán qua SePay QR) | `ActiveSessionService.PaySessionAsync` | session `UNPAID` |
+
+**Cleanup contract** (idempotent — gọi nhiều lần không lỗi):
+
+| Bước | Hành động | BR |
+|---|---|---|
+| 1 | Tất cả `ActiveSessionMember` → `IsCheckedOut = true`, `CheckedOutAt = now` | BR-12 |
+| 2 | `CafeInventoryBox.Status = Available` (giải phóng hộp board game) | — |
+| 3 | `CafeTable.Status = Available` (giải phóng bàn vật lý) | BR-17 |
+| 4 | Lobby liên kết (nếu có) → `Status = Closed`, set `ClosedAt` | — |
+
+Nếu session **không có** bàn/box/lobby liên kết (walk-in, partial checkout), các bước tương ứng được bỏ qua an toàn.
+
+**Quan trọng — bug đã fix (box overwrite)**: Code cũ ở `PaySessionAsync` **luôn** force set box → `Available` ngay cả khi box đang ở trạng thái không cho thuê (`Lost`, `Maintenance`, …) — sai về nghiệp vụ. Code mới qua repo chỉ set `Available` nếu box đang ở trạng thái **khác** `Available`.
+
+Implementation: `IActiveSessionRepository.CompleteSessionPaymentCleanupAsync` — đảm bảo tất cả thay đổi persist trong một `SaveChangesAsync` (một DB transaction).
+
+### Bug history
+
+Trước khi có cleanup contract:
+
+1. **Webhook path bug**: `PaymentService.ProcessSessionPaymentWebhookAsync` chỉ set `Status = PAID` mà không giải phóng bàn/box/members/lobby — dẫn đến bàn "ma" chiếm chỗ, board game không cho thuê lại sau khi khách thanh toán online qua SePay/VietQR (~95% flow thanh toán session).
+2. **Half-commit bug**: Amount-mismatch check chạy **sau** `TryUpdateStatusAsync`, nghĩa là mismatch check là dead code và state đã bị thay đổi.
+3. **Box overwrite bug (POS path)**: `ActiveSessionService.PaySessionAsync` force `Available` lên box kể cả khi box ở `Lost`/`Maintenance`.
+4. **Drift risk**: Mỗi entry point có bản copy riêng của cleanup logic → dễ drift khi sửa.
+
+Sau fix: cả 3 entry point gọi cùng `IActiveSessionRepository.CompleteSessionPaymentCleanupAsync(sessionId)`. Amount-mismatch check chạy trước atomic status update. Box chỉ được set `Available` nếu hiện tại không phải `Available`.
+
+Xem chi tiết: [sepay-webhook.md](./sepay-webhook.md) §V, [active-session.md](./active-session.md) §`POST .../pay`.
 
 ## Business Rules áp dụng
 

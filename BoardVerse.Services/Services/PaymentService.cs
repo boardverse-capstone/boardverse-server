@@ -534,7 +534,16 @@ public class PaymentService : IPaymentService
 
         if (normalizedStatus is "success" or "paid")
         {
-            // P0 Fix #2: Use atomic status update to prevent race condition (double-payment)
+            // Validate amount BEFORE any state change so we never half-commit.
+            if (webhook.Amount != session.TotalAmount)
+            {
+                _logger.LogWarning(
+                    "SePay webhook amount mismatch for session. Expected={Expected}, Received={Received}, SessionId={SessionId}",
+                    session.TotalAmount, webhook.Amount, session.Id);
+                return;
+            }
+
+            // P0 Fix #2: Use atomic status update to prevent race condition (double-payment).
             var updated = await _activeSessionRepository.TryUpdateStatusAsync(
                 session.Id,
                 GroupSessionStatus.Unpaid,
@@ -548,15 +557,12 @@ public class PaymentService : IPaymentService
                 return;
             }
 
-            if (webhook.Amount != session.TotalAmount)
-            {
-                _logger.LogWarning(
-                    "SePay webhook amount mismatch for session. Expected={Expected}, Received={Received}, SessionId={SessionId}",
-                    session.TotalAmount, webhook.Amount, session.Id);
-                return;
-            }
+            // Lifecycle cleanup: mark members checked out, release box + table, close lobby.
+            await _activeSessionRepository.CompleteSessionPaymentCleanupAsync(session.Id);
 
-            _logger.LogInformation("Session payment completed via SePay. SessionId={SessionId}, Amount={Amount}", session.Id, session.TotalAmount);
+            _logger.LogInformation(
+                "Session payment completed via SePay. SessionId={SessionId}, Amount={Amount}. Table, board game box and lobby released.",
+                session.Id, session.TotalAmount);
         }
         else if (normalizedStatus is "failed" or "canceled" or "cancelled")
         {

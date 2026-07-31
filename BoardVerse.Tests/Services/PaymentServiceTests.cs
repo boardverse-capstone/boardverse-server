@@ -362,6 +362,132 @@ public class PaymentServiceTests
         _mockDepositService.Verify(s => s.MarkAsRefundedAsync(It.IsAny<Guid>()), Times.Never);
     }
 
+    [Fact]
+    public async Task HandleSePayWebhook_SessionSuccess_RunsLifecycleCleanup()
+    {
+        var sessionId = Guid.NewGuid();
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = Guid.NewGuid(),
+            Status = GroupSessionStatus.Unpaid,
+            TotalAmount = 85_000m,
+            OrderId = "BV00000999"
+        };
+
+        _mockDepositService.Setup(s => s.GetBySePayTransactionIdAsync(It.IsAny<string>()))
+            .ReturnsAsync((BookingDeposit?)null);
+        _mockDepositService.Setup(s => s.GetByOrderIdAsync(It.IsAny<string>()))
+            .ReturnsAsync((BookingDeposit?)null);
+        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        _mockSessionRepo.Setup(r => r.TryUpdateStatusAsync(sessionId, GroupSessionStatus.Unpaid, GroupSessionStatus.Paid))
+            .ReturnsAsync(true);
+
+        var webhook = new SePayWebhookDto
+        {
+            SessionId = sessionId,
+            OrderId = session.OrderId,
+            Status = "success",
+            Amount = session.TotalAmount
+        };
+
+        await _service.HandleSePayWebhookAsync(webhook);
+
+        _mockSessionRepo.Verify(r => r.TryUpdateStatusAsync(sessionId, GroupSessionStatus.Unpaid, GroupSessionStatus.Paid), Times.Once);
+        _mockSessionRepo.Verify(r => r.CompleteSessionPaymentCleanupAsync(sessionId), Times.Once);
+    }
+
+    [Fact]
+    public async Task HandleSePayWebhook_SessionAmountMismatch_DoesNotUpdateOrCleanup()
+    {
+        // Regression: amount check must run BEFORE TryUpdateStatusAsync so we never half-commit.
+        var sessionId = Guid.NewGuid();
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = Guid.NewGuid(),
+            Status = GroupSessionStatus.Unpaid,
+            TotalAmount = 85_000m,
+            OrderId = "BV00000998"
+        };
+
+        _mockDepositService.Setup(s => s.GetBySePayTransactionIdAsync(It.IsAny<string>()))
+            .ReturnsAsync((BookingDeposit?)null);
+        _mockDepositService.Setup(s => s.GetByOrderIdAsync(It.IsAny<string>()))
+            .ReturnsAsync((BookingDeposit?)null);
+        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+
+        var webhook = new SePayWebhookDto
+        {
+            SessionId = sessionId,
+            OrderId = session.OrderId,
+            Status = "success",
+            Amount = 50_000m // mismatch!
+        };
+
+        await _service.HandleSePayWebhookAsync(webhook);
+
+        _mockSessionRepo.Verify(r => r.TryUpdateStatusAsync(It.IsAny<Guid>(), It.IsAny<GroupSessionStatus>(), It.IsAny<GroupSessionStatus>()), Times.Never);
+        _mockSessionRepo.Verify(r => r.CompleteSessionPaymentCleanupAsync(It.IsAny<Guid>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleSePayWebhook_SessionAlreadyPaid_DoesNotDoubleCleanup()
+    {
+        // Race condition: another webhook already paid the session. Skip.
+        var sessionId = Guid.NewGuid();
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = Guid.NewGuid(),
+            Status = GroupSessionStatus.Paid,
+            TotalAmount = 85_000m,
+            OrderId = "BV00000997"
+        };
+
+        _mockDepositService.Setup(s => s.GetBySePayTransactionIdAsync(It.IsAny<string>()))
+            .ReturnsAsync((BookingDeposit?)null);
+        _mockDepositService.Setup(s => s.GetByOrderIdAsync(It.IsAny<string>()))
+            .ReturnsAsync((BookingDeposit?)null);
+        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        _mockSessionRepo.Setup(r => r.TryUpdateStatusAsync(sessionId, GroupSessionStatus.Unpaid, GroupSessionStatus.Paid))
+            .ReturnsAsync(false); // race — already updated by another webhook
+
+        var webhook = new SePayWebhookDto
+        {
+            SessionId = sessionId,
+            OrderId = session.OrderId,
+            Status = "success",
+            Amount = session.TotalAmount
+        };
+
+        await _service.HandleSePayWebhookAsync(webhook);
+
+        _mockSessionRepo.Verify(r => r.CompleteSessionPaymentCleanupAsync(It.IsAny<Guid>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleSePayWebhook_SessionNotMatched_DoesNotCleanup()
+    {
+        _mockDepositService.Setup(s => s.GetBySePayTransactionIdAsync(It.IsAny<string>()))
+            .ReturnsAsync((BookingDeposit?)null);
+        _mockDepositService.Setup(s => s.GetByOrderIdAsync(It.IsAny<string>()))
+            .ReturnsAsync((BookingDeposit?)null);
+        _mockSessionRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((ActiveSession?)null);
+        _mockSessionRepo.Setup(r => r.GetAllUnpaidAsync()).ReturnsAsync(new List<ActiveSession>());
+
+        var webhook = new SePayWebhookDto
+        {
+            OrderId = "BV-UNKNOWN",
+            Status = "success",
+            Amount = 10_000m
+        };
+
+        await _service.HandleSePayWebhookAsync(webhook);
+
+        _mockSessionRepo.Verify(r => r.CompleteSessionPaymentCleanupAsync(It.IsAny<Guid>()), Times.Never);
+    }
+
     #endregion
 
     #region RefundDepositAsync

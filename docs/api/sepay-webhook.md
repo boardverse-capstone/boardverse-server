@@ -45,13 +45,14 @@ Nhận webhook từ SePay. Hệ thống xác thực **HMAC-SHA256 signature**, l
 
 | Incoming `status` | Action |
 |-------------------|--------|
-| `success` / `paid` | `MarkAsPaidAsync` (deposit) hoặc `session.Status = PAID` |
-| `failed` / `canceled` / `cancelled` | `MarkAsRefundedAsync` (deposit) hoặc log cho session |
+| `success` / `paid` | Deposit: `MarkAsPaidAsync`. Session: atomic `Status = PAID` + **lifecycle cleanup** (release table + box + members + close lobby, xem [payment.md](./payment.md) §"Session Payment Lifecycle Cleanup") |
+| `failed` / `canceled` / `cancelled` | `MarkAsRefundedAsync` (deposit); log cho session |
 | other | ignore + log warning |
 
 **Idempotency:**
 - Duplicate webhook cho `BookingDeposit.Paid` hoặc `ActiveSession.Paid` → bỏ qua, không cập nhật lại.
-- Amount mismatch → log warning + return.
+- Amount mismatch (session) → log warning + return **trước khi** đổi trạng thái (không half-commit).
+- Cleanup method là idempotent — chạy lại trên state đã-cleaned là no-op.
 
 **Response 200:** `{ "status": "ok" }`
 
@@ -133,6 +134,6 @@ curl.exe -X POST http://localhost:5022/api/payments/sepay/webhook/mock \
 
 Webhook handler tìm kiếm theo thứ tự ưu tiên:
 
-1. `GatewayTransactionId`
+1. `SePayTransactionId`
 2. `OrderId`
 3. `SessionId` / `OrderId` prefix (cho session payment)
