@@ -23,43 +23,19 @@ public class BookingRepository : IBookingRepository
         {
             query = query
                 .Include(b => b.Cafe)
-                .Include(b => b.User)
-                .Include(b => b.BookingDeposit)
+                .Include(b => b.CafeTable)
                 .Include(b => b.Lobby);
         }
 
         return await query.FirstOrDefaultAsync(b => b.Id == bookingId);
     }
 
-    public async Task<Booking?> GetByIdWithDepositAsync(Guid bookingId)
-    {
-        return await _db.Bookings
-            .Include(b => b.BookingDeposit)
-            .Include(b => b.Cafe)
-            .Include(b => b.User)
-            .FirstOrDefaultAsync(b => b.Id == bookingId);
-    }
-
     public async Task<Booking?> GetByLobbyIdAsync(Guid lobbyId)
     {
         return await _db.Bookings
-            .Include(b => b.BookingDeposit)
-            .FirstOrDefaultAsync(b => b.LobbyId == lobbyId);
-    }
-
-    public async Task<IReadOnlyList<Booking>> GetByUserIdAsync(Guid userId, BookingStatus? status = null)
-    {
-        var query = _db.Bookings
             .Include(b => b.Cafe)
-            .Where(b => b.UserId == userId);
-
-        if (status.HasValue)
-            query = query.Where(b => b.Status == status.Value);
-
-        return await query
-            .OrderByDescending(b => b.BookingDate)
-            .ThenByDescending(b => b.StartTime)
-            .ToListAsync();
+            .Include(b => b.CafeTable)
+            .FirstOrDefaultAsync(b => b.LobbyId == lobbyId);
     }
 
     public async Task<IReadOnlyList<Booking>> GetByCafeIdAsync(
@@ -70,32 +46,42 @@ public class BookingRepository : IBookingRepository
         var query = _db.Bookings.Where(b => b.CafeId == cafeId);
 
         if (fromDate.HasValue)
-            query = query.Where(b => b.BookingDate >= fromDate.Value.Date);
+            query = query.Where(b => b.ScheduledStartTime >= fromDate.Value);
 
         if (toDate.HasValue)
-            query = query.Where(b => b.BookingDate <= toDate.Value.Date);
+            query = query.Where(b => b.ScheduledStartTime <= toDate.Value);
 
         return await query
-            .Include(b => b.User)
-            .Include(b => b.BookingDeposit)
-            .OrderByDescending(b => b.BookingDate)
-            .ThenByDescending(b => b.StartTime)
+            .Include(b => b.CafeTable)
+            .Include(b => b.Lobby)
+            .OrderBy(b => b.ScheduledStartTime)
             .ToListAsync();
     }
 
-    public async Task<IReadOnlyList<Booking>> GetUpcomingByUserIdAsync(Guid userId, int limit = 10)
+    public async Task<IReadOnlyList<Booking>> GetByCafeTableIdAsync(Guid cafeTableId)
     {
-        var today = DateTime.UtcNow.Date;
         return await _db.Bookings
-            .Include(b => b.Cafe)
-            .Include(b => b.BookingDeposit)
-            .Where(b => b.UserId == userId)
-            .Where(b => b.BookingDate >= today)
-            .Where(b => b.Status == BookingStatus.Confirmed ||
-                        b.Status == BookingStatus.PendingDeposit ||
-                        b.Status == BookingStatus.PendingPayment)
-            .OrderBy(b => b.BookingDate)
-            .ThenBy(b => b.StartTime)
+            .Where(b => b.CafeTableId == cafeTableId)
+            .OrderBy(b => b.ScheduledStartTime)
+            .ToListAsync();
+    }
+
+    public async Task<IReadOnlyList<Booking>> GetByStatusAsync(BookingStatus status)
+    {
+        return await _db.Bookings
+            .Where(b => b.Status == status)
+            .OrderBy(b => b.ScheduledStartTime)
+            .ToListAsync();
+    }
+
+    public async Task<IReadOnlyList<Booking>> GetUpcomingAsync(DateTime cutoff, int limit = 50)
+    {
+        return await _db.Bookings
+            .Where(b => b.ScheduledStartTime >= DateTime.UtcNow &&
+                        b.ScheduledStartTime <= cutoff)
+            .Where(b => b.Status == BookingStatus.PendingDeposit ||
+                        b.Status == BookingStatus.Confirmed)
+            .OrderBy(b => b.ScheduledStartTime)
             .Take(limit)
             .ToListAsync();
     }
@@ -107,7 +93,6 @@ public class BookingRepository : IBookingRepository
 
     public async Task UpdateAsync(Booking booking)
     {
-        booking.UpdatedAt = DateTime.UtcNow;
         _db.Bookings.Update(booking);
     }
 

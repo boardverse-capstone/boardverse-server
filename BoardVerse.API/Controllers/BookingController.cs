@@ -9,7 +9,7 @@ namespace BoardVerse.API.Controllers;
 /// <summary>
 /// Controller cho Booking (đặt chỗ).
 /// Tách riêng khỏi PaymentController để clear về mặt domain.
-/// Flow: Lobby (Full) -> Booking -> BookingDeposit -> SePay -> Confirmed -> CheckIn -> Completed.
+/// Flow: Lobby (Full) -> Booking (PendingDeposit) -> BookingDeposit -> SePay -> Confirmed -> CheckedIn -> NoShow/Cancelled.
 /// </summary>
 [ApiController]
 [Route("api/bookings")]
@@ -31,16 +31,16 @@ public class BookingController : BaseApiController
     /// Booking ban đầu ở trạng thái PendingDeposit - chờ thanh toán cọc.
     /// [Role: Player — chỉ Host của lobby]
     /// </summary>
-    /// <param name="request">Thông tin tạo booking (lobbyId, cafeId, bookingDate, startTime, endTime, totalSlot).</param>
+    /// <param name="request">Thông tin tạo booking (lobbyId, cafeId, cafeTableId, scheduledStartTime, scheduleEndTime).</param>
     /// <response code="201">Tạo booking thành công.</response>
-    /// <response code="400">Dữ liệu không hợp lệ (giờ kết thúc trước giờ bắt đầu, ngày trong quá khứ).</response>
+    /// <response code="400">Dữ liệu không hợp lệ (giờ kết thúc trước giờ bắt đầu, bàn không thuộc cafe, trùng giờ).</response>
     /// <response code="401">Thiếu token.</response>
     /// <response code="403">Không phải Host của lobby.</response>
-    /// <response code="404">Không tìm thấy lobby hoặc cafe.</response>
-    /// <response code="409">Lobby chưa lock / đã có booking cho lobby này.</response>
+    /// <response code="404">Không tìm thấy lobby, cafe hoặc bàn.</response>
+    /// <response code="409">Lobby chưa lock / đã có booking cho lobby này / bàn trùng giờ.</response>
     /// <response code="500">Lỗi hệ thống.</response>
     [HttpPost]
-    [ProducesResponseType(typeof(object), 201)]
+    [ProducesResponseType(typeof(BookingResponseDto), 201)]
     [ProducesResponseType(typeof(object), 400)]
     [ProducesResponseType(401)]
     [ProducesResponseType(typeof(object), 403)]
@@ -60,13 +60,11 @@ public class BookingController : BaseApiController
     /// <param name="bookingId">Mã booking.</param>
     /// <response code="200">Lấy chi tiết booking thành công.</response>
     /// <response code="401">Thiếu token.</response>
-    /// <response code="403">Không có quyền xem booking này.</response>
     /// <response code="404">Không tìm thấy booking.</response>
     /// <response code="500">Lỗi hệ thống.</response>
     [HttpGet("{bookingId:guid}")]
     [ProducesResponseType(typeof(BookingResponseDto), 200)]
     [ProducesResponseType(401)]
-    [ProducesResponseType(typeof(object), 403)]
     [ProducesResponseType(typeof(object), 404)]
     public async Task<IActionResult> GetBooking(Guid bookingId)
     {
@@ -83,14 +81,12 @@ public class BookingController : BaseApiController
     /// [Role: Player — chỉ member của lobby; Manager, Admin.]
     /// </summary>
     /// <param name="lobbyId">Mã lobby.</param>
-    /// <response code="200">Lấy booking thành công (null nếu chưa có booking).</response>
+    /// <response code="200">Booking (null nếu chưa có).</response>
     /// <response code="401">Thiếu token.</response>
-    /// <response code="404">Không tìm thấy lobby.</response>
     /// <response code="500">Lỗi hệ thống.</response>
     [HttpGet("lobby/{lobbyId:guid}")]
     [ProducesResponseType(typeof(BookingResponseDto), 200)]
     [ProducesResponseType(401)]
-    [ProducesResponseType(typeof(object), 404)]
     public async Task<IActionResult> GetBookingByLobby(Guid lobbyId)
     {
         var booking = await _bookingService.GetByLobbyIdAsync(lobbyId);
@@ -98,51 +94,27 @@ public class BookingController : BaseApiController
     }
 
     /// <summary>
-    /// Lấy danh sách booking của user hiện tại.
-    /// [Role: Player]
+    /// Lấy danh sách booking của cafe (theo ngày).
+    /// [Role: Manager, CafeStaff — của cafe này; Admin — xem tất cả.]
     /// </summary>
-    /// <param name="status">Filter theo trạng thái (optional).</param>
+    /// <param name="cafeId">Mã cafe.</param>
     /// <response code="200">Lấy danh sách booking thành công.</response>
     /// <response code="401">Thiếu token.</response>
     /// <response code="500">Lỗi hệ thống.</response>
-    [HttpGet("my")]
+    [HttpGet("cafe/{cafeId:guid}")]
+    [Authorize(Roles = "Manager,CafeStaff,Admin")]
     [ProducesResponseType(typeof(List<BookingResponseDto>), 200)]
     [ProducesResponseType(401)]
-    public async Task<IActionResult> GetMyBookings([FromQuery] Core.Enum.BookingStatus? status = null)
+    public async Task<IActionResult> GetBookingsByCafe(Guid cafeId)
     {
-        var userId = GetUserIdFromClaims();
-        var bookings = await _bookingService.GetByUserIdAsync(userId, userId);
-        return NewResponse(200, "Lấy danh sách booking thành công.", bookings);
+        var bookings = await _bookingService.GetByCafeIdAsync(cafeId, GetUserIdFromClaims());
+        return NewResponse(200, "Lấy danh sách booking của quán thành công.", bookings);
     }
 
     /// <summary>
-    /// Lấy danh sách booking sắp tới của user hiện tại.
-    /// [Role: Player]
-    /// </summary>
-    /// <param name="limit">Số lượng tối đa (1-50, default 10).</param>
-    /// <response code="200">Lấy danh sách booking sắp tới thành công.</response>
-    /// <response code="400">Limit không hợp lệ.</response>
-    /// <response code="401">Thiếu token.</response>
-    /// <response code="500">Lỗi hệ thống.</response>
-    [HttpGet("my/upcoming")]
-    [ProducesResponseType(typeof(List<BookingResponseDto>), 200)]
-    [ProducesResponseType(typeof(object), 400)]
-    [ProducesResponseType(401)]
-    public async Task<IActionResult> GetMyUpcomingBookings([FromQuery] int limit = 10)
-    {
-        if (limit < 1 || limit > 50)
-        {
-            throw new BadRequestException("Limit phải nằm trong khoảng 1-50.");
-        }
-        var userId = GetUserIdFromClaims();
-        var bookings = await _bookingService.GetUpcomingByUserIdAsync(userId, limit);
-        return NewResponse(200, "Lấy danh sách booking sắp tới thành công.", bookings);
-    }
-
-    /// <summary>
-    /// Cập nhật booking (chỉ một số trường được phép: ngày, giờ, số ghế, ghi chú).
-    /// Chỉ owner mới được sửa, và chỉ khi booking chưa check-in.
-    /// [Role: Player — chỉ owner]
+    /// Cập nhật booking (bàn, thời gian, số người).
+    /// Chỉ owner mới được sửa, và chỉ khi booking chưa check-in và chưa Cancelled.
+    /// [Role: Player — chỉ owner (Host lobby)]
     /// </summary>
     /// <param name="bookingId">Mã booking.</param>
     /// <param name="request">Các trường muốn cập nhật.</param>
@@ -150,8 +122,8 @@ public class BookingController : BaseApiController
     /// <response code="400">Dữ liệu không hợp lệ.</response>
     /// <response code="401">Thiếu token.</response>
     /// <response code="403">Không phải owner.</response>
-    /// <response code="404">Không tìm thấy booking.</response>
-    /// <response code="409">Booking đã check-in/completed/cancelled.</response>
+    /// <response code="404">Không tìm thấy booking hoặc bàn.</response>
+    /// <response code="409">Booking đã check-in/cancelled.</response>
     /// <response code="500">Lỗi hệ thống.</response>
     [HttpPatch("{bookingId:guid}")]
     [ProducesResponseType(typeof(BookingResponseDto), 200)]
@@ -169,8 +141,8 @@ public class BookingController : BaseApiController
 
     /// <summary>
     /// Hủy booking bởi user.
-    /// Không thể hủy khi đã check-in hoặc completed.
-    /// [Role: Player — chỉ owner]
+    /// Không thể hủy khi đã check-in.
+    /// [Role: Player — chỉ owner (Host lobby)]
     /// </summary>
     /// <param name="bookingId">Mã booking.</param>
     /// <param name="reason">Lý do hủy (optional).</param>
@@ -178,7 +150,7 @@ public class BookingController : BaseApiController
     /// <response code="401">Thiếu token.</response>
     /// <response code="403">Không phải owner.</response>
     /// <response code="404">Không tìm thấy booking.</response>
-    /// <response code="409">Booking đã check-in/completed.</response>
+    /// <response code="409">Booking đã check-in.</response>
     /// <response code="500">Lỗi hệ thống.</response>
     [HttpDelete("{bookingId:guid}")]
     [ProducesResponseType(typeof(BookingResponseDto), 200)]
@@ -195,13 +167,13 @@ public class BookingController : BaseApiController
 
     /// <summary>
     /// Check-in tại quán.
-    /// Chỉ booking ở trạng thái Confirmed mới check-in được.
+    /// POS quét QR/QRCode xác minh -> chuyển Confirmed -> CheckedIn.
     /// [Role: Manager, CafeStaff]
     /// </summary>
     /// <param name="bookingId">Mã booking.</param>
     /// <response code="200">Check-in thành công.</response>
     /// <response code="401">Thiếu token.</response>
-    /// <response code="403">Không có quyền (không phải Manager/Staff của cafe).</response>
+    /// <response code="403">Không có quyền.</response>
     /// <response code="404">Không tìm thấy booking.</response>
     /// <response code="409">Booking không ở trạng thái Confirmed.</response>
     /// <response code="500">Lỗi hệ thống.</response>
@@ -221,7 +193,6 @@ public class BookingController : BaseApiController
 
     /// <summary>
     /// Check-out tại quán.
-    /// Chỉ booking đã check-in mới check-out được.
     /// [Role: Manager, CafeStaff]
     /// </summary>
     /// <param name="bookingId">Mã booking.</param>

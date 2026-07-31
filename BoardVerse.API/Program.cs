@@ -114,6 +114,7 @@ builder.Services.AddScoped<IGameTemplateRepository, GameTemplateRepository>();
 builder.Services.AddScoped<ICategoryRepository, CategoryRepository>();
 builder.Services.AddScoped<IGameComponentTemplateRepository, GameComponentTemplateRepository>();
 builder.Services.AddScoped<ICafeRepository, CafeRepository>();
+builder.Services.AddScoped<ICafeTableRepository, CafeTableRepository>();
 builder.Services.AddScoped<ICafeInventoryRepository, CafeInventoryRepository>();
 builder.Services.AddScoped<ICafePosRepository, CafePosRepository>();
 builder.Services.AddScoped<ILobbyRepository, LobbyRepository>();
