@@ -7,7 +7,7 @@ public interface IBookingService
 {
     /// <summary>
     /// Tạo Booking từ Lobby đã lock.
-    /// Flow: Lobby (Full) -> Host tạo Booking -> Booking (PendingDeposit).
+    /// Flow: Lobby (Full) -> Host tạo Booking (PendingDeposit).
     /// Đồng thời update Lobby.BookingId = bookingId.
     /// </summary>
     Task<BookingResponseDto> CreateBookingAsync(Guid hostUserId, CreateBookingRequestDto request);
@@ -23,14 +23,9 @@ public interface IBookingService
     Task<BookingResponseDto?> GetByLobbyIdAsync(Guid lobbyId);
 
     /// <summary>
-    /// Lấy danh sách booking của user.
+    /// Lấy danh sách booking của cafe.
     /// </summary>
-    Task<IReadOnlyList<BookingResponseDto>> GetByUserIdAsync(Guid userId, Guid? requestingUserId = null);
-
-    /// <summary>
-    /// Lấy booking sắp tới của user (upcoming, confirmed/pending).
-    /// </summary>
-    Task<IReadOnlyList<BookingResponseDto>> GetUpcomingByUserIdAsync(Guid userId, int limit = 10);
+    Task<IReadOnlyList<BookingResponseDto>> GetByCafeIdAsync(Guid cafeId, Guid? requestingUserId = null);
 
     /// <summary>
     /// Cập nhật booking (chỉ một số trường được phép).
@@ -59,7 +54,7 @@ public interface IBookingService
     Task<Booking> ConfirmBookingAsync(Guid bookingId);
 
     /// <summary>
-    /// Cập nhật status booking.
+    /// Đánh dấu NoShow khi khách không đến sau buffer time.
     /// </summary>
-    Task<Booking> UpdateStatusAsync(Guid bookingId, Core.Enum.BookingStatus newStatus);
+    Task<Booking> MarkAsNoShowAsync(Guid bookingId);
 }
