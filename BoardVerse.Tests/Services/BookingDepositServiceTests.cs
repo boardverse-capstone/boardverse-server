@@ -12,6 +12,7 @@ namespace BoardVerse.Tests.Services;
 public class BookingDepositServiceTests
 {
     private readonly Mock<IBookingDepositRepository> _mockDepositRepo;
+    private readonly Mock<IBookingRepository> _mockBookingRepo;
     private readonly Mock<ICafeRepository> _mockCafeRepo;
     private readonly Mock<ILogger<BookingDepositService>> _mockLogger;
     private readonly BookingDepositService _service;
@@ -19,11 +20,13 @@ public class BookingDepositServiceTests
     public BookingDepositServiceTests()
     {
         _mockDepositRepo = new Mock<IBookingDepositRepository>();
+        _mockBookingRepo = new Mock<IBookingRepository>();
         _mockCafeRepo = new Mock<ICafeRepository>();
         _mockLogger = new Mock<ILogger<BookingDepositService>>();
 
         _service = new BookingDepositService(
             _mockDepositRepo.Object,
+            _mockBookingRepo.Object,
             _mockCafeRepo.Object,
             _mockLogger.Object);
     }

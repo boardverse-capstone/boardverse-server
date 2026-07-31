@@ -33,4 +33,6 @@ public class Booking
     public virtual Lobby Lobby { get; set; } = null!;
     public virtual Cafe Cafe { get; set; } = null!;
     public virtual CafeTable CafeTable { get; set; } = null!;
+    /// <summary>BR-05: Navigation đến BookingDeposit (chỉ Host mới đặt cọc).</summary>
+    public virtual BookingDeposit? BookingDeposit { get; set; }
 }

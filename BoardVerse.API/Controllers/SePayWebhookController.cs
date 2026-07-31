@@ -2,6 +2,7 @@ using BoardVerse.Core.DTOs.Payment;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Hosting;
 
 namespace BoardVerse.API.Controllers;
 
@@ -11,11 +12,16 @@ public class SePayWebhookController : ControllerBase
 {
     private readonly IPaymentService _paymentService;
     private readonly ILogger<SePayWebhookController> _logger;
+    private readonly IHostEnvironment _env;
 
-    public SePayWebhookController(IPaymentService paymentService, ILogger<SePayWebhookController> logger)
+    public SePayWebhookController(
+        IPaymentService paymentService,
+        ILogger<SePayWebhookController> logger,
+        IHostEnvironment env)
     {
         _paymentService = paymentService;
         _logger = logger;
+        _env = env;
     }
 
     [HttpPost]
@@ -49,15 +55,23 @@ public class SePayWebhookController : ControllerBase
     }
 
     /// <summary>
-    /// Mock webhook để test payment flow mà không cần SePay thật. [Role: Dev/Test]
+    /// Mock webhook để test payment flow mà không cần SePay thật. [Dev/Test Only]
+    /// P0 Fix #4: Gate with environment check to prevent production abuse.
     /// </summary>
     /// <param name="request">Thông tin mock payment.</param>
     /// <response code="200">Mock webhook xử lý thành công.</response>
+    /// <response code="403">Mock endpoint chỉ khả dụng trong Development.</response>
     /// <response code="500">Lỗi xử lý.</response>
     [HttpPost("mock")]
-    [AllowAnonymous]
     public async Task<IActionResult> MockWebhook([FromBody] MockWebhookRequestDto request)
     {
+        // P0 Fix #4: Gate endpoint to development only
+        if (!_env.IsDevelopment())
+        {
+            _logger.LogWarning("Mock webhook called in non-development environment. Blocked.");
+            return StatusCode(403, new { status = "forbidden", message = "Mock endpoint is only available in Development environment." });
+        }
+
         try
         {
             var webhook = new SePayWebhookDto
@@ -74,12 +88,12 @@ public class SePayWebhookController : ControllerBase
             };
 
             await _paymentService.HandleSePayWebhookAsync(webhook);
-            return Ok(new { status = "ok", webhook });
+            return Ok(new { status = "ok" });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Mock webhook processing failed.");
-            return StatusCode(500, new { status = "error", message = ex.Message });
+            return StatusCode(500, new { status = "error", message = "Internal error" });
         }
     }
 }

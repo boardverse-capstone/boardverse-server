@@ -7,6 +7,7 @@ namespace BoardVerse.Core.IRepositories
         Task<bool> CanOperateCafeAsync(Guid cafeId, Guid userId, string userRole);
         Task<IReadOnlyList<CafeTable>> GetActiveTablesAsync(Guid cafeId);
         Task<CafeTable?> GetTableAsync(Guid cafeId, Guid tableId);
+        Task UpdateTableAsync(CafeTable table);
         Task<CafeInventoryBox?> GetBoxByBarcodeAsync(Guid cafeId, string barcode);
         Task<CafeInventoryBox?> GetInventoryBoxByIdAsync(Guid boxId);
         Task UpdateInventoryBoxAsync(CafeInventoryBox box);

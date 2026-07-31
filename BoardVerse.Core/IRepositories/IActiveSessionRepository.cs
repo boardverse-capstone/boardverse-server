@@ -1,4 +1,5 @@
 using BoardVerse.Core.Entities;
+using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Core.IRepositories
 {
@@ -16,6 +17,13 @@ namespace BoardVerse.Core.IRepositories
         Task UpdateAsync(ActiveSession session);
         Task SaveChangesAsync();
         Task<IReadOnlyList<ActiveSession>> GetAllUnpaidAsync();
+
+        // === Atomic status update for race condition prevention ===
+        /// <summary>
+        /// P0 Fix #2: Atomically updates status only if current status matches expected.
+        /// Returns true if update succeeded (rows affected > 0).
+        /// </summary>
+        Task<bool> TryUpdateStatusAsync(Guid sessionId, GroupSessionStatus expectedStatus, GroupSessionStatus newStatus);
 
         // === Game checklist (BR-12) ===
         Task<ActiveSessionGame?> GetSessionGameByIdAsync(Guid sessionGameId);

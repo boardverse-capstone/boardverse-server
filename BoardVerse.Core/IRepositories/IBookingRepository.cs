@@ -9,6 +9,7 @@ public interface IBookingRepository
     Task<Booking?> GetByLobbyIdAsync(Guid lobbyId);
     Task<IReadOnlyList<Booking>> GetByCafeIdAsync(Guid cafeId, DateTime? fromDate = null, DateTime? toDate = null);
     Task<IReadOnlyList<Booking>> GetByCafeTableIdAsync(Guid cafeTableId);
+    Task<IReadOnlyList<Booking>> GetConflictingBookingsWithLockAsync(Guid cafeTableId, DateTime startTime, DateTime endTime);
     Task<IReadOnlyList<Booking>> GetByStatusAsync(BookingStatus status);
     Task<IReadOnlyList<Booking>> GetUpcomingAsync(DateTime cutoff, int limit = 50);
     Task AddAsync(Booking booking);

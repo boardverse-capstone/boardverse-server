@@ -74,6 +74,31 @@ namespace BoardVerse.Services.Services
                 }
             }
 
+            // P0 Fix #3: Set table to InUse when session starts
+            if (session.CafeTableId.HasValue)
+            {
+                var table = await _posRepository.GetTableAsync(cafeId, session.CafeTableId.Value);
+                if (table != null)
+                {
+                    table.Status = CafeTableStatus.InUse;
+                    // P1 Fix #5: Explicitly update table to ensure persistence
+                    await _posRepository.UpdateTableAsync(table);
+                }
+            }
+
+            // P0 Fix #3: Set box to InUse when attached to session (via barcode)
+            if (!string.IsNullOrEmpty(request.Barcode))
+            {
+                var box = await _posRepository.GetBoxByBarcodeAsync(cafeId, request.Barcode);
+                if (box != null)
+                {
+                    box.Status = CafeGameInventoryStatus.InUse;
+                    box.UpdatedAt = DateTime.UtcNow;
+                    await _posRepository.UpdateInventoryBoxAsync(box);
+                    session.CafeInventoryBoxId = box.Id;
+                }
+            }
+
             await _activeSessionRepository.SaveChangesAsync();
 
             return MapSessionDto(session);
@@ -165,6 +190,8 @@ namespace BoardVerse.Services.Services
             {
                 member.Status = IndividualSessionStatus.SuspendedMutation;
                 member.LeftAt = DateTime.UtcNow;
+                // P0 Fix #4: Explicitly update each member to ensure persistence
+                await _activeSessionRepository.UpdateMemberAsync(member);
             }
 
             session.IsCheckingInventory = true;
@@ -222,6 +249,12 @@ namespace BoardVerse.Services.Services
             var sourceSession = await _activeSessionRepository.GetByIdAsync(sourceSessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sourceSessionId));
 
+            // P1 Fix #2: Validate source session status before merge
+            if (sourceSession.Status is not (GroupSessionStatus.Active or GroupSessionStatus.Checking))
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.SessionSourceNotValidForMerge);
+            }
+
             var member = await _activeSessionRepository.GetMemberByIdAsync(request.MemberId)
                 ?? throw new NotFoundException($"Không tìm thấy thành viên '{request.MemberId}'.");
 
@@ -254,7 +287,12 @@ namespace BoardVerse.Services.Services
             await _activeSessionRepository.UpdateMemberAsync(member);
             await _activeSessionRepository.SaveChangesAsync();
 
-            targetSession = await _activeSessionRepository.GetByIdAsync(request.TargetSessionId);
+            // P1 Fix #7: Add null check after re-fetch
+            var updatedSession = await _activeSessionRepository.GetByIdAsync(request.TargetSessionId);
+            if (updatedSession == null)
+            {
+                throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, request.TargetSessionId));
+            }
 
             return new MergeSessionResponseDto
             {
@@ -262,7 +300,7 @@ namespace BoardVerse.Services.Services
                 SourceSessionId = sourceSessionId,
                 TargetSessionId = request.TargetSessionId,
                 MergedAt = DateTime.UtcNow,
-                TargetSession = MapSessionDto(targetSession!)
+                TargetSession = MapSessionDto(updatedSession)
             };
         }
 
@@ -379,6 +417,29 @@ namespace BoardVerse.Services.Services
             {
                 member.IsCheckedOut = true;
                 member.CheckedOutAt = now;
+            }
+
+            // Fix Bug #1: Free the board game box after payment
+            if (session.CafeInventoryBoxId.HasValue)
+            {
+                var box = await _posRepository.GetInventoryBoxByIdAsync(session.CafeInventoryBoxId.Value);
+                if (box != null)
+                {
+                    box.Status = CafeGameInventoryStatus.Available;
+                    box.UpdatedAt = now;
+                    await _posRepository.UpdateInventoryBoxAsync(box);
+                }
+            }
+
+            // P0 Fix #3: Free the table after payment (persist the change)
+            if (session.CafeTableId.HasValue)
+            {
+                var table = await _posRepository.GetTableAsync(cafeId, session.CafeTableId.Value);
+                if (table != null && table.Status == CafeTableStatus.InUse)
+                {
+                    table.Status = CafeTableStatus.Available;
+                    await _posRepository.UpdateTableAsync(table);
+                }
             }
 
             await _activeSessionRepository.SaveChangesAsync();

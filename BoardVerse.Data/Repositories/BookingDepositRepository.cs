@@ -53,6 +53,14 @@ namespace BoardVerse.Data.Repositories
                 .FirstOrDefaultAsync(d => d.SePayTransactionId == sePayTransactionId);
         }
 
+        /// <summary>BR-05: Lấy deposit theo BookingId.</summary>
+        public async Task<BookingDeposit?> GetByBookingIdAsync(Guid bookingId)
+        {
+            return await _db.BookingDeposits
+                .Include(d => d.MasterAccount)
+                .FirstOrDefaultAsync(d => d.BookingId == bookingId);
+        }
+
         public Task AddAsync(BookingDeposit deposit)
         {
             _db.BookingDeposits.Add(deposit);

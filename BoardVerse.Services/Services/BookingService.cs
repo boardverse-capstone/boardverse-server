@@ -3,7 +3,9 @@ using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
+using BoardVerse.Data;
 using BoardVerse.Services.IServices;
+using Microsoft.EntityFrameworkCore;
 
 namespace BoardVerse.Services.Services;
 
@@ -13,17 +15,20 @@ public class BookingService : IBookingService
     private readonly ILobbyRepository _lobbyRepository;
     private readonly ICafeRepository _cafeRepository;
     private readonly ICafeTableRepository _cafeTableRepository;
+    private readonly BoardVerseDbContext _db;
 
     public BookingService(
         IBookingRepository bookingRepository,
         ILobbyRepository lobbyRepository,
         ICafeRepository cafeRepository,
-        ICafeTableRepository cafeTableRepository)
+        ICafeTableRepository cafeTableRepository,
+        BoardVerseDbContext db)
     {
         _bookingRepository = bookingRepository;
         _lobbyRepository = lobbyRepository;
         _cafeRepository = cafeRepository;
         _cafeTableRepository = cafeTableRepository;
+        _db = db;
     }
 
     public async Task<BookingResponseDto> CreateBookingAsync(Guid hostUserId, CreateBookingRequestDto request)
@@ -74,43 +79,53 @@ public class BookingService : IBookingService
             throw new BadRequestException("Thời gian bắt đầu không được là thời điểm trong quá khứ.");
         }
 
-        // 6. Validate bàn không bị trùng giờ
-        var conflicts = await _bookingRepository.GetByCafeTableIdAsync(request.CafeTableId);
-        var hasConflict = conflicts.Any(b =>
-            b.Status != BookingStatus.Cancelled &&
-            b.ScheduledStartTime < request.ScheduleEndTime &&
-            b.ScheduleEndTime > request.ScheduledStartTime);
-        if (hasConflict)
+        // P1 Fix #6: Wrap booking creation in transaction with pessimistic locking
+        // to prevent race conditions when multiple users book the same table simultaneously
+        await using var transaction = await _db.Database.BeginTransactionAsync();
+        try
         {
-            throw new ConflictException("Bàn đã có booking khác trong khoảng thời gian này.");
+            // 6. Validate bàn không bị trùng giờ (với pessimistic lock)
+            var conflicts = await _bookingRepository.GetConflictingBookingsWithLockAsync(
+                request.CafeTableId, request.ScheduledStartTime, request.ScheduleEndTime);
+            if (conflicts.Count > 0)
+            {
+                throw new ConflictException("Bàn đã có booking khác trong khoảng thời gian này.");
+            }
+
+            // 7. Tạo Booking
+            var booking = new Booking
+            {
+                Id = Guid.NewGuid(),
+                LobbyId = request.LobbyId,
+                CafeId = request.CafeId,
+                CafeTableId = request.CafeTableId,
+                ScheduledStartTime = request.ScheduledStartTime,
+                ScheduleEndTime = request.ScheduleEndTime,
+                PlayerQuantity = request.PlayerQuantity ?? lobby.Members.Count(m => m.IsActive),
+                Status = BookingStatus.PendingDeposit,
+                VerificationQRCode = $"BV-{Guid.NewGuid():N}".Substring(0, 20)
+            };
+
+            // 8. Update Lobby.BookingId
+            lobby.BookingId = booking.Id;
+            lobby.UpdatedAt = DateTime.UtcNow;
+
+            await _bookingRepository.AddAsync(booking);
+            await _bookingRepository.SaveChangesAsync();
+
+            await transaction.CommitAsync();
+
+            booking.Cafe = cafe;
+            booking.CafeTable = cafeTable;
+            booking.Lobby = lobby;
+
+            return BookingResponseDto.FromEntity(booking);
         }
-
-        // 7. Tạo Booking
-        var booking = new Booking
+        catch
         {
-            Id = Guid.NewGuid(),
-            LobbyId = request.LobbyId,
-            CafeId = request.CafeId,
-            CafeTableId = request.CafeTableId,
-            ScheduledStartTime = request.ScheduledStartTime,
-            ScheduleEndTime = request.ScheduleEndTime,
-            PlayerQuantity = request.PlayerQuantity ?? lobby.Members.Count(m => m.IsActive),
-            Status = BookingStatus.PendingDeposit,
-            VerificationQRCode = $"BV-{Guid.NewGuid():N}".Substring(0, 20)
-        };
-
-        // 8. Update Lobby.BookingId
-        lobby.BookingId = booking.Id;
-        lobby.UpdatedAt = DateTime.UtcNow;
-
-        await _bookingRepository.AddAsync(booking);
-        await _bookingRepository.SaveChangesAsync();
-
-        booking.Cafe = cafe;
-        booking.CafeTable = cafeTable;
-        booking.Lobby = lobby;
-
-        return BookingResponseDto.FromEntity(booking);
+            await transaction.RollbackAsync();
+            throw;
+        }
     }
 
     public async Task<BookingResponseDto?> GetByIdAsync(Guid bookingId)
@@ -209,6 +224,21 @@ public class BookingService : IBookingService
             throw new ConflictException("Không thể hủy booking đã check-in.");
         }
 
+        // P2 Fix #13: Release table when cancelling CONFIRMED booking (defensive: release regardless of current status)
+        if (booking.Status == BookingStatus.Confirmed)
+        {
+            var table = await _cafeTableRepository.GetByIdAsync(booking.CafeTableId);
+            if (table != null)
+            {
+                // Release table back to Available - defensive check to handle race conditions
+                if (table.Status == CafeTableStatus.Reserved || table.Status == CafeTableStatus.InUse)
+                {
+                    table.Status = CafeTableStatus.Available;
+                    await _cafeTableRepository.UpdateAsync(table);
+                }
+            }
+        }
+
         booking.Status = BookingStatus.Cancelled;
 
         await _bookingRepository.UpdateAsync(booking);
@@ -245,11 +275,9 @@ public class BookingService : IBookingService
             throw new ConflictException("Chỉ booking đã check-in mới có thể check-out.");
         }
 
-        // Theo ERD: status chỉ có PendingDeposit, Confirmed, CheckedIn, NoShow, Cancelled
-        // Sau khi check-out, booking coi như kết thúc - chuyển về Confirmed (POS đã hoàn tất)
-        // hoặc giữ CheckedIn nếu POS set session_end riêng. Ở đây reset về Confirmed để khớp ERD.
-        booking.Status = BookingStatus.Confirmed;
-
+        // P0 Fix #2: CheckOut doesn't change booking status - the session handles the terminal state.
+        // Booking status stays at CheckedIn (no terminal state in BookingStatus enum).
+        // The ActiveSession handles the payment lifecycle independently.
         await _bookingRepository.UpdateAsync(booking);
         await _bookingRepository.SaveChangesAsync();
 

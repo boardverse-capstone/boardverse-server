@@ -66,6 +66,33 @@ public class BookingRepository : IBookingRepository
             .ToListAsync();
     }
 
+    /// <summary>
+    /// P1 Fix #6: Get conflicting bookings with pessimistic lock for race condition prevention.
+    /// Uses raw SQL with FOR UPDATE to lock rows during transaction.
+    /// </summary>
+    public async Task<IReadOnlyList<Booking>> GetConflictingBookingsWithLockAsync(
+        Guid cafeTableId, DateTime startTime, DateTime endTime)
+    {
+        // Use raw SQL with FOR UPDATE SKIP LOCKED for pessimistic locking
+        // This prevents race conditions when multiple bookings are created simultaneously
+        // Note: Only Cancelled is a terminal state - Confirmed/CheckedIn are not
+        var conflictingBookings = await _db.Bookings
+            .FromSqlRaw(
+                @"SELECT * FROM ""Bookings""
+                  WHERE ""CafeTableId"" = {0}
+                  AND ""Status"" != {1}
+                  AND ""ScheduledStartTime"" < {2}
+                  AND ""ScheduleEndTime"" > {3}
+                  FOR UPDATE SKIP LOCKED",
+                cafeTableId,
+                (int)BookingStatus.Cancelled,
+                endTime,
+                startTime)
+            .ToListAsync();
+
+        return conflictingBookings;
+    }
+
     public async Task<IReadOnlyList<Booking>> GetByStatusAsync(BookingStatus status)
     {
         return await _db.Bookings

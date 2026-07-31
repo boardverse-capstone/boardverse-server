@@ -43,8 +43,38 @@
    → Lobby.Status = Full → Ready for check-in
 
 5. Customer đến quán → POS quét QR booking
+   → Kiểm tra Booking.Status == Confirmed (chưa check-in)
    → ActiveSession tạo với DepositAppliedAmount = 0 (không trừ cọc)
+   → Booking.Status = CheckedIn (cập nhật sau check-in)
    → SeatSlot: RESERVED → IN_USE
+```
+
+### Booking Status Flow (Updated)
+
+```
+Confirmed → CheckedIn (khi POS quét mã đặt chỗ thành công)
+```
+
+**Bug Fix:** Trước đây `StartSessionFromBookingAsync` không cập nhật `Booking.Status`. Bây giờ:
+1. Kiểm tra `Booking.Status == CheckedIn` → ngăn chặn check-in 2 lần
+2. Sau khi tạo session thành công → `Booking.Status = CheckedIn`
+
+**P1 Fix #6: Race Condition Prevention**
+
+Để ngăn chặn overbooking khi nhiều user đặt cùng bàn cùng lúc:
+
+1. `CreateBookingAsync` sử dụng **pessimistic locking** với `FOR UPDATE SKIP LOCKED`
+2. Toàn bộ flow tạo booking được wrap trong transaction
+3. Kiểm tra xung đột chỉ áp dụng cho `BookingStatus != Cancelled` (Confirmed/CheckedIn mới là xung đột)
+
+```csharp
+// BookingRepository.GetConflictingBookingsWithLockAsync
+SELECT * FROM "Bookings"
+WHERE "CafeTableId" = @tableId
+AND "Status" != @cancelled
+AND "ScheduledStartTime" < @endTime
+AND "ScheduleEndTime" > @startTime
+FOR UPDATE SKIP LOCKED
 ```
 
 ### Exception paths

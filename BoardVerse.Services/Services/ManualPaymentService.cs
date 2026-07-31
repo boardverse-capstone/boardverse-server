@@ -110,6 +110,7 @@ public class ManualPaymentService : IManualPaymentService
         deposit.PaidAt = DateTime.UtcNow;
 
         await _depositRepository.UpdateAsync(deposit);
+        await _depositRepository.SaveChangesAsync();
 
         _logger.LogInformation(
             "Booking deposit confirmed manually. DepositId={DepositId}, Amount={Amount}, StaffId={StaffId}",
@@ -130,6 +131,8 @@ public class ManualPaymentService : IManualPaymentService
         session.PaidAt = DateTime.UtcNow;
 
         await _sessionRepository.UpdateAsync(session);
+        // P2 Fix #14: Add missing SaveChangesAsync to persist payment
+        await _sessionRepository.SaveChangesAsync();
 
         _logger.LogInformation(
             "Session payment confirmed manually. SessionId={SessionId}, Amount={Amount}, StaffId={StaffId}",

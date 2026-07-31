@@ -14,6 +14,10 @@ public class BookingDeposit
 
     /// <summary>ActiveSession liên kết. Nullable vì deposit tạo TRƯỚC khi check-in.</summary>
     public Guid? ActiveSessionId { get; set; }
+
+    /// <summary>BR-05: Booking liên kết. Nullable để hỗ trợ walk-in deposit không qua booking.</summary>
+    public Guid? BookingId { get; set; }
+
     /// <summary>UserId của người đặt chỗ (Host). Dùng làm HostId khi check-in tạo ActiveSession.</summary>
     public Guid UserId { get; set; }
     public Guid CafeId { get; set; }
@@ -31,6 +35,8 @@ public class BookingDeposit
     public DateTime? ForfeitedAt { get; set; }
     public string? QrUrl { get; set; }
     public DateTime? QrExpiresAt { get; set; }
+    /// <summary>P2 Fix #11: Track last QR regeneration time for rate limiting.</summary>
+    public DateTime? LastQrRegeneratedAt { get; set; }
     /// <summary>Giờ hẹn chơi dự kiến — dùng để tính partial refund (BR-18).</summary>
     public DateTime? ScheduledAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -40,5 +46,6 @@ public class BookingDeposit
     public virtual Cafe Cafe { get; set; } = null!;
     public virtual User User { get; set; } = null!;
     public virtual ActiveSession? ActiveSession { get; set; }
+    /// <summary>BR-05: Navigation đến Booking (nếu deposit này thuộc booking).</summary>
     public virtual Booking? Booking { get; set; }
 }

@@ -49,8 +49,15 @@ public class BookingDepositConfiguration : IEntityTypeConfiguration<BookingDepos
             .HasForeignKey(d => d.ActiveSessionId)
             .OnDelete(DeleteBehavior.SetNull);
 
+        // BR-05: Liên kết với Booking (nullable cho walk-in deposit)
+        builder.HasOne(d => d.Booking)
+            .WithOne(b => b.BookingDeposit)
+            .HasForeignKey<BookingDeposit>(d => d.BookingId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         builder.HasIndex(d => d.OrderId).IsUnique();
         builder.HasIndex(d => d.ActiveSessionId).HasFilter("\"ActiveSessionId\" IS NOT NULL");
+        builder.HasIndex(d => d.BookingId).HasFilter("\"BookingId\" IS NOT NULL");
         builder.HasIndex(d => new { d.CafeId, d.Status });
         builder.HasIndex(d => d.SePayTransactionId).HasFilter("\"SePayTransactionId\" IS NOT NULL");
         builder.HasIndex(d => d.UserId);

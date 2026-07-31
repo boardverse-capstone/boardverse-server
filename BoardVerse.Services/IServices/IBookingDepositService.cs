@@ -7,6 +7,7 @@ public interface IBookingDepositService
 {
     /// <summary>
     /// Tạo đơn cọc mới với validation BR-02, BR-03.
+    /// BR-05: bookingId để liên kết deposit với booking (chỉ Host mới đặt cọc).
     /// </summary>
     Task<BookingDeposit> CreateAsync(
         Guid userId,
@@ -14,7 +15,8 @@ public interface IBookingDepositService
         Guid cafeManagerId,
         decimal amount,
         DepositRefundPolicy refundPolicy,
-        DateTime? scheduledAt = null);
+        DateTime? scheduledAt = null,
+        Guid? bookingId = null);
 
     /// <summary>
     /// Đánh dấu đơn cọc là đã thanh toán thành công.
@@ -59,6 +61,9 @@ public interface IBookingDepositService
     /// Lấy đơn cọc theo SePay Transaction ID.
     /// </summary>
     Task<BookingDeposit?> GetBySePayTransactionIdAsync(string sePayTransactionId);
+
+    /// <summary>BR-05: Lấy đơn cọc theo BookingId.</summary>
+    Task<BookingDeposit?> GetByBookingIdAsync(Guid bookingId);
 
     /// <summary>
     /// Tính số tiền hoàn cọc theo BR-18 và thời gian đã trôi qua kể từ khi tạo đơn.

@@ -69,6 +69,11 @@ namespace BoardVerse.Data.Configurations
             builder.HasIndex(s => s.HostId);
             builder.HasIndex(s => s.LobbyId);
 
+            // P3 Fix #18: Add unique index on OrderId where not null to prevent duplicates
+            builder.HasIndex(s => s.OrderId)
+                .IsUnique()
+                .HasFilter("\"OrderId\" IS NOT NULL");
+
             builder.HasMany(s => s.Games)
                 .WithOne(g => g.ActiveSession)
                 .HasForeignKey(g => g.ActiveSessionId)

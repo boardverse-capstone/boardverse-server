@@ -312,6 +312,35 @@ namespace BoardVerse.Core.Messages
 
             public static string MasterAccountNotConfigured =>
                 "Chưa cấu hình master account để giải ngân.";
+
+            // P1 Fix #1: Lobby state machine
+            public const string LobbyCannotLeaveDuringSession =
+                "Không thể rời phòng khi phiên chơi đang diễn ra hoặc đã kết thúc.";
+
+            // P1 Fix #2: ActiveSession merge validation
+            public static string SessionSourceNotValidForMerge =>
+                "Phiên chơi nguồn phải đang hoạt động hoặc đang kiểm tra để có thể ghép thành viên.";
+
+            public static string SessionPaymentWebhookInvalidState(Guid sessionId, string currentStatus) =>
+                $"Webhook thanh toán phiên '{sessionId}' không hợp lệ. Trạng thái hiện tại: '{currentStatus}', yêu cầu: UNPAID.";
+
+            public static string BookingAlreadyCheckedIn =>
+                "Đơn đặt chỗ này đã được check-in trước đó. Không thể check-in lại.";
+
+            public static string BookingDepositNotPaid =>
+                "Đơn đặt chỗ chưa được thanh toán deposit. Vui lòng liên hệ khách hàng.";
+
+            public static string DepositAlreadyProcessed =>
+                "Đơn cọc đã được xử lý thanh toán trước đó.";
+
+            public static string DepositQrRegenerateOnlyPending =>
+                "Chỉ có thể tạo lại QR cho đơn cọc đang PENDING.";
+
+            public static string SessionPaymentInvalidState =>
+                "Phiên chơi phải ở trạng thái UNPAID để tạo thanh toán.";
+
+            public static string SessionPaymentAmountMustBePositive =>
+                "Số tiền thanh toán phải lớn hơn 0.";
         }
 
         public static class Payment
@@ -1075,6 +1104,10 @@ namespace BoardVerse.Core.Messages
 
             public static string VenueCapacityFull(int availableSeats, int requestedSeats) =>
                 $"ERR_VENUE_CAPACITY_FULL: Quán không đủ chỗ ngồi. Chỉ còn {availableSeats} ghế trống, nhưng cần thêm {requestedSeats} ghế cho thành viên mới.";
+
+            // P1 Fix #1: Prevent leaving during in-progress or closed states
+            public const string CannotLeaveLobbyDuringSession =
+                "Không thể rời phòng khi phiên chơi đang diễn ra hoặc đã kết thúc.";
         }
 
         public static class Tournament

@@ -69,6 +69,13 @@ public class TournamentService : ITournamentService
         var deadline = request.RegistrationDeadline
             ?? request.StartTime.AddHours(-24);
 
+        // P2 Fix #12: Ensure deadline is not in the past
+        if (deadline <= now)
+        {
+            throw new BadRequestException(
+                $"Thời hạn đăng ký phải là thời điểm trong tương lai. Thời hạn hiện tại: {deadline:yyyy-MM-dd HH:mm} (UTC), hiện tại: {now:yyyy-MM-dd HH:mm} (UTC).");
+        }
+
         if (deadline >= request.StartTime)
         {
             throw new BadRequestException(ApiErrorMessages.Tournament.RegistrationDeadlineAfterStartTime);

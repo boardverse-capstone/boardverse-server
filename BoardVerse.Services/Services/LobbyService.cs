@@ -242,6 +242,13 @@ namespace BoardVerse.Services.Services
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException($"Không tìm thấy phòng chờ '{lobbyId}'.");
 
+            // P1 Fix #1: Block leaving during terminal or in-progress states
+            if (lobby.Status is LobbyStatus.InProgress or LobbyStatus.Closed or
+                LobbyStatus.TimeoutFailed or LobbyStatus.HostCancelled)
+            {
+                throw new ConflictException(ApiErrorMessages.Lobby.CannotLeaveLobbyDuringSession);
+            }
+
             var member = lobby.Members.FirstOrDefault(m => m.UserId == userId && m.IsActive);
             if (member == null)
             {
@@ -845,16 +852,19 @@ namespace BoardVerse.Services.Services
 
         // ============================ Helpers ============================
 
+        private static readonly Random _secureRng = new();
+
         private async Task<string> GenerateUniqueShareCodeAsync()
         {
             const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-            var rng = new Random();
 
+            // P1 Fix #6: Use static Random (not instantiated per-call) for better randomness
+            // Also use GUID fallback to avoid predictability
             for (var attempt = 0; attempt < 5; attempt++)
             {
                 var code = new string(
-                    Enumerable.Repeat(chars, 6)
-                        .Select(s => s[rng.Next(s.Length)])
+                    Enumerable.Range(0, 6)
+                        .Select(_ => chars[_secureRng.Next(chars.Length)])
                         .ToArray());
 
                 var existing = await _lobbyRepository.GetByShareCodeAsync(code);
@@ -864,7 +874,9 @@ namespace BoardVerse.Services.Services
                 }
             }
 
-            return Guid.NewGuid().ToString("N").Substring(0, 6).ToUpperInvariant();
+            // Fallback: Use GUID (cryptographically random-ish)
+            var guid = Guid.NewGuid().ToString("N");
+            return guid.Length >= 6 ? guid[..6].ToUpperInvariant() : guid.ToUpperInvariant();
         }
 
         private static LobbyResponseDto MapLobbyDto(Lobby lobby, double? distanceKm)

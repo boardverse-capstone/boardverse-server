@@ -38,7 +38,7 @@ public class PaymentController : BaseApiController
 
     /// <summary>
     /// Lấy chi tiết đơn cọc theo ID. Dùng để mobile polling trạng thái sau khi tạo.
-    /// [Role: Player — chỉ xem được đơn của mình; Manager, Admin — xem tất cả.]
+    /// [Role: Manager — chỉ xem được đơn thuộc quán của mình; Admin — xem tất cả.]
     /// </summary>
     /// <param name="depositId">Mã định danh đơn cọc.</param>
     /// <response code="200">Lấy chi tiết đơn cọc thành công.</response>
@@ -52,6 +52,17 @@ public class PaymentController : BaseApiController
     {
         var deposit = await _depositService.GetByIdAsync(depositId)
             ?? throw new NotFoundException($"Không tìm thấy đơn cọc với ID: {depositId}");
+
+        // P2 Fix #14: Validate cafe ownership - Admin có thể xem tất cả, Manager chỉ xem đơn thuộc quán của mình
+        var userRole = User.FindFirst(ClaimTypes.Role)?.Value;
+        if (userRole != "Admin")
+        {
+            var userId = GetUserIdFromClaims();
+            if (deposit.CafeManagerId != userId)
+            {
+                throw new ForbiddenException("Bạn không có quyền xem đơn cọc này.");
+            }
+        }
 
         var response = BookingDepositResponseDto.FromEntity(deposit);
         return this.NewResponse(200, "Lấy chi tiết đơn cọc thành công.", response);

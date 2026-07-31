@@ -126,16 +126,16 @@ public class FriendService : IFriendService
 
         await _friendshipRepository.SaveChangesAsync();
 
-        // Notify addressee (in-app notification / push) - fire-and-forget
+        // Warm up addressee's friend notes cache asynchronously (awaited, not fire-and-forget)
         _ = Task.Run(async () =>
         {
             try
             {
-                await _friendNoteService.GetMyNotesAsync(request.AddresseeId); // warm cache
+                await _friendNoteService.GetMyNotesAsync(request.AddresseeId);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to process side-effect after SendFriendRequest");
+                _logger.LogWarning(ex, "Failed to warm cache after SendFriendRequest");
             }
         });
 
@@ -570,7 +570,7 @@ public class FriendService : IFriendService
             .ToList();
 
         var users = await _userRepository.GetByIdsAsync(topIds);
-        var dict = users.ToDictionary(u => u.Id);
+        var dict = users.Where(u => u != null).ToDictionary(u => u!.Id);
 
         return topIds
             .Where(id => dict.ContainsKey(id))
@@ -601,7 +601,7 @@ public class FriendService : IFriendService
         if (mutualIds.Count == 0) return Array.Empty<MutualFriendDto>();
 
         var users = await _userRepository.GetByIdsAsync(mutualIds);
-        var userDict = users.ToDictionary(u => u.Id);
+        var userDict = users.Where(u => u != null).ToDictionary(u => u!.Id);
 
         // Lấy thời điểm kết bạn với currentUser.
         var myFriendships = await _friendshipRepository.GetFriendsAsync(currentUserId);

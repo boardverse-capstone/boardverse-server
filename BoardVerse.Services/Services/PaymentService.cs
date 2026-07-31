@@ -51,7 +51,7 @@ public class PaymentService : IPaymentService
 
         if (deposit.Status != BookingDepositStatus.Pending)
         {
-            throw new ConflictException("Đơn cọc đã được xử lý thanh toán trước đó.");
+            throw new ConflictException(ApiErrorMessages.Pos.DepositAlreadyProcessed);
         }
 
         if (string.IsNullOrWhiteSpace(deposit.OrderId))
@@ -89,6 +89,7 @@ public class PaymentService : IPaymentService
             Metadata = new Dictionary<string, string?>
             {
                 ["depositId"] = deposit.Id.ToString(),
+                ["bookingId"] = deposit.BookingId.ToString(),
                 ["activeSessionId"] = deposit.ActiveSessionId.ToString(),
                 ["userId"] = userId.ToString()
             },
@@ -130,7 +131,7 @@ public class PaymentService : IPaymentService
     /// <summary>
     /// Tạo lại QR thanh toán cho đơn cọc PENDING.
     /// QR cũ sẽ bị đánh dấu expired (QR URL vẫn lưu để reference).
-    /// Không giới hạn số lần regenerate.
+    /// P2 Fix #11: Thêm rate limiting - không cho phép regenerate quá 1 lần trong 60 giây.
     /// Sử dụng fallback chain: SePay -> VietQR
     /// </summary>
     public async Task<RegenerateQrResponseDto> RegenerateDepositQrAsync(Guid depositId, Guid userId)
@@ -141,6 +142,16 @@ public class PaymentService : IPaymentService
         if (deposit.Status != BookingDepositStatus.Pending)
         {
             throw new ConflictException($"Chỉ có thể tạo lại QR cho đơn cọc đang PENDING. Trạng thái hiện tại: '{deposit.Status}'.");
+        }
+
+        // P2 Fix #11: Rate limiting - chỉ cho phép regenerate 1 lần mỗi 60 giây
+        if (deposit.LastQrRegeneratedAt.HasValue)
+        {
+            var elapsed = DateTime.UtcNow - deposit.LastQrRegeneratedAt.Value;
+            if (elapsed.TotalSeconds < 60)
+            {
+                throw new ConflictException($"QR đã được tạo lại gần đây. Vui lòng chờ {60 - (int)elapsed.TotalSeconds} giây trước khi yêu cầu lại.");
+            }
         }
 
         // Deposit regeneration: Lấy bank info từ DB (Master Account)
@@ -226,7 +237,7 @@ public class PaymentService : IPaymentService
 
         if (session.Status != GroupSessionStatus.Unpaid)
         {
-            throw new ConflictException("Phiên chơi phải ở trạng thái UNPAID để tạo thanh toán.");
+            throw new ConflictException(ApiErrorMessages.Pos.SessionPaymentInvalidState);
         }
 
         var totalAmount = session.TotalAmount;
@@ -330,7 +341,7 @@ public class PaymentService : IPaymentService
 
         if (session.Status != GroupSessionStatus.Unpaid)
         {
-            throw new ConflictException("Phiên chơi phải ở trạng thái UNPAID để tạo lại QR.");
+            throw new ConflictException(ApiErrorMessages.Pos.SessionPaymentInvalidState);
         }
 
         // Lấy cafe config
@@ -523,9 +534,17 @@ public class PaymentService : IPaymentService
 
         if (normalizedStatus is "success" or "paid")
         {
-            if (session.Status == GroupSessionStatus.Paid)
+            // P0 Fix #2: Use atomic status update to prevent race condition (double-payment)
+            var updated = await _activeSessionRepository.TryUpdateStatusAsync(
+                session.Id,
+                GroupSessionStatus.Unpaid,
+                GroupSessionStatus.Paid);
+
+            if (!updated)
             {
-                _logger.LogInformation("SePay webhook duplicate for already-paid session. SessionId={SessionId}", session.Id);
+                _logger.LogWarning(
+                    "SePay webhook session status update failed (race condition or already paid). SessionId={SessionId}",
+                    session.Id);
                 return;
             }
 
@@ -536,10 +555,6 @@ public class PaymentService : IPaymentService
                     session.TotalAmount, webhook.Amount, session.Id);
                 return;
             }
-
-            session.Status = GroupSessionStatus.Paid;
-            session.PaidAt = DateTime.UtcNow;
-            await _activeSessionRepository.SaveChangesAsync();
 
             _logger.LogInformation("Session payment completed via SePay. SessionId={SessionId}, Amount={Amount}", session.Id, session.TotalAmount);
         }

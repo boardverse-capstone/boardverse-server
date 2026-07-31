@@ -6,6 +6,7 @@ using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services.Payments;
 using Microsoft.Extensions.Logging;
+using System.Transactions;
 
 namespace BoardVerse.Services.Services
 {
@@ -94,6 +95,9 @@ namespace BoardVerse.Services.Services
                 CreatedAt = DateTime.UtcNow
             };
 
+            // P0 Fix #1: Wrap in transaction to ensure atomicity
+            using var transaction = new TransactionScope(TransactionScopeAsyncFlowOption.Enabled);
+
             await _settlementRepository.AddAsync(settlement);
             await _settlementRepository.SaveChangesAsync();
 
@@ -116,6 +120,9 @@ namespace BoardVerse.Services.Services
                 deposit.Status = BookingDepositStatus.Released;
                 deposit.ReleasedAt = DateTime.UtcNow;
                 deposit.SePayTransferId = transferResponse.TransferId;
+
+                // Mark transaction as complete (will commit when disposed)
+                transaction.Complete();
             }
             catch (Exception ex)
             {
@@ -123,6 +130,7 @@ namespace BoardVerse.Services.Services
                 settlement.Status = CafeSettlementStatus.Failed;
                 settlement.FailureReason = ex.Message;
                 // Deposit vẫn ở Paid — sẽ được retry bởi SettlementRetryJob.
+                throw;
             }
             finally
             {

@@ -87,7 +87,7 @@ public class FriendReportService : IFriendReportService
 
         var targetIds = reports.Select(r => r.TargetUserId).Distinct().ToHashSet();
         var users = await _userRepository.GetByIdsAsync(targetIds);
-        var userDict = users.ToDictionary(u => u.Id);
+        var userDict = users.Where(u => u != null).ToDictionary(u => u!.Id);
 
         return reports.Select(r =>
         {

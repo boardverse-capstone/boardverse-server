@@ -4,7 +4,9 @@ using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
+using BoardVerse.Data;
 using BoardVerse.Services.IServices;
+using System.Transactions;
 
 namespace BoardVerse.Services.Services
 {
@@ -13,27 +15,33 @@ namespace BoardVerse.Services.Services
         private readonly ICafePosRepository _posRepository;
         private readonly ICafeRepository _cafeRepository;
         private readonly IBookingDepositRepository _depositRepository;
+        private readonly IBookingRepository _bookingRepository;
         private readonly IActiveSessionRepository _activeSessionRepository;
         private readonly IPosHubService _posHubService;
         private readonly ILobbyRepository _lobbyRepository;
         private readonly IUserProfileRepository _userProfileRepository;
+        private readonly BoardVerseDbContext _db;
 
         public CafePosService(
             ICafePosRepository posRepository,
             ICafeRepository cafeRepository,
             IBookingDepositRepository depositRepository,
+            IBookingRepository bookingRepository,
             IActiveSessionRepository activeSessionRepository,
             IPosHubService posHubService,
             ILobbyRepository lobbyRepository,
-            IUserProfileRepository userProfileRepository)
+            IUserProfileRepository userProfileRepository,
+            BoardVerseDbContext db)
         {
             _posRepository = posRepository;
             _cafeRepository = cafeRepository;
             _depositRepository = depositRepository;
+            _bookingRepository = bookingRepository;
             _activeSessionRepository = activeSessionRepository;
             _posHubService = posHubService;
             _lobbyRepository = lobbyRepository;
             _userProfileRepository = userProfileRepository;
+            _db = db;
         }
 
         public async Task<IReadOnlyList<CafeTableStatusDto>> GetTablesAsync(
@@ -44,7 +52,9 @@ namespace BoardVerse.Services.Services
             await EnsurePosAccessAsync(cafeId, userId, userRole);
 
             var tables = await _posRepository.GetActiveTablesAsync(cafeId);
+            // Fix Bug #3: Only show Available tables in the POS list
             return tables
+                .Where(t => t.Status == CafeTableStatus.Available)
                 .OrderBy(t => t.SortOrder)
                 .ThenBy(t => t.Name)
                 .Select(t => new CafeTableStatusDto
@@ -303,7 +313,7 @@ namespace BoardVerse.Services.Services
             session.CafeTable = table;
             session.CafeInventoryBox = box;
             session.GameTemplate = box.CafeGameInventory.GameTemplate;
-            session.Host = null!;
+            session.Host = null!; // Host navigation not needed for response - use HostId
             session.Members = [hostMember];
 
             return MapSession(session, now);
@@ -340,7 +350,7 @@ namespace BoardVerse.Services.Services
             // BR-05: Kiểm tra deposit đã Paid
             if (deposit.Status != BookingDepositStatus.Paid)
             {
-                throw new ConflictException("Đơn đặt chỗ chưa được thanh toán deposit. Vui lòng liên hệ khách hàng.");
+                throw new ConflictException(ApiErrorMessages.Pos.BookingDepositNotPaid);
             }
 
             // Host là người đặt cọc (UserId trong deposit)
@@ -429,14 +439,27 @@ namespace BoardVerse.Services.Services
             deposit.ActiveSessionId = session.Id;
             deposit.UpdatedAt = now;
 
-            // Lưu
-            await _posRepository.AddSessionAsync(session);
-            await _posRepository.SaveChangesAsync();
+            // P1 Fix #8: Wrap all database operations in a transaction for atomicity
+            await using var transaction = await _db.Database.BeginTransactionAsync();
 
-            await _posRepository.AddSessionMemberAsync(hostMember);
-            await _posRepository.AddSessionGameAsync(sessionGame);
-            await _posRepository.UpdateDepositAsync(deposit);
-            await _posRepository.SaveChangesAsync();
+            try
+            {
+                // Lưu
+                await _posRepository.AddSessionAsync(session);
+                await _posRepository.SaveChangesAsync();
+
+                await _posRepository.AddSessionMemberAsync(hostMember);
+                await _posRepository.AddSessionGameAsync(sessionGame);
+                await _posRepository.UpdateDepositAsync(deposit);
+                await _posRepository.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
 
             // AC 1.4: Gửi SignalR notification cho mobile app
             var cafe = await _cafeRepository.GetByIdAsync(cafeId);
@@ -480,7 +503,7 @@ namespace BoardVerse.Services.Services
             session.CafeTable = table;
             session.CafeInventoryBox = box;
             session.GameTemplate = box.CafeGameInventory.GameTemplate;
-            session.Host = null!;
+            session.Host = null!; // Host navigation not needed for response - use HostId
             session.Members = memberUserIds.Select(uid => new ActiveSessionMember
             {
                 Id = Guid.NewGuid(),
@@ -513,6 +536,11 @@ namespace BoardVerse.Services.Services
             session.Status = GroupSessionStatus.Checking;
             session.IsCheckingInventory = true;
 
+            // W1 Fix: Null check for CafeInventoryBox before dereferencing
+            if (session.CafeInventoryBox == null)
+            {
+                throw new NotFoundException("Không tìm thấy hộp game trong phiên chơi.");
+            }
             session.CafeInventoryBox.Status = CafeGameInventoryStatus.Available;
             session.CafeInventoryBox.UpdatedAt = now;
 
@@ -520,7 +548,8 @@ namespace BoardVerse.Services.Services
             var tableStillBusy = otherSessionsOnTable.Any(s =>
                 s.Id != session.Id && s.CafeTableId == session.CafeTableId);
 
-            if (!tableStillBusy && session.CafeTable.Status == CafeTableStatus.InUse)
+            // W1 Fix: Null check for CafeTable before dereferencing
+            if (!tableStillBusy && session.CafeTable != null && session.CafeTable.Status == CafeTableStatus.InUse)
             {
                 session.CafeTable.Status = CafeTableStatus.Available;
                 session.CafeTable.UpdatedAt = now;
@@ -620,7 +649,7 @@ namespace BoardVerse.Services.Services
                 throw new NotFoundException(ApiErrorMessages.Pos.SessionGameNotFound(sessionGameId));
             }
 
-            var components = sessionGame.GameTemplate.Components.ToList();
+            var components = sessionGame.GameTemplate.Components?.ToList() ?? [];
 
             var checklist = new ComponentChecklistDto
             {
@@ -699,6 +728,18 @@ namespace BoardVerse.Services.Services
                 }
             }
 
+            // P2 Fix #15: Check for duplicate component IDs in request
+            var duplicateIds = request.Results
+                .GroupBy(r => r.ComponentId)
+                .Where(g => g.Count() > 1)
+                .Select(g => g.Key)
+                .ToList();
+            if (duplicateIds.Count > 0)
+            {
+                throw new BadRequestException(
+                    $"Kết quả kiểm tra chứa component ID trùng lặp: {string.Join(", ", duplicateIds)}");
+            }
+
             decimal totalPenalty = 0;
             var resultLookup = request.Results.ToDictionary(r => r.ComponentId, r => r.ActualQuantity);
 
@@ -763,8 +804,8 @@ namespace BoardVerse.Services.Services
 
             foreach (var damaged in request.DamagedComponents)
             {
-                var penalty = box.CafeGameInventory.ComponentPenalties
-                    .FirstOrDefault(p => p.GameComponentTemplateId == damaged.ComponentId);
+                var penalty = box.CafeGameInventory?.ComponentPenalties
+                    ?.FirstOrDefault(p => p.GameComponentTemplateId == damaged.ComponentId);
                 if (penalty != null)
                 {
                     var fineForMissing = damaged.MissingQuantity * penalty.PenaltyFee;
@@ -783,10 +824,18 @@ namespace BoardVerse.Services.Services
             await _activeSessionRepository.UpdateAsync(session);
             await _activeSessionRepository.SaveChangesAsync();
 
-            // Cập nhật trạng thái box thành NeedsMaintenance nếu có linh kiện hỏng
+            // Cập nhật trạng thái box: NeedsMaintenance nếu hỏng, Available nếu nguyên
+            // Fix Bug #4: Must set box to Available when returned undamaged
             if (hasDamaged)
             {
                 box.Status = CafeGameInventoryStatus.Maintenance;
+                box.UpdatedAt = DateTime.UtcNow;
+                await _posRepository.UpdateInventoryBoxAsync(box);
+                await _posRepository.SaveChangesAsync();
+            }
+            else
+            {
+                box.Status = CafeGameInventoryStatus.Available;
                 box.UpdatedAt = DateTime.UtcNow;
                 await _posRepository.UpdateInventoryBoxAsync(box);
                 await _posRepository.SaveChangesAsync();

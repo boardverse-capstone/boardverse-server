@@ -77,6 +77,10 @@ Host-led check-in: Quét mã đặt chỗ (BookingCode/OrderId) để kích ho�
 
 **AC 1.4:** Gửi SignalR notification để mobile app cập nhật "Đang chơi tại quán".
 
+**Bug Fixes:**
+- **Double check-in prevention:** Kiểm tra `Booking.Status == CheckedIn` trước khi check-in. Nếu đã check-in rồi → throw `ConflictException`.
+- **Booking.Status update:** Sau khi check-in thành công, `Booking.Status` được cập nhật từ `Confirmed` → `CheckedIn`.
+
 **Body mẫu:**
 ```json
 {
@@ -93,7 +97,7 @@ Host-led check-in: Quét mã đặt chỗ (BookingCode/OrderId) để kích ho�
 - `401` thiếu token
 - `403` không đủ quyền
 - `404` quán, bàn hoặc game không tồn tại
-- `409` đơn đặt chỗ chưa thanh toán hoặc bàn/game không khả dụng
+- `409` đơn đặt chỗ chưa thanh toán, đã check-in rồi, hoặc bàn/game không khả dụng
 
 ---
 
@@ -123,7 +127,11 @@ POS quét barcode và chọn bàn → tạo `ActiveSession`, đặt hộp `InUse
 
 Kết thúc phiên chơi — trả hộp game và giải phóng bàn nếu không còn session khác.
 
-**Response 200:** Phiên đã đóng; hộp về Available; bàn về Available khi không còn session trên bàn đó.
+**Bug Fix:** Sau khi trả game (ReturnGameAsync), trạng thái hộp game được cập nhật:
+- Nếu **không có linh kiện hỏng**: Box → `Available` (sẵn sàng cho phiên tiếp theo)
+- Nếu **có linh kiện hỏng**: Box → `Maintenance` (cần bảo trì trước khi dùng lại)
+
+**Response 200:** Phiên đã đóng; hộp về Available/Maintenance; bàn về Available khi không còn session trên bàn đó.
 
 **Lỗi:** `404` không tìm thấy phiên; `500` lỗi hệ thống.
 

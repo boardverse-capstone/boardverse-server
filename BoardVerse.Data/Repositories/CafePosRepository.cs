@@ -41,6 +41,12 @@ namespace BoardVerse.Data.Repositories
             await _context.CafeTables
                 .FirstOrDefaultAsync(t => t.CafeId == cafeId && t.Id == tableId && t.IsActive);
 
+        public Task UpdateTableAsync(CafeTable table)
+        {
+            _context.CafeTables.Update(table);
+            return Task.CompletedTask;
+        }
+
         public async Task<CafeInventoryBox?> GetBoxByBarcodeAsync(Guid cafeId, string barcode) =>
             await _context.CafeInventoryBoxes
                 .Include(b => b.CafeGameInventory)
@@ -60,7 +66,8 @@ namespace BoardVerse.Data.Repositories
                 .Where(b =>
                     b.IsActive
                     && b.CafeGameInventory.IsActive
-                    && b.CafeGameInventory.CafeId == cafeId);
+                    && b.CafeGameInventory.CafeId == cafeId
+                    && b.Status == CafeGameInventoryStatus.Available);
 
             if (gameTemplateId.HasValue)
             {

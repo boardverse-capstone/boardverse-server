@@ -211,6 +211,7 @@ internal static class IntegrationTestDataBootstrapper
             }
 
             // Check if game exists using raw SQL to avoid schema issues
+            // Must check BOTH Name AND BggId since the unique constraint is on BggId
             bool exists;
             try
             {
@@ -219,8 +220,9 @@ internal static class IntegrationTestDataBootstrapper
                 {
                     await conn.OpenAsync();
                 }
+                // Check by BggId since that's the unique constraint
                 using var cmd = conn.CreateCommand();
-                cmd.CommandText = $"SELECT EXISTS (SELECT 1 FROM \"GameTemplates\" WHERE \"Name\" = '{entry.Name.Replace("'", "''")}' LIMIT 1);";
+                cmd.CommandText = $"SELECT EXISTS (SELECT 1 FROM \"GameTemplates\" WHERE \"BggId\" = {entry.BggId ?? 0} LIMIT 1);";
                 var result = await cmd.ExecuteScalarAsync();
                 exists = result is bool b && b;
             }

@@ -119,6 +119,21 @@ namespace BoardVerse.Data.Repositories
                 .ToListAsync();
         }
 
+        /// <summary>
+        /// P0 Fix #2: Atomic status update to prevent race conditions.
+        /// Updates only if current status matches expected, returns affected rows.
+        /// </summary>
+        public async Task<bool> TryUpdateStatusAsync(Guid sessionId, GroupSessionStatus expectedStatus, GroupSessionStatus newStatus)
+        {
+            var rowsAffected = await _db.ActiveSessions
+                .Where(s => s.Id == sessionId && s.Status == expectedStatus)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(s => s.Status, newStatus)
+                    .SetProperty(s => s.PaidAt, DateTime.UtcNow));
+
+            return rowsAffected > 0;
+        }
+
         public Task<ActiveSessionGame?> GetSessionGameByIdAsync(Guid sessionGameId)
         {
             return _db.ActiveSessionGames
