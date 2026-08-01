@@ -272,6 +272,12 @@ namespace BoardVerse.Core.Messages
             public static string TableNotFound(Guid cafeId, Guid tableId) =>
                 $"Không tìm thấy bàn '{tableId}' trong quán '{cafeId}'.";
 
+            public static string TableInUse(Guid tableId) =>
+                $"Không thể cập nhật bàn '{tableId}' vì đang có phiên chơi hoạt động. Vui lòng kết thúc phiên trước.";
+
+            public static string TableNameAlreadyExists(Guid cafeId, string name) =>
+                $"Tên bàn '{name}' đã được sử dụng cho bàn khác trong quán '{cafeId}'.";
+
             public static string TableNotAvailableForGame(Guid tableId) =>
                 $"Bàn '{tableId}' đang được giữ hoặc trong sự kiện và không thể nhận game.";
 
@@ -936,6 +942,9 @@ namespace BoardVerse.Core.Messages
             public const string TieredBlockMinutesRange = "Thời gian block tính tiền phải từ 1 đến 1440 phút.";
             public const string TieredBlockRateRequired = "Với mô hình TIME_BASED, giá block lũy tiến là bắt buộc.";
             public const string DepositPercentageRange = "Phần trăm cọc không được vượt quá 50%.";
+            public const string SeatsPerTableRange = "Số ghế mỗi bàn phải từ 1 đến 50.";
+            public const string TableNameLength = "Tên bàn phải từ 1 đến 100 ký tự.";
+            public const string TableNoFieldsToUpdate = "Cần gửi ít nhất một trường để cập nhật (Name, SeatCount hoặc SortOrder).";
         }
 
         public static class Friend

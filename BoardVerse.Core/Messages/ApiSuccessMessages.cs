@@ -63,6 +63,7 @@ namespace BoardVerse.Core.Messages
             public const string SessionsRetrieved = "Lấy phiên chơi đang hoạt động thành công.";
             public const string SessionStarted = "Bắt đầu phiên chơi thành công.";
             public const string SessionEnded = "Kết thúc phiên chơi thành công.";
+            public const string TableUpdated = "Cập nhật thông tin bàn thành công.";
         }
 
         public static class Lobby

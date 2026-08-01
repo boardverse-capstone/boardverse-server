@@ -5,7 +5,23 @@ namespace BoardVerse.Services.IServices
     public interface ICafePosService
     {
         Task<IReadOnlyList<CafeTableStatusDto>> GetTablesAsync(Guid cafeId, Guid userId, string userRole);
+
+        /// <summary>
+        /// Legacy overload — đồng bộ chỉ tên bàn (giữ nguyên SeatCount cũ, default 4 cho bàn mới).
+        /// </summary>
         Task SyncTablesAsync(Guid cafeId, Guid managerId, IReadOnlyList<string> tableNames);
+
+        /// <summary>
+        /// Overload mới — đồng bộ cả Name + SeatCount + SortOrder trong một lần PUT.
+        /// PUT /api/cafes/{cafeId}/pos/tables shape mới.
+        /// </summary>
+        Task SyncTablesAsync(Guid cafeId, Guid managerId, IReadOnlyList<CafeTableSyncItem> tables);
+
+        Task<CafeTableStatusDto> UpdateCafeTableAsync(
+            Guid cafeId,
+            Guid managerId,
+            Guid tableId,
+            UpdateCafeTableRequestDto request);
         Task<IReadOnlyList<CafeInventoryBoxDto>> GetBoxesAsync(
             Guid cafeId,
             Guid userId,

@@ -293,23 +293,15 @@ namespace BoardVerse.Services.Services
             var cafe = await GetPartnerCafeForManagerOrThrowAsync(managerUserId);
             EnsureOperationalStateAllowsEdit(cafe);
 
-            var existingTableNames = DeserializeStringList(cafe.TableLayoutJson);
-            var tableNames = CafePartnerTableLayoutHelper.ResolveTableNames(
-                request.NumberOfTables,
-                request.TableNames,
-                existingTableNames);
             var workingHours = ParseWorkingHours(request.WorkingHours);
 
             cafe.WeekdayOpen = workingHours.WeekdayOpen;
             cafe.WeekdayClose = workingHours.WeekdayClose;
             cafe.WeekendOpen = workingHours.WeekendOpen;
             cafe.WeekendClose = workingHours.WeekendClose;
-            cafe.NumberOfTables = request.NumberOfTables;
             cafe.NumberOfPrivateRooms = request.NumberOfPrivateRooms;
             cafe.SpaceImageUrlsJson = JsonSerializer.Serialize(
                 request.SpaceImageUrls.Select(u => u.Trim()).Where(u => !string.IsNullOrWhiteSpace(u)).ToList());
-            cafe.NumberOfGamesOwned = request.NumberOfGamesOwned;
-            cafe.PopularGamesList = request.PopularGamesList.Trim();
             cafe.HasGameMaster = request.HasGameMaster;
             cafe.BillingModel = request.BillingModel;
             cafe.BasePrice = request.BasePrice;
@@ -318,11 +310,12 @@ namespace BoardVerse.Services.Services
                 : null;
             cafe.TieredBlockMinutes = request.TieredBlockMinutes;
             cafe.DepositPercentage = request.DepositPercentage;
-            cafe.TableLayoutJson = JsonSerializer.Serialize(tableNames);
             cafe.OperationalProfileUpdatedAt = DateTime.UtcNow;
             cafe.UpdatedAt = DateTime.UtcNow;
 
-            await _cafeRepository.SyncCafeTablesAsync(cafe.Id, tableNames);
+            // NumberOfTables/TableNames/NumberOfGamesOwned/PopularGamesList are derived
+            // from CafeTables, CafeGameInventory, and remain unchanged on the entity here.
+            // MapManagerCafeProfile will surface them from the navigation collections.
             await _cafeRepository.SaveChangesAsync();
 
             return MapManagerCafeProfile(cafe.PartnerApplication!, cafe);
@@ -373,8 +366,12 @@ namespace BoardVerse.Services.Services
                     ApiErrorMessages.CafePartner.ActivationRequirementsNotMet(blockers));
             }
 
-            var tableNames = DeserializeStringList(cafe.TableLayoutJson);
-            await _cafeRepository.SyncCafeTablesAsync(cafe.Id, tableNames);
+            // Tables are owned by POS endpoints; only seed defaults when cafe has none yet.
+            if (cafe.Tables == null || cafe.Tables.Count == 0)
+            {
+                var defaultNames = CafePartnerTableLayoutHelper.GenerateDefaultNames(CafePartnerActivationRules.MinPublicTables);
+                await _cafeRepository.SyncCafeTablesAsync(cafe.Id, defaultNames);
+            }
 
             cafe.IsActive = true;
             cafe.PartnerOperationalStatus = CafePartnerOperationalStatus.Active;
@@ -516,19 +513,9 @@ namespace BoardVerse.Services.Services
 
         private static void ValidatePhase2Request(UpdateOperationalProfileRequestDto request)
         {
-            if (request.NumberOfTables <= 0)
-            {
-                throw new BadRequestException(ApiErrorMessages.CafePartner.TableCountMustBePositive);
-            }
-
             if (request.NumberOfPrivateRooms < 0)
             {
                 throw new BadRequestException(ApiErrorMessages.CafePartner.PrivateRoomCountCannotBeNegative);
-            }
-
-            if (request.NumberOfGamesOwned <= 0)
-            {
-                throw new BadRequestException(ApiErrorMessages.CafePartner.GamesOwnedMustBePositive);
             }
 
             if (request.BasePrice < 0)
@@ -570,12 +557,14 @@ namespace BoardVerse.Services.Services
         {
             var blockers = new List<string>();
 
-            if (cafe.NumberOfTables < CafePartnerActivationRules.MinPublicTables)
+            var activeTablesCount = cafe.Tables?.Count(t => t.IsActive) ?? 0;
+            if (activeTablesCount < CafePartnerActivationRules.MinPublicTables)
             {
                 blockers.Add(ApiErrorMessages.CafePartner.MinPublicTablesRequired(CafePartnerActivationRules.MinPublicTables));
             }
 
-            if (cafe.NumberOfGamesOwned < CafePartnerActivationRules.MinGamesOwned)
+            var activeGamesCount = cafe.Inventories?.Count(i => i.IsActive) ?? 0;
+            if (activeGamesCount < CafePartnerActivationRules.MinGamesOwned)
             {
                 blockers.Add(ApiErrorMessages.CafePartner.MinGamesOwnedRequired(CafePartnerActivationRules.MinGamesOwned));
             }
@@ -588,14 +577,9 @@ namespace BoardVerse.Services.Services
             }
 
             var tableNames = DeserializeStringList(cafe.TableLayoutJson);
-            if (tableNames.Count < cafe.NumberOfTables)
+            if (tableNames.Count < activeTablesCount)
             {
                 blockers.Add(ApiErrorMessages.CafePartner.TableLayoutRequired);
-            }
-
-            if (string.IsNullOrWhiteSpace(cafe.PopularGamesList))
-            {
-                blockers.Add(ApiErrorMessages.CafePartner.PopularGamesListRequired);
             }
 
             if (!cafe.Latitude.HasValue || !cafe.Longitude.HasValue)
@@ -789,7 +773,10 @@ namespace BoardVerse.Services.Services
         {
             var spaceUrls = DeserializeStringList(cafe.SpaceImageUrlsJson);
             var tableNames = DeserializeStringList(cafe.TableLayoutJson);
-            var numberOfTables = cafe.NumberOfTables;
+            // NumberOfTables/NumberOfGamesOwned are derived from navigation collections
+            // to stay in sync with tables managed via POS endpoints and inventory rows.
+            var numberOfTables = cafe.Tables?.Count(t => t.IsActive) ?? 0;
+            var numberOfGamesOwned = cafe.Inventories?.Count(i => i.IsActive) ?? 0;
             var blockers = application?.Status == CafePartnerApplicationStatus.Approved
                 ? GetActivationBlockers(cafe)
                 : new List<string>();
@@ -812,7 +799,7 @@ namespace BoardVerse.Services.Services
                 NumberOfTables = numberOfTables,
                 NumberOfPrivateRooms = cafe.NumberOfPrivateRooms,
                 SpaceImageUrls = spaceUrls,
-                NumberOfGamesOwned = cafe.NumberOfGamesOwned,
+                NumberOfGamesOwned = numberOfGamesOwned,
                 PopularGamesList = cafe.PopularGamesList,
                 HasGameMaster = cafe.HasGameMaster,
                 BillingModel = CafePartnerStatusMapper.ToApiBillingModel(cafe.BillingModel),
@@ -823,8 +810,8 @@ namespace BoardVerse.Services.Services
                 DefaultHoldDurationMinutes = cafe.DefaultHoldDurationMinutes,
                 IsPricingLocked = cafe.IsPricingLocked,
                 TableNames = tableNames,
-                ApplicationStatus = application != null 
-                    ? CafePartnerStatusMapper.ToApiApplicationStatus(application.Status) 
+                ApplicationStatus = application != null
+                    ? CafePartnerStatusMapper.ToApiApplicationStatus(application.Status)
                     : CafePartnerStatusMapper.ToApiApplicationStatus(Core.Enum.CafePartnerApplicationStatus.PendingApproval),
                 OperationalStatus = cafe.PartnerOperationalStatus is { } operational
                     ? CafePartnerStatusMapper.ToApiOperationalStatus(operational)

@@ -7,6 +7,7 @@ namespace BoardVerse.Core.DTOs.Pos
         public Guid Id { get; set; }
         public string Name { get; set; } = string.Empty;
         public int SortOrder { get; set; }
+        public int SeatCount { get; set; }
         public CafeTableStatus Status { get; set; }
     }
 }

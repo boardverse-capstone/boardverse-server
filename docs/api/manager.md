@@ -86,9 +86,8 @@ curl.exe -X PUT http://localhost:5022/api/manager/cafes/me/operational-profile \
   -H "Content-Type: application/json" \
   -d '{
     "workingHours":{"weekdayStart":"09:00","weekdayEnd":"22:00","weekendStart":"10:00","weekendEnd":"23:00"},
-    "numberOfTables":8, "numberOfPrivateRooms":2,
+    "numberOfPrivateRooms":2,
     "spaceImageUrls":["https://..."],
-    "numberOfGamesOwned":45,
     "billingModel":"TIME_BASED", "basePrice":50000,
     "tieredBlockRate":3000, "tieredBlockMinutes":15
   }'

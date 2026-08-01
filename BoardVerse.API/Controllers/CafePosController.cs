@@ -36,12 +36,15 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Đồng bộ sơ đồ bàn — tạo mới, cập nhật hoặc xóa bàn. [Role: Manager — chủ quán]
+        /// Đồng bộ sơ đồ bàn — tạo mới, cập nhật hoặc xóa bàn. Hỗ trợ 2 shape:
+        /// 1. Legacy: { "tableNames": ["Bàn 1", "Bàn 2"] } — chỉ tên, SeatCount giữ nguyên / default 4.
+        /// 2. Mới: { "tables": [{ "name": "Bàn 1", "seatCount": 8, "sortOrder": 0 }] } — đầy đủ Name + SeatCount + SortOrder.
+        /// Không gửi cả 2 cùng lúc. [Role: Manager — chủ quán]
         /// </summary>
         /// <param name="cafeId">Mã định danh quán cafe.</param>
-        /// <param name="request">Danh sách tên bàn muốn giữ lại.</param>
+        /// <param name="request">Danh sách bàn muốn đồng bộ (1 trong 2 shape).</param>
         /// <response code="200">Đồng bộ thành công, trả danh sách bàn hiện tại.</response>
-        /// <response code="400">Danh sách tên bàn không hợp lệ.</response>
+        /// <response code="400">Payload rỗng, gửi cả 2 shape, hoặc seatCount/sortOrder ngoài range.</response>
         /// <response code="401">Thiếu token.</response>
         /// <response code="403">Không phải Manager chủ quán.</response>
         /// <response code="404">Quán không tồn tại.</response>
@@ -54,10 +57,62 @@ namespace BoardVerse.API.Controllers
                 return this.NewResponse(400, "Dữ liệu không hợp lệ.", null);
             }
 
+            var hasLegacy = request.TableNames != null && request.TableNames.Count > 0;
+            var hasNew = request.Tables != null && request.Tables.Count > 0;
+
+            if (hasLegacy && hasNew)
+            {
+                return this.NewResponse(400, "Chỉ được gửi một trong hai: 'tableNames' hoặc 'tables'.", null);
+            }
+
+            if (!hasLegacy && !hasNew)
+            {
+                return this.NewResponse(400, "Phải gửi 'tableNames' hoặc 'tables' với ít nhất 1 phần tử.", null);
+            }
+
             var managerId = GetUserIdFromClaims();
-            await _posService.SyncTablesAsync(cafeId, managerId, request.TableNames);
+
+            if (hasNew)
+            {
+                await _posService.SyncTablesAsync(cafeId, managerId, request.Tables!);
+            }
+            else
+            {
+                await _posService.SyncTablesAsync(cafeId, managerId, request.TableNames!);
+            }
+
             var tables = await _posService.GetTablesAsync(cafeId, managerId, "Manager");
             return this.NewResponse(200, ApiSuccessMessages.Pos.TablesRetrieved, tables);
+        }
+
+        /// <summary>
+        /// Cập nhật một phần thông tin bàn (Name, SeatCount, SortOrder). Dùng để đổi số ghế (SeatCount) cho booking capacity. [Role: Manager — chủ quán]
+        /// </summary>
+        /// <param name="cafeId">Mã định danh quán cafe.</param>
+        /// <param name="tableId">Mã định danh bàn cần cập nhật.</param>
+        /// <param name="request">Các trường muốn đổi (Name, SeatCount, SortOrder). Tất cả optional; ít nhất một phải có giá trị.</param>
+        /// <response code="200">Cập nhật bàn thành công, trả về thông tin bàn sau khi sửa.</response>
+        /// <response code="400">Dữ liệu không hợp lệ hoặc không có trường nào để cập nhật.</response>
+        /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+        /// <response code="403">Không phải Manager chủ quán.</response>
+        /// <response code="404">Không tìm thấy bàn trong quán.</response>
+        /// <response code="409">Bàn đang có phiên chơi hoạt động, hoặc tên bàn đã trùng với bàn khác.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpPatch("tables/{tableId:guid}")]
+        [Authorize(Roles = "Manager")]
+        public async Task<IActionResult> UpdateTable(
+            Guid cafeId,
+            Guid tableId,
+            [FromBody] UpdateCafeTableRequestDto request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return this.NewResponse(400, "Dữ liệu không hợp lệ.", null);
+            }
+
+            var managerId = GetUserIdFromClaims();
+            var result = await _posService.UpdateCafeTableAsync(cafeId, managerId, tableId, request);
+            return this.NewResponse(200, ApiSuccessMessages.Pos.TableUpdated, result);
         }
 
         /// <summary>

@@ -1,5 +1,6 @@
 using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.Cafe;
+using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.Entities;
 
 namespace BoardVerse.Core.IRepositories
@@ -37,6 +38,11 @@ namespace BoardVerse.Core.IRepositories
             int limit = 10);
         Task<Cafe?> GetPartnerCafeByManagerIdAsync(Guid managerUserId);
         Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<string> tableNames);
+        /// <summary>
+        /// Overload — đồng bộ cả Name + SeatCount + SortOrder.
+        /// </summary>
+        Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<CafeTableSyncItem> tables);
+        Task RefreshTableLayoutJsonAsync(Guid cafeId);
         Task SaveChangesAsync();
     }
 }

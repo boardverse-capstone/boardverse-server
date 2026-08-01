@@ -1,6 +1,7 @@
 using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.Cafe;
 using BoardVerse.Core.DTOs.Game;
+using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Helpers;
@@ -464,6 +465,7 @@ namespace BoardVerse.Data.Repositories
             return await _context.Cafes
                 .Include(c => c.PartnerApplication)
                 .Include(c => c.Tables.Where(t => t.IsActive))
+                .Include(c => c.Inventories.Where(i => i.IsActive))
                 .FirstOrDefaultAsync(c =>
                     c.ManagerId == managerUserId &&
                     c.PartnerOperationalStatus != null);
@@ -483,7 +485,46 @@ namespace BoardVerse.Data.Repositories
                 _context.CafeTables.Add(table);
             }
 
+            await RefreshTableLayoutJsonAsync(cafeId);
+
             await _context.SaveChangesAsync();
+        }
+
+        public async Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<CafeTableSyncItem> tables)
+        {
+            var existingTables = await _context.CafeTables
+                .Where(t => t.CafeId == cafeId)
+                .ToListAsync();
+
+            var loadedIds = existingTables.Select(t => t.Id).ToHashSet();
+            CafeTableSyncHelper.ApplySync(cafeId, tables, existingTables);
+
+            foreach (var table in existingTables.Where(t => !loadedIds.Contains(t.Id)))
+            {
+                _context.CafeTables.Add(table);
+            }
+
+            await RefreshTableLayoutJsonAsync(cafeId);
+
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task RefreshTableLayoutJsonAsync(Guid cafeId)
+        {
+            var cafe = await _context.Cafes.FirstOrDefaultAsync(c => c.Id == cafeId);
+            if (cafe == null)
+            {
+                return;
+            }
+
+            var activeNames = await _context.CafeTables
+                .Where(t => t.CafeId == cafeId && t.IsActive)
+                .OrderBy(t => t.SortOrder)
+                .Select(t => t.Name)
+                .ToListAsync();
+
+            cafe.TableLayoutJson = System.Text.Json.JsonSerializer.Serialize(activeNames);
+            cafe.UpdatedAt = DateTime.UtcNow;
         }
 
         public async Task SaveChangesAsync()

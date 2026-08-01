@@ -180,6 +180,8 @@ public class CafeServiceTests
             service.UpdateCafeAsync(cafeId, managerId, new UpdateCafeRequestDto { Latitude = 10.0 }));
     }
 
+    private static Mock<IPushNotificationService>? pushNotificationService;
+
     private static CafeService BuildService(
         Mock<ICafeRepository>? cafeRepo = null,
         Mock<IUserProfileRepository>? profileRepo = null,
@@ -192,10 +194,11 @@ public class CafeServiceTests
         config ??= new Mock<ISystemConfigurationProvider>();
         bookingRepo ??= new Mock<IBookingRepository>();
         hubService ??= new Mock<ILobbyHubService>();
+        pushNotificationService ??= new Mock<IPushNotificationService>();
 
         config.Setup(c => c.GetDoubleAsync(SystemConfigKeys.MatchmakingRadiusKm, GeoLocationHelper.DefaultNearbyRadiusKm))
             .ReturnsAsync(GeoLocationHelper.DefaultNearbyRadiusKm);
 
-        return new CafeService(cafeRepo.Object, profileRepo.Object, config.Object, bookingRepo.Object, hubService.Object);
+        return new CafeService(cafeRepo.Object, profileRepo.Object, config.Object, bookingRepo.Object, hubService.Object, pushNotificationService.Object);
     }
 }

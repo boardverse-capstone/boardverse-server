@@ -47,6 +47,18 @@ namespace BoardVerse.Data.Repositories
             return Task.CompletedTask;
         }
 
+        public async Task<bool> HasActiveSessionForTableAsync(Guid cafeId, Guid tableId)
+        {
+            return await _context.ActiveSessions
+                .AsNoTracking()
+                .AnyAsync(s =>
+                    s.CafeId == cafeId &&
+                    s.CafeTableId == tableId &&
+                    (s.Status == GroupSessionStatus.Active
+                     || s.Status == GroupSessionStatus.Checking
+                     || s.Status == GroupSessionStatus.Unpaid));
+        }
+
         public async Task<CafeInventoryBox?> GetBoxByBarcodeAsync(Guid cafeId, string barcode) =>
             await _context.CafeInventoryBoxes
                 .Include(b => b.CafeGameInventory)

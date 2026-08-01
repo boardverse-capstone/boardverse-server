@@ -47,10 +47,11 @@ CafePartnerApplication          Cafe (1:1 qua CreatedCafeId)
 
 | Field | Mục đích |
 |-------|----------|
-| `NumberOfTables` + `TableLayoutJson` | Cấu hình hồ sơ (tên bàn dạng JSON) |
-| `CafeTables` (bảng riêng) | Bàn runtime — trạng thái `Available` / `InUse` / `Reserved` |
+| `CafeTables` (bảng riêng) | Bàn runtime — trạng thái `Available` / `InUse` / `Reserved`. Quản lý qua POS endpoints `PUT /pos/tables` và `PATCH /pos/tables/{id}` |
+| `CafeGameInventory` (bảng riêng) | Kho game runtime — quản lý qua `POST /inventory` |
+| `TableLayoutJson` (cache) | JSON snapshot của `CafeTables.Name` (active) — được refresh tự động khi `PUT /pos/tables`. Dùng cho `GetActivationBlockers` đảm bảo tên bàn đã được cấu hình trước khi activate. |
 
-PUT operational-profile đồng bộ JSON → `CafeTables` qua `SyncCafeTablesAsync`. `numberOfPrivateRooms` chỉ lưu trên `Cafe`, **không** tạo `CafeTable`.
+> Trước đây `Cafe.NumberOfTables`, `Cafe.NumberOfGamesOwned`, `Cafe.PopularGamesList` là các trường riêng trên `Cafe`, gây trùng lặp với `CafeTables` và `CafeGameInventory`. Hiện tại các giá trị này **derive** từ navigation collections tại tầng service, không còn được nhập qua `PUT /operational-profile`.
 
 ---
 
@@ -174,15 +175,12 @@ Chỉ khi quán ở `DATA_BLANK`. Không chỉnh sửa khi đang `ACTIVE` (phả
     "weekendStart": "10:00",
     "weekendEnd": "23:00"
   },
-  "numberOfTables": 8,
   "numberOfPrivateRooms": 2,
   "spaceImageUrls": [
     "https://cdn.example.com/facade.jpg",
     "https://cdn.example.com/play-area.jpg",
     "https://cdn.example.com/lighting.jpg"
   ],
-  "numberOfGamesOwned": 45,
-  "popularGamesList": "Catan, Ticket to Ride, Azul, Wingspan",
   "hasGameMaster": true,
   "billingModel": "TIME_BASED",
   "basePrice": 50000,
@@ -191,19 +189,15 @@ Chỉ khi quán ở `DATA_BLANK`. Không chỉnh sửa khi đang `ACTIVE` (phả
 }
 ```
 
-### `tableNames` (tùy chọn)
+### Các trường derive server-side (không nhập từ client)
 
-Không gửi `tableNames` (hoặc gửi `null` / `[]`) — backend tự quản lý sơ đồ bàn theo `numberOfTables`:
+| Field | Nguồn dữ liệu thực | Endpoint quản lý |
+|-------|---------------------|-------------------|
+| `numberOfTables` | `CafeTables.Count(t => t.IsActive)` | `PUT /api/cafes/{cafeId}/pos/tables` |
+| `tableNames` | `CafeTables.Name` | `PATCH /api/cafes/{cafeId}/pos/tables/{tableId}` |
+| `numberOfGamesOwned` | `CafeGameInventory.Count(i => i.IsActive)` | `POST /api/cafes/{cafeId}/inventory` |
 
-| Tình huống | Hành vi backend |
-|------------|-----------------|
-| Lần đầu, `numberOfTables: 8` | Sinh `["Bàn 1", …, "Bàn 8"]` |
-| Tăng lên `numberOfTables: 10` (không gửi `tableNames`) | Cập nhật thành `["Bàn 1", …, "Bàn 10"]` |
-| Giảm xuống `numberOfTables: 5` (không gửi `tableNames`) | Cập nhật thành `["Bàn 1", …, "Bàn 5"]` |
-| Gửi `tableNames` tùy chỉnh | Dùng tên tùy chỉnh; thiếu thì thêm `"Bàn N"`, thừa thì cắt theo `numberOfTables` |
-| Đã đặt tên tùy chỉnh, chỉ đổi `numberOfTables` | Giữ tên cũ (theo thứ tự), thêm/bớt slot cho khớp số bàn |
-
-Response luôn trả `tableNames` đầy đủ sau khi lưu.
+Response luôn trả `numberOfTables`, `tableNames`, `numberOfGamesOwned` đầy đủ sau khi derive.
 
 | `billingModel` | Mô hình tính tiền |
 |----------------|---------------------|

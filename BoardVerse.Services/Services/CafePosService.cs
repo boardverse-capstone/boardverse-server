@@ -2,6 +2,7 @@ using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
 using BoardVerse.Data;
@@ -69,6 +70,20 @@ namespace BoardVerse.Services.Services
 
         public async Task SyncTablesAsync(Guid cafeId, Guid managerId, IReadOnlyList<string> tableNames)
         {
+            var items = tableNames
+                .Select((name, index) => new CafeTableSyncItem
+                {
+                    Name = name,
+                    SortOrder = index,
+                    SeatCount = null
+                })
+                .ToList();
+
+            await SyncTablesAsync(cafeId, managerId, items);
+        }
+
+        public async Task SyncTablesAsync(Guid cafeId, Guid managerId, IReadOnlyList<CafeTableSyncItem> tables)
+        {
             var cafe = await _cafeRepository.GetByIdAsync(cafeId);
             if (cafe == null)
             {
@@ -80,7 +95,47 @@ namespace BoardVerse.Services.Services
                 throw new ForbiddenException(ApiErrorMessages.Pos.AccessForbidden(cafeId));
             }
 
-            await _cafeRepository.SyncCafeTablesAsync(cafeId, tableNames);
+            await _cafeRepository.SyncCafeTablesAsync(cafeId, tables);
+        }
+
+        /// <summary>
+        /// Cập nhật một phần thông tin bàn (Name/SeatCount/SortOrder).
+        /// Validation: tất cả field optional, ít nhất một phải có giá trị; chặn update khi bàn đang có session hoạt động.
+        /// </summary>
+        public async Task<CafeTableStatusDto> UpdateCafeTableAsync(
+            Guid cafeId,
+            Guid managerId,
+            Guid tableId,
+            UpdateCafeTableRequestDto request)
+        {
+            await EnsurePosAccessAsync(cafeId, managerId, "Manager");
+
+            var table = await _posRepository.GetTableAsync(cafeId, tableId)
+                ?? throw new NotFoundException(ApiErrorMessages.Pos.TableNotFound(cafeId, tableId));
+
+            if (await _posRepository.HasActiveSessionForTableAsync(cafeId, tableId))
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.TableInUse(tableId));
+            }
+
+            var allTables = await _posRepository.GetActiveTablesAsync(cafeId);
+            CafeTableUpdateHelper.ApplyUpdate(table, request, allTables);
+
+            await _posRepository.UpdateTableAsync(table);
+            await _posRepository.SaveChangesAsync();
+
+            // Keep TableLayoutJson in sync with the (possibly renamed/reordered) table.
+            await _cafeRepository.RefreshTableLayoutJsonAsync(cafeId);
+            await _cafeRepository.SaveChangesAsync();
+
+            return new CafeTableStatusDto
+            {
+                Id = table.Id,
+                Name = table.Name,
+                SortOrder = table.SortOrder,
+                SeatCount = table.SeatCount,
+                Status = table.Status
+            };
         }
 
         public async Task<IReadOnlyList<CafeInventoryBoxDto>> GetBoxesAsync(
