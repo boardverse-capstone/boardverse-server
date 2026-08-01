@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using BoardVerse.Core.DTOs.Payment;
 using BoardVerse.Tests.Integration.Infrastructure;
 
@@ -232,7 +232,7 @@ public class PaymentIntegrationTests
         // for no-show or cancellation scenarios per BR-18
 
         // Act - Try to get deposits list
-        var response = await _client.GetAsync($"/api/v1/bookings/deposits?cafeId={IntegrationTestFixtures.DemoCafeId}");
+        var response = await _client.GetAsync($"/api/bookings/deposits?cafeId={IntegrationTestFixtures.DemoCafeId}");
 
         // Assert - Manager should see deposits or get forbidden
         Assert.True(

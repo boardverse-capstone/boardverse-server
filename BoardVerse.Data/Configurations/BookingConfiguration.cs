@@ -15,7 +15,7 @@ public class BookingConfiguration : IEntityTypeConfiguration<Booking>
         builder.Property(b => b.Id).ValueGeneratedNever();
 
         // === Relationships ===
-        builder.Property(b => b.LobbyId).IsRequired();
+        builder.Property(b => b.LobbyId);
         builder.Property(b => b.CafeId).IsRequired();
         builder.Property(b => b.CafeTableId).IsRequired();
 
@@ -51,7 +51,8 @@ public class BookingConfiguration : IEntityTypeConfiguration<Booking>
             .OnDelete(DeleteBehavior.Cascade);
 
         // === Indexes ===
-        builder.HasIndex(b => b.LobbyId);
+        builder.HasIndex(b => b.LobbyId)
+            .HasFilter("\"LobbyId\" IS NOT NULL");
         builder.HasIndex(b => b.CafeId);
         builder.HasIndex(b => b.CafeTableId);
         builder.HasIndex(b => b.ScheduledStartTime);

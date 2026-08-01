@@ -183,15 +183,19 @@ public class CafeServiceTests
     private static CafeService BuildService(
         Mock<ICafeRepository>? cafeRepo = null,
         Mock<IUserProfileRepository>? profileRepo = null,
-        Mock<ISystemConfigurationProvider>? config = null)
+        Mock<ISystemConfigurationProvider>? config = null,
+        Mock<IBookingRepository>? bookingRepo = null,
+        Mock<ILobbyHubService>? hubService = null)
     {
         cafeRepo ??= new Mock<ICafeRepository>();
         profileRepo ??= new Mock<IUserProfileRepository>();
         config ??= new Mock<ISystemConfigurationProvider>();
+        bookingRepo ??= new Mock<IBookingRepository>();
+        hubService ??= new Mock<ILobbyHubService>();
 
         config.Setup(c => c.GetDoubleAsync(SystemConfigKeys.MatchmakingRadiusKm, GeoLocationHelper.DefaultNearbyRadiusKm))
             .ReturnsAsync(GeoLocationHelper.DefaultNearbyRadiusKm);
 
-        return new CafeService(cafeRepo.Object, profileRepo.Object, config.Object);
+        return new CafeService(cafeRepo.Object, profileRepo.Object, config.Object, bookingRepo.Object, hubService.Object);
     }
 }

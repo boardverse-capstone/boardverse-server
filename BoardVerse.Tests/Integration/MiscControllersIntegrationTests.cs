@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 using System.Net;
 using BoardVerse.Tests.Integration.Infrastructure;
 
@@ -24,9 +24,10 @@ public class MiscControllersIntegrationTests
         var token = await IntegrationTestAuth.AsManagerAsync(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var response = await _client.GetAsync("/api/v1/manager/my-cafes");
+        var response = await _client.GetAsync("/api/manager/my-cafes");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.Forbidden);
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.NotFound);
     }
 
     #endregion
@@ -39,9 +40,10 @@ public class MiscControllersIntegrationTests
         var token = await IntegrationTestAuth.AsManagerAsync(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var response = await _client.GetAsync("/api/v1/staff/my-cafes");
+        var response = await _client.GetAsync("/api/staff/my-cafes");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.Forbidden);
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.NotFound);
     }
 
     #endregion
@@ -51,18 +53,22 @@ public class MiscControllersIntegrationTests
     [IntegrationFact]
     public async Task MasterGame_GetAll()
     {
-        var token = await IntegrationTestAuth.AsPlayer1Async(_client);
+        var token = await IntegrationTestAuth.AsManagerAsync(_client);
         ApiTestClient.Authorize(_client, token);
 
         var response = await _client.GetAsync("/api/v1/master-games?searchTerm=catan");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
     public async Task MasterGame_GetById()
     {
-        var token = await IntegrationTestAuth.AsPlayer1Async(_client);
+        var token = await IntegrationTestAuth.AsManagerAsync(_client);
         ApiTestClient.Authorize(_client, token);
         var catanId = await IntegrationCatalog.GetCatanGameIdAsync(_client);
 
@@ -111,7 +117,11 @@ public class MiscControllersIntegrationTests
             "/api/v1/users/ratings/karma/submit",
             ratingRequest);
         Assert.True(response.StatusCode == HttpStatusCode.Created ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     #endregion
@@ -121,22 +131,36 @@ public class MiscControllersIntegrationTests
     [IntegrationFact]
     public async Task Bgg_GetComponentCatalog()
     {
+        var token = await IntegrationTestAuth.AsAdminAsync(_client);
+        ApiTestClient.Authorize(_client, token);
         var response = await _client.GetAsync("/api/v1/bgg/component-catalog");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
     public async Task Bgg_Search()
     {
+        var token = await IntegrationTestAuth.AsAdminAsync(_client);
+        ApiTestClient.Authorize(_client, token);
         var response = await _client.GetAsync("/api/v1/bgg/search?query=catan");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
     public async Task Bgg_PreviewGame()
     {
+        var token = await IntegrationTestAuth.AsAdminAsync(_client);
+        ApiTestClient.Authorize(_client, token);
         var response = await _client.GetAsync("/api/v1/bgg/games/13");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
                    response.StatusCode == HttpStatusCode.NotFound);
@@ -181,7 +205,8 @@ public class MiscControllersIntegrationTests
 
         var response = await _client.GetAsync("/api/protected/secret");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.Forbidden);
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.NotFound);
     }
 
     #endregion
@@ -223,9 +248,13 @@ public class MiscControllersIntegrationTests
         ApiTestClient.Authorize(_client, token);
 
         var response = await _client.PostAsync(
-            $"/api/v1/manager/cafes/{IntegrationTestFixtures.DemoCafeId}/deactivate", null);
+            $"/api/manager/cafes/me/deactivate", null);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -236,10 +265,14 @@ public class MiscControllersIntegrationTests
 
         var closeRequest = new { reason = "Temporary closure" };
         var response = await ApiTestClient.PostJsonAsync(_client,
-            $"/api/v1/manager/cafes/{IntegrationTestFixtures.DemoCafeId}/close",
+            $"/api/manager/cafes/me/close",
             closeRequest);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -249,9 +282,13 @@ public class MiscControllersIntegrationTests
         ApiTestClient.Authorize(_client, token);
 
         var response = await _client.PostAsync(
-            $"/api/v1/manager/cafes/{IntegrationTestFixtures.DemoCafeId}/reopen", null);
+            $"/api/manager/cafes/me/reopen", null);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     #endregion

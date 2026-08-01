@@ -52,6 +52,9 @@ namespace BoardVerse.Data
         public DbSet<FriendReport> FriendReports => Set<FriendReport>();
         public DbSet<LobbyMessage> LobbyMessages => Set<LobbyMessage>();
         public DbSet<LobbyReport> LobbyReports => Set<LobbyReport>();
+        public DbSet<BookingNoShowVote> BookingNoShowVotes => Set<BookingNoShowVote>();
+        public DbSet<BookingRating> BookingRatings => Set<BookingRating>();
+        public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
 
     public BoardVerseDbContext(DbContextOptions<BoardVerseDbContext> options) : base(options)
     {

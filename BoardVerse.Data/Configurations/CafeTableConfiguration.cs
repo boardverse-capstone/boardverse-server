@@ -22,17 +22,19 @@ namespace BoardVerse.Data.Configurations
             builder.Property(t => t.CreatedAt).IsRequired();
             builder.Property(t => t.IsActive).IsRequired().HasDefaultValue(true);
 
-            builder.HasOne(t => t.Cafe)
-                .WithMany(c => c.Tables)
-                .HasForeignKey(t => t.CafeId)
-                .OnDelete(DeleteBehavior.Cascade);
+builder.HasOne(t => t.Cafe)
+            .WithMany(c => c.Tables)
+            .HasForeignKey(t => t.CafeId)
+            .OnDelete(DeleteBehavior.Cascade);
 
-            builder.HasIndex(t => new { t.CafeId, t.Name })
-                .IsUnique()
-                .HasFilter("\"IsActive\" = true");
+        builder.Property(t => t.SeatCount).IsRequired().HasDefaultValue(4);
 
-            builder.HasIndex(t => new { t.CafeId, t.Status })
-                .HasFilter("\"IsActive\" = true");
-        }
+        builder.HasIndex(t => new { t.CafeId, t.Name })
+            .IsUnique()
+            .HasFilter("\"IsActive\" = true");
+
+        builder.HasIndex(t => new { t.CafeId, t.Status })
+            .HasFilter("\"IsActive\" = true");
     }
+}
 }

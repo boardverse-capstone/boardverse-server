@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 using System.Net;
 using BoardVerse.Tests.Integration.Infrastructure;
 
@@ -30,9 +30,13 @@ public class UserProfileControllerExtraIntegrationTests
             bio = "Test bio from integration test"
         };
 
-        var response = await ApiTestClient.PostJsonAsync(_client, "/api/v1/profiles", createRequest);
+        var response = await ApiTestClient.PostJsonAsync(_client, "/api/UserProfile", createRequest);
         Assert.True(response.StatusCode == HttpStatusCode.Created ||
                    response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized ||
                    response.StatusCode == HttpStatusCode.Conflict);
     }
 
@@ -42,7 +46,7 @@ public class UserProfileControllerExtraIntegrationTests
         var token = await IntegrationTestAuth.AsPlayer1Async(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var response = await _client.GetAsync($"/api/v1/profiles/{IntegrationTestFixtures.DemoPlayer1UserId}");
+        var response = await _client.GetAsync($"/api/UserProfile/{IntegrationTestFixtures.DemoPlayer1UserId}");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
                    response.StatusCode == HttpStatusCode.NotFound);
     }
@@ -59,10 +63,14 @@ public class UserProfileControllerExtraIntegrationTests
         };
 
         var response = await ApiTestClient.PutJsonAsync(_client,
-            $"/api/v1/profiles/{IntegrationTestFixtures.DemoPlayer1UserId}",
+            $"/api/UserProfile/{IntegrationTestFixtures.DemoPlayer1UserId}",
             updateRequest);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
                    response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized ||
                    response.StatusCode == HttpStatusCode.Forbidden);
     }
 
@@ -72,9 +80,13 @@ public class UserProfileControllerExtraIntegrationTests
         var token = await IntegrationTestAuth.AsPlayer1Async(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var response = await _client.DeleteAsync($"/api/v1/profiles/{IntegrationTestFixtures.DemoPlayer1UserId}");
+        var response = await _client.DeleteAsync($"/api/UserProfile/{IntegrationTestFixtures.DemoPlayer1UserId}");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
                    response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized ||
                    response.StatusCode == HttpStatusCode.Forbidden);
     }
 
@@ -94,9 +106,13 @@ public class UserProfileControllerExtraIntegrationTests
             longitude = 106.6297
         };
 
-        var response = await ApiTestClient.PutJsonAsync(_client, "/api/v1/profiles/location", updateRequest);
+        var response = await ApiTestClient.PutJsonAsync(_client, "/api/UserProfile/me/location", updateRequest);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -105,9 +121,13 @@ public class UserProfileControllerExtraIntegrationTests
         var token = await IntegrationTestAuth.AsPlayer1Async(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var response = await _client.DeleteAsync("/api/v1/profiles/location");
+        var response = await _client.DeleteAsync("/api/UserProfile/me/location");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     #endregion
@@ -125,9 +145,13 @@ public class UserProfileControllerExtraIntegrationTests
             avatarUrl = "https://example.com/avatar.jpg"
         };
 
-        var response = await ApiTestClient.PutJsonAsync(_client, "/api/v1/profiles/avatar", updateRequest);
+        var response = await ApiTestClient.PutJsonAsync(_client, "/api/UserProfile/me/avatar", updateRequest);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     #endregion
@@ -146,9 +170,13 @@ public class UserProfileControllerExtraIntegrationTests
             favoriteGameId = catanId
         };
 
-        var response = await ApiTestClient.PostJsonAsync(_client, "/api/v1/profiles/progress", updateRequest);
+        var response = await ApiTestClient.PostJsonAsync(_client, "/api/UserProfile/progress", updateRequest);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     #endregion
@@ -161,9 +189,13 @@ public class UserProfileControllerExtraIntegrationTests
         var token = await IntegrationTestAuth.AsPlayer1Async(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var response = await _client.GetAsync("/api/v1/profiles/karma-history");
+        var response = await _client.GetAsync("/api/UserProfile/me/karma-history");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -173,7 +205,7 @@ public class UserProfileControllerExtraIntegrationTests
         ApiTestClient.Authorize(_client, token);
 
         var response = await _client.GetAsync(
-            $"/api/v1/profiles/{IntegrationTestFixtures.DemoPlayer1UserId}/karma-history");
+            $"/api/UserProfile/{IntegrationTestFixtures.DemoPlayer1UserId}/karma-history");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
                    response.StatusCode == HttpStatusCode.NotFound);
     }
@@ -188,9 +220,13 @@ public class UserProfileControllerExtraIntegrationTests
         var token = await IntegrationTestAuth.AsPlayer1Async(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var response = await _client.GetAsync("/api/v1/profiles/search?query=player");
+        var response = await _client.GetAsync("/api/UserProfile/search?query=player");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     #endregion

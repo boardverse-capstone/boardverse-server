@@ -217,5 +217,61 @@ namespace BoardVerse.API.Controllers
             await _cafeService.UpdateSePayConfigAsync(id, managerId, dto);
             return this.NewResponse(200, "SePay config updated successfully", null);
         }
+
+        /// <summary>
+        /// Cập nhật chính sách hoàn cọc khi booking bị hủy (BR-18 / Task #12).
+        /// Manager cấu hình 1 trong 3 policy: Full (100%), Partial (theo bậc thang), None (tịch thu).
+        /// [Role: Manager — chỉ chủ quán (ManagerId của cafe).]
+        /// </summary>
+        /// <param name="id">Mã định danh quán cafe.</param>
+        /// <param name="dto">Chính sách hoàn cọc mới.</param>
+        /// <response code="200">Cập nhật thành công, trả về policy hiện tại.</response>
+        /// <response code="400">Tiers không hợp lệ (vd: Policy=Partial mà không có tiers).</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không phải chủ quán.</response>
+        /// <response code="404">Không tìm thấy quán.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPatch("{id:guid}/deposit-refund-policy")]
+        [Authorize(Roles = "Manager")]
+        [ProducesResponseType(typeof(RefundPolicyResponseDto), 200)]
+        [ProducesResponseType(typeof(object), 400)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(typeof(object), 403)]
+        [ProducesResponseType(typeof(object), 404)]
+        public async Task<IActionResult> UpdateRefundPolicy(Guid id, [FromBody] UpdateRefundPolicyRequestDto dto)
+        {
+            var managerId = GetUserIdFromClaims();
+            var result = await _cafeService.UpdateRefundPolicyAsync(id, managerId, dto);
+            return this.NewResponse(200, "Cập nhật chính sách hoàn cọc thành công.", result);
+        }
+
+        /// <summary>
+        /// Cập nhật biểu phí của quán (BasePrice, BillingModel, TieredBlockRate...).
+        /// BR-04: Chỉ cho phép khi quán đóng cửa (IsPricingLocked=false). Khi update thành công broadcast SignalR event CafePricingChanged.
+        /// [Role: Manager — chỉ chủ quán.]
+        /// </summary>
+        /// <param name="id">Mã định danh quán cafe.</param>
+        /// <param name="dto">Thông tin biểu phí cần cập nhật.</param>
+        /// <response code="200">Cập nhật thành công.</response>
+        /// <response code="400">Dữ liệu không hợp lệ.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không phải chủ quán.</response>
+        /// <response code="404">Không tìm thấy quán.</response>
+        /// <response code="409">Quán đang hoạt động (IsPricingLocked=true) — không thể sửa giá.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPut("{id:guid}/pricing-config")]
+        [Authorize(Roles = "Manager")]
+        [ProducesResponseType(typeof(CafePricingConfigResponseDto), 200)]
+        [ProducesResponseType(typeof(object), 400)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(typeof(object), 403)]
+        [ProducesResponseType(typeof(object), 404)]
+        [ProducesResponseType(typeof(object), 409)]
+        public async Task<IActionResult> UpdatePricingConfig(Guid id, [FromBody] UpdatePricingConfigRequestDto dto)
+        {
+            var managerId = GetUserIdFromClaims();
+            var result = await _cafeService.UpdatePricingConfigAsync(id, managerId, dto);
+            return this.NewResponse(200, "Cập nhật biểu phí thành công.", result);
+        }
     }
 }

@@ -265,3 +265,84 @@ Cập nhật cấu hình SePay cho quán — dùng cho session payment (POS). En
 **Lỗi:** `400` dữ liệu không hợp lệ; `403` không phải manager của cafe; `404` không tìm thấy cafe.
 
 > **Liên quan:** [sepay-account.md](./sepay-account.md), [sepay-webhook.md](./sepay-webhook.md).
+
+---
+
+## PATCH /api/cafes/{id}/deposit-refund-policy — Task #12
+
+Cập nhật chính sách hoàn cọc khi booking bị hủy (BR-18). Manager cấu hình 1 trong 3 policy: `Full` / `Partial` / `None`.
+
+**Body** (`UpdateRefundPolicyRequestDto`):
+```json
+{
+  "policy": "Partial",
+  "partialTiers": [
+    { "minHoursBeforeScheduled": 24, "refundPercent": 50 },
+    { "minHoursBeforeScheduled": 12, "refundPercent": 25 },
+    { "minHoursBeforeScheduled": 0, "refundPercent": 0 }
+  ]
+}
+```
+
+| Field | Ràng buộc |
+|-------|-----------|
+| `policy` | `Full` (0) / `Partial` (1) / `None` (2) — bắt buộc |
+| `partialTiers` | Bắt buộc khi `policy=Partial`. 1-5 bậc, không trùng `minHoursBeforeScheduled`, `refundPercent` ∈ [0, 100] |
+
+**Response 200:**
+```json
+{
+  "statusCode": 200,
+  "isSuccess": true,
+  "data": {
+    "cafeId": "uuid",
+    "policy": "Partial",
+    "partialTiers": [
+      { "minHoursBeforeScheduled": 24, "refundPercent": 50 },
+      { "minHoursBeforeScheduled": 12, "refundPercent": 25 },
+      { "minHoursBeforeScheduled": 0, "refundPercent": 0 }
+    ],
+    "updatedAt": "2026-08-01T15:00:00Z"
+  }
+}
+```
+
+**Lỗi:** `400` tiers không hợp lệ; `403`; `404`.
+
+> **Liên quan:** [payment.md](./payment.md) §Refund BR-18.
+
+---
+
+## PUT /api/cafes/{id}/pricing-config — Task #13
+
+Cập nhật biểu phí của quán (BasePrice, BillingModel, TieredBlockRate, TieredBlockMinutes). **BR-04:** chỉ cho phép khi quán đóng cửa (`IsPricingLocked=false`). Khi update thành công → broadcast SignalR event `CafePricingChanged` cho member có booking trong tuần.
+
+**Body** (`UpdatePricingConfigRequestDto`):
+```json
+{
+  "billingModel": "TimeBased",
+  "basePrice": 90000,
+  "tieredBlockRate": 25000,
+  "tieredBlockMinutes": 15
+}
+```
+
+**Response 200:**
+```json
+{
+  "statusCode": 200,
+  "isSuccess": true,
+  "data": {
+    "cafeId": "uuid",
+    "billingModel": "TimeBased",
+    "basePrice": 90000,
+    "tieredBlockRate": 25000,
+    "tieredBlockMinutes": 15,
+    "isPricingLocked": false,
+    "operationalProfileUpdatedAt": "2026-08-01T15:00:00Z",
+    "affectedBookingsCount": 12
+  }
+}
+```
+
+**Lỗi:** `400`; `403`; `404`; `409` quán đang hoạt động; `500`.

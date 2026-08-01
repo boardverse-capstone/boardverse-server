@@ -45,6 +45,21 @@ namespace BoardVerse.Data.Repositories
                 .FirstOrDefaultAsync(s => s.Id == sessionId);
         }
 
+        public async Task<ActiveSession?> GetByLobbyIdWithMembersAsync(Guid lobbyId)
+        {
+            if (lobbyId == Guid.Empty) return null;
+            return await _db.ActiveSessions
+                .Include(s => s.Members)
+                    .ThenInclude(m => m.User)
+                .Include(s => s.Games)
+                    .ThenInclude(g => g.CafeInventoryBox)
+                .Include(s => s.Games)
+                    .ThenInclude(g => g.GameTemplate)
+                .Include(s => s.CafeTable)
+                .Include(s => s.GameTemplate)
+                .FirstOrDefaultAsync(s => s.LobbyId == lobbyId);
+        }
+
         public async Task<IReadOnlyList<ActiveSession>> GetActiveSessionsAsync(Guid cafeId, Guid? gameTemplateId)
         {
             var query = _db.ActiveSessions
@@ -180,12 +195,15 @@ namespace BoardVerse.Data.Repositories
                 }
             }
 
-            // 2. Release the board game box (if attached and still in use)
+            // 2. Release the board game box (if attached and still in use).
+            // Only flip status when box is currently InUse for this session.
+            // Preserve Lost/Maintenance/Retired/etc. — those are operational
+            // signals, not session lifecycle states.
             if (session.CafeInventoryBoxId.HasValue)
             {
                 var box = await _db.CafeInventoryBoxes
                     .FirstOrDefaultAsync(b => b.Id == session.CafeInventoryBoxId.Value);
-                if (box != null && box.Status != CafeGameInventoryStatus.Available)
+                if (box != null && box.Status == CafeGameInventoryStatus.InUse)
                 {
                     box.Status = CafeGameInventoryStatus.Available;
                     box.UpdatedAt = now;

@@ -8,6 +8,8 @@ namespace BoardVerse.Core.Entities
         public Guid CafeId { get; set; }
         public string Name { get; set; } = string.Empty;
         public int SortOrder { get; set; }
+        /// <summary>Số ghế của bàn — dùng cho API Player chọn bàn phù hợp (mobile booking flow).</summary>
+        public int SeatCount { get; set; } = 4;
         public CafeTableStatus Status { get; set; } = CafeTableStatus.Available;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? UpdatedAt { get; set; }

@@ -145,4 +145,86 @@ public class LobbyHubService : ILobbyHubService
         await _hubContext.Clients.Group(lobbyId.ToString()).SendAsync("MessagePosted", message);
         _logger.LogInformation("Broadcast MessagePosted to lobby {LobbyId} from {SenderId}", lobbyId, message.SenderId);
     }
+
+    public async Task NotifyBookingCheckedIn(Guid bookingId, DateTime checkedInAt, Guid checkedInByUserId)
+    {
+        await _hubContext.Clients.Group($"booking-{bookingId}").SendAsync("BookingCheckedIn", new
+        {
+            BookingId = bookingId,
+            CheckedInAt = checkedInAt,
+            CheckedInBy = checkedInByUserId,
+            Timestamp = DateTime.UtcNow
+        });
+        _logger.LogInformation("Broadcast BookingCheckedIn to booking {BookingId}", bookingId);
+    }
+
+    public async Task NotifyBookingCheckedOut(Guid bookingId, DateTime checkedOutAt, decimal totalAmount)
+    {
+        await _hubContext.Clients.Group($"booking-{bookingId}").SendAsync("BookingCheckedOut", new
+        {
+            BookingId = bookingId,
+            CheckedOutAt = checkedOutAt,
+            TotalAmount = totalAmount,
+            Timestamp = DateTime.UtcNow
+        });
+        _logger.LogInformation("Broadcast BookingCheckedOut to booking {BookingId}", bookingId);
+    }
+
+    public async Task NotifyBookingCancelled(Guid bookingId, Guid cancelledByUserId, string reason, string refundStatus)
+    {
+        await _hubContext.Clients.Group($"booking-{bookingId}").SendAsync("BookingCancelled", new
+        {
+            BookingId = bookingId,
+            CancelledBy = cancelledByUserId,
+            Reason = reason,
+            RefundStatus = refundStatus,
+            Timestamp = DateTime.UtcNow
+        });
+        _logger.LogInformation("Broadcast BookingCancelled to booking {BookingId}: {Reason}", bookingId, reason);
+    }
+
+    public async Task NotifyBookingNoShowMarked(Guid bookingId, IReadOnlyList<Guid> noShowMemberIds, IReadOnlyDictionary<Guid, int> karmaDeltas)
+    {
+        await _hubContext.Clients.Group($"booking-{bookingId}").SendAsync("BookingNoShowMarked", new
+        {
+            BookingId = bookingId,
+            NoShowMemberIds = noShowMemberIds,
+            KarmaDeltas = karmaDeltas,
+            Timestamp = DateTime.UtcNow
+        });
+        _logger.LogInformation("Broadcast BookingNoShowMarked to booking {BookingId}: {Count} no-shows", bookingId, noShowMemberIds.Count);
+    }
+
+    public async Task NotifyLobbyAutoCancelled(Guid lobbyId, Guid cafeId, string cafeName, DateTime? scheduledTime, string reason)
+    {
+        await _hubContext.Clients.Group(lobbyId.ToString()).SendAsync("LobbyAutoCancelled", new
+        {
+            Type = "LobbyAutoCancelled",
+            LobbyId = lobbyId,
+            CafeId = cafeId,
+            CafeName = cafeName,
+            ScheduledTime = scheduledTime,
+            Reason = reason,
+            Message = "Lobby của bạn đã bị hủy do không đủ người trước giờ hẹn.",
+            Timestamp = DateTime.UtcNow
+        });
+        _logger.LogInformation("Broadcast LobbyAutoCancelled to lobby {LobbyId}: {Reason}", lobbyId, reason);
+    }
+
+    public async Task NotifyCafePricingChanged(Guid cafeId, string cafeName, decimal oldFirstHourPrice, decimal newFirstHourPrice, DateTime effectiveDate, int affectedBookingsCount)
+    {
+        await _hubContext.Clients.Group($"cafe-{cafeId}").SendAsync("CafePricingChanged", new
+        {
+            Type = "CafePricingChanged",
+            CafeId = cafeId,
+            CafeName = cafeName,
+            OldFirstHourPrice = oldFirstHourPrice,
+            NewFirstHourPrice = newFirstHourPrice,
+            EffectiveDate = effectiveDate,
+            AffectedBookingsCount = affectedBookingsCount,
+            Timestamp = DateTime.UtcNow
+        });
+        _logger.LogInformation("Broadcast CafePricingChanged to cafe {CafeId}: {Old} -> {New}, affected {Count}",
+            cafeId, oldFirstHourPrice, newFirstHourPrice, affectedBookingsCount);
+    }
 }

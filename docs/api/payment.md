@@ -174,7 +174,7 @@ Lấy chi tiết đơn cọc theo `OrderId` (mã `BV-prefix` hiển thị trên 
 - `404` không tìm thấy đơn cọc với `OrderId` tương ứng.
 - `500` lỗi hệ thống.
 
-> **Lưu ý:** cả hai endpoint GET đều **không xác thực quyền sở hữu Player trong controller hiện tại** (chỉ check role Manager/Admin). Khi mobile Player flow cần xem đơn của mình, cần bổ sung logic check `deposit.UserId == currentUserId` trước khi trả response. Xem [booking.md](./booking.md) §"Security & Access Control" để biết chi tiết.
+> **Lưu ý (đã fix 2026-08-01):** Authz Player đã được bổ sung trong `PaymentController`. Player chỉ xem được đơn của chính mình (`deposit.UserId == currentUserId`), Manager/Admin xem tất cả. Xem [booking-payment-gaps.md](./booking-payment-gaps.md) §Task #6.
 
 ---
 

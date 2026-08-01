@@ -5,23 +5,38 @@ namespace BoardVerse.Core.DTOs.Payment;
 
 /// <summary>
 /// DTO trả về chi tiết một BookingDeposit cho client.
-/// Tách khỏi Entity để: 
+/// Tách khỏi Entity để:
 /// - Tránh lộ navigation properties không cần thiết (MasterAccount, Cafe, User, ActiveSession).
 /// - Dễ thêm/sửa field cho mobile mà không ảnh hưởng entity.
 /// - Ổn định contract API khi schema database thay đổi.
+/// Theo mobile gap #11, bổ sung thêm:
+///   - BookingId (resolve từ depositId để navigate).
+///   - CafeName (hiển thị trên PaymentPage).
+///   - StatusText (mobile polling cần status ở dạng string).
+///   - Currency (mặc định "VND").
 /// </summary>
 public class BookingDepositResponseDto
 {
     public Guid Id { get; set; }
     public string OrderId { get; set; } = string.Empty;
     public Guid? ActiveSessionId { get; set; }
+
+    /// <summary>Mobile gap #11: BookingId liên kết (null nếu là walk-in deposit).</summary>
+    public Guid? BookingId { get; set; }
+
     public Guid UserId { get; set; }
     public Guid CafeId { get; set; }
+    /// <summary>Mobile gap #11: Tên quán để hiển thị trên PaymentPage.</summary>
+    public string? CafeName { get; set; }
+
     public Guid CafeManagerId { get; set; }
     public decimal Amount { get; set; }
     public decimal? RefundedAmount { get; set; }
     public DepositRefundPolicy RefundPolicy { get; set; }
     public BookingDepositStatus Status { get; set; }
+    /// <summary>Mobile gap #11: Status dạng string (Pending/Paid/Expired/Refunded/Forfeited/Released).</summary>
+    public string StatusText => Status.ToString();
+
     public string? TransferContent { get; set; }
     public string? SePayTransactionId { get; set; }
     public DateTime? PaidAt { get; set; }
@@ -34,13 +49,18 @@ public class BookingDepositResponseDto
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 
+    /// <summary>Mobile gap #11: Mã tiền tệ. Mặc định "VND".</summary>
+    public string Currency { get; set; } = "VND";
+
     public static BookingDepositResponseDto FromEntity(BookingDeposit entity, decimal? refundedAmount = null) => new()
     {
         Id = entity.Id,
         OrderId = entity.OrderId,
         ActiveSessionId = entity.ActiveSessionId,
+        BookingId = entity.BookingId,
         UserId = entity.UserId,
         CafeId = entity.CafeId,
+        CafeName = entity.Cafe?.Name,
         CafeManagerId = entity.CafeManagerId,
         Amount = entity.Amount,
         RefundedAmount = refundedAmount,
@@ -56,6 +76,7 @@ public class BookingDepositResponseDto
         QrExpiresAt = entity.QrExpiresAt,
         ScheduledAt = entity.ScheduledAt,
         CreatedAt = entity.CreatedAt,
-        UpdatedAt = entity.UpdatedAt
+        UpdatedAt = entity.UpdatedAt,
+        Currency = "VND"
     };
 }

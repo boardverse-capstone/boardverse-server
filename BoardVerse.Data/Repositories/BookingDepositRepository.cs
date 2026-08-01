@@ -19,6 +19,7 @@ namespace BoardVerse.Data.Repositories
         {
             return await _db.BookingDeposits
                 .Include(d => d.MasterAccount)
+                .Include(d => d.Cafe)
                 .FirstOrDefaultAsync(d => d.Id == depositId);
         }
 
@@ -26,6 +27,7 @@ namespace BoardVerse.Data.Repositories
         {
             return await _db.BookingDeposits
                 .Include(d => d.MasterAccount)
+                .Include(d => d.Cafe)
                 .FirstOrDefaultAsync(d => d.OrderId == orderId);
         }
 
@@ -36,6 +38,7 @@ namespace BoardVerse.Data.Repositories
         {
             return await _db.BookingDeposits
                 .Include(d => d.MasterAccount)
+                .Include(d => d.Cafe)
                 .FirstOrDefaultAsync(d => d.OrderId == bookingCode);
         }
 

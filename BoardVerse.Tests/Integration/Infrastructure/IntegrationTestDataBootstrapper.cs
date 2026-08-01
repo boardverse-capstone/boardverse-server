@@ -698,6 +698,10 @@ internal static class IntegrationTestDataBootstrapper
 
         if (lobby == null)
         {
+            // Pick a ShareCode that is unique in the DB. The 8-char GUID prefix
+            // can collide with stale lobbies from previous test runs that survived
+            // DB resets. Generate candidates until one is free.
+            var shareCode = await GenerateUniqueShareCodeAsync(db, lobbyId);
             lobby = new Lobby
             {
                 Id = lobbyId,
@@ -707,7 +711,7 @@ internal static class IntegrationTestDataBootstrapper
                 UpdatedAt = now,
                 Members = [],
                 HostUserId = hostUserId ?? memberUserIds.FirstOrDefault(),
-                ShareCode = lobbyId.ToString("N")[..8].ToUpperInvariant()
+                ShareCode = shareCode
             };
             db.Lobbies.Add(lobby);
         }
@@ -763,6 +767,32 @@ internal static class IntegrationTestDataBootstrapper
             return true;
         }
         return ex.InnerException?.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase) == true;
+    }
+
+    /// <summary>
+    /// Generate a ShareCode that doesn't collide with any existing lobby in DB.
+    /// Tries the natural GUID-derived code first, then appends a suffix until free.
+    /// </summary>
+    private static async Task<string> GenerateUniqueShareCodeAsync(BoardVerseDbContext db, Guid lobbyId)
+    {
+        var baseCode = lobbyId.ToString("N")[..8].ToUpperInvariant();
+        if (!await db.Lobbies.AnyAsync(l => l.ShareCode == baseCode))
+        {
+            return baseCode;
+        }
+
+        // Suffix candidates. 4 attempts max — should be plenty in test env.
+        for (var attempt = 1; attempt <= 4; attempt++)
+        {
+            var candidate = $"{baseCode[..6]}{attempt:X1}";
+            if (!await db.Lobbies.AnyAsync(l => l.ShareCode == candidate))
+            {
+                return candidate;
+            }
+        }
+
+        // Fallback: random suffix
+        return $"{baseCode[..4]}{Guid.NewGuid().ToString("N")[..4].ToUpperInvariant()}";
     }
 
     private static async Task ResetPosSessionStateAsync(BoardVerseDbContext db)

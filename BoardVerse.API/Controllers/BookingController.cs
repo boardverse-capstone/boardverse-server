@@ -77,6 +77,29 @@ public class BookingController : BaseApiController
     }
 
     /// <summary>
+    /// Lấy realtime session status cho booking — chỉ member của lobby hoặc deposit owner (walk-in).
+    /// Mobile task #8: trả về ActiveSession + members + estimated bill để hiển thị cho member khi Staff partial-checkout.
+    /// [Role: Player — chỉ member lobby đã check-in; Manager/Admin.]
+    /// </summary>
+    /// <param name="bookingId">Mã booking.</param>
+    /// <response code="200">Trả về ActiveSession status và danh sách member (kèm partial bill nếu có).</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải member của booking.</response>
+    /// <response code="404">Không tìm thấy booking.</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpGet("{bookingId:guid}/session-status")]
+    [ProducesResponseType(typeof(BookingSessionStatusResponseDto), 200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(typeof(object), 403)]
+    [ProducesResponseType(typeof(object), 404)]
+    public async Task<IActionResult> GetSessionStatus(Guid bookingId)
+    {
+        var userId = GetUserIdFromClaims();
+        var status = await _bookingService.GetSessionStatusAsync(bookingId, userId);
+        return NewResponse(200, "Lấy session status thành công.", status);
+    }
+
+    /// <summary>
     /// Lấy booking liên kết với lobby.
     /// [Role: Player — chỉ member của lobby; Manager, Admin.]
     /// </summary>
@@ -95,20 +118,40 @@ public class BookingController : BaseApiController
 
     /// <summary>
     /// Lấy danh sách booking của cafe (theo ngày).
-    /// [Role: Manager, CafeStaff — của cafe này; Admin — xem tất cả.]
+    /// Manager/CafeStaff/Admin: xem full BookingResponseDto.
+    /// Player: xem BookingCafeSummaryDto (rút gọn, không lộ QR/paymentRef/memberIds) — task #14.
     /// </summary>
     /// <param name="cafeId">Mã cafe.</param>
     /// <response code="200">Lấy danh sách booking thành công.</response>
     /// <response code="401">Thiếu token.</response>
     /// <response code="500">Lỗi hệ thống.</response>
     [HttpGet("cafe/{cafeId:guid}")]
-    [Authorize(Roles = "Manager,CafeStaff,Admin")]
     [ProducesResponseType(typeof(List<BookingResponseDto>), 200)]
+    [ProducesResponseType(typeof(List<BookingCafeSummaryDto>), 200)]
     [ProducesResponseType(401)]
     public async Task<IActionResult> GetBookingsByCafe(Guid cafeId)
     {
-        var bookings = await _bookingService.GetByCafeIdAsync(cafeId, GetUserIdFromClaims());
-        return NewResponse(200, "Lấy danh sách booking của quán thành công.", bookings);
+        var userId = GetUserIdFromClaims();
+        var isStaffOrManager = User.IsInRole("Manager") || User.IsInRole("CafeStaff") || User.IsInRole("Admin");
+
+        var bookings = await _bookingService.GetByCafeIdAsync(cafeId, userId);
+
+        if (isStaffOrManager)
+        {
+            return NewResponse(200, "Lấy danh sách booking của quán thành công.", bookings);
+        }
+
+        // Player view: rút gọn — không lộ verificationQRCode/paymentRef/memberIds
+        var summary = bookings.Select(b => new BookingCafeSummaryDto
+        {
+            Id = b.Id,
+            ScheduledStartTime = b.ScheduledStartTime,
+            ScheduleEndTime = b.ScheduleEndTime,
+            PlayerQuantity = b.PlayerQuantity,
+            Status = b.StatusText ?? b.Status.ToString()
+        }).ToList();
+
+        return NewResponse(200, "Lấy danh sách booking của quán thành công.", summary);
     }
 
     /// <summary>

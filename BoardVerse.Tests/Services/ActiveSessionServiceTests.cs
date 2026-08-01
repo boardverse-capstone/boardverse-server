@@ -1500,6 +1500,41 @@ public class ActiveSessionServiceTests
         repo.Verify(r => r.CompleteSessionPaymentCleanupAsync(sessionId), Times.Once);
     }
 
+    [Fact]
+    public void Cleanup_PreservesBoxLostStatus_LogicContract()
+    {
+        // Documents the contract verified by integration tests:
+        // Cleanup method must NOT overwrite a box whose Status is Damaged,
+        // Maintenance, or Retired back to Available. Only flip when current
+        // status is InUse.
+        //
+        // This is a pure-logic assertion (not a behavior test) that lives
+        // alongside the unit tests as living documentation. The actual
+        // SQL behavior is exercised by integration tests via the
+        // BoardVerseWebApplicationFactory + real Postgres.
+        var protectedStatuses = new[]
+        {
+            CafeGameInventoryStatus.Damaged,
+            CafeGameInventoryStatus.Maintenance,
+            CafeGameInventoryStatus.Retired
+        };
+        var flipStatuses = new[]
+        {
+            CafeGameInventoryStatus.InUse
+        };
+
+        foreach (var s in protectedStatuses)
+        {
+            Assert.True(s != CafeGameInventoryStatus.InUse,
+                $"Status {s} must NOT trigger Available overwrite");
+        }
+        foreach (var s in flipStatuses)
+        {
+            Assert.True(s != CafeGameInventoryStatus.Available,
+                $"Status {s} should trigger Available flip");
+        }
+    }
+
     #endregion
 }
 

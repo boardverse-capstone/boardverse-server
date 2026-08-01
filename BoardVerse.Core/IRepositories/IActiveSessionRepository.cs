@@ -7,6 +7,7 @@ namespace BoardVerse.Core.IRepositories
     {
         Task<ActiveSession?> GetByIdAsync(Guid sessionId);
         Task<ActiveSession?> GetByIdWithMembersAsync(Guid sessionId);
+        Task<ActiveSession?> GetByLobbyIdWithMembersAsync(Guid lobbyId);
         Task<IReadOnlyList<ActiveSession>> GetActiveSessionsAsync(Guid cafeId, Guid? gameTemplateId);
         /// <summary>Returns all non-Paid sessions for seat calculation.</summary>
         Task<int> CountActiveSessionMembersAsync(Guid cafeId);

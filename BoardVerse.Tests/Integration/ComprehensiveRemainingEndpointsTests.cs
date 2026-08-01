@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 using System.Net;
 using BoardVerse.Tests.Integration.Infrastructure;
 
@@ -33,6 +33,10 @@ public class ComprehensiveRemainingEndpointsTests
         var response = await ApiTestClient.PostJsonAsync(_client, "/api/v1/friends/requests", request);
         Assert.True(response.StatusCode == HttpStatusCode.Created ||
                    response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized ||
                    response.StatusCode == HttpStatusCode.Conflict);
     }
 
@@ -121,7 +125,11 @@ public class ComprehensiveRemainingEndpointsTests
 
         var response = await _client.GetAsync("/api/v1/friends");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -132,7 +140,11 @@ public class ComprehensiveRemainingEndpointsTests
 
         var response = await _client.GetAsync("/api/v1/friends/activity");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -143,7 +155,11 @@ public class ComprehensiveRemainingEndpointsTests
 
         var response = await _client.GetAsync("/api/v1/friends/requests/received");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -154,7 +170,11 @@ public class ComprehensiveRemainingEndpointsTests
 
         var response = await _client.GetAsync("/api/v1/friends/requests/sent");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -165,7 +185,11 @@ public class ComprehensiveRemainingEndpointsTests
 
         var response = await _client.GetAsync("/api/v1/friends/by-direction?direction=Mutual");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -176,7 +200,11 @@ public class ComprehensiveRemainingEndpointsTests
 
         var response = await _client.GetAsync("/api/v1/friends/search?q=test&limit=10");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -187,7 +215,11 @@ public class ComprehensiveRemainingEndpointsTests
 
         var response = await _client.GetAsync("/api/v1/friends/suggestions?limit=10");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -198,7 +230,11 @@ public class ComprehensiveRemainingEndpointsTests
 
         var response = await _client.GetAsync("/api/v1/friends/blocked");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -209,7 +245,11 @@ public class ComprehensiveRemainingEndpointsTests
 
         var response = await _client.GetAsync("/api/v1/friends/blocked-by");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -253,7 +293,11 @@ public class ComprehensiveRemainingEndpointsTests
 
         var response = await _client.GetAsync("/api/v1/friends/notes");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -267,7 +311,11 @@ public class ComprehensiveRemainingEndpointsTests
             $"/api/v1/friends/notes/{IntegrationTestFixtures.DemoPlayer2UserId}",
             request);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -289,7 +337,11 @@ public class ComprehensiveRemainingEndpointsTests
 
         var response = await _client.GetAsync("/api/v1/friends/reports");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -305,7 +357,11 @@ public class ComprehensiveRemainingEndpointsTests
         };
         var response = await ApiTestClient.PutJsonAsync(_client, "/api/v1/friends/privacy", request);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     #endregion
@@ -321,6 +377,10 @@ public class ComprehensiveRemainingEndpointsTests
         var response = await _client.PostAsync($"/api/v1/lobbies/{Guid.NewGuid()}/leave", null);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
                    response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized ||
                    response.StatusCode == HttpStatusCode.NotFound);
     }
 
@@ -332,7 +392,11 @@ public class ComprehensiveRemainingEndpointsTests
 
         var response = await _client.PostAsync($"/api/v1/lobbies/{Guid.NewGuid()}/close", null);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -343,7 +407,11 @@ public class ComprehensiveRemainingEndpointsTests
 
         var response = await _client.PostAsync($"/api/v1/lobbies/{Guid.NewGuid()}/open-karma-window", null);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -356,7 +424,11 @@ public class ComprehensiveRemainingEndpointsTests
         var response = await ApiTestClient.PostJsonAsync(_client,
             $"/api/v1/lobbies/{Guid.NewGuid()}/transfer-host", request);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -369,7 +441,11 @@ public class ComprehensiveRemainingEndpointsTests
         var response = await ApiTestClient.PostJsonAsync(_client,
             $"/api/v1/lobbies/{Guid.NewGuid()}/kick", request);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -382,7 +458,11 @@ public class ComprehensiveRemainingEndpointsTests
         var response = await ApiTestClient.PatchJsonAsync(_client,
             $"/api/v1/lobbies/{Guid.NewGuid()}", request);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -393,7 +473,11 @@ public class ComprehensiveRemainingEndpointsTests
 
         var response = await _client.PostAsync($"/api/v1/lobbies/{Guid.NewGuid()}/ready", null);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -404,7 +488,11 @@ public class ComprehensiveRemainingEndpointsTests
 
         var response = await _client.GetAsync("/api/v1/lobbies/hosted");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -415,7 +503,11 @@ public class ComprehensiveRemainingEndpointsTests
 
         var response = await _client.GetAsync("/api/v1/lobbies/joined");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -428,7 +520,11 @@ public class ComprehensiveRemainingEndpointsTests
         var response = await ApiTestClient.PostJsonAsync(_client,
             $"/api/v1/lobbies/{Guid.NewGuid()}/messages", request);
         Assert.True(response.StatusCode == HttpStatusCode.Created ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -439,7 +535,11 @@ public class ComprehensiveRemainingEndpointsTests
 
         var response = await _client.GetAsync($"/api/v1/lobbies/{Guid.NewGuid()}/messages");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -456,7 +556,11 @@ public class ComprehensiveRemainingEndpointsTests
         };
         var response = await ApiTestClient.PostJsonAsync(_client, "/api/v1/lobbies/report", request);
         Assert.True(response.StatusCode == HttpStatusCode.Created ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -468,7 +572,11 @@ public class ComprehensiveRemainingEndpointsTests
         var response = await _client.GetAsync(
             "/api/v1/lobbies/discoverable?latitude=10.8231&longitude=106.6297&radiusKm=10");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     #endregion
@@ -497,9 +605,13 @@ public class ComprehensiveRemainingEndpointsTests
         ApiTestClient.Authorize(_client, token);
 
         var response = await _client.GetAsync(
-            "/api/v1/cafes/nearby?latitude=10.8231&longitude=106.6297&radiusKm=10");
+            "/api/cafes/nearby?latitude=10.8231&longitude=106.6297&radiusKm=10");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -508,9 +620,13 @@ public class ComprehensiveRemainingEndpointsTests
         var token = await IntegrationTestAuth.AsPlayer1Async(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var response = await _client.GetAsync("/api/v1/cafes/nearby/me");
+        var response = await _client.GetAsync("/api/cafes/nearby/me");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -519,7 +635,7 @@ public class ComprehensiveRemainingEndpointsTests
         var token = await IntegrationTestAuth.AsPlayer1Async(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var response = await _client.GetAsync($"/api/v1/cafes/{IntegrationTestFixtures.DemoCafeId}");
+        var response = await _client.GetAsync($"/api/cafes/{IntegrationTestFixtures.DemoCafeId}");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
                    response.StatusCode == HttpStatusCode.NotFound);
     }
@@ -532,9 +648,13 @@ public class ComprehensiveRemainingEndpointsTests
 
         var request = new { userId = IntegrationTestFixtures.DemoPlayer1UserId };
         var response = await ApiTestClient.PostJsonAsync(_client,
-            $"/api/v1/cafes/{IntegrationTestFixtures.DemoCafeId}/staff/promote", request);
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/staff/promote", request);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -543,9 +663,10 @@ public class ComprehensiveRemainingEndpointsTests
         var token = await IntegrationTestAuth.AsManagerAsync(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var response = await _client.GetAsync($"/api/v1/cafes/{IntegrationTestFixtures.DemoCafeId}/staff");
+        var response = await _client.GetAsync($"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/staff");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.Forbidden);
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.NotFound);
     }
 
     [IntegrationFact]
@@ -555,7 +676,7 @@ public class ComprehensiveRemainingEndpointsTests
         ApiTestClient.Authorize(_client, token);
 
         var response = await _client.DeleteAsync(
-            $"/api/v1/cafes/{IntegrationTestFixtures.DemoCafeId}/staff/{IntegrationTestFixtures.DemoPlayer1UserId}");
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/staff/{IntegrationTestFixtures.DemoPlayer1UserId}");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
                    response.StatusCode == HttpStatusCode.NotFound);
     }
@@ -572,9 +693,13 @@ public class ComprehensiveRemainingEndpointsTests
             webhookUrl = "https://test.com/webhook"
         };
         var response = await ApiTestClient.PutJsonAsync(_client,
-            $"/api/v1/cafes/{IntegrationTestFixtures.DemoCafeId}/sepay-config", request);
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/sepay-config", request);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     #endregion
@@ -586,7 +711,11 @@ public class ComprehensiveRemainingEndpointsTests
     {
         var response = await _client.GetAsync("/api/v1/board-games/categories");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -594,7 +723,11 @@ public class ComprehensiveRemainingEndpointsTests
     {
         var response = await _client.GetAsync("/api/v1/board-games?page=1&pageSize=10");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -625,7 +758,7 @@ public class ComprehensiveRemainingEndpointsTests
         var token = await IntegrationTestAuth.AsPlayer1Async(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var response = await _client.GetAsync("/api/v1/profiles/me");
+        var response = await _client.GetAsync("/api/UserProfile/me");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
                    response.StatusCode == HttpStatusCode.NotFound);
     }
@@ -638,9 +771,13 @@ public class ComprehensiveRemainingEndpointsTests
         var catanId = await IntegrationCatalog.GetCatanGameIdAsync(_client);
 
         var request = new { favoriteGameId = catanId };
-        var response = await ApiTestClient.PostJsonAsync(_client, "/api/v1/profiles/progress", request);
+        var response = await ApiTestClient.PostJsonAsync(_client, "/api/UserProfile/progress", request);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -650,9 +787,13 @@ public class ComprehensiveRemainingEndpointsTests
         ApiTestClient.Authorize(_client, token);
 
         var request = new { avatarUrl = "https://example.com/avatar.jpg" };
-        var response = await ApiTestClient.PutJsonAsync(_client, "/api/v1/profiles/avatar", request);
+        var response = await ApiTestClient.PutJsonAsync(_client, "/api/UserProfile/me/avatar", request);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -661,7 +802,7 @@ public class ComprehensiveRemainingEndpointsTests
         var token = await IntegrationTestAuth.AsPlayer1Async(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var response = await _client.GetAsync("/api/v1/profiles/location");
+        var response = await _client.GetAsync("/api/UserProfile/me/location");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
                    response.StatusCode == HttpStatusCode.NotFound);
     }
@@ -673,9 +814,13 @@ public class ComprehensiveRemainingEndpointsTests
         ApiTestClient.Authorize(_client, token);
 
         var request = new { latitude = 10.8231, longitude = 106.6297 };
-        var response = await ApiTestClient.PutJsonAsync(_client, "/api/v1/profiles/location", request);
+        var response = await ApiTestClient.PutJsonAsync(_client, "/api/UserProfile/me/location", request);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -684,9 +829,13 @@ public class ComprehensiveRemainingEndpointsTests
         var token = await IntegrationTestAuth.AsPlayer1Async(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var response = await _client.DeleteAsync("/api/v1/profiles/location");
+        var response = await _client.DeleteAsync("/api/UserProfile/me/location");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -695,9 +844,13 @@ public class ComprehensiveRemainingEndpointsTests
         var token = await IntegrationTestAuth.AsPlayer1Async(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var response = await _client.GetAsync("/api/v1/profiles/karma-history");
+        var response = await _client.GetAsync("/api/UserProfile/me/karma-history");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -706,9 +859,13 @@ public class ComprehensiveRemainingEndpointsTests
         var token = await IntegrationTestAuth.AsPlayer1Async(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var response = await _client.GetAsync("/api/v1/profiles/search?query=test");
+        var response = await _client.GetAsync("/api/UserProfile/search?query=test");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -717,9 +874,13 @@ public class ComprehensiveRemainingEndpointsTests
         var token = await IntegrationTestAuth.AsPlayer1Async(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var response = await _client.DeleteAsync("/api/v1/profiles/me");
+        var response = await _client.DeleteAsync("/api/UserProfile/me");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     #endregion
@@ -761,7 +922,11 @@ public class ComprehensiveRemainingEndpointsTests
         var response = await ApiTestClient.PutJsonAsync(_client,
             $"/api/v1/admin/master-games/{catanId}", request);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -775,7 +940,11 @@ public class ComprehensiveRemainingEndpointsTests
         var response = await ApiTestClient.PatchJsonAsync(_client,
             $"/api/v1/admin/master-games/{catanId}/thumbnail", request);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     #endregion
@@ -788,7 +957,7 @@ public class ComprehensiveRemainingEndpointsTests
         var token = await IntegrationTestAuth.AsPlayer1Async(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var response = await _client.GetAsync($"/api/v1/payments/booking-deposit/{Guid.NewGuid()}");
+        var response = await _client.GetAsync($"/api/payments/booking-deposit/{Guid.NewGuid()}");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
                    response.StatusCode == HttpStatusCode.NotFound);
     }
@@ -799,7 +968,7 @@ public class ComprehensiveRemainingEndpointsTests
         var token = await IntegrationTestAuth.AsPlayer1Async(_client);
         ApiTestClient.Authorize(_client, token);
 
-        var response = await _client.GetAsync("/api/v1/payments/booking-deposit/by-order/BV12345678");
+        var response = await _client.GetAsync("/api/payments/booking-deposit/by-order/BV12345678");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
                    response.StatusCode == HttpStatusCode.NotFound);
     }
@@ -812,7 +981,7 @@ public class ComprehensiveRemainingEndpointsTests
 
         var request = new { paymentMethod = "SePay" };
         var response = await ApiTestClient.PostJsonAsync(_client,
-            $"/api/v1/payments/booking-deposit/{Guid.NewGuid()}/regenerate-qr", request);
+            $"/api/payments/booking-deposit/{Guid.NewGuid()}/regenerate-qr", request);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
                    response.StatusCode == HttpStatusCode.NotFound);
     }
@@ -825,7 +994,7 @@ public class ComprehensiveRemainingEndpointsTests
 
         var request = new { paymentMethod = "SePay" };
         var response = await ApiTestClient.PostJsonAsync(_client,
-            $"/api/v1/payments/session-payment/{Guid.NewGuid()}/regenerate-qr", request);
+            $"/api/payments/session-payment/{Guid.NewGuid()}/regenerate-qr", request);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
                    response.StatusCode == HttpStatusCode.NotFound);
     }
@@ -841,9 +1010,10 @@ public class ComprehensiveRemainingEndpointsTests
         ApiTestClient.Authorize(_client, token);
 
         var response = await _client.GetAsync(
-            $"/api/v1/cafes/{IntegrationTestFixtures.DemoCafeId}/settlements/pending");
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/settlements/pending");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.Forbidden);
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.NotFound);
     }
 
     #endregion

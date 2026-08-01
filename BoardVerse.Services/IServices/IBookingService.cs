@@ -57,4 +57,11 @@ public interface IBookingService
     /// Đánh dấu NoShow khi khách không đến sau buffer time.
     /// </summary>
     Task<Booking> MarkAsNoShowAsync(Guid bookingId);
+
+    /// <summary>
+    /// Mobile task #8: GET /api/bookings/{id}/session-status
+    /// Trả về ActiveSession realtime status (ActiveSession + members) cho member lobby xem.
+    /// BR-12: Trả về bill về sớm của member nào đã partial-checkout.
+    /// </summary>
+    Task<BookingSessionStatusResponseDto> GetSessionStatusAsync(Guid bookingId, Guid requestingUserId);
 }

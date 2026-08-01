@@ -38,7 +38,10 @@ public class PaymentController : BaseApiController
 
     /// <summary>
     /// Lấy chi tiết đơn cọc theo ID. Dùng để mobile polling trạng thái sau khi tạo.
-    /// [Role: Manager — chỉ xem được đơn thuộc quán của mình; Admin — xem tất cả.]
+    /// [Role: Player — chỉ xem được đơn của mình (deposit.UserId == currentUserId);
+    ///        Manager — chỉ xem được đơn thuộc quán của mình;
+    ///        Admin — xem tất cả.]
+    /// Theo mobile gap #6.
     /// </summary>
     /// <param name="depositId">Mã định danh đơn cọc.</param>
     /// <response code="200">Lấy chi tiết đơn cọc thành công.</response>
@@ -47,21 +50,29 @@ public class PaymentController : BaseApiController
     /// <response code="404">Không tìm thấy đơn cọc.</response>
     /// <response code="500">Lỗi hệ thống.</response>
     [HttpGet("booking-deposit/{depositId:guid}")]
-    [Authorize(Roles = "Manager,Admin")]
+    [Authorize(Roles = "Manager,Admin,Player")]
     public async Task<IActionResult> GetDepositById(Guid depositId)
     {
         var deposit = await _depositService.GetByIdAsync(depositId)
             ?? throw new NotFoundException($"Không tìm thấy đơn cọc với ID: {depositId}");
 
-        // P2 Fix #14: Validate cafe ownership - Admin có thể xem tất cả, Manager chỉ xem đơn thuộc quán của mình
+        var userId = GetUserIdFromClaims();
         var userRole = User.FindFirst(ClaimTypes.Role)?.Value;
-        if (userRole != "Admin")
+
+        // P2 Fix #14 + mobile gap #6: AuthZ theo role.
+        // Admin: xem tất cả.
+        // Manager: chỉ đơn thuộc quán của mình (deposit.CafeManagerId == userId).
+        // Player: chỉ đơn của chính mình (deposit.UserId == currentUserId).
+        bool authorized = userRole switch
         {
-            var userId = GetUserIdFromClaims();
-            if (deposit.CafeManagerId != userId)
-            {
-                throw new ForbiddenException("Bạn không có quyền xem đơn cọc này.");
-            }
+            "Admin" => true,
+            "Manager" => deposit.CafeManagerId == userId,
+            "Player" => deposit.UserId == userId,
+            _ => false
+        };
+        if (!authorized)
+        {
+            throw new ForbiddenException("Bạn không có quyền xem đơn cọc này.");
         }
 
         var response = BookingDepositResponseDto.FromEntity(deposit);
@@ -71,7 +82,8 @@ public class PaymentController : BaseApiController
     /// <summary>
     /// Lấy chi tiết đơn cọc theo mã đặt chỗ (OrderId / BookingCode).
     /// Dùng khi khách cung cấp mã đặt chỗ (trên app hoặc để debug).
-    /// [Role: Player — chỉ xem được đơn của mình; Manager, Admin — xem tất cả.]
+    /// [Role: Player — chỉ đơn của mình; Manager — đơn thuộc quán của mình; Admin — xem tất cả.]
+    /// Mobile gap #6.
     /// </summary>
     /// <param name="orderId">Mã đặt chỗ (OrderId).</param>
     /// <response code="200">Lấy chi tiết đơn cọc thành công.</response>
@@ -80,11 +92,25 @@ public class PaymentController : BaseApiController
     /// <response code="404">Không tìm thấy đơn cọc.</response>
     /// <response code="500">Lỗi hệ thống.</response>
     [HttpGet("booking-deposit/by-order/{orderId}")]
-    [Authorize(Roles = "Manager,Admin")]
+    [Authorize(Roles = "Manager,Admin,Player")]
     public async Task<IActionResult> GetDepositByOrderId(string orderId)
     {
         var deposit = await _depositService.GetByOrderIdAsync(orderId.Trim())
             ?? throw new NotFoundException($"Không tìm thấy đơn cọc với mã đặt chỗ: {orderId}");
+
+        var userId = GetUserIdFromClaims();
+        var userRole = User.FindFirst(ClaimTypes.Role)?.Value;
+        bool authorized = userRole switch
+        {
+            "Admin" => true,
+            "Manager" => deposit.CafeManagerId == userId,
+            "Player" => deposit.UserId == userId,
+            _ => false
+        };
+        if (!authorized)
+        {
+            throw new ForbiddenException("Bạn không có quyền xem đơn cọc này.");
+        }
 
         var response = BookingDepositResponseDto.FromEntity(deposit);
         return this.NewResponse(200, "Lấy chi tiết đơn cọc thành công.", response);

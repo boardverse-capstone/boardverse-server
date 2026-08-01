@@ -52,6 +52,46 @@ public class LobbyHub : Hub
             userId, latitude, longitude, radiusKm);
     }
 
+    /// <summary>
+    /// Subscribe to booking events real-time.
+    /// Mobile app gọi khi mở BookingDetailPage để nhận 4 events:
+    /// BookingCheckedIn, BookingCheckedOut, BookingCancelled, BookingNoShowMarked.
+    /// </summary>
+    public async Task JoinBookingGroup(Guid bookingId)
+    {
+        await Groups.AddToGroupAsync(Context.ConnectionId, $"booking-{bookingId}");
+        _logger.LogInformation("User {UserId} joined SignalR group for booking {BookingId}",
+            Context.UserIdentifier, bookingId);
+    }
+
+    /// <summary>
+    /// Unsubscribe khi đóng BookingDetailPage.
+    /// </summary>
+    public async Task LeaveBookingGroup(Guid bookingId)
+    {
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"booking-{bookingId}");
+        _logger.LogInformation("User {UserId} left SignalR group for booking {BookingId}",
+            Context.UserIdentifier, bookingId);
+    }
+
+    /// <summary>
+    /// Subscribe to cafe events (task #13: CafePricingChanged).
+    /// Mobile app gọi khi mở CafeDetailPage để nhận realtime push khi manager đổi giá.
+    /// </summary>
+    public async Task JoinCafeGroup(Guid cafeId)
+    {
+        await Groups.AddToGroupAsync(Context.ConnectionId, $"cafe-{cafeId}");
+        _logger.LogInformation("User {UserId} joined SignalR group for cafe {CafeId}",
+            Context.UserIdentifier, cafeId);
+    }
+
+    public async Task LeaveCafeGroup(Guid cafeId)
+    {
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"cafe-{cafeId}");
+        _logger.LogInformation("User {UserId} left SignalR group for cafe {CafeId}",
+            Context.UserIdentifier, cafeId);
+    }
+
     public override async Task OnConnectedAsync()
     {
         var userId = Context.UserIdentifier ?? "anonymous";

@@ -8,6 +8,7 @@ using Npgsql;
 using BoardVerse.Services.Extensions;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
+using BoardVerse.Services.Services.Notifications;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -75,6 +76,23 @@ var securityKey = jwtSettings["SecurityKey"] ?? throw new InvalidOperationExcept
 var validIssuer = jwtSettings["ValidIssuer"] ?? throw new InvalidOperationException("JwtSettings:ValidIssuer not configured");
 var validAudience = jwtSettings["ValidAudience"] ?? throw new InvalidOperationException("JwtSettings:ValidAudience not configured");
 
+// Firebase settings — allow override via env FIREBASE_CREDENTIALS_JSON (production).
+// Override pattern keeps credentials.json out of source control.
+// Production runtime (Render) sets:
+//   FIREBASE__ENABLED = true
+//   FIREBASE__CREDENTIALS_JSON = "<full JSON content as one line>"
+// ASP.NET Core env var binding uses "__" as section separator.
+var firebaseCredentialsFromEnv = Environment.GetEnvironmentVariable("FIREBASE_CREDENTIALS_JSON");
+builder.Services.Configure<FirebaseSettings>(options =>
+{
+    var section = builder.Configuration.GetSection(FirebaseSettings.SectionName);
+    section.Bind(options);
+    if (!string.IsNullOrWhiteSpace(firebaseCredentialsFromEnv))
+    {
+        options.CredentialsJson = firebaseCredentialsFromEnv;
+    }
+});
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -130,6 +148,10 @@ builder.Services.AddScoped<IBookingRepository, BookingRepository>();
 builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
 builder.Services.AddScoped<ICafeSettlementRepository, CafeSettlementRepository>();
 builder.Services.AddScoped<ISettlementService, SettlementService>();
+builder.Services.AddScoped<IBookingNoShowVoteRepository, BookingNoShowVoteRepository>();
+builder.Services.AddScoped<IBookingRatingRepository, BookingRatingRepository>();
+builder.Services.AddScoped<ICafeBookingService, CafeBookingService>();
+builder.Services.AddScoped<IBookingRatingService, BookingRatingService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserProfileService, UserProfileService>();
@@ -167,6 +189,9 @@ builder.Services.AddScoped<IFriendReportService, FriendReportService>();
 builder.Services.AddScoped<ILobbyInviteService, LobbyInviteService>();
 builder.Services.AddScoped<ILobbyMessageRepository, LobbyMessageRepository>();
 builder.Services.AddScoped<ILobbyMessageService, LobbyMessageService>();
+builder.Services.AddScoped<IDeviceTokenRepository, DeviceTokenRepository>();
+builder.Services.AddScoped<IDeviceTokenService, DeviceTokenService>();
+builder.Services.AddScoped<IPushNotificationService, FcmPushNotificationService>();
 
 // Background Jobs for Lobby expiration — skip in Testing env (KarmaWindowJob interferes with integration tests)
 if (!builder.Environment.IsEnvironment("Testing"))
@@ -280,6 +305,17 @@ app.Logger.LogInformation(
     !string.IsNullOrWhiteSpace(brevoSection["ApiKey"]),
     string.IsNullOrWhiteSpace(brevoSection["SenderEmail"]) ? "(missing)" : brevoSection["SenderEmail"],
     string.IsNullOrWhiteSpace(brevoSection["ApiBaseUrl"]) ? "https://api.brevo.com (default)" : brevoSection["ApiBaseUrl"]);
+
+var firebaseSection = app.Configuration.GetSection(FirebaseSettings.SectionName);
+var firebaseEnabled = firebaseSection.GetValue<bool>("Enabled");
+var firebaseCredentialsSet =
+    !string.IsNullOrWhiteSpace(firebaseSection["CredentialsJson"])
+    || !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("FIREBASE_CREDENTIALS_JSON"));
+app.Logger.LogInformation(
+    "Firebase (FCM) startup: Enabled={Enabled}, ProjectId={ProjectId}, CredentialsSet={CredentialsSet}",
+    firebaseEnabled,
+    string.IsNullOrWhiteSpace(firebaseSection["ProjectId"]) ? "(missing)" : firebaseSection["ProjectId"],
+    firebaseCredentialsSet);
 
 // Configure the HTTP request pipeline.
 var renderPort = Environment.GetEnvironmentVariable("PORT");

@@ -25,4 +25,22 @@ BoardVerse.Tests/appsettings.Testing.json
 *.sql
 *.mdc
 
+# Firebase service account JSON - contains private keys, NEVER commit
+**/*firebase-adminsdk-*.json
+**/*-firebase-*.json
+*firebase-adminsdk*.json
+*.csx
 
+BoardVerse.API/appsettings.Production.json
+failed-test-names.txt
+sqlfix_gametemplates.py
+ApplyMigration/apply-prod-output.txt
+ApplyMigration/ApplyMigration.csproj
+ApplyMigration/diag-prod.txt
+ApplyMigration/Program.cs
+BoardVerse.Tests/SqlFixRunner.cs
+BoardVerse.Tests/TestResults/test-results.trx
+CreateTestPlayers/CreateTestPlayers.csproj
+CreateTestPlayers/Program.cs
+ResetTestPlayerPasswords/Program.cs
+ResetTestPlayerPasswords/ResetTestPlayerPasswords.csproj

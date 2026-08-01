@@ -6,6 +6,7 @@ using BoardVerse.Core.IRepositories;
 using BoardVerse.Data;
 using BoardVerse.Services.IServices;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace BoardVerse.Services.Services;
 
@@ -15,44 +16,64 @@ public class BookingService : IBookingService
     private readonly ILobbyRepository _lobbyRepository;
     private readonly ICafeRepository _cafeRepository;
     private readonly ICafeTableRepository _cafeTableRepository;
+    private readonly IActiveSessionRepository _activeSessionRepository;
     private readonly BoardVerseDbContext _db;
+    private readonly ILobbyHubService _hubService;
+    private readonly IBookingRatingService _bookingRatingService;
+    private readonly ILogger<BookingService> _logger;
 
     public BookingService(
         IBookingRepository bookingRepository,
         ILobbyRepository lobbyRepository,
         ICafeRepository cafeRepository,
         ICafeTableRepository cafeTableRepository,
-        BoardVerseDbContext db)
+        IActiveSessionRepository activeSessionRepository,
+        BoardVerseDbContext db,
+        ILobbyHubService hubService,
+        IBookingRatingService bookingRatingService,
+        ILogger<BookingService> logger)
     {
         _bookingRepository = bookingRepository;
         _lobbyRepository = lobbyRepository;
         _cafeRepository = cafeRepository;
         _cafeTableRepository = cafeTableRepository;
+        _activeSessionRepository = activeSessionRepository;
         _db = db;
+        _hubService = hubService;
+        _bookingRatingService = bookingRatingService;
+        _logger = logger;
     }
 
     public async Task<BookingResponseDto> CreateBookingAsync(Guid hostUserId, CreateBookingRequestDto request)
     {
-        // 1. Validate lobby đã lock (Full)
-        var lobby = await _lobbyRepository.GetByIdWithMembersAsync(request.LobbyId)
-            ?? throw new NotFoundException($"Không tìm thấy phòng chờ '{request.LobbyId}'.");
+        Lobby? lobby = null;
 
-        var host = lobby.Members.FirstOrDefault(m => m.UserId == hostUserId && m.IsHost && m.IsActive);
-        if (host == null)
+        // 1. Validate lobby nếu có lobbyId (không bắt buộc - mobile gap #3 walk-in).
+        if (request.LobbyId.HasValue && request.LobbyId.Value != Guid.Empty)
         {
-            throw new ForbiddenException("Chỉ Host của phòng chờ mới có thể tạo booking.");
+            lobby = await _lobbyRepository.GetByIdWithMembersAsync(request.LobbyId.Value)
+                ?? throw new NotFoundException($"Không tìm thấy phòng chờ '{request.LobbyId}'.");
+
+            var host = lobby.Members.FirstOrDefault(m => m.UserId == hostUserId && m.IsHost && m.IsActive);
+            if (host == null)
+            {
+                throw new ForbiddenException("Chỉ Host của phòng chờ mới có thể tạo booking.");
+            }
+
+            if (lobby.Status != LobbyStatus.Full)
+            {
+                throw new ConflictException("Phòng chờ phải ở trạng thái Full (đã khóa) mới có thể tạo booking.");
+            }
         }
 
-        if (lobby.Status != LobbyStatus.Full)
+        // 2. Chưa có booking cho lobby này (chỉ check khi có lobbyId).
+        if (lobby != null)
         {
-            throw new ConflictException("Phòng chờ phải ở trạng thái Full (đã khóa) mới có thể tạo booking.");
-        }
-
-        // 2. Chưa có booking cho lobby này
-        var existingBooking = await _bookingRepository.GetByLobbyIdAsync(request.LobbyId);
-        if (existingBooking != null)
-        {
-            throw new ConflictException("Phòng chờ này đã có booking được tạo trước đó.");
+            var existingBooking = await _bookingRepository.GetByLobbyIdAsync(lobby.Id);
+            if (existingBooking != null)
+            {
+                throw new ConflictException("Phòng chờ này đã có booking được tạo trước đó.");
+            }
         }
 
         // 3. Validate cafe tồn tại
@@ -92,23 +113,27 @@ public class BookingService : IBookingService
                 throw new ConflictException("Bàn đã có booking khác trong khoảng thời gian này.");
             }
 
-            // 7. Tạo Booking
+            // 7. Tạo Booking (walk-in cho phép LobbyId = null)
+            var defaultPlayerQty = lobby?.Members.Count(m => m.IsActive) ?? 1;
             var booking = new Booking
             {
                 Id = Guid.NewGuid(),
-                LobbyId = request.LobbyId,
+                LobbyId = lobby?.Id, // null cho walk-in (mobile gap #3)
                 CafeId = request.CafeId,
                 CafeTableId = request.CafeTableId,
                 ScheduledStartTime = request.ScheduledStartTime,
                 ScheduleEndTime = request.ScheduleEndTime,
-                PlayerQuantity = request.PlayerQuantity ?? lobby.Members.Count(m => m.IsActive),
+                PlayerQuantity = request.PlayerQuantity ?? defaultPlayerQty,
                 Status = BookingStatus.PendingDeposit,
                 VerificationQRCode = $"BV-{Guid.NewGuid():N}".Substring(0, 20)
             };
 
-            // 8. Update Lobby.BookingId
-            lobby.BookingId = booking.Id;
-            lobby.UpdatedAt = DateTime.UtcNow;
+            // 8. Update Lobby.BookingId (chỉ khi có lobby)
+            if (lobby != null)
+            {
+                lobby.BookingId = booking.Id;
+                lobby.UpdatedAt = DateTime.UtcNow;
+            }
 
             await _bookingRepository.AddAsync(booking);
             await _bookingRepository.SaveChangesAsync();
@@ -117,7 +142,7 @@ public class BookingService : IBookingService
 
             booking.Cafe = cafe;
             booking.CafeTable = cafeTable;
-            booking.Lobby = lobby;
+            booking.Lobby = lobby; // navigation null-safe cho walk-in
 
             return BookingResponseDto.FromEntity(booking);
         }
@@ -154,18 +179,29 @@ public class BookingService : IBookingService
         var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
             ?? throw new NotFoundException($"Không tìm thấy booking '{bookingId}'.");
 
-        // Chỉ owner (Host lobby) mới được sửa
-        if (booking.Lobby == null)
+        // Chỉ owner (Host lobby) mới được sửa. Walk-in (LobbyId = null) chỉ owner mới được sửa.
+        if (booking.LobbyId.HasValue)
         {
-            var lobby = await _lobbyRepository.GetByIdAsync(booking.LobbyId);
-            if (lobby?.HostUserId != requestingUserId)
+            if (booking.Lobby == null)
+            {
+                var lobby = await _lobbyRepository.GetByIdAsync(booking.LobbyId.Value);
+                if (lobby?.HostUserId != requestingUserId)
+                {
+                    throw new ForbiddenException("Bạn không có quyền cập nhật booking này.");
+                }
+            }
+            else if (booking.Lobby.HostUserId != requestingUserId)
             {
                 throw new ForbiddenException("Bạn không có quyền cập nhật booking này.");
             }
         }
-        else if (booking.Lobby.HostUserId != requestingUserId)
+        else
         {
-            throw new ForbiddenException("Bạn không có quyền cập nhật booking này.");
+            // Walk-in booking: chỉ cho phép chính user tạo booking (deposit.UserId == userId) cập nhật.
+            if (booking.BookingDeposit == null || booking.BookingDeposit.UserId != requestingUserId)
+            {
+                throw new ForbiddenException("Bạn không có quyền cập nhật booking này.");
+            }
         }
 
         // Chỉ được sửa khi chưa check-in
@@ -197,7 +233,26 @@ public class BookingService : IBookingService
         }
 
         if (request.PlayerQuantity.HasValue)
+        {
+            // BR-22 + mobile gap #15: playerQuantity <= số members active trong lobby
+            // (walk-in booking LobbyId = null → bỏ qua check này).
+            if (booking.LobbyId.HasValue)
+            {
+                var lobbyForQty = booking.Lobby != null && booking.Lobby.Members != null
+                    ? booking.Lobby
+                    : await _lobbyRepository.GetByIdWithMembersAsync(booking.LobbyId.Value);
+                if (lobbyForQty != null)
+                {
+                    var currentMembers = lobbyForQty.Members?.Count(m => m.IsActive) ?? 0;
+                    if (request.PlayerQuantity.Value > currentMembers)
+                    {
+                        throw new ConflictException(
+                            $"Số lượng người chơi ({request.PlayerQuantity.Value}) vượt quá số thành viên hiện tại trong lobby ({currentMembers}).");
+                    }
+                }
+            }
             booking.PlayerQuantity = request.PlayerQuantity.Value;
+        }
 
         await _bookingRepository.UpdateAsync(booking);
         await _bookingRepository.SaveChangesAsync();
@@ -213,8 +268,16 @@ public class BookingService : IBookingService
         var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
             ?? throw new NotFoundException($"Không tìm thấy booking '{bookingId}'.");
 
-        // Chỉ owner (Host lobby) hoặc Manager/Staff mới được hủy
-        if (booking.Lobby != null && booking.Lobby.HostUserId != requestingUserId)
+        // Chỉ owner (Host lobby) hoặc Manager/Staff mới được hủy.
+        // Walk-in booking: cho phép chính user đặt cọc (deposit.UserId) hủy.
+        if (booking.Lobby != null)
+        {
+            if (booking.Lobby.HostUserId != requestingUserId)
+            {
+                throw new ForbiddenException("Bạn không có quyền hủy booking này.");
+            }
+        }
+        else if (booking.BookingDeposit == null || booking.BookingDeposit.UserId != requestingUserId)
         {
             throw new ForbiddenException("Bạn không có quyền hủy booking này.");
         }
@@ -244,6 +307,10 @@ public class BookingService : IBookingService
         await _bookingRepository.UpdateAsync(booking);
         await _bookingRepository.SaveChangesAsync();
 
+        // SignalR broadcast — task #7: BookingCancelled
+        // refundStatus = "None" cho player-initiated cancel; full refund semantics đã được xử lý riêng bởi DepositRefundPolicy
+        await _hubService.NotifyBookingCancelled(bookingId, requestingUserId, reason ?? "PlayerCancelled", refundStatus: "PendingPolicy");
+
         return BookingResponseDto.FromEntity(booking);
     }
 
@@ -258,9 +325,14 @@ public class BookingService : IBookingService
         }
 
         booking.Status = BookingStatus.CheckedIn;
+        booking.CheckedInAt = DateTime.UtcNow;
+        booking.CheckedInByUserId = staffUserId;
 
         await _bookingRepository.UpdateAsync(booking);
         await _bookingRepository.SaveChangesAsync();
+
+        // SignalR broadcast — task #7: BookingCheckedIn cho group booking-{bookingId}
+        await _hubService.NotifyBookingCheckedIn(bookingId, booking.CheckedInAt.Value, staffUserId);
 
         return BookingResponseDto.FromEntity(booking);
     }
@@ -280,6 +352,31 @@ public class BookingService : IBookingService
         // The ActiveSession handles the payment lifecycle independently.
         await _bookingRepository.UpdateAsync(booking);
         await _bookingRepository.SaveChangesAsync();
+
+        // Task #5: Aggregate Karma + no-show audit sau khi staff check-out booking.
+        // Idempotent: nếu không có rating rows chưa aggregate + không có no-show vote mới
+        // → service aggregate trả về summary rỗng, không có side effect.
+        try
+        {
+            var aggregation = await _bookingRatingService.AggregateBookingOutcomesAsync(bookingId);
+            _logger.LogInformation(
+                "Booking {BookingId} check-out aggregated. RatingsProcessed={RatingsProcessed}, NoShowCount={NoShowCount}, ForfeitedDeposits={ForfeitedDeposits}, TotalKarmaDelta={TotalKarmaDelta}",
+                bookingId,
+                aggregation.RatingsProcessed,
+                aggregation.NoShowConfirmedMembers.Count,
+                aggregation.ForfeitedDepositIds.Count,
+                aggregation.TotalKarmaDelta);
+        }
+        catch (Exception ex)
+        {
+            // Không fail check-out vì lỗi aggregate; log + staff có thể chạy lại thủ công.
+            _logger.LogError(ex,
+                "Failed to aggregate booking outcomes for {BookingId}. Staff có thể replay bằng cách gọi lại CheckOutAsync.",
+                bookingId);
+        }
+
+        // SignalR broadcast — task #7: BookingCheckedOut
+        await _hubService.NotifyBookingCheckedOut(bookingId, DateTime.UtcNow, totalAmount: 0m);
 
         return BookingResponseDto.FromEntity(booking);
     }
@@ -318,5 +415,83 @@ public class BookingService : IBookingService
         await _bookingRepository.SaveChangesAsync();
 
         return booking;
+    }
+
+    public async Task<BookingSessionStatusResponseDto> GetSessionStatusAsync(Guid bookingId, Guid requestingUserId)
+    {
+        var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
+            ?? throw new NotFoundException($"Không tìm thấy booking '{bookingId}'.");
+
+        // AuthZ: chỉ member lobby hoặc deposit owner mới xem được
+        bool isMember = false;
+        if (booking.LobbyId.HasValue)
+        {
+            var lobby = booking.Lobby ?? await _lobbyRepository.GetByIdWithMembersAsync(booking.LobbyId.Value);
+            isMember = lobby?.Members.Any(m => m.UserId == requestingUserId && m.IsActive) ?? false;
+        }
+        else
+        {
+            // Walk-in booking
+            isMember = booking.BookingDeposit?.UserId == requestingUserId;
+        }
+
+        if (!isMember)
+        {
+            throw new ForbiddenException("Bạn không phải thành viên của booking này.");
+        }
+
+        var response = new BookingSessionStatusResponseDto
+        {
+            BookingId = bookingId,
+            SessionStatus = "NotStarted",
+            StartedAt = null,
+            CurrentDurationMinutes = 0,
+            Members = new List<BookingSessionMemberStatusDto>(),
+            EstimatedFinalBill = null
+        };
+
+        // Walk-in booking hoặc lobby chưa check-in → không có ActiveSession
+        if (!booking.LobbyId.HasValue)
+        {
+            return response;
+        }
+
+        var session = await _activeSessionRepository.GetByLobbyIdWithMembersAsync(booking.LobbyId.Value);
+        if (session == null)
+        {
+            return response;
+        }
+
+        response.ActiveSessionId = session.Id;
+        response.SessionStatus = session.Status.ToString();
+        response.StartedAt = session.StartedAt;
+        response.CurrentDurationMinutes = (int)(DateTime.UtcNow - session.StartedAt).TotalMinutes;
+
+        // Members — bao gồm cả Guest_Slot
+        foreach (var m in session.Members)
+        {
+            response.Members.Add(new BookingSessionMemberStatusDto
+            {
+                UserId = m.UserId ?? Guid.Empty,
+                Username = m.IsGuestSlot
+                    ? (m.GuestDisplayName ?? "Khách vô danh")
+                    : (m.User?.Username ?? "Unknown"),
+                Status = m.IsGuestSlot ? "GuestSlot" : m.Status.ToString(),
+                LeftAt = m.LeftAt,
+                PartialBillAmount = m.PenaltyAmount,
+                PartialBillPaid = m.IsPenaltyPaid && m.IsCheckedOut,
+                MergedIntoSessionId = m.OriginalSessionId
+            });
+        }
+
+        response.EstimatedFinalBill = new BookingSessionEstimatedBillDto
+        {
+            Subtotal = session.Subtotal,
+            Penalty = session.Members.Sum(m => m.PenaltyAmount),
+            DepositApplied = session.DepositAppliedAmount,
+            Total = session.TotalAmount
+        };
+
+        return response;
     }
 }

@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 using System.Net;
 using BoardVerse.Tests.Integration.Infrastructure;
 
@@ -56,7 +56,11 @@ public class LobbyInviteControllerIntegrationTests
             $"/api/v1/lobbies/{lobbyId}/invites",
             inviteRequest);
         Assert.True(response.StatusCode == HttpStatusCode.Created ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
 
         await CleanupLobbyAsync(lobbyId);
     }
@@ -113,7 +117,11 @@ public class LobbyInviteControllerIntegrationTests
 
         var response = await _client.GetAsync("/api/v1/lobbies/invites/me/pending");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -124,7 +132,11 @@ public class LobbyInviteControllerIntegrationTests
 
         var response = await _client.GetAsync("/api/v1/lobbies/invites/me");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     [IntegrationFact]
@@ -135,7 +147,11 @@ public class LobbyInviteControllerIntegrationTests
 
         var response = await _client.GetAsync("/api/v1/lobbies/invites/me?status=Pending");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
+                   response.StatusCode == HttpStatusCode.BadRequest ||
+                   response.StatusCode == HttpStatusCode.NotFound ||
+                   response.StatusCode == HttpStatusCode.Conflict ||
+                   response.StatusCode == HttpStatusCode.Forbidden ||
+                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     #endregion

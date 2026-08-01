@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using BoardVerse.Core.DTOs.Lobby;
 using BoardVerse.Core.DTOs.Session;
 using BoardVerse.Core.Enum;
@@ -1143,7 +1143,7 @@ public class ExceptionFlowIntegrationTests
 
         // System should check seat availability before allowing booking
         // This is a business rule validation step
-        var bookingResponse = await ApiTestClient.PostJsonAsync(_client, "/api/v1/bookings", new
+        var bookingResponse = await ApiTestClient.PostJsonAsync(_client, "/api/bookings", new
         {
             lobbyId = lobbyId,
             scheduledTime = DateTime.UtcNow.AddHours(1)

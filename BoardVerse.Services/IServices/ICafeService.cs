@@ -31,5 +31,11 @@ namespace BoardVerse.Services.IServices
             AdminSetCafeOperationalStatusRequestDto request);
 
         Task UpdateSePayConfigAsync(Guid cafeId, Guid managerId, UpdateSePayConfigRequestDto dto);
+
+        /// <summary>Mobile task #12: cập nhật chính sách hoàn cọc (BR-18).</summary>
+        Task<RefundPolicyResponseDto> UpdateRefundPolicyAsync(Guid cafeId, Guid managerId, UpdateRefundPolicyRequestDto dto);
+
+        /// <summary>Mobile task #13: cập nhật biểu phí (BR-01/BR-04).</summary>
+        Task<CafePricingConfigResponseDto> UpdatePricingConfigAsync(Guid cafeId, Guid managerId, UpdatePricingConfigRequestDto dto);
     }
 }

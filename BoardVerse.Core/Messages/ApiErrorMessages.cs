@@ -406,6 +406,42 @@ namespace BoardVerse.Core.Messages
                 $"Import BGG thất bại: game đã tồn tại (template '{gameTemplateId}' / BGG {bggId}). Đặt overwriteExisting=true để làm mới từ BGG.";
         }
 
+        public static class Booking
+        {
+            public const string InvalidTimeRange =
+                "Khoảng thời gian không hợp lệ. Thời gian kết thúc phải sau thời gian bắt đầu.";
+
+            public const string SeatCountMustBePositive =
+                "Số lượng ghế yêu cầu phải lớn hơn hoặc bằng 1.";
+
+            public const string NotCheckedInYet =
+                "Booking phải ở trạng thái CheckedIn mới có thể vote vắng mặt.";
+
+            public const string AlreadyCheckedOut =
+                "Booking đã kết thúc — không thể vote vắng mặt sau khi check-out.";
+
+            public const string VoteWindowClosed =
+                "Đã quá thời hạn vote vắng mặt (chỉ được vote trong 24h sau check-in).";
+
+            public const string VoterNotCheckedInMember =
+                "Chỉ thành viên đã check-in mới có thể vote vắng mặt.";
+
+            public const string CannotVoteSelfAbsent =
+                "Bạn không thể vote chính mình vắng mặt.";
+
+            public const string RatingWindowClosed =
+                "Đã quá thời hạn chấm điểm (chỉ được chấm trong 24h sau check-out).";
+
+            public const string CannotRateSelf =
+                "Bạn không thể tự chấm điểm cho mình.";
+
+            public const string DuplicateRatedUser =
+                "Danh sách chấm điểm chứa thành viên bị trùng lặp.";
+
+            public const string AlreadySubmittedRatings =
+                "Bạn đã gửi lượt chấm điểm cho booking này rồi.";
+        }
+
         public static class CafePartner
         {
             public static string ApplicationNotFound(Guid id) =>
@@ -1332,6 +1368,15 @@ namespace BoardVerse.Core.Messages
             public const string DefaultQuantityMustBePositive = "Số lượng mặc định phải lớn hơn 0.";
             public const string BoxQuantityAtLeastOne = "Số hộp phải ít nhất 1.";
             public const string PenaltyFeeCannotBeNegative = "Phí phạt không được âm.";
+        }
+
+        public static class Notification
+        {
+            public const string DeviceTokenRequired = "Device token FCM là bắt buộc.";
+            public const string DeviceTokenTooLong = "Device token FCM không được vượt quá 512 ký tự.";
+            public const string DeviceTokenNotFound = "Không tìm thấy device token để xóa.";
+            public const string DeviceTokenNotOwner = "Bạn không có quyền xóa device token này.";
+            public const string PlatformInvalid = "Giá trị platform không hợp lệ. Chỉ chấp nhận 'android', 'ios' hoặc 'web'.";
         }
     }
 }

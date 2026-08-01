@@ -57,6 +57,7 @@ public class LobbyTimeoutJob : BackgroundService
         var scheduledTimedOut = await db.Lobbies
             .Include(l => l.Members)
             .Include(l => l.GameTemplate)
+            .Include(l => l.Cafe)
             .Where(l => l.Status == LobbyStatus.Open &&
                         l.ScheduledStartTime != null &&
                         l.ScheduledStartTime.Value.AddMinutes(-l.CancellationLeadTimeMinutes) <= now)
@@ -68,6 +69,7 @@ public class LobbyTimeoutJob : BackgroundService
         var orphanTimedOut = await db.Lobbies
             .Include(l => l.Members)
             .Include(l => l.GameTemplate)
+            .Include(l => l.Cafe)
             .Where(l => l.Status == LobbyStatus.Open &&
                         l.ScheduledStartTime == null &&
                         l.CreatedAt <= orphanCutoff)
@@ -84,7 +86,7 @@ public class LobbyTimeoutJob : BackgroundService
         _logger.LogInformation("Found {Count} lobbies to check for timeout (scheduled={Scheduled}, orphan={Orphan})",
             timedOutLobbies.Count, scheduledTimedOut.Count, orphanTimedOut.Count);
 
-        var transitioned = new List<Guid>();
+        var transitioned = new List<(Guid LobbyId, Guid? CafeId, string CafeName, DateTime? ScheduledTime, string Reason, List<Guid> MemberIds)>();
 
         foreach (var lobby in timedOutLobbies)
         {
@@ -98,7 +100,15 @@ public class LobbyTimeoutJob : BackgroundService
             if (isOrphan || memberShortage)
             {
                 lobby.Status = LobbyStatus.TimeoutFailed;
-                transitioned.Add(lobby.Id);
+
+                var reason = isOrphan ? "OrphanLobbyExpired" : "NotEnoughMembers";
+                transitioned.Add((
+                    lobby.Id,
+                    lobby.CafeId,
+                    lobby.Cafe?.Name ?? "Unknown Cafe",
+                    lobby.ScheduledStartTime,
+                    reason,
+                    lobby.Members.Where(m => m.IsActive).Select(m => m.UserId).ToList()));
 
                 if (isOrphan)
                 {
@@ -120,16 +130,44 @@ public class LobbyTimeoutJob : BackgroundService
 
         await db.SaveChangesAsync(stoppingToken);
 
-        // Realtime: notify từng lobby mà vừa timeout.
-        foreach (var lobbyId in transitioned)
+        // Realtime: notify từng lobby mà vừa timeout — task #9 dùng payload chi tiết cho mobile.
+        // (NotifyLobbyTimeout giữ nguyên cho backward-compat với mobile client cũ;
+        //  NotifyLobbyAutoCancelled bổ sung payload mới với cafeName/scheduledTime/reason.)
+        // Mobile gap #9: Push FCM cho từng member đang hoạt động trong lobby
+        // (app đã đóng/background vẫn nhận được notification để mở lại).
+        var pushService = scope.ServiceProvider.GetRequiredService<IPushNotificationService>();
+        foreach (var t in transitioned)
         {
             try
             {
-                await hubService.NotifyLobbyTimeout(lobbyId);
+                await hubService.NotifyLobbyTimeout(t.LobbyId);
+                await hubService.NotifyLobbyAutoCancelled(t.LobbyId, t.CafeId ?? Guid.Empty, t.CafeName, t.ScheduledTime, t.Reason);
+
+                // FCM push cho tất cả members (kể cả host) — trừ khi list rỗng.
+                if (t.MemberIds.Count > 0)
+                {
+                    var scheduledText = t.ScheduledTime.HasValue
+                        ? t.ScheduledTime.Value.ToString("HH:mm dd/MM")
+                        : "không xác định";
+                    await pushService.SendToUsersAsync(t.MemberIds, new PushNotificationPayload
+                    {
+                        Type = "LobbyAutoCancelled",
+                        Title = "Phòng chờ đã bị hủy",
+                        Body = $"Phòng chờ tại {t.CafeName} ({scheduledText}) đã bị hủy do không đủ thành viên trước giờ hẹn.",
+                        Data = new Dictionary<string, string>
+                        {
+                            { "lobbyId", t.LobbyId.ToString() },
+                            { "cafeId", (t.CafeId ?? Guid.Empty).ToString() },
+                            { "cafeName", t.CafeName },
+                            { "scheduledTime", t.ScheduledTime?.ToString("o") ?? "" },
+                            { "reason", t.Reason }
+                        }
+                    });
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to broadcast LobbyTimeout for {LobbyId}", lobbyId);
+                _logger.LogError(ex, "Failed to broadcast LobbyAutoCancelled for {LobbyId}", t.LobbyId);
             }
         }
 

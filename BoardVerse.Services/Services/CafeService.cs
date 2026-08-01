@@ -16,15 +16,24 @@ namespace BoardVerse.Services.Services
         private readonly ICafeRepository _cafeRepository;
         private readonly IUserProfileRepository _userProfileRepository;
         private readonly ISystemConfigurationProvider _systemConfigurationProvider;
+        private readonly IBookingRepository _bookingRepository;
+        private readonly ILobbyHubService _hubService;
+        private readonly IPushNotificationService _pushNotificationService;
 
         public CafeService(
             ICafeRepository cafeRepository,
             IUserProfileRepository userProfileRepository,
-            ISystemConfigurationProvider systemConfigurationProvider)
+            ISystemConfigurationProvider systemConfigurationProvider,
+            IBookingRepository bookingRepository,
+            ILobbyHubService hubService,
+            IPushNotificationService pushNotificationService)
         {
             _cafeRepository = cafeRepository;
             _userProfileRepository = userProfileRepository;
             _systemConfigurationProvider = systemConfigurationProvider;
+            _bookingRepository = bookingRepository;
+            _hubService = hubService;
+            _pushNotificationService = pushNotificationService;
         }
 
         public async Task<CafeDto> GetCafeAsync(Guid cafeId)
@@ -409,6 +418,160 @@ namespace BoardVerse.Services.Services
 
             cafe.UpdatedAt = DateTime.UtcNow;
             await _cafeRepository.SaveChangesAsync();
+        }
+
+        public async Task<RefundPolicyResponseDto> UpdateRefundPolicyAsync(Guid cafeId, Guid managerId, UpdateRefundPolicyRequestDto dto)
+        {
+            var cafe = await EnsureManagerOwnsCafeAsync(cafeId, managerId);
+
+            cafe.RefundPolicy = dto.Policy;
+
+            // BR-18: Validate tiers khi Policy=Partial
+            if (dto.Policy == DepositRefundPolicy.Partial)
+            {
+                if (dto.PartialTiers == null || dto.PartialTiers.Count == 0)
+                {
+                    throw new BadRequestException("Vui lòng cung cấp ít nhất 1 bậc hoàn cọc cho chính sách Partial.");
+                }
+                if (dto.PartialTiers.Count > 5)
+                {
+                    throw new BadRequestException("Chính sách Partial chỉ cho phép tối đa 5 bậc.");
+                }
+
+                // Sort giảm dần theo minHours + validate unique
+                var sorted = dto.PartialTiers.OrderByDescending(t => t.MinHoursBeforeScheduled).ToList();
+                for (var i = 0; i < sorted.Count; i++)
+                {
+                    if (sorted[i].RefundPercent < 0 || sorted[i].RefundPercent > 100)
+                    {
+                        throw new BadRequestException("RefundPercent phải nằm trong khoảng 0-100.");
+                    }
+                    if (i > 0 && sorted[i].MinHoursBeforeScheduled == sorted[i - 1].MinHoursBeforeScheduled)
+                    {
+                        throw new BadRequestException("Các bậc không được trùng minHoursBeforeScheduled.");
+                    }
+                }
+
+                cafe.RefundTiersJson = System.Text.Json.JsonSerializer.Serialize(sorted);
+            }
+            else
+            {
+                // Full hoặc None → clear tiers
+                cafe.RefundTiersJson = "[]";
+            }
+
+            cafe.UpdatedAt = DateTime.UtcNow;
+            await _cafeRepository.SaveChangesAsync();
+
+            // Parse tiers để trả về
+            List<RefundTierDto>? tiers = null;
+            if (!string.IsNullOrEmpty(cafe.RefundTiersJson) && cafe.RefundTiersJson != "[]")
+            {
+                tiers = System.Text.Json.JsonSerializer.Deserialize<List<RefundTierDto>>(cafe.RefundTiersJson);
+            }
+
+            return new RefundPolicyResponseDto
+            {
+                CafeId = cafeId,
+                Policy = cafe.RefundPolicy,
+                PartialTiers = tiers,
+                UpdatedAt = cafe.UpdatedAt
+            };
+        }
+
+        public async Task<CafePricingConfigResponseDto> UpdatePricingConfigAsync(Guid cafeId, Guid managerId, UpdatePricingConfigRequestDto dto)
+        {
+            var cafe = await EnsureManagerOwnsCafeAsync(cafeId, managerId);
+
+            // BR-04: chặn sửa giá khi quán đang hoạt động
+            if (cafe.IsPricingLocked)
+            {
+                throw new ConflictException("Quán đang trong khung giờ hoạt động — không thể chỉnh sửa biểu phí. Vui lòng thử lại khi quán đóng cửa.");
+            }
+
+            var oldBasePrice = cafe.BasePrice;
+
+            if (dto.BillingModel.HasValue)
+            {
+                cafe.BillingModel = dto.BillingModel.Value;
+            }
+            if (dto.BasePrice.HasValue)
+            {
+                cafe.BasePrice = dto.BasePrice.Value;
+            }
+            if (dto.TieredBlockRate.HasValue)
+            {
+                cafe.TieredBlockRate = dto.TieredBlockRate.Value;
+            }
+            if (dto.TieredBlockMinutes.HasValue)
+            {
+                cafe.TieredBlockMinutes = dto.TieredBlockMinutes.Value;
+            }
+
+            cafe.OperationalProfileUpdatedAt = DateTime.UtcNow;
+            cafe.UpdatedAt = DateTime.UtcNow;
+            await _cafeRepository.SaveChangesAsync();
+
+            // BR-04: tìm booking trong tuần của cafe này để broadcast CafePricingChanged
+            var weekStart = DateTime.UtcNow;
+            var weekEnd = weekStart.AddDays(7);
+            var affectedBookings = await _bookingRepository.GetByCafeIdAsync(cafeId, fromDate: weekStart, toDate: weekEnd);
+            var affectedCount = affectedBookings.Count;
+
+            // SignalR broadcast — task #13: CafePricingChanged
+            // (Mobile client subscribe qua group cafe-{cafeId} nếu có; lobby group không liên quan.)
+            await _hubService.NotifyCafePricingChanged(
+                cafeId,
+                cafe.Name,
+                oldBasePrice,
+                cafe.BasePrice,
+                cafe.OperationalProfileUpdatedAt ?? DateTime.UtcNow,
+                affectedCount);
+
+            // Mobile gap #13: FCM push cho tất cả user có booking trong tuần (kể cả walk-in deposit owners)
+            // — để họ nhận notification khi app đã đóng/background.
+            // Tránh duplicate user (1 user có thể có nhiều booking).
+            var affectedUserIds = affectedBookings
+                .SelectMany(b => new[]
+                {
+                    b.Lobby?.HostUserId ?? Guid.Empty,
+                    b.BookingDeposit?.UserId ?? Guid.Empty
+                })
+                .Where(id => id != Guid.Empty)
+                .Distinct()
+                .ToList();
+
+            if (affectedUserIds.Count > 0)
+            {
+                await _pushNotificationService.SendToUsersAsync(affectedUserIds, new PushNotificationPayload
+                {
+                    Type = "CafePricingChanged",
+                    Title = "Biểu phí quán đã thay đổi",
+                    Body = $"{cafe.Name}: giờ đầu từ {oldBasePrice:N0}đ → {cafe.BasePrice:N0}đ. " +
+                           $"Có {affectedCount} đơn đặt chỗ trong tuần bị ảnh hưởng.",
+                    Data = new Dictionary<string, string>
+                    {
+                        { "cafeId", cafeId.ToString() },
+                        { "cafeName", cafe.Name },
+                        { "oldFirstHourPrice", oldBasePrice.ToString(System.Globalization.CultureInfo.InvariantCulture) },
+                        { "newFirstHourPrice", cafe.BasePrice.ToString(System.Globalization.CultureInfo.InvariantCulture) },
+                        { "effectiveDate", (cafe.OperationalProfileUpdatedAt ?? DateTime.UtcNow).ToString("o") },
+                        { "affectedBookingsCount", affectedCount.ToString() }
+                    }
+                });
+            }
+
+            return new CafePricingConfigResponseDto
+            {
+                CafeId = cafeId,
+                BillingModel = cafe.BillingModel,
+                BasePrice = cafe.BasePrice,
+                TieredBlockRate = cafe.TieredBlockRate,
+                TieredBlockMinutes = cafe.TieredBlockMinutes,
+                IsPricingLocked = cafe.IsPricingLocked,
+                OperationalProfileUpdatedAt = cafe.OperationalProfileUpdatedAt,
+                AffectedBookingsCount = affectedCount
+            };
         }
 
         private async Task<Cafe> EnsureManagerOwnsCafeAsync(Guid cafeId, Guid currentManagerId)

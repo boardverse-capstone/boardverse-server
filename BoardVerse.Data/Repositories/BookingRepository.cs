@@ -24,18 +24,33 @@ public class BookingRepository : IBookingRepository
             query = query
                 .Include(b => b.Cafe)
                 .Include(b => b.CafeTable)
-                .Include(b => b.Lobby);
+                .Include(b => b.Lobby)
+                    .ThenInclude(l => l!.GameTemplate)
+                .Include(b => b.Lobby)
+                    .ThenInclude(l => l!.Members)
+                .Include(b => b.BookingDeposit);
         }
 
         return await query.FirstOrDefaultAsync(b => b.Id == bookingId);
     }
 
-    public async Task<Booking?> GetByLobbyIdAsync(Guid lobbyId)
+    public async Task<Booking?> GetByLobbyIdAsync(Guid lobbyId, bool includeRelations = true)
     {
-        return await _db.Bookings
-            .Include(b => b.Cafe)
-            .Include(b => b.CafeTable)
-            .FirstOrDefaultAsync(b => b.LobbyId == lobbyId);
+        var query = _db.Bookings.AsQueryable();
+
+        if (includeRelations)
+        {
+            query = query
+                .Include(b => b.Cafe)
+                .Include(b => b.CafeTable)
+                .Include(b => b.Lobby)
+                    .ThenInclude(l => l!.GameTemplate)
+                .Include(b => b.Lobby)
+                    .ThenInclude(l => l!.Members)
+                .Include(b => b.BookingDeposit);
+        }
+
+        return await query.FirstOrDefaultAsync(b => b.LobbyId == lobbyId);
     }
 
     public async Task<IReadOnlyList<Booking>> GetByCafeIdAsync(
@@ -63,6 +78,21 @@ public class BookingRepository : IBookingRepository
         return await _db.Bookings
             .Where(b => b.CafeTableId == cafeTableId)
             .OrderBy(b => b.ScheduledStartTime)
+            .ToListAsync();
+    }
+
+    /// <summary>
+    /// Lấy các booking của 1 cafe overlap [start, end] và không Cancelled.
+    /// Dùng cho mobile availability/available-tables (read-only, không lock).
+    /// </summary>
+    public async Task<IReadOnlyList<Booking>> GetOverlappingBookingsAsync(
+        Guid cafeId, DateTime startTime, DateTime endTime)
+    {
+        return await _db.Bookings
+            .Where(b => b.CafeId == cafeId
+                && b.Status != BookingStatus.Cancelled
+                && b.ScheduledStartTime < endTime
+                && b.ScheduleEndTime > startTime)
             .ToListAsync();
     }
 
