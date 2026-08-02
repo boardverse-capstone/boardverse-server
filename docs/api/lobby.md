@@ -1,11 +1,18 @@
 # LobbyController
 
-**Base route:** `/api/v1/lobbies`  
-**Controller:** `LobbyController.cs`  
-**Hub route:** `/hubs/lobby` (SignalR)  
+**Base route:** `/api/v1/lobbies`
+**Controller:** `LobbyController.cs`
+**Hub route:** `/hubs/lobby` (SignalR)
 **Role:** Player — đã đăng nhập (JWT bearer)
 
 API phòng chờ trực tuyến: tạo phòng, tham gia, rời phòng, tìm phòng theo game, đóng phòng, khóa phòng để bắt đầu ghép đội và mở cửa sổ đánh giá Karma sau khi POS thanh toán xong.
+
+> **⚠️ DEPRECATION NOTICE — Phase 2 (BR §XXI-B.1)**
+>
+> - `POST /api/v1/lobbies` (CreateLobby) **đã deprecated** trả về `410 Gone`.
+> - Tạo lobby phải qua flow mới: `POST /api/v1/reservations/quote` → `POST /api/v1/reservations/confirm` (xem `docs/api/reservation.md`).
+> - Lobby hiện chỉ được tạo bởi `ReservationService.ConfirmAsync` (atomic transaction BR-REQUIRED §17.4).
+> - Toàn bộ endpoint khác (join, leave, search, cancel, transfer-host, kick, ready, messages…) vẫn hoạt động bình thường.
 
 Tuân thủ business rules:
 - **BR-07:** `MaxMembers <= SeatCount` của booking liên kết
@@ -91,38 +98,25 @@ Xem chi tiết API:
 
 ## POST /api/v1/lobbies
 
+> **⛔ DEPRECATED — trả 410 Gone.** Dùng [`POST /api/v1/reservations/quote` + `POST /api/v1/reservations/confirm`](reservation.md) thay thế. BR §XXI-B.1 yêu cầu lobby chỉ được tạo thông qua atomic transaction BVC + seat + game copy.
+
 Tạo phòng chờ. Host đặt giờ chơi, tựa game và sức chứa tối đa.
 
 **Role:** Player
 
-**Body mẫu:**
+**Response 410:**
 
 ```json
 {
-  "gameTemplateId": "catan-uuid",
-  "scheduledStartTime": "2026-07-10T19:00:00Z",
-  "maxMembers": 4,
-  "cancellationLeadTimeMinutes": 30
+  "statusCode": 410,
+  "message": "EndpointDeprecated",
+  "data": {
+    "message": "Tạo lobby phải qua flow reservation mới (BVC). Hãy dùng POST /api/v1/reservations/quote → POST /api/v1/reservations/confirm.",
+    "newEndpoint": "POST /api/v1/reservations/confirm",
+    "deprecatedAt": "2026-08-02T17:50:00Z"
+  }
 }
 ```
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `gameTemplateId` | ✅ | UUID tựa game muốn chơi |
-| `scheduledStartTime` | ✅ | ISO 8601 UTC, phải > now + 30 phút |
-| `maxMembers` | ✅ | 2-4 (theo luật Splendor/Catan) |
-| `cancellationLeadTimeMinutes` | ✅ | Timeout trước giờ hẹn (BR-08, mặc định 30) |
-
-**Response 201:** `LobbyResponseDto` — `status = Open`, danh sách thành viên chỉ có Host.
-
-**Response codes:**
-- `201` — Tạo thành công
-- `400` — Thiếu field, maxMembers ngoài [2,4], thời gian không hợp lệ
-- `401` — Thiếu token / token hết hạn
-- `404` — Không tìm thấy game
-- `500` — Lỗi hệ thống
-
-**Side effect:** Broadcast SignalR `MemberJoined` cho Host (xem [SignalR Hub](#signalr-hub)).
 
 ---
 

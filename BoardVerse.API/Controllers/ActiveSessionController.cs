@@ -75,21 +75,6 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Trả game toàn bộ - chuyển session sang CHECKING để kiểm kê linh kiện. [Role: Manager, CafeStaff]
-        /// BR-12: Bắt buộc phải trả game trước khi checkout.
-        /// </summary>
-        /// <param name="cafeId">Mã quán.</param>
-        /// <param name="sessionId">Mã phiên chơi.</param>
-        /// <response code="200">Đã trả game, chuyển sang kiểm kê.</response>
-        /// <response code="409">Phiên không ở trạng thái ACTIVE.</response>
-        [HttpPost("{sessionId:guid}/end-game")]
-        public async Task<IActionResult> EndGame(Guid cafeId, Guid sessionId)
-        {
-            var result = await _sessionService.EndGameAsync(cafeId, sessionId);
-            return this.NewResponse(200, "Đã trả game. Vui lòng kiểm kê linh kiện.", result);
-        }
-
-        /// <summary>
         /// Thanh toán một phần cho nhóm về sớm. [Role: Manager, CafeStaff]
         /// </summary>
         /// <param name="cafeId">Mã quán.</param>
@@ -232,30 +217,5 @@ namespace BoardVerse.API.Controllers
             return this.NewResponse(200, "Danh sách quán gợi ý.", result);
         }
 
-        /// <summary>
-        /// Submit bảng kiểm kê linh kiện cho một game trong phiên chơi (BR-12).
-        /// Nhân viên POS quét linh kiện thực tế; thiếu → cộng phí phạt + đánh dấu MissingComponents.
-        /// </summary>
-        /// <param name="cafeId">Mã quán.</param>
-        /// <param name="sessionId">Mã phiên chơi.</param>
-        /// <param name="request">Kết quả đếm linh kiện từng component.</param>
-        /// <response code="200">Đã lưu checklist; trả về phiên cập nhật.</response>
-        /// <response code="400">Danh sách components rỗng.</response>
-        /// <response code="401">Thiếu token.</response>
-        /// <response code="403">Không đủ quyền.</response>
-        /// <response code="404">Không tìm thấy phiên hoặc game.</response>
-        /// <response code="409">Phiên không ở trạng thái CHECKING.</response>
-        /// <response code="500">Lỗi hệ thống.</response>
-        [HttpPost("{sessionId:guid}/games/check")]
-        public async Task<IActionResult> SubmitComponentCheck(Guid cafeId, Guid sessionId, [FromBody] SubmitComponentCheckRequestDto request)
-        {
-            if (request.Results == null || request.Results.Count == 0)
-            {
-                return this.NewResponse(400, "Cần ít nhất 1 component để kiểm kê.", new { });
-            }
-
-            var result = await _sessionService.SubmitComponentCheckAsync(cafeId, sessionId, request);
-            return this.NewResponse(200, "Đã lưu bảng kiểm kê linh kiện.", result);
-        }
     }
 }

@@ -26,6 +26,7 @@ namespace BoardVerse.Services.Services
         private readonly ILobbyInviteRepository _lobbyInviteRepository;
         private readonly ILobbyHubService _hubService;
         private readonly ILobbyMessageService _lobbyMessageService;
+        private readonly IFriendshipRepository _friendshipRepository;
 
         public LobbyService(
             ILobbyRepository lobbyRepository,
@@ -33,7 +34,8 @@ namespace BoardVerse.Services.Services
             IUserManagementRepository userManagementRepository,
             ILobbyInviteRepository lobbyInviteRepository,
             ILobbyHubService hubService,
-            ILobbyMessageService lobbyMessageService)
+            ILobbyMessageService lobbyMessageService,
+            IFriendshipRepository friendshipRepository)
         {
             _lobbyRepository = lobbyRepository;
             _gameTemplateRepository = gameTemplateRepository;
@@ -41,6 +43,7 @@ namespace BoardVerse.Services.Services
             _lobbyInviteRepository = lobbyInviteRepository;
             _hubService = hubService;
             _lobbyMessageService = lobbyMessageService;
+            _friendshipRepository = friendshipRepository;
         }
 
         public async Task<LobbyResponseDto> CreateLobbyAsync(Guid hostUserId, CreateLobbyRequestDto request)
@@ -551,6 +554,32 @@ namespace BoardVerse.Services.Services
 
             var lobby = await _lobbyRepository.GetByShareCodeAsync(shareCode)
                 ?? throw new NotFoundException(ApiErrorMessages.LobbyInvite.ShareCodeInvalid);
+
+            // BR-LOBBY-PRIVACY-03: Private lobby — share code chỉ join được nếu user là bạn bè
+            // (Friendship.Status = Accepted) của ít nhất 1 thành viên active.
+            if (lobby.IsPrivate)
+            {
+                var memberIds = lobby.Members
+                    .Where(m => m.IsActive)
+                    .Select(m => m.UserId)
+                    .ToList();
+
+                var isFriendOfAnyMember = false;
+                foreach (var memberId in memberIds)
+                {
+                    var pair = await _friendshipRepository.GetByPairAsync(userId, memberId);
+                    if (pair != null && pair.Status == FriendshipStatus.Accepted)
+                    {
+                        isFriendOfAnyMember = true;
+                        break;
+                    }
+                }
+
+                if (!isFriendOfAnyMember)
+                {
+                    throw new ForbiddenException(ApiErrorMessages.LobbyInvite.PrivateLobbyShareCodeRequiresFriendship);
+                }
+            }
 
             return await JoinLobbyAsync(lobby.Id, userId);
         }

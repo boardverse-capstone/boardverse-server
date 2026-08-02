@@ -44,13 +44,14 @@ namespace BoardVerse.Services.IServices
             StartGameSessionRequestDto request);
 
         /// <summary>
-        /// Host-led check-in: Quét một lần mã đặt chỗ để kích hoạt phiên chơi cho cả nhóm.
+        /// POS check-in: Staff quét QR (ReservationCode hoặc BookingCode legacy) để kích hoạt phiên chơi.
+        /// BR §21A.7 — Host-led check-in.
         /// </summary>
-        Task<ActiveSessionDto> StartSessionFromBookingAsync(
+        Task<ActiveSessionDto> CheckInByCodeAsync(
             Guid cafeId,
             Guid userId,
             string userRole,
-            StartSessionFromBookingRequestDto request);
+            CheckInRequestDto request);
 
         /// <summary>
         /// Preview booking info trước khi check-in.

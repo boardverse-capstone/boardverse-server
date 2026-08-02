@@ -55,6 +55,18 @@ namespace BoardVerse.Data
         public DbSet<BookingNoShowVote> BookingNoShowVotes => Set<BookingNoShowVote>();
         public DbSet<BookingRating> BookingRatings => Set<BookingRating>();
         public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
+        public DbSet<Wallet> Wallets => Set<Wallet>();
+        public DbSet<BvcLedgerEntry> BvcLedgerEntries => Set<BvcLedgerEntry>();
+        public DbSet<BvcTopUpRequest> BvcTopUpRequests => Set<BvcTopUpRequest>();
+
+        // ===== BR-NEW-* §19: Reservation flow =====
+        public DbSet<Reservation> Reservations => Set<Reservation>();
+        public DbSet<SeatInventory> SeatInventories => Set<SeatInventory>();
+        public DbSet<GameInventory> GameInventories => Set<GameInventory>();
+        public DbSet<CafeConfig> CafeConfigs => Set<CafeConfig>();
+
+        // BR-REQUIRED §17.5: Transactional Outbox.
+        public DbSet<OutboxEvent> OutboxEvents => Set<OutboxEvent>();
 
     public BoardVerseDbContext(DbContextOptions<BoardVerseDbContext> options) : base(options)
     {

@@ -40,12 +40,18 @@ public interface IBookingService
 
     /// <summary>
     /// Check-in tại quán (Manager/Staff).
+    /// DEPRECATED — BR mới dùng Reservation (BVC). POS scan QR giờ dùng `ReservationCode`
+    /// qua `CafePosService.StartSessionFromBookingAsync` (BVC flow).
     /// </summary>
+    [Obsolete("Deprecated — BR mới dùng Reservation BVC. POS scan QR qua CafePosService.StartSessionFromBookingAsync.")]
     Task<BookingResponseDto> CheckInAsync(Guid bookingId, Guid staffUserId);
 
     /// <summary>
     /// Check-out tại quán (Manager/Staff).
+    /// DEPRECATED — BR mới dùng `ReservationService.CompleteAndCaptureAsync`
+    /// (BR-REVENUE-01: capture BVC deposit về doanh thu quán).
     /// </summary>
+    [Obsolete("Deprecated — đã thay bằng ReservationService.CompleteAndCaptureAsync (BR-REVENUE-01).")]
     Task<BookingResponseDto> CheckOutAsync(Guid bookingId, Guid staffUserId);
 
     /// <summary>

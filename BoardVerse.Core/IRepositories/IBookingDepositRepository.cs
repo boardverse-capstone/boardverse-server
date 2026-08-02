@@ -13,7 +13,7 @@ namespace BoardVerse.Core.IRepositories
         Task<BookingDeposit?> GetByBookingIdAsync(Guid bookingId);
         Task AddAsync(BookingDeposit deposit);
         Task UpdateAsync(BookingDeposit deposit);
-        Task<IReadOnlyList<BookingDeposit>> GetPendingExpiredAsync(DateTime cutoffTime);
+        Task<IReadOnlyList<BookingDeposit>> GetPendingExpiredAsync(DateTime cutoffTime, int limit = 100);
         Task SaveChangesAsync();
     }
 }

@@ -6,6 +6,7 @@ using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
+using Microsoft.Extensions.Logging;
 
 namespace BoardVerse.Services.Services
 {
@@ -16,19 +17,25 @@ namespace BoardVerse.Services.Services
         private readonly ICafePosRepository _posRepository;
         private readonly IBookingDepositRepository _depositRepository;
         private readonly ISettlementService _settlementService;
+        private readonly IReservationService _reservationService;
+        private readonly ILogger<ActiveSessionService> _logger;
 
         public ActiveSessionService(
             ICafeRepository cafeRepository,
             IActiveSessionRepository activeSessionRepository,
             ICafePosRepository posRepository,
             IBookingDepositRepository depositRepository,
-            ISettlementService settlementService)
+            ISettlementService settlementService,
+            IReservationService reservationService,
+            ILogger<ActiveSessionService> logger)
         {
             _cafeRepository = cafeRepository;
             _activeSessionRepository = activeSessionRepository;
             _posRepository = posRepository;
             _depositRepository = depositRepository;
             _settlementService = settlementService;
+            _reservationService = reservationService;
+            _logger = logger;
         }
 
         public async Task<ActiveSessionResponseDto> StartSessionAsync(Guid cafeId, Guid hostUserId, StartSessionRequestDto request)
@@ -417,6 +424,24 @@ namespace BoardVerse.Services.Services
             // Also fixes the box/table "ghost" bug where box was force-overwritten to Available
             // even if it was in a non-rentable state (e.g. Lost/Maintenance).
             await _activeSessionRepository.CompleteSessionPaymentCleanupAsync(sessionId);
+
+            // BR §21A.8 + BR-REVENUE-01: capture BVC deposit về doanh thu quán.
+            // No-op cho session không liên kết Lobby (legacy BookingDeposit flow).
+            if (session.LobbyId.HasValue)
+            {
+                try
+                {
+                    await _reservationService.CompleteAndCaptureAsync(session.LobbyId.Value, sessionId);
+                }
+                catch (Exception ex)
+                {
+                    // Không fail cả PaySessionAsync nếu capture lỗi — BVC vẫn ở heldBalance,
+                    // có thể retry qua background job sau.
+                    _logger.LogError(ex,
+                        "CompleteAndCaptureAsync failed. SessionId={SessionId}, LobbyId={LobbyId}. BVC vẫn held — cần retry.",
+                        sessionId, session.LobbyId.Value);
+                }
+            }
 
             var finalSession = await _activeSessionRepository.GetByIdAsync(sessionId);
 

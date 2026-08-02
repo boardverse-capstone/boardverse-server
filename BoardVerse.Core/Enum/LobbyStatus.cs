@@ -25,5 +25,21 @@ public enum LobbyStatus
     Closed = 5,
 
     /// <summary>Cửa sổ đánh giá Karma đang mở sau khi POS thanh toán xong.</summary>
-    RatingOpen = 6
+    RatingOpen = 6,
+
+    // ===== BR-NEW-11 §6.2 / §XII =====
+    /// <summary>Đang trong transaction atomic giữ BVC + ghế + game copy. Lobby chưa publish.</summary>
+    PendingActivation = 10,
+
+    /// <summary>Lobby có playDate &gt; 2 ngày — chờ cafe duyệt (BR-NEW-11).</summary>
+    PendingCafeApproval = 11,
+
+    /// <summary>Cafe từ chối duyệt lobby — hoàn 100% BVC cho host.</summary>
+    RejectedByCafe = 12,
+
+    /// <summary>Cafe không duyệt trong 24 giờ — hoàn 100% BVC cho host.</summary>
+    ExpiredByCafe = 13,
+
+    /// <summary>Đã đạt minPlayers trước recruitmentDeadline, vẫn nhận thêm đến maxPlayers.</summary>
+    Viable = 14
 }

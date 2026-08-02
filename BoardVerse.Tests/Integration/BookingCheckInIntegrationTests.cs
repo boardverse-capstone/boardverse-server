@@ -4,9 +4,10 @@ using BoardVerse.Tests.Integration.Infrastructure;
 namespace BoardVerse.Tests.Integration;
 
 /// <summary>
-/// Integration tests cho host-led check-in flow (Booking → POS).
-/// Endpoint: POST /api/cafes/{cafeId}/pos/sessions/from-booking
-/// Phủ: BR-05, BR-09, BR-18. Quét mã đặt chỗ (BookingCode = OrderId) để kích hoạt phiên chơi cho cả nhóm.
+/// Integration tests cho POS check-in flow (BR §21A.7).
+/// Endpoint: POST /api/cafes/{cafeId}/pos/check-in
+/// Phủ: BR-05, BR-09, BR-18, BR-21A.7. Staff quét QR (ReservationCode | BookingCode legacy)
+/// để kích hoạt phiên chơi cho cả nhóm (host-led check-in).
 /// </summary>
 [Collection(IntegrationTestCollection.Name)]
 public class BookingCheckInIntegrationTests
@@ -17,18 +18,18 @@ public class BookingCheckInIntegrationTests
         _client = factory.CreateClient();
 
     [IntegrationFact]
-    public async Task StartSessionFromBooking_AsManager_WithInvalidBookingCode_Returns404()
+    public async Task CheckIn_AsManager_WithInvalidCode_Returns404()
     {
         // Arrange
         var managerToken = await IntegrationTestAuth.AsManagerAsync(_client);
         ApiTestClient.Authorize(_client, managerToken);
 
-        // Act — BookingCode không tồn tại
+        // Act — Code không tồn tại (không phải ReservationCode hợp lệ, không phải BookingCode hợp lệ)
         var response = await ApiTestClient.PostJsonAsync(_client,
-            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/from-booking",
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/check-in",
             new
             {
-                bookingCode = "BV-NOT-EXIST",
+                code = "BV-NOT-EXIST",
                 cafeTableId = IntegrationTestFixtures.DemoPosTableId,
                 barcode = IntegrationTestFixtures.PosBoxBarcode
             });
@@ -38,7 +39,7 @@ public class BookingCheckInIntegrationTests
     }
 
     [IntegrationFact]
-    public async Task StartSessionFromBooking_AsPlayer_Returns403()
+    public async Task CheckIn_AsPlayer_Returns403()
     {
         // Arrange
         var playerToken = await IntegrationTestAuth.AsPlayer1Async(_client);
@@ -46,10 +47,10 @@ public class BookingCheckInIntegrationTests
 
         // Act
         var response = await ApiTestClient.PostJsonAsync(_client,
-            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/from-booking",
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/check-in",
             new
             {
-                bookingCode = "BV12345678",
+                code = "BV12345678",
                 cafeTableId = IntegrationTestFixtures.DemoPosTableId,
                 barcode = IntegrationTestFixtures.PosBoxBarcode
             });
@@ -59,76 +60,74 @@ public class BookingCheckInIntegrationTests
     }
 
     [IntegrationFact]
-    public async Task StartSessionFromBooking_WithPendingDeposit_Returns409()
+    public async Task CheckIn_WithPendingDeposit_Returns409()
     {
         // Arrange — DemoBookingDepositId được bootstrap tạo ở status Pending, không phải Paid
         var managerToken = await IntegrationTestAuth.AsManagerAsync(_client);
         ApiTestClient.Authorize(_client, managerToken);
 
-        // Act — Quét mã đặt chỗ của deposit vẫn còn Pending
+        // Act — Quét mã của deposit vẫn còn Pending
         var response = await ApiTestClient.PostJsonAsync(_client,
-            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/from-booking",
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/check-in",
             new
             {
-                bookingCode = "BV-PENDING",
+                code = "BV-PENDING",
                 cafeTableId = IntegrationTestFixtures.DemoPosTableId,
                 barcode = IntegrationTestFixtures.PosBoxBarcode
             });
 
-        // Assert — Có thể 404 (bookingCode không tồn tại) hoặc 409 (booking chưa paid)
+        // Assert — Có thể 404 (code không tồn tại) hoặc 409 (booking chưa paid)
         Assert.True(
             response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Conflict,
             $"Expected NotFound or Conflict, got {response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
     }
 
     [IntegrationFact]
-    public async Task StartSessionFromBooking_WithMissingBookingCode_Returns400()
+    public async Task CheckIn_WithMissingCode_Returns400()
     {
         // Arrange
         var managerToken = await IntegrationTestAuth.AsManagerAsync(_client);
         ApiTestClient.Authorize(_client, managerToken);
 
-        // Act — Body rỗng (bookingCode = "")
+        // Act — Body rỗng (code = "")
         var response = await ApiTestClient.PostJsonAsync(_client,
-            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/from-booking",
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/check-in",
             new
             {
-                bookingCode = "",
+                code = "",
                 cafeTableId = IntegrationTestFixtures.DemoPosTableId,
                 barcode = IntegrationTestFixtures.PosBoxBarcode
             });
 
-        // Assert — Model validation rejects empty bookingCode
+        // Assert — Model validation rejects empty code
         Assert.True(
             response.StatusCode is HttpStatusCode.BadRequest,
             $"Expected 400, got {response.StatusCode}");
     }
 
     [IntegrationFact]
-    public async Task StartSessionFromBooking_WithInvalidBarcode_Returns404()
+    public async Task CheckIn_WithInvalidBarcode_Returns404()
     {
-        // Arrange — Need a paid deposit OR use an invalid bookingCode that returns 404 first
+        // Arrange — Need a paid deposit OR use an invalid code that returns 404 first
         var managerToken = await IntegrationTestAuth.AsManagerAsync(_client);
         ApiTestClient.Authorize(_client, managerToken);
 
-        // Act — BookingCode valid (chỉ để pass lookup), nhưng barcode không tồn tại
-        // Dòng đầu tiên trong service là _depositRepository.GetByBookingCodeAsync(...)
-        // Vì bookingCode không tồn tại, expect 404
+        // Act — Code không tồn tại
         var response = await ApiTestClient.PostJsonAsync(_client,
-            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/from-booking",
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/check-in",
             new
             {
-                bookingCode = "BV-NOTFOUND",
+                code = "BV-NOTFOUND",
                 cafeTableId = IntegrationTestFixtures.DemoPosTableId,
                 barcode = "INVALID-BARCODE"
             });
 
-        // Assert — Service fails on booking lookup first, returns 404
+        // Assert — Service fails on code lookup first, returns 404
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [IntegrationFact]
-    public async Task StartSessionFromBooking_EndpointRequiresAuth()
+    public async Task CheckIn_EndpointRequiresAuth()
     {
         // Arrange — No token
         // Clear any existing auth
@@ -136,10 +135,10 @@ public class BookingCheckInIntegrationTests
 
         // Act
         var response = await ApiTestClient.PostJsonAsync(_client,
-            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/from-booking",
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/check-in",
             new
             {
-                bookingCode = "BV12345678",
+                code = "BV12345678",
                 cafeTableId = IntegrationTestFixtures.DemoPosTableId,
                 barcode = IntegrationTestFixtures.PosBoxBarcode
             });
@@ -149,7 +148,7 @@ public class BookingCheckInIntegrationTests
     }
 
     [IntegrationFact]
-    public async Task StartSessionFromBooking_WithCafeStaffRole_ReturnsSuccessOrPermissionError()
+    public async Task CheckIn_WithCafeStaffRole_ReturnsSuccessOrPermissionError()
     {
         // Arrange — CafeStaff cũng có quyền POS theo [Authorize(Roles = "Manager,CafeStaff")]
         var staffToken = await IntegrationTestAuth.AsPlayer2Async(_client); // Player2 là CafeStaff theo bootstrapper
@@ -157,10 +156,10 @@ public class BookingCheckInIntegrationTests
 
         // Act
         var response = await ApiTestClient.PostJsonAsync(_client,
-            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/from-booking",
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/check-in",
             new
             {
-                bookingCode = "BV-INVALID-FOR-STAFF",
+                code = "BV-INVALID-FOR-STAFF",
                 cafeTableId = IntegrationTestFixtures.DemoPosTableId,
                 barcode = IntegrationTestFixtures.PosBoxBarcode
             });
@@ -168,6 +167,6 @@ public class BookingCheckInIntegrationTests
         // Assert — Auth passes, lookup fails with 404
         Assert.True(
             response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden,
-            $"Expected 404 (booking not found) or 403 (CafeStaff not on staff list), got {response.StatusCode}");
+            $"Expected 404 (code not found) or 403 (CafeStaff not on staff list), got {response.StatusCode}");
     }
 }

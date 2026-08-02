@@ -349,6 +349,33 @@ namespace BoardVerse.Core.Messages
                 "Số tiền thanh toán phải lớn hơn 0.";
         }
 
+        public static class Wallet
+        {
+            /// <summary>Top-up amount dưới ngưỡng tối thiểu (BR § II.2).</summary>
+            public const string TopUpBelowMinimum =
+                "Số tiền nạp tối thiểu là 10.000 VND (= 10 BVC).";
+
+            /// <summary>Top-up amount không chia hết cho 1.000 (BR § II.2).</summary>
+            public const string TopUpInvalidMultiple =
+                "Số tiền nạp phải là bội số của 1.000 VND.";
+
+            /// <summary>Không tạo được SePay master payment cho top-up.</summary>
+            public const string TopUpGatewayFailed =
+                "Không thể tạo đơn top-up qua SePay. Vui lòng thử lại hoặc dùng VietQR fallback.";
+
+            /// <summary>User bị suspended/banned cố top-up (BR-RISK-04).</summary>
+            public const string TopUpBlockedAccount =
+                "Tài khoản của bạn đang bị tạm khóa, không thể nạp BVC.";
+
+            /// <summary>Không tìm thấy user khi tạo wallet tự động — lỗi hiếm gặp.</summary>
+            public const string WalletAutoCreateUserNotFound =
+                "Không thể tự tạo ví. Tài khoản không tồn tại hoặc đã bị xóa.";
+
+            /// <summary>Lock row Wallet để atomic trừ/cộng BVC thất bại.</summary>
+            public const string WalletLockFailed =
+                "Không thể khóa ví để thực hiện giao dịch. Vui lòng thử lại.";
+        }
+
         public static class Payment
         {
             public const string SePayMasterAccountNotFound =
@@ -1102,8 +1129,14 @@ namespace BoardVerse.Core.Messages
             public const string PrivateLobbyRequiresInvite =
                 "Phòng chờ riêng tư chỉ có thể tham gia qua lời mời hoặc share code.";
 
+            public const string PrivateLobbyShareCodeRequiresFriendship =
+                "Phòng chờ riêng tư chỉ cho phép người có quan hệ bạn bè với thành viên tham gia bằng share code.";
+
             public static string ShareCodeInvalid =>
                 "Mã chia sẻ không hợp lệ hoặc không tồn tại.";
+
+            public const string InviteRateLimitExceeded =
+                "Bạn đã gửi/nhận quá nhiều lời mời trong ngày. Vui lòng thử lại sau.";
         }
 
         public static class Lobby
@@ -1147,12 +1180,145 @@ namespace BoardVerse.Core.Messages
             public static string NotActiveMember(Guid lobbyId) =>
                 $"Bạn không phải thành viên đang hoạt động của phòng '{lobbyId}'.";
 
+            public static string LockerIdMessage_NotFound(string id) =>
+                $"Không tìm thấy phòng chờ '{id}'.";
+
             public static string VenueCapacityFull(int availableSeats, int requestedSeats) =>
                 $"ERR_VENUE_CAPACITY_FULL: Quán không đủ chỗ ngồi. Chỉ còn {availableSeats} ghế trống, nhưng cần thêm {requestedSeats} ghế cho thành viên mới.";
 
             // P1 Fix #1: Prevent leaving during in-progress or closed states
             public const string CannotLeaveLobbyDuringSession =
                 "Không thể rời phòng khi phiên chơi đang diễn ra hoặc đã kết thúc.";
+        }
+
+        // ===== BR-NEW-* § XXI-G Phase 2/3 =====
+        public static class Reservation
+        {
+            // ===== Buffer validation (BR-LOBBY-01a/b/c) =====
+            public static string BufferTooShort(int bufferMinutes, int minRequired) =>
+                $"Thời gian đệm đến hạn tuyển người quá ngắn ({bufferMinutes} phút). Cần tối thiểu {minRequired} phút — vui lòng chọn khung giờ khác.";
+
+            // ===== Play date range (BR § VIII: max 7 ngày trong tương lai) =====
+            public static string PlayDateOutOfRange(int maxDaysAhead) =>
+                $"Ngày dự kiến chơi phải nằm trong vòng {maxDaysAhead} ngày tới.";
+
+            public const string CafeConfigMissing =
+                "Quán chưa được cấu hình hạn mức cọc. Vui lòng liên hệ quản lý quán.";
+
+            public const string GameNotInCafeInventory =
+                "Quán chưa có bản copy của game này trong kho. Vui lòng chọn game khác.";
+
+            // ===== BR-RESERVATION-01: maxPlayers > capacity =====
+            public static string MaxPlayersExceedsCafeCapacity(int maxPlayers, int cafeCapacity) =>
+                $"Số người tối đa ({maxPlayers}) vượt quá công suất quán ({cafeCapacity}).";
+
+            // ===== BR-NEW-01: maxPlayers theo khoảng cách playDate =====
+            public static string MaxPlayersExceedsDistanceLimit(int requested, int maxAllowed, int daysAhead) =>
+                $"Số người tối đa ({requested}) vượt quá giới hạn cho phép ({maxAllowed}) khi chơi cách {daysAhead} ngày.";
+
+            // ===== BR-USER-LIMIT-01: 1 host lobby + 1 member lobby =====
+            public const string ActiveLobbyHostLimitReached =
+                "Bạn đã là host của 1 lobby đang hoạt động. Vui lòng hủy hoặc đợi lobby kết thúc trước khi tạo lobby mới.";
+
+            public const string ActiveLobbyMemberLimitReached =
+                "Bạn đã tham gia 1 lobby đang hoạt động. Vui lòng rời lobby trước khi tạo lobby mới làm host.";
+
+            // ===== BR-USER-LIMIT-04/05: cross-role =====
+            public const string MemberCannotCreateLobby =
+                "Bạn đang là thành viên của 1 lobby đang hoạt động nên không thể tạo lobby mới làm host.";
+
+            public const string HostCannotJoinLobby =
+                "Bạn đang là host của 1 lobby đang hoạt động nên không thể tham gia lobby khác làm member.";
+
+            // ===== BR-NEW-08: 1 lobby / cafe / playDate+timeSlot / user =====
+            public static string SameCafeSlotLobbyAlreadyActive =>
+                "Bạn đã có 1 lobby đang hoạt động ở cùng quán, cùng khung giờ, cùng ngày.";
+
+            // ===== BR-USER-LIMIT-02: overlap +30p buffer =====
+            public static string OverlappingLobbyExists(DateTime otherDeadline, DateTime otherStart) =>
+                $"Lịch của bạn bị trùng với lobby khác (deadline {otherDeadline:HH:mm dd/MM}, bắt đầu {otherStart:HH:mm dd/MM}).";
+
+            // ===== BR-USER-LIMIT-03: cap heldBalance =====
+            public static string HeldDepositCapExceeded(long currentHeld, long cap, string userType) =>
+                $"Tổng cọc đang giữ ({currentHeld} BVC) vượt quá giới hạn cho user {userType} ({cap} BVC).";
+
+            // ===== BR-NEW-05: 5 lần tạo+hủy / playDate =====
+            public static string HostCreatesCancelsLimitReached(int limit) =>
+                $"Bạn đã tạo/hủy lobby {limit} lần cho cùng ngày. Vui lòng chọn ngày khác.";
+
+            // ===== BR-RISK-04: suspended/banned =====
+            public const string BannedCannotCreateLobby =
+                "Tài khoản của bạn đã bị cấm vĩnh viễn nên không thể tạo lobby.";
+
+            public const string SuspendedCannotCreateLobby =
+                "Tài khoản của bạn đang bị tạm khóa nên không thể tạo lobby. Vui lòng liên hệ hỗ trợ.";
+
+            public const string RestrictedCannotCreateLobby =
+                "Tài khoản của bạn đang ở trạng thái hạn chế nên không thể tạo lobby.";
+
+            // ===== BR-NEW-10: cooling-off =====
+            public static string CoolingOffCannotCreateDistantLobby(DateTime expiresAt) =>
+                $"Bạn đang trong thời gian giới hạn đến {expiresAt:dd/MM/yyyy HH:mm}. Chỉ có thể tạo lobby có playDate trong ngày.";
+
+            // ===== BR-DEPOSIT-03: rate per person 1..100 =====
+            public const string InvalidDepositRate =
+                "Mức cọc mỗi người phải nằm trong khoảng 1 đến 100 BVC.";
+
+            public const string MinPlayersAtLeastTwo =
+                "Số người tối thiểu phải ít nhất 2 để mở lobby nhóm.";
+
+            public static string MinGreaterThanMax(int min, int max) =>
+                $"Số người tối thiểu ({min}) không được lớn hơn tối đa ({max}).";
+
+            // ===== BVC hold =====
+            public static string InsufficientAvailableBalance(long available, long required) =>
+                $"Số dư BVC khả dụng ({available}) không đủ để giữ cọc ({required}).";
+
+            // ===== Reservation lifecycle =====
+            public static string ReservationNotFound(Guid id) =>
+                $"Không tìm thấy reservation '{id}'.";
+
+            public static string ReservationNotFoundByLobby(Guid lobbyId) =>
+                $"Không tìm thấy reservation cho lobby '{lobbyId}'.";
+
+            public static string ReservationNotHolding(Guid id) =>
+                $"Reservation '{id}' không ở trạng thái Holding. Không thể thao tác.";
+
+            public const string IdempotencyKeyConflict =
+                "Idempotency key đã được dùng cho reservation khác. Vui lòng tạo key mới.";
+
+            // ===== Seat/Game inventory =====
+            public static string SeatsNotAvailable(int available, int requested) =>
+                $"Quán không đủ ghế trống ({available}/{requested}).";
+
+            public static string GameCopyNotAvailable(int available) =>
+                $"Quán không còn bản copy game khả dụng (còn {available}).";
+
+            // ===== Cancel =====
+            public static string CancelOnlyByHost =
+                "Chỉ host mới có thể hủy lobby.";
+
+            public static string CancelWithinGraceFullRefund(string graceMinutes) =>
+                $"Hủy trong vòng {graceMinutes} phút đầu chưa có thành viên — hoàn 100% BVC.";
+
+            public static string CancelRefundMatrix(double hoursToStart, long percent) =>
+                $"Hủy cách giờ chơi {hoursToStart:F1} giờ — hoàn {percent}% BVC theo BR-REFUND-02.";
+
+            public const string CancelAfter24hFullRefund =
+                "Hủy trước giờ chơi ≥ 24 giờ — hoàn 100% BVC.";
+
+            public const string Cancel6To24hHalfRefund =
+                "Hủy trong khoảng 6–24 giờ trước giờ chơi — hoàn 50% BVC.";
+
+            public const string CancelUnder6hNoRefund =
+                "Hủy dưới 6 giờ trước giờ chơi — không hoàn BVC.";
+
+            // ===== BR-NEW-11 cafe approval =====
+            public const string ApproveOnlyByCafeOwner =
+                "Chỉ quản lý quán mới có thể duyệt lobby.";
+
+            public static string CafeRejectionReasonRequired =>
+                "Lý do từ chối là bắt buộc khi cafe từ chối duyệt lobby.";
         }
 
         public static class Tournament

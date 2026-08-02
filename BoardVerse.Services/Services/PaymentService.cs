@@ -20,6 +20,7 @@ public class PaymentService : IPaymentService
     private readonly IPaymentGatewayService _paymentGateway;
     private readonly ISePayClient _sePayClient;
     private readonly ISePayAccountService _sePayAccountService;
+    private readonly IWalletService _walletService; // BVC top-up webhook
     private readonly ILogger<PaymentService> _logger;
 
     public PaymentService(
@@ -31,6 +32,7 @@ public class PaymentService : IPaymentService
         IPaymentGatewayService paymentGateway,
         ISePayClient sePayClient,
         ISePayAccountService sePayAccountService,
+        IWalletService walletService,
         ILogger<PaymentService> logger)
     {
         _depositService = depositService;
@@ -41,6 +43,7 @@ public class PaymentService : IPaymentService
         _paymentGateway = paymentGateway;
         _sePayClient = sePayClient;
         _sePayAccountService = sePayAccountService;
+        _walletService = walletService;
         _logger = logger;
     }
 
@@ -67,11 +70,12 @@ public class PaymentService : IPaymentService
         var accountNumber = string.Empty;
         var accountHolder = string.Empty;
 
-        var masterAccount = await _sePayAccountService.GetMasterAccountAsync();
+        var masterAccount = await _sePayAccountService.GetRawMasterAccountAsync();
         if (masterAccount != null)
         {
             bankCode = masterAccount.BankCode ?? string.Empty;
-            accountNumber = masterAccount.MaskedAccountNumber ?? string.Empty;
+            // Dùng raw AccountNumber (không mask) cho VietQR — QR phải trỏ vào STK thật
+            accountNumber = masterAccount.AccountNumber ?? string.Empty;
             accountHolder = masterAccount.AccountHolder ?? string.Empty;
         }
 
@@ -159,11 +163,12 @@ public class PaymentService : IPaymentService
         var accountNumber = string.Empty;
         var accountHolder = string.Empty;
 
-        var masterAccount = await _sePayAccountService.GetMasterAccountAsync();
+        var masterAccount = await _sePayAccountService.GetRawMasterAccountAsync();
         if (masterAccount != null)
         {
             bankCode = masterAccount.BankCode ?? string.Empty;
-            accountNumber = masterAccount.MaskedAccountNumber ?? string.Empty;
+            // Dùng raw AccountNumber (không mask) cho VietQR — QR phải trỏ vào STK thật
+            accountNumber = masterAccount.AccountNumber ?? string.Empty;
             accountHolder = masterAccount.AccountHolder ?? string.Empty;
         }
 
@@ -267,11 +272,12 @@ public class PaymentService : IPaymentService
         // Lấy từ SePayAccount nếu cafe đã được configure
         if (cafe.SePayAccountId.HasValue)
         {
-            var sepayAccount = await _sePayAccountService.GetByIdAsync(cafe.SePayAccountId.Value);
+            var sepayAccount = await _sePayAccountService.GetRawByCafeIdAsync(cafe.Id);
             if (sepayAccount != null)
             {
                 bankCode = sepayAccount.BankCode ?? string.Empty;
-                accountNumber = sepayAccount.MaskedAccountNumber ?? string.Empty;
+                // Dùng raw AccountNumber cho VietQR
+                accountNumber = sepayAccount.AccountNumber ?? string.Empty;
             }
         }
 
@@ -354,11 +360,12 @@ public class PaymentService : IPaymentService
         // Lấy từ SePayAccount nếu cafe đã được configure
         if (cafe.SePayAccountId.HasValue)
         {
-            var sepayAccount = await _sePayAccountService.GetByIdAsync(cafe.SePayAccountId.Value);
+            var sepayAccount = await _sePayAccountService.GetRawByCafeIdAsync(cafe.Id);
             if (sepayAccount != null)
             {
                 bankCode = sepayAccount.BankCode ?? string.Empty;
-                accountNumber = sepayAccount.MaskedAccountNumber ?? string.Empty;
+                // Dùng raw AccountNumber cho VietQR
+                accountNumber = sepayAccount.AccountNumber ?? string.Empty;
             }
         }
 
@@ -469,6 +476,19 @@ public class PaymentService : IPaymentService
 
         // Otherwise, try to process as session payment
         await ProcessSessionPaymentWebhookAsync(webhook);
+
+        // Phase 2: BVC top-up (OrderId prefix BVC-XXX) — route tới WalletService.HandleTopUpWebhookAsync.
+        if (!string.IsNullOrWhiteSpace(webhook.OrderId)
+            && webhook.OrderId.StartsWith("BVC-", StringComparison.OrdinalIgnoreCase))
+        {
+            var bvcAmount = (long)(webhook.Amount / 1000m);
+            await _walletService.HandleTopUpWebhookAsync(
+                orderId: webhook.OrderId,
+                gatewayTransactionId: webhook.GatewayTransactionId ?? string.Empty,
+                amountBvc: bvcAmount,
+                status: webhook.Status ?? string.Empty);
+            return;
+        }
     }
 
     private async Task ProcessDepositWebhookAsync(SePayWebhookDto webhook, BookingDeposit deposit)

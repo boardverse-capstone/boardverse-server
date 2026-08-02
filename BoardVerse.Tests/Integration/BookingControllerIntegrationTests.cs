@@ -174,38 +174,9 @@ public class BookingControllerIntegrationTests
 
     #region === CHECK-IN / CHECK-OUT ===
 
-    [IntegrationFact]
-    public async Task Booking_CheckIn_WithValidCode()
-    {
-        var token = await IntegrationTestAuth.AsManagerAsync(_client);
-        ApiTestClient.Authorize(_client, token);
-
-        var request = new
-        {
-            bookingCode = "TEST123"
-        };
-
-        var response = await ApiTestClient.PostJsonAsync(_client,
-            $"/api/bookings/check-in",
-            request);
-        Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.NotFound ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
-    }
-
-    [IntegrationFact]
-    public async Task Booking_CheckOut_WithValidId()
-    {
-        var token = await IntegrationTestAuth.AsManagerAsync(_client);
-        ApiTestClient.Authorize(_client, token);
-
-        var response = await ApiTestClient.PostJsonAsync(_client,
-            $"/api/bookings/{Guid.NewGuid()}/check-out",
-            new { notes = "Test checkout" });
-        Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.NotFound ||
-                   response.StatusCode == HttpStatusCode.BadRequest);
-    }
+    // Legacy `POST /api/bookings/{id}/check-in` + `/check-out` đã bị xóa (BR §21A.7 + BR §XXI-B.1).
+    // Check-in flow mới: `POST /api/cafes/{cafeId}/pos/check-in` — xem BookingCheckInIntegrationTests.cs.
+    // Check-out/Complete: `ReservationService.CompleteAndCaptureAsync` chạy nội bộ khi ActiveSession PAID.
 
     #endregion
 }

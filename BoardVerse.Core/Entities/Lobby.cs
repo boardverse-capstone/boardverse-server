@@ -24,6 +24,34 @@ public class Lobby
     /// <summary>Mã booking khi đã thanh toán cọc BR-05. Nullable.</summary>
     public Guid? BookingId { get; set; }
 
+    // ===== BR-NEW-* §19.1: Bổ sung cho Reservation flow =====
+    /// <summary>FK Reservation — bắt buộc với lobby mới. Nullable để tương thích lobby cũ.</summary>
+    public Guid? ReservationId { get; set; }
+
+    /// <summary>BR-NEW-04: ngày dự kiến chơi (chỉ ngày, không giờ).</summary>
+    public DateOnly? PlayDate { get; set; }
+
+    /// <summary>BR-NEW-15: khung giờ cố định.</summary>
+    public TimeSlot? TimeSlot { get; set; }
+
+    /// <summary>BR-NEW-15b: optional, nằm trong [timeSlot.startTime, timeSlot.endTime].</summary>
+    public TimeOnly? PreferredStartTime { get; set; }
+
+    /// <summary>BR-LOBBY-01: scheduledTime - leadTimeMinutes.</summary>
+    public DateTime? RecruitmentDeadline { get; set; }
+
+    /// <summary>BVC minDeposit theo khoảng cách playDate (BR-NEW-01 §8).</summary>
+    public long? MinDeposit { get; set; }
+
+    /// <summary>Snapshot cấu hình cọc tại thời điểm tạo (§19.1 + 21F.9).</summary>
+    public DepositSnapshot? DepositSnapshot { get; set; }
+
+    // ===== BR-NEW-11 §XII: cafe approval workflow =====
+    public DateTime? CafeApprovalDeadline { get; set; }
+    public Guid? CafeApprovedByUserId { get; set; }
+    public DateTime? CafeApprovedAt { get; set; }
+    public string? CafeRejectionReason { get; set; }
+
     // === Scheduling (BR-08) ===
     /// <summary>Thời điểm dự kiến bắt đầu chơi tại quán.</summary>
     public DateTime? ScheduledStartTime { get; set; }
@@ -95,6 +123,7 @@ public class Lobby
     public virtual GameTemplate GameTemplate { get; set; } = null!;
     public virtual Cafe? Cafe { get; set; }
     public virtual BookingDeposit? Booking { get; set; }
+    public virtual Reservation? Reservation { get; set; }
     public virtual ActiveSession? ActiveSession { get; set; }
     public virtual ICollection<LobbyMember> Members { get; set; } = [];
     public virtual ICollection<LobbyInvite> Invites { get; set; } = [];

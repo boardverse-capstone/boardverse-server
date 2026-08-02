@@ -5,7 +5,9 @@ using BoardVerse.Data;
 using BoardVerse.Data.Repositories;
 using BoardVerse.Core.IRepositories;
 using Npgsql;
+using BoardVerse.Services;
 using BoardVerse.Services.Extensions;
+using BoardVerse.Services.HostedServices;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
 using BoardVerse.Services.Services.Notifications;
@@ -124,6 +126,16 @@ builder.Services.AddBoardVerseRedis(builder.Configuration);
 builder.Services.AddBoardVerseEmail(builder.Configuration);
 builder.Services.AddBoardVerseBgg(builder.Configuration);
 builder.Services.AddBoardVersePayment();
+// Reservation flow (BR §XXI-A.2..21A.6) — Phase 1 wallet đã đăng ký ở AddBoardVersePayment.
+builder.Services.AddScoped<IReservationRepository, ReservationRepository>();
+builder.Services.AddScoped<ISeatInventoryRepository, SeatInventoryRepository>();
+builder.Services.AddScoped<IGameInventoryRepository, GameInventoryRepository>();
+builder.Services.AddScoped<ICafeConfigRepository, CafeConfigRepository>();
+builder.Services.AddScoped<IOutboxRepository, OutboxRepository>();
+builder.Services.AddSingleton<IOutboxEventPublisher, LoggingOutboxPublisher>();
+builder.Services.AddScoped<DepositCalculator>();
+builder.Services.AddScoped<EligibilityValidator>();
+builder.Services.AddScoped<IReservationService, ReservationService>();
 builder.Services.AddScoped<IAuthRepository, AuthRepository>();
 builder.Services.AddScoped<IUserProfileRepository, UserProfileRepository>();
 builder.Services.AddScoped<IUserManagementRepository, UserManagementRepository>();
@@ -199,12 +211,21 @@ if (!builder.Environment.IsEnvironment("Testing"))
     builder.Services.AddHostedService<LobbyTimeoutJob>();
     builder.Services.AddHostedService<KarmaWindowJob>();
     builder.Services.AddHostedService<BookingDepositExpiryJob>();
+    builder.Services.AddHostedService<ReservationDeadlineJob>(); // GAP #17: deadline + cafe approval expiry + no-show
+    builder.Services.AddHostedService<BvcTopUpExpiryJob>(); // BVC top-up pending expire sau 30 phút
     builder.Services.AddHostedService<SettlementRetryJob>();
     builder.Services.AddHostedService<TournamentExpiryJob>();
     builder.Services.AddHostedService<LobbyCleanupJob>();
     builder.Services.AddHostedService<TournamentReminderJob>();
     builder.Services.AddHostedService<TournamentNoShowDetectionJob>();
     builder.Services.AddHostedService<FriendRequestExpiryJob>();
+    builder.Services.AddHostedService<LobbyInviteExpiryJob>(); // BR-LOBBY-INVITE-08: expire invite 24h
+
+    // BR §XXI-H.8: Reservation scheduler jobs (recruitmentDeadline, cafe approval 24h, no-show grace).
+    builder.Services.AddReservationSchedulers();
+
+    // BR-REQUIRED §17.5: Transactional Outbox publisher.
+    builder.Services.AddHostedService<OutboxPublisherHostedService>();
 }
 
 // SignalR Hubs for real-time updates

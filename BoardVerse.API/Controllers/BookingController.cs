@@ -209,53 +209,8 @@ public class BookingController : BaseApiController
     }
 
     /// <summary>
-    /// Check-in tại quán.
-    /// POS quét QR/QRCode xác minh -> chuyển Confirmed -> CheckedIn.
-    /// [Role: Manager, CafeStaff]
+    /// Removed legacy endpoints (BR §XXI-B.1, BR §21A.7):
+    /// - `POST /api/bookings/{bookingId}/check-in`  → dùng `POST /api/cafes/{cafeId}/pos/check-in`
+    /// - `POST /api/bookings/{bookingId}/check-out` → `ReservationService.CompleteAndCaptureAsync` khi ActiveSession PAID.
     /// </summary>
-    /// <param name="bookingId">Mã booking.</param>
-    /// <response code="200">Check-in thành công.</response>
-    /// <response code="401">Thiếu token.</response>
-    /// <response code="403">Không có quyền.</response>
-    /// <response code="404">Không tìm thấy booking.</response>
-    /// <response code="409">Booking không ở trạng thái Confirmed.</response>
-    /// <response code="500">Lỗi hệ thống.</response>
-    [HttpPost("{bookingId:guid}/check-in")]
-    [Authorize(Roles = "Manager,CafeStaff")]
-    [ProducesResponseType(typeof(BookingResponseDto), 200)]
-    [ProducesResponseType(401)]
-    [ProducesResponseType(typeof(object), 403)]
-    [ProducesResponseType(typeof(object), 404)]
-    [ProducesResponseType(typeof(object), 409)]
-    public async Task<IActionResult> CheckIn(Guid bookingId)
-    {
-        var staffUserId = GetUserIdFromClaims();
-        var result = await _bookingService.CheckInAsync(bookingId, staffUserId);
-        return NewResponse(200, "Check-in thành công.", result);
-    }
-
-    /// <summary>
-    /// Check-out tại quán.
-    /// [Role: Manager, CafeStaff]
-    /// </summary>
-    /// <param name="bookingId">Mã booking.</param>
-    /// <response code="200">Check-out thành công.</response>
-    /// <response code="401">Thiếu token.</response>
-    /// <response code="403">Không có quyền.</response>
-    /// <response code="404">Không tìm thấy booking.</response>
-    /// <response code="409">Booking chưa check-in.</response>
-    /// <response code="500">Lỗi hệ thống.</response>
-    [HttpPost("{bookingId:guid}/check-out")]
-    [Authorize(Roles = "Manager,CafeStaff")]
-    [ProducesResponseType(typeof(BookingResponseDto), 200)]
-    [ProducesResponseType(401)]
-    [ProducesResponseType(typeof(object), 403)]
-    [ProducesResponseType(typeof(object), 404)]
-    [ProducesResponseType(typeof(object), 409)]
-    public async Task<IActionResult> CheckOut(Guid bookingId)
-    {
-        var staffUserId = GetUserIdFromClaims();
-        var result = await _bookingService.CheckOutAsync(bookingId, staffUserId);
-        return NewResponse(200, "Check-out thành công.", result);
-    }
 }

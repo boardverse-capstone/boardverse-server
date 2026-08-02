@@ -3,6 +3,7 @@ using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
+using BoardVerse.Data;
 using BoardVerse.Services.IServices;
 using Microsoft.Extensions.Logging;
 
@@ -14,17 +15,20 @@ public class BookingDepositService : IBookingDepositService
     private readonly IBookingRepository _bookingRepository;
     private readonly ICafeRepository _cafeRepository;
     private readonly ILogger<BookingDepositService> _logger;
+    private readonly BoardVerseDbContext _db; // GAP #26: cần cho batch transaction.
 
     public BookingDepositService(
         IBookingDepositRepository depositRepository,
         IBookingRepository bookingRepository,
         ICafeRepository cafeRepository,
-        ILogger<BookingDepositService> logger)
+        ILogger<BookingDepositService> logger,
+        BoardVerseDbContext db)
     {
         _depositRepository = depositRepository;
         _bookingRepository = bookingRepository;
         _cafeRepository = cafeRepository;
         _logger = logger;
+        _db = db;
     }
 
     public async Task<BookingDeposit> CreateAsync(
@@ -212,23 +216,39 @@ public class BookingDepositService : IBookingDepositService
 
     public async Task ProcessExpiredDepositsAsync()
     {
+        const int BatchSize = 50;
         var now = DateTime.UtcNow;
         var expiryThreshold = now.AddMinutes(-5);
 
-        var expiredDeposits = await _depositRepository.GetPendingExpiredAsync(expiryThreshold);
+        // GAP #26 fix: batch transaction cho FOR UPDATE SKIP LOCKED.
+        // Mỗi tick load tối đa 50 deposit expired → tránh long-running tx.
+        // BoardVerseDbContext không override BeginTransactionAsync(IsolationLevel) → dùng default.
+        await using var batchTx = await _db.Database.BeginTransactionAsync();
 
-        foreach (var deposit in expiredDeposits)
+        var expiredDeposits = await _depositRepository.GetPendingExpiredAsync(expiryThreshold, BatchSize);
+
+        try
         {
-            deposit.Status = BookingDepositStatus.Refunded;
-            deposit.RefundedAt = now;
-            deposit.UpdatedAt = now;
-            await _depositRepository.UpdateAsync(deposit);
-            _logger.LogInformation("Deposit expired. DepositId={DepositId}, CreatedAt={CreatedAt}", deposit.Id, deposit.CreatedAt);
+            foreach (var deposit in expiredDeposits)
+            {
+                deposit.Status = BookingDepositStatus.Refunded;
+                deposit.RefundedAt = now;
+                deposit.UpdatedAt = now;
+                await _depositRepository.UpdateAsync(deposit);
+                _logger.LogInformation("Deposit expired. DepositId={DepositId}, CreatedAt={CreatedAt}", deposit.Id, deposit.CreatedAt);
+            }
+
+            if (expiredDeposits.Count > 0)
+            {
+                await _depositRepository.SaveChangesAsync();
+            }
+
+            await batchTx.CommitAsync();
         }
-
-        if (expiredDeposits.Count > 0)
+        catch
         {
-            await _depositRepository.SaveChangesAsync();
+            await batchTx.RollbackAsync();
+            throw;
         }
     }
 

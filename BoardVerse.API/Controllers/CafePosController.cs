@@ -210,23 +210,34 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Host-led check-in: Quét mã đặt chỗ (BookingCode) để kích hoạt phiên chơi cho cả nhóm.
-        /// Nhân viên quét mã QR trên ứng dụng của Host để check-in toàn bộ thành viên trong nhóm.
-        /// MDC Happy Path Step 9
+        /// POS check-in: Staff quét QR (ReservationCode hoặc BookingCode legacy) để kích hoạt phiên chơi cho cả nhóm.
+        ///
+        /// BR §21A.7 — Host-led check-in:
+        ///   > "Host đến quán, mở BookingSuccessPage hiển thị QR → Staff quét QR trên POS.
+        ///   > POS validate: Booking tồn tại, status = confirmed, Nonce chưa được sử dụng,
+        ///   > Thời gian nằm trong khung giờ cho phép.
+        ///   > Booking.status = checkedIn, Game copy held → inUse, bắt đầu billing session."
+        ///
+        /// Code detection (BR §21A.7 + ReservationCodeDetector):
+        ///   - ReservationCode (8-char alphanumeric, exclude 0/1/I/O) → BVC Reservation flow.
+        ///   - BookingCode "BV{N}" → VND BookingDeposit flow (backward compat).
+        ///
+        /// Idempotent: scan cùng QR trả về cùng response (cùng ActiveSessionId).
         /// </summary>
-        /// <param name="cafeId">Mã định danh quán.</param>
-        /// <param name="request">Mã đặt chỗ, bàn và game barcode.</param>
-        /// <response code="201">Check-in thành công, phiên chơi đã được kích hoạt.</response>
-        /// <response code="400">Mã đặt chỗ không hợp lệ.</response>
-        /// <response code="401">Thiếu token.</response>
-        /// <response code="403">Không đủ quyền.</response>
-        /// <response code="404">Quán, bàn hoặc game không tồn tại.</response>
-        /// <response code="409">Đơn đặt chỗ chưa thanh toán hoặc bàn/game không khả dụng.</response>
-        [HttpPost("sessions/from-booking")]
-        public async Task<IActionResult> StartSessionFromBooking(Guid cafeId, [FromBody] StartSessionFromBookingRequestDto request)
+        /// <param name="cafeId">Mã định danh quán staff đang vận hành.</param>
+        /// <param name="request">Mã check-in (ReservationCode | BookingCode), bàn và barcode hộp game.</param>
+        /// <response code="201">Check-in thành công, phiên chơi đã được kích hoạt (ActiveSession created).</response>
+        /// <response code="400">Dữ liệu request không hợp lệ hoặc ngoài time window check-in.</response>
+        /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+        /// <response code="403">Không đủ quyền vận hành quán.</response>
+        /// <response code="404">Reservation/Booking, quán, bàn hoặc game không tồn tại.</response>
+        /// <response code="409">Reservation không thuộc cafe, sai cafe, chưa Confirmed, hoặc bàn/game không khả dụng.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpPost("check-in")]
+        public async Task<IActionResult> CheckIn(Guid cafeId, [FromBody] CheckInRequestDto request)
         {
             var (userId, role) = GetViewerContext();
-            var result = await _posService.StartSessionFromBookingAsync(cafeId, userId, role, request);
+            var result = await _posService.CheckInByCodeAsync(cafeId, userId, role, request);
             return this.NewResponse(201, ApiSuccessMessages.Pos.SessionStarted, result);
         }
 

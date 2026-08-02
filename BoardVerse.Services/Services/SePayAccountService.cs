@@ -56,6 +56,16 @@ public class SePayAccountService : ISePayAccountService
         return account == null ? null : ToDto(account);
     }
 
+    public Task<SePayAccount?> GetRawMasterAccountAsync()
+    {
+        return _repository.GetMasterAccountAsync();
+    }
+
+    public async Task<SePayAccount?> GetRawByCafeIdAsync(Guid cafeId)
+    {
+        return await _repository.GetByCafeIdAsync(cafeId);
+    }
+
     public async Task<IReadOnlyList<SePayAccountDto>> GetAllAsync(SePayAccountQuery? query = null)
     {
         var accounts = await _repository.GetAllAsync(query);

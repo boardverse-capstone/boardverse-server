@@ -30,6 +30,12 @@ public static class PaymentServiceExtensions
         services.AddScoped<IBookingDepositService, BookingDepositService>();
         services.AddScoped<IPaymentService, PaymentService>();
 
+        // BVC wallet + ledger (BR § III, Phase 1)
+        services.AddScoped<IWalletRepository, WalletRepository>();
+        services.AddScoped<IBvcLedgerEntryRepository, BvcLedgerEntryRepository>();
+        services.AddScoped<IBvcTopUpRequestRepository, BvcTopUpRequestRepository>();
+        services.AddScoped<IWalletService, WalletService>();
+
         return services;
     }
 }

@@ -1,0 +1,20 @@
+using BoardVerse.Core.Entities;
+
+namespace BoardVerse.Core.IRepositories;
+
+public interface IBvcTopUpRequestRepository
+{
+    Task<BvcTopUpRequest?> GetByOrderIdAsync(string orderId, CancellationToken cancellationToken = default);
+    Task<BvcTopUpRequest?> GetByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Batch fetch top-up pending đã quá hạn (ExpiresAt &lt; now).
+    /// Dùng FOR UPDATE SKIP LOCKED + batch transaction để cluster-safe.
+    /// Caller phải wrap transaction.
+    /// </summary>
+    Task<IReadOnlyList<BvcTopUpRequest>> GetPendingExpiredAsync(DateTime now, int limit = 50);
+
+    Task AddAsync(BvcTopUpRequest request);
+    Task UpdateAsync(BvcTopUpRequest request);
+    Task SaveChangesAsync(CancellationToken cancellationToken = default);
+}

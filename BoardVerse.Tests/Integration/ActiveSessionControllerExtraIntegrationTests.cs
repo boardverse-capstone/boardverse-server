@@ -8,7 +8,7 @@ namespace BoardVerse.Tests.Integration;
 
 /// <summary>
 /// Integration tests for ActiveSessionController - Extra endpoints
-/// Covers: Get session, end-game, component checklist, games, inventory loss
+/// Covers: Get session, component checklist, games, inventory loss
 /// </summary>
 [Collection(IntegrationTestCollection.Name)]
 public class ActiveSessionControllerExtraIntegrationTests
@@ -73,61 +73,6 @@ public class ActiveSessionControllerExtraIntegrationTests
 
         await CleanupActiveSessionsAsync();
     }
-
-    [IntegrationFact]
-    public async Task Session_CheckGameComponents()
-    {
-        var sessionId = await StartTestSessionAsync();
-        if (sessionId == null) return;
-
-        var checkRequest = new
-        {
-            gameBarcode = IntegrationTestFixtures.PosBoxBarcode,
-            components = new[]
-            {
-                new { componentId = Guid.NewGuid(), present = true }
-            }
-        };
-
-        var response = await ApiTestClient.PostJsonAsync(_client,
-            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/sessions/{sessionId}/games/check",
-            checkRequest);
-        Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest ||
-                   response.StatusCode == HttpStatusCode.NotFound ||
-                   response.StatusCode == HttpStatusCode.Conflict ||
-                   response.StatusCode == HttpStatusCode.Forbidden ||
-                   response.StatusCode == HttpStatusCode.Unauthorized);
-
-        await CleanupActiveSessionsAsync();
-    }
-
-    #endregion
-
-    #region === END GAME ===
-
-    [IntegrationFact]
-    public async Task Session_EndGame()
-    {
-        var sessionId = await StartTestSessionAsync();
-        if (sessionId == null) return;
-
-        var response = await _client.PostAsync(
-            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/sessions/{sessionId}/end-game",
-            null);
-        Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest ||
-                   response.StatusCode == HttpStatusCode.NotFound ||
-                   response.StatusCode == HttpStatusCode.Conflict ||
-                   response.StatusCode == HttpStatusCode.Forbidden ||
-                   response.StatusCode == HttpStatusCode.Unauthorized);
-
-        await CleanupActiveSessionsAsync();
-    }
-
-    #endregion
-
-    #region === INVENTORY LOSS ===
 
     [IntegrationFact]
     public async Task Session_ReportInventoryLoss()

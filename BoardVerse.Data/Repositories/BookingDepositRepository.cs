@@ -77,10 +77,21 @@ namespace BoardVerse.Data.Repositories
             return Task.CompletedTask;
         }
 
-        public async Task<IReadOnlyList<BookingDeposit>> GetPendingExpiredAsync(DateTime cutoffTime)
+        /// <summary>
+        /// GAP #26 fix: cluster-safe + push filter xuống SQL + limit batch.
+        /// Dùng FOR UPDATE SKIP LOCKED — multi-instance không pick trùng.
+        /// Caller phải wrap batch transaction.
+        /// </summary>
+        public async Task<IReadOnlyList<BookingDeposit>> GetPendingExpiredAsync(DateTime cutoffTime, int limit = 100)
         {
             return await _db.BookingDeposits
-                .Where(d => d.Status == BookingDepositStatus.Pending && d.CreatedAt <= cutoffTime)
+                .FromSqlRaw(
+                    "SELECT * FROM \"BookingDeposits\" " +
+                    "WHERE \"Status\" = {0} AND \"CreatedAt\" <= {1} " +
+                    "ORDER BY \"CreatedAt\" " +
+                    "LIMIT {2} " +
+                    "FOR UPDATE SKIP LOCKED",
+                    (int)BookingDepositStatus.Pending, cutoffTime, limit)
                 .ToListAsync();
         }
 

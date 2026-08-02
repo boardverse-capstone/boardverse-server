@@ -17,6 +17,8 @@ public static class IntegrationTestFixtures
     public static Guid DemoKarmaLobbyId { get; internal set; }
     public static Guid DemoPosTableId { get; internal set; }
     public static Guid DemoCatanInventoryId { get; internal set; }
+    /// <summary>Catan GameTemplate.Id — used for GameId field in reservation/lobby requests.</summary>
+    public static Guid DemoCatanGameTemplateId { get; internal set; }
     public static Guid DemoBookingDepositId { get; internal set; }
     public static Guid SplendorGameTemplateId { get; internal set; }
 

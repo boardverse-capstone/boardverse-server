@@ -49,6 +49,9 @@ internal static class IntegrationTestDataBootstrapper
         await EnsureDemoStaffAsync(db);
         await EnsureDemoLobbiesAsync(db);
         await EnsureDemoBookingDepositAsync(db);
+        await EnsureSeatInventoryAsync(db);
+        await EnsureGameInventoryAsync(db);
+        await EnsureCafeConfigAsync(db);
         await ResetPosSessionStateAsync(db);
         await ResetMatchLobbyAsync(db);
         await ResetLobbyStateAsync(db);
@@ -57,6 +60,158 @@ internal static class IntegrationTestDataBootstrapper
     /// <summary>
     /// Cleans up orphan records from DB that may exist after DB reset/restore.
     /// </summary>
+    private static async Task EnsureCafeConfigAsync(BoardVerseDbContext db)
+    {
+        // Default config cho demo cafe — values match BR-NEW-01 §8 + BR-NEW-12 §XIII.
+        // Match DepositCalculator expectations: DepositRatePerPerson=5 BVC, capacity=30.
+        var config = await db.CafeConfigs.FirstOrDefaultAsync(c => c.CafeId == IntegrationTestFixtures.DemoCafeId);
+        if (config == null)
+        {
+            config = new CafeConfig
+            {
+                Id = Guid.NewGuid(),
+                CafeId = IntegrationTestFixtures.DemoCafeId,
+                Capacity = 30,
+                MaxLobbiesPerUserPerDay = 1,
+                MaxPlayersPerLobbySameDay = 30,
+                MaxPlayersPerLobby1Day = 20,
+                MaxPlayersPerLobby2Days = 15,
+                MaxPlayersPerLobby3To4Days = 10,
+                MaxPlayersPerLobby5To7Days = 6,
+                MinDepositSameDay = 50_000,
+                MinDeposit1Day = 50_000,
+                MinDeposit2Days = 100_000,
+                MinDeposit3To4Days = 150_000,
+                MinDeposit5To7Days = 200_000,
+                RequireApprovalForDistant = true,
+                DistantThresholdDays = 2,
+                ApprovalTimeoutHours = 24,
+                MaxTotalDepositPerUser = 500_000,
+                RecruitmentDeadlineBufferMinutes = 120,
+                CancellationGraceMinutes = 15,
+                DepositRatePerPerson = 5,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            db.CafeConfigs.Add(config);
+        }
+        else
+        {
+            // Refresh defaults in case DB has stale values from older schema.
+            config.Capacity = 30;
+            config.RecruitmentDeadlineBufferMinutes = 120;
+            config.CancellationGraceMinutes = 15;
+            config.DepositRatePerPerson = 5;
+            config.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task EnsureSeatInventoryAsync(BoardVerseDbContext db)
+    {
+        // Pre-create seat inventory rows for today + all 4 timeSlots so any
+        // reservation test can target any timeSlot without manual setup.
+        // TotalSeats=30 = Capacity; HeldSeats/InUseSeats reset to 0 on each run.
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var timeSlots = new[] { TimeSlot.Morning, TimeSlot.Afternoon, TimeSlot.Evening, TimeSlot.Night };
+
+        foreach (var slot in timeSlots)
+        {
+            var existing = await db.SeatInventories.FirstOrDefaultAsync(s =>
+                s.CafeId == IntegrationTestFixtures.DemoCafeId
+                && s.PlayDate == today
+                && s.TimeSlot == slot);
+
+            if (existing == null)
+            {
+                db.SeatInventories.Add(new SeatInventory
+                {
+                    Id = Guid.NewGuid(),
+                    CafeId = IntegrationTestFixtures.DemoCafeId,
+                    PlayDate = today,
+                    TimeSlot = slot,
+                    TotalSeats = 30,
+                    HeldSeats = 0,
+                    InUseSeats = 0,
+                    RowVersion = 0,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                });
+            }
+            else
+            {
+                // Reset held/in-use counters so each test run starts clean.
+                existing.TotalSeats = 30;
+                existing.HeldSeats = 0;
+                existing.InUseSeats = 0;
+                existing.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task EnsureGameInventoryAsync(BoardVerseDbContext db)
+    {
+        // Find Catan game id (same lookup pattern as EnsureDemoCatanInventoryAsync).
+        Guid catanId;
+        try
+        {
+            catanId = await db.Database
+                .SqlQueryRaw<Guid>("SELECT \"Id\" AS \"Value\" FROM \"GameTemplates\" WHERE \"IsActive\" = true AND LOWER(\"Name\") LIKE '%catan%' ORDER BY \"Name\" LIMIT 1")
+                .FirstOrDefaultAsync();
+        }
+        catch
+        {
+            catanId = await db.GameTemplates.Select(g => g.Id).FirstOrDefaultAsync();
+        }
+
+        if (catanId == Guid.Empty)
+        {
+            return;
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var timeSlots = new[] { TimeSlot.Morning, TimeSlot.Afternoon, TimeSlot.Evening, TimeSlot.Night };
+
+        foreach (var slot in timeSlots)
+        {
+            var existing = await db.GameInventories.FirstOrDefaultAsync(g =>
+                g.CafeId == IntegrationTestFixtures.DemoCafeId
+                && g.GameId == catanId
+                && g.PlayDate == today
+                && g.TimeSlot == slot);
+
+            if (existing == null)
+            {
+                db.GameInventories.Add(new GameInventory
+                {
+                    Id = Guid.NewGuid(),
+                    CafeId = IntegrationTestFixtures.DemoCafeId,
+                    GameId = catanId,
+                    PlayDate = today,
+                    TimeSlot = slot,
+                    TotalCopies = 2,
+                    HeldCopies = 0,
+                    InUseCopies = 0,
+                    RowVersion = 0,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                });
+            }
+            else
+            {
+                existing.TotalCopies = 2;
+                existing.HeldCopies = 0;
+                existing.InUseCopies = 0;
+                existing.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+
+        await db.SaveChangesAsync();
+    }
+
     private static async Task CleanupOrphanDataAsync(BoardVerseDbContext db)
     {
         try
@@ -436,7 +591,9 @@ internal static class IntegrationTestDataBootstrapper
                 Description = "Integration test demo cafe",
                 ManagerId = IntegrationTestFixtures.ManagerUserId,
                 CreatedAt = DateTime.UtcNow,
-                IsActive = true,
+                // Set IsActive = false first to force EF to include column in INSERT
+                // (HasDefaultValue(true) makes EF skip it, then Postgres default = false wins).
+                IsActive = false,
                 PartnerOperationalStatus = CafePartnerOperationalStatus.Active,
                 // Gap 4: Cafe SePay config for settlement destination
                 SePayAccountNumber = "0855199924",
@@ -462,6 +619,13 @@ internal static class IntegrationTestDataBootstrapper
         }
 
         await db.SaveChangesAsync();
+
+        // Force-activate via raw SQL to avoid EF HasDefaultValue(true) suppression issue:
+        // when new entity IsActive matches the configured default, EF skips the column on INSERT,
+        // letting the Postgres column default (false) take over.
+        await db.Database.ExecuteSqlRawAsync(
+            "UPDATE \"Cafes\" SET \"IsActive\" = true WHERE \"Id\" = {0}",
+            IntegrationTestFixtures.DemoCafeId);
     }
 
     private static async Task EnsureDemoTablesAsync(BoardVerseDbContext db)
@@ -544,7 +708,9 @@ internal static class IntegrationTestDataBootstrapper
                 Status = CafeGameInventoryStatus.Available,
                 CreatedAt = now,
                 UpdatedAt = now,
-                IsActive = true
+                // Set IsActive = false first to force EF to include column in INSERT
+                // (HasDefaultValue(true) makes EF skip it, then Postgres default = false wins).
+                IsActive = false
             };
             db.CafeGameInventories.Add(inventory);
         }
@@ -559,6 +725,11 @@ internal static class IntegrationTestDataBootstrapper
         }
 
         await db.SaveChangesAsync();
+
+        // Force-activate via raw SQL to bypass EF HasDefaultValue(true) suppression.
+        await db.Database.ExecuteSqlRawAsync(
+            "UPDATE \"CafeGameInventories\" SET \"IsActive\" = true WHERE \"Id\" = {0}",
+            IntegrationTestFixtures.DemoCatanInventoryId);
 
         var boxes = await db.CafeInventoryBoxes
             .Where(b => b.CafeGameInventoryId == inventory.Id)
@@ -593,6 +764,7 @@ internal static class IntegrationTestDataBootstrapper
         await db.SaveChangesAsync();
 
         IntegrationTestFixtures.DemoCatanInventoryId = inventory.Id;
+        IntegrationTestFixtures.DemoCatanGameTemplateId = inventory.GameTemplateId;
         IntegrationTestFixtures.CatanBarcode = boxes[0].Barcode;
         IntegrationTestFixtures.PosBoxBarcode = boxes[0].Barcode;
     }

@@ -2,8 +2,11 @@ using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
+using BoardVerse.Data;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
+using BoardVerse.Tests.Helpers;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Moq;
 
@@ -15,6 +18,7 @@ public class BookingDepositServiceTests
     private readonly Mock<IBookingRepository> _mockBookingRepo;
     private readonly Mock<ICafeRepository> _mockCafeRepo;
     private readonly Mock<ILogger<BookingDepositService>> _mockLogger;
+    private readonly BoardVerseDbContext DbContext;
     private readonly BookingDepositService _service;
 
     public BookingDepositServiceTests()
@@ -24,11 +28,14 @@ public class BookingDepositServiceTests
         _mockCafeRepo = new Mock<ICafeRepository>();
         _mockLogger = new Mock<ILogger<BookingDepositService>>();
 
+        var fakeDbContext = new FakeDbContext();
+
         _service = new BookingDepositService(
             _mockDepositRepo.Object,
             _mockBookingRepo.Object,
             _mockCafeRepo.Object,
-            _mockLogger.Object);
+            _mockLogger.Object,
+            DbContext);
     }
 
     #region CreateAsync
@@ -366,7 +373,7 @@ public class BookingDepositServiceTests
     [Fact]
     public async Task ProcessExpiredDepositsAsync_NoExpiredDeposits_DoesNotUpdate()
     {
-        _mockDepositRepo.Setup(r => r.GetPendingExpiredAsync(It.IsAny<DateTime>()))
+        _mockDepositRepo.Setup(r => r.GetPendingExpiredAsync(It.IsAny<DateTime>(), It.IsAny<int>()))
             .ReturnsAsync(new List<BookingDeposit>());
 
         await _service.ProcessExpiredDepositsAsync();
@@ -380,7 +387,7 @@ public class BookingDepositServiceTests
         var deposit1 = CreateTestDeposit(Guid.NewGuid(), BookingDepositStatus.Pending);
         var deposit2 = CreateTestDeposit(Guid.NewGuid(), BookingDepositStatus.Pending);
 
-        _mockDepositRepo.Setup(r => r.GetPendingExpiredAsync(It.IsAny<DateTime>()))
+        _mockDepositRepo.Setup(r => r.GetPendingExpiredAsync(It.IsAny<DateTime>(), It.IsAny<int>()))
             .ReturnsAsync(new List<BookingDeposit> { deposit1, deposit2 });
         _mockDepositRepo.Setup(r => r.UpdateAsync(It.IsAny<BookingDeposit>())).Returns(Task.CompletedTask);
         _mockDepositRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
@@ -400,7 +407,7 @@ public class BookingDepositServiceTests
     {
         DateTime capturedCutoff = default;
 
-        _mockDepositRepo.Setup(r => r.GetPendingExpiredAsync(It.IsAny<DateTime>()))
+        _mockDepositRepo.Setup(r => r.GetPendingExpiredAsync(It.IsAny<DateTime>(), It.IsAny<int>()))
             .Callback<DateTime>(cutoff => capturedCutoff = cutoff)
             .ReturnsAsync(new List<BookingDeposit>());
 

@@ -1,0 +1,219 @@
+using System.ComponentModel.DataAnnotations;
+using BoardVerse.Core.Enum;
+
+namespace BoardVerse.Core.DTOs.Reservation;
+
+/// <summary>
+/// Request tạo quote cho 1 reservation (§21A.2).
+/// BR-DEPOSIT-01: Host trả toàn bộ cọc.
+/// BR-NEW-15: timeSlot cố định.
+/// </summary>
+public class ReservationQuoteRequestDto
+{
+    [Required]
+    public Guid CafeId { get; set; }
+
+    [Required]
+    public Guid GameId { get; set; }
+
+    [Required]
+    public DateOnly PlayDate { get; set; }
+
+    [Required]
+    public TimeSlot TimeSlot { get; set; }
+
+    /// <summary>Optional, phải nằm trong [timeSlot.startTime, timeSlot.endTime].</summary>
+    public TimeOnly? PreferredStartTime { get; set; }
+
+    [Range(2, 30)]
+    public int MaxPlayers { get; set; }
+
+    [Range(2, 30)]
+    public int MinPlayers { get; set; } = 2;
+
+    /// <summary>Idempotency key cho quote — cho phép client retry.</summary>
+    [Required, StringLength(128, MinimumLength = 8)]
+    public string IdempotencyKey { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Quote trả về cho client (§21A.2 + BR §XVIII.1).
+/// </summary>
+public class ReservationQuoteDto
+{
+    public Guid? ReservationId { get; set; }
+
+    public Guid CafeId { get; set; }
+    public Guid GameId { get; set; }
+    public DateOnly PlayDate { get; set; }
+    public TimeSlot TimeSlot { get; set; }
+    public TimeOnly? PreferredStartTime { get; set; }
+
+    public DateTime ScheduledTime { get; set; }
+    public DateTime RecruitmentDeadline { get; set; }
+
+    public int MinPlayers { get; set; }
+    public int MaxPlayers { get; set; }
+
+    public long DepositRatePerPerson { get; set; }
+    public long BaseDeposit { get; set; }
+    public decimal RiskMultiplier { get; set; }
+    public long MinDepositApplied { get; set; }
+    public long FinalDeposit { get; set; }
+
+    public long CurrentBalance { get; set; }
+    public long MissingAmount { get; set; }
+
+    /// <summary>Buffer từ now đến recruitmentDeadline (phút). Âm = quá khứ.</summary>
+    public int BufferMinutes { get; set; }
+
+    /// <summary>True khi buffer &lt; 120 nhưng ≥ 60 (cảnh báo BR-LOBBY-01c).</summary>
+    public bool BufferWarning { get; set; }
+
+    /// <summary>True khi cafe cần duyệt thủ công (BR-NEW-11).</summary>
+    public bool RequiresCafeApproval { get; set; }
+
+    /// <summary>Quote hết hạn (BR §XVIII.1 + 21A.2 — 5 phút).</summary>
+    public DateTime ExpiresAt { get; set; }
+
+    public List<string> Warnings { get; set; } = [];
+}
+
+/// <summary>
+/// Request xác nhận reservation — atomic hold BVC + seat + game copy (§21A.3).
+/// Server tự tính lại quote + tạo Reservation + Lobby trong 1 transaction.
+/// IdempotencyKey chống double-confirm (BR §XVII.1).
+/// </summary>
+public class ReservationConfirmRequestDto
+{
+    [Required]
+    public Guid CafeId { get; set; }
+
+    [Required]
+    public Guid GameId { get; set; }
+
+    [Required]
+    public DateOnly PlayDate { get; set; }
+
+    [Required]
+    public TimeSlot TimeSlot { get; set; }
+
+    /// <summary>Optional, phải nằm trong [timeSlot.startTime, timeSlot.endTime].</summary>
+    public TimeOnly? PreferredStartTime { get; set; }
+
+    [Range(2, 30)]
+    public int MaxPlayers { get; set; }
+
+    [Range(2, 30)]
+    public int MinPlayers { get; set; } = 2;
+
+    /// <summary>
+    /// Snapshot quote từ CreateQuoteAsync (BR §XVIII.1).
+    /// Server dùng giá trị này để validate + chống client gửi sai số BVC.
+    /// </summary>
+    [Required]
+    public long ExpectedFinalDeposit { get; set; }
+
+    [Required, StringLength(128, MinimumLength = 8)]
+    public string IdempotencyKey { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Response sau khi confirm thành công — trả lobbyId để client navigate LobbyPage.
+/// </summary>
+public class ReservationConfirmResponseDto
+{
+    public Guid ReservationId { get; set; }
+    public Guid LobbyId { get; set; }
+    public DateTime RecruitmentDeadline { get; set; }
+    public bool RequiresCafeApproval { get; set; }
+    public DateTime? CafeApprovalDeadline { get; set; }
+    public long HeldBvc { get; set; }
+}
+
+/// <summary>
+/// Host hủy lobby (§21A.6).
+/// </summary>
+public class CancelReservationRequestDto
+{
+    [Required]
+    public Guid ReservationId { get; set; }
+
+    [StringLength(500)]
+    public string? Reason { get; set; }
+}
+
+public class CancelReservationResponseDto
+{
+    public Guid ReservationId { get; set; }
+    public Guid LobbyId { get; set; }
+    public long RefundBvc { get; set; }
+    public long ForfeitBvc { get; set; }
+    public string RefundPolicyApplied { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Cafe duyệt/từ chối lobby pending (BR-NEW-11 §XII).
+/// </summary>
+public class CafeApprovalRequestDto
+{
+    [Required]
+    public Guid ReservationId { get; set; }
+
+    public bool Approve { get; set; }
+
+    [StringLength(500)]
+    public string? Reason { get; set; }
+}
+
+public class CafeApprovalResponseDto
+{
+    public Guid ReservationId { get; set; }
+    public Guid LobbyId { get; set; }
+    public string LobbyStatus { get; set; } = string.Empty;
+    public bool Approved { get; set; }
+    public long RefundBvc { get; set; }
+}
+
+/// <summary>
+/// POS scan QR check-in (§21A.7).
+/// Manager/CafeStaff quét ReservationCode (8-char alphanumeric) hiển thị trên BookingSuccessPage.
+/// </summary>
+public class ReservationCheckInRequestDto
+{
+    /// <summary>
+    /// GAP #1 fix: CafeId của POS staff đang quét QR — dùng validate ownership trong CheckInAsync.
+    /// Tránh staff cafe A scan QR reservation của cafe B.
+    /// </summary>
+    [Required]
+    public Guid CafeId { get; set; }
+
+    /// <summary>Mã 8-char alphanumeric do Reservation.ReservationCode cung cấp.</summary>
+    [Required, StringLength(16, MinimumLength = 4)]
+    public string ReservationCode { get; set; } = string.Empty;
+
+    /// <summary>Id của POS session gán cho phiên chơi (FK ActiveSession).</summary>
+    [Required]
+    public Guid ActiveSessionId { get; set; }
+
+    /// <summary>
+    /// Idempotency key cho check-in (BR §XVII.1) — format gợi ý: "pos-checkin:{reservationCode}".
+    /// GAP #6 fix: bỏ session.Id khỏi key để retry của cùng POS attempt trả cùng response.
+    /// </summary>
+    [Required, StringLength(128, MinimumLength = 8)]
+    public string IdempotencyKey { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Response sau check-in — trả ActiveSession đã liên kết với Reservation.
+/// </summary>
+public class ReservationCheckInResponseDto
+{
+    public Guid ReservationId { get; set; }
+    public Guid LobbyId { get; set; }
+    public Guid ActiveSessionId { get; set; }
+    public string ReservationStatus { get; set; } = string.Empty;
+    public string LobbyStatus { get; set; } = string.Empty;
+    public DateTime CheckedInAt { get; set; }
+    public long HeldBvc { get; set; }
+}

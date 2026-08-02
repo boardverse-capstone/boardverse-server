@@ -222,6 +222,120 @@ namespace BoardVerse.Data.Repositories
                 .ToListAsync();
         }
 
+        // ===== BR-NEW-* mở rộng cho Reservation flow =====
+
+        private static readonly HashSet<LobbyStatus> ActiveLobbyStatuses = new()
+        {
+            LobbyStatus.PendingActivation,
+            LobbyStatus.PendingCafeApproval,
+            LobbyStatus.Open,
+            LobbyStatus.Viable,
+            LobbyStatus.Full,
+            LobbyStatus.InProgress
+        };
+
+        public async Task<IReadOnlyList<Lobby>> GetActiveLobbiesByHostAsync(Guid hostUserId)
+        {
+            return await _db.Lobbies
+                .Include(l => l.Members)
+                .Where(l => l.HostUserId == hostUserId && ActiveLobbyStatuses.Contains(l.Status))
+                .ToListAsync();
+        }
+
+        public async Task<IReadOnlyList<Lobby>> GetActiveLobbiesByMemberAsync(Guid userId)
+        {
+            return await _db.Lobbies
+                .Include(l => l.Members)
+                .Where(l => l.Members.Any(m => m.UserId == userId && m.IsActive)
+                    && ActiveLobbyStatuses.Contains(l.Status))
+                .ToListAsync();
+        }
+
+        public async Task<IReadOnlyList<Lobby>> GetActiveLobbiesByCafeDateSlotAsync(
+            Guid cafeId, DateOnly playDate, TimeSlot timeSlot)
+        {
+            return await _db.Lobbies
+                .Where(l => l.CafeId == cafeId
+                    && l.PlayDate == playDate
+                    && l.TimeSlot == timeSlot
+                    && ActiveLobbyStatuses.Contains(l.Status))
+                .ToListAsync();
+        }
+
+        public async Task<IReadOnlyList<Lobby>> GetActiveLobbiesByHostAsync(Guid hostUserId, DateOnly playDate)
+        {
+            return await _db.Lobbies
+                .Include(l => l.Members)
+                .Where(l => l.HostUserId == hostUserId
+                    && l.PlayDate == playDate
+                    && ActiveLobbyStatuses.Contains(l.Status))
+                .ToListAsync();
+        }
+
+        public async Task<IReadOnlyList<Lobby>> GetActiveLobbiesByCafeDateSlotAsync(
+            Guid userId, Guid cafeId, DateOnly playDate, TimeSlot timeSlot)
+        {
+            return await _db.Lobbies
+                .Include(l => l.Members)
+                .Where(l => l.HostUserId == userId
+                    && l.CafeId == cafeId
+                    && l.PlayDate == playDate
+                    && l.TimeSlot == timeSlot
+                    && ActiveLobbyStatuses.Contains(l.Status))
+                .ToListAsync();
+        }
+
+        public async Task<IReadOnlyList<LobbyMember>> GetMembersAsync(Guid lobbyId)
+        {
+            return await _db.LobbyMembers
+                .Where(m => m.LobbyId == lobbyId)
+                .ToListAsync();
+        }
+
+        public async Task<IReadOnlyList<Lobby>> GetOverlappingLobbiesAsync(
+            Guid userId,
+            DateOnly playDate,
+            TimeSlot timeSlot,
+            DateTime newRecruitmentDeadline,
+            DateTime newScheduledTime)
+        {
+            // BR-USER-LIMIT-02: 2 lobby/booking overlap nếu có intersection (cộng 30 phút đệm).
+            var buffer = TimeSpan.FromMinutes(30);
+
+            var query = _db.Lobbies
+                .Where(l =>
+                    l.Status != LobbyStatus.Closed
+                    && l.Status != LobbyStatus.TimeoutFailed
+                    && l.Status != LobbyStatus.HostCancelled
+                    && l.Status != LobbyStatus.RejectedByCafe
+                    && l.Status != LobbyStatus.ExpiredByCafe
+                    && l.Status != LobbyStatus.RatingOpen
+                    && (
+                        l.HostUserId == userId
+                        || l.Members.Any(m => m.UserId == userId && m.IsActive)
+                    )
+                    && l.PlayDate == playDate
+                    && l.TimeSlot == timeSlot
+                    && l.RecruitmentDeadline.HasValue);
+
+            var lower = newRecruitmentDeadline - buffer;
+            var upper = newScheduledTime + buffer;
+
+            query = query.Where(l =>
+                (l.RecruitmentDeadline >= lower && l.RecruitmentDeadline <= upper)
+                || (l.ScheduledStartTime >= lower && l.ScheduledStartTime <= upper)
+                || (l.RecruitmentDeadline <= lower && l.ScheduledStartTime >= upper));
+
+            return await query.ToListAsync();
+        }
+
+        public async Task<int> CountActiveOrTerminalByHostPlayDateAsync(Guid hostUserId, DateOnly playDate)
+        {
+            return await _db.Lobbies
+                .Where(l => l.HostUserId == hostUserId && l.PlayDate == playDate)
+                .CountAsync();
+        }
+
         public async Task<BookingDeposit?> GetBookingByIdAsync(Guid bookingId)
         {
             return await _db.BookingDeposits.FirstOrDefaultAsync(b => b.Id == bookingId);
@@ -242,6 +356,13 @@ namespace BoardVerse.Data.Repositories
         public Task AddReportAsync(LobbyReport report)
         {
             _db.LobbyReports.Add(report);
+            return Task.CompletedTask;
+        }
+
+        public Task UpdateAsync(Lobby lobby)
+        {
+            lobby.UpdatedAt = DateTime.UtcNow;
+            _db.Lobbies.Update(lobby);
             return Task.CompletedTask;
         }
 

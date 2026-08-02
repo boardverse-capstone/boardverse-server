@@ -27,21 +27,24 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Tạo phòng chờ mới. [Role: Player]
+        /// Endpoint cũ — DEPRECATED. Tạo lobby phải qua
+        /// <c>POST /api/v1/reservations/quote</c> + <c>POST /api/v1/reservations/confirm</c>
+        /// (BR §XXI-B.1). Endpoint này sẽ bị xóa sau khi mobile app rollout.
         /// </summary>
-        /// <param name="request">Thông tin phòng chờ: game, giờ chơi, sức chứa, visibility (public/private), description, cover image, cafeId, bookingId.</param>
-        /// <response code="201">Phòng chờ đã tạo (kèm share code cho cả public/private).</response>
-        /// <response code="400">Dữ liệu request không hợp lệ (vd: MaxMembers ngoài [GameTemplate.MinPlayers, MaxPlayers]).</response>
-        /// <response code="401">Thiếu token.</response>
-        /// <response code="403">Không có quyền dùng booking này.</response>
-        /// <response code="404">Không tìm thấy game hoặc booking.</response>
-        /// <response code="500">Lỗi hệ thống.</response>
+        /// <response code="410">Endpoint đã deprecated, dùng ReservationController.</response>
         [HttpPost]
-        public async Task<IActionResult> CreateLobby([FromBody] CreateLobbyRequestDto request)
+        [Obsolete("Dùng POST /api/v1/reservations/confirm thay thế. BR §XXI-B.1.")]
+        public IActionResult CreateLobby([FromBody] CreateLobbyRequestDto request)
         {
-            var userId = GetUserIdFromClaims();
-            var result = await _lobbyService.CreateLobbyAsync(userId, request);
-            return this.NewResponse(201, ApiSuccessMessages.Lobby.LobbyCreated, result);
+            return this.NewResponse(
+                410,
+                "EndpointDeprecated",
+                new
+                {
+                    message = "Tạo lobby phải qua flow reservation mới (BVC). Hãy dùng POST /api/v1/reservations/quote → POST /api/v1/reservations/confirm.",
+                    newEndpoint = "POST /api/v1/reservations/confirm",
+                    deprecatedAt = DateTime.UtcNow
+                });
         }
 
         /// <summary>

@@ -1,4 +1,4 @@
-﻿#nullable enable
+#nullable enable
 using System.Net;
 using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Tests.Integration.Infrastructure;
@@ -107,12 +107,12 @@ public class CafePosControllerExtraIntegrationTests
 
         var startRequest = new
         {
-            bookingCode = "TEST123",
+            code = "TEST123",
             cafeTableId = IntegrationTestFixtures.DemoPosTableId
         };
 
         var response = await ApiTestClient.PostJsonAsync(_client,
-            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/from-booking",
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/check-in",
             startRequest);
         Assert.True(response.StatusCode == HttpStatusCode.Created ||
                    response.StatusCode == HttpStatusCode.NotFound ||

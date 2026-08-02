@@ -25,8 +25,9 @@ Domain phụ trách: tạo booking, check-in/out, theo dõi trạng thái sessio
 | `GET` | `/api/bookings/cafe/{cafeId}` | Player (summary rút gọn), Manager/CafeStaff/Admin (full) | Bookings theo quán (Task #14) |
 | `PATCH` | `/api/bookings/{bookingId}` | Player (Host lobby) | Cập nhật bàn/giờ/số người |
 | `DELETE` | `/api/bookings/{bookingId}` | Player (Host lobby) | Hủy booking |
-| `POST` | `/api/bookings/{bookingId}/check-in` | Manager, CafeStaff | Check-in tại quán |
-| `POST` | `/api/bookings/{bookingId}/check-out` | Manager, CafeStaff | Check-out + auto aggregate karma |
+| `POST` | `/api/bookings/{bookingId}/check-in` | Manager, CafeStaff | ~~Removed~~ — dùng `POST /api/cafes/{cafeId}/pos/check-in` (BR §21A.7) |
+| `POST` | `/api/cafes/{cafeId}/pos/check-in` | Manager, CafeStaff | Check-in tại quán theo `code` (ReservationCode / BookingCode) |
+| `POST` | `/api/bookings/{bookingId}/check-out` | Manager, CafeStaff | ~~Removed~~ — `ReservationService.CompleteAndCaptureAsync` khi ActiveSession PAID (BR-REVENUE-01) |
 
 ## REST Endpoints — `BookingRatingController`
 
@@ -182,11 +183,11 @@ Các endpoint bổ sung theo `booking-payment-gaps.md` (Tasks #7, #8, #9, #12, #
 
 ### KarmaLog audit trail — Task #5 side effect
 
-Khi Staff gọi `POST /api/bookings/{id}/check-out` → `BookingService.CheckOutAsync` tự động gọi `BookingRatingService.AggregateBookingOutcomesAsync(bookingId)`. Chi tiết aggregate workflow xem section [Aggregate Karma (Task #5)](#aggregate-karma-task-5) bên dưới.
+Khi Staff thực hiện `POS check-out` (qua `ReservationService.CompleteAndCaptureAsync`) → tự động gọi `BookingRatingService.AggregateBookingOutcomesAsync(bookingId)`. Chi tiết aggregate workflow xem section [Aggregate Karma (Task #5)](#aggregate-karma-task-5) bên dưới.
 
 > **Reuses existing `KarmaLog` table** (không tạo duplicate entity). `UserProfile.KarmaPoints` (int) làm source of truth. `KarmaLog.RelatedLobbyId` được dùng làm correlation id cho booking id. Công thức delta: `(avg - 3.0) * 10`, làm tròn về int qua `(int)Math.Round(delta)`. 12 unit tests passing.
 
-> **No-show-votes validation window (Task #4):** Booking entity đã được bổ sung field `CheckedInAt` (DateTime?, nullable) + `CheckedInByUserId` (Guid?, nullable, FK → Users.Id) qua migration `20260801060358_AddCheckedInAtToBooking`. Khi Staff gọi `POST /bookings/{id}/check-in` → backend set cả 2 field. Vote window: voter chỉ được vote sau `CheckedInAt + 30 phút` (tránh vote ngay khi vừa check-in) và phải trước `ScheduleEndTime + 24h`.
+> **No-show-votes validation window (Task #4):** Booking entity đã được bổ sung field `CheckedInAt` (DateTime?, nullable) + `CheckedInByUserId` (Guid?, nullable, FK → Users.Id) qua migration `20260801060358_AddCheckedInAtToBooking`. Khi Staff gọi `POST /api/cafes/{cafeId}/pos/check-in` (Reservation BVC flow) → backend set cả 2 field trên `Booking` entity. Vote window: voter chỉ được vote sau `CheckedInAt + 30 phút` (tránh vote ngay khi vừa check-in) và phải trước `ScheduleEndTime + 24h`.
 
 ### `GET /api/bookings/{bookingId}/session-status` — Task #8
 
@@ -389,8 +390,8 @@ Hub: `/hubs/lobby` (đã có cho Lobby). Các event mới:
 
 | Event | Trigger | Payload |
 |-------|---------|---------|
-| `BookingCheckedIn` | Sau `POST /bookings/{id}/check-in` | `{ bookingId, checkedInAt, checkedInBy }` |
-| `BookingCheckedOut` | Sau `POST /bookings/{id}/check-out` | `{ bookingId, checkedOutAt, totalAmount }` |
+| `BookingCheckedIn` | Sau `POST /api/cafes/{cafeId}/pos/check-in` (BR §21A.7) | `{ bookingId, checkedInAt, checkedInBy }` |
+| `BookingCheckedOut` | Sau khi ActiveSession `PAID` (POS `CompleteAndCaptureAsync`) | `{ bookingId, checkedOutAt, totalAmount }` |
 | `BookingCancelled` | Sau `DELETE /bookings/{id}` hoặc manager cancel | `{ bookingId, cancelledBy, reason, refundStatus }` |
 | `BookingNoShowMarked` | Sau khi Staff check-out + aggregate votes | `{ bookingId, noShowMemberIds, karmaDeltas }` |
 | `LobbyAutoCancelled` | `LobbyTimeoutJob` (BR-08) | `{ lobbyId, cafeId, cafeName, scheduledTime, reason }` |

@@ -15,8 +15,6 @@ API vận hành phiên chơi tại quán: truy vấn, thanh toán (một phần/
 | Endpoint | Method | Mô tả | BR |
 |----------|--------|--------|----|
 | `/{sessionId}` | GET | Chi tiết phiên chơi | — |
-| `/{sessionId}/end-game` | POST | Trả game — chuyển sang kiểm kê | BR-12 |
-| `/{sessionId}/games/check` | POST | Submit bảng kiểm kê linh kiện | BR-12 |
 | `/{sessionId}/games` | POST | Gán thêm game vào phiên | — |
 | `/{sessionId}/checkout` | POST | Thanh toán toàn bộ sau kiểm kê | BR-15 |
 | `/{sessionId}/partial-checkout` | POST | Thanh toán một phần (về sớm) | BR-12, BR-14 |
@@ -44,40 +42,6 @@ Chi tiết phiên chơi: `startedAt`, `elapsedMinutes`, `estimatedRemainingMinut
 
 ---
 
-## POST /api/cafes/{cafeId}/sessions/{sessionId}/end-game
-
-Trả game từ khách → session chuyển `ACTIVE → CHECKING`. Bắt buộc trước khi checkout (BR-12).
-
-**Response codes:**
-- `200` — Đã trả game, chờ kiểm kê
-- `409` — Phiên không ở trạng thái `ACTIVE`
-
----
-
-## POST /api/cafes/{cafeId}/sessions/{sessionId}/games/check
-
-Submit bảng kiểm kê linh kiện số hóa. Nhân viên đếm từng `component` → thiếu → cộng `penaltyFee` vào session, đánh dấu `MissingComponents`.
-
-**Body:**
-```json
-{
-  "sessionGameId": "guid",
-  "results": [
-    { "componentTemplateId": "guid", "actualQuantity": 3, "expectedQuantity": 5 }
-  ]
-}
-```
-
-**Response codes:**
-- `200` — Đã lưu checklist
-- `400` — `results` rỗng
-- `409` — Phiên không ở trạng thái `CHECKING`
-- `404` — Không tìm thấy phiên hoặc game
-
-> **BR-12:** Sau khi đủ kiểm kê → mở khóa in hóa đơn (cho `partial-checkout` & `checkout`).
-
----
-
 ## POST /api/cafes/{cafeId}/sessions/{sessionId}/games
 
 Gán thêm hộp game vào phiên (Exception 6 — nhóm tự ý lấy thêm game).
@@ -98,7 +62,7 @@ Gán thêm hộp game vào phiên (Exception 6 — nhóm tự ý lấy thêm gam
 
 Thanh toán toàn bộ phiên sau khi kiểm kê linh kiện xong. Phiên chuyển `CHECKING → UNPAID` (hoặc thẳng `PAID` nếu không có deposit), trả hóa đơn tóm tắt.
 
-**Body:** kết quả kiểm kê cuối cùng (nếu chưa gửi qua `/games/check`).
+**Body:** kết quả kiểm kê cuối cùng (nếu chưa gửi qua `/pos/sessions/component-check`).
 
 **Response codes:**
 - `200` — Phiên chuyển `UNPAID`/`PAID`, trả bill summary
@@ -257,7 +221,7 @@ Ghi nhận hao hụt linh kiện **trước phiên** (Exception 7 — nhân viê
 ```mermaid
 stateDiagram-v2
     [*] --> Active: POST /api/cafes/{cafeId}/pos/sessions
-    Active --> Checking: POST .../end-game (BR-12)
+    Active --> Checking: POST .../pos/sessions/{id}/end (BR-12)
     Checking --> Unpaid: Submit component check (đủ linh kiện)
     Checking --> Active: Submit component check (thiếu → chờ xử lý)
     Unpaid --> Paid: POST .../pay (BR-15)

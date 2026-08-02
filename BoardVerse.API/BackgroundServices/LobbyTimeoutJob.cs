@@ -54,25 +54,34 @@ public class LobbyTimeoutJob : BackgroundService
         var now = DateTime.UtcNow;
 
         // Case 1: Lobby có ScheduledStartTime → so với (ScheduledStartTime - CancellationLeadTimeMinutes)
+        // GAP #16 fix: cluster-safe — dùng FOR UPDATE SKIP LOCKED để nhiều instance không pick trùng.
         var scheduledTimedOut = await db.Lobbies
+            .FromSqlRaw(
+                "SELECT * FROM \"Lobbies\" WHERE \"Status\" = {0} " +
+                "AND \"ScheduledStartTime\" IS NOT NULL " +
+                "AND \"ScheduledStartTime\" - (\"CancellationLeadTimeMinutes\" * INTERVAL '1 minute') <= {1} " +
+                "FOR UPDATE SKIP LOCKED",
+                (int)LobbyStatus.Open, now)
             .Include(l => l.Members)
             .Include(l => l.GameTemplate)
             .Include(l => l.Cafe)
-            .Where(l => l.Status == LobbyStatus.Open &&
-                        l.ScheduledStartTime != null &&
-                        l.ScheduledStartTime.Value.AddMinutes(-l.CancellationLeadTimeMinutes) <= now)
+            .AsSplitQuery()
             .ToListAsync(stoppingToken);
 
         // Case 2 (fix): Lobby không có ScheduledStartTime (orphan) mà tồn tại > 24 giờ → coi như timeout,
         // tránh bị kẹt mãi mãi ở OPEN khi Host quên đặt giờ.
         var orphanCutoff = now - OrphanLobbyTimeout;
         var orphanTimedOut = await db.Lobbies
+            .FromSqlRaw(
+                "SELECT * FROM \"Lobbies\" WHERE \"Status\" = {0} " +
+                "AND \"ScheduledStartTime\" IS NULL " +
+                "AND \"CreatedAt\" <= {1} " +
+                "FOR UPDATE SKIP LOCKED",
+                (int)LobbyStatus.Open, orphanCutoff)
             .Include(l => l.Members)
             .Include(l => l.GameTemplate)
             .Include(l => l.Cafe)
-            .Where(l => l.Status == LobbyStatus.Open &&
-                        l.ScheduledStartTime == null &&
-                        l.CreatedAt <= orphanCutoff)
+            .AsSplitQuery()
             .ToListAsync(stoppingToken);
 
         var timedOutLobbies = scheduledTimedOut
@@ -85,6 +94,10 @@ public class LobbyTimeoutJob : BackgroundService
 
         _logger.LogInformation("Found {Count} lobbies to check for timeout (scheduled={Scheduled}, orphan={Orphan})",
             timedOutLobbies.Count, scheduledTimedOut.Count, orphanTimedOut.Count);
+
+        // GAP #16 fix: SKIP LOCKED chỉ có hiệu lực trong transaction. Mở transaction 1 lần cho cả batch,
+        // commit sau khi đã flip status. Foreach loop chỉ mutate entity đã lock trong tx này.
+        await using var batchTx = await db.Database.BeginTransactionAsync(stoppingToken);
 
         var transitioned = new List<(Guid LobbyId, Guid? CafeId, string CafeName, DateTime? ScheduledTime, string Reason, List<Guid> MemberIds)>();
 
@@ -129,6 +142,7 @@ public class LobbyTimeoutJob : BackgroundService
             return;
 
         await db.SaveChangesAsync(stoppingToken);
+        await batchTx.CommitAsync(stoppingToken);
 
         // Realtime: notify từng lobby mà vừa timeout — task #9 dùng payload chi tiết cho mobile.
         // (NotifyLobbyTimeout giữ nguyên cho backward-compat với mobile client cũ;

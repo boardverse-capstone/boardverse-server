@@ -8,6 +8,13 @@ namespace BoardVerse.Services.IServices
         Task<SePayAccountDto?> GetByIdAsync(Guid id);
         Task<SePayAccountDto?> GetByCafeIdAsync(Guid cafeId);
         Task<SePayAccountDto?> GetMasterAccountAsync();
+
+        // Internal: trả raw SePayAccount entity (bao gồm ApiKey/SecretKey/WebhookToken/AccountNumber
+        // chưa mask) — CHỈ dùng cho payment flow nội bộ (PaymentService, SePayClient).
+        // Không expose qua controller/DTO response.
+        Task<SePayAccount?> GetRawMasterAccountAsync();
+        Task<SePayAccount?> GetRawByCafeIdAsync(Guid cafeId);
+
         Task<IReadOnlyList<SePayAccountDto>> GetAllAsync(SePayAccountQuery? query = null);
         Task<SePayAccountDto> CreateAsync(CreateSePayAccountRequestDto request);
         Task<SePayAccountDto> UpdateAsync(Guid id, UpdateSePayAccountRequestDto request);

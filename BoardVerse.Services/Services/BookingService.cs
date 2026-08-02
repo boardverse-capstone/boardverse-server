@@ -314,72 +314,15 @@ public class BookingService : IBookingService
         return BookingResponseDto.FromEntity(booking);
     }
 
-    public async Task<BookingResponseDto> CheckInAsync(Guid bookingId, Guid staffUserId)
-    {
-        var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
-            ?? throw new NotFoundException($"Không tìm thấy booking '{bookingId}'.");
+    [Obsolete("Deprecated — BR mới dùng Reservation BVC flow. POS check-in qua CafePosService.StartSessionFromBookingAsync (ReservationCode).")]
+    public Task<BookingResponseDto> CheckInAsync(Guid bookingId, Guid staffUserId)
+        => throw new NotSupportedException(
+            "BookingService.CheckInAsync đã deprecated. POS scan QR giờ dùng ReservationCode (BVC flow) qua CafePosService.StartSessionFromBookingAsync.");
 
-        if (booking.Status != BookingStatus.Confirmed)
-        {
-            throw new ConflictException("Chỉ booking đã xác nhận (Confirmed) mới có thể check-in.");
-        }
-
-        booking.Status = BookingStatus.CheckedIn;
-        booking.CheckedInAt = DateTime.UtcNow;
-        booking.CheckedInByUserId = staffUserId;
-
-        await _bookingRepository.UpdateAsync(booking);
-        await _bookingRepository.SaveChangesAsync();
-
-        // SignalR broadcast — task #7: BookingCheckedIn cho group booking-{bookingId}
-        await _hubService.NotifyBookingCheckedIn(bookingId, booking.CheckedInAt.Value, staffUserId);
-
-        return BookingResponseDto.FromEntity(booking);
-    }
-
-    public async Task<BookingResponseDto> CheckOutAsync(Guid bookingId, Guid staffUserId)
-    {
-        var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
-            ?? throw new NotFoundException($"Không tìm thấy booking '{bookingId}'.");
-
-        if (booking.Status != BookingStatus.CheckedIn)
-        {
-            throw new ConflictException("Chỉ booking đã check-in mới có thể check-out.");
-        }
-
-        // P0 Fix #2: CheckOut doesn't change booking status - the session handles the terminal state.
-        // Booking status stays at CheckedIn (no terminal state in BookingStatus enum).
-        // The ActiveSession handles the payment lifecycle independently.
-        await _bookingRepository.UpdateAsync(booking);
-        await _bookingRepository.SaveChangesAsync();
-
-        // Task #5: Aggregate Karma + no-show audit sau khi staff check-out booking.
-        // Idempotent: nếu không có rating rows chưa aggregate + không có no-show vote mới
-        // → service aggregate trả về summary rỗng, không có side effect.
-        try
-        {
-            var aggregation = await _bookingRatingService.AggregateBookingOutcomesAsync(bookingId);
-            _logger.LogInformation(
-                "Booking {BookingId} check-out aggregated. RatingsProcessed={RatingsProcessed}, NoShowCount={NoShowCount}, ForfeitedDeposits={ForfeitedDeposits}, TotalKarmaDelta={TotalKarmaDelta}",
-                bookingId,
-                aggregation.RatingsProcessed,
-                aggregation.NoShowConfirmedMembers.Count,
-                aggregation.ForfeitedDepositIds.Count,
-                aggregation.TotalKarmaDelta);
-        }
-        catch (Exception ex)
-        {
-            // Không fail check-out vì lỗi aggregate; log + staff có thể chạy lại thủ công.
-            _logger.LogError(ex,
-                "Failed to aggregate booking outcomes for {BookingId}. Staff có thể replay bằng cách gọi lại CheckOutAsync.",
-                bookingId);
-        }
-
-        // SignalR broadcast — task #7: BookingCheckedOut
-        await _hubService.NotifyBookingCheckedOut(bookingId, DateTime.UtcNow, totalAmount: 0m);
-
-        return BookingResponseDto.FromEntity(booking);
-    }
+    [Obsolete("Deprecated — đã thay bằng ReservationService.CompleteAndCaptureAsync (BR-REVENUE-01).")]
+    public Task<BookingResponseDto> CheckOutAsync(Guid bookingId, Guid staffUserId)
+        => throw new NotSupportedException(
+            "BookingService.CheckOutAsync đã deprecated. Capture BVC deposit giờ do ReservationService xử lý (BR-REVENUE-01).");
 
     public async Task<Booking> ConfirmBookingAsync(Guid bookingId)
     {

@@ -21,6 +21,7 @@ public class PaymentServiceTests
     private readonly Mock<IPaymentGatewayService> _mockGateway;
     private readonly Mock<ISePayClient> _mockSePayClient;
     private readonly Mock<ISePayAccountService> _mockSePayAccountService;
+    private readonly Mock<IWalletService> _mockWalletService;
     private readonly Mock<ILogger<PaymentService>> _mockLogger;
     private readonly PaymentService _service;
 
@@ -35,6 +36,7 @@ public class PaymentServiceTests
         _mockGateway = new Mock<IPaymentGatewayService>();
         _mockSePayClient = new Mock<ISePayClient>();
         _mockSePayAccountService = new Mock<ISePayAccountService>();
+        _mockWalletService = new Mock<IWalletService>();
         _mockLogger = new Mock<ILogger<PaymentService>>();
 
         // Setup mock Master Account từ DB
@@ -58,6 +60,7 @@ public class PaymentServiceTests
             _mockGateway.Object,
             _mockSePayClient.Object,
             _mockSePayAccountService.Object,
+            _mockWalletService.Object,
             _mockLogger.Object);
     }
 

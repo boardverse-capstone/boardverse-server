@@ -187,7 +187,7 @@ Trigger: Host thanh toán cọc thành công (BR-05).
 
 #### `BookingCheckedIn`
 
-Trigger: `POST /api/bookings/{id}/check-in` (Staff/Manager).
+Trigger: `POST /api/cafes/{cafeId}/pos/check-in` (Staff/Manager, BR §21A.7).
 
 ```json
 {

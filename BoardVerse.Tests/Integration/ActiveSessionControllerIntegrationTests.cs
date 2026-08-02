@@ -68,18 +68,6 @@ public class ActiveSessionControllerIntegrationTests
     }
 
     [IntegrationFact]
-    public async Task ActiveSession_EndGame()
-    {
-        var token = await IntegrationTestAuth.AsManagerAsync(_client);
-        ApiTestClient.Authorize(_client, token);
-
-        var response = await _client.PostAsync(
-            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/sessions/{Guid.NewGuid()}/end-game", null);
-        Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.NotFound);
-    }
-
-    [IntegrationFact]
     public async Task ActiveSession_PartialCheckout()
     {
         var token = await IntegrationTestAuth.AsManagerAsync(_client);
@@ -163,32 +151,6 @@ public class ActiveSessionControllerIntegrationTests
             attachRequest);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
                    response.StatusCode == HttpStatusCode.Conflict);
-    }
-
-    [IntegrationFact]
-    public async Task ActiveSession_SubmitGameCheck()
-    {
-        var token = await IntegrationTestAuth.AsManagerAsync(_client);
-        ApiTestClient.Authorize(_client, token);
-
-        var checkRequest = new
-        {
-            gameBarcode = IntegrationTestFixtures.PosBoxBarcode,
-            components = new[]
-            {
-                new { componentId = Guid.NewGuid(), present = true }
-            }
-        };
-
-        var response = await ApiTestClient.PostJsonAsync(_client,
-            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/sessions/{Guid.NewGuid()}/games/check",
-            checkRequest);
-        Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest ||
-                   response.StatusCode == HttpStatusCode.NotFound ||
-                   response.StatusCode == HttpStatusCode.Conflict ||
-                   response.StatusCode == HttpStatusCode.Forbidden ||
-                   response.StatusCode == HttpStatusCode.Unauthorized);
     }
 
     #endregion

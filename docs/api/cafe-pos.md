@@ -6,7 +6,7 @@
 
 API vận hành quầy: bàn, kho hộp game, phiên chơi, kiểm kê, khách vô danh, thanh toán một phần và thanh toán toàn bộ.
 
-> **Lưu ý:** Một số endpoint liên quan đến phiên chơi đang được tách sang `ActiveSessionController` với base route `/api/cafes/{cafeId}/sessions`. Xem bảng bên dưới để biết chính xác từng thao tác thuộc controller nào.
+> **Lưu ý:** CafePosController là **entry point canonical** cho mọi thao tác tại quầy (start/end session, kiểm kê linh kiện). `ActiveSessionController` giữ các endpoint nghiệp vụ phụ (checkout/pay/merge/guest-slot/...).
 
 ## Endpoints
 
@@ -20,8 +20,12 @@ API vận hành quầy: bàn, kho hộp game, phiên chơi, kiểm kê, khách v
 | `/sessions/active` | GET | Phiên đang chơi | `CafePosController` |
 | `/bookings/{bookingCode}` | GET | Preview booking trước check-in (AC 1.1) | `CafePosController` |
 | `/sessions` | POST | Giao game cho bàn — bắt đầu phiên chơi | `CafePosController` |
-| `/sessions/from-booking` | POST | Host-led check-in từ mã đặt chỗ (AC 1.2-1.4) | `CafePosController` |
-| `/sessions/{sessionId}/end` | POST | Trả game / kết thúc phiên chơi | `CafePosController` |
+| `/check-in` | POST | **POS check-in (canonical):** Staff quét QR (ReservationCode \| BookingCode legacy) để kích hoạt phiên chơi cho cả nhóm (BR §21A.7) | `CafePosController` |
+| `/sessions` | POST | Giao hộp game cho bàn — bắt đầu phiên chơi (POS scan barcode) | `CafePosController` |
+| `/sessions/{sessionId}/end` | POST | **Trả game / kết thúc phiên chơi (canonical — thay cho `/sessions/{id}/end-game` ở ActiveSession)** | `CafePosController` |
+| `/sessions/{sessionGameId}/component-checklist` | GET | Lấy bảng kiểm kê linh kiện của 1 game trong phiên | `CafePosController` |
+| `/sessions/component-check` | POST | **Submit bảng kiểm kê linh kiện (canonical — thay cho `/sessions/{id}/games/check` ở ActiveSession)** | `CafePosController` |
+| `/sessions/{sessionId}/return-game` | POST | Trả game (legacy alias — dùng `/sessions/{id}/end` thay thế) | `CafePosController` |
 | `/sessions/{sessionId}/checkout` | POST | Thanh toán toàn bộ sau kiểm kê linh kiện | `ActiveSessionController` |
 | `/sessions/{sessionId}/guest-slots` | POST | Thêm khách vô danh | `ActiveSessionController` |
 | `/sessions/{sessionId}/partial-checkout` | POST | Thanh toán một phần khi có người về sớm | `ActiveSessionController` |
@@ -246,37 +250,61 @@ Preview thông tin booking trước khi check-in.
 
 ---
 
-## POST /api/cafes/{cafeId}/pos/sessions/from-booking
+## POST /api/cafes/{cafeId}/pos/check-in
 
-Host-led check-in: Quét mã đặt chỗ (BookingCode/OrderId) để kích hoạt phiên chơi cho cả nhóm.
+**POS check-in (canonical — BR §21A.7):** Staff quét QR (ReservationCode mới hoặc BookingCode legacy) để kích hoạt phiên chơi cho cả nhóm.
+
+Server tự động phân biệt 2 format mã qua `ReservationCodeDetector`:
+
+| Format | Format mẫu | Flow |
+|---|---|---|
+| **ReservationCode (mới)** | `ABC234XY` — 8 ký tự alphanumeric uppercase, exclude `0/1/I/O` | `ReservationService.CheckInAsync` (BVC atomic + outbox) |
+| **BookingCode (legacy)** | `BV12345678` | `BookingDeposit` lookup (VND flow) |
 
 **AC 1.2:** Nhân viên bấm xác nhận check-in → Trạng thái bàn chuyển sang Occupied.
 
 **AC 1.3:** `DepositAppliedAmount = 0` — Thanh toán session KHÔNG trừ tiền cọc (BR-09 mới).
 
-**AC 1.4:** Gửi SignalR notification để mobile app cập nhật "Đang chơi tại quán".
+**AC 1.4:** Gửi SignalR notification `SessionActivated` để mobile app cập nhật "Đang chơi tại quán".
 
-**Bug Fixes:**
-- **Double check-in prevention:** Kiểm tra `Booking.Status == CheckedIn` trước khi check-in. Nếu đã check-in rồi → throw `ConflictException`.
-- **Booking.Status update:** Sau khi check-in thành công, `Booking.Status` được cập nhật từ `Confirmed` → `CheckedIn`.
+**Idempotent:** Scan cùng QR trả cùng response (cùng `ActiveSessionId`). Idempotency key `pos-checkin:{code}`.
 
-**Body mẫu:**
+**Validate (BR §21A.7 step 3):**
+- Reservation thuộc đúng `cafeId` của staff (cross-cafe guard).
+- Reservation `Status == Confirmed`.
+- Time window: từ `scheduledTime - 30 phút` (early grace) đến `timeSlot.endTime + 30 phút` (late grace).
+- Game match: `reservation.GameId == box.GameTemplateId`.
+- Status flip atomic: `Reservation Held → CheckedIn` + `Lobby Open → InProgress` + `SeatInventory Held → InUse` + `GameInventory Held → InUse` + Outbox `LobbyCheckedIn`.
+
+**Body mẫu (Reservation flow — mới):**
 ```json
 {
-  "bookingCode": "BV12345678",
+  "code": "ABC234XY",
   "cafeTableId": "guid",
   "barcode": "BV-bbbbbbbb-xxxxxxxx-001"
 }
 ```
 
+**Body mẫu (Booking flow — legacy, vẫn hoạt động):**
+```json
+{
+  "code": "BV12345678",
+  "cafeTableId": "guid",
+  "barcode": "BV-bbbbbbbb-xxxxxxxx-001"
+}
+```
+
+> **Breaking change:** Endpoint cũ `POST /api/cafes/{cafeId}/pos/sessions/from-booking` đã được thay thế bằng `POST /api/cafes/{cafeId}/pos/check-in`. Field `bookingCode` đổi thành `code` (chấp nhận cả 2 format).
+
 **Response 201:** `ActiveSessionDto`
 
 **Lỗi:**
-- `400` mã đặt chỗ không hợp lệ
+- `400` mã check-in không hợp lệ / ngoài time window
 - `401` thiếu token
-- `403` không đủ quyền
+- `403` không đủ quyền vận hành quán
 - `404` quán, bàn hoặc game không tồn tại
-- `409` đơn đặt chỗ chưa thanh toán, đã check-in rồi, hoặc bàn/game không khả dụng
+- `409` reservation không thuộc cafe, sai cafe, chưa `Confirmed`, sai game, hoặc bàn/hộp không khả dụng
+- `500` lỗi hệ thống không mong đợi
 
 ---
 
@@ -347,7 +375,7 @@ Khi check-in thành công, hệ thống gửi event `SessionActivated` đến mo
 # 1. Login staff/manager
 # 2. GET .../pos/bookings/{bookingCode}  (preview booking)
 #    → Xem thông tin: host, game, số người, trạng thái cọc
-# 3. POST .../pos/sessions/from-booking  (check-in)
+# 3. POST .../pos/check-in  (POS check-in)
 #    → Tạo session, bàn → InUse, gửi SignalR notification
 # 4. POST .../pos/sessions/{id}/end
 #    → Kết thúc phiên

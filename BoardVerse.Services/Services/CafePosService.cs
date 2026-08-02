@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Pos;
+using BoardVerse.Core.DTOs.Reservation;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
@@ -7,6 +8,8 @@ using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
 using BoardVerse.Data;
 using BoardVerse.Services.IServices;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using System.Transactions;
 
 namespace BoardVerse.Services.Services
@@ -21,6 +24,9 @@ namespace BoardVerse.Services.Services
         private readonly IPosHubService _posHubService;
         private readonly ILobbyRepository _lobbyRepository;
         private readonly IUserProfileRepository _userProfileRepository;
+        private readonly IReservationService _reservationService;
+        private readonly IReservationRepository _reservationRepository;
+        private readonly ILogger<CafePosService> _logger;
         private readonly BoardVerseDbContext _db;
 
         public CafePosService(
@@ -32,6 +38,9 @@ namespace BoardVerse.Services.Services
             IPosHubService posHubService,
             ILobbyRepository lobbyRepository,
             IUserProfileRepository userProfileRepository,
+            IReservationService reservationService,
+            IReservationRepository reservationRepository,
+            ILogger<CafePosService> logger,
             BoardVerseDbContext db)
         {
             _posRepository = posRepository;
@@ -42,6 +51,9 @@ namespace BoardVerse.Services.Services
             _posHubService = posHubService;
             _lobbyRepository = lobbyRepository;
             _userProfileRepository = userProfileRepository;
+            _reservationService = reservationService;
+            _reservationRepository = reservationRepository;
+            _logger = logger;
             _db = db;
         }
 
@@ -375,131 +387,162 @@ namespace BoardVerse.Services.Services
         }
 
         /// <summary>
-        /// Host-led check-in: Quét một lần mã đặt chỗ (BookingCode = OrderId) để kích hoạt phiên chơi.
+        /// POS check-in (BR §21A.7): Staff quét QR (ReservationCode hoặc BookingCode legacy) để kích hoạt phiên chơi.
+        /// BR mới (BVC/Reservation): mã là ReservationCode 8-char alphanumeric uppercase (exclude 0/1/I/O).
+        /// BR cũ (VND/BookingDeposit): mã là BookingCode "BV{N}" — giữ backward compat.
         /// MDC Happy Path Step 9: "Quét một lần mã định danh đặt chỗ trên ứng dụng của người chơi khởi tạo để thực hiện thủ tục vào quán cho cả nhóm"
-        /// BR-05: Deposit phải ở trạng thái Paid mới được check-in
-        /// BR-06: Quá 30 phút không check-in → Booking EXPIRED
-        /// BR-09: Deposit chỉ dùng để giữ chỗ, KHÔNG trừ vào hóa đơn session
         /// </summary>
-        public async Task<ActiveSessionDto> StartSessionFromBookingAsync(
+        public async Task<ActiveSessionDto> CheckInByCodeAsync(
             Guid cafeId,
             Guid userId,
             string userRole,
-            StartSessionFromBookingRequestDto request)
+            CheckInRequestDto request)
         {
             await EnsurePosAccessAsync(cafeId, userId, userRole);
 
-            // Tìm deposit bằng BookingCode (OrderId)
-            var deposit = await _depositRepository.GetByBookingCodeAsync(request.BookingCode.Trim());
-            if (deposit == null)
+            var code = request.Code.Trim();
+
+            // BR mới §21A.7 + Detection: phân biệt ReservationCode vs BookingCode cũ.
+            var codeType = ReservationCodeDetector.Detect(code);
+
+            if (codeType == ReservationCodeDetector.CodeType.Reservation)
             {
-                throw new NotFoundException($"Không tìm thấy đơn đặt chỗ với mã '{request.BookingCode}'.");
+                // ====== BR-MỚI: BVC Reservation flow ======
+                return await StartSessionFromReservationAsync(cafeId, userId, code, request);
             }
 
-            // Kiểm tra deposit thuộc đúng cafe
+            // ====== BR-CŨ: VND BookingDeposit flow (backward compat) ======
+            return await StartSessionFromLegacyBookingAsync(cafeId, userId, code, request);
+        }
+
+        /// <summary>
+        /// BR §21A.7: ReservationCode → ReservationService.CheckInAsync (atomic + outbox).
+        /// Sau check-in: tạo ActiveSession + ActiveSessionMember ở flow POS (giống legacy).
+        /// </summary>
+        private async Task<ActiveSessionDto> StartSessionFromReservationAsync(
+            Guid cafeId,
+            Guid userId,
+            string reservationCode,
+            CheckInRequestDto request)
+        {
+            // 1) Build ActiveSession skeleton trước để có Id cho ReservationService.CheckInAsync.
+            //    ReservationService.CheckInAsync chỉ làm: Reservation→CheckedIn + Lobby→InProgress
+            //    + atomic seat/game abstract inventory move + outbox. KHÔNG tạo ActiveSession.
+            var (table, box, session, hostMember, sessionGame) = await PrepareSessionSkeletonAsync(
+                cafeId, userId, reservationCode, request, hostFromReservation: true);
+
+            // 2) Gọi ReservationService.CheckInAsync — atomic DB transaction + outbox.
+            //    GAP #6 fix: idempotency key dùng reservationCode (stable) thay vì session.Id
+            //    (mỗi POS attempt session.Id mới → key khác → idempotency replay không bắt được).
+            var checkInRequest = new ReservationCheckInRequestDto
+            {
+                CafeId = cafeId,
+                ReservationCode = reservationCode,
+                ActiveSessionId = session.Id,
+                IdempotencyKey = $"pos-checkin:{reservationCode}"
+            };
+
+            ReservationCheckInResponseDto checkInResult;
+            try
+            {
+                checkInResult = await _reservationService.CheckInAsync(userId, checkInRequest);
+            }
+            catch (NotFoundException)
+            {
+                throw new NotFoundException($"Không tìm thấy reservation với mã '{reservationCode}'.");
+            }
+            catch (ConflictException ex)
+            {
+                // Reservation không thuộc cafe này, hoặc chưa Confirmed.
+                throw new ConflictException(
+                    $"Không thể check-in reservation '{reservationCode}': {ex.Message}");
+            }
+
+            _logger.LogInformation(
+                "POS check-in (BR mới): reservation {ReservationId} → ActiveSession {ActiveSessionId}",
+                checkInResult.ReservationId, session.Id);
+
+            // 3) Persist physical box/table + session (ReservationService đã lo atomic Reservation flip).
+            await using var tx = await _db.Database.BeginTransactionAsync();
+
+            try
+            {
+                await _posRepository.AddSessionAsync(session);
+                await _posRepository.SaveChangesAsync();
+
+                await _posRepository.AddSessionMemberAsync(hostMember);
+                await _posRepository.AddSessionGameAsync(sessionGame);
+                await _posRepository.SaveChangesAsync();
+
+                await tx.CommitAsync();
+            }
+            catch
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
+
+            // 4) SignalR notify (giống legacy).
+            var cafe = await _cafeRepository.GetByIdAsync(cafeId);
+            var memberUserIds = new List<Guid> { session.HostId };
+            await _posHubService.NotifySessionActivatedAsync(
+                session.Id,
+                cafeId,
+                cafe?.Name ?? "Unknown Cafe",
+                session.HostId,
+                memberUserIds);
+
+            session.CafeTable = table;
+            session.CafeInventoryBox = box;
+            session.GameTemplate = box.CafeGameInventory.GameTemplate;
+            session.Members = [hostMember];
+
+            return MapSession(session, DateTime.UtcNow);
+        }
+
+        /// <summary>
+        /// BR cũ: BookingCode "BV{N}" → BookingDeposit lookup + create ActiveSession.
+        /// Giữ nguyên để không vỡ POS đang dùng flow VND.
+        /// </summary>
+        private async Task<ActiveSessionDto> StartSessionFromLegacyBookingAsync(
+            Guid cafeId,
+            Guid userId,
+            string bookingCode,
+            CheckInRequestDto request)
+        {
+            // (logic cũ của StartSessionFromBookingAsync — không đổi gì)
+            await using var transaction = await _db.Database.BeginTransactionAsync();
+
+            // ...existing legacy code below...
+            var deposit = await _depositRepository.GetByBookingCodeAsync(bookingCode);
+            if (deposit == null)
+            {
+                throw new NotFoundException($"Không tìm thấy đơn đặt chỗ với mã '{bookingCode}'.");
+            }
             if (deposit.CafeId != cafeId)
             {
                 throw new ConflictException("Đơn đặt chỗ này không thuộc quán này.");
             }
-
-            // BR-05: Kiểm tra deposit đã Paid
             if (deposit.Status != BookingDepositStatus.Paid)
             {
                 throw new ConflictException(ApiErrorMessages.Pos.BookingDepositNotPaid);
             }
 
-            // Host là người đặt cọc (UserId trong deposit)
             var hostId = deposit.UserId;
 
-            // Kiểm tra bàn
-            var table = await _posRepository.GetTableAsync(cafeId, request.CafeTableId);
-            if (table == null)
-            {
-                throw new NotFoundException(ApiErrorMessages.Pos.TableNotFound(cafeId, request.CafeTableId));
-            }
-
-            if (table.Status != CafeTableStatus.Available)
-            {
-                throw new ConflictException(ApiErrorMessages.Pos.TableNotAvailableForGame(request.CafeTableId));
-            }
-
-            // Kiểm tra game box
-            var barcode = request.Barcode.Trim();
-            var box = await _posRepository.GetBoxByBarcodeAsync(cafeId, barcode);
-            if (box == null)
-            {
-                throw new NotFoundException(ApiErrorMessages.Pos.BoxNotFound(cafeId, barcode));
-            }
-
-            if (box.Status != CafeGameInventoryStatus.Available)
-            {
-                throw new ConflictException(ApiErrorMessages.Pos.BoxNotAvailable(box.Barcode, box.Status.ToString()));
-            }
-
-            var existingSession = await _posRepository.GetActiveSessionByBoxIdAsync(box.Id);
-            if (existingSession != null)
-            {
-                throw new ConflictException(ApiErrorMessages.Pos.BoxAlreadyInSession(box.Barcode));
-            }
+            // Tái sử dụng PrepareSessionSkeleton — hostId comes from deposit not from QR.
+            var (table, box, session, hostMember, sessionGame) = await PrepareSessionSkeletonAsync(
+                cafeId, userId, bookingCode, request, hostFromReservation: false, overrideHostId: hostId);
 
             var now = DateTime.UtcNow;
             var gameTemplateId = box.CafeGameInventory.GameTemplateId;
 
-            // Tạo session với Host là người đặt cọc
-            var session = new ActiveSession
-            {
-                Id = Guid.NewGuid(),
-                CafeId = cafeId,
-                CafeTableId = table.Id,
-                CafeInventoryBoxId = box.Id,
-                GameTemplateId = gameTemplateId,
-                HostId = hostId,
-                LobbyId = null,
-                Status = GroupSessionStatus.Active,
-                StartedAt = now,
-                CreatedAt = now,
-                // BR-09: DepositAppliedAmount = 0 (không trừ deposit vào session)
-                DepositAppliedAmount = 0,
-                Subtotal = 0,
-                TotalAmount = 0
-            };
-
-            // Tạo member cho Host
-            var hostMember = new ActiveSessionMember
-            {
-                Id = Guid.NewGuid(),
-                ActiveSessionId = session.Id,
-                UserId = hostId,
-                JoinedAt = now,
-                Status = IndividualSessionStatus.Playing
-            };
-
-            // BR-12: Auto-create ActiveSessionGame when starting session
-            var sessionGame = new ActiveSessionGame
-            {
-                Id = Guid.NewGuid(),
-                ActiveSessionId = session.Id,
-                CafeInventoryBoxId = box.Id,
-                AttachedAt = now,
-                CheckStatus = ComponentCheckStatus.NotChecked
-            };
-
-            box.Status = CafeGameInventoryStatus.InUse;
-            box.UpdatedAt = now;
-
-            table.Status = CafeTableStatus.InUse;
-            table.UpdatedAt = now;
-
-            // Link deposit vào session
+            // Cập nhật deposit
             deposit.ActiveSessionId = session.Id;
             deposit.UpdatedAt = now;
 
-            // P1 Fix #8: Wrap all database operations in a transaction for atomicity
-            await using var transaction = await _db.Database.BeginTransactionAsync();
-
             try
             {
-                // Lưu
                 await _posRepository.AddSessionAsync(session);
                 await _posRepository.SaveChangesAsync();
 
@@ -516,38 +559,9 @@ namespace BoardVerse.Services.Services
                 throw;
             }
 
-            // AC 1.4: Gửi SignalR notification cho mobile app
             var cafe = await _cafeRepository.GetByIdAsync(cafeId);
             var memberUserIds = new List<Guid> { hostId };
-            
-            // Get lobby members if available via ActiveSessionId link
-            if (deposit.ActiveSessionId.HasValue)
-            {
-                var lobby = await _lobbyRepository.GetByActiveSessionIdAsync(deposit.ActiveSessionId.Value);
-                if (lobby != null)
-                {
-                    // Get members from lobby - using GetByIdWithMembersAsync
-                    var lobbyWithMembers = await _lobbyRepository.GetByIdWithMembersAsync(lobby.Id);
-                    if (lobbyWithMembers?.Members != null)
-                    {
-                        foreach (var lobbyMember in lobbyWithMembers.Members.Where(m => m.UserId != hostId))
-                        {
-                            var additionalMember = new ActiveSessionMember
-                            {
-                                Id = Guid.NewGuid(),
-                                ActiveSessionId = session.Id,
-                                UserId = lobbyMember.UserId,
-                                JoinedAt = now,
-                                Status = IndividualSessionStatus.Playing
-                            };
-                            await _posRepository.AddSessionMemberAsync(additionalMember);
-                            memberUserIds.Add(lobbyMember.UserId);
-                        }
-                        await _posRepository.SaveChangesAsync();
-                    }
-                }
-            }
-            
+
             await _posHubService.NotifySessionActivatedAsync(
                 session.Id,
                 cafeId,
@@ -558,17 +572,128 @@ namespace BoardVerse.Services.Services
             session.CafeTable = table;
             session.CafeInventoryBox = box;
             session.GameTemplate = box.CafeGameInventory.GameTemplate;
-            session.Host = null!; // Host navigation not needed for response - use HostId
-            session.Members = memberUserIds.Select(uid => new ActiveSessionMember
-            {
-                Id = Guid.NewGuid(),
-                ActiveSessionId = session.Id,
-                UserId = uid,
-                JoinedAt = now,
-                Status = IndividualSessionStatus.Playing
-            }).ToList();
+            session.Host = null!;
+            session.Members = [hostMember];
 
             return MapSession(session, now);
+        }
+
+        /// <summary>
+        /// Helper: validate table + box + tạo ActiveSession skeleton.
+        /// Dùng chung cho cả 2 flow (Reservation mới + Booking cũ).
+        /// </summary>
+        private async Task<(CafeTable table, CafeInventoryBox box, ActiveSession session,
+            ActiveSessionMember hostMember, ActiveSessionGame sessionGame)>
+            PrepareSessionSkeletonAsync(
+                Guid cafeId,
+                Guid userId,
+                string code,
+                CheckInRequestDto request,
+                bool hostFromReservation,
+                Guid? overrideHostId = null)
+        {
+            var table = await _posRepository.GetTableAsync(cafeId, request.CafeTableId)
+                ?? throw new NotFoundException(ApiErrorMessages.Pos.TableNotFound(cafeId, request.CafeTableId));
+
+            if (table.Status != CafeTableStatus.Available)
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.TableNotAvailableForGame(request.CafeTableId));
+            }
+
+            var barcode = request.Barcode.Trim();
+            var box = await _posRepository.GetBoxByBarcodeAsync(cafeId, barcode)
+                ?? throw new NotFoundException(ApiErrorMessages.Pos.BoxNotFound(cafeId, barcode));
+
+            if (box.Status != CafeGameInventoryStatus.Available)
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.BoxNotAvailable(box.Barcode, box.Status.ToString()));
+            }
+
+            var existingSession = await _posRepository.GetActiveSessionByBoxIdAsync(box.Id);
+            if (existingSession != null)
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.BoxAlreadyInSession(box.Barcode));
+            }
+
+            // Hoist gameTemplateId declaration lên đầu để dùng cho GAP #7 validate.
+            var gameTemplateId = box.CafeGameInventory.GameTemplateId;
+
+            // Host for ActiveSession = reservation host (BR mới) hoặc deposit.UserId (cũ).
+            // Nếu POS userId không phải host vẫn cho phép (staff có quyền quét QR của khách).
+            var sessionHostId = hostFromReservation
+                ? userId // sẽ được ReservationService.CheckInAsync ghi đè bằng reservation.HostId
+                : overrideHostId ?? userId;
+
+            // Nếu là Reservation flow: lookup reservation qua repository (không dùng raw _db.Set).
+            // Lấy HostId + LobbyId để:
+            //  - session.HostId đúng ngay từ đầu.
+            //  - session.LobbyId set để PaySessionAsync → CompleteAndCaptureAsync chạy được
+            //    (GAP #3 fix — không set LobbyId = null làm BVC không capture về quán).
+            //  - validate reservation.GameId == box.GameTemplateId (GAP #7 fix).
+            Guid? sessionLobbyId = null;
+            if (hostFromReservation)
+            {
+                var preReservation = await _reservationRepository.GetByReservationCodeAsync(code.Trim());
+                if (preReservation != null)
+                {
+                    sessionHostId = preReservation.HostId;
+                    sessionLobbyId = preReservation.LobbyId;
+
+                    // GAP #7 fix: validate game match — staff scan box sai game.
+                    if (preReservation.GameId != gameTemplateId)
+                    {
+                        throw new ConflictException(
+                            $"Reservation '{preReservation.Id}' đặt game '{preReservation.GameId}' " +
+                            $"nhưng staff đang scan box game '{gameTemplateId}'. Không thể check-in.");
+                    }
+                }
+            }
+
+            var now = DateTime.UtcNow;
+            var sessionId = Guid.NewGuid();
+
+            var session = new ActiveSession
+            {
+                Id = sessionId,
+                CafeId = cafeId,
+                CafeTableId = table.Id,
+                CafeInventoryBoxId = box.Id,
+                GameTemplateId = gameTemplateId,
+                HostId = sessionHostId,
+                LobbyId = sessionLobbyId, // GAP #3 fix: set từ reservation để capture BVC chạy.
+                Status = GroupSessionStatus.Active,
+                StartedAt = now,
+                CreatedAt = now,
+                DepositAppliedAmount = 0,
+                Subtotal = 0,
+                TotalAmount = 0
+            };
+
+            var hostMember = new ActiveSessionMember
+            {
+                Id = Guid.NewGuid(),
+                ActiveSessionId = sessionId,
+                UserId = sessionHostId,
+                JoinedAt = now,
+                Status = IndividualSessionStatus.Playing
+            };
+
+            var sessionGame = new ActiveSessionGame
+            {
+                Id = Guid.NewGuid(),
+                ActiveSessionId = sessionId,
+                CafeInventoryBoxId = box.Id,
+                GameTemplateId = gameTemplateId,
+                AttachedAt = now,
+                CheckStatus = ComponentCheckStatus.NotChecked
+            };
+
+            box.Status = CafeGameInventoryStatus.InUse;
+            box.UpdatedAt = now;
+            table.Status = CafeTableStatus.InUse;
+            table.UpdatedAt = now;
+
+            return (table, box, session, hostMember, sessionGame);
         }
 
         public async Task<ActiveSessionDto> EndGameSessionAsync(

@@ -1,3 +1,4 @@
+using BoardVerse.Core.Constants;
 using BoardVerse.Core.DTOs.LobbyInvite;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
@@ -32,6 +33,21 @@ public class LobbyInviteService : ILobbyInviteService
         if (request.InviteeId == inviterId)
         {
             throw new BadRequestException(ApiErrorMessages.LobbyInvite.CannotInviteSelf);
+        }
+
+        // BR-LOBBY-INVITE-10: Rate limit gửi invite — 30 invite / user / ngày.
+        var startOfDayUtc = DateTime.UtcNow.Date;
+        var sentToday = await _inviteRepository.CountSentByInviterSinceAsync(inviterId, startOfDayUtc);
+        if (sentToday >= LobbyInviteLimits.MaxSentPerUserPerDay)
+        {
+            throw new ConflictException(ApiErrorMessages.LobbyInvite.InviteRateLimitExceeded);
+        }
+
+        // BR-LOBBY-INVITE-10: Rate limit nhận invite — 20 invite Pending / user / ngày.
+        var receivedToday = await _inviteRepository.CountPendingByInviteeSinceAsync(request.InviteeId, startOfDayUtc);
+        if (receivedToday >= LobbyInviteLimits.MaxReceivedPerUserPerDay)
+        {
+            throw new ConflictException(ApiErrorMessages.LobbyInvite.InviteRateLimitExceeded);
         }
 
         var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
@@ -82,7 +98,7 @@ public class LobbyInviteService : ILobbyInviteService
             InviteeId = request.InviteeId,
             Status = LobbyInviteStatus.Pending,
             Message = request.Message,
-            ExpiresAt = DateTime.UtcNow.AddHours(24),
+            ExpiresAt = DateTime.UtcNow.AddHours(LobbyInviteLimits.InviteExpiryHours),
             CreatedAt = DateTime.UtcNow
         };
 
