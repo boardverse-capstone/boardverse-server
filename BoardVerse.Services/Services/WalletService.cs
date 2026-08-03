@@ -10,6 +10,7 @@ using BoardVerse.Services.Services.Payments;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace BoardVerse.Services.Services;
 
@@ -855,6 +856,201 @@ public class WalletService : IWalletService
             BalanceSnapshot = entry.BalanceSnapshot,
             Note = entry.Note,
             CreatedAt = entry.CreatedAt
+        };
+    }
+
+    // ============================================================
+    // Admin methods — BR-RISK-04, BR-RISK-05, BR-RISK-06
+    // ============================================================
+
+    public async Task<AdminWalletPageDto> GetAllWalletsAsync(
+        int page,
+        int pageSize,
+        string? searchTerm = null,
+        AccountStatus? statusFilter = null,
+        RiskLevel? riskLevelFilter = null)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1) pageSize = 20;
+        if (pageSize > 100) pageSize = 100;
+
+        var (wallets, totalCount) = await _walletRepository.GetAllWalletsPagedAsync(
+            page, pageSize, searchTerm, statusFilter, riskLevelFilter);
+
+        var items = wallets.Select(w => new AdminWalletSummaryDto
+        {
+            UserId = w.UserId,
+            UserEmail = w.User?.Email,
+            AvailableBalance = w.AvailableBalance,
+            HeldBalance = w.HeldBalance,
+            TotalActiveDeposit = w.TotalActiveDeposit,
+            RiskMultiplier = w.RiskMultiplier,
+            RiskLevel = w.RiskLevel,
+            IsCoolingOff = w.IsCoolingOff,
+            AccountStatus = w.AccountStatus,
+            CreatedAt = w.CreatedAt
+        }).ToList();
+
+        return new AdminWalletPageDto
+        {
+            Items = items,
+            Page = page,
+            PageSize = pageSize,
+            TotalItems = totalCount
+        };
+    }
+
+    public async Task<AdminWalletDetailDto?> GetWalletDetailAsync(Guid userId)
+    {
+        var wallet = await _walletRepository.GetWalletWithUserAsync(userId);
+        if (wallet == null) return null;
+
+        return new AdminWalletDetailDto
+        {
+            UserId = wallet.UserId,
+            UserEmail = wallet.User?.Email,
+            UserPhoneNumber = wallet.User?.PhoneNumber,
+            AvailableBalance = wallet.AvailableBalance,
+            HeldBalance = wallet.HeldBalance,
+            TotalActiveDeposit = wallet.TotalActiveDeposit,
+            RiskMultiplier = wallet.RiskMultiplier,
+            RiskScore = wallet.RiskScore,
+            RiskLevel = wallet.RiskLevel,
+            IsCoolingOff = wallet.IsCoolingOff,
+            CoolingOffExpiresAt = wallet.CoolingOffExpiresAt,
+            AccountStatus = wallet.AccountStatus,
+            CreatedAt = wallet.CreatedAt,
+            UpdatedAt = wallet.UpdatedAt
+        };
+    }
+
+    public async Task<AdminUserTransactionsPageDto> GetUserTransactionsAsync(Guid userId, int page, int pageSize)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1) pageSize = 20;
+        if (pageSize > 100) pageSize = 100;
+
+        var wallet = await _walletRepository.GetWalletWithUserAsync(userId);
+        var displayName = wallet?.User?.Email ?? userId.ToString();
+
+        var total = await _ledgerRepository.CountByUserAsync(userId);
+        var items = await _ledgerRepository.GetHistoryAsync(userId, page, pageSize);
+
+        return new AdminUserTransactionsPageDto
+        {
+            UserId = userId,
+            UserDisplayName = displayName,
+            Items = items.Select(MapLedgerToDto).ToList(),
+            Page = page,
+            PageSize = pageSize,
+            TotalItems = total
+        };
+    }
+
+    public async Task<AdminSetStatusResultDto> SetAccountStatusAsync(
+        Guid targetUserId,
+        AccountStatus newStatus,
+        string reason,
+        DateTime? expiresAt,
+        Guid adminUserId,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new BadRequestException("Lý do thay đổi trạng thái là bắt buộc (audit).");
+        }
+
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            throw new BadRequestException("Idempotency key là bắt buộc.");
+        }
+
+        // Lấy ví hiện tại
+        var wallet = await _walletRepository.GetByUserIdAsync(targetUserId);
+        if (wallet == null)
+        {
+            // Auto-create nếu chưa có
+            await GetOrCreateWalletAsync(targetUserId, includeHeld: false);
+            wallet = await _walletRepository.GetByUserIdAsync(targetUserId);
+        }
+
+        if (wallet == null)
+        {
+            throw new NotFoundException($"Không tìm thấy ví BVC của user '{targetUserId}'.");
+        }
+
+        var previousStatus = wallet.AccountStatus;
+
+        // Validate: chỉ Senior admin mới được ban vĩnh viễn (nếu cần, implement role check ở controller)
+        if (newStatus == AccountStatus.Banned && expiresAt == null)
+        {
+            _logger.LogWarning(
+                "Admin {AdminId} setting BANNED without expiry for user {UserId}. Reason: {Reason}",
+                adminUserId, targetUserId, reason);
+        }
+
+        // Update wallet
+        wallet.AccountStatus = newStatus;
+        wallet.UpdatedAt = DateTime.UtcNow;
+
+        // Nếu là cooling-off → set expiresAt
+        if (newStatus == AccountStatus.Suspended && expiresAt.HasValue)
+        {
+            wallet.IsCoolingOff = true;
+            wallet.CoolingOffExpiresAt = expiresAt.Value;
+        }
+        else if (newStatus == AccountStatus.Active)
+        {
+            wallet.IsCoolingOff = false;
+            wallet.CoolingOffExpiresAt = null;
+        }
+
+        await _walletRepository.UpdateAsync(wallet);
+
+        // Ghi audit log vào PlayerActionHistory
+        var actionType = newStatus switch
+        {
+            AccountStatus.Active => AdminActionType.AccountStatusChange,
+            AccountStatus.Warning => AdminActionType.Warning,
+            AccountStatus.Suspended => AdminActionType.Suspend,
+            AccountStatus.Banned => AdminActionType.Ban,
+            _ => AdminActionType.AccountStatusChange
+        };
+
+        var metadata = new Dictionary<string, object?>
+        {
+            ["previousStatus"] = previousStatus.ToString(),
+            ["newStatus"] = newStatus.ToString(),
+            ["reason"] = reason
+        };
+
+        var historyEntry = new PlayerActionHistory
+        {
+            Id = Guid.NewGuid(),
+            UserId = targetUserId,
+            ActionType = actionType,
+            ActionBy = adminUserId,
+            Reason = reason,
+            Metadata = JsonDocument.Parse(JsonSerializer.Serialize(metadata)),
+            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = expiresAt
+        };
+
+        _db.PlayerActionHistories.Add(historyEntry);
+        await _walletRepository.SaveChangesAsync();
+
+        _logger.LogWarning(
+            "Admin account status change. AdminId={AdminId}, TargetUserId={TargetUserId}, PreviousStatus={Prev}, NewStatus={New}, ExpiresAt={ExpiresAt}, Reason={Reason}",
+            adminUserId, targetUserId, previousStatus, newStatus, expiresAt, reason);
+
+        return new AdminSetStatusResultDto
+        {
+            TargetUserId = targetUserId,
+            PreviousStatus = previousStatus,
+            NewStatus = newStatus,
+            ExpiresAt = expiresAt,
+            ChangedAt = DateTime.UtcNow
         };
     }
 }

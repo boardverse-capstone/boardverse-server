@@ -1,4 +1,5 @@
 using BoardVerse.Core.Entities;
+using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
 using Microsoft.EntityFrameworkCore;
 
@@ -45,5 +46,52 @@ public class WalletRepository : IWalletRepository
     public Task SaveChangesAsync()
     {
         return _db.SaveChangesAsync();
+    }
+
+    public async Task<(IReadOnlyList<Wallet> Items, int TotalCount)> GetAllWalletsPagedAsync(
+        int page,
+        int pageSize,
+        string? searchTerm = null,
+        AccountStatus? statusFilter = null,
+        RiskLevel? riskLevelFilter = null)
+    {
+        var query = _db.Wallets
+            .Include(w => w.User)
+            .AsQueryable();
+
+        if (statusFilter.HasValue)
+        {
+            query = query.Where(w => w.AccountStatus == statusFilter.Value);
+        }
+
+        if (riskLevelFilter.HasValue)
+        {
+            query = query.Where(w => w.RiskLevel == riskLevelFilter.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(searchTerm))
+        {
+            var term = searchTerm.Trim().ToLowerInvariant();
+            query = query.Where(w =>
+                w.UserId.ToString().ToLower().Contains(term) ||
+                (w.User != null && w.User.Email.ToLower().Contains(term)));
+        }
+
+        var totalCount = await query.CountAsync();
+
+        var items = await query
+            .OrderByDescending(w => w.UpdatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return (items, totalCount);
+    }
+
+    public async Task<Wallet?> GetWalletWithUserAsync(Guid userId)
+    {
+        return await _db.Wallets
+            .Include(w => w.User)
+            .FirstOrDefaultAsync(w => w.UserId == userId);
     }
 }

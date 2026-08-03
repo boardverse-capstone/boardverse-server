@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Wallet;
+using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Services.IServices;
 
@@ -125,6 +126,47 @@ public interface IWalletService
     /// Cluster-safe: dùng batch transaction + FOR UPDATE SKIP LOCKED bên trong.
     /// </summary>
     Task<int> ExpirePendingTopUpsAsync(CancellationToken cancellationToken = default);
+
+    // ============================================================
+    // Admin methods — BR-RISK-04, BR-RISK-05, BR-RISK-06
+    // ============================================================
+
+    /// <summary>
+    /// Lấy danh sách tất cả wallets (phân trang) cho admin dashboard.
+    /// Hỗ trợ filter theo search term, status, risk level.
+    /// </summary>
+    Task<AdminWalletPageDto> GetAllWalletsAsync(
+        int page,
+        int pageSize,
+        string? searchTerm = null,
+        AccountStatus? statusFilter = null,
+        RiskLevel? riskLevelFilter = null);
+
+    /// <summary>
+    /// Lấy chi tiết wallet của một user (bao gồm thông tin user).
+    /// </summary>
+    Task<AdminWalletDetailDto?> GetWalletDetailAsync(Guid userId);
+
+    /// <summary>
+    /// Lấy lịch sử giao dịch BVC của một user cho admin.
+    /// </summary>
+    Task<AdminUserTransactionsPageDto> GetUserTransactionsAsync(
+        Guid userId,
+        int page,
+        int pageSize);
+
+    /// <summary>
+    /// Admin thay đổi AccountStatus của user (lock/unlock/suspend/ban).
+    /// Ghi PlayerActionHistory (BR-RISK-05).
+    /// </summary>
+    Task<AdminSetStatusResultDto> SetAccountStatusAsync(
+        Guid targetUserId,
+        AccountStatus newStatus,
+        string reason,
+        DateTime? expiresAt,
+        Guid adminUserId,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
