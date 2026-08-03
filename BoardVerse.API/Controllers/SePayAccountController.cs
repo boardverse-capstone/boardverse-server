@@ -1,3 +1,4 @@
+using BoardVerse.API.Controllers;
 using BoardVerse.Core.DTOs.Payment;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
@@ -8,7 +9,7 @@ namespace BoardVerse.API.Controllers;
 [ApiController]
 [Route("api/sepay-accounts")]
 [Authorize(Roles = "Admin")]
-public class SePayAccountController : ControllerBase
+public class SePayAccountController : BaseApiController
 {
     private readonly ISePayAccountService _sePayAccountService;
     private readonly ILogger<SePayAccountController> _logger;
@@ -93,11 +94,11 @@ public class SePayAccountController : ControllerBase
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return this.NewResponse(400, ex.Message, null);
         }
         catch (InvalidOperationException ex)
         {
-            return Conflict(new { message = ex.Message });
+            return this.NewResponse(409, ex.Message, null);
         }
     }
 

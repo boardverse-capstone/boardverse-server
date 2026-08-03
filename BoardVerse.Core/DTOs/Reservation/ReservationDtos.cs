@@ -217,3 +217,123 @@ public class ReservationCheckInResponseDto
     public DateTime CheckedInAt { get; set; }
     public long HeldBvc { get; set; }
 }
+
+/// <summary>
+/// Response trả về khi lấy chi tiết 1 reservation.
+/// </summary>
+public class ReservationDetailDto
+{
+    public Guid Id { get; set; }
+    public Guid HostId { get; set; }
+    public string HostName { get; set; } = string.Empty;
+
+    public Guid CafeId { get; set; }
+    public string CafeName { get; set; } = string.Empty;
+    public string CafeAddress { get; set; } = string.Empty;
+
+    public Guid GameId { get; set; }
+    public string GameName { get; set; } = string.Empty;
+
+    public DateOnly PlayDate { get; set; }
+    public TimeSlot TimeSlot { get; set; }
+    public TimeOnly? PreferredStartTime { get; set; }
+
+    public DateTime ScheduledTime { get; set; }
+    public DateTime RecruitmentDeadline { get; set; }
+
+    public int MinPlayers { get; set; }
+    public int MaxPlayers { get; set; }
+    public int CurrentPlayers { get; set; }
+
+    public string Status { get; set; } = string.Empty;
+
+    public long DepositAmount { get; set; }
+    public decimal RiskMultiplier { get; set; }
+    public string RefundPolicyApplied { get; set; } = string.Empty;
+
+    public Guid? LobbyId { get; set; }
+    public string? LobbyShareCode { get; set; }
+    public string? LobbyStatus { get; set; }
+
+    public string ReservationCode { get; set; } = string.Empty;
+
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+
+    /// <summary>True nếu user hiện tại là host của reservation này.</summary>
+    public bool IsHost { get; set; }
+
+    /// <summary>True nếu reservation đang ở trạng thái cho phép hủy.</summary>
+    public bool CanCancel { get; set; }
+}
+
+/// <summary>
+/// Response trả về khi lấy danh sách reservation (list item).
+/// </summary>
+public class ReservationListItemDto
+{
+    public Guid Id { get; set; }
+
+    public Guid CafeId { get; set; }
+    public string CafeName { get; set; } = string.Empty;
+
+    public Guid GameId { get; set; }
+    public string GameName { get; set; } = string.Empty;
+
+    public DateOnly PlayDate { get; set; }
+    public TimeSlot TimeSlot { get; set; }
+
+    public int CurrentPlayers { get; set; }
+    public int MaxPlayers { get; set; }
+
+    public string Status { get; set; } = string.Empty;
+
+    public long DepositAmount { get; set; }
+
+    public Guid? LobbyId { get; set; }
+    public string? LobbyStatus { get; set; }
+
+    public string ReservationCode { get; set; } = string.Empty;
+
+    public DateTime RecruitmentDeadline { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+
+    public bool IsHost { get; set; }
+}
+
+/// <summary>
+/// Request lấy danh sách reservation.
+/// </summary>
+public class ReservationListRequestDto
+{
+    /// <summary>Filter theo trạng thái. Null = all non-terminal.</summary>
+    public List<ReservationStatus>? Statuses { get; set; }
+
+    /// <summary>Filter theo ngày. Null = all.</summary>
+    public DateOnly? PlayDate { get; set; }
+
+    /// <summary>Filter theo cafe. Null = all.</summary>
+    public Guid? CafeId { get; set; }
+
+    /// <summary>Chỉ lấy reservation do user host. Default true.</summary>
+    public bool HostedByMe { get; set; } = true;
+
+    /// <summary>Chỉ lấy reservation user tham gia (member). Default false.</summary>
+    public bool JoinedByMe { get; set; }
+
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; } = 20;
+}
+
+/// <summary>
+/// Response paginated cho danh sách reservation.
+/// </summary>
+public class ReservationListResponseDto
+{
+    public List<ReservationListItemDto> Items { get; set; } = [];
+    public int TotalCount { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalPages => (int)Math.Ceiling((double)TotalCount / PageSize);
+}

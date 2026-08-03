@@ -29,6 +29,35 @@ public class ReservationController : BaseApiController
     }
 
     /// <summary>
+    /// Kiểm tra message có phải là user limit error (403) hay conflict error (409).
+    /// </summary>
+    private static int GetStatusCodeForError(string message)
+    {
+        // BR-USER-LIMIT: account status, cooling-off, cross-role → 403
+        // BR-USER-LIMIT: overlap, already has lobby, cap exceeded → 409
+        var userLimit403 = new[]
+        {
+            "suspended",
+            "banned",
+            "bị giới hạn",
+            "cooling-off",
+            "thành viên của.*lobby",
+            "host của.*lobby"
+        };
+
+        foreach (var pattern in userLimit403)
+        {
+            if (System.Text.RegularExpressions.Regex.IsMatch(message, pattern,
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            {
+                return 403;
+            }
+        }
+
+        return 409;
+    }
+
+    /// <summary>
     /// Tạo quote cho reservation. [Role: Player]
     /// Quote chỉ validate + tính toán, KHÔNG tạo row DB. Idempotent theo IdempotencyKey.
     /// </summary>
@@ -43,9 +72,17 @@ public class ReservationController : BaseApiController
     [HttpPost("quote")]
     public async Task<IActionResult> CreateQuote([FromBody] ReservationQuoteRequestDto request)
     {
-        var userId = GetUserIdFromClaims();
-        var quote = await _reservationService.CreateQuoteAsync(userId, request);
-        return this.NewResponse(200, "ReservationQuoteCreated", quote);
+        try
+        {
+            var userId = GetUserIdFromClaims();
+            var quote = await _reservationService.CreateQuoteAsync(userId, request);
+            return this.NewResponse(200, "ReservationQuoteCreated", quote);
+        }
+        catch (InvalidOperationException ex)
+        {
+            var statusCode = GetStatusCodeForError(ex.Message);
+            return this.NewResponse(statusCode, ex.Message, null);
+        }
     }
 
     /// <summary>
@@ -64,9 +101,52 @@ public class ReservationController : BaseApiController
     [HttpPost("confirm")]
     public async Task<IActionResult> Confirm([FromBody] ReservationConfirmRequestDto request)
     {
+        try
+        {
+            var userId = GetUserIdFromClaims();
+            var result = await _reservationService.ConfirmAsync(userId, request);
+            return this.NewResponse(200, "ReservationConfirmed", result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            var statusCode = GetStatusCodeForError(ex.Message);
+            return this.NewResponse(statusCode, ex.Message, null);
+        }
+    }
+
+    /// <summary>
+    /// Lấy chi tiết 1 reservation. [Role: Player — chỉ host hoặc member mới thấy]
+    /// </summary>
+    /// <param name="reservationId">Mã reservation.</param>
+    /// <response code="200">Chi tiết reservation.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không có quyền xem.</response>
+    /// <response code="404">Không tìm thấy.</response>
+    [HttpGet("{reservationId:guid}")]
+    public async Task<IActionResult> GetReservation(Guid reservationId)
+    {
         var userId = GetUserIdFromClaims();
-        var result = await _reservationService.ConfirmAsync(userId, request);
-        return this.NewResponse(200, "ReservationConfirmed", result);
+        var result = await _reservationService.GetByIdAsync(userId, reservationId);
+        if (result == null)
+        {
+            return this.NewResponse(404, $"Không tìm thấy reservation '{reservationId}' hoặc bạn không có quyền xem.", null);
+        }
+        return this.NewResponse(200, "ReservationDetailRetrieved", result);
+    }
+
+    /// <summary>
+    /// Lấy danh sách reservation của user. [Role: Player]
+    /// Mặc định: chỉ reservation do user host. Dùng joinedByMe=true để xem reservation đã tham gia.
+    /// </summary>
+    /// <param name="request">Filter theo status, playDate, cafeId; switch hostedByMe/joinedByMe.</param>
+    /// <response code="200">Danh sách reservation (phân trang).</response>
+    /// <response code="401">Thiếu token.</response>
+    [HttpGet]
+    public async Task<IActionResult> GetReservations([FromQuery] ReservationListRequestDto request)
+    {
+        var userId = GetUserIdFromClaims();
+        var result = await _reservationService.GetListAsync(userId, request);
+        return this.NewResponse(200, "ReservationsRetrieved", result);
     }
 
     /// <summary>
@@ -86,11 +166,19 @@ public class ReservationController : BaseApiController
         Guid reservationId,
         [FromBody] CancelReservationRequestDto request)
     {
-        // Override request.ReservationId bằng route để tránh body sai id.
-        request.ReservationId = reservationId;
-        var userId = GetUserIdFromClaims();
-        var result = await _reservationService.CancelAsync(userId, request);
-        return this.NewResponse(200, "ReservationCancelled", result);
+        try
+        {
+            // Override request.ReservationId bằng route để tránh body sai id.
+            request.ReservationId = reservationId;
+            var userId = GetUserIdFromClaims();
+            var result = await _reservationService.CancelAsync(userId, request);
+            return this.NewResponse(200, "ReservationCancelled", result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            var statusCode = GetStatusCodeForError(ex.Message);
+            return this.NewResponse(statusCode, ex.Message, null);
+        }
     }
 
     /// <summary>
@@ -111,11 +199,19 @@ public class ReservationController : BaseApiController
         Guid reservationId,
         [FromBody] CafeApprovalRequestDto request)
     {
-        request.ReservationId = reservationId;
-        var userId = GetUserIdFromClaims();
-        var result = await _reservationService.HandleCafeApprovalAsync(userId, request);
-        return this.NewResponse(200,
-            request.Approve ? "ReservationCafeApproved" : "ReservationCafeRejected",
-            result);
+        try
+        {
+            request.ReservationId = reservationId;
+            var userId = GetUserIdFromClaims();
+            var result = await _reservationService.HandleCafeApprovalAsync(userId, request);
+            return this.NewResponse(200,
+                request.Approve ? "ReservationCafeApproved" : "ReservationCafeRejected",
+                result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            var statusCode = GetStatusCodeForError(ex.Message);
+            return this.NewResponse(statusCode, ex.Message, null);
+        }
     }
 }

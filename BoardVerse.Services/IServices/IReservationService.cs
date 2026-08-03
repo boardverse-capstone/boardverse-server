@@ -82,4 +82,16 @@ public interface IReservationService
     /// Không throw nếu reservation không tồn tại (legacy session không có lobbyId → cũ).
     /// </summary>
     Task CompleteAndCaptureAsync(Guid lobbyId, Guid activeSessionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Lấy chi tiết 1 reservation.
+    /// Validate: user phải là host hoặc member của lobby.
+    /// </summary>
+    Task<ReservationDetailDto?> GetByIdAsync(Guid userId, Guid reservationId);
+
+    /// <summary>
+    /// Lấy danh sách reservation với filter + phân trang.
+    /// BR-USER-LIMIT-01: user chỉ thấy reservation mình host hoặc có tham gia.
+    /// </summary>
+    Task<ReservationListResponseDto> GetListAsync(Guid userId, ReservationListRequestDto request);
 }

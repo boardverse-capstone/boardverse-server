@@ -1754,6 +1754,108 @@ public class ReservationService : IReservationService
             $"Không thể capture BVC cho lobby '{lobbyId}' sau {maxRetries} lần thử.");
     }
 
+    // ===== GET LIST / DETAIL =====
+
+    public async Task<ReservationDetailDto?> GetByIdAsync(Guid userId, Guid reservationId)
+    {
+        var reservation = await _reservationRepository.GetByIdAsync(reservationId, includeRelations: true);
+        if (reservation == null)
+        {
+            return null;
+        }
+
+        // Validate access: user phải là host hoặc member
+        var isHost = reservation.HostId == userId;
+        var isMember = reservation.Lobby?.Members?.Any(m => m.UserId == userId && m.IsActive) ?? false;
+        if (!isHost && !isMember)
+        {
+            return null;
+        }
+
+        var canCancel = reservation.Status == ReservationStatus.Holding
+            || (reservation.Status == ReservationStatus.Confirmed
+                && reservation.Lobby?.Status is LobbyStatus.Open
+                    or LobbyStatus.Viable
+                    or LobbyStatus.PendingCafeApproval);
+
+        return new ReservationDetailDto
+        {
+            Id = reservation.Id,
+            HostId = reservation.HostId,
+            HostName = GetDisplayName(reservation.Host, reservation.Host?.Profile),
+            CafeId = reservation.CafeId,
+            CafeName = reservation.Cafe?.Name ?? string.Empty,
+            CafeAddress = reservation.Cafe?.Address ?? string.Empty,
+            GameId = reservation.GameId,
+            GameName = reservation.Game?.Name ?? string.Empty,
+            PlayDate = reservation.PlayDate,
+            TimeSlot = reservation.TimeSlot,
+            PreferredStartTime = reservation.PreferredStartTime,
+            ScheduledTime = reservation.ScheduledTime,
+            RecruitmentDeadline = reservation.RecruitmentDeadline,
+            MinPlayers = reservation.MinPlayers,
+            MaxPlayers = reservation.MaxPlayers,
+            CurrentPlayers = reservation.CurrentPlayers,
+            Status = reservation.Status.ToString(),
+            DepositAmount = reservation.DepositAmount,
+            RiskMultiplier = reservation.RiskMultiplier,
+            RefundPolicyApplied = string.Empty,
+            LobbyId = reservation.LobbyId,
+            LobbyShareCode = reservation.Lobby?.ShareCode,
+            LobbyStatus = reservation.Lobby?.Status.ToString(),
+            ReservationCode = reservation.ReservationCode,
+            CreatedAt = reservation.CreatedAt,
+            UpdatedAt = reservation.UpdatedAt,
+            IsHost = isHost,
+            CanCancel = canCancel
+        };
+    }
+
+    public async Task<ReservationListResponseDto> GetListAsync(Guid userId, ReservationListRequestDto request)
+    {
+        var page = Math.Max(1, request.Page);
+        var pageSize = Math.Clamp(request.PageSize, 1, 100);
+
+        var (items, totalCount) = await _reservationRepository.GetListAsync(
+            userId,
+            request.HostedByMe,
+            request.JoinedByMe,
+            request.Statuses,
+            request.PlayDate,
+            request.CafeId,
+            page,
+            pageSize);
+
+        var dtos = items.Select(r => new ReservationListItemDto
+        {
+            Id = r.Id,
+            CafeId = r.CafeId,
+            CafeName = r.Cafe?.Name ?? string.Empty,
+            GameId = r.GameId,
+            GameName = r.Game?.Name ?? string.Empty,
+            PlayDate = r.PlayDate,
+            TimeSlot = r.TimeSlot,
+            CurrentPlayers = r.CurrentPlayers,
+            MaxPlayers = r.MaxPlayers,
+            Status = r.Status.ToString(),
+            DepositAmount = r.DepositAmount,
+            LobbyId = r.LobbyId,
+            LobbyStatus = r.Lobby?.Status.ToString(),
+            ReservationCode = r.ReservationCode,
+            RecruitmentDeadline = r.RecruitmentDeadline,
+            CreatedAt = r.CreatedAt,
+            IsHost = r.HostId == userId
+        }).ToList();
+
+        return new ReservationListResponseDto
+        {
+            Items = dtos,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize
+        };
+    }
+
     private async Task ExecuteCompleteAndCaptureTransactionAsync(
         Reservation reservation,
         Guid activeSessionId,
@@ -1868,6 +1970,21 @@ public class ReservationService : IReservationService
             await tx.RollbackAsync();
             throw;
         }
+    }
+
+    private static string GetDisplayName(User? user, UserProfile? profile)
+    {
+        if (user == null) return string.Empty;
+
+        var displayName = profile?.FirstName ?? user.Username;
+        if (!string.IsNullOrEmpty(profile?.LastName))
+        {
+            displayName = string.IsNullOrEmpty(displayName)
+                ? profile.LastName
+                : $"{displayName} {profile.LastName}";
+        }
+
+        return string.IsNullOrWhiteSpace(displayName) ? user.Username : displayName;
     }
 }
 

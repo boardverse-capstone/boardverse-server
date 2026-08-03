@@ -31,12 +31,138 @@ Tuân thủ business rules:
 
 ## Mục lục
 
+- [GET /{id}](#get-id)
+- [GET /](#get-)
 - [POST /quote](#post-quote)
 - [POST /confirm](#post-confirm)
 - [POST /{id}/cancel](#post-idcancel)
 - [POST /{id}/cafe-approval](#post-idcafe-approval)
 - [Luồng tích hợp](#luồng-tích-hợp)
 - [State machine](#state-machine)
+
+---
+
+## GET /{id}
+
+Lấy chi tiết một reservation.
+
+### Request
+
+- Method: `GET`
+- Path: `/api/v1/reservations/{reservationId}`
+- Auth: Player (JWT)
+
+### Response 200
+
+```json
+{
+  "statusCode": 200,
+  "message": "ReservationRetrieved",
+  "data": {
+    "id": "...",
+    "cafeId": "...",
+    "cafeName": "BoardGame Cafe A",
+    "gameId": "...",
+    "gameName": "Catan",
+    "hostId": "...",
+    "hostDisplayName": "Player A",
+    "playDate": "2026-08-04",
+    "timeSlot": "evening",
+    "preferredStartTime": "19:30:00",
+    "scheduledTime": "2026-08-04T18:00:00Z",
+    "recruitmentDeadline": "2026-08-04T17:40:00Z",
+    "minPlayers": 4,
+    "maxPlayers": 6,
+    "currentPlayers": 3,
+    "depositAmount": 100000,
+    "status": "Holding",
+    "lobbyId": "...",
+    "lobbyShareCode": "K7H3NP9X",
+    "lobbyStatus": "Open",
+    "requiresCafeApproval": false,
+    "cafeApprovalDeadline": null,
+    "createdAt": "2026-08-02T15:30:00Z",
+    "updatedAt": "2026-08-02T15:30:00Z"
+  }
+}
+```
+
+### Lỗi thường gặp
+
+| Status | Message |
+|--------|---------|
+| `401` | Thiếu token |
+| `403` | Không có quyền xem reservation này |
+| `404` | Không tìm thấy reservation |
+
+---
+
+## GET /
+
+Lấy danh sách reservation của user (host hoặc member). Có filter + phân trang.
+
+### Request
+
+- Method: `GET`
+- Path: `/api/v1/reservations`
+- Auth: Player (JWT)
+
+### Query
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `status` | enum | No | Filter theo status: `Holding`, `Confirmed`, `Expired`, `Cancelled`, `Completed`, `NoShow` |
+| `playDate` | date | No | Filter theo ngày dự kiến |
+| `cafeId` | guid | No | Filter theo cafe |
+| `hostedByMe` | bool | No | `true` để chỉ xem reservation do user host |
+| `joinedByMe` | bool | No | `true` để chỉ xem reservation user tham gia (lobby member) |
+| `page` | int | No | Số trang (≥ 1). Mặc định 1 |
+| `pageSize` | int | No | Số item/trang (1-50). Mặc định 20 |
+
+**Lưu ý:** Nếu không truyền `hostedByMe` hoặc `joinedByMe`, mặc định trả cả hai (tất cả reservation liên quan đến user).
+
+### Response 200
+
+```json
+{
+  "statusCode": 200,
+  "message": "ReservationsRetrieved",
+  "data": {
+    "items": [
+      {
+        "id": "...",
+        "cafeId": "...",
+        "cafeName": "BoardGame Cafe A",
+        "gameId": "...",
+        "gameName": "Catan",
+        "playDate": "2026-08-04",
+        "timeSlot": "evening",
+        "minPlayers": 4,
+        "maxPlayers": 6,
+        "currentPlayers": 3,
+        "depositAmount": 100000,
+        "status": "Holding",
+        "lobbyId": "...",
+        "lobbyShareCode": "K7H3NP9X",
+        "lobbyStatus": "Open",
+        "isHost": true,
+        "createdAt": "2026-08-02T15:30:00Z"
+      }
+    ],
+    "page": 1,
+    "pageSize": 20,
+    "totalItems": 5,
+    "hasMore": false
+  }
+}
+```
+
+### Lỗi thường gặp
+
+| Status | Message |
+|--------|---------|
+| `401` | Thiếu token |
+| `400` | `page` hoặc `pageSize` không hợp lệ |
 
 ---
 

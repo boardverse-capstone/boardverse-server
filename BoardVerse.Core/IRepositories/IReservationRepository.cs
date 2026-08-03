@@ -52,6 +52,20 @@ public interface IReservationRepository
     /// </summary>
     Task<int> CountHostActionsForPlayDateAsync(Guid hostId, DateOnly playDate);
 
+    /// <summary>
+    /// Lấy danh sách reservation với filter + phân trang.
+    /// BR-USER-LIMIT-01: user chỉ thấy reservation mình host hoặc có tham gia.
+    /// </summary>
+    Task<(IReadOnlyList<Reservation> Items, int TotalCount)> GetListAsync(
+        Guid userId,
+        bool hostedByMe,
+        bool joinedByMe,
+        List<ReservationStatus>? statuses,
+        DateOnly? playDate,
+        Guid? cafeId,
+        int page,
+        int pageSize);
+
     Task AddAsync(Reservation reservation);
 
     Task UpdateAsync(Reservation reservation);

@@ -158,6 +158,78 @@ public class ReservationRepository : IReservationRepository
             .CountAsync();
     }
 
+    public async Task<(IReadOnlyList<Reservation> Items, int TotalCount)> GetListAsync(
+        Guid userId,
+        bool hostedByMe,
+        bool joinedByMe,
+        List<ReservationStatus>? statuses,
+        DateOnly? playDate,
+        Guid? cafeId,
+        int page,
+        int pageSize)
+    {
+        var query = _db.Reservations
+            .Include(r => r.Host).ThenInclude(u => u.Profile)
+            .Include(r => r.Cafe)
+            .Include(r => r.Game)
+            .Include(r => r.Lobby)
+            .AsQueryable();
+
+        // Filter: host hoặc joined
+        if (hostedByMe && joinedByMe)
+        {
+            query = query.Where(r =>
+                r.HostId == userId ||
+                (r.Lobby != null && r.Lobby.Members.Any(m => m.UserId == userId && m.IsActive)));
+        }
+        else if (hostedByMe)
+        {
+            query = query.Where(r => r.HostId == userId);
+        }
+        else if (joinedByMe)
+        {
+            query = query.Where(r =>
+                r.Lobby != null && r.Lobby.Members.Any(m => m.UserId == userId && m.IsActive));
+        }
+        else
+        {
+            // Default: host or joined
+            query = query.Where(r =>
+                r.HostId == userId ||
+                (r.Lobby != null && r.Lobby.Members.Any(m => m.UserId == userId && m.IsActive)));
+        }
+
+        // Filter: statuses
+        if (statuses != null && statuses.Count > 0)
+        {
+            query = query.Where(r => statuses.Contains(r.Status));
+        }
+
+        // Filter: playDate
+        if (playDate.HasValue)
+        {
+            query = query.Where(r => r.PlayDate == playDate.Value);
+        }
+
+        // Filter: cafe
+        if (cafeId.HasValue)
+        {
+            query = query.Where(r => r.CafeId == cafeId.Value);
+        }
+
+        // Count total
+        var totalCount = await query.CountAsync();
+
+        // Paginate
+        var items = await query
+            .OrderByDescending(r => r.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return (items, totalCount);
+    }
+
     public Task AddAsync(Reservation reservation)
     {
         _db.Reservations.Add(reservation);
