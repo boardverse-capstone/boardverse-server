@@ -122,7 +122,7 @@ public class ReservationRepository : IReservationRepository
                 "LIMIT {3} " +
                 "FOR UPDATE SKIP LOCKED",
                 (int)ReservationStatus.Holding,
-                (int)LobbyStatus.PendingCafeApproval,
+                LobbyStatus.PendingCafeApproval.ToString(),
                 cutoff,
                 limit)
             .ToListAsync();
@@ -131,23 +131,24 @@ public class ReservationRepository : IReservationRepository
     }
 
     /// <summary>
-    /// GAP #23 fix: cluster-safe — FOR UPDATE SKIP LOCKED + push filter xuống SQL.
+    /// BR-21A.9: No-show khi scheduledTime + 30 phút grace ≤ cutoff mà reservation
+    /// vẫn Confirmed (chưa check-in). scheduledTime = PlayDate + TimeSlot.startTime.
+    /// Dùng LINQ để tính ScheduledTime ngay trong C# tránh hard-code SQL cho enum.
     /// </summary>
     public async Task<IReadOnlyList<Reservation>> GetDueForNoShowAsync(DateTime cutoff, int limit = 100)
     {
-        // scheduledTime + 30 phút grace ≤ cutoff. Đẩy filter xuống SQL thay vì ToListAsync + in-memory filter.
         var graceCutoff = cutoff.AddMinutes(-30);
-        return await _db.Reservations
-            .FromSqlRaw(
-                "SELECT * FROM \"Reservations\" " +
-                "WHERE \"Status\" = {0} " +
-                "AND \"ScheduledTime\" IS NOT NULL " +
-                "AND \"ScheduledTime\" <= {1} " +
-                "ORDER BY \"ScheduledTime\" " +
-                "LIMIT {2} " +
-                "FOR UPDATE SKIP LOCKED",
-                (int)ReservationStatus.Confirmed, graceCutoff, limit)
+
+        // PlayDate + TimeSlot.startTime tính ra scheduledTime
+        var all = await _db.Reservations
+            .Where(r => r.Status == ReservationStatus.Confirmed)
             .ToListAsync();
+
+        return all
+            .Where(r => r.ScheduledTime <= graceCutoff)
+            .OrderBy(r => r.ScheduledTime)
+            .Take(limit)
+            .ToList();
     }
 
     public async Task<int> CountHostActionsForPlayDateAsync(Guid hostId, DateOnly playDate)

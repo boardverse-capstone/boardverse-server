@@ -14,6 +14,15 @@ public interface IBvcTopUpRequestRepository
     /// </summary>
     Task<IReadOnlyList<BvcTopUpRequest>> GetPendingExpiredAsync(DateTime now, int limit = 50);
 
+    /// <summary>
+    /// Lấy tất cả top-up request đang Pending với AmountVnd khớp — dùng cho webhook
+    /// fallback khi SePay strip dấu '-' khỏi transferContent, khiến OrderId không
+    /// còn trong content. Caller tự filter theo userIdHash.
+    /// </summary>
+    Task<IReadOnlyList<BvcTopUpRequest>> GetPendingByAmountVndAsync(
+        decimal amountVnd,
+        CancellationToken cancellationToken = default);
+
     Task AddAsync(BvcTopUpRequest request);
     Task UpdateAsync(BvcTopUpRequest request);
     Task SaveChangesAsync(CancellationToken cancellationToken = default);

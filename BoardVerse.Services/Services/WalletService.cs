@@ -140,10 +140,13 @@ public class WalletService : IWalletService
         }
 
         // Tạo đơn qua SePay master account (luồng top-up tiền thật → BVC).
-        var master = await _sePayAccountService.GetMasterAccountAsync();
+        // Dùng RAW entity (không DTO) để lấy AccountNumber nguyên gốc cho VietQR —
+        // DTO đã bị MaskedAccountNumber() thay '****' vào, VietQR parser reject '**'.
+        var master = await _sePayAccountService.GetRawMasterAccountAsync();
         if (master == null
+            || !master.IsActive
             || string.IsNullOrWhiteSpace(master.BankCode)
-            || string.IsNullOrWhiteSpace(master.MaskedAccountNumber))
+            || string.IsNullOrWhiteSpace(master.AccountNumber))
         {
             throw new PaymentException(ApiErrorMessages.Payment.SePayMasterAccountNotFound);
         }
@@ -165,7 +168,7 @@ public class WalletService : IWalletService
                 ["kind"] = "bvc_topup"
             },
             BankCode = master.BankCode!,
-            AccountNumber = master.MaskedAccountNumber!,
+            AccountNumber = master.AccountNumber!,
             AccountName = master.AccountHolder ?? string.Empty
         };
 
@@ -369,6 +372,50 @@ public class WalletService : IWalletService
     /// </summary>
     /// <param name="orderId">OrderId do SePay gửi (BVC-XXX).</param>
     /// <param name="gatewayTransactionId">Mã giao dịch SePay.</param>
+    public async Task<string?> FindPendingTopUpOrderIdAsync(
+        string userIdHash,
+        decimal amountVnd,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(userIdHash))
+        {
+            return null;
+        }
+
+        var expectedBvc = (long)(amountVnd / BvcVndRate);
+        if (expectedBvc <= 0)
+        {
+            return null;
+        }
+
+        // Tìm tất cả user có Guid hash bắt đầu bằng userIdHash (8 hex chars đầu của N-format).
+        // Match bằng cách so khớp với UserId.ToString("N").Substring(0, 8) trong tất cả
+        // BvcTopUpRequest pending có AmountVnd khớp expected.
+        // Cách an toàn: lấy top pending theo CreatedAt DESC + filter client-side.
+        var pending = await _topUpRequestRepository.GetPendingByAmountVndAsync(
+            amountVnd,
+            cancellationToken);
+        if (pending == null || pending.Count == 0)
+        {
+            return null;
+        }
+
+        foreach (var p in pending)
+        {
+            var pUserHash = p.UserId.ToString("N").Substring(0, 8).ToUpperInvariant();
+            if (string.Equals(pUserHash, userIdHash, StringComparison.OrdinalIgnoreCase))
+            {
+                return p.OrderId;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Phase 2: Xử lý SePay webhook cho BVC top-up (OrderId prefix BVC-XXX).
+    /// Idempotent theo OrderId. Cùng OrderId + success → chỉ cộng ví 1 lần.
+    /// </summary>
     /// <param name="amountBvc">Số BVC thực tế nhận (tính từ webhook amount).</param>
     /// <param name="status">success/failed/cancelled.</param>
     public async Task HandleTopUpWebhookAsync(

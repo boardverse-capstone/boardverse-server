@@ -41,6 +41,24 @@ public class BvcTopUpRequestRepository : IBvcTopUpRequestRepository
             .ToListAsync();
     }
 
+    public Task<IReadOnlyList<BvcTopUpRequest>> GetPendingByAmountVndAsync(
+        decimal amountVnd,
+        CancellationToken cancellationToken = default)
+    {
+        // Lookup read-only (không lock) để tìm candidate OrderId cho webhook fallback.
+        // Filter Status=Pending + AmountVnd match. Caller tự filter thêm theo userIdHash.
+        return _db.BvcTopUpRequests
+            .Where(r => r.Status == BvcTopUpStatus.Pending && r.AmountVnd == amountVnd)
+            .OrderByDescending(r => r.CreatedAt)
+            .Take(10)
+            .ToListAsync(cancellationToken)
+            .ContinueWith<IReadOnlyList<BvcTopUpRequest>>(
+                t => t.Result,
+                cancellationToken,
+                TaskContinuationOptions.OnlyOnRanToCompletion,
+                TaskScheduler.Default);
+    }
+
     public async Task AddAsync(BvcTopUpRequest request)
     {
         await _db.BvcTopUpRequests.AddAsync(request);

@@ -92,6 +92,19 @@ public interface IWalletService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Tìm OrderId của đơn top-up BVC pending theo userId hash + amount.
+    /// SePay BankAPINotify strip dấu '-' khỏi transferContent nên OrderId thật
+    /// (dạng BVC-XXXXXXXX) không còn trong content. Handler cần lookup lại.
+    /// </summary>
+    /// <param name="userIdHash">8-char hex hash từ content (substring Guid userId).</param>
+    /// <param name="amountVnd">Số tiền SePay gửi về.</param>
+    /// <returns>OrderId pending phù hợp, hoặc null nếu không có.</returns>
+    Task<string?> FindPendingTopUpOrderIdAsync(
+        string userIdHash,
+        decimal amountVnd,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Admin/support tặng/trừ BVC thủ công (compensation, penalty, manual refund).
     /// Ghi ledger AdminCredit (+) / AdminDebit (-). KHÔNG qua SePay.
     /// Idempotent theo <paramref name="idempotencyKey"/>.

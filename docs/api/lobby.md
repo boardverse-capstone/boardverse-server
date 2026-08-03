@@ -91,6 +91,16 @@ Xem chi tiết API:
 | `/invites/me?status=` | GET | Tất cả lời mời lobby (filter) | Player |
 | `/{lobbyId}/share-info` | GET | Lấy Lobby ID + Share Code để copy | Member |
 | `/join-by-code` | POST | Join lobby bằng share code | Player |
+| `/discoverable` | GET | Browse lobby public đang mở (filter optional geo + game) | Player |
+| `/hosted` | GET | Lobby do user đang host | Player |
+| `/joined` | GET | Lobby user đang tham gia làm member | Player |
+| `/{lobbyId}` | PATCH | Host cập nhật thông tin lobby (description, maxMembers, isPrivate, ...) | Host |
+| `/{lobbyId}/transfer-host` | POST | Host chuyển quyền host cho member khác | Host |
+| `/{lobbyId}/kick` | POST | Host kick thành viên khỏi lobby | Host |
+| `/{lobbyId}/ready` | POST | Member bấm Ready/Unready khi lobby FULL | Player |
+| `/{lobbyId}/report` | POST | Báo cáo lobby vi phạm | Player |
+| `/{lobbyId}/messages` | POST | Gửi tin nhắn chat trong lobby | Active member |
+| `/{lobbyId}/messages` | GET | Lấy lịch sử chat (cursor pagination) | Active member |
 
 > **Auth:** Tất cả endpoints yêu cầu `Authorization: Bearer <jwt>`. Token lấy từ `/api/v1/auth/login`.
 
@@ -409,6 +419,244 @@ await connection.invoke("JoinLobby", lobbyId);
 2. Nếu lobby còn members khác → chọn member tiếp theo làm Host (theo `JoinedAt asc`).
 3. Nếu không còn ai → status `HostCancelled`.
 4. Broadcast `LobbyCancelled` với reason phù hợp.
+
+---
+
+## GET /api/v1/lobbies/discoverable
+
+Xem tại [Lobby.md#discoverable](#get-apiv1lobbiesdiscoverable) — đã có ở trên.
+
+---
+
+## GET /api/v1/lobbies/hosted
+
+Lấy danh sách lobby do user hiện tại host (cả còn active lẫn đã đóng).
+
+**Role:** Player — đã đăng nhập
+
+**Response 200:** `LobbyResponseDto[]` — sắp xếp theo `CreatedAt` desc.
+
+**Response codes:**
+- `200` — Trả danh sách (có thể rỗng)
+- `401` — Thiếu token
+- `500` — Lỗi hệ thống
+
+**Use case:** Mobile tab "Phòng của tôi" — hiển thị lobby host đang tuyển + đã đóng.
+
+---
+
+## GET /api/v1/lobbies/joined
+
+Lấy danh sách lobby user hiện tại đang tham gia với vai trò member.
+
+**Role:** Player — đã đăng nhập
+
+**Response 200:** `LobbyResponseDto[]` — chỉ trả lobby còn active, status khác `Closed`/`Cancelled`.
+
+**Response codes:**
+- `200` — Trả danh sách
+- `401` — Thiếu token
+- `500` — Lỗi hệ thống
+
+**Use case:** Mobile tab "Đang tham gia" — danh sách lobby member.
+
+---
+
+## PATCH /api/v1/lobbies/{lobbyId}
+
+Host cập nhật thông tin lobby (description, MaxMembers, IsPrivate, ...) trước khi start.
+
+**Role:** Player — chỉ Host hiện tại
+
+**Body mẫu** (tất cả field optional — chỉ field gửi mới được cập nhật):
+```json
+{
+  "description": "Cần 2 người chơi Catan, level trung bình",
+  "maxMembers": 5,
+  "isPrivate": false
+}
+```
+
+**Validate:**
+- `maxMembers` ≥ số member hiện tại (nếu giảm → 409).
+- Lobby chưa `Closed` / đã start → 409.
+
+**Response 200:** `LobbyResponseDto` — đã cập nhật.
+
+**Response codes:**
+- `200` — Cập nhật thành công
+- `400` — Dữ liệu không hợp lệ
+- `401` — Thiếu token
+- `403` — Không phải Host
+- `404` — Không tìm thấy lobby
+- `409` — Lobby đã đóng/đang chơi hoặc maxMembers < currentMembers
+- `500` — Lỗi hệ thống
+
+---
+
+## POST /api/v1/lobbies/{lobbyId}/transfer-host
+
+Host chuyển quyền host cho thành viên khác trong lobby.
+
+**Role:** Player — chỉ Host hiện tại
+
+**Body mẫu:**
+```json
+{ "newHostUserId": "guid" }
+```
+
+**Validate:**
+- `newHostUserId` phải đang là member ACTIVE của lobby (không phải host cũ).
+- Lobby chưa `Closed` / `Cancelled`.
+
+**Response 200:** `LobbyResponseDto` — `HostUserId` đã đổi.
+
+**Response codes:**
+- `200` — Chuyển host thành công
+- `400` — Target user không hợp lệ
+- `401` — Thiếu token
+- `403` — Không phải Host hiện tại
+- `404` — Không tìm thấy lobby hoặc target user không phải member
+- `409` — Lobby không ở trạng thái cho phép
+- `500` — Lỗi hệ thống
+
+---
+
+## POST /api/v1/lobbies/{lobbyId}/kick
+
+Host kick thành viên khỏi lobby.
+
+**Role:** Player — chỉ Host
+
+**Body mẫu:**
+```json
+{
+  "targetUserId": "guid",
+  "reason": "Không phù hợp với nhóm"
+}
+```
+
+**Validate:**
+- Host không thể kick chính mình → 400.
+- Target phải đang là member ACTIVE.
+
+**Response 200:** `LobbyResponseDto` — `Members` đã cập nhật.
+
+**Response codes:**
+- `200` — Kick thành công
+- `400` — Host tự kick mình
+- `401` — Thiếu token
+- `403` — Không phải Host
+- `404` — Không tìm thấy target
+- `500` — Lỗi hệ thống
+
+**Side effect:**
+- Member bị kick nhận SignalR `MemberKicked`.
+- Nếu `currentPlayers < minPlayers` → lobby quay lại `Open` (tuyển tiếp).
+
+---
+
+## POST /api/v1/lobbies/{lobbyId}/ready
+
+Member bấm Ready/Unready khi lobby đã FULL.
+
+**Role:** Player — chỉ member ACTIVE
+
+**Body mẫu:**
+```json
+{ "isReady": true }
+```
+
+**Behavior:**
+- Khi tất cả member Ready → lobby chuyển `Full → InProgress` (BR-05).
+
+**Response 200:** trả `isReady` hiện tại.
+
+**Response codes:**
+- `200` — Cập nhật ready
+- `401` — Thiếu token
+- `403` — Không phải member
+- `404` — Không tìm thấy lobby
+- `409` — Lobby chưa FULL hoặc member đã bị Kicked/Left
+- `500` — Lỗi hệ thống
+
+---
+
+## POST /api/v1/lobbies/{lobbyId}/report
+
+Member báo cáo lobby vi phạm.
+
+**Role:** Player — không phải Host của lobby đó
+
+**Body mẫu:**
+```json
+{
+  "category": "Harassment",
+  "reason": "Host quấy rối thành viên khác"
+}
+```
+
+**Validate:**
+- Không được tự report lobby mình host.
+
+**Response 201:** Report đã gửi, kèm `ReportId`.
+
+**Response codes:**
+- `201` — Report thành công
+- `400` — Là Host của lobby (không thể self-report)
+- `401` — Thiếu token
+- `404` — Không tìm thấy lobby
+- `500` — Lỗi hệ thống
+
+---
+
+## POST /api/v1/lobbies/{lobbyId}/messages
+
+Gửi tin nhắn chat trong lobby.
+
+**Role:** Player — chỉ member ACTIVE
+
+**Body mẫu:**
+```json
+{ "content": "Mọi người ơi, 19h nhé!" }
+```
+
+**Validate:**
+- `content`: 1–1000 ký tự.
+
+**Response 201:** `LobbyMessageDto` (id, content, senderUserId, createdAt).
+
+**Response codes:**
+- `201` — Gửi thành công
+- `400` — Nội dung không hợp lệ
+- `401` — Thiếu token
+- `403` — Không phải member
+- `404` — Không tìm thấy lobby
+- `500` — Lỗi hệ thống
+
+---
+
+## GET /api/v1/lobbies/{lobbyId}/messages
+
+Lấy lịch sử chat (cursor pagination).
+
+**Role:** Player — chỉ member ACTIVE
+
+**Query params:**
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `beforeCursor` | datetime | No | Lấy message trước thời điểm này (ISO 8601). |
+| `limit` | int | No | Số lượng tối đa (1-200, default 50). |
+
+**Response 200:** `LobbyMessageDto[]` — sắp xếp tăng dần theo `CreatedAt`.
+
+**Response codes:**
+- `200` — Trả danh sách (có thể rỗng)
+- `401` — Thiếu token
+- `403` — Không phải member
+- `404` — Không tìm thấy lobby
+- `500` — Lỗi hệ thống
 
 ---
 

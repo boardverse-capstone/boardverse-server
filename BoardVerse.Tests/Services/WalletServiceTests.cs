@@ -190,11 +190,12 @@ public class WalletServiceTests
         SetupLedgerNoExistingKey(req.IdempotencyKey);
 
         _mockSePayAccount
-            .Setup(s => s.GetMasterAccountAsync())
-            .ReturnsAsync(new SePayAccountDto
+            .Setup(s => s.GetRawMasterAccountAsync())
+            .ReturnsAsync(new SePayAccount
             {
+                IsActive = true,
                 BankCode = "MBBank",
-                MaskedAccountNumber = "0123456789",
+                AccountNumber = "0123456789",
                 AccountHolder = "BOARDVERSE MASTER"
             });
 
@@ -225,8 +226,8 @@ public class WalletServiceTests
         SetupUserWithoutWallet(userId);
         SetupLedgerNoExistingKey(req.IdempotencyKey);
         _mockSePayAccount
-            .Setup(s => s.GetMasterAccountAsync())
-            .ReturnsAsync((SePayAccountDto?)null);
+            .Setup(s => s.GetRawMasterAccountAsync())
+            .ReturnsAsync((SePayAccount?)null);
 
         await Assert.ThrowsAsync<PaymentException>(
             () => _service.CreateTopUpAsync(userId, req));
@@ -240,10 +241,11 @@ public class WalletServiceTests
 
         SetupUserWithoutWallet(userId);
         SetupLedgerNoExistingKey(req.IdempotencyKey);
-        _mockSePayAccount.Setup(s => s.GetMasterAccountAsync()).ReturnsAsync(new SePayAccountDto
+        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync()).ReturnsAsync(new SePayAccount
         {
+            IsActive = true,
             BankCode = "MBBank",
-            MaskedAccountNumber = "0123456789"
+            AccountNumber = "0123456789"
         });
         _mockGateway
             .Setup(g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), It.IsAny<CancellationToken>()))
@@ -266,19 +268,22 @@ public class WalletServiceTests
         var req = new TopUpRequestDto { AmountVnd = 100_000, IdempotencyKey = key };
 
         SetupUserWithoutWallet(userId);
-        var existingEntry = new BvcLedgerEntry
+
+        // Code ưu tiên lookup BvcTopUpRequest trước (track OrderId + Status).
+        var existingTopUp = new BvcTopUpRequest
         {
             Id = Guid.NewGuid(),
             UserId = userId,
-            Type = LedgerEntryType.TopUp,
-            Amount = 100,
+            OrderId = "BVC-OLD-ORDER",
+            AmountVnd = 100_000,
+            ExpectedBvc = 100,
             IdempotencyKey = key,
-            RelatedPaymentRef = "BVC-OLD-ORDER",
+            Status = BvcTopUpStatus.Pending,
             CreatedAt = DateTime.UtcNow.AddMinutes(-1),
-            BalanceSnapshot = 100
+            ExpiresAt = DateTime.UtcNow.AddMinutes(29)
         };
-        _mockLedgerRepo.Setup(r => r.GetByIdempotencyKeyAsync(key))
-            .ReturnsAsync(existingEntry);
+        _mockTopUpRepo.Setup(r => r.GetByIdempotencyKeyAsync(key))
+            .ReturnsAsync(existingTopUp);
 
         var dto = await _service.CreateTopUpAsync(userId, req);
 

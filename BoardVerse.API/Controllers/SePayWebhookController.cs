@@ -29,6 +29,11 @@ public class SePayWebhookController : ControllerBase
     {
         try
         {
+            // SePay BankAPINotify gửi payload thô (content/transferAmount/transferType/...).
+            // Derive các field legacy (OrderId/Status/Amount/GatewayTransactionId)
+            // ngay tại entry point để handler downstream không phải thay đổi.
+            webhook.Normalize();
+
             await _paymentService.HandleSePayWebhookAsync(webhook);
             return Ok(new { status = "ok" });
         }
@@ -84,8 +89,11 @@ public class SePayWebhookController : ControllerBase
                 Currency = request.Currency ?? "VND",
                 Status = request.Status ?? "success",
                 ReferenceCode = request.ReferenceCode,
-                PaidAt = request.Status == "success" ? DateTime.UtcNow : null
+                TransferAmount = request.Amount,
+                TransferType = (request.Status ?? "success") == "success" ? "in" : "out",
+                TransactionDate = request.Status == "success" ? DateTime.UtcNow : null
             };
+            webhook.Normalize();
 
             await _paymentService.HandleSePayWebhookAsync(webhook);
             return Ok(new { status = "ok" });
