@@ -94,7 +94,7 @@ Xem chi tiết API:
 | `/discoverable` | GET | Browse lobby public đang mở (filter optional geo + game) | Player |
 | `/hosted` | GET | Lobby do user đang host | Player |
 | `/joined` | GET | Lobby user đang tham gia làm member | Player |
-| `/{lobbyId}` | PATCH | Host cập nhật thông tin lobby (description, maxMembers, isPrivate, ...) | Host |
+| `/{lobbyId}` | PATCH | Host cập nhật thông tin lobby (description, maxMembers, isPrivate, minKarmaScore, ...) | Host |
 | `/{lobbyId}/transfer-host` | POST | Host chuyển quyền host cho member khác | Host |
 | `/{lobbyId}/kick` | POST | Host kick thành viên khỏi lobby | Host |
 | `/{lobbyId}/ready` | POST | Member bấm Ready/Unready khi lobby FULL | Player |
@@ -464,7 +464,7 @@ Lấy danh sách lobby user hiện tại đang tham gia với vai trò member.
 
 ## PATCH /api/v1/lobbies/{lobbyId}
 
-Host cập nhật thông tin lobby (description, MaxMembers, IsPrivate, ...) trước khi start.
+Host cập nhật thông tin lobby (description, MaxMembers, IsPrivate, MinKarmaScore, ...) trước khi start.
 
 **Role:** Player — chỉ Host hiện tại
 
@@ -473,24 +473,48 @@ Host cập nhật thông tin lobby (description, MaxMembers, IsPrivate, ...) tr�
 {
   "description": "Cần 2 người chơi Catan, level trung bình",
   "maxMembers": 5,
-  "isPrivate": false
+  "isPrivate": false,
+  "minKarmaScore": 80
 }
 ```
 
 **Validate:**
 - `maxMembers` ≥ số member hiện tại (nếu giảm → 409).
 - Lobby chưa `Closed` / đã start → 409.
+- `minKarmaScore` trong `[0, 100]` (BR-10).
+- MVP không hỗ trợ "xóa" requirement (set null) — host tạo lobby mới nếu muốn gỡ.
 
 **Response 200:** `LobbyResponseDto` — đã cập nhật.
 
 **Response codes:**
 - `200` — Cập nhật thành công
-- `400` — Dữ liệu không hợp lệ
+- `400` — Dữ liệu không hợp lệ (`minKarmaScore` ngoài `[0, 100]`)
 - `401` — Thiếu token
 - `403` — Không phải Host
 - `404` — Không tìm thấy lobby
 - `409` — Lobby đã đóng/đang chơi hoặc maxMembers < currentMembers
 - `500` — Lỗi hệ thống
+
+---
+
+## BR-10: MinKarmaScore
+
+Lobby có thể yêu cầu member tối thiểu đạt `MinKarmaScore` điểm Karma khi join.
+
+| Field | Type | Range | Default | Mô tả |
+|---|---|---|---|---|
+| `MinKarmaScore` | `int?` | `[0, 100]` | `null` (= không yêu cầu) | Karma tối thiểu BR-10. |
+
+**Flow:**
+1. **Create** lobby: `POST /api/v1/reservations/confirm` (atomic, BR-REQUIRED §17.4) — host truyền `minKarmaScore` qua `ReservationQuote` (xem `docs/api/reservation.md`).
+2. **Update** lobby: `PATCH /api/v1/lobbies/{lobbyId}` — host thay đổi `minKarmaScore` (chỉ khi lobby chưa `InProgress` / `Closed` / `HostCancelled` / `TimeoutFailed`).
+3. **Join** lobby: `POST /api/v1/lobbies/{lobbyId}/join` — server validate `member.KarmaPoints >= lobby.MinKarmaScore` (nếu có). Vi phạm → 403 `KarmaRequirementNotMet`.
+4. **Search** lobby: `POST /api/v1/lobbies/search` — client filter `minKarmaScore` (đã có từ trước).
+
+**Lưu ý MVP:**
+- Chỉ cho phép tăng/giảm `MinKarmaScore` (set integer). Không thể "xóa requirement" bằng `null` qua PATCH (tránh race với member đang pending). Host muốn gỡ → tạo lobby mới.
+- Elo KHÔNG dùng cho filter lobby (chỉ dùng trong phân hệ Giải đấu).
+- Validate range `[0, 100]` ở cả DTO (`[Range]`) và runtime (BR-10 không vượt quá scale Karma mặc định).
 
 ---
 

@@ -33,6 +33,13 @@ namespace BoardVerse.Core.DTOs.Lobby
 
         public int CancellationLeadTimeMinutes { get; set; }
 
+        /// <summary>
+        /// BR-10: Điểm Karma tối thiểu yêu cầu để join.
+        /// Null = không yêu cầu tối thiểu. Member có thể join nếu <c>Member.KarmaPoints &gt;= MinKarmaScore</c>.
+        /// Client hiển thị label "Yêu cầu Karma ≥ X" khi có giá trị.
+        /// </summary>
+        public int? MinKarmaScore { get; set; }
+
         public DateTime? ClosedAt { get; set; }
         public string? ClosedReason { get; set; }
 

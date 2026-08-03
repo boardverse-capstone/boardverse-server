@@ -97,4 +97,64 @@ public class WalletController : BaseApiController
         var response = await _walletService.GetTransactionsAsync(userId, page, pageSize);
         return NewResponse(200, "Lấy lịch sử giao dịch BVC thành công.", response);
     }
+
+    /// <summary>
+    /// Hủy đơn top-up BVC đang Pending (chưa thanh toán).
+    /// Set <c>Status = Cancelled</c>; webhook SePay tới sau sẽ bị reject tự động.
+    /// Chỉ chính chủ đơn mới hủy được. Không thể hủy đơn đã Paid/Expired/Failed/Cancelled.
+    /// [Role: Player — chỉ chính chủ.]
+    /// </summary>
+    /// <param name="topUpId">Id của <c>BvcTopUpRequest</c>.</param>
+    /// <response code="200">Hủy đơn thành công.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải chủ đơn.</response>
+    /// <response code="404">Không tìm thấy đơn top-up.</response>
+    /// <response code="409">Đơn không ở trạng thái Pending (đã Paid/Expired/Failed/Cancelled).</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpDelete("topup/{topUpId:guid}")]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(typeof(object), 403)]
+    [ProducesResponseType(typeof(object), 404)]
+    [ProducesResponseType(typeof(object), 409)]
+    [ProducesResponseType(500)]
+    public async Task<IActionResult> CancelTopUp([FromRoute] Guid topUpId)
+    {
+        var userId = GetUserIdFromClaims();
+        await _walletService.CancelTopUpAsync(topUpId, userId);
+        return NewResponse(200, "Hủy đơn top-up BVC thành công.", null);
+    }
+
+    /// <summary>
+    /// Đổi số tiền đơn top-up BVC đang Pending (chưa thanh toán).
+    /// Đơn cũ được set <c>Cancelled</c>; đơn mới được tạo với SePay PaymentUrl + OrderId mới.
+    /// Validate cùng rule với <c>POST /wallet/topup</c> (min 10.000 VND, bội số 1.000 VND).
+    /// Chỉ chính chủ đơn mới đổi được. Không thể đổi đơn đã terminal.
+    /// [Role: Player — chỉ chính chủ.]
+    /// </summary>
+    /// <param name="topUpId">Id của <c>BvcTopUpRequest</c>.</param>
+    /// <param name="request">Số tiền VND mới + idempotency key mới.</param>
+    /// <response code="200">Cập nhật thành công, trả về QR mới với số tiền mới.</response>
+    /// <response code="400">Amount dưới min / không chia hết cho 1.000.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải chủ đơn.</response>
+    /// <response code="404">Không tìm thấy đơn top-up.</response>
+    /// <response code="409">Đơn không ở Pending, hoặc idempotency key đã dùng.</response>
+    /// <response code="500">Lỗi hệ thống hoặc SePay gateway.</response>
+    [HttpPatch("topup/{topUpId:guid}")]
+    [ProducesResponseType(typeof(TopUpResponseDto), 200)]
+    [ProducesResponseType(typeof(object), 400)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(typeof(object), 403)]
+    [ProducesResponseType(typeof(object), 404)]
+    [ProducesResponseType(typeof(object), 409)]
+    [ProducesResponseType(500)]
+    public async Task<IActionResult> UpdateTopUpAmount(
+        [FromRoute] Guid topUpId,
+        [FromBody] UpdateTopUpRequestDto request)
+    {
+        var userId = GetUserIdFromClaims();
+        var response = await _walletService.UpdateTopUpAmountAsync(topUpId, userId, request);
+        return NewResponse(200, "Cập nhật số tiền top-up BVC thành công.", response);
+    }
 }

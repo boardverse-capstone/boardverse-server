@@ -39,6 +39,10 @@ namespace BoardVerse.Data.Configurations
                 .HasColumnType("jsonb");
             builder.Property(l => l.CafeRejectionReason).HasMaxLength(500);
 
+            // ===== BR-10: Karma filter =====
+            // Nullable: null = không yêu cầu tối thiểu. Range [0, 100] validated ở DTO/runtime.
+            builder.Property(l => l.MinKarmaScore);
+
             builder.HasOne(l => l.GameTemplate)
                 .WithMany()
                 .HasForeignKey(l => l.GameTemplateId)

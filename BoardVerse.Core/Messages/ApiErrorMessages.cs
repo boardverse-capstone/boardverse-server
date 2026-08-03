@@ -345,8 +345,8 @@ namespace BoardVerse.Core.Messages
             public static string SessionPaymentInvalidState =>
                 "Phiên chơi phải ở trạng thái UNPAID để tạo thanh toán.";
 
-            public static string SessionPaymentAmountMustBePositive =>
-                "Số tiền thanh toán phải lớn hơn 0.";
+            public static string ActiveSessionNotFound(Guid sessionId) =>
+                $"Không tìm thấy phiên chơi với ID: {sessionId}";
         }
 
         public static class Wallet
@@ -374,6 +374,43 @@ namespace BoardVerse.Core.Messages
             /// <summary>Lock row Wallet để atomic trừ/cộng BVC thất bại.</summary>
             public const string WalletLockFailed =
                 "Không thể khóa ví để thực hiện giao dịch. Vui lòng thử lại.";
+
+            public static string NotFound(Guid userId) =>
+                $"Ví BVC của user '{userId}' chưa được khởi tạo.";
+
+            public static string NotFoundForUser(Guid userId) =>
+                $"Ví BVC của user '{userId}' không tồn tại.";
+
+            public static string NotFoundForTargetUser(Guid targetUserId) =>
+                $"Không tìm thấy ví BVC của user '{targetUserId}'.";
+
+            public const string SePayCheckoutUrlMissing =
+                "Không nhận được URL thanh toán từ SePay master.";
+
+            public const string AmountMustBePositive =
+                "Số BVC phải lớn hơn 0.";
+
+            public const string AdjustmentReasonRequired =
+                "Lý do điều chỉnh là bắt buộc (audit).";
+
+            public const string IdempotencyKeyRequired =
+                "Idempotency key là bắt buộc.";
+
+            /// <summary>Không tìm thấy top-up request theo id (cho cancel/update).</summary>
+            public static string TopUpNotFound(Guid topUpId) =>
+                $"Không tìm thấy đơn top-up BVC '{topUpId}'.";
+
+            /// <summary>Chỉ đơn đang Pending mới có thể hủy.</summary>
+            public const string TopUpNotCancellable =
+                "Chỉ có thể hủy đơn top-up đang ở trạng thái chờ thanh toán (Pending).";
+
+            /// <summary>Chỉ đơn đang Pending mới có thể đổi số tiền.</summary>
+            public const string TopUpNotUpdateable =
+                "Chỉ có thể đổi số tiền cho đơn top-up đang ở trạng thái chờ thanh toán (Pending).";
+
+            /// <summary>Player cố hủy/update đơn top-up của user khác.</summary>
+            public const string TopUpNotOwned =
+                "Bạn không có quyền thao tác trên đơn top-up này.";
         }
 
         public static class Payment
@@ -398,6 +435,33 @@ namespace BoardVerse.Core.Messages
 
             public static string SePayTransferFailed(string code, string details) =>
                 $"Chuyển khoản SePay thất bại ({code}). {details}";
+
+            public const string GatewayCannotCreatePayment =
+                "Không thể tạo thanh toán qua gateway. Vui lòng thử lại.";
+
+            public static string GatewayCannotCreatePaymentWithError(string errorMessage) =>
+                $"Không thể tạo thanh toán: {errorMessage}";
+
+            public const string GatewayQrUrlMissing =
+                "Không nhận được QR URL từ gateway.";
+
+            public static string QrRegenerateInvalidState(string currentStatus) =>
+                $"Chỉ có thể tạo lại QR cho đơn cọc đang PENDING. Trạng thái hiện tại: '{currentStatus}'.";
+
+            public static string QrRegenerateRateLimited(int secondsRemaining) =>
+                $"QR đã được tạo lại gần đây. Vui lòng chờ {secondsRemaining} giây trước khi yêu cầu lại.";
+
+            public const string SessionPaymentAmountMustBePositive =
+                "Số tiền thanh toán phải lớn hơn 0.";
+
+            public static string PaymentCafeNotConfiguredSePay(string cafeName) =>
+                $"Cafe '{cafeName}' chưa được cấu hình SePay account.";
+
+            public static string RefundInvalidDepositStatus(string currentStatus) =>
+                $"Không thể hoàn cọc: trạng thái hiện tại là '{currentStatus}', cần 'Paid'.";
+
+            public const string RefundReasonRequired =
+                "Lý do hoàn cọc là bắt buộc để phục vụ audit. BR-18.";
         }
 
         public static class BoardGame
@@ -473,6 +537,57 @@ namespace BoardVerse.Core.Messages
 
             public const string AlreadySubmittedRatings =
                 "Bạn đã gửi lượt chấm điểm cho booking này rồi.";
+
+            public static string LobbyNotFoundForBooking(Guid lobbyId) =>
+                $"Không tìm thấy phòng chờ '{lobbyId}'.";
+
+            public const string OnlyLobbyHostCanCreateBooking =
+                "Chỉ Host của phòng chờ mới có thể tạo booking.";
+
+            public const string LobbyMustBeFullToCreateBooking =
+                "Phòng chờ phải ở trạng thái Full (đã khóa) mới có thể tạo booking.";
+
+            public const string LobbyAlreadyHasBooking =
+                "Phòng chờ này đã có booking được tạo trước đó.";
+
+            public static string CafeNotFound(Guid cafeId) =>
+                $"Không tìm thấy quán cafe '{cafeId}'.";
+
+            public static string TableNotFound(Guid tableId) =>
+                $"Không tìm thấy bàn '{tableId}'.";
+
+            public const string TableNotInCafe =
+                "Bàn không thuộc quán đã chọn.";
+
+            public const string StartTimeInPast =
+                "Thời gian bắt đầu không được là thời điểm trong quá khứ.";
+
+            public const string TableAlreadyBookedInTimeRange =
+                "Bàn đã có booking khác trong khoảng thời gian này.";
+
+            public static string NotFound(Guid bookingId) =>
+                $"Không tìm thấy booking '{bookingId}'.";
+
+            public const string NotBookingOwner =
+                "Bạn không có quyền cập nhật booking này.";
+
+            public const string CannotUpdateBookingInCurrentState =
+                "Không thể cập nhật booking ở trạng thái này.";
+
+            public const string TableNotInBookingCafe =
+                "Bàn không thuộc quán của booking này.";
+
+            public const string CannotCancelCheckedInBooking =
+                "Không thể hủy booking đã check-in.";
+
+            public static string OnlyPendingDepositCanConfirm(BookingStatus status) =>
+                $"Chỉ booking ở trạng thái PendingDeposit mới có thể xác nhận (hiện tại: {status}).";
+
+            public const string OnlyConfirmedOrPendingDepositCanNoShow =
+                "Chỉ booking ở trạng thái Confirmed hoặc PendingDeposit mới có thể NoShow.";
+
+            public const string NotMemberOfBooking =
+                "Bạn không phải thành viên của booking này.";
         }
 
         public static class CafePartner
@@ -1180,6 +1295,16 @@ namespace BoardVerse.Core.Messages
             public static string NotActiveMember(Guid lobbyId) =>
                 $"Bạn không phải thành viên đang hoạt động của phòng '{lobbyId}'.";
 
+            // ===== LobbyMessage domain =====
+            public static class Message
+            {
+                public const string ContentLength =
+                    "Tin nhắn phải có từ 1 đến 1000 ký tự.";
+
+                public const string NotLobbyMember =
+                    "Bạn không phải thành viên của phòng chờ này.";
+            }
+
             public static string LockerIdMessage_NotFound(string id) =>
                 $"Không tìm thấy phòng chờ '{id}'.";
 
@@ -1189,6 +1314,112 @@ namespace BoardVerse.Core.Messages
             // P1 Fix #1: Prevent leaving during in-progress or closed states
             public const string CannotLeaveLobbyDuringSession =
                 "Không thể rời phòng khi phiên chơi đang diễn ra hoặc đã kết thúc.";
+
+            // ===== Lobby create / update validation =====
+            public const string ScheduledStartTimeTooEarly =
+                "Thời gian bắt đầu dự kiến phải cách hiện tại ít nhất 5 phút.";
+
+            public const string MinPlayersOutOfRangeForCreate =
+                "Số người tối thiểu phải từ 2 đến MaxMembers.";
+
+            public const string SeatCountInvalidForLobby =
+                "SeatCount không hợp lệ so với MaxMembers (BR-07).";
+
+            public const string CafeDoesNotHaveGame =
+                "Quán đã chọn không có sẵn game này trong kho.";
+
+            public const string BookingNotFound =
+                "Không tìm thấy đơn đặt chỗ đi kèm lobby.";
+
+            public const string NotBookingOwner =
+                "Bạn không phải chủ sở hữu đơn đặt chỗ này.";
+
+            public const string BookingNotPaid =
+                "Đơn đặt chỗ chưa được xác nhận thanh toán.";
+
+            public static string UserNotFoundInLobbyContext(Guid userId) =>
+                $"Không tìm thấy user '{userId}'.";
+
+            public const string MemberAlreadyInLobby =
+                "Bạn đã là thành viên của phòng này.";
+
+            public const string KarmaRequirementNotMetForLobby =
+                "Điểm uy tín của bạn không đạt yêu cầu tối thiểu để tham gia phòng chờ này (BR-10).";
+
+            public const string PrivateLobbyRequiresLogin =
+                "Phòng chờ riêng tư. Cần đăng nhập để xem.";
+
+            public const string PrivateLobbyNoAccess =
+                "Bạn không có quyền xem phòng chờ riêng tư này.";
+
+            public const string OnlyHostCanClose =
+                "Chỉ Host mới có thể đóng phòng chờ.";
+
+            public const string LobbyAlreadyClosed =
+                "Phòng chờ đã đóng.";
+
+            public const string OnlyHostCanLock =
+                "Chỉ Host mới có thể khóa phòng chờ.";
+
+            public const string LobbyNotOpenForLock =
+                "Phòng chờ không ở trạng thái mở.";
+
+            public const string OnlyHostCanOpenRating =
+                "Chỉ Host mới có thể mở cửa sổ đánh giá.";
+
+            public const string OnlyFullLobbyCanInProgress =
+                "Chỉ phòng ở trạng thái FULL mới chuyển sang IN_PROGRESS được.";
+
+            public const string OnlyInProgressCanClose =
+                "Chỉ phòng đang chơi hoặc đang đánh giá mới đóng được.";
+
+            public const string CannotSwitchHostWhenClosed =
+                "Chỉ chuyển host được khi phòng đang mở hoặc đầy.";
+
+            public const string NotCurrentHost =
+                "Bạn không phải Host hiện tại của phòng này.";
+
+            public const string TargetMemberNotInLobby =
+                "Thành viên được chọn không còn trong phòng.";
+
+            public const string CannotKickWhenClosed =
+                "Không thể kick thành viên khi phòng đã đóng.";
+
+            public const string OnlyHostCanKick =
+                "Chỉ Host mới có thể kick thành viên.";
+
+            public const string OnlyHostCanUpdate =
+                "Chỉ Host mới có thể cập nhật phòng chờ.";
+
+            public const string LobbyUpdateNotAllowedWhenClosed =
+                "Không thể cập nhật phòng chờ đã đóng hoặc đang chơi.";
+
+            public const string CannotReduceMaxMembersWhenFull =
+                "Không thể giảm MaxMembers khi phòng đã đầy.";
+
+            public const string GameTemplateNotFound =
+                "Không tìm thấy thông tin game.";
+
+            public static string MaxMembersExceedsGameRange(int requested, int min, int max) =>
+                $"Số người tối đa ({requested}) phải nằm trong khoảng [{min}, {max}] của game.";
+
+            public const string CannotReduceMaxMembersBelowCurrent =
+                "Không thể giảm MaxMembers xuống dưới số thành viên hiện tại.";
+
+            public static string MinPlayersOutOfRange(int min, int max) =>
+                $"MinPlayers phải từ {min} đến {max}.";
+
+            public static string CancellationLeadTimeOutOfRange(int min, int max) =>
+                $"CancellationLeadTimeMinutes phải từ {min} đến {max}.";
+
+            public const string OnlyFullLobbyCanReady =
+                "Chỉ có thể bấm Ready khi phòng đã đầy.";
+
+            public const string MemberNotReadyBecauseLeftOrKicked =
+                "Không thể Ready khi đã rời/bị kick.";
+
+            public const string SeatInventoryFull =
+                "Số thành viên đã vượt quá số ghế cho phép.";
         }
 
         // ===== BR-NEW-* § XXI-G Phase 2/3 =====
@@ -1319,6 +1550,119 @@ namespace BoardVerse.Core.Messages
 
             public static string CafeRejectionReasonRequired =>
                 "Lý do từ chối là bắt buộc khi cafe từ chối duyệt lobby.";
+
+            // ===== BR-USER-LIMIT-* chi tiết cho member join =====
+            public const string MemberAlreadyInLobby =
+                "Bạn đã là thành viên của phòng chờ khác. Vui lòng rời phòng trước khi tham gia phòng mới.";
+
+            public const string LobbyExpired =
+                "Phòng chờ đã hết hạn tuyển thành viên.";
+
+            public const string LobbyFull =
+                "Phòng chờ đã đủ số người tối đa.";
+
+            public const string LobbyNotOpen =
+                "Phòng chờ không ở trạng thái mở (có thể đã đóng, đang chờ cafe duyệt, hoặc đang chơi).";
+
+            // ===== BR-10: Karma filter =====
+            public static string KarmaRequirementNotMet(int required, int current) =>
+                $"Điểm uy tín của bạn ({current}) chưa đạt yêu cầu tối thiểu ({required}) để tham gia phòng chờ này. BR-10.";
+
+            // ===== Validation message chuẩn cho Reservation flow =====
+            public const string OnlyHostCanCancel =
+                "Chỉ host mới có thể hủy reservation.";
+
+            public const string CafeNotActive =
+                "Cafe này hiện không hoạt động.";
+
+            public const string GameInventoryNotFound =
+                "Quán chưa có bản copy của game này trong khung giờ đã chọn.";
+
+            public const string PreferredStartTimeOutOfRange =
+                "Giờ dự kiến không nằm trong khung giờ đã chọn.";
+
+            public const string SeatInventoryMissing =
+                "Không tìm thấy dữ liệu ghế cho cafe và khung giờ này.";
+
+            public const string ReservationNotFoundByCode =
+                "Không tìm thấy reservation với mã đã cung cấp.";
+
+            public static string CafeMismatchOnCheckIn(Guid reservationCafeId, Guid requestCafeId) =>
+                $"Reservation thuộc cafe '{reservationCafeId}' không khớp với cafe hiện tại '{requestCafeId}'.";
+
+            public static string OnlyConfirmedCanCheckIn(Guid reservationId, object currentStatus) =>
+                $"Reservation '{reservationId}' không ở trạng thái Confirmed (hiện tại: {currentStatus}). " +
+                "Chỉ reservation đã đạt minPlayers mới có thể check-in.";
+
+            public static string CheckInTimeWindowInvalid(
+                Guid reservationId, DateTime scheduledTime, DateTime windowStart, DateTime windowEnd) =>
+                $"Reservation '{reservationId}' ngoài khung giờ cho phép check-in. " +
+                $"Giờ chơi dự kiến: {scheduledTime:HH:mm dd/MM/yyyy}. " +
+                $"Cho phép check-in từ {windowStart:HH:mm dd/MM/yyyy} đến {windowEnd:HH:mm dd/MM/yyyy}.";
+
+            public static string CheckInTimeWindowLate(
+                Guid reservationId, DateTime slotEndTime, DateTime windowEnd) =>
+                $"Reservation '{reservationId}' đã quá giờ chơi. " +
+                $"Giờ chơi kết thúc: {slotEndTime:HH:mm dd/MM/yyyy}. " +
+                $"Deadline check-in: {windowEnd:HH:mm dd/MM/yyyy}.";
+
+            public static string LobbyStatusInvalidForCancel(Guid lobbyId, object status) =>
+                $"Lobby '{lobbyId}' đã ở trạng thái '{status}', không thể hủy.";
+
+            public static string ReservationStatusInvalidForCancel(Guid reservationId, object status) =>
+                $"Reservation '{reservationId}' không ở trạng thái Holding (hiện tại: {status}).";
+
+            public static string LobbyNotPendingCafeApproval(Guid reservationId, object status) =>
+                $"Lobby của reservation '{reservationId}' không ở trạng thái chờ cafe duyệt (hiện tại: {status}).";
+
+            public static string NoManagerForCafe(Guid cafeId) =>
+                $"Bạn không phải chủ quán '{cafeId}' nên không có quyền duyệt lobby.";
+
+            public const string RejectReasonRequiredForCafe =
+                "Cafe từ chối mà không có lý do.";
+
+            public static string InvalidPlayDateForReservation(DateOnly playDate, int maxDaysAhead) =>
+                $"playDate '{playDate:yyyy-MM-dd}' phải nằm trong [{DateOnly.FromDateTime(DateTime.UtcNow.Date):yyyy-MM-dd}, {DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(maxDaysAhead):yyyy-MM-dd}].";
+
+            public static string InvalidTimeSlot(object timeSlot) =>
+                $"timeSlot '{timeSlot}' không hợp lệ.";
+
+            public static string MinPlayersLessThanTwo =>
+                "Số người chơi tối thiểu phải ≥ 2.";
+
+            public static string MinGreaterThanMaxPlayers(int min, int max) =>
+                $"Số người chơi tối thiểu ({min}) phải ≤ số người tối đa ({max}).";
+
+            public static string BufferTooShortForLobbyCreate(int bufferMinutes, int minBufferMinutes) =>
+                $"Thời gian đệm đến recruitmentDeadline chỉ còn {bufferMinutes} phút. " +
+                $"Yêu cầu tối thiểu {minBufferMinutes} phút (BR-LOBBY-01b). " +
+                "Vui lòng chọn khung giờ xa hơn.";
+
+            public static string FinalDepositMismatch(long serverAmount, long clientAmount) =>
+                $"Số tiền cọc đã thay đổi (server: {serverAmount} BVC, client: {clientAmount} BVC). " +
+                "Vui lòng tạo lại quote (BR §XVII.2 server authoritative).";
+
+            public static string CompleteCaptureInvalidStatus(Guid reservationId, object status) =>
+                $"Reservation '{reservationId}' status = {status} (mong đợi CheckedIn). " +
+                "Không thể capture BVC cho reservation chưa check-in thành công.";
+
+            public static string SeatInventoryStateInvalid(int held, int required) =>
+                $"Seat inventory held ({held}) < reservation maxPlayers ({required}).";
+
+            public const string GameInventoryStateInvalid =
+                "Game inventory held copies < 1.";
+
+            public static string ReservationMissingLobby(Guid reservationId) =>
+                $"Reservation '{reservationId}' thiếu lobby liên kết.";
+
+            public static string SeatInventoryStateInvalidOnCapture(int inUse, int required) =>
+                $"Seat inventory inUse ({inUse}) < reservation maxPlayers ({required}).";
+
+            public const string GameInventoryStateInvalidOnCapture =
+                "Game inventory inUse copies < 1.";
+
+            public const string CoolingOffBlockDistantLobby =
+                "Bạn đang trong thời gian cooling-off (BR-NEW-10). Chỉ có thể tạo lobby có playDate trong ngày.";
         }
 
         public static class Tournament

@@ -73,8 +73,14 @@ public class Lobby
     public int MinPlayers { get; set; } = 2;
 
     /// <summary>
+    /// BR-10: Karma tối thiểu của member để có thể join lobby (optional).
+    /// Null = không yêu cầu tối thiểu. Validate khi member join.
+    /// </summary>
+    public int? MinKarmaScore { get; set; }
+
+    /// <summary>
     /// Số ghế tối đa mà lobby này cần.
-    /// BR-07: Members.Count <= SeatCount khi có giá trị.
+    /// BR-07: Members.Count &lt;= SeatCount khi có giá trị.
     /// </summary>
     public int? SeatCount { get; set; }
 

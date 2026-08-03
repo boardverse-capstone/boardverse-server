@@ -4,6 +4,7 @@ namespace BoardVerse.Core.IRepositories;
 
 public interface IBvcTopUpRequestRepository
 {
+    Task<BvcTopUpRequest?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<BvcTopUpRequest?> GetByOrderIdAsync(string orderId, CancellationToken cancellationToken = default);
     Task<BvcTopUpRequest?> GetByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken = default);
 

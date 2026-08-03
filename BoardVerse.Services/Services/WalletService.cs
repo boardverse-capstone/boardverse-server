@@ -96,7 +96,7 @@ public class WalletService : IWalletService
     public async Task<WalletDto> GetWalletAsync(Guid userId, bool includeHeld)
     {
         var wallet = await _walletRepository.GetByUserIdAsync(userId)
-            ?? throw new NotFoundException($"Ví BVC của user '{userId}' chưa được khởi tạo.");
+            ?? throw new NotFoundException(ApiErrorMessages.Wallet.NotFound(userId));
 
         return MapToDto(wallet, includeHeld);
     }
@@ -183,7 +183,7 @@ public class WalletService : IWalletService
         }
 
         var paymentUrl = result.PaymentUrl ?? result.QrImageUrl
-            ?? throw new PaymentException("Không nhận được URL thanh toán từ SePay master.");
+            ?? throw new PaymentException(ApiErrorMessages.Wallet.SePayCheckoutUrlMissing);
 
         // Lưu tracking entity để webhook tra cứu theo OrderId.
         // Ledger entry sẽ được ghi khi SePay webhook success.
@@ -214,6 +214,177 @@ public class WalletService : IWalletService
             OrderId = orderId,
             ExpectedBvc = bvcAmount,
             ExpiresAt = topUpRequest.ExpiresAt,
+            IdempotencyKey = request.IdempotencyKey
+        };
+    }
+
+    /// <summary>
+    /// Player chủ động hủy đơn top-up BVC đang Pending.
+    /// Set Status = Cancelled; webhook SePay tới sau sẽ bị reject tự động (BR-09).
+    /// Ownership: chỉ chính chủ mới hủy được.
+    /// </summary>
+    public async Task CancelTopUpAsync(Guid topUpId, Guid userId, CancellationToken cancellationToken = default)
+    {
+        if (topUpId == Guid.Empty)
+        {
+            throw new BadRequestException("Id đơn top-up không hợp lệ.");
+        }
+
+        var topUp = await _topUpRequestRepository.GetByIdAsync(topUpId, cancellationToken);
+        if (topUp == null)
+        {
+            throw new NotFoundException(ApiErrorMessages.Wallet.TopUpNotFound(topUpId));
+        }
+
+        if (topUp.UserId != userId)
+        {
+            throw new ForbiddenException(ApiErrorMessages.Wallet.TopUpNotOwned);
+        }
+
+        if (topUp.Status != BvcTopUpStatus.Pending)
+        {
+            throw new ConflictException(ApiErrorMessages.Wallet.TopUpNotCancellable);
+        }
+
+        topUp.Status = BvcTopUpStatus.Cancelled;
+        topUp.UpdatedAt = DateTime.UtcNow;
+        await _topUpRequestRepository.UpdateAsync(topUp);
+        await _topUpRequestRepository.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Top-up cancelled by user. TopUpId={TopUpId}, UserId={UserId}, OrderId={OrderId}",
+            topUpId, userId, topUp.OrderId);
+    }
+
+    /// <summary>
+    /// Player đổi số tiền đơn top-up BVC đang Pending.
+    /// 1. Validate amount (min 10k, bội số 1k).
+    /// 2. Set đơn cũ = Cancelled.
+    /// 3. Tạo đơn mới với SePay PaymentUrl + OrderId mới.
+    /// 4. Trả về TopUpResponseDto cho đơn mới.
+    /// </summary>
+    public async Task<TopUpResponseDto> UpdateTopUpAmountAsync(
+        Guid topUpId,
+        Guid userId,
+        UpdateTopUpRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (topUpId == Guid.Empty)
+        {
+            throw new BadRequestException("Id đơn top-up không hợp lệ.");
+        }
+
+        ValidateTopUpAmount(request.AmountVnd);
+        ValidateIdempotencyKey(request.IdempotencyKey);
+
+        var existing = await _topUpRequestRepository.GetByIdAsync(topUpId, cancellationToken);
+        if (existing == null)
+        {
+            throw new NotFoundException(ApiErrorMessages.Wallet.TopUpNotFound(topUpId));
+        }
+
+        if (existing.UserId != userId)
+        {
+            throw new ForbiddenException(ApiErrorMessages.Wallet.TopUpNotOwned);
+        }
+
+        if (existing.Status != BvcTopUpStatus.Pending)
+        {
+            throw new ConflictException(ApiErrorMessages.Wallet.TopUpNotUpdateable);
+        }
+
+        // Idempotency: nếu IdempotencyKey mới trùng key đơn khác đang Pending → dùng đơn đó.
+        var conflictByKey = await _topUpRequestRepository.GetByIdempotencyKeyAsync(request.IdempotencyKey);
+        if (conflictByKey != null && conflictByKey.Id != topUpId)
+        {
+            throw new ConflictException(
+                $"Idempotency key đã được dùng cho đơn top-up '{conflictByKey.Id}'.");
+        }
+
+        // Đánh dấu đơn cũ = Cancelled.
+        existing.Status = BvcTopUpStatus.Cancelled;
+        existing.UpdatedAt = DateTime.UtcNow;
+        await _topUpRequestRepository.UpdateAsync(existing);
+
+        // Tạo đơn mới (logic giống CreateTopUpAsync từ bước gọi SePay).
+        // Skip validate account-status vì đơn cũ đã pass; skip idempotency-key lookup
+        // vì key đã được check ở trên.
+        var bvcAmount = request.AmountVnd / BvcVndRate;
+        if (bvcAmount <= 0)
+        {
+            throw new BadRequestException(ApiErrorMessages.Wallet.TopUpBelowMinimum);
+        }
+
+        var master = await _sePayAccountService.GetRawMasterAccountAsync();
+        if (master == null
+            || !master.IsActive
+            || string.IsNullOrWhiteSpace(master.BankCode)
+            || string.IsNullOrWhiteSpace(master.AccountNumber))
+        {
+            throw new PaymentException(ApiErrorMessages.Payment.SePayMasterAccountNotFound);
+        }
+
+        var orderId = $"BVC-{Guid.NewGuid():N}".Substring(0, 18).ToUpperInvariant();
+        var transferContent = $"BVC-TOPUP-{userId.ToString("N").Substring(0, 8).ToUpperInvariant()}";
+
+        var gatewayRequest = new PaymentGatewayRequest
+        {
+            OrderId = orderId,
+            Amount = request.AmountVnd,
+            CustomerEmail = null,
+            Description = transferContent,
+            Metadata = new Dictionary<string, string?>
+            {
+                ["ledgerKey"] = request.IdempotencyKey,
+                ["userId"] = userId.ToString(),
+                ["bvcAmount"] = bvcAmount.ToString(),
+                ["kind"] = "bvc_topup",
+                ["replacesTopUpId"] = topUpId.ToString()
+            },
+            BankCode = master.BankCode!,
+            AccountNumber = master.AccountNumber!,
+            AccountName = master.AccountHolder ?? string.Empty
+        };
+
+        var result = await _paymentGateway.CreatePaymentAsync(gatewayRequest);
+        if (!result.IsSuccess)
+        {
+            _logger.LogError(
+                "Top-up update gateway failed. UserId={UserId}, Key={Key}, Error={Error}",
+                userId, request.IdempotencyKey, result.ErrorMessage);
+            throw new PaymentException(ApiErrorMessages.Wallet.TopUpGatewayFailed);
+        }
+
+        var paymentUrl = result.PaymentUrl ?? result.QrImageUrl
+            ?? throw new PaymentException(ApiErrorMessages.Wallet.SePayCheckoutUrlMissing);
+
+        var now = DateTime.UtcNow;
+        var newTopUp = new BvcTopUpRequest
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            OrderId = orderId,
+            AmountVnd = request.AmountVnd,
+            ExpectedBvc = bvcAmount,
+            IdempotencyKey = request.IdempotencyKey,
+            Status = BvcTopUpStatus.Pending,
+            CreatedAt = now,
+            ExpiresAt = now.AddMinutes(TopUpQrExpiryMinutes)
+        };
+        await _topUpRequestRepository.AddAsync(newTopUp);
+        await _topUpRequestRepository.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Top-up amount updated. OldTopUpId={OldTopUpId}, NewTopUpId={NewTopUpId}, UserId={UserId}, OldBvc={OldBvc}, NewBvc={NewBvc}, OrderId={OrderId}",
+            topUpId, newTopUp.Id, userId, existing.ExpectedBvc, bvcAmount, orderId);
+
+        return new TopUpResponseDto
+        {
+            PaymentUrl = paymentUrl,
+            QrUrl = result.QrImageUrl,
+            OrderId = orderId,
+            ExpectedBvc = bvcAmount,
+            ExpiresAt = newTopUp.ExpiresAt,
             IdempotencyKey = request.IdempotencyKey
         };
     }
@@ -553,17 +724,17 @@ public class WalletService : IWalletService
     {
         if (amountBvc <= 0)
         {
-            throw new BadRequestException("Số BVC phải lớn hơn 0.");
+            throw new BadRequestException(ApiErrorMessages.Wallet.AmountMustBePositive);
         }
 
         if (string.IsNullOrWhiteSpace(reason))
         {
-            throw new BadRequestException("Lý do điều chỉnh là bắt buộc (audit).");
+            throw new BadRequestException(ApiErrorMessages.Wallet.AdjustmentReasonRequired);
         }
 
         if (string.IsNullOrWhiteSpace(idempotencyKey))
         {
-            throw new BadRequestException("Idempotency key là bắt buộc.");
+            throw new BadRequestException(ApiErrorMessages.Wallet.IdempotencyKeyRequired);
         }
 
         // Đảm bảo ví tồn tại.
@@ -673,12 +844,12 @@ public class WalletService : IWalletService
     {
         if (amountBvc <= 0)
         {
-            throw new BadRequestException("Số BVC thao tác phải lớn hơn 0.");
+            throw new BadRequestException(ApiErrorMessages.Wallet.AmountMustBePositive);
         }
 
         if (string.IsNullOrWhiteSpace(idempotencyKey))
         {
-            throw new BadRequestException("Idempotency key là bắt buộc.");
+            throw new BadRequestException(ApiErrorMessages.Wallet.IdempotencyKeyRequired);
         }
 
         // GAP #22 fix: detect outer transaction. Nếu caller đã wrap transaction
@@ -799,7 +970,7 @@ public class WalletService : IWalletService
         CancellationToken cancellationToken)
     {
         var wallet = await _walletRepository.GetByUserIdAsync(userId)
-            ?? throw new NotFoundException($"Ví BVC của user '{userId}' không tồn tại.");
+            ?? throw new NotFoundException(ApiErrorMessages.Wallet.NotFoundForUser(userId));
 
         var entry = await _ledgerRepository.GetByIdempotencyKeyAsync(idempotencyKey);
 
@@ -815,17 +986,30 @@ public class WalletService : IWalletService
 
     private static void ValidateTopUpRequest(TopUpRequestDto request)
     {
-        if (request.AmountVnd < MinimumTopUpVnd)
+        ValidateTopUpAmount(request.AmountVnd);
+        if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
+        {
+            throw new BadRequestException(ApiErrorMessages.Wallet.IdempotencyKeyRequired);
+        }
+    }
+
+    private static void ValidateTopUpAmount(long amountVnd)
+    {
+        if (amountVnd < MinimumTopUpVnd)
         {
             throw new BadRequestException(ApiErrorMessages.Wallet.TopUpBelowMinimum);
         }
-        if (request.AmountVnd % BvcVndRate != 0)
+        if (amountVnd % BvcVndRate != 0)
         {
             throw new BadRequestException(ApiErrorMessages.Wallet.TopUpInvalidMultiple);
         }
-        if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
+    }
+
+    private static void ValidateIdempotencyKey(string idempotencyKey)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
         {
-            throw new BadRequestException("Idempotency key là bắt buộc.");
+            throw new BadRequestException(ApiErrorMessages.Wallet.IdempotencyKeyRequired);
         }
     }
 
@@ -958,12 +1142,12 @@ public class WalletService : IWalletService
     {
         if (string.IsNullOrWhiteSpace(reason))
         {
-            throw new BadRequestException("Lý do thay đổi trạng thái là bắt buộc (audit).");
+            throw new BadRequestException(ApiErrorMessages.Wallet.AdjustmentReasonRequired);
         }
 
         if (string.IsNullOrWhiteSpace(idempotencyKey))
         {
-            throw new BadRequestException("Idempotency key là bắt buộc.");
+            throw new BadRequestException(ApiErrorMessages.Wallet.IdempotencyKeyRequired);
         }
 
         // Lấy ví hiện tại
@@ -977,7 +1161,7 @@ public class WalletService : IWalletService
 
         if (wallet == null)
         {
-            throw new NotFoundException($"Không tìm thấy ví BVC của user '{targetUserId}'.");
+            throw new NotFoundException(ApiErrorMessages.Wallet.NotFoundForTargetUser(targetUserId));
         }
 
         var previousStatus = wallet.AccountStatus;

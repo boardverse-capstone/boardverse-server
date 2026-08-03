@@ -20,6 +20,12 @@ public class BvcTopUpRequestRepository : IBvcTopUpRequestRepository
             .FirstOrDefaultAsync(r => r.OrderId == orderId, cancellationToken);
     }
 
+    public Task<BvcTopUpRequest?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return _db.BvcTopUpRequests
+            .FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
+    }
+
     public Task<BvcTopUpRequest?> GetByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken = default)
     {
         return _db.BvcTopUpRequests

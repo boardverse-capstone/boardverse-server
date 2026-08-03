@@ -96,8 +96,7 @@ public class ReservationService : IReservationService
         // Validate preferredStartTime nằm trong timeSlot window.
         if (!CafeSchedule.IsPreferredStartTimeValid(request.TimeSlot, request.PreferredStartTime))
         {
-            throw new BadRequestException(
-                $"Giờ dự kiến ({request.PreferredStartTime}) không nằm trong khung giờ {request.TimeSlot}.");
+            throw new BadRequestException(ApiErrorMessages.Reservation.PreferredStartTimeOutOfRange);
         }
 
         // Load cafe config (BR-NEW-12).
@@ -204,8 +203,7 @@ public class ReservationService : IReservationService
 
         if (!CafeSchedule.IsPreferredStartTimeValid(request.TimeSlot, request.PreferredStartTime))
         {
-            throw new BadRequestException(
-                $"Giờ dự kiến ({request.PreferredStartTime}) không nằm trong khung giờ {request.TimeSlot}.");
+            throw new BadRequestException(ApiErrorMessages.Reservation.PreferredStartTimeOutOfRange);
         }
 
         var quoteRequest = new ReservationQuoteRequestDto
@@ -246,7 +244,7 @@ public class ReservationService : IReservationService
         if (quote.FinalDeposit != request.ExpectedFinalDeposit)
         {
             throw new BadRequestException(
-                $"Số tiền cọc đã thay đổi (server: {quote.FinalDeposit} BVC, client: {request.ExpectedFinalDeposit} BVC). Vui lòng tạo lại quote.");
+                ApiErrorMessages.Reservation.FinalDepositMismatch(quote.FinalDeposit, request.ExpectedFinalDeposit));
         }
 
         // 7. BR-USER-LIMIT-* / BR-NEW-* validate.
@@ -338,7 +336,7 @@ public class ReservationService : IReservationService
             {
                 throw new ConflictException(
                     gameInventory == null
-                        ? "Quán chưa có bản copy của game này trong khung giờ đã chọn."
+                        ? ApiErrorMessages.Reservation.GameInventoryNotFound
                         : ApiErrorMessages.Reservation.GameCopyNotAvailable(gameInventory.AvailableCopies));
             }
 
@@ -675,17 +673,17 @@ public class ReservationService : IReservationService
 
             if (reservation.HostId != hostId)
             {
-                throw new ForbiddenException("Chỉ host mới có thể hủy reservation.");
+                throw new ForbiddenException(ApiErrorMessages.Reservation.OnlyHostCanCancel);
             }
 
             if (reservation.Status != ReservationStatus.Holding)
             {
                 throw new BadRequestException(
-                    $"Reservation '{reservation.Id}' không ở trạng thái Holding (hiện tại: {reservation.Status}).");
+                    ApiErrorMessages.Reservation.ReservationStatusInvalidForCancel(reservation.Id, reservation.Status));
             }
 
             var lobby = reservation.Lobby
-                ?? throw new InternalServerErrorException($"Reservation '{reservation.Id}' thiếu lobby.");
+                ?? throw new InternalServerErrorException(ApiErrorMessages.Reservation.ReservationMissingLobby(reservation.Id));
 
             if (lobby.Status != LobbyStatus.PendingActivation &&
                 lobby.Status != LobbyStatus.PendingCafeApproval &&
@@ -693,7 +691,7 @@ public class ReservationService : IReservationService
                 lobby.Status != LobbyStatus.Viable)
             {
                 throw new BadRequestException(
-                    $"Lobby đã ở trạng thái '{lobby.Status}', không thể hủy.");
+                    ApiErrorMessages.Reservation.LobbyStatusInvalidForCancel(lobby.Id, lobby.Status));
             }
 
             // GAP #12 fix: Lock inventory rows TRƯỚC khi tính refund để tránh race.
@@ -822,12 +820,12 @@ public class ReservationService : IReservationService
                 ?? throw new NotFoundException(ApiErrorMessages.Reservation.ReservationNotFound(request.ReservationId));
 
             var lobby = reservation.Lobby
-                ?? throw new InternalServerErrorException($"Reservation '{reservation.Id}' thiếu lobby.");
+                ?? throw new InternalServerErrorException(ApiErrorMessages.Reservation.ReservationMissingLobby(reservation.Id));
 
             if (lobby.Status != LobbyStatus.PendingCafeApproval)
             {
                 throw new BadRequestException(
-                    $"Lobby không ở trạng thái chờ cafe duyệt (hiện tại: {lobby.Status}).");
+                    ApiErrorMessages.Reservation.LobbyNotPendingCafeApproval(reservation.Id, lobby.Status));
             }
 
             // Validate cafe manager quản lý cafe này.
@@ -836,7 +834,7 @@ public class ReservationService : IReservationService
 
             if (cafe.ManagerId != cafeManagerUserId)
             {
-                throw new ForbiddenException("Bạn không phải chủ quán nên không có quyền duyệt lobby.");
+                throw new ForbiddenException(ApiErrorMessages.Reservation.NoManagerForCafe(reservation.CafeId));
             }
 
             if (request.Approve)
@@ -1265,16 +1263,14 @@ public class ReservationService : IReservationService
         var reservation = await _reservationRepository.GetByReservationCodeAsync(request.ReservationCode.Trim());
         if (reservation == null)
         {
-            throw new NotFoundException(
-                $"Không tìm thấy reservation với mã '{request.ReservationCode}'.");
+            throw new NotFoundException(ApiErrorMessages.Reservation.ReservationNotFoundByCode);
         }
 
         // GAP #1 fix: validate ownership — staff cafe A không được scan QR của cafe B.
         if (reservation.CafeId != request.CafeId)
         {
             throw new ConflictException(
-                $"Reservation '{reservation.Id}' không thuộc cafe '{request.CafeId}' " +
-                $"(reservation thuộc cafe '{reservation.CafeId}').");
+                ApiErrorMessages.Reservation.CafeMismatchOnCheckIn(reservation.CafeId, request.CafeId));
         }
 
         // GAP #2 fix: validate time window theo BR §21A.7 step 3.
@@ -1305,8 +1301,7 @@ public class ReservationService : IReservationService
         if (reservation.Status != ReservationStatus.Confirmed)
         {
             throw new ConflictException(
-                $"Reservation '{reservation.Id}' không ở trạng thái Confirmed (hiện tại: {reservation.Status}). " +
-                "Chỉ reservation đã đạt minPlayers mới có thể check-in.");
+                ApiErrorMessages.Reservation.OnlyConfirmedCanCheckIn(reservation.Id, reservation.Status));
         }
 
         // 4. Atomic transaction: status flip + inventory move + outbox.
@@ -1325,8 +1320,7 @@ public class ReservationService : IReservationService
 
                 _db.ChangeTracker.Clear();
                 reservation = await _reservationRepository.GetByReservationCodeAsync(request.ReservationCode.Trim())
-                    ?? throw new NotFoundException(
-                        $"Không tìm thấy reservation với mã '{request.ReservationCode}'.");
+                    ?? throw new NotFoundException(ApiErrorMessages.Reservation.ReservationNotFoundByCode);
             }
         }
 
@@ -1365,13 +1359,12 @@ public class ReservationService : IReservationService
             if (seatInventory.HeldSeats < reservation.MaxPlayers)
             {
                 throw new ConflictException(
-                    $"Seat inventory held ({seatInventory.HeldSeats}) < reservation maxPlayers ({reservation.MaxPlayers}).");
+                    ApiErrorMessages.Reservation.SeatInventoryStateInvalid(seatInventory.HeldSeats, reservation.MaxPlayers));
             }
 
             if (gameInventory.HeldCopies < 1)
             {
-                throw new ConflictException(
-                    $"Game inventory held copies ({gameInventory.HeldCopies}) < 1.");
+                throw new ConflictException(ApiErrorMessages.Reservation.GameInventoryStateInvalid);
             }
 
             // 7. Move seat: held → inUse.
@@ -1396,7 +1389,7 @@ public class ReservationService : IReservationService
             if (lobby == null)
             {
                 throw new InternalServerErrorException(
-                    $"Reservation '{reservation.Id}' thiếu lobby.");
+                    ApiErrorMessages.Reservation.ReservationMissingLobby(reservation.Id));
             }
 
             lobby.Status = LobbyStatus.InProgress;
@@ -1485,17 +1478,15 @@ public class ReservationService : IReservationService
         if (now < windowStart)
         {
             throw new ConflictException(
-                $"Reservation '{reservation.Id}' chưa đến giờ chơi. " +
-                $"Giờ chơi dự kiến: {scheduledTime:HH:mm dd/MM/yyyy}. " +
-                $"Có thể check-in từ {windowStart:HH:mm dd/MM/yyyy}.");
+                ApiErrorMessages.Reservation.CheckInTimeWindowInvalid(
+                    reservation.Id, scheduledTime, windowStart, windowEnd));
         }
 
         if (now > windowEnd)
         {
             throw new ConflictException(
-                $"Reservation '{reservation.Id}' đã quá giờ chơi. " +
-                $"Giờ chơi kết thúc: {slotEndTime:HH:mm dd/MM/yyyy}. " +
-                $"Deadline check-in: {windowEnd:HH:mm dd/MM/yyyy}.");
+                ApiErrorMessages.Reservation.CheckInTimeWindowLate(
+                    reservation.Id, slotEndTime, windowEnd));
         }
     }
 
@@ -1557,18 +1548,18 @@ public class ReservationService : IReservationService
         var cafe = await _db.Cafes.FirstOrDefaultAsync(c => c.Id == request.CafeId);
         if (cafe == null)
         {
-            throw new NotFoundException($"Không tìm thấy cafe '{request.CafeId}'.");
+            throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(request.CafeId));
         }
 
         if (!cafe.IsActive)
         {
-            throw new BadRequestException($"Cafe '{cafe.Name}' hiện không hoạt động.");
+            throw new BadRequestException(ApiErrorMessages.Reservation.CafeNotActive);
         }
 
         var game = await _gameRepository.GetByIdAsync(request.GameId);
         if (game == null)
         {
-            throw new NotFoundException($"Không tìm thấy game '{request.GameId}'.");
+            throw new NotFoundException(ApiErrorMessages.BoardGame.MasterNotFound(request.GameId));
         }
 
         // Check cafe có game này chưa.
@@ -1594,7 +1585,7 @@ public class ReservationService : IReservationService
     {
         if (!Enum.IsDefined(typeof(TimeSlot), request.TimeSlot))
         {
-            throw new BadRequestException($"timeSlot '{request.TimeSlot}' không hợp lệ.");
+            throw new BadRequestException(ApiErrorMessages.Reservation.InvalidTimeSlot(request.TimeSlot));
         }
 
         ValidateTimeSlotWindowRaw(request.MinPlayers, request.MaxPlayers);
@@ -1604,13 +1595,13 @@ public class ReservationService : IReservationService
     {
         if (minPlayers < 2)
         {
-            throw new BadRequestException(ApiErrorMessages.Reservation.MinPlayersAtLeastTwo);
+            throw new BadRequestException(ApiErrorMessages.Reservation.MinPlayersLessThanTwo);
         }
 
         if (maxPlayers < minPlayers)
         {
             throw new BadRequestException(
-                ApiErrorMessages.Reservation.MinGreaterThanMax(minPlayers, maxPlayers));
+                ApiErrorMessages.Reservation.MinGreaterThanMaxPlayers(minPlayers, maxPlayers));
         }
     }
 
@@ -1725,8 +1716,7 @@ public class ReservationService : IReservationService
             // NoShow scheduler đã ghi DEPOSIT_FORFEIT — nếu capture thêm → quán nhận 2 lần.
             // Cancelled thì BVC đã release về available — không capture.
             throw new ConflictException(
-                $"CompleteAndCaptureAsync: Reservation {reservation.Id} status = {reservation.Status} " +
-                $"(mong đợi CheckedIn). Không thể capture BVC cho reservation chưa check-in thành công.");
+                ApiErrorMessages.Reservation.CompleteCaptureInvalidStatus(reservation.Id, reservation.Status));
         }
 
         const int maxRetries = 3;
@@ -1887,13 +1877,12 @@ public class ReservationService : IReservationService
             if (seatInventory.InUseSeats < reservation.MaxPlayers)
             {
                 throw new ConflictException(
-                    $"Seat inventory inUse ({seatInventory.InUseSeats}) < reservation maxPlayers ({reservation.MaxPlayers}).");
+                    ApiErrorMessages.Reservation.SeatInventoryStateInvalidOnCapture(seatInventory.InUseSeats, reservation.MaxPlayers));
             }
 
             if (gameInventory.InUseCopies < 1)
             {
-                throw new ConflictException(
-                    $"Game inventory inUse copies ({gameInventory.InUseCopies}) < 1.");
+                throw new ConflictException(ApiErrorMessages.Reservation.GameInventoryStateInvalidOnCapture);
             }
 
             // 3. Move seat: inUse → Available.

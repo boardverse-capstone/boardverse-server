@@ -5,6 +5,7 @@ namespace BoardVerse.Core.Enum;
 ///   Pending → Paid (webhook success) → terminal
 ///   Pending → Expired (qua 30 phút) → terminal
 ///   Pending → Failed (webhook failed/cancelled hoặc gateway error) → terminal
+///   Pending → Cancelled (player chủ động hủy qua API) → terminal
 /// </summary>
 public enum BvcTopUpStatus
 {
@@ -18,5 +19,8 @@ public enum BvcTopUpStatus
     Failed = 2,
 
     /// <summary>Quá thời hạn (mặc định 30 phút) mà chưa có webhook.</summary>
-    Expired = 3
+    Expired = 3,
+
+    /// <summary>Player chủ động hủy qua DELETE /api/wallet/topup/{id} trước khi thanh toán.</summary>
+    Cancelled = 4
 }

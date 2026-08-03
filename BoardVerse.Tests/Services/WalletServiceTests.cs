@@ -282,7 +282,7 @@ public class WalletServiceTests
             CreatedAt = DateTime.UtcNow.AddMinutes(-1),
             ExpiresAt = DateTime.UtcNow.AddMinutes(29)
         };
-        _mockTopUpRepo.Setup(r => r.GetByIdempotencyKeyAsync(key))
+        _mockTopUpRepo.Setup(r => r.GetByIdempotencyKeyAsync(key, CancellationToken.None))
             .ReturnsAsync(existingTopUp);
 
         var dto = await _service.CreateTopUpAsync(userId, req);
@@ -292,6 +292,354 @@ public class WalletServiceTests
         _mockGateway.Verify(
             g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), It.IsAny<CancellationToken>()),
             Times.Never);
+    }
+
+    #endregion
+
+    #region CancelTopUpAsync
+
+    [Fact]
+    public async Task CancelTopUpAsync_TopUpNotFound_ThrowsNotFound()
+    {
+        var topUpId = Guid.NewGuid();
+        _mockTopUpRepo.Setup(r => r.GetByIdAsync(topUpId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((BvcTopUpRequest?)null);
+
+        await Assert.ThrowsAsync<NotFoundException>(
+            () => _service.CancelTopUpAsync(topUpId, Guid.NewGuid()));
+
+        _mockTopUpRepo.Verify(r => r.UpdateAsync(It.IsAny<BvcTopUpRequest>()), Times.Never);
+        _mockTopUpRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CancelTopUpAsync_DifferentOwner_ThrowsForbidden()
+    {
+        var topUpId = Guid.NewGuid();
+        var ownerId = Guid.NewGuid();
+        var attackerId = Guid.NewGuid();
+        var topUp = new BvcTopUpRequest
+        {
+            Id = topUpId,
+            UserId = ownerId,
+            OrderId = "BVC-OWNED",
+            AmountVnd = 50_000,
+            ExpectedBvc = 50,
+            IdempotencyKey = "key-owned-1234",
+            Status = BvcTopUpStatus.Pending
+        };
+        _mockTopUpRepo.Setup(r => r.GetByIdAsync(topUpId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(topUp);
+
+        await Assert.ThrowsAsync<ForbiddenException>(
+            () => _service.CancelTopUpAsync(topUpId, attackerId));
+
+        _mockTopUpRepo.Verify(r => r.UpdateAsync(It.IsAny<BvcTopUpRequest>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(BvcTopUpStatus.Paid)]
+    [InlineData(BvcTopUpStatus.Failed)]
+    [InlineData(BvcTopUpStatus.Expired)]
+    [InlineData(BvcTopUpStatus.Cancelled)]
+    public async Task CancelTopUpAsync_TerminalStatus_ThrowsConflict(BvcTopUpStatus status)
+    {
+        var userId = Guid.NewGuid();
+        var topUpId = Guid.NewGuid();
+        var topUp = new BvcTopUpRequest
+        {
+            Id = topUpId,
+            UserId = userId,
+            OrderId = "BVC-TERMINAL",
+            AmountVnd = 50_000,
+            ExpectedBvc = 50,
+            IdempotencyKey = "key-terminal-1234",
+            Status = status
+        };
+        _mockTopUpRepo.Setup(r => r.GetByIdAsync(topUpId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(topUp);
+
+        await Assert.ThrowsAsync<ConflictException>(
+            () => _service.CancelTopUpAsync(topUpId, userId));
+
+        _mockTopUpRepo.Verify(r => r.UpdateAsync(It.IsAny<BvcTopUpRequest>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CancelTopUpAsync_Pending_SetsStatusCancelledAndSaves()
+    {
+        var userId = Guid.NewGuid();
+        var topUpId = Guid.NewGuid();
+        var topUp = new BvcTopUpRequest
+        {
+            Id = topUpId,
+            UserId = userId,
+            OrderId = "BVC-CANCEL-OK",
+            AmountVnd = 50_000,
+            ExpectedBvc = 50,
+            IdempotencyKey = "key-pending-1234",
+            Status = BvcTopUpStatus.Pending
+        };
+        _mockTopUpRepo.Setup(r => r.GetByIdAsync(topUpId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(topUp);
+        BvcTopUpRequest? captured = null;
+        _mockTopUpRepo.Setup(r => r.UpdateAsync(It.IsAny<BvcTopUpRequest>()))
+            .Callback<BvcTopUpRequest>(r => captured = r)
+            .Returns(Task.CompletedTask);
+
+        await _service.CancelTopUpAsync(topUpId, userId);
+
+        Assert.NotNull(captured);
+        Assert.Equal(BvcTopUpStatus.Cancelled, captured!.Status);
+        Assert.NotNull(captured.UpdatedAt);
+        _mockTopUpRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    #endregion
+
+    #region UpdateTopUpAmountAsync
+
+    [Fact]
+    public async Task UpdateTopUpAmountAsync_AmountBelowMinimum_ThrowsBadRequest()
+    {
+        var topUpId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var req = new UpdateTopUpRequestDto { AmountVnd = 5_000, IdempotencyKey = "new-key-12345" };
+
+        await Assert.ThrowsAsync<BadRequestException>(
+            () => _service.UpdateTopUpAmountAsync(topUpId, userId, req));
+
+        _mockTopUpRepo.Verify(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateTopUpAmountAsync_AmountNotMultipleOfThousand_ThrowsBadRequest()
+    {
+        var topUpId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var req = new UpdateTopUpRequestDto { AmountVnd = 50_500, IdempotencyKey = "new-key-12345" };
+
+        await Assert.ThrowsAsync<BadRequestException>(
+            () => _service.UpdateTopUpAmountAsync(topUpId, userId, req));
+    }
+
+    [Fact]
+    public async Task UpdateTopUpAmountAsync_EmptyIdempotencyKey_ThrowsBadRequest()
+    {
+        var topUpId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var req = new UpdateTopUpRequestDto { AmountVnd = 50_000, IdempotencyKey = "" };
+
+        await Assert.ThrowsAsync<BadRequestException>(
+            () => _service.UpdateTopUpAmountAsync(topUpId, userId, req));
+    }
+
+    [Fact]
+    public async Task UpdateTopUpAmountAsync_TopUpNotFound_ThrowsNotFound()
+    {
+        var topUpId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var req = new UpdateTopUpRequestDto { AmountVnd = 50_000, IdempotencyKey = "new-key-12345" };
+
+        _mockTopUpRepo.Setup(r => r.GetByIdAsync(topUpId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((BvcTopUpRequest?)null);
+
+        await Assert.ThrowsAsync<NotFoundException>(
+            () => _service.UpdateTopUpAmountAsync(topUpId, userId, req));
+    }
+
+    [Fact]
+    public async Task UpdateTopUpAmountAsync_DifferentOwner_ThrowsForbidden()
+    {
+        var topUpId = Guid.NewGuid();
+        var ownerId = Guid.NewGuid();
+        var attackerId = Guid.NewGuid();
+        var req = new UpdateTopUpRequestDto { AmountVnd = 50_000, IdempotencyKey = "new-key-12345" };
+        var topUp = new BvcTopUpRequest
+        {
+            Id = topUpId,
+            UserId = ownerId,
+            OrderId = "BVC-OWNED",
+            AmountVnd = 20_000,
+            ExpectedBvc = 20,
+            IdempotencyKey = "old-key-1234",
+            Status = BvcTopUpStatus.Pending
+        };
+        _mockTopUpRepo.Setup(r => r.GetByIdAsync(topUpId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(topUp);
+
+        await Assert.ThrowsAsync<ForbiddenException>(
+            () => _service.UpdateTopUpAmountAsync(topUpId, attackerId, req));
+
+        _mockTopUpRepo.Verify(r => r.UpdateAsync(It.IsAny<BvcTopUpRequest>()), Times.Never);
+        _mockGateway.Verify(
+            g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Theory]
+    [InlineData(BvcTopUpStatus.Paid)]
+    [InlineData(BvcTopUpStatus.Failed)]
+    [InlineData(BvcTopUpStatus.Expired)]
+    [InlineData(BvcTopUpStatus.Cancelled)]
+    public async Task UpdateTopUpAmountAsync_TerminalStatus_ThrowsConflict(BvcTopUpStatus status)
+    {
+        var topUpId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var req = new UpdateTopUpRequestDto { AmountVnd = 50_000, IdempotencyKey = "new-key-12345" };
+        var topUp = new BvcTopUpRequest
+        {
+            Id = topUpId,
+            UserId = userId,
+            OrderId = "BVC-TERMINAL",
+            AmountVnd = 20_000,
+            ExpectedBvc = 20,
+            IdempotencyKey = "old-key-1234",
+            Status = status
+        };
+        _mockTopUpRepo.Setup(r => r.GetByIdAsync(topUpId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(topUp);
+
+        await Assert.ThrowsAsync<ConflictException>(
+            () => _service.UpdateTopUpAmountAsync(topUpId, userId, req));
+
+        _mockGateway.Verify(
+            g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateTopUpAmountAsync_IdempotencyKeyConflictsWithAnotherTopUp_ThrowsConflict()
+    {
+        var topUpId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var req = new UpdateTopUpRequestDto { AmountVnd = 50_000, IdempotencyKey = "conflicting-key-1234" };
+        var existing = new BvcTopUpRequest
+        {
+            Id = topUpId,
+            UserId = userId,
+            OrderId = "BVC-EXISTING",
+            AmountVnd = 20_000,
+            ExpectedBvc = 20,
+            IdempotencyKey = "old-key-1234",
+            Status = BvcTopUpStatus.Pending
+        };
+        var conflictingOther = new BvcTopUpRequest
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            OrderId = "BVC-OTHER",
+            AmountVnd = 30_000,
+            ExpectedBvc = 30,
+            IdempotencyKey = "conflicting-key-1234",
+            Status = BvcTopUpStatus.Pending
+        };
+        _mockTopUpRepo.Setup(r => r.GetByIdAsync(topUpId, CancellationToken.None))
+            .ReturnsAsync(existing);
+        _mockTopUpRepo.Setup(r => r.GetByIdempotencyKeyAsync("conflicting-key-1234", CancellationToken.None))
+            .ReturnsAsync(conflictingOther);
+
+        await Assert.ThrowsAsync<ConflictException>(
+            () => _service.UpdateTopUpAmountAsync(topUpId, userId, req));
+
+        _mockGateway.Verify(
+            g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateTopUpAmountAsync_NoMasterAccountConfigured_ThrowsPayment()
+    {
+        var topUpId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var req = new UpdateTopUpRequestDto { AmountVnd = 50_000, IdempotencyKey = "new-key-12345" };
+        var existing = new BvcTopUpRequest
+        {
+            Id = topUpId,
+            UserId = userId,
+            OrderId = "BVC-EXISTING",
+            AmountVnd = 20_000,
+            ExpectedBvc = 20,
+            IdempotencyKey = "old-key-1234",
+            Status = BvcTopUpStatus.Pending
+        };
+        _mockTopUpRepo.Setup(r => r.GetByIdAsync(topUpId, CancellationToken.None))
+            .ReturnsAsync(existing);
+        _mockTopUpRepo.Setup(r => r.GetByIdempotencyKeyAsync("new-key-12345", CancellationToken.None))
+            .ReturnsAsync((BvcTopUpRequest?)null);
+        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync())
+            .ReturnsAsync((SePayAccount?)null);
+
+        await Assert.ThrowsAsync<PaymentException>(
+            () => _service.UpdateTopUpAmountAsync(topUpId, userId, req));
+
+        // Đơn cũ đã được đánh dấu Cancelled (line 304-307 service) trước khi gọi SePay,
+        // nhưng SaveChangesAsync chưa chạy vì throw ngay sau — caller vẫn thấy Status cũ trong DB.
+        // (Idempotent retry sẽ thấy Status=Pending nếu SaveChangesAsync chưa commit.)
+        Assert.Equal(BvcTopUpStatus.Cancelled, existing.Status);
+        _mockTopUpRepo.Verify(r => r.UpdateAsync(It.IsAny<BvcTopUpRequest>()), Times.Once);
+        _mockTopUpRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        // Không tạo đơn mới.
+        _mockTopUpRepo.Verify(r => r.AddAsync(It.IsAny<BvcTopUpRequest>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateTopUpAmountAsync_HappyPath_CancelsOldAndCreatesNew()
+    {
+        var topUpId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var req = new UpdateTopUpRequestDto { AmountVnd = 50_000, IdempotencyKey = "new-key-12345" };
+        var existing = new BvcTopUpRequest
+        {
+            Id = topUpId,
+            UserId = userId,
+            OrderId = "BVC-OLD",
+            AmountVnd = 20_000,
+            ExpectedBvc = 20,
+            IdempotencyKey = "old-key-1234",
+            Status = BvcTopUpStatus.Pending
+        };
+        _mockTopUpRepo.Setup(r => r.GetByIdAsync(topUpId, CancellationToken.None))
+            .ReturnsAsync(existing);
+        _mockTopUpRepo.Setup(r => r.GetByIdempotencyKeyAsync("new-key-12345", CancellationToken.None))
+            .ReturnsAsync((BvcTopUpRequest?)null);
+        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync()).ReturnsAsync(new SePayAccount
+        {
+            IsActive = true,
+            BankCode = "MBBank",
+            AccountNumber = "0123456789",
+            AccountHolder = "BV MASTER"
+        });
+        _mockGateway
+            .Setup(g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentGatewayResult
+            {
+                IsSuccess = true,
+                PaymentUrl = "https://pay.sepay.vn/new",
+                QrImageUrl = "https://qr.sepay.vn/new.png"
+            });
+
+        var dto = await _service.UpdateTopUpAmountAsync(topUpId, userId, req);
+
+        // Old top-up bị set Cancelled.
+        Assert.Equal(BvcTopUpStatus.Cancelled, existing.Status);
+        Assert.NotNull(existing.UpdatedAt);
+
+        // Response đúng số tiền mới.
+        Assert.Equal(50, dto.ExpectedBvc);
+        Assert.Equal("https://pay.sepay.vn/new", dto.PaymentUrl);
+        Assert.Equal("new-key-12345", dto.IdempotencyKey);
+        Assert.NotEqual("BVC-OLD", dto.OrderId);
+
+        // Repository side-effects.
+        _mockTopUpRepo.Verify(r => r.AddAsync(It.Is<BvcTopUpRequest>(
+            t => t.UserId == userId
+                 && t.AmountVnd == 50_000
+                 && t.ExpectedBvc == 50
+                 && t.IdempotencyKey == "new-key-12345"
+                 && t.Status == BvcTopUpStatus.Pending)), Times.Once);
+        _mockTopUpRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion

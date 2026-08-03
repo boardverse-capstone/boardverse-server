@@ -51,6 +51,18 @@ Top-up:
      → failed/cancelled: chỉ mark TopUpRequest.Status=Failed (không cộng ví).
   4. Mobile poll GET /api/v1/wallet để kiểm tra balance đã cộng chưa.
 
+Đổi số tiền top-up (player nhập lộn):
+  PATCH /api/v1/wallet/topup/{topUpId} { amountVnd: 50000, idempotencyKey: "new-key" }
+  → Đơn cũ: status = Cancelled (local flag, webhook SePay tới sẽ tự reject)
+  → Đơn mới: tạo BvcTopUpRequest mới + SePay PaymentUrl mới
+  → Trả { paymentUrl, qrUrl, orderId, expectedBvc, expiresAt } cho đơn mới
+
+Hủy top-up (player đổi ý):
+  DELETE /api/v1/wallet/topup/{topUpId}
+  → Đơn: status = Cancelled (local flag)
+  → Webhook SePay tới sau sẽ bị reject tự động (status != Pending)
+  → Nếu player đã lỡ chuyển khoản → admin support xử lý refund thủ công
+
 Admin cộng/trừ thủ công:
   POST /api/v1/admin/wallet/adjust { targetUserId, amountBvc, isCredit, reason, idempotencyKey }
   [Role: Admin]
@@ -67,6 +79,8 @@ Admin cộng/trừ thủ công:
 |--------|------|------|--------|
 | `GET` | `/api/v1/wallet` | Player | Lấy ví (auto-create nếu chưa có) |
 | `POST` | `/api/v1/wallet/topup` | Player | Tạo đơn top-up BVC từ VND |
+| `PATCH` | `/api/v1/wallet/topup/{topUpId}` | Player | Đổi số tiền đơn top-up đang Pending (chưa thanh toán) |
+| `DELETE` | `/api/v1/wallet/topup/{topUpId}` | Player | Hủy đơn top-up đang Pending (chưa thanh toán) |
 | `GET` | `/api/v1/wallet/transactions` | Player | Lịch sử ledger phân trang |
 
 **Header bắt buộc:** `Authorization: Bearer <token>`
@@ -165,6 +179,115 @@ Tạo đơn top-up BVC qua SePay master account.
 
 ---
 
+## PATCH `/api/v1/wallet/topup/{topUpId}`
+
+Đổi số tiền đơn top-up BVC đang Pending (chưa thanh toán). Dùng khi player nhập lộn `amountVnd` và muốn chọn lại số tiền trước khi quét QR.
+
+**Hành vi:**
+1. Validate `amountVnd` (min 10.000, bội số 1.000) — trả 400 nếu sai.
+2. Tìm `BvcTopUpRequest` theo `topUpId` — 404 nếu không tồn tại.
+3. Check ownership — 403 nếu không phải chủ đơn.
+4. Check status — 409 nếu đơn không ở Pending (đã Paid/Expired/Failed/Cancelled).
+5. Check idempotency key mới không trùng đơn khác — 409 nếu trùng.
+6. Set đơn cũ = `Cancelled` (webhook SePay sau sẽ tự reject).
+7. Tạo đơn mới với SePay PaymentUrl + OrderId mới.
+8. Trả `TopUpResponseDto` của đơn mới.
+
+### Path
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `topUpId` | Guid | ✅ | Id của `BvcTopUpRequest` cần đổi. |
+
+### Body
+
+```json
+{
+  "amountVnd": 50000,
+  "idempotencyKey": "uuid-v4-moi"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `amountVnd` | long | ✅ | Số tiền VND mới. ≥ 10.000 và chia hết cho 1.000. |
+| `idempotencyKey` | string | ✅ | 8–128 ký tự. KHÁC với key của đơn cũ. UNIQUE. |
+
+**Validate:**
+- `amountVnd < 10.000` → 400
+- `amountVnd % 1.000 != 0` → 400
+- `idempotencyKey` rỗng / thiếu → 400
+- `idempotencyKey` đã dùng cho đơn khác → 409
+
+### Response `200`
+
+```json
+{
+  "paymentUrl": "https://pay.sepay.vn/...",
+  "qrUrl": "https://qr.sepay.vn/...",
+  "orderId": "BVC-F6G7H8I9J0",
+  "expectedBvc": 50,
+  "expiresAt": "2026-08-02T17:30:00Z",
+  "idempotencyKey": "uuid-v4-moi"
+}
+```
+
+### Error
+
+| Status | Mô tả |
+|--------|--------|
+| `400` | `amountVnd` dưới min / không hợp lệ. |
+| `401` | Thiếu token. |
+| `403` | Không phải chủ đơn. |
+| `404` | Không tìm thấy đơn top-up. |
+| `409` | Đơn không ở Pending, hoặc idempotency key đã dùng. |
+| `500` | Lỗi hệ thống / SePay gateway fail. |
+
+---
+
+## DELETE `/api/v1/wallet/topup/{topUpId}`
+
+Hủy đơn top-up BVC đang Pending (chưa thanh toán). Player dùng khi đổi ý không muốn nạp nữa.
+
+**Hành vi:**
+1. Tìm `BvcTopUpRequest` theo `topUpId` — 404 nếu không tồn tại.
+2. Check ownership — 403 nếu không phải chủ đơn.
+3. Check status — 409 nếu đơn đã terminal (Paid/Expired/Failed/Cancelled).
+4. Set `Status = Cancelled` (local flag).
+5. Webhook SePay tới sau sẽ tự động bị reject (logic `status != Pending → skip` ở `HandleTopUpWebhookAsync`).
+
+**Lưu ý quan trọng:**
+- Tại thời điểm cancel, QR SePay vẫn **chưa hết hạn trên SePay master** (vì SePay client hiện không có endpoint cancel order). Nếu player đã lỡ chuyển khoản, webhook sẽ bị reject vì status mismatch — player phải liên hệ admin support để manual refund.
+- Backend chỉ set local flag `Status = Cancelled`. Tiền VND chưa được chuyển vào BoardVerse cho đến khi SePay webhook tới.
+
+### Path
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `topUpId` | Guid | ✅ | Id của `BvcTopUpRequest` cần hủy. |
+
+### Response `200`
+
+```json
+{
+  "code": 200,
+  "message": "Hủy đơn top-up BVC thành công.",
+  "data": null
+}
+```
+
+### Error
+
+| Status | Mô tả |
+|--------|--------|
+| `401` | Thiếu token. |
+| `403` | Không phải chủ đơn. |
+| `404` | Không tìm thấy đơn top-up. |
+| `409` | Đơn không ở Pending (đã Paid/Expired/Failed/Cancelled). |
+| `500` | Lỗi hệ thống. |
+
+---
+
 ## GET `/api/v1/wallet/transactions`
 
 Lịch sử ledger BVC của player đang đăng nhập. Sắp xếp mới nhất trước. Phân trang.
@@ -216,6 +339,17 @@ Lịch sử ledger BVC của player đang đăng nhập. Sắp xếp mới nhấ
 ---
 
 ## State machine
+
+**BvcTopUpRequest.Status** lifecycle:
+
+```
+Pending → Paid (webhook success) → terminal
+Pending → Expired (qua 30 phút, cron ExpiredPendingTopUpsAsync) → terminal
+Pending → Failed (webhook failed/cancelled) → terminal
+Pending → Cancelled (player chủ động DELETE /api/v1/wallet/topup/{id}) → terminal
+```
+
+Webhook SePay tới luôn check `Status != Pending → skip` (idempotency), nên **mọi status terminal (Paid/Expired/Failed/Cancelled) đều tự bị reject khỏi xử lý tiền**.
 
 **Wallet.AvailableBalance** thay đổi theo ledger entry:
 

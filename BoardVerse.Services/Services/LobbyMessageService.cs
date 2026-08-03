@@ -30,7 +30,7 @@ namespace BoardVerse.Services.Services
         {
             if (string.IsNullOrWhiteSpace(content) || content.Length > 1000)
             {
-                throw new BadRequestException("Tin nhắn phải có từ 1 đến 1000 ký tự.");
+                throw new BadRequestException(ApiErrorMessages.Lobby.Message.ContentLength);
             }
 
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
@@ -39,7 +39,7 @@ namespace BoardVerse.Services.Services
             var member = lobby.Members.FirstOrDefault(m => m.UserId == senderId && m.IsActive);
             if (member == null)
             {
-                throw new ForbiddenException("Bạn không phải thành viên của phòng chờ này.");
+                throw new ForbiddenException(ApiErrorMessages.Lobby.Message.NotLobbyMember);
             }
 
             var sender = await _userManagementRepository.GetByIdAsync(senderId);

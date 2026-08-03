@@ -109,10 +109,10 @@ public class PaymentService : IPaymentService
             _logger.LogError(
                 "Payment gateway failed. OrderId={OrderId}, Error={Error}",
                 deposit.OrderId, result.ErrorMessage);
-            throw new PaymentException($"Không thể tạo thanh toán: {result.ErrorMessage}");
+            throw new PaymentException(ApiErrorMessages.Payment.GatewayCannotCreatePaymentWithError(result.ErrorMessage));
         }
 
-        var paymentUrl = result.PaymentUrl ?? result.QrImageUrl ?? throw new PaymentException("Không nhận được QR URL từ gateway.");
+        var paymentUrl = result.PaymentUrl ?? result.QrImageUrl ?? throw new PaymentException(ApiErrorMessages.Payment.GatewayQrUrlMissing);
         // VietQR tĩnh không có expiry — QR luôn hợp lệ
         await _depositService.UpdateQrInfoAsync(deposit.Id, paymentUrl, null, transferContent);
 
@@ -145,7 +145,7 @@ public class PaymentService : IPaymentService
 
         if (deposit.Status != BookingDepositStatus.Pending)
         {
-            throw new ConflictException($"Chỉ có thể tạo lại QR cho đơn cọc đang PENDING. Trạng thái hiện tại: '{deposit.Status}'.");
+            throw new ConflictException(ApiErrorMessages.Payment.QrRegenerateInvalidState(deposit.Status.ToString()));
         }
 
         // P2 Fix #11: Rate limiting - chỉ cho phép regenerate 1 lần mỗi 60 giây
@@ -154,7 +154,7 @@ public class PaymentService : IPaymentService
             var elapsed = DateTime.UtcNow - deposit.LastQrRegeneratedAt.Value;
             if (elapsed.TotalSeconds < 60)
             {
-                throw new ConflictException($"QR đã được tạo lại gần đây. Vui lòng chờ {60 - (int)elapsed.TotalSeconds} giây trước khi yêu cầu lại.");
+                throw new ConflictException(ApiErrorMessages.Payment.QrRegenerateRateLimited(60 - (int)elapsed.TotalSeconds));
             }
         }
 
@@ -205,10 +205,10 @@ public class PaymentService : IPaymentService
             _logger.LogError(
                 "Payment gateway failed on regenerate. OrderId={OrderId}, Error={Error}",
                 deposit.OrderId, result.ErrorMessage);
-            throw new PaymentException($"Không thể tạo thanh toán: {result.ErrorMessage}");
+            throw new PaymentException(ApiErrorMessages.Payment.GatewayCannotCreatePaymentWithError(result.ErrorMessage));
         }
 
-        var paymentUrl = result.PaymentUrl ?? result.QrImageUrl ?? throw new PaymentException("Không nhận được QR URL từ gateway.");
+        var paymentUrl = result.PaymentUrl ?? result.QrImageUrl ?? throw new PaymentException(ApiErrorMessages.Payment.GatewayQrUrlMissing);
         // VietQR tĩnh không có expiry
         await _depositService.UpdateQrInfoAsync(depositId, paymentUrl, null, transferContent);
 
@@ -238,7 +238,7 @@ public class PaymentService : IPaymentService
     public async Task<CreateSessionPaymentResponseDto> CreateSessionPaymentAsync(CreateSessionPaymentRequestDto request)
     {
         var session = await _activeSessionRepository.GetByIdAsync(request.SessionId)
-            ?? throw new NotFoundException($"Không tìm thấy phiên chơi với ID: {request.SessionId}");
+            ?? throw new NotFoundException(ApiErrorMessages.Pos.ActiveSessionNotFound(request.SessionId));
 
         if (session.Status != GroupSessionStatus.Unpaid)
         {
@@ -248,7 +248,7 @@ public class PaymentService : IPaymentService
         var totalAmount = session.TotalAmount;
         if (totalAmount <= 0)
         {
-            throw new ConflictException("Số tiền thanh toán phải lớn hơn 0.");
+            throw new ConflictException(ApiErrorMessages.Payment.SessionPaymentAmountMustBePositive);
         }
 
         if (string.IsNullOrWhiteSpace(session.OrderId))
@@ -264,7 +264,7 @@ public class PaymentService : IPaymentService
 
         // Lấy cafe config
         var cafe = await _cafeRepository.GetByIdAsync(session.CafeId)
-            ?? throw new NotFoundException($"Không tìm thấy cafe với ID: {session.CafeId}");
+            ?? throw new NotFoundException(ApiErrorMessages.Cafe.CafeRecordNotFound(session.CafeId));
 
         var bankCode = string.Empty;
         var accountNumber = string.Empty;
@@ -283,7 +283,7 @@ public class PaymentService : IPaymentService
 
         if (string.IsNullOrWhiteSpace(bankCode) || string.IsNullOrWhiteSpace(accountNumber))
         {
-            throw new PaymentException($"Cafe '{cafe.Name}' chưa được cấu hình SePay account.");
+            throw new PaymentException(ApiErrorMessages.Payment.PaymentCafeNotConfiguredSePay(cafe.Name));
         }
 
         var paymentRequest = new PaymentGatewayRequest
@@ -311,10 +311,10 @@ public class PaymentService : IPaymentService
             _logger.LogError(
                 "Payment gateway failed for session. SessionId={SessionId}, Error={Error}",
                 session.Id, result.ErrorMessage);
-            throw new PaymentException($"Không thể tạo thanh toán: {result.ErrorMessage}");
+            throw new PaymentException(ApiErrorMessages.Payment.GatewayCannotCreatePaymentWithError(result.ErrorMessage));
         }
 
-        var paymentUrl = result.PaymentUrl ?? result.QrImageUrl ?? throw new PaymentException("Không nhận được QR URL từ gateway.");
+        var paymentUrl = result.PaymentUrl ?? result.QrImageUrl ?? throw new PaymentException(ApiErrorMessages.Payment.GatewayQrUrlMissing);
 
         await _activeSessionRepository.UpdateAsync(session);
         await _activeSessionRepository.SaveChangesAsync();
@@ -343,7 +343,7 @@ public class PaymentService : IPaymentService
     public async Task<CreateSessionPaymentResponseDto> RegenerateSessionQrAsync(Guid sessionId)
     {
         var session = await _activeSessionRepository.GetByIdAsync(sessionId)
-            ?? throw new NotFoundException($"Không tìm thấy phiên chơi với ID: {sessionId}");
+            ?? throw new NotFoundException(ApiErrorMessages.Pos.ActiveSessionNotFound(sessionId));
 
         if (session.Status != GroupSessionStatus.Unpaid)
         {
@@ -352,7 +352,7 @@ public class PaymentService : IPaymentService
 
         // Lấy cafe config
         var cafe = await _cafeRepository.GetByIdAsync(session.CafeId)
-            ?? throw new NotFoundException($"Không tìm thấy cafe với ID: {session.CafeId}");
+            ?? throw new NotFoundException(ApiErrorMessages.Cafe.CafeRecordNotFound(session.CafeId));
 
         var bankCode = string.Empty;
         var accountNumber = string.Empty;
@@ -371,7 +371,7 @@ public class PaymentService : IPaymentService
 
         if (string.IsNullOrWhiteSpace(bankCode) || string.IsNullOrWhiteSpace(accountNumber))
         {
-            throw new PaymentException($"Cafe '{cafe.Name}' chưa được cấu hình SePay account.");
+            throw new PaymentException(ApiErrorMessages.Payment.PaymentCafeNotConfiguredSePay(cafe.Name));
         }
 
         // Tạo order ID mới nếu chưa có
@@ -408,10 +408,10 @@ public class PaymentService : IPaymentService
             _logger.LogError(
                 "Payment gateway failed completely for session regenerate. SessionId={SessionId}, Error={Error}",
                 session.Id, result.ErrorMessage);
-            throw new PaymentException($"Không thể tạo thanh toán: {result.ErrorMessage}");
+            throw new PaymentException(ApiErrorMessages.Payment.GatewayCannotCreatePaymentWithError(result.ErrorMessage));
         }
 
-        var paymentUrl = result.PaymentUrl ?? result.QrImageUrl ?? throw new PaymentException("Không nhận được QR URL từ gateway.");
+        var paymentUrl = result.PaymentUrl ?? result.QrImageUrl ?? throw new PaymentException(ApiErrorMessages.Payment.GatewayQrUrlMissing);
 
         // Lưu TransferContent mới vào DB
         session.TransferContent = transferContent;
@@ -654,12 +654,12 @@ public class PaymentService : IPaymentService
 
         if (deposit.Status != BookingDepositStatus.Paid)
         {
-            throw new ConflictException($"Không thể hoàn cọc: trạng thái hiện tại là '{deposit.Status}', cần 'Paid'.");
+            throw new ConflictException(ApiErrorMessages.Payment.RefundInvalidDepositStatus(deposit.Status.ToString()));
         }
 
         if (string.IsNullOrWhiteSpace(reason))
         {
-            throw new BadRequestException("Lý do hoàn cọc là bắt buộc để phục vụ audit. BR-18.");
+            throw new BadRequestException(ApiErrorMessages.Payment.RefundReasonRequired);
         }
 
         // Tính số tiền hoàn dự kiến theo policy TRƯỚC khi chuyển trạng thái.

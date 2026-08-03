@@ -3,6 +3,7 @@ using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
+using BoardVerse.Core.Messages;
 using BoardVerse.Data;
 using BoardVerse.Services.IServices;
 using Microsoft.EntityFrameworkCore;
@@ -52,17 +53,17 @@ public class BookingService : IBookingService
         if (request.LobbyId.HasValue && request.LobbyId.Value != Guid.Empty)
         {
             lobby = await _lobbyRepository.GetByIdWithMembersAsync(request.LobbyId.Value)
-                ?? throw new NotFoundException($"Không tìm thấy phòng chờ '{request.LobbyId}'.");
+                ?? throw new NotFoundException(ApiErrorMessages.Booking.LobbyNotFoundForBooking(request.LobbyId.Value));
 
             var host = lobby.Members.FirstOrDefault(m => m.UserId == hostUserId && m.IsHost && m.IsActive);
             if (host == null)
             {
-                throw new ForbiddenException("Chỉ Host của phòng chờ mới có thể tạo booking.");
+                throw new ForbiddenException(ApiErrorMessages.Booking.OnlyLobbyHostCanCreateBooking);
             }
 
             if (lobby.Status != LobbyStatus.Full)
             {
-                throw new ConflictException("Phòng chờ phải ở trạng thái Full (đã khóa) mới có thể tạo booking.");
+                throw new ConflictException(ApiErrorMessages.Booking.LobbyMustBeFullToCreateBooking);
             }
         }
 
@@ -72,32 +73,32 @@ public class BookingService : IBookingService
             var existingBooking = await _bookingRepository.GetByLobbyIdAsync(lobby.Id);
             if (existingBooking != null)
             {
-                throw new ConflictException("Phòng chờ này đã có booking được tạo trước đó.");
+                throw new ConflictException(ApiErrorMessages.Booking.LobbyAlreadyHasBooking);
             }
         }
 
         // 3. Validate cafe tồn tại
         var cafe = await _cafeRepository.GetByIdAsync(request.CafeId)
-            ?? throw new NotFoundException($"Không tìm thấy quán cafe '{request.CafeId}'.");
+            ?? throw new NotFoundException(ApiErrorMessages.Booking.CafeNotFound(request.CafeId));
 
         // 4. Validate cafeTable thuộc cafe
         var cafeTable = await _cafeTableRepository.GetByIdAsync(request.CafeTableId)
-            ?? throw new NotFoundException($"Không tìm thấy bàn '{request.CafeTableId}'.");
+            ?? throw new NotFoundException(ApiErrorMessages.Booking.TableNotFound(request.CafeTableId));
 
         if (cafeTable.CafeId != request.CafeId)
         {
-            throw new BadRequestException("Bàn không thuộc quán đã chọn.");
+            throw new BadRequestException(ApiErrorMessages.Booking.TableNotInCafe);
         }
 
         // 5. Validate thời gian
         if (request.ScheduleEndTime <= request.ScheduledStartTime)
         {
-            throw new BadRequestException("Thời gian kết thúc phải sau thời gian bắt đầu.");
+            throw new BadRequestException(ApiErrorMessages.Booking.InvalidTimeRange);
         }
 
         if (request.ScheduledStartTime < DateTime.UtcNow)
         {
-            throw new BadRequestException("Thời gian bắt đầu không được là thời điểm trong quá khứ.");
+            throw new BadRequestException(ApiErrorMessages.Booking.StartTimeInPast);
         }
 
         // P1 Fix #6: Wrap booking creation in transaction with pessimistic locking
@@ -110,7 +111,7 @@ public class BookingService : IBookingService
                 request.CafeTableId, request.ScheduledStartTime, request.ScheduleEndTime);
             if (conflicts.Count > 0)
             {
-                throw new ConflictException("Bàn đã có booking khác trong khoảng thời gian này.");
+                throw new ConflictException(ApiErrorMessages.Booking.TableAlreadyBookedInTimeRange);
             }
 
             // 7. Tạo Booking (walk-in cho phép LobbyId = null)
@@ -177,7 +178,7 @@ public class BookingService : IBookingService
         UpdateBookingRequestDto request)
     {
         var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
-            ?? throw new NotFoundException($"Không tìm thấy booking '{bookingId}'.");
+            ?? throw new NotFoundException(ApiErrorMessages.Booking.NotFound(bookingId));
 
         // Chỉ owner (Host lobby) mới được sửa. Walk-in (LobbyId = null) chỉ owner mới được sửa.
         if (booking.LobbyId.HasValue)
@@ -187,12 +188,12 @@ public class BookingService : IBookingService
                 var lobby = await _lobbyRepository.GetByIdAsync(booking.LobbyId.Value);
                 if (lobby?.HostUserId != requestingUserId)
                 {
-                    throw new ForbiddenException("Bạn không có quyền cập nhật booking này.");
+                    throw new ForbiddenException(ApiErrorMessages.Booking.NotBookingOwner);
                 }
             }
             else if (booking.Lobby.HostUserId != requestingUserId)
             {
-                throw new ForbiddenException("Bạn không có quyền cập nhật booking này.");
+                throw new ForbiddenException(ApiErrorMessages.Booking.NotBookingOwner);
             }
         }
         else
@@ -200,23 +201,23 @@ public class BookingService : IBookingService
             // Walk-in booking: chỉ cho phép chính user tạo booking (deposit.UserId == userId) cập nhật.
             if (booking.BookingDeposit == null || booking.BookingDeposit.UserId != requestingUserId)
             {
-                throw new ForbiddenException("Bạn không có quyền cập nhật booking này.");
+                throw new ForbiddenException(ApiErrorMessages.Booking.NotBookingOwner);
             }
         }
 
         // Chỉ được sửa khi chưa check-in
         if (booking.Status == BookingStatus.CheckedIn || booking.Status == BookingStatus.Cancelled)
         {
-            throw new ConflictException("Không thể cập nhật booking ở trạng thái này.");
+            throw new ConflictException(ApiErrorMessages.Booking.CannotUpdateBookingInCurrentState);
         }
 
         if (request.CafeTableId.HasValue)
         {
             var table = await _cafeTableRepository.GetByIdAsync(request.CafeTableId.Value)
-                ?? throw new NotFoundException($"Không tìm thấy bàn '{request.CafeTableId}'.");
+                ?? throw new NotFoundException(ApiErrorMessages.Booking.TableNotFound(request.CafeTableId.Value));
             if (table.CafeId != booking.CafeId)
             {
-                throw new BadRequestException("Bàn không thuộc quán của booking này.");
+                throw new BadRequestException(ApiErrorMessages.Booking.TableNotInBookingCafe);
             }
             booking.CafeTableId = request.CafeTableId.Value;
         }
@@ -229,7 +230,7 @@ public class BookingService : IBookingService
 
         if (booking.ScheduleEndTime <= booking.ScheduledStartTime)
         {
-            throw new BadRequestException("Thời gian kết thúc phải sau thời gian bắt đầu.");
+            throw new BadRequestException(ApiErrorMessages.Booking.InvalidTimeRange);
         }
 
         if (request.PlayerQuantity.HasValue)
@@ -266,7 +267,7 @@ public class BookingService : IBookingService
         string? reason = null)
     {
         var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
-            ?? throw new NotFoundException($"Không tìm thấy booking '{bookingId}'.");
+            ?? throw new NotFoundException(ApiErrorMessages.Booking.NotFound(bookingId));
 
         // Chỉ owner (Host lobby) hoặc Manager/Staff mới được hủy.
         // Walk-in booking: cho phép chính user đặt cọc (deposit.UserId) hủy.
@@ -274,17 +275,17 @@ public class BookingService : IBookingService
         {
             if (booking.Lobby.HostUserId != requestingUserId)
             {
-                throw new ForbiddenException("Bạn không có quyền hủy booking này.");
+                throw new ForbiddenException(ApiErrorMessages.Booking.NotBookingOwner);
             }
         }
         else if (booking.BookingDeposit == null || booking.BookingDeposit.UserId != requestingUserId)
         {
-            throw new ForbiddenException("Bạn không có quyền hủy booking này.");
+            throw new ForbiddenException(ApiErrorMessages.Booking.NotBookingOwner);
         }
 
         if (booking.Status == BookingStatus.CheckedIn)
         {
-            throw new ConflictException("Không thể hủy booking đã check-in.");
+            throw new ConflictException(ApiErrorMessages.Booking.CannotCancelCheckedInBooking);
         }
 
         // P2 Fix #13: Release table when cancelling CONFIRMED booking (defensive: release regardless of current status)
@@ -327,11 +328,11 @@ public class BookingService : IBookingService
     public async Task<Booking> ConfirmBookingAsync(Guid bookingId)
     {
         var booking = await _bookingRepository.GetByIdAsync(bookingId)
-            ?? throw new NotFoundException($"Không tìm thấy booking '{bookingId}'.");
+            ?? throw new NotFoundException(ApiErrorMessages.Booking.NotFound(bookingId));
 
         if (booking.Status != BookingStatus.PendingDeposit)
         {
-            throw new ConflictException($"Chỉ booking ở trạng thái PendingDeposit mới có thể xác nhận (hiện tại: {booking.Status}).");
+            throw new ConflictException(ApiErrorMessages.Booking.OnlyPendingDepositCanConfirm(booking.Status));
         }
 
         booking.Status = BookingStatus.Confirmed;
@@ -345,11 +346,11 @@ public class BookingService : IBookingService
     public async Task<Booking> MarkAsNoShowAsync(Guid bookingId)
     {
         var booking = await _bookingRepository.GetByIdAsync(bookingId)
-            ?? throw new NotFoundException($"Không tìm thấy booking '{bookingId}'.");
+            ?? throw new NotFoundException(ApiErrorMessages.Booking.NotFound(bookingId));
 
         if (booking.Status != BookingStatus.Confirmed && booking.Status != BookingStatus.PendingDeposit)
         {
-            throw new ConflictException("Chỉ booking ở trạng thái Confirmed hoặc PendingDeposit mới có thể NoShow.");
+            throw new ConflictException(ApiErrorMessages.Booking.OnlyConfirmedOrPendingDepositCanNoShow);
         }
 
         booking.Status = BookingStatus.NoShow;
@@ -363,7 +364,7 @@ public class BookingService : IBookingService
     public async Task<BookingSessionStatusResponseDto> GetSessionStatusAsync(Guid bookingId, Guid requestingUserId)
     {
         var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
-            ?? throw new NotFoundException($"Không tìm thấy booking '{bookingId}'.");
+            ?? throw new NotFoundException(ApiErrorMessages.Booking.NotFound(bookingId));
 
         // AuthZ: chỉ member lobby hoặc deposit owner mới xem được
         bool isMember = false;
@@ -380,7 +381,7 @@ public class BookingService : IBookingService
 
         if (!isMember)
         {
-            throw new ForbiddenException("Bạn không phải thành viên của booking này.");
+            throw new ForbiddenException(ApiErrorMessages.Booking.NotMemberOfBooking);
         }
 
         var response = new BookingSessionStatusResponseDto

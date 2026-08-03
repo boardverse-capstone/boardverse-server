@@ -24,6 +24,39 @@ public interface IWalletService
     Task<TopUpResponseDto> CreateTopUpAsync(Guid userId, TopUpRequestDto request);
 
     /// <summary>
+    /// Player chủ động hủy đơn top-up BVC đang Pending (chưa thanh toán).
+    /// Set Status = Cancelled; webhook SePay tới sau sẽ bị reject tự động (BR-09).
+    /// Ownership: chỉ chính chủ mới hủy được.
+    /// </summary>
+    /// <param name="topUpId">Id của BvcTopUpRequest.</param>
+    /// <param name="userId">User hiện tại (Jwt claim).</param>
+    /// <param name="cancellationToken">Token hủy.</param>
+    /// <exception cref="NotFoundException">Không tìm thấy top-up.</exception>
+    /// <exception cref="ForbiddenException">Top-up thuộc user khác.</exception>
+    /// <exception cref="ConflictException">Top-up đã ở trạng thái terminal (Paid/Expired/Failed/Cancelled).</exception>
+    Task CancelTopUpAsync(Guid topUpId, Guid userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Player đổi số tiền của đơn top-up BVC đang Pending (chưa thanh toán).
+    /// Regenerate SePay payment URL với AmountVnd mới; OrderId mới; QR cũ bị hủy logic.
+    /// Validate cùng rule với CreateTopUp (min 10k, bội số 1k).
+    /// Ownership: chỉ chính chủ mới đổi được.
+    /// </summary>
+    /// <param name="topUpId">Id của BvcTopUpRequest.</param>
+    /// <param name="userId">User hiện tại (Jwt claim).</param>
+    /// <param name="request">Số tiền VND mới (idempotency key mới).</param>
+    /// <param name="cancellationToken">Token hủy.</param>
+    /// <exception cref="NotFoundException">Không tìm thấy top-up.</exception>
+    /// <exception cref="ForbiddenException">Top-up thuộc user khác.</exception>
+    /// <exception cref="ConflictException">Top-up đã ở trạng thái terminal.</exception>
+    /// <exception cref="BadRequestException">Amount không hợp lệ.</exception>
+    Task<TopUpResponseDto> UpdateTopUpAmountAsync(
+        Guid topUpId,
+        Guid userId,
+        UpdateTopUpRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Lịch sử ledger entry (read-only) theo user, phân trang.
     /// </summary>
     Task<BvcTransactionPageDto> GetTransactionsAsync(Guid userId, int page, int pageSize);
