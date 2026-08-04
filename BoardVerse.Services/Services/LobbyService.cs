@@ -443,48 +443,60 @@ namespace BoardVerse.Services.Services
             return MapLobbyDto(lobby, distanceKm);
         }
 
-        public async Task<IReadOnlyList<LobbyResponseDto>> SearchLobbiesAsync(SearchLobbiesRequestDto request)
+        public async Task<IReadOnlyList<LobbyResponseDto>> SearchLobbiesAsync(SearchLobbiesRequestDto request, Guid? requestingUserId = null)
         {
             // BR-10: Filter by game, geo proximity, and karma (NOT Elo)
             // Private lobby bị loại khỏi kết quả search
+            // BR-USER-LIMIT-02: Loại bỏ các lobby trùng lịch với user (excludeSelfOverlapping)
+
+            IReadOnlyList<Lobby> lobbies;
+
             if (request.Latitude.HasValue && request.Longitude.HasValue && request.RadiusKm.HasValue)
             {
-                var lobbies = await _lobbyRepository.SearchLobbiesNearbyAsync(
+                lobbies = await _lobbyRepository.SearchLobbiesNearbyAsync(
                     request.GameTemplateId,
                     request.Latitude.Value,
                     request.Longitude.Value,
                     request.RadiusKm.Value,
                     request.MinKarmaScore);
-
-                var filtered = lobbies.Where(l => !l.IsPrivate).ToList();
-
-                // LOBBY-P0-FIX-10: Trả DistanceKm cho mỗi lobby
-                var result = new List<LobbyResponseDto>();
-                foreach (var l in filtered)
-                {
-                    double? dist = null;
-                    if (l.Latitude.HasValue && l.Longitude.HasValue)
-                    {
-                        dist = GeoHelper.HaversineKm(
-                            request.Latitude.Value, request.Longitude.Value,
-                            l.Latitude.Value, l.Longitude.Value);
-                    }
-                    result.Add(MapLobbyDto(l, dist));
-                }
-                return result;
+            }
+            else
+            {
+                lobbies = await _lobbyRepository.GetActiveLobbiesForGameAsync(request.GameTemplateId, null);
             }
 
-            var allLobbies = await _lobbyRepository.GetActiveLobbiesForGameAsync(request.GameTemplateId, null);
-            allLobbies = allLobbies.Where(l => !l.IsPrivate).ToList();
+            // Loại bỏ private lobby
+            var filtered = lobbies.Where(l => !l.IsPrivate).ToList();
 
+            // Filter by karma
             if (request.MinKarmaScore.HasValue)
             {
-                allLobbies = allLobbies
+                filtered = filtered
                     .Where(l => l.Members.All(m => (m.User.Profile?.KarmaPoints ?? 100) >= request.MinKarmaScore.Value))
                     .ToList();
             }
 
-            return allLobbies.Select(l => MapLobbyDto(l, null)).ToList();
+            // BR-USER-LIMIT-02: Loại bỏ lobby trùng lịch với user
+            if (request.ExcludeSelfOverlapping && requestingUserId.HasValue)
+            {
+                filtered = await FilterOverlappingLobbiesAsync(filtered, requestingUserId.Value);
+            }
+
+            // Tính distance và map kết quả
+            var result = new List<LobbyResponseDto>();
+            foreach (var l in filtered)
+            {
+                double? dist = null;
+                if (request.Latitude.HasValue && request.Longitude.HasValue
+                    && l.Latitude.HasValue && l.Longitude.HasValue)
+                {
+                    dist = GeoHelper.HaversineKm(
+                        request.Latitude.Value, request.Longitude.Value,
+                        l.Latitude.Value, l.Longitude.Value);
+                }
+                result.Add(MapLobbyDto(l, dist));
+            }
+            return result;
         }
 
         public async Task<IReadOnlyList<LobbyResponseDto>> GetDiscoverableLobbiesAsync(
@@ -492,9 +504,11 @@ namespace BoardVerse.Services.Services
             double? latitude,
             double? longitude,
             double? radiusKm,
-            int limit = 50)
+            int limit = 50,
+            Guid? requestingUserId = null)
         {
             // BR-10: Lobby phải là public + status Open. Private bị ẩn hoàn toàn.
+            // BR-USER-LIMIT-02: Loại bỏ các lobby trùng lịch với user (excludeSelfOverlapping)
             // Áp dụng bounding-box pre-filter trong repo, Haversine precise sort ở đây.
             var lobbies = await _lobbyRepository.GetDiscoverablePublicLobbiesAsync(
                 gameTemplateId, latitude, longitude, radiusKm, limit);
@@ -528,7 +542,82 @@ namespace BoardVerse.Services.Services
                     .ToList();
             }
 
+            // BR-USER-LIMIT-02: Loại bỏ lobby trùng lịch với user
+            if (requestingUserId.HasValue)
+            {
+                var lobbyIds = result.Select(r => r.Id).ToList();
+                var filteredLobbies = await FilterOverlappingLobbiesAsync(
+                    (await Task.WhenAll(lobbyIds.Select(id => _lobbyRepository.GetByIdAsync(id)))).Where(l => l != null).Cast<Lobby>().ToList(),
+                    requestingUserId.Value);
+                var filteredIds = filteredLobbies.Select(l => l.Id).ToHashSet();
+                result = result.Where(r => filteredIds.Contains(r.Id)).ToList();
+            }
+
             return result;
+        }
+
+        /// <summary>
+        /// BR-USER-LIMIT-02: Loại bỏ các lobby trùng lịch với user (+30 phút buffer).
+        /// Hai lobby trùng lịch nếu: cùng playDate + timeSlot + overlap thời gian.
+        /// </summary>
+        private async Task<List<Lobby>> FilterOverlappingLobbiesAsync(List<Lobby> lobbies, Guid userId)
+        {
+            // Lấy tất cả lobby mà user đang host hoặc tham gia
+            var userHostingLobbies = await _lobbyRepository.GetActiveLobbiesByHostAsync(userId);
+            var userJoinedLobbies = await _lobbyRepository.GetJoinedLobbiesAsync(userId);
+
+            var userLobbies = userHostingLobbies.Concat(userJoinedLobbies).DistinctBy(l => l.Id).ToList();
+
+            if (userLobbies.Count == 0)
+            {
+                return lobbies; // Không có lobby nào → không cần filter
+            }
+
+            // Tính scheduledTime của các lobby user đang tham gia
+            var userScheduledRanges = userLobbies
+                .Where(l => l.PlayDate.HasValue && l.TimeSlot.HasValue)
+                .Select(l => new
+                {
+                    l.PlayDate,
+                    l.TimeSlot,
+                    Start = GetScheduledTime(l.PlayDate!.Value, l.TimeSlot!.Value),
+                    End = GetScheduledTime(l.PlayDate!.Value, l.TimeSlot!.Value).AddMinutes(30) // +30 phút buffer
+                }).ToList();
+
+            // Loại bỏ lobby trùng lịch
+            return lobbies.Where(lobby =>
+            {
+                if (!lobby.PlayDate.HasValue || !lobby.TimeSlot.HasValue)
+                {
+                    return true; // Không có thông tin schedule → không filter
+                }
+
+                var lobbyStart = GetScheduledTime(lobby.PlayDate.Value, lobby.TimeSlot.Value);
+                var lobbyEnd = lobbyStart.AddMinutes(30);
+
+                // Kiểm tra overlap
+                return !userScheduledRanges.Any(userRange =>
+                    userRange.PlayDate == lobby.PlayDate &&
+                    userRange.TimeSlot == lobby.TimeSlot &&
+                    userRange.Start < lobbyEnd &&
+                    lobbyStart < userRange.End);
+            }).ToList();
+        }
+
+        /// <summary>
+        /// Tính scheduledTime từ PlayDate + TimeSlot (giống Lobby.ScheduledTime).
+        /// </summary>
+        private static DateTime GetScheduledTime(DateOnly playDate, TimeSlot timeSlot)
+        {
+            var timeOnly = timeSlot switch
+            {
+                TimeSlot.Morning => new TimeOnly(9, 0),
+                TimeSlot.Afternoon => new TimeOnly(13, 0),
+                TimeSlot.Evening => new TimeOnly(18, 0),
+                TimeSlot.Night => new TimeOnly(19, 0),
+                _ => new TimeOnly(9, 0)
+            };
+            return playDate.ToDateTime(timeOnly);
         }
 
         public async Task<LobbyResponseDto> CloseLobbyAsync(Guid lobbyId, Guid hostUserId, string? reason)

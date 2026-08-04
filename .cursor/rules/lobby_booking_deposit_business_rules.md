@@ -528,9 +528,9 @@ Lý do:
 - Thời hạn cooling-off: **30 ngày**, sau đó hệ thống tự đánh giá lại.
 - Trong thời gian cooling-off, nếu user tiếp tục fail → gia hạn thêm 30 ngày, cọc ×3.
 
-**BR-NEW-11 (Cafe duyệt lobby > 2 ngày)**: Lobby có `playDate` cách `now` ≥ 2 ngày phải được cafe duyệt trước khi publish.
+**BR-NEW-11 (Cafe duyệt lobby public > 2 ngày)**: Lobby **public** có `playDate` cách `now` ≥ 2 ngày phải được cafe duyệt trước khi publish. Lobby **private** (mời bạn) không cần cafe duyệt dù playDate xa.
 
-Quy trình:
+Quy trình (chỉ áp dụng cho lobby **public**):
 
 1. Host tạo lobby → status = `pendingCafeApproval`.
 2. Cafe nhận notification (in-app + POS).
@@ -538,6 +538,11 @@ Quy trình:
 4. Nếu duyệt: status = `open`, công khai, lobby bắt đầu tuyển người.
 5. Nếu từ chối: status = `rejectedByCafe`, hoàn **100% BVC** cho host.
 6. Nếu quá 24 giờ không phản hồi: status tự động chuyển sang `expiredByCafe`, hoàn 100% BVC.
+
+**Ngoại lệ lobby private:**
+- Lobby `IsPrivate = true` (mời bạn qua share code/invite) **không cần** cafe duyệt dù playDate xa.
+- Status khởi tạo = `open` luôn, không đi qua `pendingCafeApproval`.
+- Chỉ invited members mới thấy lobby trong discovery.
 
 Lý do:
 
@@ -1611,14 +1616,22 @@ Phòng ngừa tương lai:
 ### 11.1. Endpoint mới
 
 ```
+# Wallet
 POST   /api/v1/wallet/topup
 GET    /api/v1/wallet
 GET    /api/v1/wallet/transactions
 
+# Reservation
 POST   /api/v1/reservations/quote
 POST   /api/v1/reservations/confirm         # atomic: hold BVC + hold seat + hold game + create lobby
+GET    /api/v1/reservations/pending-cafe-approval          # Cafe Manager: danh sách lobby chờ duyệt (BR-NEW-11)
+GET    /api/v1/reservations/{id}/cafe-approval              # Cafe Manager: chi tiết 1 reservation pending (BR-NEW-11)
+POST   /api/v1/reservations/{id}/cafe-approval             # Cafe Manager: duyệt/từ chối lobby (BR-NEW-11)
 
+# Lobby
 GET    /api/v1/lobbies/{id}/availability    # remaining slots, can-join
+GET    /api/v1/lobbies/discoverable         # lobby công khai (bổ sung excludeSelfOverlapping)
+POST   /api/v1/lobbies/search               # bổ sung excludeSelfOverlapping
 ```
 
 ### 11.2. Endpoint cần sửa
@@ -1632,19 +1645,44 @@ POST /api/v1/lobbies/{id}/lock
   - Có thể bỏ hoặc thay bằng "MarkReady" khi đạt minPlayers.
 
 GET /api/v1/lobbies/search
-  - Bổ sung filter "excludeSelfOverlapping" để tránh gợi ý lobby trùng lịch.
+  - Bổ sung filter "excludeSelfOverlapping" để tránh gợi ý lobby trùng lịch (BR-USER-LIMIT-02).
 
 POST /api/v1/lobbies/{id}/cancel
   - Bổ sung logic refund theo BR-REFUND-02/03.
 ```
 
-### 11.3. Schema thay đổi
+### 11.3. API BR-NEW-11: Cafe Approval
+
+Các API phục vụ workflow cafe duyệt lobby trước khi publish (áp dụng cho lobby có `playDate` cách hiện tại ≥ 2 ngày).
+
+| Endpoint | Method | Role | Mô tả |
+|----------|--------|------|--------|
+| `/reservations/pending-cafe-approval` | GET | Cafe Manager | Danh sách lobby đang chờ duyệt |
+| `/reservations/{id}/cafe-approval` | GET | Cafe Manager | Chi tiết 1 reservation pending |
+| `/reservations/{id}/cafe-approval` | POST | Cafe Manager | Chấp nhận (`approve: true`) hoặc từ chối (`approve: false`) |
+
+**Luồng xử lý:**
+
+1. Host tạo lobby với `playDate` > 2 ngày → Lobby status = `PendingCafeApproval`
+2. Cafe Manager nhận notification → Gọi `GET /pending-cafe-approval` để xem danh sách
+3. Cafe Manager xem chi tiết `GET /{id}/cafe-approval`
+4. Cafe Manager duyệt:
+   - **Chấp nhận** (`approve: true`): Lobby → `Open`, public cho members join
+   - **Từ chối** (`approve: false`): Lobby → `RejectedByCafe`, refund 100% BVC cho host
+
+**Response chi tiết reservation** bao gồm `CafeRejectionReason` để player xem lý do từ chối khi `status = CancelledByCafe`.
+
+### 11.4. Schema thay đổi
 
 `LobbyEntity`:
 
 ```
 + reservationId (required, FK)
 + depositSnapshot (ratePerPerson, maxPlayers, baseDeposit, riskMultiplier, finalDeposit)
++ cafeApprovalDeadline (datetime, nullable)
++ cafeRejectionReason (string, nullable)
++ approvedByCafeManagerId (FK, nullable)
+```
 + playDate (required, DateOnly)        // ngày dự kiến chơi, BR-NEW-04
 + timeSlot (required, enum)            // morning | afternoon | evening | night, BR-NEW-15
 + preferredStartTime (optional, TimeOfDay)  // giờ dự kiến trong timeSlot, BR-NEW-15b

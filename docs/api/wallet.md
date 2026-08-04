@@ -344,7 +344,7 @@ Lịch sử ledger BVC của player đang đăng nhập. Sắp xếp mới nhấ
 
 ```
 Pending → Paid (webhook success) → terminal
-Pending → Expired (qua 30 phút, cron ExpiredPendingTopUpsAsync) → terminal
+Pending → Expired (qua 10 phút, cron ExpiredPendingTopUpsAsync) → terminal
 Pending → Failed (webhook failed/cancelled) → terminal
 Pending → Cancelled (player chủ động DELETE /api/v1/wallet/topup/{id}) → terminal
 ```

@@ -31,6 +31,12 @@ public class ReservationQuoteRequestDto
     [Range(2, 30)]
     public int MinPlayers { get; set; } = 2;
 
+    /// <summary>
+    /// BR-NEW-11: Lobby riêng tư (mời bạn) không cần cafe duyệt.
+    /// Public lobby mới cần duyệt nếu playDate > 2 ngày.
+    /// </summary>
+    public bool IsPrivate { get; set; } = false;
+
     /// <summary>Idempotency key cho quote — cho phép client retry.</summary>
     [Required, StringLength(128, MinimumLength = 8)]
     public string IdempotencyKey { get; set; } = string.Empty;
@@ -106,6 +112,11 @@ public class ReservationConfirmRequestDto
 
     [Range(2, 30)]
     public int MinPlayers { get; set; } = 2;
+
+    /// <summary>
+    /// BR-NEW-11: Lobby riêng tư (mời bạn) không cần cafe duyệt.
+    /// </summary>
+    public bool IsPrivate { get; set; } = false;
 
     /// <summary>
     /// Snapshot quote từ CreateQuoteAsync (BR §XVIII.1).
@@ -255,6 +266,9 @@ public class ReservationDetailDto
     public string? LobbyShareCode { get; set; }
     public string? LobbyStatus { get; set; }
 
+    /// <summary>BR-NEW-11: Lý do cafe từ chối lobby (khi status = CancelledByCafe).</summary>
+    public string? CafeRejectionReason { get; set; }
+
     public string ReservationCode { get; set; } = string.Empty;
 
     public DateTime CreatedAt { get; set; }
@@ -332,6 +346,77 @@ public class ReservationListRequestDto
 public class ReservationListResponseDto
 {
     public List<ReservationListItemDto> Items { get; set; } = [];
+    public int TotalCount { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalPages => (int)Math.Ceiling((double)TotalCount / PageSize);
+}
+
+/// <summary>
+/// Lobby pending cafe approval item cho dashboard của Manager (BR-NEW-11).
+/// </summary>
+public class LobbyPendingApprovalItemDto
+{
+    public Guid ReservationId { get; set; }
+    public Guid LobbyId { get; set; }
+
+    public Guid HostId { get; set; }
+    public string HostName { get; set; } = string.Empty;
+
+    public Guid CafeId { get; set; }
+    public string CafeName { get; set; } = string.Empty;
+
+    public Guid GameId { get; set; }
+    public string GameName { get; set; } = string.Empty;
+
+    public DateOnly PlayDate { get; set; }
+    public TimeSlot TimeSlot { get; set; }
+    public string TimeSlotDisplay => TimeSlot switch
+    {
+        TimeSlot.Morning => "Sáng (09:00 - 13:00)",
+        TimeSlot.Afternoon => "Chiều (13:00 - 18:00)",
+        TimeSlot.Evening => "Tối (18:00 - 23:00)",
+        TimeSlot.Night => "Khuya (19:00 - 24:00)",
+        _ => TimeSlot.ToString()
+    };
+
+    public int MinPlayers { get; set; }
+    public int MaxPlayers { get; set; }
+    public int CurrentPlayers { get; set; }
+
+    public long DepositAmount { get; set; }
+
+    public DateTime ScheduledTime { get; set; }
+    public DateTime CafeApprovalDeadline { get; set; }
+    public int RemainingApprovalHours { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+}
+
+/// <summary>
+/// Request lấy danh sách lobby pending cafe approval.
+/// </summary>
+public class LobbyPendingApprovalRequestDto
+{
+    /// <summary>Filter theo cafe. Null = all cafes của manager.</summary>
+    public Guid? CafeId { get; set; }
+
+    /// <summary>Filter theo ngày. Null = today.</summary>
+    public DateOnly? PlayDate { get; set; }
+
+    /// <summary>Filter theo trạng thái lobby: Open, Viable, Full. Null = all.</summary>
+    public List<LobbyStatus>? LobbyStatuses { get; set; }
+
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; } = 20;
+}
+
+/// <summary>
+/// Response paginated cho danh sách lobby pending cafe approval.
+/// </summary>
+public class LobbyPendingApprovalListResponseDto
+{
+    public List<LobbyPendingApprovalItemDto> Items { get; set; } = [];
     public int TotalCount { get; set; }
     public int Page { get; set; }
     public int PageSize { get; set; }

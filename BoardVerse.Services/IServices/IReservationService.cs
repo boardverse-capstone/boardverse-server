@@ -94,4 +94,18 @@ public interface IReservationService
     /// BR-USER-LIMIT-01: user chỉ thấy reservation mình host hoặc có tham gia.
     /// </summary>
     Task<ReservationListResponseDto> GetListAsync(Guid userId, ReservationListRequestDto request);
+
+    /// <summary>
+    /// BR-NEW-11: Lấy chi tiết một reservation pending cafe approval.
+    /// </summary>
+    Task<LobbyPendingApprovalItemDto?> GetPendingCafeApprovalDetailAsync(
+        Guid managerUserId,
+        Guid reservationId);
+
+    /// <summary>
+    /// BR-NEW-11: Lấy danh sách lobby pending cafe approval cho manager.
+    /// </summary>
+    Task<LobbyPendingApprovalListResponseDto> GetPendingCafeApprovalAsync(
+        Guid managerUserId,
+        LobbyPendingApprovalRequestDto request);
 }

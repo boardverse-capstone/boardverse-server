@@ -26,7 +26,7 @@ public class WalletService : IWalletService
 {
     private const long BvcVndRate = 1000; // 1 BVC = 1.000 VND (BR § II.1)
     private const long MinimumTopUpVnd = 10_000; // 10 BVC (BR § II.2)
-    private const int TopUpQrExpiryMinutes = 30; // Top-up có thời hạn dài hơn deposit
+    private const int TopUpQrExpiryMinutes = 10;
     private const int TransactionHistoryDefaultPageSize = 20;
     private const int TransactionHistoryMaxPageSize = 100;
 

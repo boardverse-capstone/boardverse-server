@@ -40,6 +40,7 @@ public class ReservationService : IReservationService
     private readonly ISeatInventoryRepository _seatInventoryRepository;
     private readonly IGameInventoryRepository _gameInventoryRepository;
     private readonly ICafeConfigRepository _cafeConfigRepository;
+    private readonly ICafeRepository _cafeRepository;
     private readonly IUserManagementRepository _userRepository;
     private readonly IGameTemplateRepository _gameRepository;
     private readonly IOutboxRepository _outboxRepository;
@@ -57,6 +58,7 @@ public class ReservationService : IReservationService
         ISeatInventoryRepository seatInventoryRepository,
         IGameInventoryRepository gameInventoryRepository,
         ICafeConfigRepository cafeConfigRepository,
+        ICafeRepository cafeRepository,
         IUserManagementRepository userRepository,
         IGameTemplateRepository gameRepository,
         IOutboxRepository outboxRepository,
@@ -73,6 +75,7 @@ public class ReservationService : IReservationService
         _seatInventoryRepository = seatInventoryRepository;
         _gameInventoryRepository = gameInventoryRepository;
         _cafeConfigRepository = cafeConfigRepository;
+        _cafeRepository = cafeRepository;
         _userRepository = userRepository;
         _gameRepository = gameRepository;
         _outboxRepository = outboxRepository;
@@ -111,6 +114,7 @@ public class ReservationService : IReservationService
             cafeConfig,
             wallet.RiskMultiplier,
             wallet.IsCoolingOff,
+            request.IsPrivate,
             now);
 
         // BR-LOBBY-01a/b: buffer check.
@@ -215,6 +219,7 @@ public class ReservationService : IReservationService
             PreferredStartTime = request.PreferredStartTime,
             MinPlayers = request.MinPlayers,
             MaxPlayers = request.MaxPlayers,
+            IsPrivate = request.IsPrivate,
             IdempotencyKey = request.IdempotencyKey
         };
 
@@ -230,6 +235,7 @@ public class ReservationService : IReservationService
             cafeConfig,
             wallet.RiskMultiplier,
             wallet.IsCoolingOff,
+            request.IsPrivate,
             now);
 
         // 5. BR-LOBBY-01a/b: buffer check.
@@ -290,6 +296,7 @@ public class ReservationService : IReservationService
                     cafeConfig,
                     wallet.RiskMultiplier,
                     wallet.IsCoolingOff,
+                    request.IsPrivate,
                     now);
             }
         }
@@ -1793,6 +1800,7 @@ public class ReservationService : IReservationService
             LobbyId = reservation.LobbyId,
             LobbyShareCode = reservation.Lobby?.ShareCode,
             LobbyStatus = reservation.Lobby?.Status.ToString(),
+            CafeRejectionReason = reservation.Lobby?.CafeRejectionReason,
             ReservationCode = reservation.ReservationCode,
             CreatedAt = reservation.CreatedAt,
             UpdatedAt = reservation.UpdatedAt,
@@ -1844,6 +1852,146 @@ public class ReservationService : IReservationService
             Page = page,
             PageSize = pageSize
         };
+    }
+
+    /// <summary>
+    /// BR-NEW-11: Lấy chi tiết một reservation pending cafe approval cho manager.
+    /// </summary>
+    public async Task<LobbyPendingApprovalItemDto?> GetPendingCafeApprovalDetailAsync(
+        Guid managerUserId,
+        Guid reservationId)
+    {
+        // Lấy danh sách cafe mà manager này quản lý
+        var managedCafes = await _cafeRepository.GetCafesByManagerIdAsync(managerUserId);
+        var cafeIds = managedCafes.Select(c => c.Id).ToHashSet();
+
+        if (cafeIds.Count == 0)
+        {
+            return null;
+        }
+
+        var reservation = await _reservationRepository.GetPendingCafeApprovalByIdAsync(reservationId);
+
+        if (reservation == null)
+        {
+            return null;
+        }
+
+        // Kiểm tra reservation có thuộc cafe của manager không
+        if (!cafeIds.Contains(reservation.CafeId))
+        {
+            return null;
+        }
+
+        var now = DateTime.UtcNow;
+        return new LobbyPendingApprovalItemDto
+        {
+            ReservationId = reservation.Id,
+            LobbyId = reservation.LobbyId ?? Guid.Empty,
+            HostId = reservation.HostId,
+            HostName = GetHostDisplayName(reservation.Host),
+            CafeId = reservation.CafeId,
+            CafeName = reservation.Cafe?.Name ?? string.Empty,
+            GameId = reservation.GameId,
+            GameName = reservation.Game?.Name ?? string.Empty,
+            PlayDate = reservation.PlayDate,
+            TimeSlot = reservation.TimeSlot,
+            MinPlayers = reservation.MinPlayers,
+            MaxPlayers = reservation.MaxPlayers,
+            CurrentPlayers = reservation.CurrentPlayers,
+            DepositAmount = reservation.DepositAmount,
+            ScheduledTime = reservation.ScheduledTime,
+            CafeApprovalDeadline = reservation.Lobby?.CafeApprovalDeadline ?? DateTime.MinValue,
+            RemainingApprovalHours = reservation.Lobby?.CafeApprovalDeadline.HasValue == true
+                ? (int)Math.Max(0, (reservation.Lobby.CafeApprovalDeadline.Value - now).TotalHours)
+                : 0,
+            CreatedAt = reservation.CreatedAt
+        };
+    }
+
+    /// <summary>
+    /// BR-NEW-11: Lấy danh sách lobby pending cafe approval cho manager.
+    /// </summary>
+    public async Task<LobbyPendingApprovalListResponseDto> GetPendingCafeApprovalAsync(
+        Guid managerUserId,
+        LobbyPendingApprovalRequestDto request)
+    {
+        var page = Math.Max(1, request.Page);
+        var pageSize = Math.Clamp(request.PageSize, 1, 100);
+
+        // Lấy danh sách cafe mà manager này quản lý
+        var managedCafes = await _cafeRepository.GetCafesByManagerIdAsync(managerUserId);
+        var cafeIds = managedCafes.Select(c => c.Id).ToList();
+
+        if (cafeIds.Count == 0)
+        {
+            return new LobbyPendingApprovalListResponseDto
+            {
+                Items = [],
+                TotalCount = 0,
+                Page = page,
+                PageSize = pageSize
+            };
+        }
+
+        var (items, totalCount) = await _reservationRepository.GetPendingCafeApprovalAsync(
+            cafeIds,
+            request.CafeId,
+            request.PlayDate,
+            page,
+            pageSize);
+
+        var now = DateTime.UtcNow;
+        var dtos = items.Select(r => new LobbyPendingApprovalItemDto
+        {
+            ReservationId = r.Id,
+            LobbyId = r.LobbyId ?? Guid.Empty,
+            HostId = r.HostId,
+            HostName = GetHostDisplayName(r.Host),
+            CafeId = r.CafeId,
+            CafeName = r.Cafe?.Name ?? string.Empty,
+            GameId = r.GameId,
+            GameName = r.Game?.Name ?? string.Empty,
+            PlayDate = r.PlayDate,
+            TimeSlot = r.TimeSlot,
+            MinPlayers = r.MinPlayers,
+            MaxPlayers = r.MaxPlayers,
+            CurrentPlayers = r.CurrentPlayers,
+            DepositAmount = r.DepositAmount,
+            ScheduledTime = r.ScheduledTime,
+            CafeApprovalDeadline = r.Lobby?.CafeApprovalDeadline ?? DateTime.MinValue,
+            RemainingApprovalHours = r.Lobby?.CafeApprovalDeadline.HasValue == true
+                ? (int)Math.Max(0, (r.Lobby.CafeApprovalDeadline.Value - now).TotalHours)
+                : 0,
+            CreatedAt = r.CreatedAt
+        }).ToList();
+
+        return new LobbyPendingApprovalListResponseDto
+        {
+            Items = dtos,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize
+        };
+    }
+
+    /// <summary>
+    /// Lấy display name cho host: ưu tiên FirstName + LastName, fallback Username.
+    /// </summary>
+    private static string GetHostDisplayName(User? host)
+    {
+        if (host == null) return string.Empty;
+        var profile = host.Profile;
+        if (profile != null)
+        {
+            var firstName = profile.FirstName?.Trim() ?? "";
+            var lastName = profile.LastName?.Trim() ?? "";
+            if (!string.IsNullOrEmpty(firstName) || !string.IsNullOrEmpty(lastName))
+            {
+                return $"{firstName} {lastName}".Trim();
+            }
+        }
+        return host.Username ?? string.Empty;
     }
 
     private async Task ExecuteCompleteAndCaptureTransactionAsync(

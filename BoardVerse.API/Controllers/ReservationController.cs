@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Reservation;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -150,6 +151,48 @@ public class ReservationController : BaseApiController
     }
 
     /// <summary>
+    /// Lấy danh sách lobby đang chờ cafe duyệt (BR-NEW-11). [Role: Cafe Manager]
+    /// Lobby có playDate > 2 ngày sẽ ở trạng thái PendingCafeApproval và cần manager duyệt.
+    /// </summary>
+    /// <param name="request">Filter theo cafeId, playDate, lobbyStatus; phân trang.</param>
+    /// <response code="200">Danh sách lobby pending approval (phân trang).</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải manager của bất kỳ cafe nào.</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpGet("pending-cafe-approval")]
+    [Authorize(Roles = "Manager,Staff")]
+    public async Task<IActionResult> GetPendingCafeApprovals([FromQuery] LobbyPendingApprovalRequestDto request)
+    {
+        var userId = GetUserIdFromClaims();
+        var result = await _reservationService.GetPendingCafeApprovalAsync(userId, request);
+        return this.NewResponse(200, "PendingCafeApprovalLobbiesRetrieved", result);
+    }
+
+    /// <summary>
+    /// Lấy chi tiết một reservation đang chờ cafe duyệt (BR-NEW-11). [Role: Cafe Manager]
+    /// </summary>
+    /// <param name="reservationId">Id reservation cần xem chi tiết.</param>
+    /// <response code="200">Chi tiết reservation pending approval.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải manager của cafe.</response>
+    /// <response code="404">Không tìm thấy reservation hoặc reservation không ở trạng thái PendingCafeApproval.</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpGet("{reservationId:guid}/cafe-approval")]
+    [Authorize(Roles = "Manager,Staff")]
+    public async Task<IActionResult> GetPendingCafeApprovalDetail(Guid reservationId)
+    {
+        var userId = GetUserIdFromClaims();
+        var result = await _reservationService.GetPendingCafeApprovalDetailAsync(userId, reservationId);
+
+        if (result == null)
+        {
+            return this.NewResponse(404, ApiErrorMessages.Reservation.ReservationNotFound(reservationId), null);
+        }
+
+        return this.NewResponse(200, "PendingCafeApprovalDetailRetrieved", result);
+    }
+
+    /// <summary>
     /// Host hủy reservation (BR-REFUND-02/03). [Role: Player — chỉ host của reservation mới được hủy]
     /// Áp dụng policy: grace 15p chưa có member → 100%; ≥24h trước giờ chơi → 100%; 6-24h → 50%; &lt;6h → 0%.
     /// </summary>
@@ -195,6 +238,7 @@ public class ReservationController : BaseApiController
     /// <response code="404">Không tìm thấy reservation.</response>
     /// <response code="500">Lỗi hệ thống.</response>
     [HttpPost("{reservationId:guid}/cafe-approval")]
+    [Authorize(Roles = "Manager,Staff")]
     public async Task<IActionResult> CafeApproval(
         Guid reservationId,
         [FromBody] CafeApprovalRequestDto request)

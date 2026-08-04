@@ -101,8 +101,9 @@ namespace BoardVerse.API.Controllers
 
         /// <summary>
         /// Tìm phòng chờ theo game + filter địa lý + karma. Private lobby bị ẩn khỏi search. [Role: Player]
+        /// BR-USER-LIMIT-02: excludeSelfOverlapping loại bỏ các lobby trùng lịch với user.
         /// </summary>
-        /// <param name="request">GameTemplateId bắt buộc; latitude/longitude/radiusKm tùy chọn; minKarmaScore tùy chọn.</param>
+        /// <param name="request">GameTemplateId bắt buộc; latitude/longitude/radiusKm tùy chọn; minKarmaScore tùy chọn; excludeSelfOverlapping.</param>
         /// <response code="200">Danh sách phòng chờ public phù hợp, có kèm DistanceKm khi search geo.</response>
         /// <response code="400">Thiếu gameTemplateId hoặc tham số không hợp lệ.</response>
         /// <response code="401">Thiếu token.</response>
@@ -110,7 +111,8 @@ namespace BoardVerse.API.Controllers
         [HttpPost("search")]
         public async Task<IActionResult> SearchLobbies([FromBody] SearchLobbiesRequestDto request)
         {
-            var result = await _lobbyService.SearchLobbiesAsync(request);
+            var userId = GetUserIdFromClaims();
+            var result = await _lobbyService.SearchLobbiesAsync(request, userId);
             return this.NewResponse(200, ApiSuccessMessages.Lobby.LobbiesRetrieved, result);
         }
 
@@ -118,12 +120,14 @@ namespace BoardVerse.API.Controllers
         /// Khám phá các lobby public đang mở (status=Open, IsPrivate=false) để player khác có thể thấy và join.
         /// Hỗ trợ filter optional theo game và khoảng cách địa lý.
         /// Đây là API dành cho màn hình "Browse lobbies" trên mobile — không bắt buộc gameTemplateId như /search. [Role: Player]
+        /// BR-USER-LIMIT-02: excludeSelfOverlapping loại bỏ các lobby trùng lịch với user.
         /// </summary>
         /// <param name="gameTemplateId">Optional: chỉ lấy lobby của game này.</param>
         /// <param name="latitude">Optional: latitude của user (kết hợp longitude + radiusKm).</param>
         /// <param name="longitude">Optional: longitude của user.</param>
         /// <param name="radiusKm">Optional: chỉ lấy lobby trong bán kính này (km).</param>
         /// <param name="limit">Số lobby tối đa trả về (1-100, default 50).</param>
+        /// <param name="excludeSelfOverlapping">Loại bỏ lobby trùng lịch với user (BR-USER-LIMIT-02).</param>
         /// <response code="200">Danh sách lobby public đang mở, có kèm DistanceKm khi filter theo geo.</response>
         /// <response code="401">Thiếu token.</response>
         /// <response code="500">Lỗi hệ thống.</response>
@@ -133,7 +137,8 @@ namespace BoardVerse.API.Controllers
             [FromQuery] double? latitude,
             [FromQuery] double? longitude,
             [FromQuery] double? radiusKm,
-            [FromQuery] int limit = 50)
+            [FromQuery] int limit = 50,
+            [FromQuery] bool excludeSelfOverlapping = false)
         {
             if (limit < 1 || limit > 100)
             {
@@ -152,8 +157,9 @@ namespace BoardVerse.API.Controllers
                 throw new BadRequestException("radiusKm phải nằm trong khoảng (0, 500] km.");
             }
 
+            Guid? requestingUserId = excludeSelfOverlapping ? GetUserIdFromClaims() : null;
             var result = await _lobbyService.GetDiscoverableLobbiesAsync(
-                gameTemplateId, latitude, longitude, radiusKm, limit);
+                gameTemplateId, latitude, longitude, radiusKm, limit, requestingUserId);
             return this.NewResponse(200, ApiSuccessMessages.Lobby.LobbiesRetrieved, result);
         }
 

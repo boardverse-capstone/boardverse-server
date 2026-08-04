@@ -230,6 +230,73 @@ public class ReservationRepository : IReservationRepository
         return (items, totalCount);
     }
 
+    /// <summary>
+    /// BR-NEW-11: lấy lobby pending cafe approval cho manager.
+    /// Filter theo danh sách CafeId mà user quản lý.
+    /// </summary>
+    public async Task<(IReadOnlyList<Reservation> Items, int TotalCount)> GetPendingCafeApprovalAsync(
+        List<Guid> cafeIds,
+        Guid? cafeId,
+        DateOnly? playDate,
+        int page,
+        int pageSize)
+    {
+        if (cafeIds.Count == 0)
+        {
+            return ([], 0);
+        }
+
+        var query = _db.Reservations
+            .Include(r => r.Host).ThenInclude(u => u.Profile)
+            .Include(r => r.Cafe)
+            .Include(r => r.Game)
+            .Include(r => r.Lobby)
+            .Where(r => r.Lobby != null && r.Lobby.Status == LobbyStatus.PendingCafeApproval)
+            .AsQueryable();
+
+        // Filter theo cafe của manager
+        query = query.Where(r => cafeIds.Contains(r.CafeId));
+
+        // Filter theo cafe cụ thể nếu có
+        if (cafeId.HasValue)
+        {
+            query = query.Where(r => r.CafeId == cafeId.Value);
+        }
+
+        // Filter theo ngày
+        if (playDate.HasValue)
+        {
+            query = query.Where(r => r.PlayDate == playDate.Value);
+        }
+
+        // Count total
+        var totalCount = await query.CountAsync();
+
+        // Paginate
+        var items = await query
+            .OrderBy(r => r.Lobby!.CafeApprovalDeadline)
+            .ThenByDescending(r => r.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return (items, totalCount);
+    }
+
+    /// <summary>
+    /// BR-NEW-11: Lấy 1 reservation pending cafe approval theo ID.
+    /// </summary>
+    public async Task<Reservation?> GetPendingCafeApprovalByIdAsync(Guid reservationId)
+    {
+        return await _db.Reservations
+            .Include(r => r.Host).ThenInclude(u => u.Profile)
+            .Include(r => r.Cafe)
+            .Include(r => r.Game)
+            .Include(r => r.Lobby)
+            .Where(r => r.Id == reservationId && r.Lobby != null && r.Lobby.Status == LobbyStatus.PendingCafeApproval)
+            .FirstOrDefaultAsync();
+    }
+
     public Task AddAsync(Reservation reservation)
     {
         _db.Reservations.Add(reservation);

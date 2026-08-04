@@ -39,6 +39,7 @@ public class DepositCalculator
         CafeConfig cafeConfig,
         decimal walletRiskMultiplier,
         bool isCoolingOff,
+        bool isPrivateLobby,
         DateTime now)
     {
         if (request.PlayDate < DateOnly.FromDateTime(now.Date))
@@ -101,13 +102,15 @@ public class DepositCalculator
         var recruitmentDeadline = scheduledTime.AddMinutes(-DefaultLeadTimeMinutes);
         var bufferMinutes = (int)Math.Floor((recruitmentDeadline - now).TotalMinutes);
 
-        var requiresCafeApproval = distance switch
+        // BR-NEW-11: Private lobby không cần cafe duyệt (chỉ invited friends mới thấy).
+        // Public lobby mới cần cafe duyệt nếu playDate > 2 ngày.
+        var requiresCafeApproval = !isPrivateLobby && (distance switch
         {
             DistanceBucket.TwoDays => finalMaxPlayers > 10 || cafeConfig.RequireApprovalForDistant,
             DistanceBucket.ThreeToFourDays => true,
             DistanceBucket.FiveToSevenDays => true,
             _ => false
-        };
+        });
 
         return new DepositQuoteResult
         {

@@ -48,6 +48,22 @@ public interface IReservationRepository
     Task<IReadOnlyList<Reservation>> GetDueForNoShowAsync(DateTime cutoff, int limit = 100);
 
     /// <summary>
+    /// BR-NEW-11: lấy lobby pending cafe approval cho manager.
+    /// Filter theo danh sách CafeId mà user quản lý.
+    /// </summary>
+    Task<(IReadOnlyList<Reservation> Items, int TotalCount)> GetPendingCafeApprovalAsync(
+        List<Guid> cafeIds,
+        Guid? cafeId,
+        DateOnly? playDate,
+        int page,
+        int pageSize);
+
+    /// <summary>
+    /// BR-NEW-11: Lấy 1 reservation pending cafe approval theo ID.
+    /// </summary>
+    Task<Reservation?> GetPendingCafeApprovalByIdAsync(Guid reservationId);
+
+    /// <summary>
     /// BR-NEW-05: đếm số lần tạo + hủy của host cho cùng playDate.
     /// </summary>
     Task<int> CountHostActionsForPlayDateAsync(Guid hostId, DateOnly playDate);

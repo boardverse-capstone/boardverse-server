@@ -23,7 +23,7 @@ Tuân thủ business rules:
 - **BR-USER-LIMIT-01..05**: 1 host lobby + 1 member lobby = tối đa 2 active; cap tổng heldBalance.
 - **BR-NEW-02**: 1 lobby active / `playDate` / user.
 - **BR-NEW-08**: 1 lobby active / `playDate+timeSlot` / `cafe` / user.
-- **BR-NEW-11**: `playDate ≥ DistantThresholdDays` (mặc định 2) → lobby ở `PendingCafeApproval`, chờ cafe duyệt 24h.
+- **BR-NEW-11**: `playDate ≥ DistantThresholdDays` (mặc định 2) + lobby **public** → lobby ở `PendingCafeApproval`, chờ cafe duyệt 24h. Lobby **private** không cần cafe duyệt.
 - **BR-REFUND-02/03**: Cancel theo mốc 24h/6h + grace 15 phút.
 - **BR-RESERVATION-01/02**: Giữ `maxPlayers` ghế + 1 game copy.
 
@@ -33,6 +33,8 @@ Tuân thủ business rules:
 
 - [GET /{id}](#get-id)
 - [GET /](#get-)
+- [GET /pending-cafe-approval](#get-pending-cafe-approval)
+- [GET /{id}/cafe-approval](#get-idcafe-approval)
 - [POST /quote](#post-quote)
 - [POST /confirm](#post-confirm)
 - [POST /{id}/cancel](#post-idcancel)
@@ -79,6 +81,7 @@ Lấy chi tiết một reservation.
     "lobbyId": "...",
     "lobbyShareCode": "K7H3NP9X",
     "lobbyStatus": "Open",
+    "cafeRejectionReason": null,
     "requiresCafeApproval": false,
     "cafeApprovalDeadline": null,
     "createdAt": "2026-08-02T15:30:00Z",
@@ -86,6 +89,26 @@ Lấy chi tiết một reservation.
   }
 }
 ```
+
+**Ví dụ khi bị cafe từ chối** (`status = CancelledByCafe`):
+
+```json
+{
+  "statusCode": 200,
+  "message": "ReservationRetrieved",
+  "data": {
+    "id": "...",
+    "status": "CancelledByCafe",
+    "lobbyStatus": "RejectedByCafe",
+    "cafeRejectionReason": "Quán đông, không nhận thêm khách",
+    "depositAmount": 120000,
+    "refundPolicyApplied": "BR-REFUND-04",
+    ...
+  }
+}
+```
+
+> **Lưu ý:** Khi `status = CancelledByCafe`, `cafeRejectionReason` chứa lý do cafe từ chối. Player có thể filter `GET /reservations?statuses=CancelledByCafe` để xem danh sách reservation bị từ chối.
 
 ### Lỗi thường gặp
 
@@ -166,6 +189,123 @@ Lấy danh sách reservation của user (host hoặc member). Có filter + phân
 
 ---
 
+## GET /pending-cafe-approval
+
+Lấy danh sách lobby đang chờ cafe duyệt (BR-NEW-11). Dùng cho dashboard của Cafe Manager.
+
+### Request
+
+- Method: `GET`
+- Path: `/api/v1/reservations/pending-cafe-approval`
+- Auth: Cafe Manager (JWT)
+
+### Query
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `cafeId` | guid | No | Filter theo cafe cụ thể |
+| `playDate` | date | No | Filter theo ngày. Mặc định hôm nay |
+| `page` | int | No | Số trang (≥ 1). Mặc định 1 |
+| `pageSize` | int | No | Số item/trang (1-50). Mặc định 20 |
+
+### Response 200
+
+```json
+{
+  "statusCode": 200,
+  "message": "PendingCafeApprovalLobbiesRetrieved",
+  "data": {
+    "items": [
+      {
+        "reservationId": "...",
+        "lobbyId": "...",
+        "hostId": "...",
+        "hostName": "Player A",
+        "hostPhone": "0912345678",
+        "cafeId": "...",
+        "cafeName": "BoardGame Cafe A",
+        "gameId": "...",
+        "gameName": "Catan",
+        "playDate": "2026-08-07",
+        "timeSlot": "evening",
+        "timeSlotDisplay": "Tối (18:00 - 23:00)",
+        "minPlayers": 4,
+        "maxPlayers": 6,
+        "currentPlayers": 1,
+        "depositAmount": 120000,
+        "scheduledTime": "2026-08-07T18:00:00Z",
+        "cafeApprovalDeadline": "2026-08-05T18:00:00Z",
+        "remainingApprovalHours": 24,
+        "createdAt": "2026-08-04T10:00:00Z"
+      }
+    ],
+    "page": 1,
+    "pageSize": 20,
+    "totalCount": 3,
+    "totalPages": 1
+  }
+}
+```
+
+### Lỗi thường gặp
+
+| Status | Message |
+|--------|---------|
+| `401` | Thiếu token |
+| `403` | Không phải manager của bất kỳ cafe nào |
+
+---
+
+## GET /{id}/cafe-approval
+
+Lấy chi tiết một reservation đang chờ cafe duyệt (BR-NEW-11). Dùng để xem thông tin đầy đủ trước khi duyệt/từ chối.
+
+### Request
+
+- Method: `GET`
+- Path: `/api/v1/reservations/{reservationId}/cafe-approval`
+- Auth: Cafe Manager (JWT)
+
+### Response 200
+
+```json
+{
+  "statusCode": 200,
+  "message": "PendingCafeApprovalDetailRetrieved",
+  "data": {
+    "reservationId": "...",
+    "lobbyId": "...",
+    "hostId": "...",
+    "hostName": "Player A",
+    "cafeId": "...",
+    "cafeName": "BoardGame Cafe A",
+    "gameId": "...",
+    "gameName": "Catan",
+    "playDate": "2026-08-07",
+    "timeSlot": "evening",
+    "timeSlotDisplay": "Tối (18:00 - 23:00)",
+    "minPlayers": 4,
+    "maxPlayers": 6,
+    "currentPlayers": 1,
+    "depositAmount": 120000,
+    "scheduledTime": "2026-08-07T18:00:00Z",
+    "cafeApprovalDeadline": "2026-08-05T18:00:00Z",
+    "remainingApprovalHours": 24,
+    "createdAt": "2026-08-04T10:00:00Z"
+  }
+}
+```
+
+### Lỗi thường gặp
+
+| Status | Message |
+|--------|---------|
+| `401` | Thiếu token |
+| `403` | Không phải manager của cafe này |
+| `404` | Không tìm thấy reservation hoặc reservation không ở trạng thái PendingCafeApproval |
+
+---
+
 ## POST /quote
 
 Tạo quote cho reservation. **KHÔNG tạo row DB** — chỉ validate + tính cọc.
@@ -187,6 +327,7 @@ Tạo quote cho reservation. **KHÔNG tạo row DB** — chỉ validate + tính 
   "preferredStartTime": "19:30",
   "minPlayers": 4,
   "maxPlayers": 6,
+  "isPrivate": false,
   "idempotencyKey": "quote-abc-12345"
 }
 ```
@@ -200,6 +341,7 @@ Tạo quote cho reservation. **KHÔNG tạo row DB** — chỉ validate + tính 
 | `preferredStartTime` | time | No | Phải nằm trong `[timeSlot.startTime, timeSlot.endTime]`. |
 | `minPlayers` | int | Yes | ≥ 2. |
 | `maxPlayers` | int | Yes | `minPlayers ≤ maxPlayers`. |
+| `isPrivate` | bool | No | `false` = public lobby (có thể cần cafe duyệt). `true` = private lobby (mời bạn, không cần cafe duyệt). Mặc định `false`. |
 | `idempotencyKey` | string | Yes | 8–128 ký tự. Idempotent theo key. |
 
 ### Response 200
@@ -277,6 +419,7 @@ Confirm reservation — atomic transaction. Trừ BVC + giữ seat + giữ game 
   "preferredStartTime": "19:30",
   "minPlayers": 4,
   "maxPlayers": 6,
+  "isPrivate": false,
   "expectedFinalDeposit": 100000,
   "idempotencyKey": "confirm-abc-12345"
 }
@@ -301,7 +444,8 @@ Lưu ý: `expectedFinalDeposit` phải khớp với `finalDeposit` từ quote. S
 }
 ```
 
-Nếu `requiresCafeApproval: true`, lobby ở `PendingCafeApproval` cho đến khi cafe duyệt hoặc hết 24h (`expiredByCafe` + refund 100% BVC).
+Nếu `requiresCafeApproval: true` (public lobby, playDate > 2 ngày), lobby ở `PendingCafeApproval` cho đến khi cafe duyệt hoặc hết 24h (`expiredByCafe` + refund 100% BVC).
+Nếu `isPrivate: true`, lobby không cần cafe duyệt dù playDate cách xa.
 
 ### Lỗi thường gặp
 
@@ -378,7 +522,7 @@ Host hủy reservation. Refund theo BR-REFUND-02/03.
 
 ## POST /{id}/cafe-approval
 
-Cafe duyệt hoặc từ chối lobby đang chờ (BR-NEW-11).
+Cafe **chấp nhận** (`approve: true`) hoặc **từ chối** (`approve: false`) lobby đang chờ (BR-NEW-11).
 
 ### Request
 
@@ -388,17 +532,26 @@ Cafe duyệt hoặc từ chối lobby đang chờ (BR-NEW-11).
 
 ### Body
 
+**Chấp nhận lobby:**
+
 ```json
 { "approve": true, "reason": null }
 ```
 
-hoặc từ chối:
+**Từ chối lobby:**
 
 ```json
-{ "approve": false, "reason": "Quán đông, không nhận thêm" }
+{ "approve": false, "reason": "Quán đông, không nhận thêm khách" }
 ```
 
+| Field | Required | Description |
+|-------|----------|-------------|
+| `approve` | ✅ | `true` = chấp nhận, `false` = từ chối |
+| `reason` | ❌ | Lý do từ chối (ghi vào audit log) |
+
 ### Response 200
+
+**Khi chấp nhận:**
 
 ```json
 {
@@ -414,7 +567,23 @@ hoặc từ chối:
 }
 ```
 
-Khi từ chối: `lobbyStatus = "RejectedByCafe"`, `refundBvc = finalDeposit`, status reservation → `CancelledByCafe`.
+**Khi từ chối:**
+
+```json
+{
+  "statusCode": 200,
+  "message": "ReservationCafeRejected",
+  "data": {
+    "reservationId": "...",
+    "lobbyId": "...",
+    "lobbyStatus": "RejectedByCafe",
+    "approved": false,
+    "refundBvc": 120000
+  }
+}
+```
+
+> Khi từ chối: lobby chuyển sang `RejectedByCafe`, refund **100% BVC** về ví host.
 
 ### Lỗi thường gặp
 

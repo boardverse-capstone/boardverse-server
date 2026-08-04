@@ -193,6 +193,7 @@ Tra cứu chi tiết phòng: thông tin, danh sách members, booking liên kết
 ## POST /api/v1/lobbies/search
 
 Tìm phòng chờ đang mở theo tựa game + location + Karma filter (BR-10).
+BR-USER-LIMIT-02: Nếu `excludeSelfOverlapping = true`, loại bỏ các lobby trùng lịch với user (+30 phút buffer).
 
 **Role:** Player
 
@@ -204,7 +205,8 @@ Tìm phòng chờ đang mở theo tựa game + location + Karma filter (BR-10).
   "latitude": 10.776889,
   "longitude": 106.700806,
   "radiusKm": 5,
-  "minKarmaScore": 80
+  "minKarmaScore": 80,
+  "excludeSelfOverlapping": true
 }
 ```
 
@@ -215,6 +217,7 @@ Tìm phòng chờ đang mở theo tựa game + location + Karma filter (BR-10).
 | `longitude` | ❌ | Kinh độ |
 | `radiusKm` | ❌ | Bán kính tìm kiếm (km) |
 | `minKarmaScore` | ❌ | Karma tối thiểu (BR-10, mặc định 0) |
+| `excludeSelfOverlapping` | ❌ | Loại bỏ lobby trùng lịch với user (BR-USER-LIMIT-02). Mặc định `false` |
 
 **Response 200:** danh sách `LobbyResponseDto`.
 
@@ -232,6 +235,8 @@ Khám phá tất cả lobby **public + đang mở** (`IsPrivate = false`, `Statu
 
 Khác với `POST /search`, endpoint này **không bắt buộc `gameTemplateId`** — phù hợp cho màn hình "Browse lobbies" trên mobile. Có thể filter optional theo game + bán kính địa lý, sort theo khoảng cách khi có geo.
 
+BR-USER-LIMIT-02: Nếu `excludeSelfOverlapping = true`, loại bỏ các lobby trùng lịch với user (+30 phút buffer).
+
 **Role:** Player — đã đăng nhập
 
 **Query params:**
@@ -243,11 +248,12 @@ Khác với `POST /search`, endpoint này **không bắt buộc `gameTemplateId`
 | `longitude` | ❌ | Kinh độ của user |
 | `radiusKm` | ❌ | Bán kính (km), `(0, 500]` |
 | `limit` | ❌ | Số lobby tối đa, `1–100`, mặc định `50` |
+| `excludeSelfOverlapping` | ❌ | Loại bỏ lobby trùng lịch với user (BR-USER-LIMIT-02). Mặc định `false` |
 
 **Ví dụ:**
 
 ```http
-GET /api/v1/lobbies/discoverable?gameTemplateId=44444444-4444-4444-4444-444444444444&latitude=10.78&longitude=106.70&radiusKm=10&limit=20
+GET /api/v1/lobbies/discoverable?gameTemplateId=44444444-4444-4444-4444-444444444444&latitude=10.78&longitude=106.70&radiusKm=10&limit=20&excludeSelfOverlapping=true
 Authorization: Bearer <jwt>
 ```
 
@@ -258,6 +264,7 @@ Authorization: Bearer <jwt>
 - Lobby status khác `Open` (Full / InProgress / TimeoutFailed / Closed / HostCancelled) bị loại.
 - Nếu có geo: áp dụng bounding-box pre-filter ở DB, sau đó Haversine precise + filter `distanceKm <= radiusKm`, sort theo distance asc.
 - Không có geo: sort theo `CreatedAt` desc.
+- Nếu `excludeSelfOverlapping = true`: loại bỏ các lobby trùng `playDate + timeSlot` với lịch hiện tại của user (+30 phút buffer).
 
 **Response codes:**
 - `200` — Trả về danh sách (có thể rỗng)
@@ -325,8 +332,17 @@ Giải phóng `Reservation` về `Holding` (nếu có) để host tạo lobby m�
 - `401` — Thiếu token
 - `403` — Không phải Host
 - `404` — Không tìm thấy phòng
-- `409` — Lobby đã đóng hoặc đang trong phiên chơi
+- `409` — Lobby đang ở trạng thái không cho phép dissolve (xem danh sách bên dưới)
 - `500` — Lỗi hệ thống
+
+**Response 409 — Lobby đang ở trạng thái không cho phép dissolve:**
+
+```json
+{
+  "statusCode": 409,
+  "message": "Không thể giải tán lobby ở trạng thái 'InProgress'. Phòng đã đóng hoặc đang trong phiên chơi."
+}
+```
 
 **Side effect:**
 - Hard delete: `Lobby` + `LobbyMember` + `LobbyMessage` + `LobbyInvite` + `LobbyReport`.
@@ -764,6 +780,18 @@ stateDiagram-v2
 | `Closed` | Hoàn tất | — |
 | `TimeoutFailed` | Hết hạn không đủ người | BR-08 |
 | `HostCancelled` | Host hủy | — |
+
+### Trạng thái mới (BR-NEW-11)
+
+| State | Description | Triển khai |
+|-------|-------------|-------------|
+| `PendingActivation` | Lobby đang được tạo trong atomic transaction | `ReservationService.ConfirmAsync` |
+| `PendingCafeApproval` | Chờ cafe duyệt (playDate > 2 ngày) | `HandleCafeApprovalAsync` |
+| `RejectedByCafe` | Cafe từ chối lobby | Hoàn 100% BVC, `CancelledByCafe` |
+| `ExpiredByCafe` | Cafe không duyệt trong 24h | Hoàn 100% BVC, `CancelledByCafe` |
+| `Viable` | Đạt minPlayers, vẫn nhận thêm | — |
+
+> **Chi tiết Cafe Approval:** Xem [reservation.md](./reservation.md#get-idcafe-approval)
 
 ---
 
