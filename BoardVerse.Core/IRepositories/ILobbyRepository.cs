@@ -97,6 +97,12 @@ public interface ILobbyRepository
 
     Task UpdateAsync(Lobby lobby);
 
+    /// <summary>
+    /// Hard-delete lobby và toàn bộ records phụ thuộc (members, messages, invites, reports).
+    /// Dùng cho dissolve — chỉ host mới được gọi.
+    /// </summary>
+    Task RemoveAsync(Lobby lobby);
+
     Task SaveChangesAsync();
 }
 }

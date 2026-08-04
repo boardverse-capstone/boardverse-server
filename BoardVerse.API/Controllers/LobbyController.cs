@@ -177,6 +177,27 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
+        /// Host giải tán lobby — hard delete toàn bộ records (Lobby + Members + Messages + Invites + Reports).
+        /// Chỉ host mới được gọi. Không áp dụng khi lobby đã check-in tại quán hoặc đã đóng/rating.
+        /// Giải phóng reservation về Holding để host tạo lobby mới cùng slot. [Role: Player — chỉ Host]
+        /// </summary>
+        /// <param name="lobbyId">Mã phòng chờ.</param>
+        /// <param name="request">Lý do giải tán (optional).</param>
+        /// <response code="200">Phòng chờ đã giải tán.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không phải Host.</response>
+        /// <response code="404">Không tìm thấy phòng chờ.</response>
+        /// <response code="409">Phòng đã đóng hoặc đang trong phiên chơi, không thể giải tán.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpDelete("{lobbyId:guid}")]
+        public async Task<IActionResult> DissolveLobby(Guid lobbyId, [FromBody] DissolveLobbyRequestDto? request)
+        {
+            var userId = GetUserIdFromClaims();
+            var result = await _lobbyService.DissolveLobbyAsync(lobbyId, userId, request?.Reason);
+            return this.NewResponse(200, "Phòng chờ đã được giải tán.", result);
+        }
+
+        /// <summary>
         /// Khóa phòng chờ để bắt đầu ghép đội. Chuyển OPEN → FULL.
         /// Phải đạt MinPlayers. [Role: Player — chỉ Host]
         /// </summary>
@@ -390,6 +411,14 @@ namespace BoardVerse.API.Controllers
     }
 
     public class CloseLobbyRequestDto
+    {
+        public string? Reason { get; set; }
+    }
+
+    /// <summary>
+    /// Request body cho dissolve lobby (DELETE /api/v1/lobbies/{lobbyId}).
+    /// </summary>
+    public class DissolveLobbyRequestDto
     {
         public string? Reason { get; set; }
     }

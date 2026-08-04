@@ -462,3 +462,204 @@ Idempotent theo `IdempotencyKey` (BR § XVII.1).
 - `AdminDebit` với số dư không đủ → 400 (không cho phép âm).
 - Auto-create ví rỗng cho user chưa có ví trước khi cộng/trừ.
 - Nếu idempotencyKey đã tồn tại → trả kết quả cũ (no double-mutate).
+
+---
+
+## Admin — Wallet Listing
+
+**Controller:** `AdminWalletController.cs` (`/api/v1/admin/wallet`)
+**Role:** Admin (theo BR-RISK-07).
+**Auth:** `[Authorize(Roles = "Admin")]`.
+
+### GET `/api/v1/admin/wallet`
+
+Lấy danh sách tất cả wallets (phân trang, filter).
+
+**Query Parameters:**
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `page` | int | ❌ | `1` | Số trang. |
+| `pageSize` | int | ❌ | `20` | Số item / trang (max `100`). |
+| `searchTerm` | string | ❌ | `null` | Tìm theo email, full name, hoặc userId. |
+| `statusFilter` | `AccountStatus` | ❌ | `null` | Lọc theo trạng thái tài khoản. |
+| `riskLevelFilter` | `RiskLevel` | ❌ | `null` | Lọc theo mức rủi ro. |
+
+**Enum values:**
+
+- `AccountStatus`: `Active` (0), `Warning` (1), `Restricted` (2), `Suspended` (3), `Banned` (4).
+- `RiskLevel`: `Low` (0), `Medium` (1), `High` (2), `Critical` (3).
+
+**Response `200`:**
+
+```json
+{
+  "items": [
+    {
+      "userId": "<guid>",
+      "userEmail": "player@example.com",
+      "availableBalance": 1500,
+      "heldBalance": 200,
+      "totalActiveDeposit": 200,
+      "riskMultiplier": 1.0,
+      "riskLevel": "Low",
+      "isCoolingOff": false,
+      "accountStatus": "Active",
+      "createdAt": "2026-07-15T10:00:00Z"
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "totalItems": 47,
+  "totalPages": 3
+}
+```
+
+**Error:**
+
+| Status | Mô tả |
+|--------|--------|
+| `401` | Thiếu token. |
+| `403` | Không phải Admin. |
+
+---
+
+### GET `/api/v1/admin/wallet/{userId}`
+
+Lấy chi tiết wallet của 1 user (bao gồm thông tin user + risk profile).
+
+**Path Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `userId` | Guid | UserId cần xem. |
+
+**Response `200`:**
+
+```json
+{
+  "userId": "<guid>",
+  "userEmail": "player@example.com",
+  "userPhoneNumber": "+84xxxxxxxxx",
+  "availableBalance": 1500,
+  "heldBalance": 200,
+  "totalActiveDeposit": 200,
+  "riskMultiplier": 1.0,
+  "riskScore": 25,
+  "riskLevel": "Low",
+  "isCoolingOff": false,
+  "coolingOffExpiresAt": null,
+  "accountStatus": "Active",
+  "createdAt": "2026-07-15T10:00:00Z",
+  "updatedAt": "2026-08-01T14:30:00Z"
+}
+```
+
+**Error:**
+
+| Status | Mô tả |
+|--------|--------|
+| `404` | User không có ví BVC. |
+
+---
+
+### GET `/api/v1/admin/wallet/{userId}/transactions`
+
+Lấy lịch sử ledger entries của 1 user (phân trang). Dùng để đối soát, kiểm tra hành vi user.
+
+**Path Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `userId` | Guid | UserId cần xem lịch sử. |
+
+**Query Parameters:**
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `page` | int | ❌ | `1` | Số trang. |
+| `pageSize` | int | ❌ | `20` | Số item / trang (max `100`). |
+
+**Response `200`:**
+
+```json
+{
+  "userId": "<guid>",
+  "userDisplayName": "player@example.com",
+  "items": [
+    {
+      "id": "<guid>",
+      "type": "TopUp",
+      "amount": 100,
+      "balanceSnapshot": 600,
+      "relatedPaymentRef": "BVC-...",
+      "createdAt": "2026-08-01T14:30:00Z"
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "totalItems": 12,
+  "totalPages": 1
+}
+```
+
+---
+
+### POST `/api/v1/admin/wallet/set-status`
+
+Thay đổi `AccountStatus` của 1 user (Active / Warning / Restricted / Suspended / Banned).
+**Ghi `PlayerActionHistory` audit log vĩnh viễn** (BR-RISK-05).
+
+**Body:**
+
+```json
+{
+  "targetUserId": "<guid>",
+  "newStatus": "Suspended",
+  "reason": "Risk score vượt 85 do spam lobby liên tục trong 7 ngày",
+  "expiresAt": "2026-08-10T14:30:00Z",
+  "idempotencyKey": "uuid-v4"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `targetUserId` | Guid | ✅ | UserId của player. |
+| `newStatus` | `AccountStatus` | ✅ | Trạng thái mới (xem enum ở GET list). |
+| `reason` | string | ✅ | Lý do — 5-512 ký tự, **bắt buộc** cho audit (BR-RISK-05). |
+| `expiresAt` | DateTime? | ❌ | Áp dụng khi `newStatus = Suspended`. Null = khóa vĩnh viễn (chỉ Senior Admin mới được). |
+| `idempotencyKey` | string | ✅ | 8-128 ký tự. UNIQUE. |
+
+**Response `200`:**
+
+```json
+{
+  "targetUserId": "<guid>",
+  "previousStatus": "Active",
+  "newStatus": "Suspended",
+  "expiresAt": "2026-08-10T14:30:00Z",
+  "changedAt": "2026-08-03T22:45:00Z"
+}
+```
+
+**Error:**
+
+| Status | Mô tả |
+|--------|--------|
+| `400` | `reason` rỗng / quá ngắn; `expiresAt` không hợp lệ. |
+| `404` | User không tồn tại. |
+
+**Hành vi sau khi đổi status (BR-RISK-04):**
+
+| `AccountStatus` | Tạo lobby | Join lobby | Top-up | Login |
+|-----------------|-----------|------------|--------|-------|
+| `Active` | ✅ | ✅ | ✅ | ✅ |
+| `Warning` | ✅ (cọc ×2) | ✅ | ✅ | ✅ |
+| `Restricted` | ❌ | ✅ | ✅ | ✅ |
+| `Suspended` | ❌ | ❌ | ❌ | ✅ |
+| `Banned` | ❌ | ❌ | ❌ | ❌ |
+
+**Lưu ý:**
+- `Suspended` với `expiresAt` → tự mở khóa khi đến hạn (BR-RISK-06, scheduler `suspension_expiry_check`).
+- `Banned` không tự hết hạn — chỉ Senior Admin (BR-RISK-07) mới có quyền set.
+- Mọi action đều ghi `PlayerActionHistory` với `actionBy`, `reason`, `metadata`, `expiresAt` — audit log vĩnh viễn.

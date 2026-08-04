@@ -46,6 +46,13 @@ namespace BoardVerse.Services.IServices
         /// </summary>
         Task<LobbyResponseDto> CloseLobbyAsync(Guid lobbyId, Guid hostUserId, string? reason = null);
 
+        /// <summary>
+        /// Host giải tán lobby — hard delete toàn bộ records (Lobby + Members + Messages + Invites + Reports).
+        /// Chỉ áp dụng khi lobby chưa check-in tại quán (status ≠ InProgress/Closed/RatingOpen).
+        /// Giải phóng reservation → Holding (nếu có) để host có thể tạo lobby mới cùng slot.
+        /// </summary>
+        Task<DissolveLobbyResponseDto> DissolveLobbyAsync(Guid lobbyId, Guid hostUserId, string? reason = null);
+
         Task<LobbyResponseDto> LockLobbyAsync(Guid lobbyId, Guid hostUserId);
         Task<LobbyResponseDto> OpenKarmaWindowAsync(Guid lobbyId, Guid hostUserId);
         Task<LobbyResponseDto> TransitionToInProgressAsync(Guid lobbyId, Guid? activeSessionId);

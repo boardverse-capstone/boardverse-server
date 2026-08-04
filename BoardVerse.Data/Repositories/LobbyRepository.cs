@@ -366,6 +366,19 @@ namespace BoardVerse.Data.Repositories
             return Task.CompletedTask;
         }
 
+        public async Task RemoveAsync(Lobby lobby)
+        {
+            _db.LobbyMembers.RemoveRange(lobby.Members);
+            _db.LobbyMessages.Where(m => m.LobbyId == lobby.Id);
+            var messages = await _db.LobbyMessages.Where(m => m.LobbyId == lobby.Id).ToListAsync();
+            _db.LobbyMessages.RemoveRange(messages);
+            var invites = await _db.LobbyInvites.Where(i => i.LobbyId == lobby.Id).ToListAsync();
+            _db.LobbyInvites.RemoveRange(invites);
+            var reports = await _db.LobbyReports.Where(r => r.LobbyId == lobby.Id).ToListAsync();
+            _db.LobbyReports.RemoveRange(reports);
+            _db.Lobbies.Remove(lobby);
+        }
+
         public Task SaveChangesAsync()
         {
             return _db.SaveChangesAsync();

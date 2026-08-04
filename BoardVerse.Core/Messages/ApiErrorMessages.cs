@@ -1361,6 +1361,9 @@ namespace BoardVerse.Core.Messages
             public const string OnlyHostCanLock =
                 "Chỉ Host mới có thể khóa phòng chờ.";
 
+            public const string OnlyHostCanDissolve =
+                "Chỉ Host mới có thể giải tán phòng chờ.";
+
             public const string LobbyNotOpenForLock =
                 "Phòng chờ không ở trạng thái mở.";
 
@@ -1420,6 +1423,9 @@ namespace BoardVerse.Core.Messages
 
             public const string SeatInventoryFull =
                 "Số thành viên đã vượt quá số ghế cho phép.";
+
+            public static string DissolveInvalidState(object currentStatus) =>
+                $"Không thể giải tán lobby ở trạng thái '{currentStatus}'. Phòng đã đóng hoặc đang trong phiên chơi.";
         }
 
         // ===== BR-NEW-* § XXI-G Phase 2/3 =====

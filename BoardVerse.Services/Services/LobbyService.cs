@@ -26,7 +26,9 @@ namespace BoardVerse.Services.Services
         private readonly ILobbyInviteRepository _lobbyInviteRepository;
         private readonly ILobbyHubService _hubService;
         private readonly ILobbyMessageService _lobbyMessageService;
+        private readonly ILobbyMessageRepository _lobbyMessageRepository;
         private readonly IFriendshipRepository _friendshipRepository;
+        private readonly IReservationRepository _reservationRepository;
         private readonly EligibilityValidator _eligibilityValidator;
 
         public LobbyService(
@@ -36,7 +38,9 @@ namespace BoardVerse.Services.Services
             ILobbyInviteRepository lobbyInviteRepository,
             ILobbyHubService hubService,
             ILobbyMessageService lobbyMessageService,
+            ILobbyMessageRepository lobbyMessageRepository,
             IFriendshipRepository friendshipRepository,
+            IReservationRepository reservationRepository,
             EligibilityValidator eligibilityValidator)
         {
             _lobbyRepository = lobbyRepository;
@@ -45,7 +49,9 @@ namespace BoardVerse.Services.Services
             _lobbyInviteRepository = lobbyInviteRepository;
             _hubService = hubService;
             _lobbyMessageService = lobbyMessageService;
+            _lobbyMessageRepository = lobbyMessageRepository;
             _friendshipRepository = friendshipRepository;
+            _reservationRepository = reservationRepository;
             _eligibilityValidator = eligibilityValidator;
         }
 
@@ -554,6 +560,71 @@ namespace BoardVerse.Services.Services
             await _lobbyMessageService.AddSystemMessageAsync(lobby.Id, $"Phòng chờ đã đóng: {lobby.ClosedReason}");
 
             return MapLobbyDto(lobby, null);
+        }
+
+        /// <summary>
+        /// Host giải tán lobby — hard delete toàn bộ records (Lobby + Members + Messages + Invites + Reports).
+        /// Chỉ áp dụng khi lobby chưa check-in tại quán.
+        /// Giải phóng reservation → Holding để host có thể tạo lobby mới cùng slot.
+        /// </summary>
+        public async Task<DissolveLobbyResponseDto> DissolveLobbyAsync(Guid lobbyId, Guid hostUserId, string? reason = null)
+        {
+            var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
+                ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
+
+            var host = lobby.Members.FirstOrDefault(m => m.UserId == hostUserId && m.IsHost && m.IsActive);
+            if (host == null)
+            {
+                throw new ForbiddenException(ApiErrorMessages.Lobby.OnlyHostCanDissolve);
+            }
+
+            // Không cho phép dissolve khi đã check-in / đang chơi / đã đóng / đang rating
+            if (lobby.Status == LobbyStatus.InProgress
+                || lobby.Status == LobbyStatus.Closed
+                || lobby.Status == LobbyStatus.RatingOpen
+                || lobby.Status == LobbyStatus.HostCancelled
+                || lobby.Status == LobbyStatus.TimeoutFailed
+                || lobby.Status == LobbyStatus.RejectedByCafe
+                || lobby.Status == LobbyStatus.ExpiredByCafe)
+            {
+                throw new ConflictException(
+                    ApiErrorMessages.Lobby.DissolveInvalidState(lobby.Status));
+            }
+
+            var reservationId = lobby.ReservationId;
+            var dissolvedAt = DateTime.UtcNow;
+
+            // 1. Cancel pending invites
+            await _lobbyInviteRepository.CancelAllPendingForLobbyAsync(lobbyId);
+
+            // 2. Hard-delete messages (dùng repo trực tiếp)
+            await _lobbyMessageRepository.RemoveByLobbyAsync(lobbyId);
+
+            // 3. Hard-delete lobby + members + invites + reports
+            await _lobbyRepository.RemoveAsync(lobby);
+
+            await _lobbyRepository.SaveChangesAsync();
+
+            // 4. Giải phóng reservation về Holding nếu có
+            if (reservationId.HasValue)
+            {
+                var reservation = await _reservationRepository.GetByIdAsync(reservationId.Value);
+                if (reservation != null && reservation.Status == ReservationStatus.Confirmed)
+                {
+                    reservation.Status = ReservationStatus.Holding;
+                    reservation.UpdatedAt = dissolvedAt;
+                    await _reservationRepository.UpdateAsync(reservation);
+                    await _reservationRepository.SaveChangesAsync();
+                }
+            }
+
+            return new DissolveLobbyResponseDto
+            {
+                LobbyId = lobbyId,
+                ReservationId = reservationId,
+                Reason = reason ?? "Host đã giải tán phòng chờ.",
+                DissolvedAt = dissolvedAt
+            };
         }
 
         public async Task<LobbyResponseDto> LockLobbyAsync(Guid lobbyId, Guid hostUserId)

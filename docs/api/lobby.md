@@ -80,7 +80,8 @@ Xem chi tiết API:
 | `/{lobbyId}/leave` | POST | Rời phòng chờ | Player |
 | `/{lobbyId}` | GET | Tra cứu chi tiết phòng | Player |
 | `/search` | POST | Tìm phòng theo tựa game + location + Karma | Player |
-| `/{lobbyId}/close` | POST | Đóng phòng (Host only) | Host |
+| `/{lobbyId}/close` | POST | Đóng phòng — chuyển status Closed (Host only) | Host |
+| `/{lobbyId}` | DELETE | Giải tán lobby — hard delete (Host only) | Host |
 | `/{lobbyId}/lock` | POST | Khóa phòng để ghép đội (Host only) | Host |
 | `/{lobbyId}/open-karma-window` | POST | Mở cửa sổ đánh giá Karma sau thanh toán (Host only) | Host |
 | `/{lobbyId}/invites` | POST | Gửi lời mời tham gia lobby | Member |
@@ -284,6 +285,58 @@ Authorization: Bearer <jwt>
 - `403` — Không phải Host
 - `404` — Không tìm thấy phòng
 - `500` — Lỗi hệ thống
+
+---
+
+## DELETE /api/v1/lobbies/{lobbyId}
+
+Host giải tán lobby — **hard delete** toàn bộ records (`Lobby`, `LobbyMember`, `LobbyMessage`, `LobbyInvite`, `LobbyReport`).
+Chỉ host được gọi. Không áp dụng khi lobby đã check-in / đang chơi / đã đóng / đang rating.
+
+Giải phóng `Reservation` về `Holding` (nếu có) để host tạo lobby mới cùng `playDate + timeSlot`.
+
+**Role:** Player — chỉ Host
+
+**Body (optional):**
+
+```json
+{
+  "reason": "Không tìm đủ người chơi"
+}
+```
+
+**Response 200:** `DissolveLobbyResponseDto`
+
+```json
+{
+  "statusCode": 200,
+  "message": "Phòng chờ đã được giải tán.",
+  "data": {
+    "lobbyId": "<guid>",
+    "reservationId": "<guid>",
+    "reason": "Không tìm đủ người chơi",
+    "dissolvedAt": "2026-08-04T10:00:00Z"
+  }
+}
+```
+
+**Response codes:**
+- `200` — Giải tán thành công
+- `401` — Thiếu token
+- `403` — Không phải Host
+- `404` — Không tìm thấy phòng
+- `409` — Lobby đã đóng hoặc đang trong phiên chơi
+- `500` — Lỗi hệ thống
+
+**Side effect:**
+- Hard delete: `Lobby` + `LobbyMember` + `LobbyMessage` + `LobbyInvite` + `LobbyReport`.
+- `Reservation.Status` chuyển về `Holding` (nếu đang `Confirmed`).
+
+**Trạng thái không cho phép dissolve:**
+- `InProgress` — đang chơi
+- `Closed` — đã đóng
+- `RatingOpen` — đang đánh giá
+- `HostCancelled` / `TimeoutFailed` / `RejectedByCafe` / `ExpiredByCafe` — đã terminal
 
 ---
 

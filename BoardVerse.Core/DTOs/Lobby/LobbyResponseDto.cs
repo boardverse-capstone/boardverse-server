@@ -48,4 +48,22 @@ namespace BoardVerse.Core.DTOs.Lobby
 
         public List<LobbyMemberDto> Members { get; set; } = new();
     }
+
+    /// <summary>
+    /// Response sau khi host giải tán lobby (hard delete).
+    /// </summary>
+    public class DissolveLobbyResponseDto
+    {
+        /// <summary>LobbyId đã bị xóa.</summary>
+        public Guid LobbyId { get; set; }
+
+        /// <summary>ReservationId liên kết (nếu có). Trạng thái reservation được chuyển về Holding.</summary>
+        public Guid? ReservationId { get; set; }
+
+        /// <summary>Lý do giải tán.</summary>
+        public string? Reason { get; set; }
+
+        /// <summary>Thời điểm giải tán.</summary>
+        public DateTime DissolvedAt { get; set; }
+    }
 }

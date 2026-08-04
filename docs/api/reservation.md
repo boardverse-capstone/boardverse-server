@@ -137,22 +137,22 @@ Lấy danh sách reservation của user (host hoặc member). Có filter + phân
         "gameName": "Catan",
         "playDate": "2026-08-04",
         "timeSlot": "evening",
-        "minPlayers": 4,
-        "maxPlayers": 6,
         "currentPlayers": 3,
+        "maxPlayers": 6,
         "depositAmount": 100000,
         "status": "Holding",
         "lobbyId": "...",
-        "lobbyShareCode": "K7H3NP9X",
         "lobbyStatus": "Open",
+        "reservationCode": "K7H3NP9X",
+        "recruitmentDeadline": "2026-08-04T17:40:00Z",
         "isHost": true,
         "createdAt": "2026-08-02T15:30:00Z"
       }
     ],
     "page": 1,
     "pageSize": 20,
-    "totalItems": 5,
-    "hasMore": false
+    "totalCount": 5,
+    "totalPages": 1
   }
 }
 ```
