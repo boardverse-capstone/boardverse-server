@@ -1446,7 +1446,7 @@ namespace BoardVerse.Core.Messages
                 "Quán chưa được cấu hình số ghế cho ngày và khung giờ này. Vui lòng liên hệ quản lý quán.";
 
             public const string GameNotInCafeInventory =
-                "Quán chưa có bản copy của game này trong kho. Vui lòng chọn game khác.";
+                "Quán chưa nhập game này vào kho. Bạn chọn game khác đi nha.";
 
             // ===== BR-RESERVATION-01: maxPlayers > capacity =====
             public static string MaxPlayersExceedsCafeCapacity(int maxPlayers, int cafeCapacity) =>
@@ -1532,7 +1532,9 @@ namespace BoardVerse.Core.Messages
                 $"Quán không đủ ghế trống ({available}/{requested}).";
 
             public static string GameCopyNotAvailable(int available) =>
-                $"Quán không còn bản copy game khả dụng (còn {available}).";
+                available <= 0
+                    ? "Quán đang không có game này để bạn chơi. Bạn chọn game khác hoặc khung giờ khác nha."
+                    : $"Quán chỉ còn {available} bản game này, không đủ cho nhóm bạn. Thử đổi sang game khác xem sao.";
 
             // ===== Cancel =====
             public static string CancelOnlyByHost =
@@ -1585,7 +1587,7 @@ namespace BoardVerse.Core.Messages
                 "Cafe này hiện không hoạt động.";
 
             public const string GameInventoryNotFound =
-                "Quán chưa có bản copy của game này trong khung giờ đã chọn.";
+                "Quán đang không có game này vào khung giờ bạn chọn để bạn chơi. Bạn thử đổi sang khung giờ khác hoặc chọn game khác nha.";
 
             public const string PreferredStartTimeOutOfRange =
                 "Giờ dự kiến không nằm trong khung giờ đã chọn.";
@@ -1672,6 +1674,15 @@ namespace BoardVerse.Core.Messages
 
             public const string CoolingOffBlockDistantLobby =
                 "Bạn đang trong thời gian cooling-off (BR-NEW-10). Chỉ có thể tạo lobby có playDate trong ngày.";
+
+            public static string CafeScheduleSlotClosed(string slotName, Guid cafeId) =>
+                $"Quán '{cafeId}' đã đóng khung giờ '{slotName}' cho ngày đã chọn. Vui lòng chọn khung giờ khác.";
+
+            public static string CafeScheduleInvalidTimeRange =>
+                "Giờ bắt đầu phải khác giờ kết thúc khi đóng slot. Nếu muốn đóng slot, vui lòng dùng IsClosed = true.";
+
+            public static string CafeScheduleOverlapInvalid =>
+                "Khung giờ override không hợp lệ: giờ bắt đầu và kết thúc không được bằng nhau (trừ khi IsClosed = true).";
         }
 
         public static class Tournament

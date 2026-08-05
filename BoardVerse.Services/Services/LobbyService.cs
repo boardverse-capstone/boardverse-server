@@ -605,17 +605,19 @@ namespace BoardVerse.Services.Services
         }
 
         /// <summary>
-        /// Tính scheduledTime từ PlayDate + TimeSlot (giống Lobby.ScheduledTime).
+        /// Tính scheduledTime từ PlayDate + TimeSlot (sync — dùng default <c>CafeSchedule</c>).
+        /// Lưu ý: nếu lobby đã có <c>CafeScheduleOverride</c>, dùng <c>Lobby.ScheduledStartTime</c>
+        /// thay vì method này (đã được lưu lúc tạo lobby qua <c>ReservationService</c>).
         /// </summary>
         private static DateTime GetScheduledTime(DateOnly playDate, TimeSlot timeSlot)
         {
             var timeOnly = timeSlot switch
             {
-                TimeSlot.Morning => new TimeOnly(9, 0),
+                TimeSlot.Morning => new TimeOnly(8, 0),
                 TimeSlot.Afternoon => new TimeOnly(13, 0),
                 TimeSlot.Evening => new TimeOnly(18, 0),
-                TimeSlot.Night => new TimeOnly(19, 0),
-                _ => new TimeOnly(9, 0)
+                TimeSlot.Night => new TimeOnly(0, 0),
+                _ => new TimeOnly(8, 0)
             };
             return playDate.ToDateTime(timeOnly);
         }

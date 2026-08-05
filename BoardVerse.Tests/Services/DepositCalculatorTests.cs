@@ -66,7 +66,7 @@ public class DepositCalculatorTests
         var config = BuildCafeConfig(ratePerPerson: 5);
 
         // Act
-        var result = _calculator.Calculate(request, config, walletRiskMultiplier: 1.0m, isCoolingOff: false, now: now);
+        var result = _calculator.Calculate(request, config, walletRiskMultiplier: 1.0m, isCoolingOff: false, isPrivateLobby: false, now: now);
 
         // Assert
         Assert.Equal(30, result.BaseDeposit); // 5 × 6
@@ -95,7 +95,7 @@ public class DepositCalculatorTests
         var config = BuildCafeConfig(ratePerPerson: 1); // rate × 6 = 6 BVC, much below minDeposit
 
         // Act
-        var result = _calculator.Calculate(request, config, 1.0m, false, now);
+        var result = _calculator.Calculate(request, config, 1.0m, false, false, now);
 
         // Assert
         Assert.Equal(expectedMinDeposit, result.MinDepositApplied);
@@ -114,7 +114,7 @@ public class DepositCalculatorTests
         var config = BuildCafeConfig(ratePerPerson: 1);
 
         // Act
-        var result = _calculator.Calculate(request, config, 1.0m, false, now);
+        var result = _calculator.Calculate(request, config, 1.0m, false, false, now);
 
         // Assert
         Assert.Equal(15, result.MaxPlayersApplied); // clamped xuống 15
@@ -131,7 +131,7 @@ public class DepositCalculatorTests
         var config = BuildCafeConfig(ratePerPerson: 1);
 
         // Act
-        var result = _calculator.Calculate(request, config, 1.0m, false, now);
+        var result = _calculator.Calculate(request, config, 1.0m, false, false, now);
 
         // Assert
         Assert.Equal(6, result.MaxPlayersApplied);
@@ -152,7 +152,7 @@ public class DepositCalculatorTests
         config.MinDeposit5To7Days = 0; // tắt minDeposit để thấy adjusted
 
         // Act
-        var result = _calculator.Calculate(request, config, walletRiskMultiplier: 1.5m, isCoolingOff: false, now: now);
+        var result = _calculator.Calculate(request, config, walletRiskMultiplier: 1.5m, isCoolingOff: false, isPrivateLobby: false, now: now);
 
         // Assert
         Assert.Equal(60, result.BaseDeposit); // 10 × 6
@@ -171,7 +171,7 @@ public class DepositCalculatorTests
         config.MinDepositSameDay = 0;
 
         // Act
-        var result = _calculator.Calculate(request, config, walletRiskMultiplier: 5.0m, false, now);
+        var result = _calculator.Calculate(request, config, walletRiskMultiplier: 5.0m, isCoolingOff: false, isPrivateLobby: false, now: now);
 
         // Assert
         Assert.Equal(2.0m, result.RiskMultiplier); // clamped
@@ -191,7 +191,7 @@ public class DepositCalculatorTests
         config.MinDepositSameDay = 0;
 
         // Act
-        var result = _calculator.Calculate(request, config, walletRiskMultiplier: 1.0m, isCoolingOff: true, now: now);
+        var result = _calculator.Calculate(request, config, walletRiskMultiplier: 1.0m, isCoolingOff: true, isPrivateLobby: false, now: now);
 
         // Assert
         Assert.Equal(2.0m, result.RiskMultiplier); // 1.0 × 2 = 2.0 (clamped at 2.0)
@@ -209,7 +209,7 @@ public class DepositCalculatorTests
         config.MinDepositSameDay = 0;
 
         // Act
-        var result = _calculator.Calculate(request, config, walletRiskMultiplier: 1.25m, isCoolingOff: true, now: now);
+        var result = _calculator.Calculate(request, config, walletRiskMultiplier: 1.25m, isCoolingOff: true, isPrivateLobby: false, now: now);
 
         // Assert
         Assert.Equal(2.0m, result.RiskMultiplier);
@@ -233,7 +233,7 @@ public class DepositCalculatorTests
         config.MinDepositSameDay = 0;
 
         // Act
-        var result = _calculator.Calculate(request, config, 1.0m, false, now);
+        var result = _calculator.Calculate(request, config, 1.0m, false, false, now);
 
         // Assert
         Assert.Equal((long)expectedAppliedRate * 6, result.BaseDeposit);
@@ -256,7 +256,7 @@ public class DepositCalculatorTests
         var config = BuildCafeConfig(ratePerPerson: 1);
 
         // Act
-        var result = _calculator.Calculate(request, config, 1.0m, false, now);
+        var result = _calculator.Calculate(request, config, 1.0m, false, false, now);
 
         // Assert
         Assert.Equal(expected, result.RequiresCafeApproval);
@@ -318,7 +318,7 @@ public class DepositCalculatorTests
         var config = BuildCafeConfig(ratePerPerson: 1);
 
         // Act
-        var result = _calculator.Calculate(request, config, 1.0m, false, now);
+        var result = _calculator.Calculate(request, config, 1.0m, false, false, now);
 
         // Assert
         Assert.Equal(40, result.BufferMinutes);
@@ -335,7 +335,7 @@ public class DepositCalculatorTests
         var config = BuildCafeConfig(ratePerPerson: 1);
 
         // Act
-        var result = _calculator.Calculate(request, config, 1.0m, false, now);
+        var result = _calculator.Calculate(request, config, 1.0m, false, false, now);
 
         // Assert
         Assert.Equal(100, result.BufferMinutes);
@@ -354,7 +354,7 @@ public class DepositCalculatorTests
 
         // Act & Assert
         Assert.Throws<ArgumentException>(() =>
-            _calculator.Calculate(request, config, 1.0m, false, now));
+            _calculator.Calculate(request, config, 1.0m, false, false, now));
     }
 
     [Fact]
@@ -367,7 +367,7 @@ public class DepositCalculatorTests
 
         // Act & Assert
         Assert.Throws<ArgumentException>(() =>
-            _calculator.Calculate(request, config, 1.0m, false, now));
+            _calculator.Calculate(request, config, 1.0m, false, false, now));
     }
 
     [Fact]
@@ -380,7 +380,7 @@ public class DepositCalculatorTests
 
         // Act & Assert
         Assert.Throws<ArgumentException>(() =>
-            _calculator.Calculate(request, config, 1.0m, false, now));
+            _calculator.Calculate(request, config, 1.0m, false, false, now));
     }
 
     [Fact]
@@ -396,6 +396,6 @@ public class DepositCalculatorTests
 
         // Act & Assert
         Assert.Throws<ArgumentException>(() =>
-            _calculator.Calculate(request, config, 1.0m, false, now));
+            _calculator.Calculate(request, config, 1.0m, false, false, now));
     }
 }

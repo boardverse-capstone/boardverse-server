@@ -39,6 +39,7 @@ public class ReservationService : IReservationService
     private readonly ILobbyRepository _lobbyRepository;
     private readonly ISeatInventoryRepository _seatInventoryRepository;
     private readonly IGameInventoryRepository _gameInventoryRepository;
+    private readonly ICafeInventoryRepository _cafeInventoryRepository;
     private readonly ICafeConfigRepository _cafeConfigRepository;
     private readonly ICafeRepository _cafeRepository;
     private readonly IUserManagementRepository _userRepository;
@@ -47,6 +48,7 @@ public class ReservationService : IReservationService
     private readonly IActiveSessionRepository _activeSessionRepository;
     private readonly DepositCalculator _depositCalculator;
     private readonly EligibilityValidator _eligibilityValidator;
+    private readonly IScheduleResolver _scheduleResolver;
     private readonly ILogger<ReservationService> _logger;
     private readonly TimeProvider _timeProvider;
 
@@ -58,6 +60,7 @@ public class ReservationService : IReservationService
         ILobbyRepository lobbyRepository,
         ISeatInventoryRepository seatInventoryRepository,
         IGameInventoryRepository gameInventoryRepository,
+        ICafeInventoryRepository cafeInventoryRepository,
         ICafeConfigRepository cafeConfigRepository,
         ICafeRepository cafeRepository,
         IUserManagementRepository userRepository,
@@ -66,6 +69,7 @@ public class ReservationService : IReservationService
         IActiveSessionRepository activeSessionRepository,
         DepositCalculator depositCalculator,
         EligibilityValidator eligibilityValidator,
+        IScheduleResolver scheduleResolver,
         ILogger<ReservationService> logger,
         TimeProvider timeProvider)
     {
@@ -76,6 +80,7 @@ public class ReservationService : IReservationService
         _lobbyRepository = lobbyRepository;
         _seatInventoryRepository = seatInventoryRepository;
         _gameInventoryRepository = gameInventoryRepository;
+        _cafeInventoryRepository = cafeInventoryRepository;
         _cafeConfigRepository = cafeConfigRepository;
         _cafeRepository = cafeRepository;
         _userRepository = userRepository;
@@ -84,6 +89,7 @@ public class ReservationService : IReservationService
         _activeSessionRepository = activeSessionRepository;
         _depositCalculator = depositCalculator;
         _eligibilityValidator = eligibilityValidator;
+        _scheduleResolver = scheduleResolver;
         _logger = logger;
         _timeProvider = timeProvider;
     }
@@ -116,17 +122,32 @@ public class ReservationService : IReservationService
             request.TimeSlot,
             cafeConfig.Capacity);
 
+        // Ensure GameInventory tồn tại (BR-RESERVATION-02).
+        // TotalCopies lấy từ CafeGameInventory.BoxQuantity (số box khả dụng của cafe cho game này).
+        // Nếu cafe chưa add game vào inventory → dùng fallback 1 copy để quote vẫn chạy được.
+        var cafeInventory = await _cafeInventoryRepository.GetByCafeAndGameTemplateAsync(
+            request.CafeId, request.GameId);
+        var totalCopies = cafeInventory?.BoxQuantity ?? 1;
+        await _gameInventoryRepository.EnsureRowAsync(
+            request.CafeId,
+            request.GameId,
+            request.PlayDate,
+            request.TimeSlot,
+            totalCopies);
+
         // Load wallet để lấy riskMultiplier.
         var wallet = await GetOrCreateWalletEntityAsync(hostId, now);
 
-        // Tính quote.
-        var quote = _depositCalculator.Calculate(
+        // Tính quote (có áp dụng CafeScheduleOverride qua resolver).
+        var quote = await _depositCalculator.CalculateWithScheduleAsync(
             request,
             cafeConfig,
             wallet.RiskMultiplier,
             wallet.IsCoolingOff,
             request.IsPrivate,
-            now);
+            now,
+            _scheduleResolver,
+            request.CafeId);
 
         // BR-LOBBY-01a/b: buffer check.
         var (isAllowed, _) = DepositCalculator.EvaluateBuffer(quote.BufferMinutes);
@@ -146,7 +167,9 @@ public class ReservationService : IReservationService
 
         _eligibilityValidator.ValidateHostCanCreate(eligibilityContext);
 
-        var scheduledTime = request.PlayDate.ToDateTime(CafeSchedule.GetStartTime(request.TimeSlot));
+        var resolvedSchedule = await _scheduleResolver.ResolveAsync(
+            request.CafeId, request.PlayDate, request.TimeSlot);
+        var scheduledTime = request.PlayDate.ToDateTime(resolvedSchedule.StartTime);
         var recruitmentDeadline = scheduledTime.AddMinutes(-20); // default leadTimeMinutes
 
         var warnings = new List<string>();
@@ -247,14 +270,28 @@ public class ReservationService : IReservationService
             request.TimeSlot,
             cafeConfig.Capacity);
 
-        // 4. Tính lại quote (server authoritative — BR §XVII.2).
-        var quote = _depositCalculator.Calculate(
+        // Ensure GameInventory tồn tại (BR-RESERVATION-02) — fix bug GameInventoryNotFound 409.
+        // TotalCopies lấy từ CafeGameInventory.BoxQuantity.
+        var cafeInventory = await _cafeInventoryRepository.GetByCafeAndGameTemplateAsync(
+            request.CafeId, request.GameId);
+        var totalCopies = cafeInventory?.BoxQuantity ?? 1;
+        await _gameInventoryRepository.EnsureRowAsync(
+            request.CafeId,
+            request.GameId,
+            request.PlayDate,
+            request.TimeSlot,
+            totalCopies);
+
+        // 4. Tính lại quote (server authoritative — BR §XVII.2) — có áp dụng CafeScheduleOverride.
+        var quote = await _depositCalculator.CalculateWithScheduleAsync(
             quoteRequest,
             cafeConfig,
             wallet.RiskMultiplier,
             wallet.IsCoolingOff,
             request.IsPrivate,
-            now);
+            now,
+            _scheduleResolver,
+            request.CafeId);
 
         // 5. BR-LOBBY-01a/b: buffer check.
         var (isAllowed, _) = DepositCalculator.EvaluateBuffer(quote.BufferMinutes);
@@ -283,7 +320,9 @@ public class ReservationService : IReservationService
                 wallet.AvailableBalance, quote.FinalDeposit));
         }
 
-        var scheduledTime = quoteRequest.PlayDate.ToDateTime(CafeSchedule.GetStartTime(quoteRequest.TimeSlot));
+        var resolvedSchedule = await _scheduleResolver.ResolveAsync(
+            request.CafeId, quoteRequest.PlayDate, quoteRequest.TimeSlot);
+        var scheduledTime = quoteRequest.PlayDate.ToDateTime(resolvedSchedule.StartTime);
         var recruitmentDeadline = scheduledTime.AddMinutes(-20); // BR-LOBBY-01 default leadTimeMinutes = 20
 
         // ===== Atomic transaction (BR-REQUIRED §17.4) =====
@@ -309,13 +348,15 @@ public class ReservationService : IReservationService
                 // Nạp lại wallet + cafe config (tracked instance cũ đã detached).
                 wallet = await GetOrCreateWalletEntityAsync(hostId, now);
                 cafeConfig = await _cafeConfigRepository.GetOrCreateDefaultAsync(request.CafeId);
-                quote = _depositCalculator.Calculate(
+                quote = await _depositCalculator.CalculateWithScheduleAsync(
                     quoteRequest,
                     cafeConfig,
                     wallet.RiskMultiplier,
                     wallet.IsCoolingOff,
                     request.IsPrivate,
-                    now);
+                    now,
+                    _scheduleResolver,
+                    request.CafeId);
             }
         }
 
@@ -1335,7 +1376,7 @@ public class ReservationService : IReservationService
 
         // GAP #2 fix: validate time window theo BR §21A.7 step 3.
         // Cho phép check-in từ scheduledTime - 30 phút (early grace) đến endTime + 30 phút (late grace).
-        ValidateCheckInTimeWindow(reservation, now);
+        await ValidateCheckInTimeWindowAsync(reservation, now);
 
         // 2. Idempotency: nếu đã CheckedIn → trả kết quả cũ.
         if (reservation.Status == ReservationStatus.CheckedIn)
@@ -1516,21 +1557,15 @@ public class ReservationService : IReservationService
     ///
     /// Trả 400 Bad Request qua ApiExceptionMiddleware nếu ngoài window.
     /// </summary>
-    private static void ValidateCheckInTimeWindow(Reservation reservation, DateTime now)
+    private async Task ValidateCheckInTimeWindowAsync(Reservation reservation, DateTime now)
     {
         const int EarlyGraceMinutes = 30;
         const int LateGraceMinutes = 30;
 
         var scheduledTime = reservation.ScheduledTime;
-        var slotEndTime = reservation.PlayDate.ToDateTime(
-            reservation.TimeSlot switch
-            {
-                TimeSlot.Morning => new TimeOnly(13, 0),
-                TimeSlot.Afternoon => new TimeOnly(18, 0),
-                TimeSlot.Evening => new TimeOnly(23, 0),
-                TimeSlot.Night => new TimeOnly(24, 0), // 24:00 = end of day
-                _ => new TimeOnly(13, 0)
-            });
+        var resolvedSchedule = await _scheduleResolver.ResolveAsync(
+            reservation.CafeId, reservation.PlayDate, reservation.TimeSlot);
+        var slotEndTime = reservation.PlayDate.ToDateTime(resolvedSchedule.EndTime);
 
         var windowStart = scheduledTime.AddMinutes(-EarlyGraceMinutes);
         var windowEnd = slotEndTime.AddMinutes(LateGraceMinutes);
@@ -1572,7 +1607,9 @@ public class ReservationService : IReservationService
 
         var hostCreateOrCancelCount = await _reservationRepository.CountHostActionsForPlayDateAsync(hostId, request.PlayDate);
 
-        var scheduledTime = request.PlayDate.ToDateTime(CafeSchedule.GetStartTime(request.TimeSlot));
+        var resolvedSchedule = await _scheduleResolver.ResolveAsync(
+            request.CafeId, request.PlayDate, request.TimeSlot);
+        var scheduledTime = request.PlayDate.ToDateTime(resolvedSchedule.StartTime);
         var recruitmentDeadline = scheduledTime.AddMinutes(-20);
 
         return new HostReservationContext

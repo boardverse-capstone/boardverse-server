@@ -37,6 +37,7 @@ Tài liệu tổng hợp cho hệ thống BoardVerse — board game center manag
 - [cafe-inventory.md](./api/cafe-inventory.md) — `CafeInventoryController` (8 endpoints)
 - [cafe-pos.md](./api/cafe-pos.md) — `CafePosController` — POS session start/end
 - [cafe-partner.md](./api/cafe-partner.md) — `CafePartnerApplicationController`, `AdminCafePartnerApplicationController`, `ManagerCafeProfileController`
+- [cafe-schedule.md](./api/cafe-schedule.md) — `CafeScheduleController` — TimeSlot override cho cafe (24h / qua đêm)
 - [manager.md](./api/manager.md) — `ManagerController` + `ManagerCafeProfileController`
 - [staff.md](./api/staff.md) — `StaffController`
 
@@ -99,6 +100,7 @@ Tài liệu tổng hợp cho hệ thống BoardVerse — board game center manag
 | `CafePartnerApplicationController` | [cafe-partner.md](./api/cafe-partner.md) |
 | `CafePosController` | [cafe-pos.md](./api/cafe-pos.md) |
 | `CafeSettlementController` | [settlement.md](./api/settlement.md) |
+| `CafeScheduleController` | [cafe-schedule.md](./api/cafe-schedule.md) |
 | `DebugSePayController` | [debug-sepay.md](./api/debug-sepay.md) |
 | `HealthController` | [health.md](./api/health.md) |
 | `LobbyController` | [lobby.md](./api/lobby.md) |

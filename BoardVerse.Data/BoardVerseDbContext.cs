@@ -66,6 +66,9 @@ namespace BoardVerse.Data
         public DbSet<GameInventory> GameInventories => Set<GameInventory>();
         public DbSet<CafeConfig> CafeConfigs => Set<CafeConfig>();
 
+        // BR-NEW-15: Cafe override lịch mặc định của TimeSlot (đóng slot, đổi giờ).
+        public DbSet<CafeScheduleOverride> CafeScheduleOverrides => Set<CafeScheduleOverride>();
+
         // BR-REQUIRED §17.5: Transactional Outbox.
         public DbSet<OutboxEvent> OutboxEvents => Set<OutboxEvent>();
 

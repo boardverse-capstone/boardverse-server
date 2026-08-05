@@ -33,6 +33,7 @@ public class DepositCalculator
     /// <summary>
     /// Tính quote cho 1 reservation (§21A.2).
     /// Trả về DepositQuoteResult — caller (ReservationService) tự quyết định allow hay throw.
+    /// Dùng giờ bắt đầu mặc định từ <c>CafeSchedule</c>. Không tính override.
     /// </summary>
     public DepositQuoteResult Calculate(
         ReservationQuoteRequestDto request,
@@ -41,6 +42,59 @@ public class DepositCalculator
         bool isCoolingOff,
         bool isPrivateLobby,
         DateTime now)
+    {
+        return CalculateCore(
+            request,
+            cafeConfig,
+            walletRiskMultiplier,
+            isCoolingOff,
+            isPrivateLobby,
+            now,
+            CafeSchedule.GetStartTime(request.TimeSlot));
+    }
+
+    /// <summary>
+    /// Overload có áp dụng <c>CafeScheduleOverride</c> qua <see cref="IScheduleResolver"/>.
+    /// Caller (ReservationService) gọi khi có <c>cafeId</c> + muốn lịch cafe override.
+    /// </summary>
+    public async Task<DepositQuoteResult> CalculateWithScheduleAsync(
+        ReservationQuoteRequestDto request,
+        CafeConfig cafeConfig,
+        decimal walletRiskMultiplier,
+        bool isCoolingOff,
+        bool isPrivateLobby,
+        DateTime now,
+        IScheduleResolver scheduleResolver,
+        Guid cafeId)
+    {
+        var schedule = await scheduleResolver.ResolveAsync(cafeId, request.PlayDate, request.TimeSlot);
+        if (schedule.IsClosed)
+        {
+            throw new ArgumentException(
+                ApiErrorMessages.Reservation.CafeScheduleSlotClosed(request.TimeSlot.ToString(), cafeId));
+        }
+
+        return CalculateCore(
+            request,
+            cafeConfig,
+            walletRiskMultiplier,
+            isCoolingOff,
+            isPrivateLobby,
+            now,
+            schedule.StartTime);
+    }
+
+    /// <summary>
+    /// Core logic cho cả default và override path.
+    /// </summary>
+    private DepositQuoteResult CalculateCore(
+        ReservationQuoteRequestDto request,
+        CafeConfig cafeConfig,
+        decimal walletRiskMultiplier,
+        bool isCoolingOff,
+        bool isPrivateLobby,
+        DateTime now,
+        TimeOnly scheduledStartTime)
     {
         if (request.PlayDate < DateOnly.FromDateTime(now.Date))
         {
@@ -98,7 +152,7 @@ public class DepositCalculator
         var minDepositApplied = minDeposit;
         var finalDeposit = Math.Max(minDepositApplied, adjustedDeposit);
 
-        var scheduledTime = request.PlayDate.ToDateTime(CafeSchedule.GetStartTime(request.TimeSlot));
+        var scheduledTime = request.PlayDate.ToDateTime(scheduledStartTime);
         var recruitmentDeadline = scheduledTime.AddMinutes(-DefaultLeadTimeMinutes);
         var bufferMinutes = (int)Math.Floor((recruitmentDeadline - now).TotalMinutes);
 

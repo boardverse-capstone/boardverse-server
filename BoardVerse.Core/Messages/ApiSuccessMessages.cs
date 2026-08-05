@@ -42,6 +42,13 @@ namespace BoardVerse.Core.Messages
             public const string OperationalStatusUpdated = "Cập nhật trạng thái vận hành quán thành công.";
         }
 
+        public static class CafeSchedule
+        {
+            public const string ScheduleRetrieved = "Lấy lịch cafe thành công.";
+            public const string OverrideUpserted = "Cập nhật override lịch cafe thành công.";
+            public const string OverrideDeleted = "Xóa override, cafe quay về dùng lịch mặc định thành công.";
+        }
+
         public static class Inventory
         {
             public const string GameAdded = "Thêm game vào kho thành công.";
