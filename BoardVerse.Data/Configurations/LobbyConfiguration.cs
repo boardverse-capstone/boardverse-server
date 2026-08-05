@@ -1,5 +1,6 @@
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
+using BoardVerse.Data.Converters;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -36,7 +37,8 @@ namespace BoardVerse.Data.Configurations
             builder.Property(l => l.PreferredStartTime).HasColumnType("time");
             builder.Property(l => l.MinDeposit);
             builder.Property(l => l.DepositSnapshot)
-                .HasColumnType("jsonb");
+                .HasColumnType("jsonb")
+                .HasConversion(new NullableDepositSnapshotConverter());
             builder.Property(l => l.CafeRejectionReason).HasMaxLength(500);
 
             // ===== BR-10: Karma filter =====

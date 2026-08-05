@@ -1,5 +1,6 @@
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
+using BoardVerse.Data.Converters;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -56,6 +57,7 @@ public class ReservationConfiguration : IEntityTypeConfiguration<Reservation>
         // Stored DepositSnapshot as JSONB column.
         builder.Property(r => r.DepositConfigSnapshot)
             .HasColumnType("jsonb")
+            .HasConversion(new DepositSnapshotConverter())
             .IsRequired();
 
         builder.HasOne(r => r.Host)
