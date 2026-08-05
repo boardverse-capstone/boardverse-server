@@ -7,7 +7,7 @@ Domain phụ trách: tạo booking, check-in/out, theo dõi trạng thái sessio
 | Flow liên quan | Doc |
 |---|---|
 | Payment + SePay deposit | [payment.md](./payment.md) |
-| POS session payment + settlement | [active-session.md](./active-session.md), [settlement.md](./settlement.md) |
+| POS session payment + settlement | [cafe-pos.md](./cafe-pos.md) (canonical), [settlement.md](./settlement.md) |
 | Webhook SePay xử lý deposit | [sepay-webhook.md](./sepay-webhook.md) |
 | Lobby flow | [lobby.md](./lobby.md) |
 | SignalR realtime events | §SignalR realtime events bên dưới |
@@ -106,7 +106,7 @@ FOR UPDATE SKIP LOCKED
 | Tình huống | Xử lý |
 |------------|-------|
 | Quá 5 phút không thanh toán (BR-06) | Background job → `BookingDeposit.Status = Expired`, SeatSlot về `AVAILABLE` |
-| Quán hết chỗ thực tế (Exception 1) | Trả 409 + suggest quán thay thế qua `ActiveSessionController.GetAlternativeCafes` |
+| Quán hết chỗ thực tế (Exception 1) | Trả 409 + suggest quán thay thế qua `GET /api/cafes/{cafeId}/sessions/alternative-cafes` |
 | Khách đến muộn quá 30 phút (Exception 5) | `BookingDeposit.Status = Expired`, tịch thu cọc theo `DepositRefundPolicy` |
 | Webhook SePay timeout/fail | Retry exponential backoff (max 3 lần); fallback VietQR static QR |
 | Quán hủy vì bất khả kháng (Exception 9, BR-18) | `BookingDeposit.Status = Refunded`, hoàn 100% cọc |
@@ -149,7 +149,7 @@ stateDiagram-v2
 - **Payment API chi tiết:** [payment.md](./payment.md) — tất cả endpoint của `PaymentController`.
 - **Deposit flow:** [sepay-webhook.md](./sepay-webhook.md), [sepay-account.md](./sepay-account.md)
 - **Lobby flow:** [lobby.md](./lobby.md)
-- **POS session flow:** [cafe-pos.md](./cafe-pos.md), [active-session.md](./active-session.md)
+- **POS session flow:** [cafe-pos.md](./cafe-pos.md) (canonical)
 - **Settlement (giải ngân):** [settlement.md](./settlement.md)
 - **Business rules:** [sepay-payment-flow.mdc](../../.cursor/rules/sepay-payment-flow.mdc), [boardverse.mdc](../../.cursor/rules/boardverse.mdc) (BR-05, BR-06, BR-09)
 

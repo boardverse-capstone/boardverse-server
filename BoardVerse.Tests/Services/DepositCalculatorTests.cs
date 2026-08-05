@@ -26,11 +26,11 @@ public class DepositCalculatorTests
             MaxPlayersPerLobby2Days = 15,
             MaxPlayersPerLobby3To4Days = 10,
             MaxPlayersPerLobby5To7Days = 6,
-            MinDepositSameDay = 50_000,
-            MinDeposit1Day = 50_000,
-            MinDeposit2Days = 100_000,
-            MinDeposit3To4Days = 150_000,
-            MinDeposit5To7Days = 200_000,
+            MinDepositSameDay = 50,
+            MinDeposit1Day = 50,
+            MinDeposit2Days = 100,
+            MinDeposit3To4Days = 150,
+            MinDeposit5To7Days = 200,
             RequireApprovalForDistant = true,
             DistantThresholdDays = 2,
             RecruitmentDeadlineBufferMinutes = 120
@@ -72,20 +72,20 @@ public class DepositCalculatorTests
         Assert.Equal(30, result.BaseDeposit); // 5 × 6
         Assert.Equal(1.0m, result.RiskMultiplier);
         Assert.Equal(DistanceBucket.SameDay, result.Distance);
-        Assert.Equal(50_000, result.FinalDeposit); // minDeposit = 50k dominates
-        Assert.Equal(50_000, result.MinDepositApplied);
+        Assert.Equal(50, result.FinalDeposit); // minDeposit = 50 BVC dominates
+        Assert.Equal(50, result.MinDepositApplied);
     }
 
     // ===== BR-NEW-01 §VIII: minDeposit theo khoảng cách playDate =====
 
     [Theory]
-    [InlineData(0, 50_000)] // SameDay
-    [InlineData(1, 50_000)] // OneDay
-    [InlineData(2, 100_000)] // TwoDays
-    [InlineData(3, 150_000)] // 3 days
-    [InlineData(4, 150_000)] // 4 days
-    [InlineData(5, 200_000)] // 5 days
-    [InlineData(7, 200_000)] // 7 days
+    [InlineData(0, 50)] // SameDay
+    [InlineData(1, 50)] // OneDay
+    [InlineData(2, 100)] // TwoDays
+    [InlineData(3, 150)] // 3 days
+    [InlineData(4, 150)] // 4 days
+    [InlineData(5, 200)] // 5 days
+    [InlineData(7, 200)] // 7 days
     public void Calculate_MinDeposit_MatchesDistanceBucket(int daysInFuture, long expectedMinDeposit)
     {
         // Arrange
@@ -144,7 +144,7 @@ public class DepositCalculatorTests
     public void Calculate_RiskMultiplier1_5_IncreasesAdjustedDeposit()
     {
         // Arrange: rate=10, maxPlayers=100 → base=1000; riskMultiplier=1.5 → adjusted=1500
-        // minDeposit = 50_000 dominating, nên test minDeposit=0
+        // minDeposit = 200 dominating, nên test minDeposit=0 để thấy adjusted
         var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
         var playDate = DateOnly.FromDateTime(now.Date).AddDays(5); // 5 days
         var request = BuildRequest(playDate, maxPlayers: 6);

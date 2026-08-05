@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace BoardVerse.Core.DTOs.Session
 {
@@ -37,6 +38,8 @@ namespace BoardVerse.Core.DTOs.Session
     /// <summary>
     /// Response sau khi thanh toán hóa đơn tổng.
     /// BR-15: TotalAmount = Subtotal + PenaltyAmount - DepositAppliedAmount
+    /// GAP-33 Fix: Thêm danh sách hóa đơn per-member
+    /// GAP-34 Fix: Thêm thông tin BVC capture status
     /// </summary>
     public class PaySessionResponseDto
     {
@@ -46,6 +49,14 @@ namespace BoardVerse.Core.DTOs.Session
         public decimal DepositAppliedAmount { get; set; }
         public decimal TotalAmount { get; set; }
         public DateTime PaidAt { get; set; }
+
+        /// <summary>Danh sách hóa đơn cá nhân của từng thành viên.</summary>
+        public List<MemberInvoiceDto> MemberInvoices { get; set; } = [];
+
+        /// <summary>Trạng thái capture BVC của toàn phiên.</summary>
+        [JsonConverter(typeof(JsonStringEnumConverter))]
+        public BvcCaptureStatus BvcCaptureStatus { get; set; }
+
         public ActiveSessionResponseDto Session { get; set; } = null!;
     }
 }

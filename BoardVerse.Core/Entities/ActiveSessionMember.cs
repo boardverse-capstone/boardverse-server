@@ -58,6 +58,18 @@ namespace BoardVerse.Core.Entities
         /// <summary>Thời điểm checkout.</summary>
         public DateTime? CheckedOutAt { get; set; }
 
+        // === Deposit (BR-15, BR-22) ===
+        /// <summary>
+        /// GAP-10 Fix: Số tiền deposit đã áp dụng cho thành viên này khi thanh toán.
+        /// Mỗi thành viên có deposit riêng nếu có booking.
+        /// </summary>
+        public decimal DepositAppliedAmount { get; set; }
+
+        /// <summary>
+        /// GAP-10 Fix: ID của deposit đã áp dụng cho thành viên này.
+        /// </summary>
+        public Guid? DepositId { get; set; }
+
         // === Navigation ===
         public virtual ActiveSession ActiveSession { get; set; } = null!;
         public virtual User? User { get; set; }

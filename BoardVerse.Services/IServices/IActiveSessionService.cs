@@ -24,5 +24,11 @@ namespace BoardVerse.Services.IServices
         /// Nhân viên POS scan linh kiện thực tế → tính penalty nếu thiếu/hỏng.
         /// </summary>
         Task<ActiveSessionResponseDto> SubmitComponentCheckAsync(Guid cafeId, Guid sessionId, SubmitComponentCheckRequestDto request);
+
+        /// <summary>
+        /// GAP-1 Fix: Cho phép revert từ CHECKING về ACTIVE nếu nhân viên bấm nhầm.
+        /// Chỉ cho phép khi chưa có thành viên nào được checkout (chưa có member trong trạng thái FINISHED).
+        /// </summary>
+        Task<ActiveSessionResponseDto> ResumeSessionAsync(Guid cafeId, Guid sessionId);
     }
 }

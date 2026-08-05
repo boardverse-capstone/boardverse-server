@@ -355,7 +355,7 @@ Khi phiên chơi (`ActiveSession`) được thanh toán thành công — dù qua
 |---|---|---|
 | `POST /api/payments/manual-confirm` (staff confirm tiền mặt) | `ManualPaymentService.HandleSessionConfirmationAsync` | `PaymentType = "Session"`, session `UNPAID` |
 | `POST /api/payments/sepay/webhook` (SePay/VietQR gateway) | `PaymentService.ProcessSessionPaymentWebhookAsync` | `status=success/paid` + amount khớp + session `UNPAID` |
-| `POST /api/cafes/{cafeId}/sessions/{sessionId}/pay` (POS thanh toán qua SePay QR) | `ActiveSessionService.PaySessionAsync` | session `UNPAID` |
+| `POST /api/cafes/{cafeId}/pos/sessions/{sessionId}/pay` (POS thanh toán qua SePay QR) | `CafePosService.PaySessionAsync` | session `UNPAID` |
 
 **Cleanup contract** (idempotent — gọi nhiều lần không lỗi):
 

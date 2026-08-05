@@ -65,6 +65,7 @@ public class BookingMemberInfoDto
 
 /// <summary>
 /// Thông tin lobby liên kết với booking.
+/// GAP-18 Fix: Thêm danh sách thành viên trong lobby.
 /// </summary>
 public class BookingLobbyInfoDto
 {
@@ -73,4 +74,9 @@ public class BookingLobbyInfoDto
     public int MinPlayers { get; set; }
     public int MaxPlayers { get; set; }
     public int CurrentMemberCount { get; set; }
+
+    /// <summary>
+    /// GAP-18 Fix: Danh sách thành viên trong lobby (bao gồm host + members đã join).
+    /// </summary>
+    public List<BookingMemberInfoDto> Members { get; set; } = [];
 }

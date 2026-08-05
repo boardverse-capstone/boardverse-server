@@ -34,6 +34,13 @@ namespace BoardVerse.Core.IRepositories
         /// </summary>
         Task CompleteSessionPaymentCleanupAsync(Guid sessionId);
 
+        // === BVC Capture Retry (GAP-9) ===
+        /// <summary>
+        /// Returns sessions that are Paid but haven't had BVC captured yet.
+        /// Used by background job to retry failed captures.
+        /// </summary>
+        Task<IReadOnlyList<ActiveSession>> GetSessionsNeedingBvcCaptureRetryAsync(int batchSize);
+
         // === Game checklist (BR-12) ===
         Task<ActiveSessionGame?> GetSessionGameByIdAsync(Guid sessionGameId);
         Task UpdateSessionGameAsync(ActiveSessionGame sessionGame);

@@ -171,11 +171,11 @@ public class CafeConfigConfiguration : IEntityTypeConfiguration<CafeConfig>
         builder.Property(c => c.MaxPlayersPerLobby3To4Days).HasDefaultValue(10);
         builder.Property(c => c.MaxPlayersPerLobby5To7Days).HasDefaultValue(6);
 
-        builder.Property(c => c.MinDepositSameDay).HasDefaultValue(50_000L);
-        builder.Property(c => c.MinDeposit1Day).HasDefaultValue(50_000L);
-        builder.Property(c => c.MinDeposit2Days).HasDefaultValue(100_000L);
-        builder.Property(c => c.MinDeposit3To4Days).HasDefaultValue(150_000L);
-        builder.Property(c => c.MinDeposit5To7Days).HasDefaultValue(200_000L);
+        builder.Property(c => c.MinDepositSameDay).HasDefaultValue(50L);
+        builder.Property(c => c.MinDeposit1Day).HasDefaultValue(50L);
+        builder.Property(c => c.MinDeposit2Days).HasDefaultValue(100L);
+        builder.Property(c => c.MinDeposit3To4Days).HasDefaultValue(150L);
+        builder.Property(c => c.MinDeposit5To7Days).HasDefaultValue(200L);
 
         builder.Property(c => c.RequireApprovalForDistant).HasDefaultValue(true);
         builder.Property(c => c.DistantThresholdDays).HasDefaultValue(2);

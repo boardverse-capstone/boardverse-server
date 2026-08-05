@@ -1,10 +1,15 @@
 using BoardVerse.Core.DTOs.Pos;
+using BoardVerse.Core.DTOs.Session;
 
 namespace BoardVerse.Services.IServices
 {
     public interface ICafePosService
     {
-        Task<IReadOnlyList<CafeTableStatusDto>> GetTablesAsync(Guid cafeId, Guid userId, string userRole);
+        Task<IReadOnlyList<CafeTableStatusDto>> GetTablesAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            bool includeOnlyAvailable = true);
 
         /// <summary>
         /// Legacy overload — đồng bộ chỉ tên bàn (giữ nguyên SeatCount cũ, default 4 cho bàn mới).
@@ -37,6 +42,16 @@ namespace BoardVerse.Services.IServices
             Guid userId,
             string userRole,
             Guid? gameTemplateId);
+
+        /// <summary>
+        /// GAP 1 Fix: Get session by ID for frontend to view session details.
+        /// </summary>
+        Task<ActiveSessionDto> GetSessionByIdAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sessionId);
+
         Task<ActiveSessionDto> StartGameSessionAsync(
             Guid cafeId,
             Guid userId,
@@ -81,6 +96,13 @@ namespace BoardVerse.Services.IServices
             string userRole,
             SubmitComponentCheckRequestDto request);
 
+        // GAP-25 Fix: Reset checklist — cho phép staff reset lại checklist nếu đã kiểm tra sai
+        Task<ComponentChecklistDto> ResetComponentCheckAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sessionGameId);
+
         // Return Game: tính surcharge_fine
         Task<ReturnGameResponseDto> ReturnGameAsync(
             Guid cafeId,
@@ -88,5 +110,75 @@ namespace BoardVerse.Services.IServices
             string userRole,
             Guid sessionId,
             ReturnGameRequestDto request);
+
+        // ====== Billing Operations (delegates to ActiveSessionService) ======
+        // AttachGame: Nhóm tự ý lấy thêm game (Exception 6)
+        Task<ActiveSessionDto> AttachGameAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sessionId,
+            AttachGameRequestDto request);
+
+        // AddGuestSlot: Thêm khách vô danh (Exception 10)
+        Task<ActiveSessionDto> AddGuestSlotAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sessionId,
+            AddGuestSlotRequestDto request);
+
+        // AddLateMember: Thêm thành viên đến muộn (Exception 8)
+        Task<ActiveSessionDto> AddLateMemberAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sessionId,
+            AddLateMemberRequestDto request);
+
+        // RecordInventoryLoss: Ghi nhận hao hụt trước phiên (Exception 7)
+        Task RecordInventoryLossAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sessionId,
+            RecordInventoryLossRequestDto request);
+
+        // ====== Checkout & Payment Operations ======
+        // Checkout: Thanh toán toàn bộ sau kiểm kê (BR-12)
+        // GAP-7 Fix: Nhận userId/userRole để EnsurePosAccessAsync đúng cách.
+        Task<ActiveSessionResponseDto> CheckoutAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sessionId,
+            CheckoutRequestDto request);
+
+        // Pay: Thanh toán hóa đơn tổng (BR-15)
+        // GAP-7 Fix: Nhận userId/userRole để EnsurePosAccessAsync đúng cách.
+        Task<PaySessionResponseDto> PaySessionAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sessionId,
+            PaySessionRequestDto request);
+
+        // PartialCheckout: Thanh toán một phần cho thành viên về sớm
+        // GAP-7 Fix: Nhận userId/userRole để EnsurePosAccessAsync đúng cách.
+        Task<ActiveSessionResponseDto> PartialCheckoutAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sessionId,
+            PartialCheckoutRequestDto request);
+
+        // Merge: Ghép thành viên vào nhóm mới (Exception 4)
+        // GAP-7 Fix: Nhận userId/userRole để EnsurePosAccessAsync đúng cách.
+        Task<MergeSessionResponseDto> MergeSessionAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sourceSessionId,
+            MergeSessionRequestDto request);
     }
 }

@@ -9,16 +9,18 @@ namespace BoardVerse.Services;
 public static class ReservationSchedulerExtensions
 {
     /// <summary>
-    /// Đăng ký 3 job scheduler gọi IReservationService:
+    /// Đăng ký 4 job scheduler gọi IReservationService:
     /// - RecruitmentDeadlineJob: mỗi 60s, xử lý lobby đến deadline.
     /// - CafeApprovalExpiryJob: mỗi 5 phút, xử lý lobby pendingCafeApproval quá 24h.
     /// - NoShowCheckJob: mỗi 5 phút, xử lý reservation Confirmed chưa check-in.
+    /// - BvcCaptureRetryJob: mỗi 5 phút, retry BVC capture cho các phiên đã PAID nhưng capture thất bại.
     /// </summary>
     public static IServiceCollection AddReservationSchedulers(this IServiceCollection services)
     {
         services.AddHostedService<RecruitmentDeadlineJob>();
         services.AddHostedService<CafeApprovalExpiryJob>();
         services.AddHostedService<NoShowCheckJob>();
+        services.AddHostedService<BvcCaptureRetryJob>(); // GAP-9: BVC capture retry
         return services;
     }
 }

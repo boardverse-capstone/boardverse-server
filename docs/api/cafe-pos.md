@@ -6,7 +6,7 @@
 
 API vận hành quầy: bàn, kho hộp game, phiên chơi, kiểm kê, khách vô danh, thanh toán một phần và thanh toán toàn bộ.
 
-> **Lưu ý:** CafePosController là **entry point canonical** cho mọi thao tác tại quầy (start/end session, kiểm kê linh kiện). `ActiveSessionController` giữ các endpoint nghiệp vụ phụ (checkout/pay/merge/guest-slot/...).
+> **Lưu ý (cập nhật 05/08/2026):** `ActiveSessionController` đã được **gộp vào đây**. Toàn bộ endpoint `/api/cafes/{cafeId}/sessions/*` cũ giờ nằm trong `CafePosController` dưới base route `/api/cafes/{cafeId}/pos/sessions/*`. Xem [active-session.md](./active-session.md) (deprecated).
 
 ## Endpoints
 
@@ -18,17 +18,24 @@ API vận hành quầy: bàn, kho hộp game, phiên chơi, kiểm kê, khách v
 | `/boxes` | GET | Danh sách hộp game | `CafePosController` |
 | `/boxes/by-barcode/{barcode}` | GET | Tra cứu hộp sau khi quét POS | `CafePosController` |
 | `/sessions/active` | GET | Phiên đang chơi | `CafePosController` |
+| `/sessions/{sessionId}` | GET | Chi tiết 1 phiên chơi (GAP-1) | `CafePosController` |
 | `/bookings/{bookingCode}` | GET | Preview booking trước check-in (AC 1.1) | `CafePosController` |
-| `/sessions` | POST | Giao game cho bàn — bắt đầu phiên chơi | `CafePosController` |
+| `/sessions` | POST | Giao game cho bàn — bắt đầu phiên chơi (POS scan barcode) | `CafePosController` |
 | `/check-in` | POST | **POS check-in (canonical):** Staff quét QR (ReservationCode \| BookingCode legacy) để kích hoạt phiên chơi cho cả nhóm (BR §21A.7) | `CafePosController` |
-| `/sessions` | POST | Giao hộp game cho bàn — bắt đầu phiên chơi (POS scan barcode) | `CafePosController` |
-| `/sessions/{sessionId}/end` | POST | **Trả game / kết thúc phiên chơi (canonical — thay cho `/sessions/{id}/end-game` ở ActiveSession)** | `CafePosController` |
+| `/sessions/{sessionId}/end` | POST | **Kết thúc phiên chơi** → session `CHECKING`, hộp → `Available`/`Maintenance` | `CafePosController` |
+| `/sessions/{sessionId}/resume` | POST | **Khôi phục phiên từ `CHECKING` → `ACTIVE`** khi nhân viên bấm nhầm (GAP-1) | `CafePosController` |
 | `/sessions/{sessionGameId}/component-checklist` | GET | Lấy bảng kiểm kê linh kiện của 1 game trong phiên | `CafePosController` |
-| `/sessions/component-check` | POST | **Submit bảng kiểm kê linh kiện (canonical — thay cho `/sessions/{id}/games/check` ở ActiveSession)** | `CafePosController` |
-| `/sessions/{sessionId}/return-game` | POST | Trả game (legacy alias — dùng `/sessions/{id}/end` thay thế) | `CafePosController` |
-| `/sessions/{sessionId}/checkout` | POST | Thanh toán toàn bộ sau kiểm kê linh kiện | `ActiveSessionController` |
-| `/sessions/{sessionId}/guest-slots` | POST | Thêm khách vô danh | `ActiveSessionController` |
-| `/sessions/{sessionId}/partial-checkout` | POST | Thanh toán một phần khi có người về sớm | `ActiveSessionController` |
+| `/sessions/component-check` | POST | Submit bảng kiểm kê linh kiện | `CafePosController` |
+| `/sessions/component-check/reset` | POST | Reset checklist để kiểm tra lại khi bấm sai (GAP-25) | `CafePosController` |
+| `/sessions/{sessionId}/return-game` | POST | Trả 1 game sớm: tính `surcharge_fine`, cập nhật box status (session vẫn ACTIVE) | `CafePosController` |
+| `/sessions/{sessionId}/games` | POST | Gán thêm game vào phiên (Exception 6) | `CafePosController` |
+| `/sessions/{sessionId}/guest-slots` | POST | Thêm khách vô danh (BR-13) | `CafePosController` |
+| `/sessions/{sessionId}/members/add` | POST | Thêm thành viên đến muộn (Exception 8) | `CafePosController` |
+| `/sessions/{sessionId}/inventory-loss` | POST | Ghi nhận hao hụt trước phiên (Exception 7) | `CafePosController` |
+| `/sessions/{sessionId}/checkout` | POST | Thanh toán toàn bộ sau kiểm kê (BR-15) | `CafePosController` |
+| `/sessions/{sessionId}/partial-checkout` | POST | Thanh toán một phần khi có người về sớm (BR-12, BR-14) | `CafePosController` |
+| `/sessions/{sessionId}/pay` | POST | Thanh toán hóa đơn tổng (BR-15, BR-09) | `CafePosController` |
+| `/sessions/{sourceSessionId}/merge` | POST | Ghép thành viên sang nhóm mới (Exception 4) | `CafePosController` |
 
 ---
 
@@ -380,3 +387,316 @@ Khi check-in thành công, hệ thống gửi event `SessionActivated` đến mo
 # 4. POST .../pos/sessions/{id}/end
 #    → Kết thúc phiên
 ```
+
+---
+
+## Chi tiết các endpoint mới (cập nhật 05/08/2026)
+
+### GET /api/cafes/{cafeId}/pos/sessions/{sessionId}
+
+Trả về chi tiết 1 phiên chơi: `startedAt`, `elapsedMinutes`, `estimatedRemainingMinutes`, members, games, deposit applied, total amount, status, host info.
+
+**Dùng khi:** Frontend cần load lại session sau SignalR reconnect, hoặc sau khi submit component-check để refresh `Status`.
+
+**Response 200:** `ActiveSessionDto`
+
+---
+
+### POST /api/cafes/{cafeId}/pos/sessions/{sessionId}/resume
+
+Khôi phục phiên từ `CHECKING` → `ACTIVE` khi nhân viên bấm "Trả game" nhầm.
+
+**Điều kiện:**
+- Session đang ở `CHECKING`
+- Chưa có thành viên nào được thanh toán (chưa có `Member.Status = FINISHED`)
+
+**Response 200:** `ActiveSessionDto` — phiên đã quay về `ACTIVE`, tất cả boxes chưa bị reset trạng thái.
+
+**Lỗi:** `409` — Phiên không ở `CHECKING`, hoặc đã có member được thanh toán (không thể undo).
+
+---
+
+### POST /api/cafes/{cafeId}/pos/sessions/component-check/reset?sessionGameId={guid}
+
+Reset lại checklist linh kiện của 1 game trong session về trạng thái chưa kiểm kê.
+
+**Dùng khi:** Staff đã bấm Submit nhưng nhập sai số lượng linh kiện → cần kiểm tra lại.
+
+**Response 200:** `ComponentChecklistDto` mới với `ActualQuantity = 0` cho tất cả components.
+
+**Lỗi:** `409` — Phiên không ở `CHECKING`, hoặc session game không tồn tại.
+
+---
+
+### POST /api/cafes/{cafeId}/pos/sessions/{sessionId}/return-game
+
+Trả 1 game **trước khi** end session — session vẫn `ACTIVE`.
+
+**Body:**
+```json
+{
+  "inventoryBoxId": "guid",
+  "damagedComponents": [
+    {
+      "componentId": "guid",
+      "missingQuantity": 0,
+      "damagedQuantity": 1
+    }
+  ]
+}
+```
+
+**Hành vi:**
+- Tính `surcharge_fine = sum(missingQuantity × PenaltyFee + damagedQuantity × PenaltyFee)`
+- Set `session.SurchargeFine = totalFine`
+- Nếu có linh kiện hỏng → box → `Maintenance`
+- Nếu không hỏng → box → `Available`
+- **Session KHÔNG end** — vẫn `ACTIVE`
+
+**Response 200:**
+```json
+{
+  "sessionId": "guid",
+  "inventoryBoxId": "guid",
+  "surchargeFine": 15000,
+  "hasDamagedComponents": true,
+  "boxMaintenanceStatus": "Maintenance"
+}
+```
+
+**Lỗi:** `404` — Không tìm thấy phiên/hộp; `409` — Hộp không thuộc phiên này.
+
+---
+
+## Các luồng nghiệp vụ chính
+
+### Luồng 1: Vào quán với ReservationCode (BVC)
+
+```powershell
+# Bước 1: Staff quét QR của Host
+GET /api/cafes/{cafeId}/pos/bookings/{code}
+# → Trả BookingPreviewDto: host info, lobby info, deposit status, canCheckIn
+
+# Bước 2: Staff bấm "Xác nhận check-in"
+POST /api/cafes/{cafeId}/pos/check-in
+{
+  "code": "ABC234XY",          # ReservationCode (BVC flow)
+  "cafeTableId": "guid",
+  "barcode": "BV-xxxxxxxx-001",
+  "idempotencyKey": "pos-checkin-abc234xy",
+  "nonce": "random-once-key"
+}
+# → Reservation Held → CheckedIn (atomic)
+# → Lobby Open → InProgress
+# → SeatInventory Held → InUse
+# → GameInventory Held → InUse
+# → Outbox event LobbyCheckedIn
+# → SignalR SessionActivated đến mobile app
+
+# Bước 3: Xem chi tiết session
+GET /api/cafes/{cafeId}/pos/sessions/{sessionId}
+```
+
+### Luồng 2: Vào quán với BookingCode (legacy VND)
+
+```powershell
+# Giống Luồng 1, chỉ khác body code
+POST /api/cafes/{cafeId}/pos/check-in
+{
+  "code": "BV12345678",        # BookingCode legacy
+  "cafeTableId": "guid",
+  "barcode": "BV-xxxxxxxx-001"
+}
+# → Routing qua BookingDeposit lookup (VND flow cũ)
+```
+
+### Luồng 3: Walk-in (không có booking)
+
+```powershell
+# Bước 1: Chọn bàn + scan barcode hộp game
+POST /api/cafes/{cafeId}/pos/sessions
+{
+  "cafeTableId": "guid",
+  "barcode": "BV-xxxxxxxx-001",
+  "initialMemberUserIds": ["user-id-1"]
+}
+# → ActiveSession tạo mới, box → InUse, table → InUse
+```
+
+### Luồng 4: Trong khi chơi
+
+```powershell
+# Thêm khách vô danh (BR-13: hết pin, không có app)
+POST /api/cafes/{cafeId}/pos/sessions/{id}/guest-slots
+{
+  "displayName": "Khách A",
+  "seatIndex": 2
+}
+
+# Thêm thành viên đến muộn (Exception 8)
+POST /api/cafes/{cafeId}/pos/sessions/{id}/members/add
+{
+  "userIds": ["user-id-5", "user-id-6"]
+}
+
+# Gán thêm game (Exception 6: khách tự lấy thêm)
+POST /api/cafes/{cafeId}/pos/sessions/{id}/games
+{
+  "barcode": "BV-xxxxxxxx-002"
+}
+```
+
+### Luồng 5: Trả game sớm (chưa end session)
+
+```powershell
+# Trả 1 game, session vẫn ACTIVE
+POST /api/cafes/{cafeId}/pos/sessions/{id}/return-game
+{
+  "inventoryBoxId": "guid",
+  "damagedComponents": [
+    { "componentId": "guid", "missingQuantity": 0, "damagedQuantity": 1 }
+  ]
+}
+# → surcharge_fine cộng vào hóa đơn sau
+# → box → Available hoặc Maintenance
+# → Session: ACTIVE
+```
+
+### Luồng 6: Kiểm kê linh kiện (BR-12)
+
+```powershell
+# Lấy checklist cho từng game trong session
+GET /api/cafes/{cafeId}/pos/sessions/{sessionGameId}/component-checklist
+# → Trả về danh sách components cần kiểm
+
+# Staff kiểm tra + điền số lượng thực tế
+POST /api/cafes/{cafeId}/pos/sessions/component-check
+{
+  "sessionGameId": "guid",
+  "components": [
+    { "componentId": "guid", "actualQuantity": 5 }
+  ]
+}
+
+# Nếu bấm sai → reset
+POST /api/cafes/{cafeId}/pos/sessions/component-check/reset?sessionGameId={guid}
+```
+
+### Luồng 7: Kết thúc phiên chơi
+
+```powershell
+# Bước 1: Bấm "Trả game" trên POS
+POST /api/cafes/{cafeId}/pos/sessions/{id}/end
+# → session: ACTIVE → CHECKING
+# → boxes trong session → Available/Maintenance (theo kết quả return-game)
+# → table → Available khi không còn session khác
+
+# Nếu bấm nhầm → khôi phục
+POST /api/cafes/{cafeId}/pos/sessions/{id}/resume
+# → CHECKING → ACTIVE (chỉ khi chưa có member FINISHED)
+```
+
+### Luồng 8: Thanh toán (BR-12, BR-15)
+
+```powershell
+# Bước 1: Checkout toàn bộ (sau khi kiểm kê xong)
+POST /api/cafes/{cafeId}/pos/sessions/{id}/checkout
+{
+  "useExternalPayment": false
+}
+# → Tính Subtotal theo thời gian chơi × giá cafe
+# → Áp dụng DepositAppliedAmount cho từng member (BR-22)
+# → Member.TotalAmount = Subtotal + Penalty - DepositApplied
+# → session.TotalAmount = tổng tất cả member
+# → Status: CHECKING → UNPAID
+
+# Bước 2: Pay (thanh toán hóa đơn tổng)
+POST /api/cafes/{cafeId}/pos/sessions/{id}/pay
+{
+  "penaltyItems": [
+    { "sessionGameId": "guid", "componentTemplateId": "guid", "missingQuantity": 1, "damagedQuantity": 0 }
+  ]
+}
+# → Status: UNPAID → PAID
+# → Boxes + tables + seats → Available
+```
+
+### Luồng 9: Thanh toán một phần (Exception 4 — nhóm về sớm)
+
+```powershell
+# Bước 1: Chọn member về sớm
+POST /api/cafes/{cafeId}/pos/sessions/{id}/partial-checkout
+{
+  "memberIds": ["member-1", "member-2"]
+}
+# → Members về FINISHED
+# → session: ACTIVE → CHECKING
+# → KHÔNG cho in hóa đơn cho đến khi kiểm kê
+
+# Bước 2: Kiểm kê linh kiện (BR-12)
+POST /api/cafes/{cafeId}/pos/sessions/component-check
+{ ... }
+
+# Bước 3: Member còn lại có thể merge sang nhóm khác
+POST /api/cafes/{cafeId}/pos/sessions/{sourceSessionId}/merge
+{
+  "memberId": "member-3",
+  "targetSessionId": "guid"
+}
+# → member-3 chuyển sang nhóm mới
+```
+
+### Luồng 10: Exception 7 — Hao hụt trước phiên
+
+```powershell
+POST /api/cafes/{cafeId}/pos/sessions/{id}/inventory-loss
+{
+  "sessionGameId": "guid",
+  "missingComponents": [
+    { "componentTemplateId": "guid", "missingQuantity": 2 }
+  ],
+  "notes": "Phát hiện thiếu từ ca sáng, đã audit."
+}
+```
+
+---
+
+## State machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> Active: POST /pos/sessions (Walk-in) | POST /pos/check-in (Booking)
+    Active --> Active: /return-game (vẫn ACTIVE)
+    Active --> Checking: POST /pos/sessions/{id}/end
+    Checking --> Active: POST /pos/sessions/{id}/resume (nếu chưa member FINISHED)
+    Checking --> Unpaid: POST /pos/sessions/{id}/checkout (sau khi component-check xong)
+    Unpaid --> Paid: POST /pos/sessions/{id}/pay
+    Paid --> [*]
+    Active --> SuspendedMutation: partial-checkout
+    SuspendedMutation --> Active: POST /pos/sessions/{id}/merge
+    SuspendedMutation --> Finished: Quá thời gian chờ
+    Finished --> [*]
+```
+
+---
+
+## BR mapping
+
+| BR | Áp dụng |
+|----|---------|
+| BR-09 | Thanh toán session KHÔNG trừ tiền cọc (`DepositAppliedAmount = 0`). Deposit là phí giữ chỗ BoardVerse. |
+| BR-12 | Khóa in hóa đơn khi `CHECKING` (partial checkout) |
+| BR-13 | `GuestSlot` không chịu trách nhiệm tài sản |
+| BR-14 | Phí phạt không gán vào `GuestSlot` |
+| BR-15 | `TotalAmount = Subtotal + Penalty − DepositApplied` |
+| BR-17 | Chỉ nhân viên POS được kết thúc/tách nhóm/tính tiền |
+| BR-22 | Mỗi member có deposit riêng, áp dụng per-member trong checkout |
+
+---
+
+## Liên quan
+
+- **Payment cleanup contract**: [payment.md](./payment.md) §"Session Payment Lifecycle Cleanup" — cùng `IActiveSessionRepository.CompleteSessionPaymentCleanupAsync` được gọi bởi `/pay`, manual-confirm, và SePay webhook.
+- **Webhook handling**: [sepay-webhook.md](./sepay-webhook.md) — SePay/VietQR gateway callback handler.
+- **State machine canonical**: [boardverse.mdc §V](../../.cursor/rules/boardverse.mdc) — đặc tả transition cho `ActiveSession`, `Lobby`, `SeatSlot`.
+- **Deprecated**: [active-session.md](./active-session.md) — endpoint cũ `/api/cafes/{cafeId}/sessions/*` đã được gộp vào đây.

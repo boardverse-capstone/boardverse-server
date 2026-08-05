@@ -59,6 +59,12 @@ public interface IReservationService
     Task<int> ProcessNoShowAsync(DateTime cutoff, int batchSize, CancellationToken ct);
 
     /// <summary>
+    /// GAP-9 Fix: Retry BVC capture cho các phiên đã PAID nhưng capture thất bại.
+    /// Chạy qua background job mỗi 5 phút.
+    /// </summary>
+    Task<int> ProcessBvcCaptureRetryAsync(DateTime cutoff, int batchSize, CancellationToken ct);
+
+    /// <summary>
     /// BR §21A.7 + BR-REVENUE-01 stub: POS scan QR check-in.
     /// Atomic transaction:
     /// 1. Validate ReservationCode (unique, 8-char alphanumeric).

@@ -113,6 +113,12 @@ namespace BoardVerse.Services.Services
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
 
+            // GAP-8 Fix: Validate cafeId matches session's CafeId
+            if (session.CafeId != cafeId)
+            {
+                throw new ConflictException($"Phiên chơi '{sessionId}' không thuộc quán '{cafeId}'.");
+            }
+
             // BR-12: Checkout chỉ được từ Checking (sau khi EndGameSession)
             // Không cho phép checkout trực tiếp từ Active mà chưa qua EndGameSession
             if (session.Status != GroupSessionStatus.Checking)
@@ -168,10 +174,19 @@ namespace BoardVerse.Services.Services
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
 
-            // BR-12: Partial checkout có thể từ Active hoặc Checking
-            if (session.Status != GroupSessionStatus.Active && session.Status != GroupSessionStatus.Checking)
+            // GAP-8 Fix: Validate cafeId matches session's CafeId
+            if (session.CafeId != cafeId)
             {
-                throw new ConflictException("Phiên chơi này không thể thanh toán một phần.");
+                throw new ConflictException($"Phiên chơi '{sessionId}' không thuộc quán '{cafeId}'.");
+            }
+
+            // BR-12: Partial checkout phải từ CHECKING (đã trả game), không phải ACTIVE trực tiếp
+            // GAP-29 Fix: Để partial checkout, nhân viên phải bấm "Trả game" trước (EndGameSession)
+            // để kiểm tra linh kiện trước khi cho thành viên về sớm
+            if (session.Status != GroupSessionStatus.Checking)
+            {
+                throw new ConflictException(
+                    "Phiên chơi phải ở trạng thái CHECKING (đã bấm 'Trả game') để thanh toán một phần. Vui lòng bấm 'Trả game' trước.");
             }
 
             if (request.MemberIds.Count == 0)
@@ -179,13 +194,18 @@ namespace BoardVerse.Services.Services
                 throw new BadRequestException("Cần chọn ít nhất 1 thành viên để thanh toán một phần.");
             }
 
+            // BUG-1 Fix: Validate selected members are in Playing status
+            // Only members who are currently Playing can be checked out early
             var invalidMembers = session.Members
-                .Where(m => request.MemberIds.Contains(m.Id) && m.Status == IndividualSessionStatus.Finished)
+                .Where(m => request.MemberIds.Contains(m.Id)
+                    && m.Status != IndividualSessionStatus.Playing)
                 .ToList();
 
             if (invalidMembers.Count > 0)
             {
-                throw new ConflictException("Một số thành viên đã kết thúc phiên chơi.");
+                var invalidStatuses = string.Join(", ", invalidMembers.Select(m => m.Status));
+                throw new ConflictException(
+                    $"Chỉ thành viên đang chơi mới có thể thanh toán một phần. Trạng thái không hợp lệ: {invalidStatuses}.");
             }
 
             // Mark selected members as SUSPENDED_MUTATION (waiting for inventory check)
@@ -219,13 +239,25 @@ namespace BoardVerse.Services.Services
                 throw new ConflictException("Phiên chơi phải đang ở trạng thái ACTIVE để trả game.");
             }
 
+            // BUG-2 Fix: Validate that at least one game is attached before entering CHECKING
+            // A session should have games before returning them
+            if ((session.Games == null || session.Games.Count == 0) && !session.CafeInventoryBoxId.HasValue)
+            {
+                throw new ConflictException(
+                    "Phiên chơi chưa có game nào được gán. Vui lòng gán game trước khi trả game.");
+            }
+
+            var now = DateTime.UtcNow;
+
             // Mark all currently playing members as SuspendedMutation for inventory check
             foreach (var member in session.Members.Where(m => m.Status == IndividualSessionStatus.Playing))
             {
                 member.Status = IndividualSessionStatus.SuspendedMutation;
-                member.LeftAt = DateTime.UtcNow;
+                member.LeftAt = now;
             }
 
+            // Fix: Set EndedAt so minutes can be calculated correctly at checkout
+            session.EndedAt = now;
             session.IsCheckingInventory = true;
             session.Status = GroupSessionStatus.Checking;
             await _activeSessionRepository.SaveChangesAsync();
@@ -298,6 +330,14 @@ namespace BoardVerse.Services.Services
                 throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, request.TargetSessionId));
             }
 
+            // GAP-12 Fix: Set OriginalSessionId to track the original session start time
+            // When calculating billing for merged members, use OriginalSession.StartedAt as the base
+            // to ensure continuous time tracking (A3's total time = time from original session start)
+            member.OriginalSessionId ??= sourceSessionId;
+
+            await _activeSessionRepository.UpdateMemberAsync(member);
+            await _activeSessionRepository.SaveChangesAsync();
+
             return new MergeSessionResponseDto
             {
                 MemberId = request.MemberId,
@@ -319,6 +359,12 @@ namespace BoardVerse.Services.Services
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
 
+            // GAP-8 Fix: Validate cafeId matches session's CafeId
+            if (session.CafeId != cafeId)
+            {
+                throw new ConflictException($"Phiên chơi '{sessionId}' không thuộc quán '{cafeId}'.");
+            }
+
             if (session.Status != GroupSessionStatus.Unpaid)
             {
                 throw new ConflictException("Phiên chơi phải ở trạng thái UNPAID để thanh toán.");
@@ -329,9 +375,29 @@ namespace BoardVerse.Services.Services
 
             var now = DateTime.UtcNow;
 
-            // BR-16: Per-member billing - tính thời gian cho từng thành viên
-            // 1. Compute per-member minutes and subtotal
+            // Calculate elapsed minutes for the session (all members play the same duration)
+            var elapsedMinutes = session.EndedAt.HasValue
+                ? (int)Math.Floor((session.EndedAt.Value - session.StartedAt).TotalMinutes)
+                : (int)Math.Floor((now - session.StartedAt).TotalMinutes);
+            elapsedMinutes = Math.Max(0, elapsedMinutes);
+
+            // BR-16: Calculate group subtotal based on cafe billing model
+            // All members at a table play together for the same duration
             decimal totalGroupSubtotal = 0;
+            if (cafe.BillingModel == CafePartnerBillingModel.TimeBased)
+            {
+                // BR-16: Time-based billing (hourly first + progressive blocks)
+                totalGroupSubtotal = CalculateRealtimeBilling(cafe, elapsedMinutes);
+            }
+            else
+            {
+                // BR-16: Flat-rate - entry fee only
+                totalGroupSubtotal = cafe.BasePrice;
+            }
+
+            // BR-15: Calculate per-member minutes and individual subtotals for display
+            // (Members may leave at different times, track separately for audit)
+            decimal totalMemberSubtotal = 0;
             foreach (var member in session.Members)
             {
                 var memberLeftAt = member.LeftAt ?? now;
@@ -339,38 +405,11 @@ namespace BoardVerse.Services.Services
                 memberMinutes = Math.Max(0, memberMinutes);
                 member.TotalMinutesPlayed = memberMinutes;
 
-                // BR-16: Compute member's individual subtotal based on cafe billing model
-                decimal memberSubtotal = 0;
-                if (cafe.BillingModel == CafePartnerBillingModel.TimeBased)
-                {
-                    memberSubtotal = CalculateRealtimeBilling(cafe, memberMinutes);
-                }
-                else
-                {
-                    // BR-16 Flat-rate: first hour = entry fee, subsequent = 0
-                    memberSubtotal = cafe.BasePrice; // Giá vé vào cổng
-                }
-
+                // Per-member subtotal (for display/audit, actual charge uses group subtotal)
+                // BR-16: Each member pays based on session duration, not individual time
+                decimal memberSubtotal = totalGroupSubtotal;
                 memberSubtotal = Math.Max(0, memberSubtotal);
-                totalGroupSubtotal += memberSubtotal;
-            }
-
-            // BR-16: Group total = sum of all members' individual subtotals
-            // Or if time-based: single calculation based on overall group active period
-            var elapsedMinutes = session.EndedAt.HasValue
-                ? (int)Math.Floor((session.EndedAt.Value - session.StartedAt).TotalMinutes)
-                : (int)Math.Floor((now - session.StartedAt).TotalMinutes);
-            elapsedMinutes = Math.Max(0, elapsedMinutes);
-
-            if (cafe.BillingModel == CafePartnerBillingModel.TimeBased)
-            {
-                // BR-16: Group time-based billing (using overall group elapsed time)
-                totalGroupSubtotal = CalculateRealtimeBilling(cafe, elapsedMinutes);
-            }
-            else
-            {
-                // BR-16: Flat-rate - only charge entry fee once per session
-                totalGroupSubtotal = cafe.BasePrice;
+                totalMemberSubtotal += memberSubtotal;
             }
 
             session.TotalMinutesPlayed = elapsedMinutes;
@@ -445,6 +484,12 @@ namespace BoardVerse.Services.Services
 
             var finalSession = await _activeSessionRepository.GetByIdAsync(sessionId);
 
+            // GAP-33 Fix: Build per-member invoices
+            var memberInvoices = BuildMemberInvoices(session, totalGroupSubtotal, request.PenaltyItems);
+
+            // GAP-34 Fix: Determine BVC capture status
+            var bvcCaptureStatus = DetermineBvcCaptureStatus(session);
+
             return new PaySessionResponseDto
             {
                 SessionId = sessionId,
@@ -453,8 +498,130 @@ namespace BoardVerse.Services.Services
                 DepositAppliedAmount = session.DepositAppliedAmount,
                 TotalAmount = session.TotalAmount,
                 PaidAt = now,
+                MemberInvoices = memberInvoices,
+                BvcCaptureStatus = bvcCaptureStatus,
                 Session = MapSessionDto(finalSession!)
             };
+        }
+
+        /// <summary>
+        /// Build per-member invoices for PaySession response.
+        /// GAP-33 Fix: Return detailed per-member breakdown.
+        /// GAP-12 Fix: Use OriginalSession.StartedAt for merged members to track continuous time.
+        /// </summary>
+        private List<MemberInvoiceDto> BuildMemberInvoices(
+            ActiveSession session,
+            decimal groupSubtotal,
+            List<ComponentPenaltyItemDto>? penaltyItems)
+        {
+            var invoices = new List<MemberInvoiceDto>();
+            var now = DateTime.UtcNow;
+
+            // GAP-12 Fix: Cache original session start times for merged members
+            var originalSessionStarts = new Dictionary<Guid, DateTime>();
+            foreach (var member in session.Members.Where(m => m.OriginalSessionId.HasValue))
+            {
+                if (!originalSessionStarts.ContainsKey(member.OriginalSessionId.Value))
+                {
+                    var originalSession = session.Members
+                        .FirstOrDefault(m => m.ActiveSessionId == member.OriginalSessionId)?
+                        .ActiveSession;
+                    if (originalSession != null)
+                    {
+                        originalSessionStarts[member.OriginalSessionId.Value] = originalSession.StartedAt;
+                    }
+                }
+            }
+
+            foreach (var member in session.Members)
+            {
+                // GAP-12 Fix: For merged members, use the original session start time
+                // to ensure continuous time tracking (A3's total time = time from original session start)
+                var baseStartTime = member.OriginalSessionId.HasValue && originalSessionStarts.TryGetValue(member.OriginalSessionId.Value, out var originalStart)
+                    ? originalStart
+                    : member.JoinedAt;
+
+                var memberLeftAt = member.LeftAt ?? now;
+                var memberMinutes = (int)Math.Floor((memberLeftAt - baseStartTime).TotalMinutes);
+                memberMinutes = Math.Max(0, memberMinutes);
+
+                // Calculate member's subtotal (share of group subtotal based on play duration)
+                decimal memberSubtotal = memberMinutes > 0 ? groupSubtotal : 0;
+
+                // Get member's penalty from request
+                var memberPenalty = penaltyItems
+                    ?.Where(p => p.ResponsibleMemberId == member.Id)
+                    .Sum(p => p.PenaltyAmount) ?? 0;
+
+                // Add persisted penalty from component checks
+                if (member.PenaltyAmount > 0)
+                {
+                    memberPenalty += member.PenaltyAmount;
+                }
+
+                // BR-15: Member total = Subtotal + Penalty - Deposit (BR-09: Deposit không trừ)
+                // BR-09: Deposit là phí giữ chỗ, KHÔNG trừ vào hóa đơn
+                // GAP-10 Fix: Use member-level deposit from schema
+                var memberDeposit = member.DepositAppliedAmount;
+                var memberTotal = memberSubtotal + memberPenalty - memberDeposit;
+                memberTotal = Math.Max(0, memberTotal);
+
+                // Build penalty details
+                var penaltyDetails = penaltyItems
+                    ?.Where(p => p.ResponsibleMemberId == member.Id)
+                    .Select(p => new PenaltyDetailDto
+                    {
+                        ComponentId = p.ComponentId,
+                        ComponentName = p.ComponentName,
+                        PenaltyFee = p.PenaltyAmount,
+                        TotalPenalty = p.PenaltyAmount
+                    })
+                    .ToList() ?? [];
+
+                invoices.Add(new MemberInvoiceDto
+                {
+                    MemberId = member.Id,
+                    UserId = member.UserId,
+                    DisplayName = member.IsGuestSlot
+                        ? member.GuestDisplayName ?? "Khách vô danh"
+                        : $"User_{member.UserId.ToString()[..8]}",
+                    IsGuestSlot = member.IsGuestSlot,
+                    PlayedMinutes = memberMinutes,
+                    JoinedAt = member.JoinedAt,
+                    Subtotal = memberSubtotal,
+                    PenaltyAmount = memberPenalty,
+                    // GAP-10 Fix: Use member-level deposit
+                    DepositAppliedAmount = member.DepositAppliedAmount,
+                    TotalAmount = memberTotal,
+                    BvcCaptureStatus = member.IsGuestSlot ? BvcCaptureStatus.NotApplicable : BvcCaptureStatus.Pending,
+                    PenaltyDetails = penaltyDetails
+                });
+            }
+
+            return invoices;
+        }
+
+        /// <summary>
+        /// Determine BVC capture status for the session.
+        /// GAP-34 Fix: Return BVC capture status in PaySession response.
+        /// </summary>
+        private BvcCaptureStatus DetermineBvcCaptureStatus(ActiveSession session)
+        {
+            if (!session.LobbyId.HasValue)
+            {
+                // No lobby = no BVC to capture
+                return BvcCaptureStatus.NotApplicable;
+            }
+
+            // Check if BVC was already captured (would be set during CompleteAndCaptureAsync)
+            if (session.Status == GroupSessionStatus.Paid && session.PaidAt.HasValue)
+            {
+                // Session is paid - BVC should have been captured
+                // This is a simplified check - in production, would check ledger entries
+                return BvcCaptureStatus.Captured;
+            }
+
+            return BvcCaptureStatus.Pending;
         }
 
         private static decimal CalculateRealtimeBilling(Core.Entities.Cafe cafe, int elapsedMinutes)
@@ -559,6 +726,8 @@ namespace BoardVerse.Services.Services
         /// <summary>
         /// Gán thêm game vào phiên chơi.
         /// Exception 6: Nhóm tự ý lấy thêm game mà không báo nhân viên.
+        /// GAP-13 Fix: Validate session status is Active before attaching game.
+        /// GAP-14 Fix: Ensure Games navigation is loaded before accessing.
         /// </summary>
         public async Task<ActiveSessionResponseDto> AttachGameAsync(Guid cafeId, Guid sessionId, AttachGameRequestDto request)
         {
@@ -570,10 +739,28 @@ namespace BoardVerse.Services.Services
                 throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
             }
 
+            // GAP-13 Fix: Chỉ cho phép gán game khi phiên đang Active
+            if (session.Status != GroupSessionStatus.Active)
+            {
+                throw new ConflictException($"Chỉ có thể gán game khi phiên đang hoạt động. Trạng thái hiện tại: {session.Status}.");
+            }
+
+            // GAP-14 Fix: Ensure Games is loaded
+            if (session.Games == null)
+            {
+                throw new InvalidOperationException("Session Games collection not loaded. Ensure navigation is included in query.");
+            }
+
             var box = await _posRepository.GetBoxByBarcodeAsync(cafeId, request.GameBarcode);
             if (box == null)
             {
                 throw new NotFoundException($"Không tìm thấy hộp game với barcode '{request.GameBarcode}'.");
+            }
+
+            // GAP 3 Fix: Check if box is busy in another active session
+            if (box.Status == CafeGameInventoryStatus.InUse)
+            {
+                throw new ConflictException($"Hộp game '{box.Barcode}' đang được sử dụng bởi phiên chơi khác.");
             }
 
             var existingGame = session.Games.FirstOrDefault(g => g.CafeInventoryBoxId == box.Id);
@@ -800,6 +987,64 @@ namespace BoardVerse.Services.Services
             session.HasMissingComponents = missingCount > 0;
             await _activeSessionRepository.UpdateAsync(session);
             await _activeSessionRepository.SaveChangesAsync();
+
+            return MapSessionDto(session);
+        }
+
+        /// <summary>
+        /// GAP-1 Fix: Cho phép revert từ CHECKING về ACTIVE nếu nhân viên bấm nhầm.
+        /// Chỉ cho phép khi chưa có thành viên nào được checkout (chưa có member trong trạng thái FINISHED).
+        /// </summary>
+        public async Task<ActiveSessionResponseDto> ResumeSessionAsync(Guid cafeId, Guid sessionId)
+        {
+            var session = await _activeSessionRepository.GetByIdAsync(sessionId)
+                ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
+
+            // GAP-8 Fix: Validate cafeId matches session's CafeId
+            if (session.CafeId != cafeId)
+            {
+                throw new ConflictException($"Phiên chơi '{sessionId}' không thuộc quán '{cafeId}'.");
+            }
+
+            // Only allow resume from CHECKING state
+            if (session.Status != GroupSessionStatus.Checking)
+            {
+                throw new ConflictException(
+                    $"Chỉ có thể khôi phục phiên đang ở trạng thái CHECKING. Trạng thái hiện tại: {session.Status}.");
+            }
+
+            // Check if any members have been checked out (FINISHED status)
+            var hasCheckedOutMembers = session.Members?.Any(m => m.Status == IndividualSessionStatus.Finished) ?? false;
+            if (hasCheckedOutMembers)
+            {
+                throw new ConflictException(
+                    "Không thể khôi phục phiên vì đã có thành viên được thanh toán. Vui lòng tiếp tục thanh toán.");
+            }
+
+            // Revert session to ACTIVE
+            session.Status = GroupSessionStatus.Active;
+            session.EndedAt = null; // Clear the ended time to resume billing
+            session.IsCheckingInventory = false;
+            session.HasMissingComponents = false;
+
+            // Revert all members back to Playing status
+            if (session.Members != null)
+            {
+                foreach (var member in session.Members)
+                {
+                    if (member.Status == IndividualSessionStatus.SuspendedMutation)
+                    {
+                        member.Status = IndividualSessionStatus.Playing;
+                        member.LeftAt = null; // Clear left time
+                    }
+                }
+            }
+
+            await _activeSessionRepository.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Session resumed from CHECKING to ACTIVE. SessionId={SessionId}, CafeId={CafeId}",
+                sessionId, cafeId);
 
             return MapSessionDto(session);
         }

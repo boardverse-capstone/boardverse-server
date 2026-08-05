@@ -61,6 +61,9 @@ public class ReservationQuoteDto
     public int MinPlayers { get; set; }
     public int MaxPlayers { get; set; }
 
+    /// <summary>Luôn = "BVC" — 1 BVC = 1.000 VND (BR §II.2).</summary>
+    public string DepositUnit { get; set; } = "BVC";
+
     public long DepositRatePerPerson { get; set; }
     public long BaseDeposit { get; set; }
     public decimal RiskMultiplier { get; set; }

@@ -51,7 +51,8 @@ Tài liệu tổng hợp cho hệ thống BoardVerse — board game center manag
 - [matches.md](./api/matches.md) — `MatchController` (Elo & match consensus)
 
 #### Active Session (POS)
-- [active-session.md](./api/active-session.md) — `ActiveSessionController` (12 endpoints — phần lớn POS workflow)
+- [cafe-pos.md](./api/cafe-pos.md) — `CafePosController` (23 endpoints — bao gồm toàn bộ POS workflow; `ActiveSessionController` đã được gộp vào đây 05/08/2026)
+- [active-session.md](./api/active-session.md) — `ActiveSessionController` (DEPRECATED — chỉ còn `GET /alternative-cafes`)
 
 #### Payment
 - [booking.md](./api/booking.md) — Booking flow & payment (cập nhật → không còn `BookingController`, đi qua Payment)
@@ -84,7 +85,7 @@ Tài liệu tổng hợp cho hệ thống BoardVerse — board game center manag
 
 | Controller | Doc |
 |---|---|
-| `ActiveSessionController` | [active-session.md](./api/active-session.md) |
+| `ActiveSessionController` | [active-session.md](./api/active-session.md) (DEPRECATED) |
 | `AdminCafeController` | [admin-cafe.md](./api/admin-cafe.md) |
 | `AdminCafePartnerApplicationController` | [cafe-partner.md](./api/cafe-partner.md) |
 | `AdminConfigurationController` | [admin-configuration.md](./api/admin-configuration.md) |

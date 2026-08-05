@@ -44,6 +44,7 @@ public class ReservationService : IReservationService
     private readonly IUserManagementRepository _userRepository;
     private readonly IGameTemplateRepository _gameRepository;
     private readonly IOutboxRepository _outboxRepository;
+    private readonly IActiveSessionRepository _activeSessionRepository;
     private readonly DepositCalculator _depositCalculator;
     private readonly EligibilityValidator _eligibilityValidator;
     private readonly ILogger<ReservationService> _logger;
@@ -62,6 +63,7 @@ public class ReservationService : IReservationService
         IUserManagementRepository userRepository,
         IGameTemplateRepository gameRepository,
         IOutboxRepository outboxRepository,
+        IActiveSessionRepository activeSessionRepository,
         DepositCalculator depositCalculator,
         EligibilityValidator eligibilityValidator,
         ILogger<ReservationService> logger,
@@ -79,6 +81,7 @@ public class ReservationService : IReservationService
         _userRepository = userRepository;
         _gameRepository = gameRepository;
         _outboxRepository = outboxRepository;
+        _activeSessionRepository = activeSessionRepository;
         _depositCalculator = depositCalculator;
         _eligibilityValidator = eligibilityValidator;
         _logger = logger;
@@ -104,6 +107,14 @@ public class ReservationService : IReservationService
 
         // Load cafe config (BR-NEW-12).
         var cafeConfig = await _cafeConfigRepository.GetOrCreateDefaultAsync(request.CafeId);
+
+        // Ensure SeatInventory tồn tại để tính số BVC cọc (BR §21A.2).
+        // Dùng TotalSeats từ CafeConfig thay vì Cafe.TotalSeats vì config có thể override.
+        await _seatInventoryRepository.EnsureRowAsync(
+            request.CafeId,
+            request.PlayDate,
+            request.TimeSlot,
+            cafeConfig.Capacity);
 
         // Load wallet để lấy riskMultiplier.
         var wallet = await GetOrCreateWalletEntityAsync(hostId, now);
@@ -229,6 +240,13 @@ public class ReservationService : IReservationService
         var cafeConfig = await _cafeConfigRepository.GetOrCreateDefaultAsync(request.CafeId);
         var wallet = await GetOrCreateWalletEntityAsync(hostId, now);
 
+        // Ensure SeatInventory tồn tại trước khi bắt đầu transaction.
+        await _seatInventoryRepository.EnsureRowAsync(
+            request.CafeId,
+            request.PlayDate,
+            request.TimeSlot,
+            cafeConfig.Capacity);
+
         // 4. Tính lại quote (server authoritative — BR §XVII.2).
         var quote = _depositCalculator.Calculate(
             quoteRequest,
@@ -328,7 +346,7 @@ public class ReservationService : IReservationService
                 request.CafeId, request.PlayDate, request.TimeSlot);
             if (seatInventory == null)
             {
-                throw new BadRequestException(ApiErrorMessages.Reservation.CafeConfigMissing);
+                throw new BadRequestException(ApiErrorMessages.Reservation.SeatInventoryNotConfigured);
             }
 
             if (seatInventory.AvailableSeats < quote.MaxPlayersApplied)
@@ -1258,6 +1276,41 @@ public class ReservationService : IReservationService
                 lobby = fresh.Lobby ?? lobby;
             }
         }
+    }
+
+    /// <summary>
+    /// GAP-9 Fix: Retry BVC capture cho các ActiveSession đã PAID nhưng chưa capture thành công.
+    /// Chạy qua background job mỗi 5 phút.
+    /// </summary>
+    public async Task<int> ProcessBvcCaptureRetryAsync(DateTime cutoff, int batchSize, CancellationToken ct)
+    {
+        var sessions = await _activeSessionRepository.GetSessionsNeedingBvcCaptureRetryAsync(batchSize);
+        var processed = 0;
+
+        foreach (var session in sessions)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            try
+            {
+                if (session.LobbyId.HasValue)
+                {
+                    await CompleteAndCaptureAsync(session.LobbyId.Value, session.Id, ct);
+                    _logger.LogInformation(
+                        "BvcCaptureRetry: SessionId={SessionId}, LobbyId={LobbyId} captured successfully",
+                        session.Id, session.LobbyId.Value);
+                }
+                processed++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "BvcCaptureRetry: Failed for SessionId={SessionId}, LobbyId={LobbyId}. Will retry next cycle.",
+                    session.Id, session.LobbyId);
+            }
+        }
+
+        return processed;
     }
 
     // ===== BR §21A.7 Check-in =====

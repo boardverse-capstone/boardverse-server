@@ -1,5 +1,6 @@
 using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.DTOs.Reservation;
+using BoardVerse.Core.DTOs.Session;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
@@ -21,6 +22,7 @@ namespace BoardVerse.Services.Services
         private readonly IBookingDepositRepository _depositRepository;
         private readonly IBookingRepository _bookingRepository;
         private readonly IActiveSessionRepository _activeSessionRepository;
+        private readonly IActiveSessionService _activeSessionService;
         private readonly IPosHubService _posHubService;
         private readonly ILobbyRepository _lobbyRepository;
         private readonly IUserProfileRepository _userProfileRepository;
@@ -35,6 +37,7 @@ namespace BoardVerse.Services.Services
             IBookingDepositRepository depositRepository,
             IBookingRepository bookingRepository,
             IActiveSessionRepository activeSessionRepository,
+            IActiveSessionService activeSessionService,
             IPosHubService posHubService,
             ILobbyRepository lobbyRepository,
             IUserProfileRepository userProfileRepository,
@@ -48,6 +51,7 @@ namespace BoardVerse.Services.Services
             _depositRepository = depositRepository;
             _bookingRepository = bookingRepository;
             _activeSessionRepository = activeSessionRepository;
+            _activeSessionService = activeSessionService;
             _posHubService = posHubService;
             _lobbyRepository = lobbyRepository;
             _userProfileRepository = userProfileRepository;
@@ -57,17 +61,25 @@ namespace BoardVerse.Services.Services
             _db = db;
         }
 
+        /// <summary>
+        /// GAP-21 Fix: GetTables với filter includeOnlyAvailable.
+        /// </summary>
         public async Task<IReadOnlyList<CafeTableStatusDto>> GetTablesAsync(
             Guid cafeId,
             Guid userId,
-            string userRole)
+            string userRole,
+            bool includeOnlyAvailable = true)
         {
             await EnsurePosAccessAsync(cafeId, userId, userRole);
 
-            var tables = await _posRepository.GetActiveTablesAsync(cafeId);
-            // Fix Bug #3: Only show Available tables in the POS list
+            var allTables = await _posRepository.GetActiveTablesAsync(cafeId);
+
+            // GAP-21 Fix: Nếu includeOnlyAvailable=false, trả tất cả trạng thái để POS monitor
+            var tables = includeOnlyAvailable
+                ? allTables.Where(t => t.Status == CafeTableStatus.Available).ToList()
+                : allTables.ToList();
+
             return tables
-                .Where(t => t.Status == CafeTableStatus.Available)
                 .OrderBy(t => t.SortOrder)
                 .ThenBy(t => t.Name)
                 .Select(t => new CafeTableStatusDto
@@ -185,6 +197,26 @@ namespace BoardVerse.Services.Services
             return MapBox(box);
         }
 
+        /// <summary>
+        /// GAP 1 Fix: Get session by ID for frontend to view session details.
+        /// </summary>
+        public async Task<ActiveSessionDto> GetSessionByIdAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sessionId)
+        {
+            await EnsurePosAccessAsync(cafeId, userId, userRole);
+
+            var session = await _posRepository.GetActiveSessionByIdAsync(cafeId, sessionId);
+            if (session == null)
+            {
+                throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
+            }
+
+            return MapSession(session, DateTime.UtcNow);
+        }
+
         public async Task<IReadOnlyList<ActiveSessionDto>> GetActiveSessionsAsync(
             Guid cafeId,
             Guid userId,
@@ -226,7 +258,7 @@ namespace BoardVerse.Services.Services
             }
 
             // Get host profile using available method
-            var hostProfile = await _userProfileRepository.GetByIdWithProfileAsync(deposit.UserId);
+            var hostUser = await _userProfileRepository.GetByIdWithProfileAsync(deposit.UserId);
 
             // Get lobby info if available - check via ActiveSessionId link
             BookingLobbyInfoDto? lobbyInfo = null;
@@ -235,13 +267,36 @@ namespace BoardVerse.Services.Services
                 var lobby = await _lobbyRepository.GetByActiveSessionIdAsync(deposit.ActiveSessionId.Value);
                 if (lobby != null)
                 {
+                    // GAP-18 Fix: Populate members list from lobby
+                    var members = new List<BookingMemberInfoDto>();
+
+                    // Add host
+                    if (hostUser != null)
+                    {
+                        var profile = hostUser.Profile;
+                        var displayName = profile != null
+                            ? $"{profile.FirstName} {profile.LastName}".Trim()
+                            : hostUser.Username ?? "Host";
+
+                        members.Add(new BookingMemberInfoDto
+                        {
+                            UserId = hostUser.Id,
+                            DisplayName = string.IsNullOrWhiteSpace(displayName) ? "Host" : displayName,
+                            AvatarUrl = profile?.AvatarUrl,
+                            KarmaScore = profile?.KarmaPoints ?? 0
+                        });
+                    }
+
+                    // Add other members if available (from lobby member list)
+                    // Note: LobbyMembers would be loaded separately if needed
                     lobbyInfo = new BookingLobbyInfoDto
                     {
                         LobbyId = lobby.Id,
                         GameName = lobby.GameTemplate?.Name ?? "Unknown",
                         MinPlayers = lobby.MinPlayers,
                         MaxPlayers = lobby.MaxMembers,
-                        CurrentMemberCount = 1 // Host only for now
+                        CurrentMemberCount = members.Count,
+                        Members = members
                     };
                 }
             }
@@ -273,15 +328,15 @@ namespace BoardVerse.Services.Services
                 DepositStatus = deposit.Status.ToString(),
                 DepositAmount = deposit.Amount,
                 ScheduledStartTime = deposit.ScheduledAt,
-                RegisteredMemberCount = 1, // Host only for now
+                RegisteredMemberCount = lobbyInfo?.Members?.Count ?? 1,
                 CanCheckIn = canCheckIn,
                 CannotCheckInReason = cannotCheckInReason,
                 Host = new BookingMemberInfoDto
                 {
                     UserId = deposit.UserId,
-                    DisplayName = hostProfile?.Profile?.FirstName ?? hostProfile?.Username ?? "Unknown",
-                    AvatarUrl = hostProfile?.Profile?.AvatarUrl,
-                    KarmaScore = hostProfile?.Profile?.KarmaPoints ?? 0
+                    DisplayName = hostUser?.Profile?.FirstName ?? hostUser?.Username ?? "Unknown",
+                    AvatarUrl = hostUser?.Profile?.AvatarUrl,
+                    KarmaScore = hostUser?.Profile?.KarmaPoints ?? 0
                 },
                 Lobby = lobbyInfo
             };
@@ -400,19 +455,59 @@ namespace BoardVerse.Services.Services
         {
             await EnsurePosAccessAsync(cafeId, userId, userRole);
 
+            // GAP-1/GAP-37 Fix: IdempotencyKey chống double-tap
+            if (!string.IsNullOrWhiteSpace(request.IdempotencyKey))
+            {
+                var idempotentSession = await _posRepository.GetSessionByIdempotencyKeyAsync(request.IdempotencyKey);
+                if (idempotentSession != null)
+                {
+                    _logger.LogInformation(
+                        "CheckIn idempotent replay. IdempotencyKey={Key}, ExistingSessionId={SessionId}",
+                        request.IdempotencyKey, idempotentSession.Id);
+                    // Map session to DTO - need to call a method that exists
+                    return await GetSessionByIdAsync(cafeId, userId, userRole, idempotentSession.Id);
+                }
+            }
+
+            // GAP-1/GAP-37 Fix: Nonce chống replay attack
+            if (!string.IsNullOrWhiteSpace(request.Nonce))
+            {
+                var nonceUsed = await _posRepository.IsNonceUsedAsync(request.Nonce);
+                if (nonceUsed)
+                {
+                    throw new ConflictException(
+                        $"Mã QR này đã được sử dụng. Vui lòng yêu cầu khách quét lại mã mới.");
+                }
+            }
+
             var code = request.Code.Trim();
 
             // BR mới §21A.7 + Detection: phân biệt ReservationCode vs BookingCode cũ.
             var codeType = ReservationCodeDetector.Detect(code);
 
+            ActiveSessionDto result;
             if (codeType == ReservationCodeDetector.CodeType.Reservation)
             {
                 // ====== BR-MỚI: BVC Reservation flow ======
-                return await StartSessionFromReservationAsync(cafeId, userId, code, request);
+                result = await StartSessionFromReservationAsync(cafeId, userId, code, request);
+            }
+            else
+            {
+                // ====== BR-CŨ: VND BookingDeposit flow (backward compat) ======
+                result = await StartSessionFromLegacyBookingAsync(cafeId, userId, code, request);
             }
 
-            // ====== BR-CŨ: VND BookingDeposit flow (backward compat) ======
-            return await StartSessionFromLegacyBookingAsync(cafeId, userId, code, request);
+            // GAP-1/GAP-37 Fix: Lưu IdempotencyKey + Nonce sau khi thành công
+            if (!string.IsNullOrWhiteSpace(request.IdempotencyKey))
+            {
+                await _posRepository.SaveIdempotencyKeyAsync(result.Id, request.IdempotencyKey);
+            }
+            if (!string.IsNullOrWhiteSpace(request.Nonce))
+            {
+                await _posRepository.MarkNonceUsedAsync(request.Nonce);
+            }
+
+            return result;
         }
 
         /// <summary>
@@ -710,6 +805,12 @@ namespace BoardVerse.Services.Services
                 throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
             }
 
+            // BUG 2 Fix: Validate session is Active before ending
+            if (session.Status != GroupSessionStatus.Active)
+            {
+                throw new ConflictException($"Phiên chơi phải đang hoạt động để kết thúc. Trạng thái hiện tại: {session.Status}.");
+            }
+
             var now = DateTime.UtcNow;
             session.EndedAt = now;
             // BR-12: Chuyển sang Checking để chờ kiểm kê linh kiện trước khi xuất hóa đơn
@@ -723,6 +824,17 @@ namespace BoardVerse.Services.Services
             }
             session.CafeInventoryBox.Status = CafeGameInventoryStatus.Available;
             session.CafeInventoryBox.UpdatedAt = now;
+
+            // BUG 1 Fix: Release ALL boxes including extra games attached to session
+            var extraGames = await _posRepository.GetSessionGamesAsync(sessionId);
+            foreach (var game in extraGames)
+            {
+                if (game.CafeInventoryBox != null)
+                {
+                    game.CafeInventoryBox.Status = CafeGameInventoryStatus.Available;
+                    game.CafeInventoryBox.UpdatedAt = now;
+                }
+            }
 
             var otherSessionsOnTable = await _posRepository.GetActiveSessionsAsync(cafeId, null);
             var tableStillBusy = otherSessionsOnTable.Any(s =>
@@ -742,6 +854,12 @@ namespace BoardVerse.Services.Services
 
         private async Task EnsurePosAccessAsync(Guid cafeId, Guid userId, string userRole)
         {
+            // GAP-7 Fix: Reject Guid.Empty as a valid user (security)
+            if (userId == Guid.Empty)
+            {
+                throw new UnauthorizedAccessException("Invalid user context.");
+            }
+
             var cafe = await _cafeRepository.GetActiveByIdAsync(cafeId);
             if (cafe == null)
             {
@@ -883,6 +1001,14 @@ namespace BoardVerse.Services.Services
                     ApiErrorMessages.Pos.ComponentCheckAlreadyDone(request.SessionGameId));
             }
 
+            // GAP-24 Fix: Validate session is in CHECKING status before allowing component check
+            var session = sessionGame.ActiveSession;
+            if (session.Status != GroupSessionStatus.Checking)
+            {
+                throw new ConflictException(
+                    $"Chỉ có thể kiểm tra linh kiện khi phiên đang ở trạng thái CHECKING (đã trả game). Trạng thái hiện tại: {session.Status}.");
+            }
+
             // AC 3.2: "Tất cả hợp lệ" → skip kiểm tra chi tiết
             if (request.MarkAllValid)
             {
@@ -923,6 +1049,9 @@ namespace BoardVerse.Services.Services
             decimal totalPenalty = 0;
             var resultLookup = request.Results.ToDictionary(r => r.ComponentId, r => r.ActualQuantity);
 
+            // GAP-16 Fix: Track components with missing penalty config for warning
+            var missingPenaltyComponents = new List<string>();
+
             foreach (var component in sessionGame.GameTemplate.Components)
             {
                 var actualQty = resultLookup.GetValueOrDefault(component.Id, 0);
@@ -935,7 +1064,23 @@ namespace BoardVerse.Services.Services
                         var missing = component.DefaultQuantity - actualQty;
                         totalPenalty += penalty.PenaltyFee * missing;
                     }
+                    else
+                    {
+                        // GAP-16 Fix: Log warning when penalty config is missing
+                        missingPenaltyComponents.Add($"{component.ComponentName} (thiếu cấu hình phí đền bù)");
+                        _logger.LogWarning(
+                            "Component penalty config missing. CafeId={CafeId}, GameTemplateId={GameTemplateId}, ComponentId={ComponentId}, ComponentName={ComponentName}",
+                            cafeId, gameTemplateId, component.Id, component.ComponentName);
+                    }
                 }
+            }
+
+            // GAP-16 Fix: Log warning with all missing penalty components
+            if (missingPenaltyComponents.Count > 0)
+            {
+                _logger.LogWarning(
+                    "Missing penalty config for {Count} components in session {SessionGameId}: {Components}",
+                    missingPenaltyComponents.Count, request.SessionGameId, string.Join("; ", missingPenaltyComponents));
             }
 
             var hasMissing = request.Results.Any(r =>
@@ -956,7 +1101,50 @@ namespace BoardVerse.Services.Services
             return await GetComponentChecklistAsync(cafeId, userId, userRole, request.SessionGameId);
         }
 
+        // GAP-25 Fix: Reset checklist — cho phép staff reset lại checklist nếu đã kiểm tra sai
+        public async Task<ComponentChecklistDto> ResetComponentCheckAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sessionGameId)
+        {
+            await EnsurePosAccessAsync(cafeId, userId, userRole);
+
+            var sessionGame = await _posRepository.GetActiveSessionGameByIdAsync(sessionGameId);
+            if (sessionGame == null)
+            {
+                throw new NotFoundException(ApiErrorMessages.Pos.SessionGameNotFound(sessionGameId));
+            }
+
+            if (sessionGame.ActiveSession.CafeId != cafeId)
+            {
+                throw new NotFoundException(ApiErrorMessages.Pos.SessionGameNotFound(sessionGameId));
+            }
+
+            // GAP-24 Fix: Validate session is in CHECKING status before allowing reset
+            var session = sessionGame.ActiveSession;
+            if (session.Status != GroupSessionStatus.Checking)
+            {
+                throw new ConflictException(
+                    $"Chỉ có thể reset checklist khi phiên đang ở trạng thái CHECKING. Trạng thái hiện tại: {session.Status}.");
+            }
+
+            // Reset checklist
+            sessionGame.CheckStatus = ComponentCheckStatus.NotChecked;
+            sessionGame.CheckedAt = null;
+            sessionGame.TotalPenaltyAmount = 0;
+
+            await _posRepository.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Component checklist reset. SessionGameId={SessionGameId}, CafeId={CafeId}",
+                sessionGameId, cafeId);
+
+            return await GetComponentChecklistAsync(cafeId, userId, userRole, sessionGameId);
+        }
+
         // POST /api/cafes/{cafeId}/pos/sessions/{sessionId}/return-game
+        // GAP-26 Fix: Validate box belongs to the session.
         public async Task<ReturnGameResponseDto> ReturnGameAsync(
             Guid cafeId,
             Guid userId,
@@ -976,6 +1164,14 @@ namespace BoardVerse.Services.Services
             if (box == null || box.CafeGameInventory.CafeId != cafeId)
             {
                 throw new NotFoundException($"Không tìm thấy hộp game '{request.InventoryBoxId}'.");
+            }
+
+            // GAP-26 Fix: Validate box belongs to this session's Games list
+            var sessionGame = session.Games?.FirstOrDefault(g => g.CafeInventoryBoxId == request.InventoryBoxId);
+            if (sessionGame == null)
+            {
+                throw new ConflictException(
+                    $"Hộp game '{box.Barcode}' không thuộc phiên chơi này. Vui lòng kiểm tra lại.");
             }
 
             // Tính surcharge_fine
@@ -1029,6 +1225,158 @@ namespace BoardVerse.Services.Services
                 HasDamagedComponents = hasDamaged,
                 BoxMaintenanceStatus = box.Status.ToString()
             };
+        }
+
+        // ====== Billing Operations - delegates to ActiveSessionService ======
+
+        /// <summary>
+        /// Gán thêm game vào phiên chơi.
+        /// Exception 6: Nhóm tự ý lấy thêm game mà không báo nhân viên.
+        /// GAP-13 Fix: Validate session status is Active before attaching game.
+        /// GAP-14 Fix: Ensure Games navigation is loaded before accessing.
+        /// </summary>
+        public async Task<ActiveSessionDto> AttachGameAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sessionId,
+            AttachGameRequestDto request)
+        {
+            await EnsurePosAccessAsync(cafeId, userId, userRole);
+
+            // Delegate to ActiveSessionService (which now has GAP-13 fix)
+            await _activeSessionService.AttachGameAsync(cafeId, sessionId, request);
+
+            // Fetch session entity with Games included to map response
+            var session = await _posRepository.GetActiveSessionByIdAsync(cafeId, sessionId);
+            return MapSession(session!, DateTime.UtcNow);
+        }
+
+        /// <summary>
+        /// Thêm khách vô danh vào phiên chơi.
+        /// Exception 10: Khách không có ứng dụng hoặc điện thoại hết pin.
+        /// </summary>
+        public async Task<ActiveSessionDto> AddGuestSlotAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sessionId,
+            AddGuestSlotRequestDto request)
+        {
+            await EnsurePosAccessAsync(cafeId, userId, userRole);
+
+            var result = await _activeSessionService.AddGuestSlotAsync(cafeId, sessionId, request);
+
+            // Fetch session entity to map response
+            var session = await _posRepository.GetActiveSessionByIdAsync(cafeId, sessionId);
+            return MapSession(session!, DateTime.UtcNow);
+        }
+
+        /// <summary>
+        /// Thêm thành viên đến muộn vào phiên chơi.
+        /// Exception 8: Thêm 2 người bạn đến muộn vào nhóm đang chơi.
+        /// </summary>
+        public async Task<ActiveSessionDto> AddLateMemberAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sessionId,
+            AddLateMemberRequestDto request)
+        {
+            await EnsurePosAccessAsync(cafeId, userId, userRole);
+
+            var result = await _activeSessionService.AddLateMemberAsync(cafeId, sessionId, request);
+
+            // Fetch session entity to map response
+            var session = await _posRepository.GetActiveSessionByIdAsync(cafeId, sessionId);
+            return MapSession(session!, DateTime.UtcNow);
+        }
+
+        /// <summary>
+        /// Ghi nhận hao hụt linh kiện trước phiên chơi.
+        /// Exception 7: Nhân viên ca chiều phát hiện game thiếu từ ca sáng.
+        /// </summary>
+        public async Task RecordInventoryLossAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sessionId,
+            RecordInventoryLossRequestDto request)
+        {
+            await EnsurePosAccessAsync(cafeId, userId, userRole);
+
+            await _activeSessionService.RecordInventoryLossAsync(cafeId, userId, sessionId, request);
+        }
+
+        // ====== Checkout & Payment Operations ======
+
+        /// <summary>
+        /// Thanh toán toàn bộ phiên chơi sau kiểm kê linh kiện.
+        /// BR-12: Chỉ gọi được khi session ở trạng thái CHECKING và đã kiểm kê đủ.
+        /// GAP-7 Fix: Nhận userId/role để EnsurePosAccessAsync đúng cách.
+        /// </summary>
+        public async Task<ActiveSessionResponseDto> CheckoutAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sessionId,
+            CheckoutRequestDto request)
+        {
+            await EnsurePosAccessAsync(cafeId, userId, userRole);
+
+            return await _activeSessionService.CheckoutAsync(cafeId, sessionId, request);
+        }
+
+        /// <summary>
+        /// Thanh toán hóa đơn tổng của phiên chơi.
+        /// BR-15: TotalAmount = Subtotal + PenaltyAmount - DepositAppliedAmount
+        /// BR-09: Deposit chỉ cấn trừ DUY NHẤT 1 LẦN vào hóa đơn tổng
+        /// GAP-7 Fix: Nhận userId/role để EnsurePosAccessAsync đúng cách.
+        /// </summary>
+        public async Task<PaySessionResponseDto> PaySessionAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sessionId,
+            PaySessionRequestDto request)
+        {
+            await EnsurePosAccessAsync(cafeId, userId, userRole);
+
+            return await _activeSessionService.PaySessionAsync(cafeId, sessionId, request);
+        }
+
+        /// <summary>
+        /// Thanh toán một phần cho nhóm về sớm.
+        /// BR-12: Khóa in hóa đơn đến khi kiểm kê xong.
+        /// GAP-7 Fix: Nhận userId/role để EnsurePosAccessAsync đúng cách.
+        /// </summary>
+        public async Task<ActiveSessionResponseDto> PartialCheckoutAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sessionId,
+            PartialCheckoutRequestDto request)
+        {
+            await EnsurePosAccessAsync(cafeId, userId, userRole);
+
+            return await _activeSessionService.PartialCheckoutAsync(cafeId, sessionId, request);
+        }
+
+        /// <summary>
+        /// Ghép thành viên vào phiên chơi của nhóm mới.
+        /// Exception 4: A3 nhảy từ nhóm A sang nhóm B.
+        /// GAP-7 Fix: Nhận userId/role để EnsurePosAccessAsync đúng cách.
+        /// </summary>
+        public async Task<MergeSessionResponseDto> MergeSessionAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid sourceSessionId,
+            MergeSessionRequestDto request)
+        {
+            await EnsurePosAccessAsync(cafeId, userId, userRole);
+
+            return await _activeSessionService.MergeSessionAsync(cafeId, sourceSessionId, request);
         }
     }
 }

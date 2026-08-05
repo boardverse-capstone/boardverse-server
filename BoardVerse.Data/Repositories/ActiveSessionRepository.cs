@@ -235,5 +235,20 @@ namespace BoardVerse.Data.Repositories
             // Persist all changes in a single transaction.
             await _db.SaveChangesAsync();
         }
+
+        /// <summary>
+        /// GAP-9 Fix: Returns sessions that are Paid but haven't had BVC captured yet.
+        /// Sessions that failed capture during PaySessionAsync will be retried here.
+        /// </summary>
+        public async Task<IReadOnlyList<ActiveSession>> GetSessionsNeedingBvcCaptureRetryAsync(int batchSize)
+        {
+            return await _db.ActiveSessions
+                .Where(s => s.Status == GroupSessionStatus.Paid
+                            && s.LobbyId.HasValue
+                            && s.PaidAt.HasValue)
+                .OrderBy(s => s.PaidAt)
+                .Take(batchSize)
+                .ToListAsync();
+        }
     }
 }

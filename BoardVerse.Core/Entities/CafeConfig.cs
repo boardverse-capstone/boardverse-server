@@ -20,12 +20,12 @@ public class CafeConfig
     public int MaxPlayersPerLobby3To4Days { get; set; } = 10;
     public int MaxPlayersPerLobby5To7Days { get; set; } = 6;
 
-    /// <summary>BVC — theo BR-NEW-01 §8.</summary>
-    public long MinDepositSameDay { get; set; } = 50_000;
-    public long MinDeposit1Day { get; set; } = 50_000;
-    public long MinDeposit2Days { get; set; } = 100_000;
-    public long MinDeposit3To4Days { get; set; } = 150_000;
-    public long MinDeposit5To7Days { get; set; } = 200_000;
+    /// <summary>BVC — theo BR-NEW-01 §8. 1 BVC = 1.000 VND.</summary>
+    public long MinDepositSameDay { get; set; } = 50;
+    public long MinDeposit1Day { get; set; } = 50;
+    public long MinDeposit2Days { get; set; } = 100;
+    public long MinDeposit3To4Days { get; set; } = 150;
+    public long MinDeposit5To7Days { get; set; } = 200;
 
     public bool RequireApprovalForDistant { get; set; } = true;
 

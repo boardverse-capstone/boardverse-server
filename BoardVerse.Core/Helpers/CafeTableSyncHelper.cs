@@ -69,6 +69,24 @@ namespace BoardVerse.Core.Helpers
             IReadOnlyList<CafeTableSyncItem> items,
             IList<CafeTable> existingTables)
         {
+            // GAP-23 Fix: Validate SortOrder uniqueness before processing
+            var sortOrders = items
+                .Where(x => !string.IsNullOrWhiteSpace(x.Name))
+                .Select((x, index) => x.SortOrder ?? index)
+                .ToList();
+
+            var duplicates = sortOrders
+                .GroupBy(so => so)
+                .Where(g => g.Count() > 1)
+                .Select(g => g.Key)
+                .ToList();
+
+            if (duplicates.Count > 0)
+            {
+                throw new ArgumentException(
+                    $"SortOrder không được trùng lặp: {string.Join(", ", duplicates)}. Vui lòng đánh số thứ tự không trùng nhau.");
+            }
+
             var now = DateTime.UtcNow;
             var targets = items
                 .Where(x => !string.IsNullOrWhiteSpace(x.Name))

@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Pos;
+using BoardVerse.Core.DTOs.Session;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
@@ -12,26 +13,30 @@ namespace BoardVerse.API.Controllers
     public class CafePosController : BaseApiController
     {
         private readonly ICafePosService _posService;
+        private readonly IActiveSessionService _sessionService;
 
-        public CafePosController(ICafePosService posService)
+        public CafePosController(ICafePosService posService, IActiveSessionService sessionService)
         {
             _posService = posService;
+            _sessionService = sessionService;
         }
 
         /// <summary>
         /// Lấy sơ đồ bàn realtime cho Web POS. [Role: Manager — chủ quán; CafeStaff — đã gắn quán.]
+        /// GAP-21 Fix: Thêm query param includeOnlyAvailable.
         /// </summary>
         /// <param name="cafeId">Mã định danh quán cafe.</param>
+        /// <param name="includeOnlyAvailable">Mặc định true — chỉ trả bàn Available. false = trả tất cả bàn (kể cả InUse/Reserved) để POS monitor.</param>
         /// <response code="200">Trả về danh sách bàn active kèm trạng thái (Available, InUse, Reserved, EventInProgress).</response>
         /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
         /// <response code="403">Không phải Manager chủ quán hoặc CafeStaff chưa được gắn quán.</response>
         /// <response code="404">Quán không tồn tại hoặc không ở trạng thái ACTIVE.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpGet("tables")]
-        public async Task<IActionResult> GetTables(Guid cafeId)
+        public async Task<IActionResult> GetTables(Guid cafeId, [FromQuery] bool includeOnlyAvailable = true)
         {
             var (userId, role) = GetViewerContext();
-            var result = await _posService.GetTablesAsync(cafeId, userId, role);
+            var result = await _posService.GetTablesAsync(cafeId, userId, role, includeOnlyAvailable);
             return this.NewResponse(200, ApiSuccessMessages.Pos.TablesRetrieved, result);
         }
 
@@ -171,6 +176,25 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
+        /// Lấy chi tiết một phiên chơi theo mã định danh. [Role: Manager, CafeStaff]
+        /// GAP 1 Fix: API mới để frontend lấy chi tiết 1 session cụ thể.
+        /// </summary>
+        /// <param name="cafeId">Mã định danh quán cafe.</param>
+        /// <param name="sessionId">Mã phiên chơi cần lấy chi tiết.</param>
+        /// <response code="200">Chi tiết phiên chơi.</response>
+        /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+        /// <response code="403">Không đủ quyền vận hành quán.</response>
+        /// <response code="404">Quán hoặc phiên chơi không tồn tại.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpGet("sessions/{sessionId:guid}")]
+        public async Task<IActionResult> GetSessionById(Guid cafeId, Guid sessionId)
+        {
+            var (userId, role) = GetViewerContext();
+            var result = await _posService.GetSessionByIdAsync(cafeId, userId, role, sessionId);
+            return this.NewResponse(200, "Lấy chi tiết phiên chơi thành công.", result);
+        }
+
+        /// <summary>
         /// Preview thông tin booking trước khi check-in.
         /// AC 1.1: Hiển thị danh sách thành viên + game info TRƯỚC khi check-in.
         /// Nhân viên quét mã đặt chỗ để xem thông tin chi tiết trước khi bấm xác nhận check-in.
@@ -300,6 +324,49 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
+        /// Reset lại checklist linh kiện để kiểm tra lại. [Role: Manager, CafeStaff]
+        /// GAP-25 Fix: Cho phép staff reset checklist nếu đã kiểm tra sai.
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="sessionGameId">Mã session game cần reset checklist.</param>
+        /// <response code="200">Reset thành công, trả lại checklist.</response>
+        /// <response code="400">Dữ liệu không hợp lệ.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy session game.</response>
+        /// <response code="409">Phiên không ở trạng thái CHECKING.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPost("sessions/component-check/reset")]
+        public async Task<IActionResult> ResetComponentCheck(Guid cafeId, [FromQuery] Guid sessionGameId)
+        {
+            var (userId, role) = GetViewerContext();
+            var result = await _posService.ResetComponentCheckAsync(cafeId, userId, role, sessionGameId);
+            return this.NewResponse(200, "Đã reset checklist để kiểm tra lại.", result);
+        }
+
+        /// <summary>
+        /// Khôi phục phiên từ CHECKING về ACTIVE. [Role: Manager, CafeStaff]
+        /// GAP-1 Fix: Cho phép staff hủy bỏ thao tác "Trả game" nếu bấm nhầm.
+        /// Chỉ hoạt động khi chưa có thành viên nào được thanh toán (chưa có member FINISHED).
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="sessionId">Mã phiên chơi cần khôi phục.</param>
+        /// <response code="200">Khôi phục thành công, phiên quay về ACTIVE.</response>
+        /// <response code="400">Dữ liệu không hợp lệ.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy phiên chơi.</response>
+        /// <response code="409">Không thể khôi phục (đã có member được thanh toán hoặc phiên không ở CHECKING).</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPost("sessions/{sessionId:guid}/resume")]
+        public async Task<IActionResult> ResumeSession(Guid cafeId, Guid sessionId)
+        {
+            var (userId, role) = GetViewerContext();
+            var result = await _sessionService.ResumeSessionAsync(cafeId, sessionId);
+            return this.NewResponse(200, "Đã khôi phục phiên về trạng thái ACTIVE.", result);
+        }
+
+        /// <summary>
         /// Xử lý trả game: tính surcharge_fine từ linh kiện lỗi, cập nhật box status nếu hỏng.
         /// POST /api/cafes/{cafeId}/pos/sessions/{sessionId}/return-game
         /// </summary>
@@ -318,6 +385,186 @@ namespace BoardVerse.API.Controllers
             var (userId, role) = GetViewerContext();
             var result = await _posService.ReturnGameAsync(cafeId, userId, role, sessionId, request);
             return this.NewResponse(200, "Xử lý trả game thành công.", result);
+        }
+
+        // ====== Billing Operations ======
+
+        /// <summary>
+        /// Gán thêm game vào phiên chơi. [Role: Manager, CafeStaff]
+        /// Exception 6: Nhóm tự ý lấy thêm game mà không báo nhân viên.
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="sessionId">Mã phiên chơi.</param>
+        /// <param name="request">Barcode game cần gán.</param>
+        /// <response code="200">Đã gán game vào phiên.</response>
+        /// <response code="400">Game đã được gán.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy game.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPost("sessions/{sessionId:guid}/games")]
+        public async Task<IActionResult> AttachGame(Guid cafeId, Guid sessionId, [FromBody] AttachGameRequestDto request)
+        {
+            var (userId, role) = GetViewerContext();
+            var result = await _posService.AttachGameAsync(cafeId, userId, role, sessionId, request);
+            return this.NewResponse(200, "Đã gán game vào phiên chơi.", result);
+        }
+
+        /// <summary>
+        /// Thêm khách vô danh vào phiên chơi. [Role: Manager, CafeStaff]
+        /// Exception 10: Khách không có ứng dụng hoặc điện thoại hết pin.
+        /// BR-13: Guest slot không chịu trách nhiệm tài sản độc lập.
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="sessionId">Mã phiên chơi.</param>
+        /// <param name="request">Thông tin hiển thị của khách vô danh.</param>
+        /// <response code="200">Đã thêm khách vô danh.</response>
+        /// <response code="400">Phiên đã kết thúc.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy phiên.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPost("sessions/{sessionId:guid}/guest-slots")]
+        public async Task<IActionResult> AddGuestSlot(Guid cafeId, Guid sessionId, [FromBody] AddGuestSlotRequestDto request)
+        {
+            var (userId, role) = GetViewerContext();
+            var result = await _posService.AddGuestSlotAsync(cafeId, userId, role, sessionId, request);
+            return this.NewResponse(200, "Đã thêm khách vô danh.", result);
+        }
+
+        /// <summary>
+        /// Thêm thành viên đến muộn vào phiên. [Role: Manager, CafeStaff]
+        /// Exception 8: Thêm 2 người bạn đến muộn vào nhóm đang chơi.
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="sessionId">Mã phiên chơi.</param>
+        /// <param name="request">Danh sách userId thành viên đến muộn.</param>
+        /// <response code="200">Đã thêm thành viên.</response>
+        /// <response code="400">Phiên không hoạt động.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy phiên.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPost("sessions/{sessionId:guid}/members/add")]
+        public async Task<IActionResult> AddLateMember(Guid cafeId, Guid sessionId, [FromBody] AddLateMemberRequestDto request)
+        {
+            var (userId, role) = GetViewerContext();
+            var result = await _posService.AddLateMemberAsync(cafeId, userId, role, sessionId, request);
+            return this.NewResponse(200, "Đã thêm thành viên đến muộn.", result);
+        }
+
+        /// <summary>
+        /// Ghi nhận hao hụt linh kiện trước phiên. [Role: Manager, CafeStaff]
+        /// Exception 7: Nhân viên ca chiều phát hiện game thiếu từ ca sáng.
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="sessionId">Mã phiên chơi.</param>
+        /// <param name="request">Thông tin hao hụt.</param>
+        /// <response code="200">Đã ghi nhận hao hụt.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy phiên.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPost("sessions/{sessionId:guid}/inventory-loss")]
+        public async Task<IActionResult> RecordInventoryLoss(Guid cafeId, Guid sessionId, [FromBody] RecordInventoryLossRequestDto request)
+        {
+            var (userId, role) = GetViewerContext();
+            await _posService.RecordInventoryLossAsync(cafeId, userId, role, sessionId, request);
+            return this.NewResponse(200, "Đã ghi nhận hao hụt linh kiện.", new { });
+        }
+
+        // ====== Checkout & Payment Operations ======
+
+        /// <summary>
+        /// Thanh toán toàn bộ phiên chơi sau kiểm kê linh kiện. [Role: Manager, CafeStaff]
+        /// BR-12: Chỉ gọi được khi session ở trạng thái CHECKING và đã kiểm kê đủ.
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="sessionId">Mã phiên chơi.</param>
+        /// <param name="request">Kết quả kiểm kê linh kiện.</param>
+        /// <response code="200">Phiên chuyển UNPAID/PAID và trả hóa đơn tóm tắt.</response>
+        /// <response code="400">Thiếu kiểm kê hoặc dữ liệu không hợp lệ.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy phiên.</response>
+        /// <response code="409">Phiên không ở trạng thái CHECKING.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPost("sessions/{sessionId:guid}/checkout")]
+        public async Task<IActionResult> Checkout(Guid cafeId, Guid sessionId, [FromBody] CheckoutRequestDto request)
+        {
+            // GAP-7 Fix: Pass actual userId/role to EnsurePosAccessAsync
+            var (userId, role) = GetViewerContext();
+            var result = await _posService.CheckoutAsync(cafeId, userId, role, sessionId, request);
+            return this.NewResponse(200, ApiSuccessMessages.Session.SessionCheckedOut, result);
+        }
+
+        /// <summary>
+        /// Thanh toán hóa đơn tổng của phiên chơi. [Role: Manager, CafeStaff]
+        /// BR-15: TotalAmount = Subtotal + PenaltyAmount - DepositAppliedAmount
+        /// BR-09: Deposit chỉ cấn trừ DUY NHẤT 1 LẦN vào hóa đơn tổng
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="sessionId">Mã phiên chơi.</param>
+        /// <param name="request">Thông tin thanh toán: phí phạt linh kiện.</param>
+        /// <response code="200">Thanh toán thành công; phiên chuyển PAID.</response>
+        /// <response code="400">Phiên không ở trạng thái UNPAID hoặc có lỗi dữ liệu.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy phiên.</response>
+        /// <response code="409">Phiên không ở trạng thái UNPAID.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPost("sessions/{sessionId:guid}/pay")]
+        public async Task<IActionResult> PaySession(Guid cafeId, Guid sessionId, [FromBody] PaySessionRequestDto request)
+        {
+            // GAP-7 Fix: Pass actual userId/role to EnsurePosAccessAsync
+            var (userId, role) = GetViewerContext();
+            var result = await _posService.PaySessionAsync(cafeId, userId, role, sessionId, request);
+            return this.NewResponse(200, ApiSuccessMessages.Session.SessionPaid, result);
+        }
+
+        /// <summary>
+        /// Thanh toán một phần cho nhóm về sớm. [Role: Manager, CafeStaff]
+        /// BR-12: Khóa in hóa đơn đến khi kiểm kê xong.
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="sessionId">Mã phiên chơi.</param>
+        /// <param name="request">Danh sách thành viên thanh toán sớm.</param>
+        /// <response code="200">Phiên chuyển sang CHECKING; chờ kiểm kê linh kiện.</response>
+        /// <response code="400">Thiếu danh sách thành viên.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy phiên.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPost("sessions/{sessionId:guid}/partial-checkout")]
+        public async Task<IActionResult> PartialCheckout(Guid cafeId, Guid sessionId, [FromBody] PartialCheckoutRequestDto request)
+        {
+            // GAP-7 Fix: Pass actual userId/role to EnsurePosAccessAsync
+            var (userId, role) = GetViewerContext();
+            var result = await _posService.PartialCheckoutAsync(cafeId, userId, role, sessionId, request);
+            return this.NewResponse(200, ApiSuccessMessages.Session.PartialCheckoutRequested, result);
+        }
+
+        /// <summary>
+        /// Ghép thành viên vào phiên chơi của nhóm mới. [Role: Manager, CafeStaff]
+        /// Exception 4: A3 nhảy từ nhóm A sang nhóm B.
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="sourceSessionId">Mã phiên chơi nguồn (nhóm cũ).</param>
+        /// <param name="request">Mã thành viên và mã phiên đích.</param>
+        /// <response code="200">Đã ghép thành viên vào nhóm mới.</response>
+        /// <response code="400">Thành viên không ở trạng thái SUSPENDED_MUTATION.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy phiên hoặc thành viên.</response>
+        /// <response code="409">Phiên đích không hoạt động.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPost("sessions/{sourceSessionId:guid}/merge")]
+        public async Task<IActionResult> MergeSession(Guid cafeId, Guid sourceSessionId, [FromBody] MergeSessionRequestDto request)
+        {
+            // GAP-7 Fix: Pass actual userId/role to EnsurePosAccessAsync
+            var (userId, role) = GetViewerContext();
+            var result = await _posService.MergeSessionAsync(cafeId, userId, role, sourceSessionId, request);
+            return this.NewResponse(200, "Đã ghép thành viên vào nhóm mới.", result);
         }
 
         private (Guid UserId, string Role) GetViewerContext()

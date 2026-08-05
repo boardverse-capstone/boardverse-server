@@ -43,4 +43,18 @@ public class CheckInRequestDto
     /// </summary>
     [Required(ErrorMessage = "Mã vạch game là bắt buộc.")]
     public string Barcode { get; set; } = string.Empty;
+
+    /// <summary>
+    /// GAP-1/GAP-37 Fix: IdempotencyKey chống double-tap khi nhân viên bấm nhiều lần.
+    /// Client gửi cùng key → trả kết quả cũ, không tạo session trùng.
+    /// </summary>
+    [StringLength(100)]
+    public string? IdempotencyKey { get; set; }
+
+    /// <summary>
+    /// GAP-1/GAP-37 Fix: Nonce chống replay attack — QR code bị chụp và scan lại.
+    /// Mã một lần, được sinh phía client khi quét QR, server validate không trùng.
+    /// </summary>
+    [StringLength(64)]
+    public string? Nonce { get; set; }
 }

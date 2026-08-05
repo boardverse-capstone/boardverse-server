@@ -27,5 +27,11 @@ namespace BoardVerse.Core.IRepositories
         Task AddComponentLossReportAsync(ComponentLossReport report);
         Task UpdateDepositAsync(BookingDeposit deposit);
         Task SaveChangesAsync();
+
+        // GAP-1/GAP-37 Fix: Idempotency + Nonce tracking
+        Task<ActiveSession?> GetSessionByIdempotencyKeyAsync(string idempotencyKey);
+        Task SaveIdempotencyKeyAsync(Guid sessionId, string idempotencyKey);
+        Task<bool> IsNonceUsedAsync(string nonce);
+        Task MarkNonceUsedAsync(string nonce);
     }
 }

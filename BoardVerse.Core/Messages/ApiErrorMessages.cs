@@ -1440,7 +1440,10 @@ namespace BoardVerse.Core.Messages
                 $"Ngày dự kiến chơi phải nằm trong vòng {maxDaysAhead} ngày tới.";
 
             public const string CafeConfigMissing =
-                "Quán chưa được cấu hình hạn mức cọc. Vui lòng liên hệ quản lý quán.";
+                "Quán chưa được cấu hình BVC. Không thể đặt cọc. Vui lòng liên hệ quản lý quán.";
+
+            public const string SeatInventoryNotConfigured =
+                "Quán chưa được cấu hình số ghế cho ngày và khung giờ này. Vui lòng liên hệ quản lý quán.";
 
             public const string GameNotInCafeInventory =
                 "Quán chưa có bản copy của game này trong kho. Vui lòng chọn game khác.";
