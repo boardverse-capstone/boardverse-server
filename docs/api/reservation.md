@@ -463,7 +463,11 @@ Nếu `isPrivate: true`, lobby không cần cafe duyệt dù playDate cách xa.
 
 ### Atomic transaction (BR §17.4)
 
-`BeginTransactionAsync(ReadCommitted)` → `SELECT FOR UPDATE` seat_inventory + game_inventory → `HoldDepositAsync` (trừ BVC + ghi ledger) → INSERT reservation (Holding) → INSERT lobby (PendingCafeApproval / PendingActivation) → Update Inventory counters → `SaveChangesAsync` → `CommitAsync`. Nếu throw → `RollbackAsync`.
+`BeginTransactionAsync(ReadCommitted)` → `SELECT FOR UPDATE` seat_inventory + game_inventory → `HoldDepositAsync` (trừ BVC + ghi ledger) → INSERT reservation (Holding) → INSERT lobby (`PendingCafeApproval` / `PendingActivation`) → Update Inventory counters → **Nếu lobby ở `PendingActivation` thì promote sang `Open` ngay trong transaction** → Insert 3 Outbox events → `SaveChangesAsync` → `CommitAsync`. Nếu throw → `RollbackAsync`.
+
+> **Quan trọng (fix 2026-08-05):** Lobby `PendingActivation` được auto-promote sang `Open` ngay trong cùng transaction `ConfirmAsync` để tránh trạng thái stuck. Trước đây, lobby được insert với `PendingActivation` và chờ Outbox publisher promote — nhưng `LoggingOutboxPublisher` chỉ log, không update DB → lobby bị stuck vĩnh viễn, host không thể invite/join.
+>
+> Lobby `PendingCafeApproval` thì **giữ nguyên** — chờ `HandleCafeApprovalAsync` xử lý.
 
 ---
 

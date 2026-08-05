@@ -93,6 +93,109 @@ public class TournamentFlowIntegrationTests
         return body.Data!;
     }
 
+    [Fact]
+    public async Task CreateTournament_WithNoShowKarmaPenaltyZero_ReturnsZeroInResponse()
+    {
+        // Bug report: client gửi noShowKarmaPenalty = 0 nhưng response trả về -10 (default C#).
+        // Test này chạy qua HTTP thật (WebApplicationFactory + in-memory DB) để reproduce.
+        await LoginAsManagerAsync();
+
+        var requestBody = new Dictionary<string, object?>
+        {
+            ["title"] = "Test Tournament ZeroPenalty",
+            ["description"] = "Integration test - explicit zero NoShowKarmaPenalty",
+            ["gameTemplateId"] = IntegrationTestFixtures.SplendorGameTemplateId,
+            ["startTime"] = DateTime.UtcNow.AddDays(7),
+            ["maxParticipants"] = 8,
+            ["minParticipants"] = 4,
+            ["noShowKarmaPenalty"] = 0  // Explicit zero
+        };
+
+        var response = await ApiTestClient.PostJsonAsync(_client,
+            $"/api/v1/pos/tournaments/cafes/{IntegrationTestFixtures.DemoCafeId}",
+            requestBody);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync();
+            throw new HttpRequestException($"CreateTournament failed: {response.StatusCode} - {errorContent}");
+        }
+
+        var body = await ApiTestClient.ReadApiResponseAsync<TournamentResponseDto>(response);
+        ClearAuth();
+
+        Assert.NotNull(body.Data);
+        // Phải echo lại đúng 0 — nếu response là -10 thì bug nằm ở DTO binding/service override.
+        Assert.Equal(0, body.Data!.NoShowKarmaPenalty);
+    }
+
+    [Fact]
+    public async Task CreateTournament_WithCustomMinMaxElo_ReturnsExactValuesInResponse()
+    {
+        // Bug report: client gửi minElo=1000, maxElo=3000 nhưng response trả về 0.
+        // Test này chạy qua HTTP thật để reproduce và verify fix.
+        await LoginAsManagerAsync();
+
+        var requestBody = new Dictionary<string, object?>
+        {
+            ["title"] = "Test Tournament CustomElo",
+            ["description"] = "Integration test - explicit Elo range",
+            ["gameTemplateId"] = IntegrationTestFixtures.SplendorGameTemplateId,
+            ["startTime"] = DateTime.UtcNow.AddDays(7),
+            ["maxParticipants"] = 8,
+            ["minParticipants"] = 4,
+            ["minEloRequirement"] = 1000,
+            ["maxEloRequirement"] = 3000
+        };
+
+        var response = await ApiTestClient.PostJsonAsync(_client,
+            $"/api/v1/pos/tournaments/cafes/{IntegrationTestFixtures.DemoCafeId}",
+            requestBody);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync();
+            throw new HttpRequestException($"CreateTournament failed: {response.StatusCode} - {errorContent}");
+        }
+
+        var body = await ApiTestClient.ReadApiResponseAsync<TournamentResponseDto>(response);
+        ClearAuth();
+
+        Assert.NotNull(body.Data);
+        Assert.Equal(1000, body.Data!.MinEloRequirement);
+        Assert.Equal(3000, body.Data!.MaxEloRequirement);
+    }
+
+    [Fact]
+    public async Task CreateTournament_WithoutEloFields_UsesDefault800And2400()
+    {
+        // Verify default behavior khi client KHÔNG gửi minElo/maxElo → dùng default 800/2400.
+        await LoginAsManagerAsync();
+
+        var requestBody = new Dictionary<string, object?>
+        {
+            ["title"] = "Test Tournament DefaultElo",
+            ["description"] = "Integration test - default Elo range",
+            ["gameTemplateId"] = IntegrationTestFixtures.SplendorGameTemplateId,
+            ["startTime"] = DateTime.UtcNow.AddDays(7),
+            ["maxParticipants"] = 8,
+            ["minParticipants"] = 4
+            // Không gửi minElo/maxElo → service phải dùng default 800/2400.
+        };
+
+        var response = await ApiTestClient.PostJsonAsync(_client,
+            $"/api/v1/pos/tournaments/cafes/{IntegrationTestFixtures.DemoCafeId}",
+            requestBody);
+
+        response.EnsureSuccessStatusCode();
+        var body = await ApiTestClient.ReadApiResponseAsync<TournamentResponseDto>(response);
+        ClearAuth();
+
+        Assert.NotNull(body.Data);
+        Assert.Equal(800, body.Data!.MinEloRequirement);
+        Assert.Equal(2400, body.Data!.MaxEloRequirement);
+    }
+
     private async Task<TournamentResponseDto> OpenRegistrationAsync(Guid tournamentId)
     {
         var response = await _client.PostAsync(

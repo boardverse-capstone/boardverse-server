@@ -39,14 +39,21 @@ public class TournamentConfiguration : IEntityTypeConfiguration<Tournament>
         builder.Property(t => t.FinalistCount).IsRequired().HasDefaultValue(4);
         builder.Property(t => t.CurrentRound).IsRequired().HasDefaultValue(0);
 
-        builder.Property(t => t.MinKarmaRequirement).IsRequired().HasDefaultValue(0);
-        builder.Property(t => t.MinEloRequirement).IsRequired().HasDefaultValue(800);
-        builder.Property(t => t.MaxEloRequirement).IsRequired().HasDefaultValue(2400);
+        // MinElo/MaxElo/MinKarma: KHÔNG dùng HasDefaultValue để EF luôn insert giá trị set trong code.
+        // Trước đây HasDefaultValue(800/2400/0) khiến EF skip column → DB dùng default null → response = 0.
+        // Default 800/2400/0 vẫn được áp dụng qua C# auto-property initializer trong DTO/Entity.
+        builder.Property(t => t.MinKarmaRequirement).IsRequired();
+        builder.Property(t => t.MinEloRequirement).IsRequired();
+        builder.Property(t => t.MaxEloRequirement).IsRequired();
         // WinnerKarmaBonus / FinalistKarmaBonus: hệ thống tự tính theo rank — không nhập tay.
         // Cột vẫn tồn tại để cache kết quả và đọc nhanh trong query.
         builder.Property(t => t.WinnerKarmaBonus).IsRequired().HasDefaultValue(0);
         builder.Property(t => t.FinalistKarmaBonus).IsRequired().HasDefaultValue(0);
-        builder.Property(t => t.NoShowKarmaPenalty).IsRequired().HasDefaultValue(TournamentKarmaPolicy.NoShowPenalty);
+        // NoShowKarmaPenalty: KHÔNG dùng HasDefaultValue để EF luôn insert giá trị set trong code.
+        // Trước đây HasDefaultValue(-10) khiến EF skip column khi value = -10,
+        // nhưng cũng ảnh hưởng đến value = 0 (vì EF compare default value với property value).
+        // Default -10 vẫn được áp dụng qua TournamentService.CreateTournamentAsync khi request.NoShowKarmaPenalty = null.
+        builder.Property(t => t.NoShowKarmaPenalty).IsRequired();
 
         // === Pairing mode ===
         builder.Property(t => t.PairingMode)

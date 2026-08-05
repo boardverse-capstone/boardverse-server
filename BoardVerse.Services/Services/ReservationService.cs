@@ -518,6 +518,18 @@ public class ReservationService : IReservationService
                 await _lobbyRepository.AddMemberAsync(hostMember);
             }
 
+            // BR-REQUIRED §17.4 + §21A.3: Sau khi atomic transaction commit,
+            // lobby "pendingActivation" phải được promote sang Open ngay trong cùng transaction.
+            // Tránh trạng thái stuck PendingActivation vĩnh viễn khi OutboxPublisher chỉ log
+            // (LoggingOutboxPublisher) chứ không update DB.
+            // PendingCafeApproval thì GIỮ NGUYÊN — chờ HandleCafeApprovalAsync xử lý.
+            if (lobby.Status == LobbyStatus.PendingActivation)
+            {
+                lobby.Status = LobbyStatus.Open;
+                lobby.UpdatedAt = now;
+                await _lobbyRepository.UpdateAsync(lobby);
+            }
+
             // 17. BR-REQUIRED §17.5: Transactional Outbox — 3 event trong cùng transaction.
             // Nếu commit fail → tất cả rollback; nếu SignalR fail sau commit → worker retry.
             var lobbyActivatedPayload = SerializeLobbyActivatedPayload(lobby, reservation, hostId);

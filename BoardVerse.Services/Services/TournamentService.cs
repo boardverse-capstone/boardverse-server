@@ -110,7 +110,10 @@ public class TournamentService : ITournamentService
             MaxEloRequirement = request.MaxEloRequirement,
             WinnerKarmaBonus = TournamentKarmaPolicy.WinnerBonus,
             FinalistKarmaBonus = TournamentKarmaPolicy.GetFinalistBonus(2, 4),
-            NoShowKarmaPenalty = TournamentKarmaPolicy.ClampPenalty(request.NoShowKarmaPenalty),
+            // NoShowKarmaPenalty: null = client không gửi field → dùng default -10.
+            // Có giá trị (kể cả 0) → lưu đúng giá trị client gửi (đã clamp về [-100, 0]).
+            NoShowKarmaPenalty = TournamentKarmaPolicy.ClampPenalty(
+                request.NoShowKarmaPenalty ?? TournamentKarmaPolicy.NoShowPenalty),
             PairingMode = request.PairingMode,
             Status = TournamentStatus.Draft,
             CreatedAt = now,
@@ -2377,6 +2380,8 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
             CurrentRound = tournament.CurrentRound,
             StartedAt = tournament.StartedAt,
             MinKarmaRequirement = tournament.MinKarmaRequirement,
+            MinEloRequirement = tournament.MinEloRequirement,
+            MaxEloRequirement = tournament.MaxEloRequirement,
             WinnerKarmaBonus = tournament.WinnerKarmaBonus,
             FinalistKarmaBonus = tournament.FinalistKarmaBonus,
             NoShowKarmaPenalty = tournament.NoShowKarmaPenalty,

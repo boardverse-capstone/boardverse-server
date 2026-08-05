@@ -86,6 +86,25 @@ public class LobbyInviteServiceTests
     }
 
     [Fact]
+    public async Task SendInviteAsync_WhenLobbyPendingActivation_ThrowsConflict()
+    {
+        // Regression: BR-REQUIRED §17.4 + §21A.3 — ConfirmAsync phải promote lobby
+        // từ PendingActivation sang Open trong cùng transaction.
+        // Nếu lobby bị stuck ở PendingActivation (như bug production gặp ngày 2026-08-05),
+        // SendInviteAsync phải reject với 409 để tránh silently accepting invalid state.
+        var lobbyId = Guid.NewGuid();
+        var inviterId = Guid.NewGuid();
+        var lobby = BuildLobby(lobbyId, status: LobbyStatus.PendingActivation);
+        lobby.Members.Add(BuildMember(inviterId, isHost: true));
+        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+
+        var svc = CreateService();
+
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            svc.SendInviteAsync(lobbyId, inviterId, new SendLobbyInviteRequestDto { InviteeId = Guid.NewGuid() }));
+    }
+
+    [Fact]
     public async Task SendInviteAsync_WhenLobbyClosed_ThrowsConflict()
     {
         var lobbyId = Guid.NewGuid();
