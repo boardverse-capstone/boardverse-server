@@ -1,6 +1,7 @@
 using BoardVerse.API.Infrastructure;
 using BoardVerse.Core.Data;
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services.Payments;
 using Microsoft.AspNetCore.Mvc;
@@ -115,7 +116,7 @@ public class DebugSePayController : ControllerBase
 
         var cafe = await db.Cafes.FirstOrDefaultAsync(c => c.Id == DevSeedConstants.DemoCafeId);
         if (cafe == null)
-            return BadRequest(new { error = $"Cafe {DevSeedConstants.DemoCafeId} not found. Run seeder first." });
+            return BadRequest(new { error = ApiErrorMessages.Payment.DebugSePayCafeNotFound(DevSeedConstants.DemoCafeId) });
 
         if (cafe.BasePrice == 0)
         {
@@ -197,7 +198,7 @@ public class DebugSePayController : ControllerBase
         var orderId = body.TryGetProperty("orderId", out var o) ? o.GetString() : null;
         var status = body.TryGetProperty("status", out var s) ? s.GetString() : null;
         if (string.IsNullOrEmpty(orderId))
-            return BadRequest(new { error = "orderId is required" });
+            return BadRequest(new { error = ApiErrorMessages.Payment.SePayOrderIdRequired });
 
         var deposit = await db.BookingDeposits.FirstOrDefaultAsync(d => d.OrderId == orderId);
 
@@ -241,7 +242,7 @@ public class DebugSePayController : ControllerBase
 
         var cafe = await db.Cafes.FirstOrDefaultAsync(c => c.Id == DevSeedConstants.DemoCafeId);
         if (cafe == null)
-            return BadRequest(new { error = $"Cafe {DevSeedConstants.DemoCafeId} not found." });
+            return BadRequest(new { error = ApiErrorMessages.Payment.DebugSePayCafeNotFoundShort(DevSeedConstants.DemoCafeId) });
 
         if (cafe.BasePrice == 0)
         {
@@ -421,8 +422,9 @@ public class DebugSePayController : ControllerBase
 
     private bool IsDebugEnabled()
     {
-        return _env.IsDevelopment()
-            || string.Equals(Environment.GetEnvironmentVariable("ENABLE_DEBUG"), "true", StringComparison.OrdinalIgnoreCase);
+        // C9: gate debug endpoint chỉ theo env Development, KHÔNG dùng env var override.
+        // ENABLE_DEBUG=true có thể bị bật nhầm trong production qua runtime config.
+        return _env.IsDevelopment();
     }
 
     private static string? MaskAccountNumber(string? accountNumber)

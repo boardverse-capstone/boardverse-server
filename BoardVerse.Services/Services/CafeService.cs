@@ -431,11 +431,11 @@ namespace BoardVerse.Services.Services
             {
                 if (dto.PartialTiers == null || dto.PartialTiers.Count == 0)
                 {
-                    throw new BadRequestException("Vui lòng cung cấp ít nhất 1 bậc hoàn cọc cho chính sách Partial.");
+                    throw new BadRequestException(ApiErrorMessages.Cafe.PartialTiersRequired);
                 }
                 if (dto.PartialTiers.Count > 5)
                 {
-                    throw new BadRequestException("Chính sách Partial chỉ cho phép tối đa 5 bậc.");
+                    throw new BadRequestException(ApiErrorMessages.Cafe.PartialTiersMaxFive);
                 }
 
                 // Sort giảm dần theo minHours + validate unique
@@ -444,11 +444,11 @@ namespace BoardVerse.Services.Services
                 {
                     if (sorted[i].RefundPercent < 0 || sorted[i].RefundPercent > 100)
                     {
-                        throw new BadRequestException("RefundPercent phải nằm trong khoảng 0-100.");
+                        throw new BadRequestException(ApiErrorMessages.Cafe.RefundPercentOutOfRange);
                     }
                     if (i > 0 && sorted[i].MinHoursBeforeScheduled == sorted[i - 1].MinHoursBeforeScheduled)
                     {
-                        throw new BadRequestException("Các bậc không được trùng minHoursBeforeScheduled.");
+                        throw new BadRequestException(ApiErrorMessages.Cafe.PartialTiersDuplicateMinHours);
                     }
                 }
 
@@ -486,7 +486,7 @@ namespace BoardVerse.Services.Services
             // BR-04: chặn sửa giá khi quán đang hoạt động
             if (cafe.IsPricingLocked)
             {
-                throw new ConflictException("Quán đang trong khung giờ hoạt động — không thể chỉnh sửa biểu phí. Vui lòng thử lại khi quán đóng cửa.");
+                throw new ConflictException(ApiErrorMessages.Cafe.PricingLockedWhileOpen);
             }
 
             var oldBasePrice = cafe.BasePrice;

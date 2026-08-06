@@ -155,10 +155,11 @@ namespace BoardVerse.API.Controllers
         /// <response code="409">Linh kiện đang được dùng trong inventory penalties.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpDelete("master-games/{gameTemplateId:guid}/components/{componentId:guid}")]
+        [ProducesResponseType(204)]
         public async Task<IActionResult> DeleteGameComponent(Guid gameTemplateId, Guid componentId)
         {
             await _catalogService.DeleteGameComponentAsync(gameTemplateId, componentId);
-            return NewResponse(200, ApiSuccessMessages.AdminCatalog.ComponentDeleted, null);
+            return NoContent();
         }
 
         /// <summary>

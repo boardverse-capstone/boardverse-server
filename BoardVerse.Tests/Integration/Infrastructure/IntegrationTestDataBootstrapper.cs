@@ -3,6 +3,7 @@ using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Helpers;
 using BoardVerse.Data;
+using BoardVerse.Tests.Integration.Helpers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -32,6 +33,13 @@ internal static class IntegrationTestDataBootstrapper
         // Generate unique IDs for this test run to avoid conflicts
         IntegrationTestFixtures.GenerateUniqueIds();
 
+        // R-Bug-028 Fix: invalidate token cache khi regenerate IDs.
+        // Cached token từ run trước chứa user ID cũ không còn tồn tại (đã bị
+        // ClearIdentityConflictsAsync rename thành orphan_*). Nếu giữ cache,
+        // test sẽ dùng token cho user cũ → API resolve user khác với user
+        // đang được admin adjust / helper reset → fail với "0 BVC" / 403.
+        IntegrationTestAuth.ClearCache();
+
         await using var scope = services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<BoardVerseDbContext>();
 
@@ -52,9 +60,15 @@ internal static class IntegrationTestDataBootstrapper
         await EnsureSeatInventoryAsync(db);
         await EnsureGameInventoryAsync(db);
         await EnsureCafeConfigAsync(db);
+        await EnsureDemoPlayerWalletsAsync(db);
         await ResetPosSessionStateAsync(db);
         await ResetMatchLobbyAsync(db);
         await ResetLobbyStateAsync(db);
+        await PlayerReservationResetHelper.ResetAsync(
+            db,
+            IntegrationTestFixtures.DemoPlayer1UserId,
+            IntegrationTestFixtures.DemoPlayer2UserId,
+            IntegrationTestFixtures.DemoPlayer3UserId);
     }
 
     /// <summary>
@@ -102,6 +116,17 @@ internal static class IntegrationTestDataBootstrapper
             config.RecruitmentDeadlineBufferMinutes = 120;
             config.CancellationGraceMinutes = 15;
             config.DepositRatePerPerson = 5;
+            // Force BR-NEW-11 defaults so tests don't get stuck in PendingCafeApproval
+            // when prior runs left threshold=0 or RequireApprovalForDistant=false.
+            config.RequireApprovalForDistant = true;
+            config.DistantThresholdDays = 2;
+            config.ApprovalTimeoutHours = 24;
+            config.MaxTotalDepositPerUser = 500_000;
+            config.MinDepositSameDay = 50;
+            config.MinDeposit1Day = 50;
+            config.MinDeposit2Days = 100;
+            config.MinDeposit3To4Days = 150;
+            config.MinDeposit5To7Days = 200;
             config.UpdatedAt = DateTime.UtcNow;
         }
 
@@ -1057,6 +1082,54 @@ internal static class IntegrationTestDataBootstrapper
             conflict.Email = $"orphan.{conflict.Id:N}@boardverse.dev.invalid";
             conflict.Username = $"orphan_{conflict.Id:N}"[..20];
             conflict.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Seed wallets cho demo players với 50.000 BVC available — đủ cho lobby deposit tests
+    /// (maxPlayers=4 cần ~100 BVC, maxPlayers=30 cần ~150 BVC; test reserves 4 players).
+    /// Tránh race condition khi nhiều tests gọi GetOrCreateWalletEntityAsync tạo wallet rỗng
+    /// trước khi admin adjust kịp propagate.
+    /// </summary>
+    private static async Task EnsureDemoPlayerWalletsAsync(BoardVerseDbContext db)
+    {
+        var demoPlayerIds = new[]
+        {
+            IntegrationTestFixtures.DemoPlayer1UserId,
+            IntegrationTestFixtures.DemoPlayer2UserId,
+            IntegrationTestFixtures.DemoPlayer3UserId,
+            IntegrationTestFixtures.DemoPlayer4UserId
+        };
+
+        const long DefaultBalance = 50_000L;
+        foreach (var playerId in demoPlayerIds)
+        {
+            var wallet = await db.Wallets.FirstOrDefaultAsync(w => w.UserId == playerId);
+            if (wallet == null)
+            {
+                db.Wallets.Add(new Wallet
+                {
+                    UserId = playerId,
+                    AvailableBalance = DefaultBalance,
+                    HeldBalance = 0,
+                    TotalActiveDeposit = 0,
+                    RiskMultiplier = 1.0m,
+                    RiskScore = 0,
+                    RiskLevel = RiskLevel.Low,
+                    IsCoolingOff = false,
+                    AccountStatus = AccountStatus.Active,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                });
+            }
+            else if (wallet.AvailableBalance < 200)
+            {
+                wallet.AvailableBalance = DefaultBalance;
+                wallet.HeldBalance = 0;
+                wallet.UpdatedAt = DateTime.UtcNow;
+            }
         }
 
         await db.SaveChangesAsync();

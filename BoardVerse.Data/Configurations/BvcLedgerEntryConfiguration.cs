@@ -34,7 +34,7 @@ public class BvcLedgerEntryConfiguration : IEntityTypeConfiguration<BvcLedgerEnt
         builder.HasOne(e => e.User)
             .WithMany()
             .HasForeignKey(e => e.UserId)
-            .OnDelete(DeleteBehavior.Cascade);
+            .OnDelete(DeleteBehavior.Restrict); // C4: BVC ledger là append-only (BR § III.3); KHÔNG cascade delete.
 
         // BR § III.3 + § XVII.1 — Idempotency key phải UNIQUE.
         builder.HasIndex(e => e.IdempotencyKey)

@@ -21,6 +21,7 @@ public class BookingRatingService : IBookingRatingService
     private readonly IBookingRatingRepository _ratingRepository;
     private readonly IBookingDepositRepository _depositRepository;
     private readonly IKarmaRatingRepository _karmaRepository;
+    private readonly IUserProfileRepository _userProfileRepository;
     private readonly ILogger<BookingRatingService> _logger;
 
     public BookingRatingService(
@@ -30,6 +31,7 @@ public class BookingRatingService : IBookingRatingService
         IBookingRatingRepository ratingRepository,
         IBookingDepositRepository depositRepository,
         IKarmaRatingRepository karmaRepository,
+        IUserProfileRepository userProfileRepository,
         ILogger<BookingRatingService> logger)
     {
         _bookingRepository = bookingRepository;
@@ -38,6 +40,7 @@ public class BookingRatingService : IBookingRatingService
         _ratingRepository = ratingRepository;
         _depositRepository = depositRepository;
         _karmaRepository = karmaRepository;
+        _userProfileRepository = userProfileRepository;
         _logger = logger;
     }
 
@@ -46,7 +49,7 @@ public class BookingRatingService : IBookingRatingService
     {
         if (request.BookingId != bookingId)
         {
-            throw new BadRequestException("BookingId trong path và body không khớp.");
+            throw new BadRequestException(ApiErrorMessages.Booking.BookingIdMismatch);
         }
 
         if (request.AbsentMemberIds.Contains(voterUserId))
@@ -55,7 +58,7 @@ public class BookingRatingService : IBookingRatingService
         }
 
         var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
-            ?? throw new NotFoundException($"Không tìm thấy booking '{bookingId}'.");
+            ?? throw new NotFoundException(ApiErrorMessages.Booking.BookingNotFoundById(bookingId));
 
         if (booking.Status != BookingStatus.CheckedIn)
         {
@@ -75,8 +78,7 @@ public class BookingRatingService : IBookingRatingService
             var voteOpensAt = booking.CheckedInAt.Value.AddMinutes(30);
             if (nowUtc < voteOpensAt)
             {
-                throw new ConflictException(
-                    $"Bạn chỉ có thể vote sau khi booking đã check-in được 30 phút (mở lúc {voteOpensAt:o}).");
+                throw new ConflictException(ApiErrorMessages.Booking.VoteOpensAtTime(voteOpensAt));
             }
         }
         // Booking chưa có CheckedInAt (walk-in edge case hoặc data migration cũ) → bỏ qua check 30 phút.
@@ -89,10 +91,10 @@ public class BookingRatingService : IBookingRatingService
         // Voter phải là member lobby active.
         if (booking.Lobby == null)
         {
-            throw new BadRequestException("Booking walk-in chưa hỗ trợ vote no-show.");
+            throw new BadRequestException(ApiErrorMessages.Booking.WalkInBookingNoShowVoteNotSupported);
         }
         var lobbyMembers = await _lobbyRepository.GetByIdWithMembersAsync(booking.LobbyId!.Value)
-            ?? throw new NotFoundException("Không tìm thấy lobby.");
+            ?? throw new NotFoundException(ApiErrorMessages.Lobby.LobbyNotFoundById);
         var lobbyMemberIds = lobbyMembers.Members
             .Where(m => m.IsActive)
             .Select(m => m.UserId)
@@ -106,7 +108,7 @@ public class BookingRatingService : IBookingRatingService
         var invalidIds = request.AbsentMemberIds.Where(id => !lobbyMemberIds.Contains(id)).ToList();
         if (invalidIds.Count > 0)
         {
-            throw new BadRequestException($"Các UserId không thuộc lobby: {string.Join(", ", invalidIds)}");
+            throw new BadRequestException(ApiErrorMessages.Booking.NotLobbyMemberIdsJoin(invalidIds));
         }
 
         // Idempotent: insert hoặc update vote của voter này.
@@ -183,7 +185,7 @@ public class BookingRatingService : IBookingRatingService
     {
         if (request.BookingId != bookingId)
         {
-            throw new BadRequestException("BookingId trong path và body không khớp.");
+            throw new BadRequestException(ApiErrorMessages.Booking.BookingIdMismatch);
         }
 
         // Validate từng rating.
@@ -202,43 +204,43 @@ public class BookingRatingService : IBookingRatingService
                 || item.Sportsmanship is < 1 or > 5
                 || item.Punctuality is < 1 or > 5)
             {
-                throw new BadRequestException("Điểm attitude/sportsmanship/punctuality phải nằm trong [1, 5].");
+                throw new BadRequestException(ApiErrorMessages.Booking.RatingScoreOutOfRange);
             }
             if (!string.IsNullOrEmpty(item.Comment) && item.Comment.Length > 500)
             {
-                throw new BadRequestException("Comment không được vượt quá 500 ký tự.");
+                throw new BadRequestException(ApiErrorMessages.Booking.RatingCommentTooLong);
             }
         }
 
         var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
-            ?? throw new NotFoundException($"Không tìm thấy booking '{bookingId}'.");
+            ?? throw new NotFoundException(ApiErrorMessages.Booking.BookingNotFoundById(bookingId));
 
         // BR: rate được khi booking đã check-in hoặc vừa check-out (còn trong 24h).
         if (booking.Status == BookingStatus.PendingDeposit
             || booking.Status == BookingStatus.Cancelled
             || booking.Status == BookingStatus.NoShow)
         {
-            throw new ConflictException("Booking chưa thể chấm điểm — phải đã check-in.");
+            throw new ConflictException(ApiErrorMessages.Booking.BookingNotYetEligibleForRating);
         }
 
         // Voter phải là member lobby active.
         if (booking.LobbyId == null)
         {
-            throw new BadRequestException("Booking walk-in chưa hỗ trợ chấm điểm chéo.");
+            throw new BadRequestException(ApiErrorMessages.Booking.WalkInBookingRatingNotSupported);
         }
         var lobby = await _lobbyRepository.GetByIdWithMembersAsync(booking.LobbyId.Value)
-            ?? throw new NotFoundException("Không tìm thấy lobby.");
+            ?? throw new NotFoundException(ApiErrorMessages.Lobby.LobbyNotFoundById);
         var lobbyMemberIds = lobby.Members.Where(m => m.IsActive).Select(m => m.UserId).ToHashSet();
         if (!lobbyMemberIds.Contains(voterUserId))
         {
-            throw new ForbiddenException("Chỉ thành viên lobby mới có thể chấm điểm.");
+            throw new ForbiddenException(ApiErrorMessages.Booking.OnlyLobbyMemberCanRate);
         }
 
         // Tất cả ratedUserIds phải là member lobby (trừ voter).
         var invalid = ratedIds.Where(id => !lobbyMemberIds.Contains(id)).ToList();
         if (invalid.Count > 0)
         {
-            throw new BadRequestException($"Các UserId không thuộc lobby: {string.Join(", ", invalid)}");
+            throw new BadRequestException(ApiErrorMessages.Booking.NotLobbyMemberIdsJoin(invalid));
         }
 
         // Idempotent: insert hoặc update.
@@ -279,20 +281,20 @@ public class BookingRatingService : IBookingRatingService
         Guid bookingId, Guid voterUserId)
     {
         var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
-            ?? throw new NotFoundException($"Không tìm thấy booking '{bookingId}'.");
+            ?? throw new NotFoundException(ApiErrorMessages.Booking.BookingNotFoundById(bookingId));
 
         // Chỉ member lobby active mới xem được.
         if (booking.LobbyId == null)
         {
-            throw new ForbiddenException("Booking walk-in không có rating chéo.");
+            throw new ForbiddenException(ApiErrorMessages.Booking.WalkInBookingHasNoRating);
         }
         var lobby = await _lobbyRepository.GetByIdWithMembersAsync(booking.LobbyId.Value)
-            ?? throw new NotFoundException("Không tìm thấy lobby.");
+            ?? throw new NotFoundException(ApiErrorMessages.Lobby.LobbyNotFoundById);
         var lobbyMembers = lobby.Members.Where(m => m.IsActive).ToList();
         var lobbyMemberIds = lobbyMembers.Select(m => m.UserId).ToHashSet();
         if (!lobbyMemberIds.Contains(voterUserId))
         {
-            throw new ForbiddenException("Chỉ thành viên lobby mới có thể xem trạng thái rating.");
+            throw new ForbiddenException(ApiErrorMessages.Booking.OnlyLobbyMemberCanViewRating);
         }
 
         var canRate = booking.Status is BookingStatus.CheckedIn or BookingStatus.Confirmed;
@@ -334,7 +336,7 @@ public class BookingRatingService : IBookingRatingService
         Guid bookingId)
     {
         var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
-            ?? throw new NotFoundException($"Không tìm thấy booking '{bookingId}'.");
+            ?? throw new NotFoundException(ApiErrorMessages.Booking.BookingNotFoundById(bookingId));
 
         // BR: chỉ aggregate sau khi đã check-out (Booking.CheckedIn + session PAID).
         // Ở đây cho phép CheckedIn/Confirmed để staff có thể aggregate ngay khi session
@@ -342,8 +344,7 @@ public class BookingRatingService : IBookingRatingService
         if (booking.Status == BookingStatus.PendingDeposit
             || booking.Status == BookingStatus.Cancelled)
         {
-            throw new ConflictException(
-                $"Không thể aggregate booking ở trạng thái '{booking.Status}'.");
+            throw new ConflictException(ApiErrorMessages.Booking.CannotAggregateBookingStatus(booking.Status));
         }
 
         // Idempotency check: nếu tất cả rating rows đã aggregate thì skip (chỉ re-run no-show nếu có vote mới).
@@ -434,6 +435,22 @@ public class BookingRatingService : IBookingRatingService
                 .Where(kv => kv.Value > threshold)
                 .Select(kv => kv.Key)
                 .ToList();
+
+            // M5: Batch fetch profiles cho tất cả targets (cross-rating + no-show).
+            // Trước đây mỗi ApplyKarmaDeltaAsync gọi GetProfileForUpdateAsync riêng (N+1).
+            // Pre-fetch bằng AsNoTracking để log user nào không tồn tại.
+            var allTargetIds = scoresByTarget.Keys.Concat(confirmed).Distinct().ToList();
+            if (allTargetIds.Count > 0)
+            {
+                var existingProfiles = await _userProfileRepository.GetProfilesByUserIdsAsync(allTargetIds);
+                var missingIds = allTargetIds.Where(id => !existingProfiles.ContainsKey(id)).ToList();
+                if (missingIds.Count > 0)
+                {
+                    _logger.LogWarning(
+                        "Karma delta — {Count} target users have no UserProfile (BookingId={BookingId}): {MissingIds}",
+                        missingIds.Count, bookingId, string.Join(",", missingIds));
+                }
+            }
 
             // ---- 3) Forfeit deposit cho từng no-show member (nếu RefundPolicy = None) ----
             var deposit = await _depositRepository.GetByBookingIdAsync(bookingId);

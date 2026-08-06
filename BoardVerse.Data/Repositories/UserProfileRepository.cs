@@ -23,6 +23,19 @@ namespace BoardVerse.Data.Repositories
             return _context.Set<UserProfile>().FirstOrDefaultAsync(p => p.UserId == userId);
         }
 
+        public async Task<IReadOnlyDictionary<Guid, UserProfile>> GetProfilesByUserIdsAsync(
+            IReadOnlyCollection<Guid> userIds)
+        {
+            if (userIds.Count == 0)
+            {
+                return new Dictionary<Guid, UserProfile>();
+            }
+            var list = await _context.Set<UserProfile>()
+                .Where(p => userIds.Contains(p.UserId))
+                .ToListAsync();
+            return list.ToDictionary(p => p.UserId);
+        }
+
         public Task AddUserProfileAsync(UserProfile profile)
         {
             _context.UserProfiles.Add(profile);

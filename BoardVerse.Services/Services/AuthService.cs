@@ -91,6 +91,15 @@ namespace BoardVerse.Services.Services
 
         public async Task<LoginResponseDto> RegisterAsync(RegisterRequestDto request)
         {
+            // R-Bug-027 / BR-11 Fix: enforce minimum age of 13 years at registration.
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var age = today.Year - request.DateOfBirth.Year
+                - (today < request.DateOfBirth.AddYears(today.Year - request.DateOfBirth.Year) ? 1 : 0);
+            if (age < 13)
+            {
+                throw new BadRequestException(ApiErrorMessages.Auth.RegisterUnderage);
+            }
+
             var existingUser = await _userRepository.UserExistsAsync(request.Email, request.Username);
             if (existingUser)
             {

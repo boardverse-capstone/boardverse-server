@@ -1303,7 +1303,7 @@ public class TournamentService : ITournamentService
         var user = await _userProfileRepository.GetByIdWithProfileAsync(userId);
         if (user?.Profile == null)
         {
-            throw new NotFoundException($"Không tìm thấy profile của user {userId}.");
+            throw new NotFoundException(ApiErrorMessages.Tournament.UserProfileNotFoundById(userId));
         }
 
         var participations = await _tournamentRepository.GetParticipantsByUserAsync(userId);
@@ -1887,25 +1887,72 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
                     p.Status == TournamentParticipantStatus.Registered)
                 .ToList();
 
+            if (noShowParticipants.Count == 0)
+            {
+                continue;
+            }
+
+            // H3 fix: N+1 - batch-fetch all user profiles in one query.
+            var userIds = noShowParticipants.Select(p => p.UserId!.Value).Distinct().ToList();
+            var profileMap = await _userProfileRepository.GetProfilesByUserIdsAsync(userIds);
+
+            var now = DateTime.UtcNow;
+            var karmaPenalty = tournament.NoShowKarmaPenalty;
+            var karmaLogs = new List<KarmaLog>();
+
             foreach (var participant in noShowParticipants)
             {
                 ct.ThrowIfCancellationRequested();
 
-                // Gọi MarkNoShowAsync để reuse logic có sẵn
-                await MarkNoShowAsync(tournament.CreatedByManagerId, tournament.Id, participant.Id);
+                participant.Status = TournamentParticipantStatus.NoShow;
+                participant.UpdatedAt = now;
                 markedIds.Add(participant.Id);
 
-                result.TotalKarmaPenalty += tournament.NoShowKarmaPenalty;
+                result.TotalKarmaPenalty += karmaPenalty;
 
-                // Gửi notification cho user biết họ bị đánh dấu no-show
-                var message = ApiErrorMessages.Tournament.NoShowMarked(
-                    tournament.Title, tournament.NoShowKarmaPenalty);
-                // TODO: Khi IPushNotificationService sẵn sàng
-                // await _pushNotificationService.SendAsync(participant.UserId.Value, message);
+                // Apply Karma penalty + audit log (batch loaded profile).
+                if (karmaPenalty != 0 && participant.UserId.HasValue
+                    && profileMap.TryGetValue(participant.UserId.Value, out var profile))
+                {
+                    var before = profile.KarmaPoints;
+                    var after = TournamentKarmaPolicy.ClampKarma(before + karmaPenalty);
+                    var actualDelta = after - before;
+
+                    profile.KarmaPoints = after;
+                    profile.GamerTier = KarmaRatingHelper.ResolveTier(after);
+                    profile.UpdatedAt = now;
+
+                    karmaLogs.Add(new KarmaLog
+                    {
+                        Id = Guid.NewGuid(),
+                        UserId = participant.UserId.Value,
+                        ViolationCategory = KarmaViolationCategory.NoShow,
+                        Source = KarmaLogSource.TournamentReward,
+                        KarmaPointsChange = actualDelta,
+                        KarmaBefore = before,
+                        KarmaAfter = after,
+                        Reason = $"[Tournament {tournament.Id}] Không đến tham dự (no-show)",
+                        RelatedLobbyId = null,
+                        PerformedByUserId = tournament.CreatedByManagerId,
+                        IsAdminAdjustment = false,
+                        CreatedAt = now
+                    });
+                }
+
                 _logger.LogInformation(
                     "[TournamentNoShow] User {UserId} marked no-show for Tournament {TournamentId}. Karma penalty: {Penalty}",
-                    participant.UserId, tournament.Id, tournament.NoShowKarmaPenalty);
+                    participant.UserId, tournament.Id, karmaPenalty);
             }
+
+            if (karmaLogs.Count > 0)
+            {
+                foreach (var log in karmaLogs)
+                {
+                    await _karmaRatingRepository.AddKarmaLogAsync(log);
+                }
+                await _karmaRatingRepository.SaveChangesAsync();
+            }
+            await _tournamentRepository.SaveChangesAsync();
 
             result.MarkedParticipantIds = markedIds;
             result.TotalMarked = markedIds.Count;
@@ -2293,6 +2340,19 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         // Có thể promote thành Tournament field nếu sau này cần config per-tournament.
         const int WinnerEloBonus = 20;
 
+        // M4: Batch fetch all profiles in 1 query thay vì N queries.
+        var eligibleUserIds = tournament.Participants
+            .Where(p => !p.IsWalkIn
+                && p.UserId.HasValue
+                && (p.Status == TournamentParticipantStatus.Finished || p.FinalRank.HasValue))
+            .Select(p => p.UserId!.Value)
+            .Distinct()
+            .ToList();
+
+        var profileMap = eligibleUserIds.Count > 0
+            ? await _userProfileRepository.GetProfilesByUserIdsAsync(eligibleUserIds)
+            : new Dictionary<Guid, UserProfile>();
+
         foreach (var participant in tournament.Participants
             .Where(p => p.Status == TournamentParticipantStatus.Finished
                 || p.FinalRank.HasValue))
@@ -2301,8 +2361,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
             // (không có profile để đồng bộ + không có trách nhiệm tài sản cá nhân).
             if (participant.IsWalkIn || participant.UserId == null) continue;
 
-            var profile = await _userProfileRepository.GetProfileByUserIdAsync(participant.UserId.Value);
-            if (profile == null) continue;
+            if (!profileMap.TryGetValue(participant.UserId.Value, out var profile) || profile == null) continue;
 
             var totalDelta = TournamentEloCalculator.SyncToUserProfile(
                 profile, participant, WinnerEloBonus);
@@ -2356,7 +2415,10 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
     private async Task<TournamentResponseDto> BuildResponseAsync(Tournament tournament, Guid? currentUserId)
     {
-        var game = await _gameTemplateRepository.GetByIdAsync(tournament.GameTemplateId);
+        // GameTemplate đã được Include trong các query list (GetAllOpenAsync, GetByCafeAsync, ...).
+        // Chỉ fallback GetByIdAsync khi navigation null (vd: GetByIdAsync single-row path).
+        var game = tournament.GameTemplate
+            ?? await _gameTemplateRepository.GetByIdAsync(tournament.GameTemplateId);
 
         var dto = new TournamentResponseDto
         {

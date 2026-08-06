@@ -26,10 +26,16 @@ namespace BoardVerse.Data.Configurations
                 .HasPrecision(18, 2);
             builder.Property(g => g.CheckedByStaffId);
 
+            // M7: Concurrency token cho BR-12 component checklist.
+            builder.Property(g => g.UpdatedAt)
+                .HasDefaultValueSql("now() at time zone 'utc'")
+                .IsConcurrencyToken();
+
+            // M8: ActiveSessionGame mang TotalPenaltyAmount (financial); không cascade từ ActiveSession.
             builder.HasOne(g => g.ActiveSession)
                 .WithMany(s => s.Games)
                 .HasForeignKey(g => g.ActiveSessionId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.Restrict);
 
             builder.HasOne(g => g.CafeInventoryBox)
                 .WithMany()

@@ -30,7 +30,9 @@ namespace BoardVerse.API.Controllers
         [HttpGet("pending")]
         public async Task<IActionResult> GetPendingSettlements(Guid cafeId)
         {
-            var result = await _settlementService.GetPendingSettlementsAsync(cafeId);
+            var actorUserId = GetUserIdFromClaims();
+            var actorRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? string.Empty;
+            var result = await _settlementService.GetPendingSettlementsAsync(cafeId, actorUserId, actorRole);
             return this.NewResponse(200, "Lấy danh sách settlement đang chờ thành công.", result);
         }
     }

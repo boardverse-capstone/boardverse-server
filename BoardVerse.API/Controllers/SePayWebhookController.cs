@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Payment;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -37,12 +38,12 @@ public class SePayWebhookController : ControllerBase
             await _paymentService.HandleSePayWebhookAsync(webhook);
             return Ok(new { status = "ok" });
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "SePay webhook processing failed.");
-            return StatusCode(500, new { status = "error" });
-        }
-    }
+catch (Exception ex)
+{
+_logger.LogError(ex, "SePay webhook processing failed.");
+return StatusCode(500, new { status = "error", message = ApiErrorMessages.Payment.SePayWebhookProcessingFailed });
+}
+}
 
     /// <summary>
     /// Redirect URL sau khi thanh toán SePay thành công.
@@ -52,11 +53,11 @@ public class SePayWebhookController : ControllerBase
     [AllowAnonymous]
     public IActionResult SePayReturn([FromQuery] string? orderId, [FromQuery] string? status)
     {
-        if (status == "success")
-        {
-            return Ok(new { message = "Thanh toán thành công! Vui lòng quay lại ứng dụng.", orderId });
-        }
-        return BadRequest(new { message = "Thanh toán thất bại hoặc bị hủy.", orderId });
+if (status == "success")
+{
+return Ok(new { message = ApiErrorMessages.Payment.SePayReturnSuccess, orderId });
+}
+return BadRequest(new { message = ApiErrorMessages.Payment.SePayReturnFailed, orderId });
     }
 
     /// <summary>
@@ -71,11 +72,11 @@ public class SePayWebhookController : ControllerBase
     public async Task<IActionResult> MockWebhook([FromBody] MockWebhookRequestDto request)
     {
         // P0 Fix #4: Gate endpoint to development only
-        if (!_env.IsDevelopment())
-        {
-            _logger.LogWarning("Mock webhook called in non-development environment. Blocked.");
-            return StatusCode(403, new { status = "forbidden", message = "Mock endpoint is only available in Development environment." });
-        }
+if (!_env.IsDevelopment())
+{
+_logger.LogWarning("Mock webhook called in non-development environment. Blocked.");
+return StatusCode(403, new { status = "forbidden", message = ApiErrorMessages.Payment.SePayMockEndpointBlocked });
+}
 
         try
         {
@@ -98,10 +99,10 @@ public class SePayWebhookController : ControllerBase
             await _paymentService.HandleSePayWebhookAsync(webhook);
             return Ok(new { status = "ok" });
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Mock webhook processing failed.");
-            return StatusCode(500, new { status = "error", message = "Internal error" });
-        }
+catch (Exception ex)
+{
+_logger.LogError(ex, "Mock webhook processing failed.");
+return StatusCode(500, new { status = "error", message = ApiErrorMessages.Payment.SePayMockWebhookProcessingFailed });
+}
     }
 }

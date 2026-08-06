@@ -99,17 +99,23 @@ public class FriendController : BaseApiController
     /// <para>Dùng khi gửi nhầm hoặc đổi ý trước khi addressee accept/decline.</para>
     /// </summary>
     /// <param name="id">Mã friendship (lời mời).</param>
-    /// <response code="200">Đã hủy lời mời.</response>
+    /// <response code="204">Đã hủy lời mời.</response>
     /// <response code="401">Thiếu token.</response>
     /// <response code="403">Không phải người gửi.</response>
     /// <response code="404">Không tìm thấy lời mời.</response>
     /// <response code="409">Lời mời không còn ở trạng thái Pending.</response>
     [HttpDelete("requests/{id:guid}")]
+    [ProducesResponseType(204)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(403)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(409)]
+    [ProducesResponseType(500)]
     public async Task<IActionResult> CancelFriendRequest(Guid id)
     {
         var userId = GetUserIdFromClaims();
         await _friendService.CancelFriendRequestAsync(userId, id);
-        return this.NewResponse(200, "Đã hủy lời mời kết bạn.", data: null);
+        return NoContent();
     }
 
     /// <summary>
@@ -133,16 +139,21 @@ public class FriendController : BaseApiController
     /// Hủy kết bạn. [Role: Player — một trong hai bên]. Auto-cancel lobby invite Pending.
     /// </summary>
     /// <param name="id">Mã friendship.</param>
-    /// <response code="200">Đã xóa quan hệ bạn bè.</response>
+    /// <response code="204">Đã xóa quan hệ bạn bè.</response>
     /// <response code="401">Thiếu token.</response>
     /// <response code="403">Không có quyền xóa.</response>
     /// <response code="404">Không tìm thấy.</response>
     [HttpDelete("{id:guid}")]
+    [ProducesResponseType(204)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(403)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(500)]
     public async Task<IActionResult> RemoveFriend(Guid id)
     {
         var userId = GetUserIdFromClaims();
         await _friendService.RemoveFriendshipAsync(userId, id);
-        return this.NewResponse(200, ApiSuccessMessages.Friend.Removed, data: null);
+        return NoContent();
     }
 
     /// <summary>
@@ -158,23 +169,28 @@ public class FriendController : BaseApiController
     {
         var userId = GetUserIdFromClaims();
         await _friendService.BlockUserAsync(userId, targetUserId);
-        return this.NewResponse(200, ApiSuccessMessages.Friend.Blocked, data: null);
+        return NoContent();
     }
 
     /// <summary>
     /// Bỏ chặn user. [Role: Player — chỉ người đã chặn]
     /// </summary>
     /// <param name="targetUserId">Mã người bị chặn.</param>
-    /// <response code="200">Đã bỏ chặn.</response>
+    /// <response code="204">Đã bỏ chặn.</response>
     /// <response code="401">Thiếu token.</response>
     /// <response code="403">Bạn không phải người đã chặn.</response>
     /// <response code="404">Không có quan hệ chặn.</response>
     [HttpDelete("block/{targetUserId:guid}")]
+    [ProducesResponseType(204)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(403)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(500)]
     public async Task<IActionResult> UnblockUser(Guid targetUserId)
     {
         var userId = GetUserIdFromClaims();
         await _friendService.UnblockUserAsync(userId, targetUserId);
-        return this.NewResponse(200, ApiSuccessMessages.Friend.Unblocked, data: null);
+        return NoContent();
     }
 
     /// <summary>
@@ -241,7 +257,8 @@ public class FriendController : BaseApiController
     {
         if (!Enum.IsDefined(typeof(FriendshipRelationshipDirection), direction))
         {
-            return BadRequest($"Direction không hợp lệ. Giá trị hợp lệ: {string.Join(", ", Enum.GetNames<FriendshipRelationshipDirection>())}");
+            return BadRequest(ApiErrorMessages.Validation.FriendInvalidDirection(
+string.Join(", ", Enum.GetNames<FriendshipRelationshipDirection>())));
         }
         if (limit < 1 || limit > 100) limit = 50;
 
@@ -263,7 +280,7 @@ public class FriendController : BaseApiController
     {
         if (string.IsNullOrWhiteSpace(q) || q.Trim().Length < 2)
         {
-            return BadRequest("Từ khóa tìm kiếm phải có ít nhất 2 ký tự.");
+            return BadRequest(ApiErrorMessages.Validation.FriendSearchMinLength);
         }
 
         var userId = GetUserIdFromClaims();
@@ -396,7 +413,7 @@ public class FriendController : BaseApiController
     {
         var userId = GetUserIdFromClaims();
         await _friendNoteService.DeleteNoteAsync(userId, noteId);
-        return this.NewResponse(200, ApiSuccessMessages.Friend.NoteDeleted, data: null);
+        return NoContent();
     }
 
     // ===== Friend Reports =====

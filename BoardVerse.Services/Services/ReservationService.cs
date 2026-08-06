@@ -138,10 +138,15 @@ public class ReservationService : IReservationService
         // Load wallet để lấy riskMultiplier.
         var wallet = await GetOrCreateWalletEntityAsync(hostId, now);
 
+        // Load cafe BasePrice cho BR-03 cap.
+        var cafe = await _cafeRepository.GetActiveByIdAsync(request.CafeId)
+            ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(request.CafeId));
+
         // Tính quote (có áp dụng CafeScheduleOverride qua resolver).
         var quote = await _depositCalculator.CalculateWithScheduleAsync(
             request,
             cafeConfig,
+            cafe.BasePrice,
             wallet.RiskMultiplier,
             wallet.IsCoolingOff,
             request.IsPrivate,
@@ -220,6 +225,26 @@ public class ReservationService : IReservationService
                 throw new ConflictException(ApiErrorMessages.Reservation.IdempotencyKeyConflict);
             }
 
+            // Fix #Bug-IdempotentLobbyNull-3: Self-heal — nếu LobbyId = null nhưng reservation tồn tại
+            // (partial completion từ request trước), thử reload với relations để lấy lobby.
+            // Trường hợp: serialization failure sau khi tạo reservation nhưng trước khi tạo lobby,
+            // hoặc request trước throw trước khi bind FK.
+            if (existing.LobbyId == null)
+            {
+                _logger.LogWarning(
+                    "Reservation idempotent '{Id:N}' has null LobbyId. Attempting self-heal by re-fetching with relations.",
+                    existing.Id);
+
+                var healed = await _reservationRepository.GetByIdAsync(existing.Id, includeRelations: true);
+                if (healed?.LobbyId != null)
+                {
+                    existing = healed;
+                    _logger.LogInformation(
+                        "Self-healed: Reservation '{Id:N}' now has LobbyId='{LobbyId}'.",
+                        existing.Id, existing.LobbyId);
+                }
+            }
+
             var existingLobbyId = existing.LobbyId
                 ?? throw new InternalServerErrorException(
                     $"Reservation idempotent '{existing.Id:N}' thiếu lobby.");
@@ -283,9 +308,12 @@ public class ReservationService : IReservationService
             totalCopies);
 
         // 4. Tính lại quote (server authoritative — BR §XVII.2) — có áp dụng CafeScheduleOverride.
+        var cafe = await _cafeRepository.GetActiveByIdAsync(request.CafeId)
+            ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(request.CafeId));
         var quote = await _depositCalculator.CalculateWithScheduleAsync(
             quoteRequest,
             cafeConfig,
+            cafe.BasePrice,
             wallet.RiskMultiplier,
             wallet.IsCoolingOff,
             request.IsPrivate,
@@ -348,9 +376,12 @@ public class ReservationService : IReservationService
                 // Nạp lại wallet + cafe config (tracked instance cũ đã detached).
                 wallet = await GetOrCreateWalletEntityAsync(hostId, now);
                 cafeConfig = await _cafeConfigRepository.GetOrCreateDefaultAsync(request.CafeId);
+                var cafeRetry = await _cafeRepository.GetActiveByIdAsync(request.CafeId)
+                    ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(request.CafeId));
                 quote = await _depositCalculator.CalculateWithScheduleAsync(
                     quoteRequest,
                     cafeConfig,
+                    cafeRetry.BasePrice,
                     wallet.RiskMultiplier,
                     wallet.IsCoolingOff,
                     request.IsPrivate,
@@ -361,7 +392,7 @@ public class ReservationService : IReservationService
         }
 
         // Không bao giờ đến đây, nhưng compiler cần.
-        throw new InternalServerErrorException("Không thể hoàn tất reservation sau nhiều lần thử.");
+        throw new InternalServerErrorException(ApiErrorMessages.Reservation.ConfirmRetryExhausted);
     }
 
     /// <summary>
@@ -406,14 +437,6 @@ public class ReservationService : IReservationService
                         : ApiErrorMessages.Reservation.GameCopyNotAvailable(gameInventory.AvailableCopies));
             }
 
-            // 10. Hold BVC (ledger + wallet mutation).
-            await _walletService.HoldDepositAsync(
-                hostId,
-                quote.FinalDeposit,
-                null,
-                null,
-                request.IdempotencyKey);
-
             // 11. Snapshot cấu hình cọc (BR-NEW-12 + 21F.9).
             var depositSnapshot = new DepositSnapshot
             {
@@ -439,6 +462,7 @@ public class ReservationService : IReservationService
                 TimeSlot = request.TimeSlot,
                 PreferredStartTime = request.PreferredStartTime,
                 RecruitmentDeadline = recruitmentDeadline,
+                ScheduledTime = scheduledTime, // Lưu thời gian thực từ resolved schedule
                 MinPlayers = request.MinPlayers,
                 MaxPlayers = quote.MaxPlayersApplied,
                 DepositConfigSnapshot = depositSnapshot,
@@ -451,13 +475,15 @@ public class ReservationService : IReservationService
                 ReservationCode = reservationCode,
                 SeatInventoryId = seatInventory.Id,
                 GameInventoryId = gameInventory.Id,
+                LobbyId = null, // R-Bug-029 Fix: insert NULL first để EF batching
+                                   // không phải xử lý Reservation↔Lobby FK cycle.
                 CreatedAt = now,
                 UpdatedAt = now
             };
             await _reservationRepository.AddAsync(reservation);
 
             // 13. Insert Lobby (BR-REQUIRED §17.4 — bước 7).
-            var initialLobbyStatus = DetermineInitialLobbyStatus(reservation, cafeConfig, now);
+            var initialLobbyStatus = DetermineInitialLobbyStatus(reservation, cafeConfig, now, request.IsPrivate);
             var lobby = new Lobby
             {
                 Id = Guid.NewGuid(),
@@ -476,7 +502,7 @@ public class ReservationService : IReservationService
                 DepositSnapshot = depositSnapshot,
                 Status = initialLobbyStatus,
                 ShareCode = ShareCodeGenerator.Generate(),
-                IsPrivate = false,
+                IsPrivate = request.IsPrivate,
                 CancellationLeadTimeMinutes = cafeConfig.RecruitmentDeadlineBufferMinutes,
                 CreatedAt = now,
                 UpdatedAt = now
@@ -489,11 +515,34 @@ public class ReservationService : IReservationService
 
             await _lobbyRepository.AddAsync(lobby);
 
-            // 14. Bind FK reservation ↔ lobby.
+            // R-Bug-029 Fix: tách SaveChangesAsync thành 2 giai đoạn để tránh
+            // EF batch Reservation↔Lobby FK cycle.
+            // Giai đoạn 1: insert Reservation (LobbyId=null) + Lobby (ReservationId=...).
+            // Giai đoạn 2: update Reservation.LobbyId + insert LobbyMembers + các cập nhật khác.
+            await _db.SaveChangesAsync();
+
+            // 14. Hold BVC (ledger + wallet mutation) — phải gọi SAU SaveChangesAsync đầu tiên
+            // để có reservation.Id gán vào ledger entry.
+            // Signature: HoldDepositAsync(userId, amount, relatedLobbyId?, relatedReservationId?, idempotencyKey)
+            await _walletService.HoldDepositAsync(
+                hostId,
+                quote.FinalDeposit,
+                null,                    // relatedLobbyId: chưa có (sẽ update sau step 16)
+                reservation.Id,          // relatedReservationId: có sau SaveChangesAsync đầu tiên
+                request.IdempotencyKey);
+
+            // 15. Bind FK reservation ↔ lobby (chỉ sau khi cả 2 đã insert thành công).
             reservation.LobbyId = lobby.Id;
             reservation.UpdatedAt = now;
 
-            // 15. Update inventory counters.
+            // 16. Update ledger entry với lobby.Id (sau khi lobby đã có ID).
+            await _walletService.UpdateLedgerLobbyIdAsync(
+                hostId,
+                reservation.Id,
+                lobby.Id,
+                $"lobby-bound-{lobby.Id:N}");
+
+            // 17. Update inventory counters.
             seatInventory.HeldSeats += quote.MaxPlayersApplied;
             seatInventory.UpdatedAt = now;
             await _seatInventoryRepository.UpdateAsync(seatInventory);
@@ -502,7 +551,7 @@ public class ReservationService : IReservationService
             gameInventory.UpdatedAt = now;
             await _gameInventoryRepository.UpdateAsync(gameInventory);
 
-            // 16. Insert Host as first lobby member (BR-DEPOSIT-01).
+            // 18. Insert Host as first lobby member (BR-DEPOSIT-01).
             if (lobby.Status != LobbyStatus.PendingCafeApproval)
             {
                 var hostMember = new LobbyMember
@@ -530,7 +579,7 @@ public class ReservationService : IReservationService
                 await _lobbyRepository.UpdateAsync(lobby);
             }
 
-            // 17. BR-REQUIRED §17.5: Transactional Outbox — 3 event trong cùng transaction.
+            // 19. BR-REQUIRED §17.5: Transactional Outbox — 3 event trong cùng transaction.
             // Nếu commit fail → tất cả rollback; nếu SignalR fail sau commit → worker retry.
             var lobbyActivatedPayload = SerializeLobbyActivatedPayload(lobby, reservation, hostId);
             await _outboxRepository.AddAsync(new OutboxEvent
@@ -908,7 +957,7 @@ public class ReservationService : IReservationService
 
             // Validate cafe manager quản lý cafe này.
             var cafe = await _db.Cafes.FirstOrDefaultAsync(c => c.Id == reservation.CafeId)
-                ?? throw new NotFoundException($"Không tìm thấy cafe '{reservation.CafeId}'.");
+                ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(reservation.CafeId));
 
             if (cafe.ManagerId != cafeManagerUserId)
             {
@@ -1702,7 +1751,8 @@ public class ReservationService : IReservationService
 
     private static void ValidateTimeSlotWindowRaw(int minPlayers, int maxPlayers)
     {
-        if (minPlayers < 2)
+        // Solo play (MinPlayers = 1) được phép.
+        if (minPlayers < 1)
         {
             throw new BadRequestException(ApiErrorMessages.Reservation.MinPlayersLessThanTwo);
         }
@@ -1714,8 +1764,19 @@ public class ReservationService : IReservationService
         }
     }
 
-    private static LobbyStatus DetermineInitialLobbyStatus(Reservation reservation, CafeConfig cafeConfig, DateTime now)
+    private static LobbyStatus DetermineInitialLobbyStatus(
+        Reservation reservation,
+        CafeConfig cafeConfig,
+        DateTime now,
+        bool isPrivate)
     {
+        // BR-LOBBY-PRIVACY-01 + BR-NEW-11: private lobby bỏ qua cafe approval.
+        // Chỉ public lobby có playDate >= DistantThresholdDays mới cần duyệt.
+        if (isPrivate)
+        {
+            return LobbyStatus.PendingActivation;
+        }
+
         var daysInFuture = (reservation.PlayDate.ToDateTime(TimeOnly.MinValue) - now.Date).TotalDays;
         var requiresApproval = daysInFuture >= cafeConfig.DistantThresholdDays
             && (reservation.MaxPlayers > 10 || cafeConfig.RequireApprovalForDistant);

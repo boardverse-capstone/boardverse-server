@@ -113,11 +113,12 @@ namespace BoardVerse.API.Controllers
         /// Xóa master account (soft delete). [Role: Admin]
         /// </summary>
         /// <param name="id">Mã master account.</param>
-        /// <response code="200">Xóa thành công.</response>
+        /// <response code="204">Xóa thành công.</response>
         /// <response code="401">Thiếu token.</response>
         /// <response code="403">Không có quyền Admin.</response>
         /// <response code="404">Không tìm thấy.</response>
         [HttpDelete("{id:guid}")]
+        [ProducesResponseType(204)]
         public async Task<IActionResult> DeleteMasterAccount(Guid id)
         {
             var account = await _repository.GetByIdAsync(id);
@@ -129,7 +130,7 @@ namespace BoardVerse.API.Controllers
             await _repository.DeleteAsync(id);
             await _repository.SaveChangesAsync();
 
-            return this.NewResponse(200, "Xóa master account thành công.", new { });
+            return NoContent();
         }
 
         /// <summary>

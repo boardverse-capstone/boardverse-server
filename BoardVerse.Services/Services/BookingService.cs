@@ -160,10 +160,86 @@ public class BookingService : IBookingService
         return booking == null ? null : BookingResponseDto.FromEntity(booking);
     }
 
+    public async Task<BookingResponseDto?> GetByIdForCallerAsync(Guid bookingId, Guid callerUserId, string callerRole)
+    {
+        var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true);
+        if (booking == null)
+        {
+            return null;
+        }
+
+        if (!await IsCallerAuthorizedForBookingAsync(booking, callerUserId, callerRole))
+        {
+            throw new ForbiddenException(ApiErrorMessages.Booking.NotBookingOwner);
+        }
+
+        return BookingResponseDto.FromEntity(booking);
+    }
+
     public async Task<BookingResponseDto?> GetByLobbyIdAsync(Guid lobbyId)
     {
         var booking = await _bookingRepository.GetByLobbyIdAsync(lobbyId);
         return booking == null ? null : BookingResponseDto.FromEntity(booking);
+    }
+
+    public async Task<BookingResponseDto?> GetByLobbyIdForCallerAsync(Guid lobbyId, Guid callerUserId, string callerRole)
+    {
+        var booking = await _bookingRepository.GetByLobbyIdAsync(lobbyId);
+        if (booking == null)
+        {
+            return null;
+        }
+
+        if (!await IsCallerAuthorizedForBookingAsync(booking, callerUserId, callerRole))
+        {
+            throw new ForbiddenException(ApiErrorMessages.Booking.NotBookingOwner);
+        }
+
+        return BookingResponseDto.FromEntity(booking);
+    }
+
+    /// <summary>
+    /// C6/C7: Booking access policy.
+    /// - Admin: xem tất cả.
+    /// - Manager: chỉ booking thuộc cafe của mình.
+    /// - Player: chỉ khi là host hoặc member của lobby liên kết.
+    /// Walk-in booking không có lobby → Manager của cafe vẫn xem được.
+    /// </summary>
+    private async Task<bool> IsCallerAuthorizedForBookingAsync(Booking booking, Guid callerUserId, string callerRole)
+    {
+        if (callerRole == "Admin")
+        {
+            return true;
+        }
+
+        if (callerRole == "Manager")
+        {
+            var cafe = await _cafeRepository.GetByIdAsync(booking.CafeId);
+            return cafe != null && cafe.ManagerId == callerUserId;
+        }
+
+        if (callerRole == "CafeStaff")
+        {
+            return await _cafeRepository.IsStaffMemberExistsAsync(booking.CafeId, callerUserId);
+        }
+
+        // Player: phải là host hoặc member của lobby.
+        if (booking.LobbyId.HasValue)
+        {
+            var lobby = await _lobbyRepository.GetByIdWithMembersAsync(booking.LobbyId.Value);
+            if (lobby == null)
+            {
+                return false;
+            }
+            if (lobby.HostUserId == callerUserId)
+            {
+                return true;
+            }
+            return lobby.Members.Any(m => m.UserId == callerUserId && m.IsActive);
+        }
+
+        // Walk-in booking không có lobby — chỉ Manager/CafeStaff/Admin xem.
+        return false;
     }
 
     public async Task<IReadOnlyList<BookingResponseDto>> GetByCafeIdAsync(Guid cafeId, Guid? requestingUserId = null)

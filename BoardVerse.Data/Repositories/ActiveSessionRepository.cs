@@ -45,6 +45,26 @@ namespace BoardVerse.Data.Repositories
                 .FirstOrDefaultAsync(s => s.Id == sessionId);
         }
 
+        /// <summary>
+        /// BUGFIX (subagent audit #3): Index-based lookup theo OrderId.
+        /// Thay thế cho GetAllUnpaidAsync() + FirstOrDefault scan trong PaymentService webhook.
+        /// </summary>
+        public async Task<ActiveSession?> GetByOrderIdAsync(string orderId)
+        {
+            if (string.IsNullOrWhiteSpace(orderId))
+            {
+                return null;
+            }
+            return await _db.ActiveSessions
+                .Include(s => s.Members)
+                    .ThenInclude(m => m.User)
+                .Include(s => s.Games)
+                .Include(s => s.CafeTable)
+                .Include(s => s.CafeInventoryBox)
+                .Include(s => s.GameTemplate)
+                .FirstOrDefaultAsync(s => s.OrderId == orderId);
+        }
+
         public async Task<ActiveSession?> GetByLobbyIdWithMembersAsync(Guid lobbyId)
         {
             if (lobbyId == Guid.Empty) return null;
@@ -115,6 +135,32 @@ namespace BoardVerse.Data.Repositories
                 .CountAsync();
         }
 
+        public async Task<IReadOnlyDictionary<Guid, int>> CountActiveSessionMembersByCafesAsync(
+            IReadOnlyCollection<Guid> cafeIds)
+        {
+            if (cafeIds == null || cafeIds.Count == 0)
+            {
+                return new Dictionary<Guid, int>();
+            }
+
+            // 1 query duy nhất: group by CafeId để đếm active members.
+            var grouped = await _db.ActiveSessionMembers
+                .Where(m => cafeIds.Contains(m.ActiveSession!.CafeId)
+                    && m.ActiveSession.Status != GroupSessionStatus.Paid
+                    && m.Status != IndividualSessionStatus.Finished)
+                .GroupBy(m => m.ActiveSession!.CafeId)
+                .Select(g => new { CafeId = g.Key, Count = g.Count() })
+                .ToListAsync();
+
+            // Khởi tạo 0 cho tất cả cafeIds để caller không phải check missing key.
+            var result = cafeIds.ToDictionary(id => id, _ => 0);
+            foreach (var row in grouped)
+            {
+                result[row.CafeId] = row.Count;
+            }
+            return (IReadOnlyDictionary<Guid, int>)result;
+        }
+
         public async Task<ActiveSessionMember?> GetMemberByIdAsync(Guid memberId)
         {
             return await _db.ActiveSessionMembers
@@ -125,6 +171,12 @@ namespace BoardVerse.Data.Repositories
         public Task SaveChangesAsync()
         {
             return _db.SaveChangesAsync();
+        }
+
+        public async Task<IDatabaseTransactionContext> BeginTransactionAsync(CancellationToken cancellationToken = default)
+        {
+            var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
+            return new EfTransactionContextAdapter(tx);
         }
 
         public async Task<IReadOnlyList<ActiveSession>> GetAllUnpaidAsync()
@@ -249,6 +301,18 @@ namespace BoardVerse.Data.Repositories
                 .OrderBy(s => s.PaidAt)
                 .Take(batchSize)
                 .ToListAsync();
+        }
+
+        public async Task<bool> IsUserSessionParticipantAsync(Guid sessionId, Guid userId)
+        {
+            // Host is always a participant. Member participants are recorded in
+            // ActiveSessionMembers. Staff who performed the check-in is also a participant.
+            return await _db.ActiveSessions
+                .AsNoTracking()
+                .Where(s => s.Id == sessionId)
+                .AnyAsync(s => s.HostId == userId
+                    || _db.ActiveSessionMembers.Any(m => m.ActiveSessionId == sessionId && m.UserId == userId)
+                    || _db.Bookings.Any(b => b.LobbyId == s.LobbyId && b.CheckedInByUserId == userId));
         }
     }
 }

@@ -18,7 +18,7 @@ public class BookingDepositServiceTests
     private readonly Mock<IBookingRepository> _mockBookingRepo;
     private readonly Mock<ICafeRepository> _mockCafeRepo;
     private readonly Mock<ILogger<BookingDepositService>> _mockLogger;
-    private readonly BoardVerseDbContext DbContext;
+    private readonly BoardVerseDbContext _dbContext;
     private readonly BookingDepositService _service;
 
     public BookingDepositServiceTests()
@@ -28,14 +28,14 @@ public class BookingDepositServiceTests
         _mockCafeRepo = new Mock<ICafeRepository>();
         _mockLogger = new Mock<ILogger<BookingDepositService>>();
 
-        var fakeDbContext = new FakeDbContext();
+        _dbContext = new FakeDbContext();
 
         _service = new BookingDepositService(
             _mockDepositRepo.Object,
             _mockBookingRepo.Object,
             _mockCafeRepo.Object,
             _mockLogger.Object,
-            DbContext);
+            _dbContext);
     }
 
     #region CreateAsync
@@ -408,7 +408,7 @@ public class BookingDepositServiceTests
         DateTime capturedCutoff = default;
 
         _mockDepositRepo.Setup(r => r.GetPendingExpiredAsync(It.IsAny<DateTime>(), It.IsAny<int>()))
-            .Callback<DateTime>(cutoff => capturedCutoff = cutoff)
+            .Callback<DateTime, int>((cutoff, _) => capturedCutoff = cutoff)
             .ReturnsAsync(new List<BookingDeposit>());
 
         await _service.ProcessExpiredDepositsAsync();

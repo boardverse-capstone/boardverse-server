@@ -543,12 +543,15 @@ namespace BoardVerse.Services.Services
             }
 
             // BR-USER-LIMIT-02: Loại bỏ lobby trùng lịch với user
+            // M1: lọc dựa trên `lobbies` (raw Lobby entities) thay vì re-fetch qua GetByIdAsync.
+            // Trước đây: lobbyIds.Select → GetByIdAsync → N+1 round-trips.
+            // (Tránh nhầm với `result` là List<LobbyResponseDto> không có PlayDate/TimeSlot.)
             if (requestingUserId.HasValue)
             {
-                var lobbyIds = result.Select(r => r.Id).ToList();
-                var filteredLobbies = await FilterOverlappingLobbiesAsync(
-                    (await Task.WhenAll(lobbyIds.Select(id => _lobbyRepository.GetByIdAsync(id)))).Where(l => l != null).Cast<Lobby>().ToList(),
-                    requestingUserId.Value);
+                var loadedLobbies = lobbies
+                    .Where(l => l.PlayDate.HasValue && l.TimeSlot.HasValue)
+                    .ToList();
+                var filteredLobbies = await FilterOverlappingLobbiesAsync(loadedLobbies, requestingUserId.Value);
                 var filteredIds = filteredLobbies.Select(l => l.Id).ToHashSet();
                 result = result.Where(r => filteredIds.Contains(r.Id)).ToList();
             }
@@ -802,6 +805,7 @@ namespace BoardVerse.Services.Services
 
             // BR-LOBBY-PRIVACY-03: Private lobby — share code chỉ join được nếu user là bạn bè
             // (Friendship.Status = Accepted) của ít nhất 1 thành viên active.
+            // M2: 1 query batch thay vì N queries per member.
             if (lobby.IsPrivate)
             {
                 var memberIds = lobby.Members
@@ -809,16 +813,8 @@ namespace BoardVerse.Services.Services
                     .Select(m => m.UserId)
                     .ToList();
 
-                var isFriendOfAnyMember = false;
-                foreach (var memberId in memberIds)
-                {
-                    var pair = await _friendshipRepository.GetByPairAsync(userId, memberId);
-                    if (pair != null && pair.Status == FriendshipStatus.Accepted)
-                    {
-                        isFriendOfAnyMember = true;
-                        break;
-                    }
-                }
+                var isFriendOfAnyMember = await _friendshipRepository.IsAcceptedFriendOfAnyAsync(
+                    userId, memberIds);
 
                 if (!isFriendOfAnyMember)
                 {

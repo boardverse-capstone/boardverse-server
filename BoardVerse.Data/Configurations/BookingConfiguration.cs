@@ -28,6 +28,14 @@ public class BookingConfiguration : IEntityTypeConfiguration<Booking>
             .HasConversion<int>()
             .IsRequired();
 
+        // === Audit ===
+        // C17: UpdatedAt as concurrency token for optimistic concurrency on status changes.
+        builder.Property(b => b.CreatedAt)
+            .HasDefaultValueSql("now() at time zone 'utc'");
+        builder.Property(b => b.UpdatedAt)
+            .HasDefaultValueSql("now() at time zone 'utc'")
+            .IsConcurrencyToken();
+
         // === Verification QR ===
         builder.Property(b => b.VerificationQRCode).HasMaxLength(500);
 
@@ -38,17 +46,20 @@ public class BookingConfiguration : IEntityTypeConfiguration<Booking>
         builder.HasOne(b => b.Lobby)
             .WithMany()
             .HasForeignKey(b => b.LobbyId)
-            .OnDelete(DeleteBehavior.Cascade);
+            // C15: booking is a financial/historical record. Don't auto-delete on Lobby removal.
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(b => b.Cafe)
             .WithMany()
             .HasForeignKey(b => b.CafeId)
-            .OnDelete(DeleteBehavior.Cascade);
+            // C15: don't cascade-delete financial records when Cafe is removed.
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(b => b.CafeTable)
             .WithMany()
             .HasForeignKey(b => b.CafeTableId)
-            .OnDelete(DeleteBehavior.Cascade);
+            // C15: keep historical booking records even if table is removed.
+            .OnDelete(DeleteBehavior.Restrict);
 
         // === Indexes ===
         builder.HasIndex(b => b.LobbyId)

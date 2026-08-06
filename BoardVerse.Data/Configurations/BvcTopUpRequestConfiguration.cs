@@ -32,7 +32,7 @@ public class BvcTopUpRequestConfiguration : IEntityTypeConfiguration<BvcTopUpReq
         builder.HasOne(e => e.User)
             .WithMany()
             .HasForeignKey(e => e.UserId)
-            .OnDelete(DeleteBehavior.Cascade);
+            .OnDelete(DeleteBehavior.Restrict); // H1: Top-up requests mang OrderId/IdempotencyKey/GatewayTxnId cho audit.
 
         // BR § XVII.1: OrderId + IdempotencyKey phải UNIQUE.
         builder.HasIndex(e => e.OrderId)

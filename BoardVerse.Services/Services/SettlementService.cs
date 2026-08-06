@@ -60,7 +60,7 @@ namespace BoardVerse.Services.Services
 
             if (session.Status != GroupSessionStatus.Paid)
             {
-                throw new ConflictException("Phiên đã thanh toán mới được giải ngân deposit.");
+                throw new ConflictException(ApiErrorMessages.Pos.SessionMustBePaidForDepositSettlement);
             }
 
             var masterAccount = await _masterAccountRepository.GetActiveAsync()
@@ -150,8 +150,36 @@ namespace BoardVerse.Services.Services
             return settlement;
         }
 
-        public async Task<IReadOnlyList<CafeSettlement>> GetPendingSettlementsAsync(Guid cafeId)
+        public async Task<IReadOnlyList<CafeSettlement>> GetPendingSettlementsAsync(Guid cafeId, Guid actorUserId, string actorRole)
         {
+            // C8: Verify cafe operator access. Admin bypasses. Manager: cafe.ManagerId.
+            // CafeStaff: must be linked to the cafe.
+            var cafe = await _cafeRepository.GetActiveByIdAsync(cafeId)
+                ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
+
+            if (actorRole == "Admin")
+            {
+                // bypass
+            }
+            else if (actorRole == "Manager")
+            {
+                if (cafe.ManagerId != actorUserId)
+                {
+                    throw new ForbiddenException(ApiErrorMessages.Cafe.ManagerForbidden(cafeId));
+                }
+            }
+            else if (actorRole == "CafeStaff")
+            {
+                if (!await _cafeRepository.IsStaffMemberExistsAsync(cafeId, actorUserId))
+                {
+                    throw new ForbiddenException(ApiErrorMessages.Cafe.InventoryManagerForbidden(cafeId));
+                }
+            }
+            else
+            {
+                throw new ForbiddenException(ApiErrorMessages.Cafe.ManagerForbidden(cafeId));
+            }
+
             return await _settlementRepository.GetPendingAsync(cafeId);
         }
     }

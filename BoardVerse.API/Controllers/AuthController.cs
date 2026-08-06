@@ -12,6 +12,7 @@ namespace BoardVerse.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [AllowAnonymous]
     public class AuthController : BaseApiController
     {
         private readonly IAuthService _authService;

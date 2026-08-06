@@ -38,6 +38,7 @@ public class DepositCalculator
     public DepositQuoteResult Calculate(
         ReservationQuoteRequestDto request,
         CafeConfig cafeConfig,
+        decimal cafeBasePrice,
         decimal walletRiskMultiplier,
         bool isCoolingOff,
         bool isPrivateLobby,
@@ -46,6 +47,7 @@ public class DepositCalculator
         return CalculateCore(
             request,
             cafeConfig,
+            cafeBasePrice,
             walletRiskMultiplier,
             isCoolingOff,
             isPrivateLobby,
@@ -60,6 +62,7 @@ public class DepositCalculator
     public async Task<DepositQuoteResult> CalculateWithScheduleAsync(
         ReservationQuoteRequestDto request,
         CafeConfig cafeConfig,
+        decimal cafeBasePrice,
         decimal walletRiskMultiplier,
         bool isCoolingOff,
         bool isPrivateLobby,
@@ -77,6 +80,7 @@ public class DepositCalculator
         return CalculateCore(
             request,
             cafeConfig,
+            cafeBasePrice,
             walletRiskMultiplier,
             isCoolingOff,
             isPrivateLobby,
@@ -90,6 +94,7 @@ public class DepositCalculator
     private DepositQuoteResult CalculateCore(
         ReservationQuoteRequestDto request,
         CafeConfig cafeConfig,
+        decimal cafeBasePrice,
         decimal walletRiskMultiplier,
         bool isCoolingOff,
         bool isPrivateLobby,
@@ -106,7 +111,8 @@ public class DepositCalculator
             throw new ArgumentException(ApiErrorMessages.Reservation.MinGreaterThanMax(request.MinPlayers, request.MaxPlayers));
         }
 
-        if (request.MinPlayers < 2)
+        // Solo play (MinPlayers = 1) được phép cho trường hợp chơi một mình.
+        if (request.MinPlayers < 1)
         {
             throw new ArgumentException(ApiErrorMessages.Reservation.MinPlayersAtLeastTwo);
         }
@@ -151,6 +157,17 @@ public class DepositCalculator
         var adjustedDeposit = RoundToBvc(baseDeposit * effectiveRiskMultiplier);
         var minDepositApplied = minDeposit;
         var finalDeposit = Math.Max(minDepositApplied, adjustedDeposit);
+
+        // BR-03: Cọc không được vượt quá 50% giá trị giờ chơi đầu tiên.
+        // Áp dụng ở final stage: nếu finalDeposit > 50% × cafe.BasePrice thì clamp về 50%.
+        if (cafeBasePrice > 0)
+        {
+            var maxDepositAllowed = RoundToBvc(cafeBasePrice * 0.5m);
+            if (finalDeposit > maxDepositAllowed)
+            {
+                finalDeposit = maxDepositAllowed;
+            }
+        }
 
         var scheduledTime = request.PlayDate.ToDateTime(scheduledStartTime);
         var recruitmentDeadline = scheduledTime.AddMinutes(-DefaultLeadTimeMinutes);

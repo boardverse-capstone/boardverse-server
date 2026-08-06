@@ -76,5 +76,8 @@ namespace BoardVerse.Core.Entities
 
         // === Audit ===
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        /// <summary>Last write timestamp. Used as concurrency token for optimistic concurrency on penalty/financial updates.</summary>
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     }
 }

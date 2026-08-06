@@ -50,8 +50,6 @@ namespace BoardVerse.Core.Entities
         /// <summary>Nội dung chuyển khoản ngẫu nhiên cho thanh toán SePay/VietQR.</summary>
         public string? TransferContent { get; set; }
 
-        /// <summary>BR-15: Tổng tiền phạt hao hụt linh kiện.</summary>
-
         // === State (Group Session) ===
         /// <summary>Trạng thái phiên chơi tổng. Theo MDC Section 4.1.</summary>
         public GroupSessionStatus Status { get; set; } = GroupSessionStatus.Active;
@@ -85,6 +83,9 @@ namespace BoardVerse.Core.Entities
         // === Audit ===
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? PaidAt { get; set; }
+
+        /// <summary>Last write timestamp. Used as concurrency token for optimistic concurrency on financial updates.</summary>
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
         // === Navigation ===
         public virtual Cafe Cafe { get; set; } = null!;

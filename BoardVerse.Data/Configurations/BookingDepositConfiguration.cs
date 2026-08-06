@@ -18,7 +18,7 @@ public class BookingDepositConfiguration : IEntityTypeConfiguration<BookingDepos
         builder.Property(d => d.UserId).IsRequired();
         builder.Property(d => d.CafeId).IsRequired();
         builder.Property(d => d.CafeManagerId).IsRequired();
-        builder.Property(d => d.Amount).IsRequired();
+        builder.Property(d => d.Amount).IsRequired().HasColumnType("numeric(18,2)");
         builder.Property(d => d.Status).HasConversion<int>().IsRequired();
         builder.Property(d => d.RefundPolicy).HasConversion<int>().IsRequired();
         builder.Property(d => d.TransferContent).HasMaxLength(100);
@@ -26,6 +26,9 @@ public class BookingDepositConfiguration : IEntityTypeConfiguration<BookingDepos
         builder.Property(d => d.SePayTransferId).HasMaxLength(100);
         builder.Property(d => d.CreatedAt).IsRequired();
         builder.Property(d => d.ScheduledAt);
+
+        // C17: UpdatedAt as concurrency token for optimistic concurrency on deposit status changes.
+        builder.Property(d => d.UpdatedAt).IsConcurrencyToken();
         builder.Property(d => d.QrUrl).HasMaxLength(2000);
         builder.Property(d => d.QrExpiresAt);
 
@@ -37,12 +40,14 @@ public class BookingDepositConfiguration : IEntityTypeConfiguration<BookingDepos
         builder.HasOne(d => d.Cafe)
             .WithMany()
             .HasForeignKey(d => d.CafeId)
-            .OnDelete(DeleteBehavior.Cascade);
+            // C14: cascade delete would erase financial records; restrict instead.
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(d => d.User)
             .WithMany()
             .HasForeignKey(d => d.UserId)
-            .OnDelete(DeleteBehavior.Cascade);
+            // C14: cascade delete would erase financial records; restrict instead.
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(d => d.ActiveSession)
             .WithMany()
@@ -61,5 +66,7 @@ public class BookingDepositConfiguration : IEntityTypeConfiguration<BookingDepos
         builder.HasIndex(d => new { d.CafeId, d.Status });
         builder.HasIndex(d => d.SePayTransactionId).HasFilter("\"SePayTransactionId\" IS NOT NULL");
         builder.HasIndex(d => d.UserId);
+        builder.HasIndex(d => d.CafeManagerId).HasDatabaseName("IX_BookingDeposits_CafeManagerId"); // L4
+        builder.HasIndex(d => d.MasterAccountId).HasDatabaseName("IX_BookingDeposits_MasterAccountId"); // L6
     }
 }

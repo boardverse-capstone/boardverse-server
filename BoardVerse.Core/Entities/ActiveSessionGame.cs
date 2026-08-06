@@ -32,6 +32,9 @@ namespace BoardVerse.Core.Entities
         /// <summary>Tổng tiền phạt từ kiểm kê (số âm = thiếu).</summary>
         public decimal TotalPenaltyAmount { get; set; }
 
+        /// <summary>M7: Concurrency token cho TotalPenaltyAmount (2 staff cùng sửa component checklist).</summary>
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
         public virtual ActiveSession ActiveSession { get; set; } = null!;
         public virtual CafeInventoryBox CafeInventoryBox { get; set; } = null!;
         public virtual GameTemplate GameTemplate { get; set; } = null!;

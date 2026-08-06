@@ -64,7 +64,7 @@ public class ReservationController : BaseApiController
     /// </summary>
     /// <param name="request">CafeId, GameId, PlayDate, TimeSlot, MinPlayers, MaxPlayers, PreferredStartTime, IdempotencyKey.</param>
     /// <response code="200">Trả quote gồm số BVC cần hold, balance hiện tại, missing amount, buffer, expiresAt.</response>
-    /// <response code="400">Request không hợp lệ (playDate ngoài [today, +7], minPlayers &lt; 2, timeSlot không đúng, preferredStartTime không nằm trong timeSlot window).</response>
+    /// <response code="400">Request không hợp lệ (playDate ngoài [today, +7], minPlayers &lt; 1, maxPlayers &lt; 1, timeSlot không đúng, preferredStartTime không nằm trong timeSlot window).</response>
     /// <response code="401">Thiếu token.</response>
     /// <response code="403">User bị suspended/banned hoặc vượt cap tổng heldBalance.</response>
     /// <response code="404">Cafe/Game không tồn tại hoặc cafe không có game này.</response>

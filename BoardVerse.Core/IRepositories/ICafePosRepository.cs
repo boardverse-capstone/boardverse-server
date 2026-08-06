@@ -21,6 +21,8 @@ namespace BoardVerse.Core.IRepositories
         Task<bool> IsSessionFullyCheckedAsync(Guid sessionId);
         Task<GameTemplate?> GetGameTemplateWithComponentsAsync(Guid gameTemplateId);
         Task<CafeGameComponentPenalty?> GetComponentPenaltyAsync(Guid cafeId, Guid gameTemplateId, Guid componentId);
+        Task<IReadOnlyDictionary<Guid, CafeGameComponentPenalty>> GetComponentPenaltiesByCafeGameAsync(
+            Guid cafeId, Guid gameTemplateId, IReadOnlyCollection<Guid> componentIds);
         Task AddSessionAsync(ActiveSession session);
         Task AddSessionMemberAsync(ActiveSessionMember member);
         Task AddSessionGameAsync(ActiveSessionGame sessionGame);

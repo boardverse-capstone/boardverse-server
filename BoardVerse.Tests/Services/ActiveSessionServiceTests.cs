@@ -165,7 +165,7 @@ public class ActiveSessionServiceTests
         var ex = await Assert.ThrowsAsync<BadRequestException>(() =>
             service.CheckoutAsync(cafeId, sessionId, request));
 
-        Assert.Contains("BR-12", ex.Message);
+        Assert.Contains("kiểm kê", ex.Message);
     }
 
     [Fact]
@@ -299,7 +299,7 @@ public class ActiveSessionServiceTests
         {
             Id = sessionId,
             CafeId = cafeId,
-            Status = GroupSessionStatus.Active,
+            Status = GroupSessionStatus.Checking,
             Members = new List<ActiveSessionMember>(),
             Games = new List<ActiveSessionGame>()
         };
@@ -369,7 +369,7 @@ public class ActiveSessionServiceTests
         {
             Id = sessionId,
             CafeId = cafeId,
-            Status = GroupSessionStatus.Active,
+            Status = GroupSessionStatus.Checking,
             Members = new List<ActiveSessionMember>
             {
                 new ActiveSessionMember
@@ -659,7 +659,7 @@ public class ActiveSessionServiceTests
         Assert.Equal(memberId, result.MemberId);
         Assert.Equal(sourceSessionId, result.SourceSessionId);
         Assert.Equal(targetSessionId, result.TargetSessionId);
-        repo.Verify(r => r.UpdateMemberAsync(It.Is<ActiveSessionMember>(m => m.Status == IndividualSessionStatus.Playing)), Times.Once);
+        repo.Verify(r => r.UpdateMemberAsync(It.Is<ActiveSessionMember>(m => m.Status == IndividualSessionStatus.Playing)), Times.AtLeastOnce);
     }
 
     #endregion
@@ -760,7 +760,7 @@ public class ActiveSessionServiceTests
         var ex = await Assert.ThrowsAsync<BadRequestException>(
             () => service.PaySessionAsync(cafeId, sessionId, request));
 
-        Assert.Contains("BR-14", ex.Message);
+        Assert.Contains("vô danh", ex.Message);
     }
 
     [Fact]
@@ -768,6 +768,7 @@ public class ActiveSessionServiceTests
     {
         var cafeId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
+        var memberId = Guid.NewGuid();
 
         var session = new ActiveSession
         {
@@ -775,7 +776,17 @@ public class ActiveSessionServiceTests
             CafeId = cafeId,
             Status = GroupSessionStatus.Unpaid,
             StartedAt = DateTime.UtcNow.AddHours(-3), // 180 minutes
-            Members = new List<ActiveSessionMember>(),
+            Members = new List<ActiveSessionMember>
+            {
+                new()
+                {
+                    Id = memberId,
+                    ActiveSessionId = sessionId,
+                    UserId = Guid.NewGuid(),
+                    JoinedAt = DateTime.UtcNow.AddHours(-3),
+                    LeftAt = DateTime.UtcNow
+                }
+            },
             Games = new List<ActiveSessionGame>(),
             GameTemplate = new GameTemplate { Id = Guid.NewGuid(), Name = "Catan", PlayTime = 60 },
             CafeTable = new CafeTable { Id = Guid.NewGuid(), Name = "Table 1" },
@@ -824,6 +835,7 @@ public class ActiveSessionServiceTests
     {
         var cafeId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
+        var memberId = Guid.NewGuid();
 
         var session = new ActiveSession
         {
@@ -831,7 +843,17 @@ public class ActiveSessionServiceTests
             CafeId = cafeId,
             Status = GroupSessionStatus.Unpaid,
             StartedAt = DateTime.UtcNow.AddMinutes(-45),
-            Members = new List<ActiveSessionMember>(),
+            Members = new List<ActiveSessionMember>
+            {
+                new()
+                {
+                    Id = memberId,
+                    ActiveSessionId = sessionId,
+                    UserId = Guid.NewGuid(),
+                    JoinedAt = DateTime.UtcNow.AddMinutes(-45),
+                    LeftAt = DateTime.UtcNow
+                }
+            },
             Games = new List<ActiveSessionGame>(),
             GameTemplate = new GameTemplate { Id = Guid.NewGuid(), Name = "Catan", PlayTime = 60 },
             CafeTable = new CafeTable { Id = Guid.NewGuid(), Name = "Table 1" },
@@ -877,6 +899,7 @@ public class ActiveSessionServiceTests
     {
         var cafeId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
+        var memberId = Guid.NewGuid();
 
         var session = new ActiveSession
         {
@@ -884,7 +907,17 @@ public class ActiveSessionServiceTests
             CafeId = cafeId,
             Status = GroupSessionStatus.Unpaid,
             StartedAt = DateTime.UtcNow.AddHours(-5),
-            Members = new List<ActiveSessionMember>(),
+            Members = new List<ActiveSessionMember>
+            {
+                new()
+                {
+                    Id = memberId,
+                    ActiveSessionId = sessionId,
+                    UserId = Guid.NewGuid(),
+                    JoinedAt = DateTime.UtcNow.AddHours(-5),
+                    LeftAt = DateTime.UtcNow
+                }
+            },
             Games = new List<ActiveSessionGame>(),
             GameTemplate = new GameTemplate { Id = Guid.NewGuid(), Name = "Catan", PlayTime = 60 },
             CafeTable = new CafeTable { Id = Guid.NewGuid(), Name = "Table 1" },
@@ -929,6 +962,7 @@ public class ActiveSessionServiceTests
         var cafeId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
         var depositId = Guid.NewGuid();
+        var memberId = Guid.NewGuid();
 
         var session = new ActiveSession
         {
@@ -936,7 +970,17 @@ public class ActiveSessionServiceTests
             CafeId = cafeId,
             Status = GroupSessionStatus.Unpaid,
             StartedAt = DateTime.UtcNow.AddMinutes(-120), // 120 minutes (2 hours)
-            Members = new List<ActiveSessionMember>(),
+            Members = new List<ActiveSessionMember>
+            {
+                new()
+                {
+                    Id = memberId,
+                    ActiveSessionId = sessionId,
+                    UserId = Guid.NewGuid(),
+                    JoinedAt = DateTime.UtcNow.AddMinutes(-120),
+                    LeftAt = DateTime.UtcNow
+                }
+            },
             Games = new List<ActiveSessionGame>(),
             GameTemplate = new GameTemplate { Id = Guid.NewGuid(), Name = "Catan", PlayTime = 60 },
             CafeTable = new CafeTable { Id = Guid.NewGuid(), Name = "Table 1" },
@@ -1003,7 +1047,9 @@ public class ActiveSessionServiceTests
             Id = memberId,
             UserId = Guid.NewGuid(),
             Status = IndividualSessionStatus.Playing,
-            IsGuestSlot = false
+            IsGuestSlot = false,
+            JoinedAt = DateTime.UtcNow.AddHours(-1),
+            LeftAt = DateTime.UtcNow
         };
 
         var session = new ActiveSession

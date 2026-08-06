@@ -156,13 +156,19 @@ namespace BoardVerse.API.Controllers
         /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
         /// <response code="404">Không tìm thấy profile hoặc chưa có vị trí để xóa.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        /// <response code="204">Đã xóa vị trí hiện tại.</response>
+        /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+        /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
+        /// <response code="404">Không tìm thấy profile hoặc chưa có vị trí để xóa.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpDelete("me/location")]
         [Authorize]
+        [ProducesResponseType(204)]
         public async Task<IActionResult> ClearCurrentLocation()
         {
             var userId = GetUserIdFromClaims();
             await _profileService.ClearCurrentLocationAsync(userId);
-            return this.NewResponse(200, ApiSuccessMessages.Profile.LocationCleared, null);
+            return NoContent();
         }
 
         /// <summary>
@@ -191,11 +197,12 @@ namespace BoardVerse.API.Controllers
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpDelete]
         [Authorize]
+        [ProducesResponseType(204)]
         public async Task<IActionResult> Delete()
         {
             var userId = GetUserIdFromClaims();
             await _profileService.DeleteProfileAsync(userId);
-            return this.NewResponse(200, ApiSuccessMessages.Profile.Deleted, null);
+            return NoContent();
         }
     }
 }

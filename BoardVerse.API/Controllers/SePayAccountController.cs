@@ -1,5 +1,6 @@
 using BoardVerse.API.Controllers;
 using BoardVerse.Core.DTOs.Payment;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -8,7 +9,9 @@ namespace BoardVerse.API.Controllers;
 
 [ApiController]
 [Route("api/sepay-accounts")]
-[Authorize(Roles = "Admin")]
+// C2: Không đặt [Authorize(Roles="Admin")] ở class-level vì các endpoint Manager con
+// sẽ yêu cầu cả Admin AND Manager (AND-combined), khiến Manager không gọi được.
+[Authorize]
 public class SePayAccountController : BaseApiController
 {
     private readonly ISePayAccountService _sePayAccountService;
@@ -30,6 +33,7 @@ public class SePayAccountController : BaseApiController
     /// <response code="401">Chưa đăng nhập.</response>
     /// <response code="403">Không có quyền Admin.</response>
     [HttpGet]
+    [Authorize(Roles = "Admin")]
     [ProducesResponseType(typeof(IReadOnlyList<SePayAccountDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -46,6 +50,7 @@ public class SePayAccountController : BaseApiController
     /// <response code="200">Thông tin SePay account.</response>
     /// <response code="404">Không tìm thấy.</response>
     [HttpGet("{id:guid}")]
+    [Authorize(Roles = "Admin")]
     [ProducesResponseType(typeof(SePayAccountDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById(Guid id)
@@ -53,7 +58,7 @@ public class SePayAccountController : BaseApiController
         var account = await _sePayAccountService.GetByIdAsync(id);
         if (account == null)
         {
-            return NotFound(new { message = $"SePay account not found: {id}" });
+            return NotFound(new { message = ApiErrorMessages.Payment.SePayAccountNotFound(id) });
         }
         return Ok(account);
     }
@@ -62,6 +67,7 @@ public class SePayAccountController : BaseApiController
     /// Lấy Master Account. [Role: Admin]
     /// </summary>
     [HttpGet("master")]
+    [Authorize(Roles = "Admin")]
     [ProducesResponseType(typeof(SePayAccountDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetMasterAccount()
@@ -69,7 +75,7 @@ public class SePayAccountController : BaseApiController
         var account = await _sePayAccountService.GetMasterAccountAsync();
         if (account == null)
         {
-            return NotFound(new { message = "Master account chưa được tạo." });
+            return NotFound(new { message = ApiErrorMessages.Payment.SePayMasterAccountNotCreated });
         }
         return Ok(account);
     }
@@ -82,6 +88,7 @@ public class SePayAccountController : BaseApiController
     /// <response code="400">Dữ liệu không hợp lệ.</response>
     /// <response code="409">Master/Cafe account đã tồn tại.</response>
     [HttpPost]
+    [Authorize(Roles = "Admin")]
     [ProducesResponseType(typeof(SePayAccountDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -110,6 +117,7 @@ public class SePayAccountController : BaseApiController
     /// <response code="200">Cập nhật thành công.</response>
     /// <response code="404">Không tìm thấy.</response>
     [HttpPut("{id:guid}")]
+    [Authorize(Roles = "Admin")]
     [ProducesResponseType(typeof(SePayAccountDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateSePayAccountRequestDto request)
@@ -121,7 +129,7 @@ public class SePayAccountController : BaseApiController
         }
         catch (KeyNotFoundException)
         {
-            return NotFound(new { message = $"SePay account not found: {id}" });
+            return NotFound(new { message = ApiErrorMessages.Payment.SePayAccountNotFound(id) });
         }
     }
 
@@ -132,6 +140,7 @@ public class SePayAccountController : BaseApiController
     /// <response code="204">Xóa thành công.</response>
     /// <response code="404">Không tìm thấy.</response>
     [HttpDelete("{id:guid}")]
+    [Authorize(Roles = "Admin")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(Guid id)
@@ -143,7 +152,7 @@ public class SePayAccountController : BaseApiController
         }
         catch (KeyNotFoundException)
         {
-            return NotFound(new { message = $"SePay account not found: {id}" });
+            return NotFound(new { message = ApiErrorMessages.Payment.SePayAccountNotFound(id) });
         }
     }
 
@@ -156,6 +165,7 @@ public class SePayAccountController : BaseApiController
     /// <response code="400">Môi trường không hợp lệ.</response>
     /// <response code="404">Không tìm thấy.</response>
     [HttpPut("{id:guid}/environment")]
+    [Authorize(Roles = "Admin")]
     [ProducesResponseType(typeof(SePayAccountDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -168,7 +178,7 @@ public class SePayAccountController : BaseApiController
         }
         catch (KeyNotFoundException)
         {
-            return NotFound(new { message = $"SePay account not found: {id}" });
+            return NotFound(new { message = ApiErrorMessages.Payment.SePayAccountNotFound(id) });
         }
         catch (ArgumentException ex)
         {
@@ -192,7 +202,7 @@ public class SePayAccountController : BaseApiController
         var account = await _sePayAccountService.GetByManagerCafeAsync();
         if (account == null)
         {
-            return NotFound(new { message = "Cafe của bạn chưa được cấu hình SePay." });
+            return NotFound(new { message = ApiErrorMessages.Payment.SePayCafeNotConfigured });
         }
         return Ok(account);
     }
@@ -216,7 +226,7 @@ public class SePayAccountController : BaseApiController
         }
         catch (KeyNotFoundException)
         {
-            return NotFound(new { message = "Cafe của bạn chưa được cấu hình SePay." });
+            return NotFound(new { message = ApiErrorMessages.Payment.SePayCafeNotConfigured });
         }
     }
 
@@ -241,7 +251,7 @@ public class SePayAccountController : BaseApiController
         }
         catch (KeyNotFoundException)
         {
-            return NotFound(new { message = "Cafe của bạn chưa được cấu hình SePay." });
+            return NotFound(new { message = ApiErrorMessages.Payment.SePayCafeNotConfigured });
         }
         catch (ArgumentException ex)
         {

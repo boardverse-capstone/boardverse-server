@@ -287,6 +287,26 @@ namespace BoardVerse.Data.Repositories
                     p.CafeGameInventory.GameTemplateId == gameTemplateId &&
                     p.GameComponentTemplateId == componentId);
 
+        public async Task<IReadOnlyDictionary<Guid, CafeGameComponentPenalty>> GetComponentPenaltiesByCafeGameAsync(
+            Guid cafeId, Guid gameTemplateId, IReadOnlyCollection<Guid> componentIds)
+        {
+            if (componentIds.Count == 0)
+            {
+                return new Dictionary<Guid, CafeGameComponentPenalty>();
+            }
+
+            var list = await _context.CafeGameComponentPenalties
+                .Include(p => p.CafeGameInventory)
+                .Include(p => p.GameComponentTemplate)
+                .Where(p =>
+                    p.CafeGameInventory.CafeId == cafeId &&
+                    p.CafeGameInventory.GameTemplateId == gameTemplateId &&
+                    componentIds.Contains(p.GameComponentTemplateId))
+                .ToListAsync();
+
+            return list.ToDictionary(p => p.GameComponentTemplateId);
+        }
+
         public async Task<CafeInventoryBox?> GetInventoryBoxByIdAsync(Guid boxId) =>
             await _context.CafeInventoryBoxes
                 .Include(b => b.CafeGameInventory)

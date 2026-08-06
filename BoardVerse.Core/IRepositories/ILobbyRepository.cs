@@ -91,6 +91,18 @@ public interface ILobbyRepository
 
     Task<IReadOnlyList<LobbyMember>> GetMembersAsync(Guid lobbyId);
 
+    /// <summary>
+    /// R-Bug-026 Fix: kiểm tra user có phải thành viên active của lobby không.
+    /// Dùng cho SignalR PosHub/LobbyHub authorization.
+    /// </summary>
+    Task<bool> IsUserLobbyMemberAsync(Guid lobbyId, Guid userId);
+
+    /// <summary>
+    /// R-Bug-026 Fix: kiểm tra user có phải member của booking không.
+    /// Dùng cho SignalR LobbyHub.JoinBookingGroup authorization.
+    /// </summary>
+    Task<bool> IsUserBookingParticipantAsync(Guid bookingId, Guid userId);
+
     Task AddAsync(Lobby lobby);
     Task AddMemberAsync(LobbyMember member);
     Task AddReportAsync(LobbyReport report);

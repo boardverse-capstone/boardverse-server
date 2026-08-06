@@ -105,6 +105,16 @@ public class WalletService : IWalletService
     {
         ValidateTopUpRequest(request);
 
+        // BUGFIX (subagent audit #21): Banned/Suspended user without wallet could bypass
+        // BR-RISK-04 because GetOrCreateWalletAsync auto-creates with AccountStatus=Active.
+        // Check User-level status BEFORE auto-creating wallet.
+        var user = await _userRepository.GetByIdAsync(userId)
+            ?? throw new NotFoundException(ApiErrorMessages.Wallet.WalletAutoCreateUserNotFound);
+        if (!user.IsActive)
+        {
+            throw new ForbiddenException(ApiErrorMessages.Wallet.TopUpBlockedAccount);
+        }
+
         // Validate tài khoản không bị khóa (BR-RISK-04).
         var wallet = await GetOrCreateWalletAsync(userId, includeHeld: false);
         if (wallet.AccountStatus is AccountStatus.Suspended or AccountStatus.Banned or AccountStatus.Restricted)
@@ -152,7 +162,7 @@ public class WalletService : IWalletService
             throw new PaymentException(ApiErrorMessages.Payment.SePayMasterAccountNotFound);
         }
 
-        var orderId = $"BVC-{Guid.NewGuid():N}".Substring(0, 18).ToUpperInvariant();
+        var orderId = GenerateOrderId(userId);
         var transferContent = $"BVC-TOPUP-{userId.ToString("N").Substring(0, 8).ToUpperInvariant()}";
 
         var gatewayRequest = new PaymentGatewayRequest
@@ -227,7 +237,7 @@ public class WalletService : IWalletService
     {
         if (topUpId == Guid.Empty)
         {
-            throw new BadRequestException("Id đơn top-up không hợp lệ.");
+            throw new BadRequestException(ApiErrorMessages.Wallet.TopUpIdInvalid);
         }
 
         var topUp = await _topUpRequestRepository.GetByIdAsync(topUpId, cancellationToken);
@@ -271,7 +281,7 @@ public class WalletService : IWalletService
     {
         if (topUpId == Guid.Empty)
         {
-            throw new BadRequestException("Id đơn top-up không hợp lệ.");
+            throw new BadRequestException(ApiErrorMessages.Wallet.TopUpIdInvalid);
         }
 
         ValidateTopUpAmount(request.AmountVnd);
@@ -324,7 +334,7 @@ public class WalletService : IWalletService
             throw new PaymentException(ApiErrorMessages.Payment.SePayMasterAccountNotFound);
         }
 
-        var orderId = $"BVC-{Guid.NewGuid():N}".Substring(0, 18).ToUpperInvariant();
+        var orderId = GenerateOrderId(userId);
         var transferContent = $"BVC-TOPUP-{userId.ToString("N").Substring(0, 8).ToUpperInvariant()}";
 
         var gatewayRequest = new PaymentGatewayRequest
@@ -478,6 +488,78 @@ public class WalletService : IWalletService
             },
             cancellationToken);
         return await BuildResultAsync(userId, idempotencyKey, cancellationToken);
+    }
+
+    public async Task UpdateLedgerLobbyIdAsync(
+        Guid userId,
+        Guid relatedReservationId,
+        Guid newLobbyId,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        var ownsTransaction = _db.Database.CurrentTransaction is null;
+        IDbContextTransaction? ownedTx = null;
+
+        if (ownsTransaction)
+        {
+            ownedTx = await _db.Database.BeginTransactionAsync(
+                System.Data.IsolationLevel.Serializable, cancellationToken);
+        }
+
+        try
+        {
+            // Lookup ledger entry by relatedReservationId + type DEPOSIT_HOLD.
+            // Không dùng idempotency key vì key gốc đã dùng rồi (của HoldDepositAsync).
+            // Dùng pattern idempotency key mới: "lobby-bound-{lobbyId}".
+            var existing = await _ledgerRepository.GetByIdempotencyKeyAsync(idempotencyKey);
+            if (existing != null)
+            {
+                // Already updated — idempotent replay, skip.
+                if (ownedTx != null)
+                {
+                    await ownedTx.CommitAsync(cancellationToken);
+                }
+                return;
+            }
+
+            // Tìm ledger entry DEPOSIT_HOLD theo reservationId.
+            var ledgerEntry = await _db.BvcLedgerEntries
+                .Where(e => e.UserId == userId
+                    && e.Type == LedgerEntryType.DepositHold
+                    && e.RelatedBookingId == relatedReservationId)
+                .OrderByDescending(e => e.CreatedAt)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (ledgerEntry == null)
+            {
+                _logger.LogWarning(
+                    "UpdateLedgerLobbyIdAsync: no DEPOSIT_HOLD ledger entry found for ReservationId={ReservationId}, UserId={UserId}",
+                    relatedReservationId, userId);
+            }
+            else
+            {
+                ledgerEntry.RelatedLobbyId = newLobbyId;
+                ledgerEntry.IdempotencyKey = idempotencyKey;
+                await _db.SaveChangesAsync(cancellationToken);
+
+                _logger.LogInformation(
+                    "Updated ledger entry '{LedgerEntryId}' with RelatedLobbyId='{LobbyId}'. ReservationId={ReservationId}",
+                    ledgerEntry.Id, newLobbyId, relatedReservationId);
+            }
+
+            if (ownedTx != null)
+            {
+                await ownedTx.CommitAsync(cancellationToken);
+            }
+        }
+        catch
+        {
+            if (ownedTx != null)
+            {
+                await ownedTx.RollbackAsync(cancellationToken);
+            }
+            throw;
+        }
     }
 
     public async Task<BvcHoldResult> CaptureDepositAsync(
@@ -1236,5 +1318,24 @@ public class WalletService : IWalletService
             ExpiresAt = expiresAt,
             ChangedAt = DateTime.UtcNow
         };
+    }
+
+    /// <summary>
+    /// BUGFIX (subagent audit #8): Generate OrderId dạng hash 18 char từ GUID + nanoseconds + userId.
+    /// Trước đây dùng Substring(0, 18) trên GUID:N (32 chars) → collision risk cao +
+    /// SHA256 hash an toàn hơn dù GUID vẫn unique.
+    /// </summary>
+    private static string GenerateOrderId(Guid userId)
+    {
+        var input = $"{userId:N}-{DateTime.UtcNow.Ticks}-{Guid.NewGuid():N}";
+        var bytes = System.Text.Encoding.UTF8.GetBytes(input);
+        var hash = System.Security.Cryptography.SHA256.HashData(bytes);
+        // Lấy 9 bytes → 18 hex chars uppercase
+        var sb = new System.Text.StringBuilder(18);
+        for (int i = 0; i < 9; i++)
+        {
+            sb.Append(hash[i].ToString("X2"));
+        }
+        return sb.ToString();
     }
 }

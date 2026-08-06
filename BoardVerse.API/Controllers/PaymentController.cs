@@ -54,7 +54,7 @@ public class PaymentController : BaseApiController
     public async Task<IActionResult> GetDepositById(Guid depositId)
     {
         var deposit = await _depositService.GetByIdAsync(depositId)
-            ?? throw new NotFoundException($"Không tìm thấy đơn cọc với ID: {depositId}");
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.DepositNotFoundById(depositId));
 
         var userId = GetUserIdFromClaims();
         var userRole = User.FindFirst(ClaimTypes.Role)?.Value;
@@ -72,7 +72,7 @@ public class PaymentController : BaseApiController
         };
         if (!authorized)
         {
-            throw new ForbiddenException("Bạn không có quyền xem đơn cọc này.");
+            throw new ForbiddenException(ApiErrorMessages.Payment.DepositForbidden);
         }
 
         var response = BookingDepositResponseDto.FromEntity(deposit);
@@ -96,7 +96,7 @@ public class PaymentController : BaseApiController
     public async Task<IActionResult> GetDepositByOrderId(string orderId)
     {
         var deposit = await _depositService.GetByOrderIdAsync(orderId.Trim())
-            ?? throw new NotFoundException($"Không tìm thấy đơn cọc với mã đặt chỗ: {orderId}");
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.DepositNotFoundByOrderId(orderId));
 
         var userId = GetUserIdFromClaims();
         var userRole = User.FindFirst(ClaimTypes.Role)?.Value;
@@ -109,7 +109,7 @@ public class PaymentController : BaseApiController
         };
         if (!authorized)
         {
-            throw new ForbiddenException("Bạn không có quyền xem đơn cọc này.");
+            throw new ForbiddenException(ApiErrorMessages.Payment.DepositForbidden);
         }
 
         var response = BookingDepositResponseDto.FromEntity(deposit);
@@ -183,7 +183,9 @@ public class PaymentController : BaseApiController
     [Authorize(Roles = "Manager,Admin")]
     public async Task<IActionResult> RefundDeposit([FromBody] RefundDepositRequestDto request)
     {
-        var result = await _paymentService.RefundDepositAsync(request.DepositId, request.Reason);
+        var actorUserId = GetUserIdFromClaims();
+        var actorRole = User.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty;
+        var result = await _paymentService.RefundDepositAsync(request.DepositId, request.Reason, actorUserId, actorRole);
         return this.NewResponse(200, "Hoàn cọc thành công.", new RefundDepositResponseDto
         {
             DepositId = result.Deposit.Id,
@@ -212,10 +214,12 @@ public class PaymentController : BaseApiController
     /// <response code="404">Không tìm thấy session hoặc cafe.</response>
     /// <response code="500">Gateway lỗi.</response>
     [HttpPost("session-payment")]
-    [Authorize(Roles = "Manager,CafeStaff")]
+    [Authorize(Roles = "Manager,CafeStaff,Admin")]
     public async Task<IActionResult> CreateSessionPayment([FromBody] CreateSessionPaymentRequestDto request)
     {
-        var result = await _paymentService.CreateSessionPaymentAsync(request);
+        var actorUserId = GetUserIdFromClaims();
+        var actorRole = User.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty;
+        var result = await _paymentService.CreateSessionPaymentAsync(request, actorUserId, actorRole);
         return this.NewResponse(200, "Tạo thanh toán phiên chơi thành công.", result);
     }
 
@@ -232,10 +236,12 @@ public class PaymentController : BaseApiController
     /// <response code="404">Không tìm thấy session.</response>
     /// <response code="500">Gateway lỗi.</response>
     [HttpPost("session-payment/{sessionId:guid}/regenerate-qr")]
-    [Authorize(Roles = "Manager,CafeStaff")]
+    [Authorize(Roles = "Manager,CafeStaff,Admin")]
     public async Task<IActionResult> RegenerateSessionQr(Guid sessionId)
     {
-        var result = await _paymentService.RegenerateSessionQrAsync(sessionId);
+        var actorUserId = GetUserIdFromClaims();
+        var actorRole = User.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty;
+        var result = await _paymentService.RegenerateSessionQrAsync(sessionId, actorUserId, actorRole);
         return this.NewResponse(200, "Tạo lại QR thanh toán phiên chơi thành công.", result);
     }
 
@@ -247,21 +253,23 @@ public class PaymentController : BaseApiController
     /// Staff xác nhận thanh toán thủ công khi cả SePay và VietQR đều không khả dụng.
     /// Use case: Khách thanh toán tiền mặt trực tiếp cho POS; hoặc SePay + VietQR đều timeout.
     /// BR-18: Xử lý sự cố vận hành — phiếu thu tiền mặt thay vì QR.
-    /// [Role: Manager — chủ quán; CafeStaff — đã gắn quán.]
+    /// Chỉ hỗ trợ SESSION (M6). Deposit có endpoint SePay riêng — staff không thể tự ý confirm DEPOSIT.
+    /// [Role: Manager — chủ quán; CafeStaff — đã gắn quán; Admin bypass ownership.]
     /// </summary>
     /// <param name="request">Thông tin thanh toán thủ công.</param>
     /// <response code="200">Xác nhận thành công.</response>
-    /// <response code="400">Thông tin không hợp lệ / session không ở UNPAID.</response>
+    /// <response code="400">Thông tin không hợp lệ / session không ở UNPAID / amount mismatch.</response>
     /// <response code="401">Thiếu token.</response>
     /// <response code="403">Không phải Manager/CafeStaff của cafe.</response>
     /// <response code="404">Không tìm thấy session.</response>
     /// <response code="500">Lỗi hệ thống.</response>
     [HttpPost("manual-confirm")]
-    [Authorize(Roles = "Manager,CafeStaff")]
+    [Authorize(Roles = "Manager,CafeStaff,Admin")]
     public async Task<IActionResult> ManualConfirmPayment([FromBody] ManualPaymentConfirmRequestDto request)
     {
         var staffId = GetUserIdFromClaims();
-        var result = await _manualPaymentService.ConfirmManualPaymentAsync(request, staffId);
+        var actorRole = User.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty;
+        var result = await _manualPaymentService.ConfirmManualPaymentAsync(request, staffId, actorRole);
         return this.NewResponse(200, "Xác nhận thanh toán thủ công thành công.", result);
     }
 }

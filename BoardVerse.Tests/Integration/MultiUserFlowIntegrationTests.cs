@@ -46,9 +46,10 @@ public class MultiUserFlowIntegrationTests
             cancellationLeadTimeMinutes = 30
         });
 
-        if (lobbyResponse.StatusCode == HttpStatusCode.Forbidden)
+        if (lobbyResponse.StatusCode == HttpStatusCode.Forbidden ||
+            lobbyResponse.StatusCode == HttpStatusCode.Gone)
         {
-            // Lobby controller may not exist yet
+            // Lobby endpoint deprecated (BR §XXI-B.1) - skip cleanly.
             return;
         }
 
@@ -106,7 +107,7 @@ public class MultiUserFlowIntegrationTests
             cancellationLeadTimeMinutes = 30
         });
 
-        if (lobbyResponse.StatusCode == HttpStatusCode.Forbidden) return;
+        if (lobbyResponse.StatusCode == HttpStatusCode.Forbidden || lobbyResponse.StatusCode == HttpStatusCode.Gone) return;
         
         // If lobby creation fails, skip - may be due to test data state
         if (lobbyResponse.StatusCode == HttpStatusCode.BadRequest)
@@ -289,7 +290,7 @@ public class MultiUserFlowIntegrationTests
             cancellationLeadTimeMinutes = 30
         });
 
-        if (lobbyResponse.StatusCode == HttpStatusCode.Forbidden) return;
+        if (lobbyResponse.StatusCode == HttpStatusCode.Forbidden || lobbyResponse.StatusCode == HttpStatusCode.Gone) return;
         Assert.Equal(HttpStatusCode.Created, lobbyResponse.StatusCode);
 
         // Player2, Player3, Admin cùng search lobbies
@@ -442,7 +443,7 @@ public class MultiUserFlowIntegrationTests
             cancellationLeadTimeMinutes = 30
         });
 
-        if (lobbyResponse.StatusCode == HttpStatusCode.Forbidden) return;
+        if (lobbyResponse.StatusCode == HttpStatusCode.Forbidden || lobbyResponse.StatusCode == HttpStatusCode.Gone) return;
 
         Assert.Equal(HttpStatusCode.Created, lobbyResponse.StatusCode);
         var lobby = await ApiTestClient.ReadApiResponseAsync<FourPlayerLobbyDto>(lobbyResponse);

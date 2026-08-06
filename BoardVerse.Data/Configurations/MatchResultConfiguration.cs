@@ -19,15 +19,16 @@ namespace BoardVerse.Data.Configurations
             builder.Property(r => r.SubmittedAt).IsRequired();
             builder.Property(r => r.UpdatedAt).IsRequired();
 
+            // M9: MatchResult thuộc về audit history (BR-10), không cascade từ Lobby/User.
             builder.HasOne(r => r.Lobby)
                 .WithMany()
                 .HasForeignKey(r => r.LobbyId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.Restrict);
 
             builder.HasOne(r => r.User)
                 .WithMany()
                 .HasForeignKey(r => r.UserId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.Restrict);
 
             builder.HasIndex(r => new { r.LobbyId, r.UserId })
                 .IsUnique();

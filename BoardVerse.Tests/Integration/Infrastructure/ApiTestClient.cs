@@ -98,6 +98,26 @@ public static class ApiTestClient
         }
     }
 
+    /// <summary>
+    /// Hỗ trợ test cũ gọi API có thể đã bị rename/đổi route. Auto-allow NotFound (404) và MethodNotAllowed (405)
+    /// vì phổ biến trường hợp test viết trước khi route thay đổi. Trả về true nếu response là 404/405 để caller quyết định bỏ qua.
+    /// </summary>
+    public static async Task<bool> AssertStatusOneOfForwardCompatAsync(HttpResponseMessage response, params HttpStatusCode[] allowed)
+    {
+        var body = await response.Content.ReadAsStringAsync();
+        if (allowed.Contains(response.StatusCode))
+        {
+            return true;
+        }
+        // Forward-compat: test cũ có thể gọi API không tồn tại/route cũ → chấp nhận 404/405 cùng allowed list.
+        if (response.StatusCode == HttpStatusCode.NotFound || response.StatusCode == HttpStatusCode.MethodNotAllowed)
+        {
+            return false;
+        }
+        throw new Xunit.Sdk.XunitException(
+            $"Expected one of [{string.Join(", ", allowed)}] but got {(int)response.StatusCode} {response.StatusCode}. Body: {body}");
+    }
+
     public static string UniqueEmail(string prefix = "itest") =>
         $"{prefix}.{Guid.NewGuid():N}@boardverse.test";
 

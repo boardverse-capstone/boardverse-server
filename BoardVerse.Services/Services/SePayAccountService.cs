@@ -1,7 +1,9 @@
 using BoardVerse.Core.DTOs.Payment;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
+using BoardVerse.Core.Messages;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.Extensions.Logging;
@@ -75,27 +77,27 @@ public class SePayAccountService : ISePayAccountService
     public async Task<SePayAccountDto> CreateAsync(CreateSePayAccountRequestDto request)
     {
         // Validate CafeId if AccountType is Cafe
-        if (request.AccountType == SePayAccountType.Cafe)
-        {
-            if (!request.CafeId.HasValue)
-            {
-                throw new ArgumentException("CafeId is required for Cafe account type.");
-            }
+if (request.AccountType == SePayAccountType.Cafe)
+{
+if (!request.CafeId.HasValue)
+{
+throw new ArgumentException(ApiErrorMessages.Payment.SePayCafeIdRequired);
+}
 
-            var existing = await _repository.GetByCafeIdAsync(request.CafeId.Value);
-            if (existing != null)
-            {
-                throw new InvalidOperationException($"Cafe '{request.CafeId}' already has a SePay account.");
-            }
-        }
-        else if (request.AccountType == SePayAccountType.Master)
-        {
-            var existingMaster = await _repository.GetMasterAccountAsync();
-            if (existingMaster != null)
-            {
-                throw new InvalidOperationException("Master account already exists.");
-            }
-        }
+var existing = await _repository.GetByCafeIdAsync(request.CafeId.Value);
+if (existing != null)
+{
+throw new InvalidOperationException(ApiErrorMessages.Payment.SePayCafeAccountExists(request.CafeId.Value));
+}
+}
+else if (request.AccountType == SePayAccountType.Master)
+{
+var existingMaster = await _repository.GetMasterAccountAsync();
+if (existingMaster != null)
+{
+throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountExists);
+}
+}
 
         var account = new SePayAccount
         {
@@ -127,7 +129,7 @@ public class SePayAccountService : ISePayAccountService
     public async Task<SePayAccountDto> UpdateAsync(Guid id, UpdateSePayAccountRequestDto request)
     {
         var account = await _repository.GetByIdAsync(id)
-            ?? throw new KeyNotFoundException($"SePay account not found: {id}");
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.SePayAccountNotFound(id));
 
         if (request.MerchantId != null) account.MerchantId = request.MerchantId;
         if (request.ApiKey != null) account.ApiKey = request.ApiKey;
@@ -158,11 +160,11 @@ public class SePayAccountService : ISePayAccountService
         
         if (!validEnvironments.Contains(normalizedEnv))
         {
-            throw new ArgumentException($"Invalid environment. Must be 'Test' or 'Production'. Got: '{environment}'");
+            throw new ArgumentException(ApiErrorMessages.Payment.SePayInvalidEnvironment(environment));
         }
 
         var account = await _repository.GetByIdAsync(id)
-            ?? throw new KeyNotFoundException($"SePay account not found: {id}");
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.SePayAccountNotFound(id));
 
         var oldEnv = account.Environment;
         account.Environment = normalizedEnv;
@@ -182,7 +184,7 @@ public class SePayAccountService : ISePayAccountService
     public async Task DeleteAsync(Guid id)
     {
         var account = await _repository.GetByIdAsync(id)
-            ?? throw new KeyNotFoundException($"SePay account not found: {id}");
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.SePayAccountNotFound(id));
 
         await _repository.DeleteAsync(id);
         await _repository.SaveChangesAsync();
@@ -202,10 +204,10 @@ public class SePayAccountService : ISePayAccountService
     public async Task<SePayAccountDto> UpdateByManagerCafeAsync(UpdateSePayAccountRequestDto request)
     {
         var cafeId = await GetCurrentUserCafeIdAsync()
-            ?? throw new KeyNotFoundException("Bạn không quản lý cafe nào.");
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.ManagerHasNoCafe);
 
         var account = await _repository.GetByCafeIdAsync(cafeId)
-            ?? throw new KeyNotFoundException($"Cafe của bạn chưa được cấu hình SePay.");
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.CafeSePayAccountNotConfigured);
 
         if (request.MerchantId != null) account.MerchantId = request.MerchantId;
         if (request.ApiKey != null) account.ApiKey = request.ApiKey;
@@ -236,14 +238,14 @@ public class SePayAccountService : ISePayAccountService
 
         if (!validEnvironments.Contains(normalizedEnv))
         {
-            throw new ArgumentException($"Invalid environment. Must be 'Test' or 'Production'. Got: '{environment}'");
+            throw new ArgumentException(ApiErrorMessages.Payment.SePayInvalidEnvironment(environment));
         }
 
         var cafeId = await GetCurrentUserCafeIdAsync()
-            ?? throw new KeyNotFoundException("Bạn không quản lý cafe nào.");
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.ManagerHasNoCafe);
 
         var account = await _repository.GetByCafeIdAsync(cafeId)
-            ?? throw new KeyNotFoundException($"Cafe của bạn chưa được cấu hình SePay.");
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.CafeSePayAccountNotConfigured);
 
         var oldEnv = account.Environment;
         account.Environment = normalizedEnv;

@@ -37,8 +37,10 @@ public sealed class BoardVerseWebApplicationFactory : WebApplicationFactory<Prog
             ?? throw new InvalidOperationException(
                 "Missing test DB connection. Copy appsettings.local.json.example to appsettings.local.json.");
 
+        var normalizedConnection = TestConfiguration.NormalizeConnectionString(connectionString);
+
         Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Testing");
-        Environment.SetEnvironmentVariable("ConnectionStrings__DefaultConnection", connectionString);
+        Environment.SetEnvironmentVariable("ConnectionStrings__DefaultConnection", normalizedConnection);
         Environment.SetEnvironmentVariable("JwtSettings__SecurityKey", "IntegrationTestSigningKey_Min32Chars!");
         Environment.SetEnvironmentVariable("JwtSettings__ValidIssuer", "BoardVerseIntegrationTests");
         Environment.SetEnvironmentVariable("JwtSettings__ValidAudience", "BoardVerseIntegrationTests");

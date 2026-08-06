@@ -249,12 +249,12 @@ namespace BoardVerse.Services.Services
             var deposit = await _depositRepository.GetByBookingCodeAsync(bookingCode.Trim());
             if (deposit == null)
             {
-                throw new NotFoundException($"Không tìm thấy đơn đặt chỗ với mã '{bookingCode}'.");
+                throw new NotFoundException(ApiErrorMessages.Pos.BookingNotFoundByCode(bookingCode));
             }
 
             if (deposit.CafeId != cafeId)
             {
-                throw new ConflictException("Đơn đặt chỗ này không thuộc quán này.");
+                throw new ConflictException(ApiErrorMessages.Pos.BookingNotInThisCafe);
             }
 
             // Get host profile using available method
@@ -435,7 +435,8 @@ namespace BoardVerse.Services.Services
             session.CafeTable = table;
             session.CafeInventoryBox = box;
             session.GameTemplate = box.CafeGameInventory.GameTemplate;
-            session.Host = null!; // Host navigation not needed for response - use HostId
+            // L3: Không detach Host — MapSession đọc session.Host?.Username.
+            // Nếu sau này cần HostName, load Host qua repository trước khi map.
             session.Members = [hostMember];
 
             return MapSession(session, now);
@@ -544,7 +545,7 @@ namespace BoardVerse.Services.Services
             }
             catch (NotFoundException)
             {
-                throw new NotFoundException($"Không tìm thấy reservation với mã '{reservationCode}'.");
+                throw new NotFoundException(ApiErrorMessages.Pos.ReservationNotFoundByCode(reservationCode));
             }
             catch (ConflictException ex)
             {
@@ -612,11 +613,11 @@ namespace BoardVerse.Services.Services
             var deposit = await _depositRepository.GetByBookingCodeAsync(bookingCode);
             if (deposit == null)
             {
-                throw new NotFoundException($"Không tìm thấy đơn đặt chỗ với mã '{bookingCode}'.");
+                throw new NotFoundException(ApiErrorMessages.Pos.BookingNotFoundByCode(bookingCode));
             }
             if (deposit.CafeId != cafeId)
             {
-                throw new ConflictException("Đơn đặt chỗ này không thuộc quán này.");
+                throw new ConflictException(ApiErrorMessages.Pos.BookingNotInThisCafe);
             }
             if (deposit.Status != BookingDepositStatus.Paid)
             {
@@ -667,7 +668,7 @@ namespace BoardVerse.Services.Services
             session.CafeTable = table;
             session.CafeInventoryBox = box;
             session.GameTemplate = box.CafeGameInventory.GameTemplate;
-            session.Host = null!;
+            // L3: Không detach Host navigation.
             session.Members = [hostMember];
 
             return MapSession(session, now);
@@ -808,7 +809,7 @@ namespace BoardVerse.Services.Services
             // BUG 2 Fix: Validate session is Active before ending
             if (session.Status != GroupSessionStatus.Active)
             {
-                throw new ConflictException($"Phiên chơi phải đang hoạt động để kết thúc. Trạng thái hiện tại: {session.Status}.");
+                throw new ConflictException(ApiErrorMessages.Pos.SessionMustBeActiveForEnd(session.Status.ToString()));
             }
 
             var now = DateTime.UtcNow;
@@ -820,7 +821,7 @@ namespace BoardVerse.Services.Services
             // W1 Fix: Null check for CafeInventoryBox before dereferencing
             if (session.CafeInventoryBox == null)
             {
-                throw new NotFoundException("Không tìm thấy hộp game trong phiên chơi.");
+                throw new NotFoundException(ApiErrorMessages.Pos.NoGameBoxInSession);
             }
             session.CafeInventoryBox.Status = CafeGameInventoryStatus.Available;
             session.CafeInventoryBox.UpdatedAt = now;
@@ -949,6 +950,10 @@ namespace BoardVerse.Services.Services
 
             var components = sessionGame.GameTemplate.Components?.ToList() ?? [];
 
+            var componentIds = components.Select(c => c.Id).ToList();
+            var penaltyMap = await _posRepository.GetComponentPenaltiesByCafeGameAsync(
+                cafeId, sessionGame.GameTemplateId, componentIds);
+
             var checklist = new ComponentChecklistDto
             {
                 SessionGameId = sessionGame.Id,
@@ -959,8 +964,7 @@ namespace BoardVerse.Services.Services
 
             foreach (var component in components)
             {
-                var penalty = await _posRepository.GetComponentPenaltyAsync(
-                    cafeId, sessionGame.GameTemplateId, component.Id);
+                penaltyMap.TryGetValue(component.Id, out var penalty);
 
                 checklist.Components.Add(new ComponentCheckItemDto
                 {
@@ -1052,14 +1056,17 @@ namespace BoardVerse.Services.Services
             // GAP-16 Fix: Track components with missing penalty config for warning
             var missingPenaltyComponents = new List<string>();
 
-            foreach (var component in sessionGame.GameTemplate.Components)
+            var components = sessionGame.GameTemplate.Components.ToList();
+            var componentIds = components.Select(c => c.Id).ToList();
+            var penaltyMap = await _posRepository.GetComponentPenaltiesByCafeGameAsync(
+                cafeId, gameTemplateId, componentIds);
+
+            foreach (var component in components)
             {
                 var actualQty = resultLookup.GetValueOrDefault(component.Id, 0);
                 if (actualQty < component.DefaultQuantity)
                 {
-                    var penalty = await _posRepository.GetComponentPenaltyAsync(
-                        cafeId, gameTemplateId, component.Id);
-                    if (penalty != null)
+                    if (penaltyMap.TryGetValue(component.Id, out var penalty))
                     {
                         var missing = component.DefaultQuantity - actualQty;
                         totalPenalty += penalty.PenaltyFee * missing;
@@ -1157,13 +1164,13 @@ namespace BoardVerse.Services.Services
             var session = await _activeSessionRepository.GetByIdAsync(sessionId);
             if (session == null || session.CafeId != cafeId)
             {
-                throw new NotFoundException($"Không tìm thấy phiên chơi '{sessionId}'.");
+                throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFoundById(sessionId));
             }
 
             var box = await _posRepository.GetInventoryBoxByIdAsync(request.InventoryBoxId);
             if (box == null || box.CafeGameInventory.CafeId != cafeId)
             {
-                throw new NotFoundException($"Không tìm thấy hộp game '{request.InventoryBoxId}'.");
+                throw new NotFoundException(ApiErrorMessages.Pos.BoxNotFoundById(request.InventoryBoxId));
             }
 
             // GAP-26 Fix: Validate box belongs to this session's Games list

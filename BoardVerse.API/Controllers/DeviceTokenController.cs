@@ -53,12 +53,12 @@ public class DeviceTokenController : BaseApiController
     /// Xóa FCM device token (vd: khi user logout hoặc gỡ app).
     /// </summary>
     /// <param name="id">Device token id (GUID).</param>
-    /// <response code="200">Xóa thành công.</response>
+    /// <response code="204">Xóa thành công.</response>
     /// <response code="401">Thiếu token.</response>
     /// <response code="404">Không tìm thấy token hoặc không thuộc user hiện tại.</response>
     /// <response code="500">Lỗi hệ thống.</response>
     [HttpDelete("{id:guid}")]
-    [ProducesResponseType(typeof(object), 200)]
+    [ProducesResponseType(204)]
     [ProducesResponseType(401)]
     [ProducesResponseType(404)]
     [ProducesResponseType(500)]
@@ -66,6 +66,6 @@ public class DeviceTokenController : BaseApiController
     {
         var userId = GetUserIdFromClaims();
         await _deviceTokenService.DeleteAsync(userId, id);
-        return NewResponse(200, "Đã xóa device token.", new { id });
+        return NoContent();
     }
 }

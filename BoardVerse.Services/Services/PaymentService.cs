@@ -52,9 +52,21 @@ public class PaymentService : IPaymentService
         var deposit = await _depositService.GetByIdAsync(request.DepositId)
             ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
 
+        // C1: Verify deposit ownership - only the deposit owner can create payment for it.
+        if (deposit.UserId != userId)
+        {
+            throw new ForbiddenException(ApiErrorMessages.Payment.NotAuthorizedToViewDeposit);
+        }
+
         if (deposit.Status != BookingDepositStatus.Pending)
         {
             throw new ConflictException(ApiErrorMessages.Pos.DepositAlreadyProcessed);
+        }
+
+        // C2: Use server-side amount from deposit, never trust client-provided amount.
+        if (deposit.Amount <= 0)
+        {
+            throw new ConflictException(ApiErrorMessages.Pos.DepositAmountMustBePositive);
         }
 
         if (string.IsNullOrWhiteSpace(deposit.OrderId))
@@ -87,7 +99,8 @@ public class PaymentService : IPaymentService
         var paymentRequest = new PaymentGatewayRequest
         {
             OrderId = deposit.OrderId,
-            Amount = request.Amount,
+            // C2: Use server-side deposit amount; never trust client-supplied amount.
+            Amount = deposit.Amount,
             CustomerEmail = request.CustomerEmail,
             Description = transferContent,
             Metadata = new Dictionary<string, string?>
@@ -118,7 +131,7 @@ public class PaymentService : IPaymentService
 
         _logger.LogInformation(
             "Payment created. DepositId={DepositId}, OrderId={OrderId}, Amount={Amount}, QrUrl={QrUrl}",
-            deposit.Id, deposit.OrderId, request.Amount, paymentUrl);
+            deposit.Id, deposit.OrderId, deposit.Amount, paymentUrl);
 
         return new CreatePaymentResponseDto
         {
@@ -142,6 +155,12 @@ public class PaymentService : IPaymentService
     {
         var deposit = await _depositService.GetByIdAsync(depositId)
             ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
+
+        // C1: Verify deposit ownership - only the deposit owner can regenerate QR.
+        if (deposit.UserId != userId)
+        {
+            throw new ForbiddenException(ApiErrorMessages.Payment.NotAuthorizedToViewDeposit);
+        }
 
         if (deposit.Status != BookingDepositStatus.Pending)
         {
@@ -235,7 +254,7 @@ public class PaymentService : IPaymentService
     /// BR-15: TotalAmount = Subtotal + Penalty - DepositAppliedAmount
     /// Session payment dùng VietQR của từng cafe (bank info từ Cafe.SePayBankCode / SePayAccountNumber).
     /// </summary>
-    public async Task<CreateSessionPaymentResponseDto> CreateSessionPaymentAsync(CreateSessionPaymentRequestDto request)
+    public async Task<CreateSessionPaymentResponseDto> CreateSessionPaymentAsync(CreateSessionPaymentRequestDto request, Guid actorUserId, string actorRole)
     {
         var session = await _activeSessionRepository.GetByIdAsync(request.SessionId)
             ?? throw new NotFoundException(ApiErrorMessages.Pos.ActiveSessionNotFound(request.SessionId));
@@ -244,6 +263,14 @@ public class PaymentService : IPaymentService
         {
             throw new ConflictException(ApiErrorMessages.Pos.SessionPaymentInvalidState);
         }
+
+        // Lấy cafe config
+        var cafe = await _cafeRepository.GetByIdAsync(session.CafeId)
+            ?? throw new NotFoundException(ApiErrorMessages.Cafe.CafeRecordNotFound(session.CafeId));
+
+        // C4: Validate cafe ownership. Manager: cafe.ManagerId == actorUserId.
+        // CafeStaff: phải có cafe trong StaffMembers. Admin bypasses.
+        await VerifyCafeOperatorAsync(cafe, actorUserId, actorRole);
 
         var totalAmount = session.TotalAmount;
         if (totalAmount <= 0)
@@ -261,10 +288,6 @@ public class PaymentService : IPaymentService
         {
             session.TransferContent = $"BV-{Guid.NewGuid():N}";
         }
-
-        // Lấy cafe config
-        var cafe = await _cafeRepository.GetByIdAsync(session.CafeId)
-            ?? throw new NotFoundException(ApiErrorMessages.Cafe.CafeRecordNotFound(session.CafeId));
 
         var bankCode = string.Empty;
         var accountNumber = string.Empty;
@@ -340,7 +363,7 @@ public class PaymentService : IPaymentService
     /// <summary>
     /// Tạo lại QR thanh toán cho phiên chơi đang UNPAID.
     /// </summary>
-    public async Task<CreateSessionPaymentResponseDto> RegenerateSessionQrAsync(Guid sessionId)
+    public async Task<CreateSessionPaymentResponseDto> RegenerateSessionQrAsync(Guid sessionId, Guid actorUserId, string actorRole)
     {
         var session = await _activeSessionRepository.GetByIdAsync(sessionId)
             ?? throw new NotFoundException(ApiErrorMessages.Pos.ActiveSessionNotFound(sessionId));
@@ -353,6 +376,9 @@ public class PaymentService : IPaymentService
         // Lấy cafe config
         var cafe = await _cafeRepository.GetByIdAsync(session.CafeId)
             ?? throw new NotFoundException(ApiErrorMessages.Cafe.CafeRecordNotFound(session.CafeId));
+
+        // C5: Validate cafe ownership (cùng pattern với CreateSessionPaymentAsync).
+        await VerifyCafeOperatorAsync(cafe, actorUserId, actorRole);
 
         var bankCode = string.Empty;
         var accountNumber = string.Empty;
@@ -574,8 +600,12 @@ public class PaymentService : IPaymentService
                 return;
             }
 
-            await _depositService.MarkAsRefundedAsync(deposit.Id);
-            _logger.LogInformation("Booking deposit refunded (payment failed/cancelled). DepositId={DepositId}", deposit.Id);
+            // BUGFIX (subagent audit #6): cancellation webhook when deposit is still Pending
+            // → MarkAsRefundedAsync only accepts Paid → throws. Use ExpireAsync for Pending.
+            // MarkAsRefundedAsync is for post-payment refunds (Paid → Refunded).
+            // Failed/cancelled gateway payment on Pending deposit should mark Expired.
+            await _depositService.ExpireAsync(deposit.Id);
+            _logger.LogInformation("Booking deposit expired (payment failed/cancelled). DepositId={DepositId}", deposit.Id);
         }
     }
 
@@ -587,12 +617,16 @@ public class PaymentService : IPaymentService
             return;
         }
 
+        // BUGFIX (subagent audit #3): không fallback sang GetAllUnpaidAsync() linear scan
+        // khi SessionId null. Phải lookup qua OrderId hoặc DB index.
+        // Trước đây: nếu SessionId null + OrderId lookup fail → quét toàn bộ unpaid sessions
+        // (O(N), race risk: 2 webhook cùng lookup có thể pick cùng session).
+        // Sau: dùng GetByOrderIdAsync (index-based) hoặc skip xử lý.
         var session = await _activeSessionRepository.GetByIdAsync(webhook.SessionId ?? Guid.Empty);
         if (session == null)
         {
-            // Try to find session by OrderId prefix
-            var sessions = await _activeSessionRepository.GetAllUnpaidAsync();
-            session = sessions.FirstOrDefault(s => s.OrderId == webhook.OrderId);
+            // Try OrderId lookup via dedicated index (1 query, no scan).
+            session = await _activeSessionRepository.GetByOrderIdAsync(webhook.OrderId);
         }
 
         if (session == null)
@@ -647,10 +681,22 @@ public class PaymentService : IPaymentService
     /// BR-18: Hoàn/phạt theo RefundPolicy khi hủy từ phía khách.
     /// Trả về RefundDepositResult gồm BookingDeposit (sau update) + số tiền thực tế hoàn cho khách.
     /// </summary>
-    public async Task<RefundDepositResult> RefundDepositAsync(Guid depositId, string reason)
+    public async Task<RefundDepositResult> RefundDepositAsync(Guid depositId, string reason, Guid actorUserId, string actorRole)
     {
         var deposit = await _depositService.GetByIdAsync(depositId)
             ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
+
+        // C3: Validate cafe ownership for Manager. Admin bypasses.
+        // Manager: chỉ được refund deposit thuộc quán do mình quản lý (deposit.CafeManagerId == actorUserId).
+        // Admin: xem tất cả.
+        if (actorRole == "Manager" && deposit.CafeManagerId != actorUserId)
+        {
+            throw new ForbiddenException(ApiErrorMessages.Payment.NotAuthorizedToViewDeposit);
+        }
+        else if (actorRole != "Admin" && actorRole != "Manager")
+        {
+            throw new ForbiddenException(ApiErrorMessages.Payment.NotAuthorizedToViewDeposit);
+        }
 
         if (deposit.Status != BookingDepositStatus.Paid)
         {
@@ -701,5 +747,41 @@ public class PaymentService : IPaymentService
         var bytes = depositId.ToByteArray();
         var hash = BitConverter.ToUInt32(bytes, 0) % 100_000_000;
         return $"BV{hash:D8}";
+    }
+
+    /// <summary>
+    /// C4/C5: Verify caller is allowed to operate on the cafe that owns the session.
+    /// - Admin: bypass.
+    /// - Manager: only the cafe's own manager (cafe.ManagerId == actorUserId).
+    /// - CafeStaff: must be linked to the cafe via CafeStaff row.
+    /// Throws ForbiddenException otherwise.
+    /// </summary>
+    private async Task VerifyCafeOperatorAsync(Cafe cafe, Guid actorUserId, string actorRole)
+    {
+        if (actorRole == "Admin")
+        {
+            return;
+        }
+
+        if (actorRole == "Manager")
+        {
+            if (cafe.ManagerId != actorUserId)
+            {
+                throw new ForbiddenException(ApiErrorMessages.Payment.NotAuthorizedToViewDeposit);
+            }
+            return;
+        }
+
+        if (actorRole == "CafeStaff")
+        {
+            var isStaff = await _cafeRepository.IsStaffMemberExistsAsync(cafe.Id, actorUserId);
+            if (!isStaff)
+            {
+                throw new ForbiddenException(ApiErrorMessages.Payment.NotAuthorizedToViewDeposit);
+            }
+            return;
+        }
+
+        throw new ForbiddenException(ApiErrorMessages.Payment.NotAuthorizedToViewDeposit);
     }
 }

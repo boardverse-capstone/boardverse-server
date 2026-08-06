@@ -113,17 +113,16 @@ namespace BoardVerse.Services.Services
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
 
-            // GAP-8 Fix: Validate cafeId matches session's CafeId
             if (session.CafeId != cafeId)
             {
-                throw new ConflictException($"Phiên chơi '{sessionId}' không thuộc quán '{cafeId}'.");
+                throw new ConflictException(ApiErrorMessages.Pos.SessionCafeMismatch(sessionId, cafeId));
             }
 
             // BR-12: Checkout chỉ được từ Checking (sau khi EndGameSession)
             // Không cho phép checkout trực tiếp từ Active mà chưa qua EndGameSession
             if (session.Status != GroupSessionStatus.Checking)
             {
-                throw new ConflictException("Phiên chơi phải ở trạng thái CHECKING (đã trả game) để thanh toán. Vui lòng bấm 'Trả game' trước.");
+                throw new ConflictException(ApiErrorMessages.Pos.SessionMustBeCheckingForCheckout);
             }
 
             // BR-12: BẮT BUỘC kiểm tra checklist trước khi checkout
@@ -150,7 +149,7 @@ namespace BoardVerse.Services.Services
             // BR-13: Guest slot được thêm khi phiên đang Active
             if (session.Status != GroupSessionStatus.Active && session.Status != GroupSessionStatus.Checking)
             {
-                throw new ConflictException("Không thể thêm khách vô danh sau khi phiên chơi đã kết thúc.");
+                throw new ConflictException(ApiErrorMessages.Pos.GuestSlotNotAllowedAfterSessionEnded);
             }
 
             await _activeSessionRepository.AddMemberAsync(new ActiveSessionMember
@@ -174,10 +173,9 @@ namespace BoardVerse.Services.Services
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
 
-            // GAP-8 Fix: Validate cafeId matches session's CafeId
             if (session.CafeId != cafeId)
             {
-                throw new ConflictException($"Phiên chơi '{sessionId}' không thuộc quán '{cafeId}'.");
+                throw new ConflictException(ApiErrorMessages.Pos.SessionCafeMismatch(sessionId, cafeId));
             }
 
             // BR-12: Partial checkout phải từ CHECKING (đã trả game), không phải ACTIVE trực tiếp
@@ -185,13 +183,12 @@ namespace BoardVerse.Services.Services
             // để kiểm tra linh kiện trước khi cho thành viên về sớm
             if (session.Status != GroupSessionStatus.Checking)
             {
-                throw new ConflictException(
-                    "Phiên chơi phải ở trạng thái CHECKING (đã bấm 'Trả game') để thanh toán một phần. Vui lòng bấm 'Trả game' trước.");
+                throw new ConflictException(ApiErrorMessages.Pos.SessionMustBeCheckingForPartialCheckout);
             }
 
             if (request.MemberIds.Count == 0)
             {
-                throw new BadRequestException("Cần chọn ít nhất 1 thành viên để thanh toán một phần.");
+                throw new BadRequestException(ApiErrorMessages.Pos.PartialCheckoutRequiresAtLeastOneMember);
             }
 
             // BUG-1 Fix: Validate selected members are in Playing status
@@ -205,7 +202,7 @@ namespace BoardVerse.Services.Services
             {
                 var invalidStatuses = string.Join(", ", invalidMembers.Select(m => m.Status));
                 throw new ConflictException(
-                    $"Chỉ thành viên đang chơi mới có thể thanh toán một phần. Trạng thái không hợp lệ: {invalidStatuses}.");
+                    ApiErrorMessages.Pos.PartialCheckoutInvalidMemberStatuses(invalidStatuses));
             }
 
             // Mark selected members as SUSPENDED_MUTATION (waiting for inventory check)
@@ -236,15 +233,14 @@ namespace BoardVerse.Services.Services
 
             if (session.Status != GroupSessionStatus.Active)
             {
-                throw new ConflictException("Phiên chơi phải đang ở trạng thái ACTIVE để trả game.");
+                throw new ConflictException(ApiErrorMessages.Pos.SessionMustBeActiveForEndGame);
             }
 
             // BUG-2 Fix: Validate that at least one game is attached before entering CHECKING
             // A session should have games before returning them
             if ((session.Games == null || session.Games.Count == 0) && !session.CafeInventoryBoxId.HasValue)
             {
-                throw new ConflictException(
-                    "Phiên chơi chưa có game nào được gán. Vui lòng gán game trước khi trả game.");
+                throw new ConflictException(ApiErrorMessages.Pos.SessionNoGamesForEndGame);
             }
 
             var now = DateTime.UtcNow;
@@ -292,16 +288,16 @@ namespace BoardVerse.Services.Services
             }
 
             var member = await _activeSessionRepository.GetMemberByIdAsync(request.MemberId)
-                ?? throw new NotFoundException($"Không tìm thấy thành viên '{request.MemberId}'.");
+                ?? throw new NotFoundException(ApiErrorMessages.Pos.MemberNotFound(request.MemberId));
 
             if (member.ActiveSessionId != sourceSessionId)
             {
-                throw new ConflictException("Thành viên không thuộc phiên chơi nguồn.");
+                throw new ConflictException(ApiErrorMessages.Pos.MemberNotInSourceSession);
             }
 
             if (member.Status != IndividualSessionStatus.SuspendedMutation)
             {
-                throw new ConflictException("Thành viên phải ở trạng thái SUSPENDED_MUTATION để có thể ghép nhóm.");
+                throw new ConflictException(ApiErrorMessages.Pos.MemberMustBeSuspendedMutationToMerge);
             }
 
             var targetSession = await _activeSessionRepository.GetByIdAsync(request.TargetSessionId)
@@ -309,12 +305,12 @@ namespace BoardVerse.Services.Services
 
             if (targetSession.Status != GroupSessionStatus.Active)
             {
-                throw new ConflictException("Phiên chơi đích phải đang hoạt động.");
+                throw new ConflictException(ApiErrorMessages.Pos.MergeTargetMustBeActive);
             }
 
             if (targetSession.CafeId != cafeId)
             {
-                throw new ConflictException("Không thể ghép thành viên sang phiên chơi của quán khác.");
+                throw new ConflictException(ApiErrorMessages.Pos.MergeCannotCrossCafes);
             }
 
             member.ActiveSessionId = request.TargetSessionId;
@@ -362,12 +358,12 @@ namespace BoardVerse.Services.Services
             // GAP-8 Fix: Validate cafeId matches session's CafeId
             if (session.CafeId != cafeId)
             {
-                throw new ConflictException($"Phiên chơi '{sessionId}' không thuộc quán '{cafeId}'.");
+                throw new ConflictException(ApiErrorMessages.Pos.SessionCafeMismatch(sessionId, cafeId));
             }
 
             if (session.Status != GroupSessionStatus.Unpaid)
             {
-                throw new ConflictException("Phiên chơi phải ở trạng thái UNPAID để thanh toán.");
+                throw new ConflictException(ApiErrorMessages.Pos.SessionMustBeUnpaidForPayment);
             }
 
             var cafe = await _cafeRepository.GetActiveByIdAsync(cafeId)
@@ -381,22 +377,10 @@ namespace BoardVerse.Services.Services
                 : (int)Math.Floor((now - session.StartedAt).TotalMinutes);
             elapsedMinutes = Math.Max(0, elapsedMinutes);
 
-            // BR-16: Calculate group subtotal based on cafe billing model
-            // All members at a table play together for the same duration
-            decimal totalGroupSubtotal = 0;
-            if (cafe.BillingModel == CafePartnerBillingModel.TimeBased)
-            {
-                // BR-16: Time-based billing (hourly first + progressive blocks)
-                totalGroupSubtotal = CalculateRealtimeBilling(cafe, elapsedMinutes);
-            }
-            else
-            {
-                // BR-16: Flat-rate - entry fee only
-                totalGroupSubtotal = cafe.BasePrice;
-            }
-
-            // BR-15: Calculate per-member minutes and individual subtotals for display
-            // (Members may leave at different times, track separately for audit)
+            // BR-15: Each member pays based on their own play duration (BR-16).
+            // BR-16: Time-based billing = base price + tiered blocks per member's minutes.
+            // BR-16: Flat-rate = entry fee per member.
+            // Sum of per-member subtotals = total session.Subtotal.
             decimal totalMemberSubtotal = 0;
             foreach (var member in session.Members)
             {
@@ -405,15 +389,20 @@ namespace BoardVerse.Services.Services
                 memberMinutes = Math.Max(0, memberMinutes);
                 member.TotalMinutesPlayed = memberMinutes;
 
-                // Per-member subtotal (for display/audit, actual charge uses group subtotal)
-                // BR-16: Each member pays based on session duration, not individual time
-                decimal memberSubtotal = totalGroupSubtotal;
+                // Per-member subtotal based on member's own play time, not the full session.
+                // BR-16: Each member pays for their own duration.
+                decimal memberSubtotal = memberMinutes > 0
+                    ? (cafe.BillingModel == CafePartnerBillingModel.TimeBased
+                        ? CalculateRealtimeBilling(cafe, memberMinutes)
+                        : cafe.BasePrice)
+                    : 0m;
                 memberSubtotal = Math.Max(0, memberSubtotal);
                 totalMemberSubtotal += memberSubtotal;
             }
 
             session.TotalMinutesPlayed = elapsedMinutes;
-            session.Subtotal = totalGroupSubtotal;
+            // BR-15: Sum of per-member subtotals = total session.Subtotal.
+            session.Subtotal = totalMemberSubtotal;
 
             // BR-14: Validate penalties before assignment
             if (request.PenaltyItems != null && request.PenaltyItems.Count > 0)
@@ -426,7 +415,7 @@ namespace BoardVerse.Services.Services
                         if (member?.IsGuestSlot == true)
                         {
                             // BR-14: Cannot assign penalty to Guest_Slot
-                            throw new BadRequestException("Không thể gán phí phạt cho khách vô danh. Vui lòng gán vào hóa đơn của người khởi tạo (Host) hoặc thu tiền mặt trực tiếp. BR-14.");
+                            throw new BadRequestException(ApiErrorMessages.Pos.PenaltyCannotAssignToGuestSlot);
                         }
                         // BR-14: Track per-member penalty
                         if (member != null)
@@ -439,11 +428,25 @@ namespace BoardVerse.Services.Services
                 }
             }
 
-            // BR-12: Read persisted penalty from component checks (single source of truth)
+            // BR-12: Read persisted penalty from component checks (single source of truth),
+            // CHỈ cộng dồn nếu client KHÔNG gửi penalty. Trước đây cộng cả
+            // `request.PenaltyItems` lẫn `sessionGames.TotalPenaltyAmount` → cùng 1 linh
+            // kiện thiếu có thể bị tính phạt 2 lần.
+            //
+            // R-Bug-025 Fix: schema hiện không lưu per-component breakdown của
+            // sessionGames (chỉ có TotalPenaltyAmount aggregate), nên dedup-by-ComponentId
+            // là không khả thi. Thay vào đó dùng quy tắc ưu tiên rõ ràng:
+            //   - Nếu client gửi PenaltyItems → đó là single source of truth, BỎ QUA persisted.
+            //   - Nếu client KHÔNG gửi PenaltyItems → dùng persisted TotalPenaltyAmount.
             var sessionGames = await _posRepository.GetSessionGamesAsync(sessionId);
-            var persistedPenalty = sessionGames
-                .Where(g => g.CheckStatus == ComponentCheckStatus.MissingComponents)
-                .Sum(g => g.TotalPenaltyAmount);
+            var hasClientPenaltyItems = request.PenaltyItems is { Count: > 0 };
+            decimal persistedPenalty = 0m;
+            if (!hasClientPenaltyItems)
+            {
+                persistedPenalty = sessionGames
+                    .Where(g => g.CheckStatus == ComponentCheckStatus.MissingComponents)
+                    .Sum(g => g.TotalPenaltyAmount);
+            }
             if (persistedPenalty > 0)
             {
                 session.PenaltyAmount += persistedPenalty;
@@ -455,40 +458,52 @@ namespace BoardVerse.Services.Services
             session.Status = GroupSessionStatus.Paid;
             session.PaidAt = now;
 
-            // Persist billing + status changes first — cleanup will use a separate SaveChangesAsync.
-            await _activeSessionRepository.SaveChangesAsync();
+            // BR-15: BVC capture result — mặc định NotApplicable nếu không liên kết Lobby.
+            string bvcCaptureStatus = session.LobbyId.HasValue
+                ? BvcCaptureStatus.Pending.ToString()
+                : BvcCaptureStatus.NotApplicable.ToString();
 
-            // Lifecycle cleanup: mark members checked out, release box + table, close lobby.
-            // Idempotent — safe even if called multiple times.
-            // Also fixes the box/table "ghost" bug where box was force-overwritten to Available
-            // even if it was in a non-rentable state (e.g. Lost/Maintenance).
-            await _activeSessionRepository.CompleteSessionPaymentCleanupAsync(sessionId);
+            // H8: Wrap billing + status + cleanup + capture trong 1 transaction.
+            // Trước đây 3 SaveChangesAsync riêng → nếu cleanup/capture fail, status Paid vẫn commit.
+            // null-safe pattern: unit tests với Mock<IActiveSessionRepository> không setup
+            // BeginTransactionAsync → trả null → skip transaction wrapping.
+            await using var dbTx = await TryBeginTransactionAsync();
 
-            // BR §21A.8 + BR-REVENUE-01: capture BVC deposit về doanh thu quán.
-            // No-op cho session không liên kết Lobby (legacy BookingDeposit flow).
-            if (session.LobbyId.HasValue)
+            try
             {
-                try
+                // Persist billing + status changes.
+                await _activeSessionRepository.SaveChangesAsync();
+
+                // Lifecycle cleanup: mark members checked out, release box + table, close lobby.
+                await _activeSessionRepository.CompleteSessionPaymentCleanupAsync(sessionId);
+
+                // BR §21A.8 + BR-REVENUE-01: capture BVC deposit về doanh thu quán.
+                // Nếu thất bại → KHÔNG commit transaction; status Paid rollback.
+                // Caller sẽ thấy exception + retry; BVC vẫn ở heldBalance cho background retry.
+                if (session.LobbyId.HasValue)
                 {
                     await _reservationService.CompleteAndCaptureAsync(session.LobbyId.Value, sessionId);
+                    bvcCaptureStatus = BvcCaptureStatus.Captured.ToString();
                 }
-                catch (Exception ex)
+
+                if (dbTx != null)
                 {
-                    // Không fail cả PaySessionAsync nếu capture lỗi — BVC vẫn ở heldBalance,
-                    // có thể retry qua background job sau.
-                    _logger.LogError(ex,
-                        "CompleteAndCaptureAsync failed. SessionId={SessionId}, LobbyId={LobbyId}. BVC vẫn held — cần retry.",
-                        sessionId, session.LobbyId.Value);
+                    await dbTx.CommitAsync();
                 }
+            }
+            catch
+            {
+                if (dbTx != null)
+                {
+                    await dbTx.RollbackAsync();
+                }
+                throw;
             }
 
             var finalSession = await _activeSessionRepository.GetByIdAsync(sessionId);
 
             // GAP-33 Fix: Build per-member invoices
-            var memberInvoices = BuildMemberInvoices(session, totalGroupSubtotal, request.PenaltyItems);
-
-            // GAP-34 Fix: Determine BVC capture status
-            var bvcCaptureStatus = DetermineBvcCaptureStatus(session);
+            var memberInvoices = BuildMemberInvoices(session, cafe, request.PenaltyItems);
 
             return new PaySessionResponseDto
             {
@@ -499,7 +514,7 @@ namespace BoardVerse.Services.Services
                 TotalAmount = session.TotalAmount,
                 PaidAt = now,
                 MemberInvoices = memberInvoices,
-                BvcCaptureStatus = bvcCaptureStatus,
+                BvcCaptureStatus = Enum.Parse<BvcCaptureStatus>(bvcCaptureStatus),
                 Session = MapSessionDto(finalSession!)
             };
         }
@@ -511,7 +526,7 @@ namespace BoardVerse.Services.Services
         /// </summary>
         private List<MemberInvoiceDto> BuildMemberInvoices(
             ActiveSession session,
-            decimal groupSubtotal,
+            Cafe cafe,
             List<ComponentPenaltyItemDto>? penaltyItems)
         {
             var invoices = new List<MemberInvoiceDto>();
@@ -545,8 +560,12 @@ namespace BoardVerse.Services.Services
                 var memberMinutes = (int)Math.Floor((memberLeftAt - baseStartTime).TotalMinutes);
                 memberMinutes = Math.Max(0, memberMinutes);
 
-                // Calculate member's subtotal (share of group subtotal based on play duration)
-                decimal memberSubtotal = memberMinutes > 0 ? groupSubtotal : 0;
+                // BR-15 + BR-16: per-member subtotal based on member's own play time.
+                decimal memberSubtotal = memberMinutes > 0
+                    ? (cafe.BillingModel == CafePartnerBillingModel.TimeBased
+                        ? CalculateRealtimeBilling(cafe, memberMinutes)
+                        : cafe.BasePrice)
+                    : 0m;
 
                 // Get member's penalty from request
                 var memberPenalty = penaltyItems
@@ -742,7 +761,7 @@ namespace BoardVerse.Services.Services
             // GAP-13 Fix: Chỉ cho phép gán game khi phiên đang Active
             if (session.Status != GroupSessionStatus.Active)
             {
-                throw new ConflictException($"Chỉ có thể gán game khi phiên đang hoạt động. Trạng thái hiện tại: {session.Status}.");
+                throw new ConflictException(ApiErrorMessages.Pos.SessionMustBeActiveForGameAssignment(session.Status.ToString()));
             }
 
             // GAP-14 Fix: Ensure Games is loaded
@@ -754,19 +773,19 @@ namespace BoardVerse.Services.Services
             var box = await _posRepository.GetBoxByBarcodeAsync(cafeId, request.GameBarcode);
             if (box == null)
             {
-                throw new NotFoundException($"Không tìm thấy hộp game với barcode '{request.GameBarcode}'.");
+                throw new NotFoundException(ApiErrorMessages.Pos.BoxNotFoundByBarcodeInSession(request.GameBarcode));
             }
 
             // GAP 3 Fix: Check if box is busy in another active session
             if (box.Status == CafeGameInventoryStatus.InUse)
             {
-                throw new ConflictException($"Hộp game '{box.Barcode}' đang được sử dụng bởi phiên chơi khác.");
+                throw new ConflictException(ApiErrorMessages.Pos.BoxAlreadyInUseInOtherSession(box.Barcode));
             }
 
             var existingGame = session.Games.FirstOrDefault(g => g.CafeInventoryBoxId == box.Id);
             if (existingGame != null)
             {
-                throw new ConflictException("Game này đã được gán vào phiên chơi.");
+                throw new ConflictException(ApiErrorMessages.Pos.GameAlreadyAttachedToSession);
             }
 
             var game = new ActiveSessionGame
@@ -777,6 +796,9 @@ namespace BoardVerse.Services.Services
                 AttachedAt = DateTime.UtcNow
             };
 
+            // R-Bug-024 Fix: Mark box as InUse atomically with attaching to session
+            // to prevent a concurrent AttachGameAsync from grabbing the same box.
+            box.Status = CafeGameInventoryStatus.InUse;
             session.Games.Add(game);
             await _activeSessionRepository.SaveChangesAsync();
 
@@ -802,12 +824,12 @@ namespace BoardVerse.Services.Services
             // BR-08 Exception: Có thể thêm thành viên đến muộn khi phiên đang Active hoặc Checking
             if (session.Status != GroupSessionStatus.Active && session.Status != GroupSessionStatus.Checking)
             {
-                throw new ConflictException("Chỉ phiên đang hoạt động mới thêm được thành viên.");
+                throw new ConflictException(ApiErrorMessages.Pos.OnlyActiveSessionCanAddMembers);
             }
 
             if (request.MemberUserIds.Count == 0)
             {
-                throw new BadRequestException("Cần ít nhất 1 thành viên để thêm.");
+                throw new BadRequestException(ApiErrorMessages.Pos.AddMemberRequiresAtLeastOneUser);
             }
 
             var now = DateTime.UtcNow;
@@ -865,11 +887,12 @@ namespace BoardVerse.Services.Services
                 CreatedAt = DateTime.UtcNow
             };
 
+            var componentIds = request.LostComponents.Select(l => l.ComponentId).Distinct().ToList();
+            var penaltyMap = await _posRepository.GetComponentPenaltiesByCafeGameAsync(
+                cafeId, session.GameTemplateId, componentIds);
             foreach (var lost in request.LostComponents)
             {
-                var penalty = await _posRepository.GetComponentPenaltyAsync(
-                    cafeId, session.GameTemplateId, lost.ComponentId);
-                if (penalty != null)
+                if (penaltyMap.TryGetValue(lost.ComponentId, out var penalty))
                 {
                     report.TotalPenaltyAmount += penalty.PenaltyFee;
                 }
@@ -884,44 +907,52 @@ namespace BoardVerse.Services.Services
         /// Exception 1: Phòng đầy nhưng quán hết chỗ.
         /// BR-05: AvailableSeats = TotalSeats - (active member count)
         /// </summary>
-        public async Task<AlternativeCafesResponseDto> GetAlternativeCafesAsync(Guid excludeCafeId, Guid gameTemplateId, int memberCount, DateTime scheduledTime)
+public async Task<AlternativeCafesResponseDto> GetAlternativeCafesAsync(Guid excludeCafeId, Guid gameTemplateId, int memberCount, DateTime scheduledTime)
+    {
+        var cafes = await _cafeRepository.GetNearbyCafesAsync(excludeCafeId, 10);
+
+        var result = new AlternativeCafesResponseDto();
+
+        // Lọc cafe có game trước, rồi batch đếm active members cho tất cả cafe còn lại trong 1 query
+        // (tránh N+1 trước đây: 10 cafes → 10 queries CountActiveSessionMembersAsync).
+        var eligibleCafes = cafes
+            .Where(c => c.Inventories != null && c.Inventories.Any(i => i.GameTemplateId == gameTemplateId))
+            .ToList();
+
+        if (eligibleCafes.Count == 0)
         {
-            var cafes = await _cafeRepository.GetNearbyCafesAsync(excludeCafeId, 10);
-
-            var result = new AlternativeCafesResponseDto();
-
-            foreach (var cafe in cafes)
-            {
-                if (cafe.Inventories == null || !cafe.Inventories.Any())
-                    continue;
-
-                var hasGame = cafe.Inventories.Any(i => i.GameTemplateId == gameTemplateId);
-                if (!hasGame)
-                    continue;
-
-                // BR-05: Calculate available seats = TotalSeats - active members
-                var activeMemberCount = await _activeSessionRepository.CountActiveSessionMembersAsync(cafe.Id);
-                var availableSeats = cafe.TotalSeats - activeMemberCount;
-
-                if (availableSeats >= memberCount)
-                {
-                    result.Cafes.Add(new AlternativeCafeDto
-                    {
-                        Id = cafe.Id,
-                        Name = cafe.Name,
-                        Address = cafe.Address,
-                        DistanceKm = 0, // Would need origin lat/lon to calculate
-                        AvailableSeats = availableSeats,
-                        HasRequestedGame = true
-                    });
-                }
-
-                if (result.Cafes.Count >= 5)
-                    break;
-            }
-
             return result;
         }
+
+        var cafeIds = eligibleCafes.Select(c => c.Id).ToList();
+        var memberCounts = await _activeSessionRepository.CountActiveSessionMembersByCafesAsync(cafeIds)
+                        ?? new Dictionary<Guid, int>();
+
+        foreach (var cafe in eligibleCafes)
+        {
+            // BR-05: Calculate available seats = TotalSeats - active members
+            var activeMemberCount = memberCounts.TryGetValue(cafe.Id, out var count) ? count : 0;
+            var availableSeats = cafe.TotalSeats - activeMemberCount;
+
+            if (availableSeats >= memberCount)
+            {
+                result.Cafes.Add(new AlternativeCafeDto
+                {
+                    Id = cafe.Id,
+                    Name = cafe.Name,
+                    Address = cafe.Address,
+                    DistanceKm = 0, // Would need origin lat/lon to calculate
+                    AvailableSeats = availableSeats,
+                    HasRequestedGame = true
+                });
+            }
+
+            if (result.Cafes.Count >= 5)
+                break;
+        }
+
+        return result;
+    }
 
         /// <summary>
         /// Submit component checklist cho một game trong phiên chơi (BR-12).
@@ -943,30 +974,37 @@ namespace BoardVerse.Services.Services
             // BR-12: Chỉ cho phép checklist khi đang ở trạng thái CHECKING (sau EndGameSession/PartialCheckout)
             if (session.Status != GroupSessionStatus.Checking)
             {
-                throw new ConflictException("Chỉ kiểm kê linh kiện khi phiên đang ở trạng thái CHECKING.");
+                throw new ConflictException(ApiErrorMessages.Pos.ChecklistOnlyDuringChecking);
             }
 
             var sessionGame = await _activeSessionRepository.GetSessionGameByIdAsync(request.SessionGameId)
-                ?? throw new NotFoundException($"Không tìm thấy game '{request.SessionGameId}' trong phiên.");
+                ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionGameNotFoundInSession(request.SessionGameId));
 
             if (sessionGame.ActiveSessionId != sessionId)
             {
-                throw new ConflictException("Game không thuộc phiên chơi này.");
+                throw new ConflictException(ApiErrorMessages.Pos.GameDoesNotBelongToSession);
             }
 
             // Tính tổng penalty = sum(penalty của từng component thiếu)
             decimal totalPenalty = 0m;
             var missingCount = 0;
+            var componentIds = request.Results.Select(r => r.ComponentId).Distinct().ToList();
+            var penaltyMap = await _posRepository.GetComponentPenaltiesByCafeGameAsync(
+                cafeId, sessionGame.GameTemplateId, componentIds);
             foreach (var result in request.Results)
             {
-                var penalty = await _posRepository.GetComponentPenaltyAsync(
-                    cafeId, sessionGame.GameTemplateId, result.ComponentId);
-                if (penalty == null)
+                if (!penaltyMap.TryGetValue(result.ComponentId, out var penalty))
                 {
                     continue;
                 }
 
-                if (result.ActualQuantity < penalty.PenaltyFee || result.ActualQuantity <= 0)
+                // BUGFIX (subagent audit #14): So sánh count với DefaultQuantity (số lượng kỳ vọng),
+                // KHÔNG so sánh với PenaltyFee (đơn giá phạt VND).
+                // PenaltyFee là đơn giá VND; ActualQuantity là số nguyên đếm được → so sánh vô nghĩa.
+                // Trước đây: result.ActualQuantity < penalty.PenaltyFee trigger penalty cho mọi
+                // component có actualQty < 15000 VND (luôn đúng).
+                var expectedQuantity = penalty.GameComponentTemplate?.DefaultQuantity ?? 1;
+                if (result.ActualQuantity <= 0 || result.ActualQuantity < expectedQuantity)
                 {
                     // Thiếu linh kiện hoặc không có → cộng phạt
                     totalPenalty += penalty.PenaltyFee;
@@ -1003,22 +1041,20 @@ namespace BoardVerse.Services.Services
             // GAP-8 Fix: Validate cafeId matches session's CafeId
             if (session.CafeId != cafeId)
             {
-                throw new ConflictException($"Phiên chơi '{sessionId}' không thuộc quán '{cafeId}'.");
+                throw new ConflictException(ApiErrorMessages.Pos.SessionCafeMismatch(sessionId, cafeId));
             }
 
             // Only allow resume from CHECKING state
             if (session.Status != GroupSessionStatus.Checking)
             {
-                throw new ConflictException(
-                    $"Chỉ có thể khôi phục phiên đang ở trạng thái CHECKING. Trạng thái hiện tại: {session.Status}.");
+                throw new ConflictException(ApiErrorMessages.Pos.ResumeInvalidStatus(session.Status));
             }
 
             // Check if any members have been checked out (FINISHED status)
             var hasCheckedOutMembers = session.Members?.Any(m => m.Status == IndividualSessionStatus.Finished) ?? false;
             if (hasCheckedOutMembers)
             {
-                throw new ConflictException(
-                    "Không thể khôi phục phiên vì đã có thành viên được thanh toán. Vui lòng tiếp tục thanh toán.");
+                throw new ConflictException(ApiErrorMessages.Pos.SessionCannotResumeHasCheckedOutMembers);
             }
 
             // Revert session to ACTIVE
@@ -1047,6 +1083,26 @@ namespace BoardVerse.Services.Services
                 sessionId, cafeId);
 
             return MapSessionDto(session);
+        }
+
+        // Helper: bắt đầu transaction nếu repository có hỗ trợ.
+        // Trả null nếu repository không có setup (Mock trong unit test) hoặc
+        // provider không hỗ trợ → gọi SaveChangesAsync như bình thường.
+        // Pattern copy từ BookingDepositService.TryBeginTransactionAsync.
+        private async Task<Core.IRepositories.IDatabaseTransactionContext?> TryBeginTransactionAsync()
+        {
+            try
+            {
+                return await _activeSessionRepository.BeginTransactionAsync();
+            }
+            catch (InvalidOperationException)
+            {
+                return null;
+            }
+            catch (NotImplementedException)
+            {
+                return null;
+            }
         }
     }
 }

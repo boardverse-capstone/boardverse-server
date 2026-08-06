@@ -292,6 +292,22 @@ namespace BoardVerse.Data.Repositories
                 .ToListAsync();
         }
 
+        public async Task<bool> IsUserLobbyMemberAsync(Guid lobbyId, Guid userId)
+        {
+            return await _db.LobbyMembers
+                .AsNoTracking()
+                .AnyAsync(m => m.LobbyId == lobbyId && m.UserId == userId);
+        }
+
+        public async Task<bool> IsUserBookingParticipantAsync(Guid bookingId, Guid userId)
+        {
+            // Booking has no direct HostUserId — host is determined via the linked Lobby.
+            // Participant = BookingDeposits.UserId (BR-22 per-member deposit) for this booking.
+            return await _db.BookingDeposits
+                .AsNoTracking()
+                .AnyAsync(d => d.BookingId == bookingId && d.UserId == userId);
+        }
+
         public async Task<IReadOnlyList<Lobby>> GetOverlappingLobbiesAsync(
             Guid userId,
             DateOnly playDate,

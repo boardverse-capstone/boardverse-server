@@ -13,6 +13,7 @@ using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
 using BoardVerse.Services.Services.Notifications;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -79,6 +80,19 @@ var securityKey = jwtSettings["SecurityKey"] ?? throw new InvalidOperationExcept
 var validIssuer = jwtSettings["ValidIssuer"] ?? throw new InvalidOperationException("JwtSettings:ValidIssuer not configured");
 var validAudience = jwtSettings["ValidAudience"] ?? throw new InvalidOperationException("JwtSettings:ValidAudience not configured");
 
+// H20: In Production, refuse to start if JWT SecurityKey is the placeholder or < 32 chars.
+// Operators must override via env var JwtSettings__SecurityKey=<random 32+ chars>.
+if (!builder.Environment.IsDevelopment())
+{
+    if (securityKey.StartsWith("REPLACE", StringComparison.Ordinal)
+        || securityKey.Length < 32)
+    {
+        throw new InvalidOperationException(
+            "JwtSettings:SecurityKey is missing or placeholder in Production. " +
+            "Set env var JwtSettings__SecurityKey to a random string ≥ 32 chars.");
+    }
+}
+
 // Firebase settings — allow override via env FIREBASE_CREDENTIALS_JSON (production).
 // Override pattern keeps credentials.json out of source control.
 // Production runtime (Render) sets:
@@ -119,6 +133,10 @@ builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("RequireAdmin", policy => policy.RequireRole("Admin"));
     options.AddPolicy("RequireManagerOrStaff", policy => policy.RequireRole("Manager", "CafeStaff"));
+
+    // H-M15: Default-deny authentication is now applied via [Authorize] on BaseApiController.
+    // Không dùng FallbackPolicy ở đây vì chặn cả public endpoint (BoardGame, Cafe, MasterGame, Health) → 401.
+    // Default-deny chỉ apply cho controller kế thừa BaseApiController; controller con gắn [AllowAnonymous] nếu public.
 });
 
 // Distributed cache: Redis when REDIS_URL/config is set (Render/prod), in-memory otherwise (local dev)

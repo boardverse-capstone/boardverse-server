@@ -28,6 +28,7 @@ public class BookingRatingServiceAggregationTests
     private readonly Mock<IBookingRatingRepository> _mockRatingRepo;
     private readonly Mock<IBookingDepositRepository> _mockDepositRepo;
     private readonly Mock<IKarmaRatingRepository> _mockKarmaRepo;
+    private readonly Mock<IUserProfileRepository> _mockUserProfileRepo;
     private readonly Mock<ILogger<BookingRatingService>> _mockLogger;
     private readonly BookingRatingService _service;
 
@@ -39,7 +40,13 @@ public class BookingRatingServiceAggregationTests
         _mockRatingRepo = new Mock<IBookingRatingRepository>();
         _mockDepositRepo = new Mock<IBookingDepositRepository>();
         _mockKarmaRepo = new Mock<IKarmaRatingRepository>();
+        _mockUserProfileRepo = new Mock<IUserProfileRepository>();
         _mockLogger = new Mock<ILogger<BookingRatingService>>();
+
+        // M5: GetProfilesByUserIdsAsync returns empty by default — tests that need profiles override.
+        _mockUserProfileRepo
+            .Setup(r => r.GetProfilesByUserIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>()))
+            .ReturnsAsync(new Dictionary<Guid, UserProfile>());
 
         _service = new BookingRatingService(
             _mockBookingRepo.Object,
@@ -48,6 +55,7 @@ public class BookingRatingServiceAggregationTests
             _mockRatingRepo.Object,
             _mockDepositRepo.Object,
             _mockKarmaRepo.Object,
+            _mockUserProfileRepo.Object,
             _mockLogger.Object);
     }
 

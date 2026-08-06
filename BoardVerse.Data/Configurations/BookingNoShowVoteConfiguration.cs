@@ -25,10 +25,11 @@ public class BookingNoShowVoteConfiguration : IEntityTypeConfiguration<BookingNo
             .HasDefaultValue("[]");
         builder.Property(v => v.VotedAt).IsRequired();
 
+        // M10: Votes là community moderation signals (BR § IV Exception 2), không cascade với Booking.
         builder.HasOne(v => v.Booking)
             .WithMany()
             .HasForeignKey(v => v.BookingId)
-            .OnDelete(DeleteBehavior.Cascade);
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(v => v.Voter)
             .WithMany()
@@ -63,10 +64,11 @@ public class BookingRatingConfiguration : IEntityTypeConfiguration<BookingRating
         builder.Property(r => r.SubmittedAt).IsRequired();
         builder.Property(r => r.IsAggregated).IsRequired().HasDefaultValue(false);
 
+        // M10: Ratings là community moderation signals, không cascade với Booking.
         builder.HasOne(r => r.Booking)
             .WithMany()
             .HasForeignKey(r => r.BookingId)
-            .OnDelete(DeleteBehavior.Cascade);
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(r => r.Voter)
             .WithMany()

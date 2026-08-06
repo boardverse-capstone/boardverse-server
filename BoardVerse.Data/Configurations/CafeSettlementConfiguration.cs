@@ -15,16 +15,23 @@ namespace BoardVerse.Data.Configurations
             builder.Property(s => s.Id).ValueGeneratedNever();
             builder.Property(s => s.CafeId).IsRequired();
             builder.Property(s => s.CafeManagerId).IsRequired();
-            builder.Property(s => s.DepositAmount).IsRequired();
-            builder.Property(s => s.NetTransferAmount).IsRequired();
+            builder.Property(s => s.DepositAmount).IsRequired().HasColumnType("numeric(18,2)");
+            builder.Property(s => s.FeeAmount).HasColumnType("numeric(18,2)");
+            builder.Property(s => s.NetTransferAmount).IsRequired().HasColumnType("numeric(18,2)");
             builder.Property(s => s.Status).HasConversion<int>().IsRequired();
             builder.Property(s => s.SePayTransferId).HasMaxLength(100);
             builder.Property(s => s.FailureReason).HasMaxLength(500);
             builder.Property(s => s.CreatedAt).IsRequired();
 
+            // H3: Concurrency token for financial payout (prevent double-process from concurrent webhooks).
+            builder.Property(s => s.UpdatedAt)
+                .HasDefaultValueSql("now() at time zone 'utc'")
+                .IsConcurrencyToken();
+
             builder.HasIndex(s => new { s.CafeId, s.Status });
             builder.HasIndex(s => s.ActiveSessionId);
             builder.HasIndex(s => s.BookingDepositId);
+            builder.HasIndex(s => s.CafeManagerId).HasDatabaseName("IX_CafeSettlements_CafeManagerId"); // L5
         }
     }
 }

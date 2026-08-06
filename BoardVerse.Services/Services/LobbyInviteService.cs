@@ -51,7 +51,7 @@ public class LobbyInviteService : ILobbyInviteService
         }
 
         var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
-            ?? throw new NotFoundException($"Không tìm thấy phòng chờ '{lobbyId}'.");
+            ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
 
         var inviterMembership = lobby.Members.FirstOrDefault(m => m.UserId == inviterId && m.IsActive);
         if (inviterMembership == null)
@@ -61,7 +61,7 @@ public class LobbyInviteService : ILobbyInviteService
 
         if (lobby.Status != LobbyStatus.Open && lobby.Status != LobbyStatus.Full)
         {
-            throw new ConflictException("Phòng chờ đã đóng/không khả dụng.");
+            throw new ConflictException(ApiErrorMessages.LobbyInvite.LobbyClosedOrUnavailable);
         }
 
         if (lobby.Members.Any(m => m.UserId == request.InviteeId && m.IsActive))
@@ -80,7 +80,7 @@ public class LobbyInviteService : ILobbyInviteService
         // BR-LOBBY-INVITE-NEW-01: Với private lobby, inviter PHẢI là bạn bè của invitee.
         if (lobby.IsPrivate && (pair == null || pair.Status != FriendshipStatus.Accepted))
         {
-            throw new ForbiddenException("Phòng chờ riêng tư chỉ cho phép mời bạn bè.");
+            throw new ForbiddenException(ApiErrorMessages.LobbyInvite.PrivateLobbyInviterMustBeFriend);
         }
 
         // Check pending invite đã tồn tại
@@ -124,7 +124,7 @@ public class LobbyInviteService : ILobbyInviteService
         }
 
         var lobby = await _lobbyRepository.GetByIdAsync(invite.LobbyId)
-            ?? throw new NotFoundException("Phòng chờ không còn tồn tại.");
+            ?? throw new NotFoundException(ApiErrorMessages.LobbyInvite.LobbyDisappeared);
 
         if (lobby.Status != LobbyStatus.Open && lobby.Status != LobbyStatus.Full)
         {
@@ -141,7 +141,7 @@ public class LobbyInviteService : ILobbyInviteService
             invite.Status = LobbyInviteStatus.Expired;
             invite.RespondedAt = DateTime.UtcNow;
             await _inviteRepository.SaveChangesAsync();
-            throw new ConflictException("Phòng chờ đã đầy. Không thể accept lời mời này.");
+            throw new ConflictException(ApiErrorMessages.LobbyInvite.LobbyFullCannotAcceptInvite);
         }
 
         // BR-LOBBY-INVITE-NEW-02: Nếu 2 bên đã unfriend trước khi accept → reject.
@@ -153,7 +153,7 @@ public class LobbyInviteService : ILobbyInviteService
                 invite.Status = LobbyInviteStatus.Cancelled;
                 invite.RespondedAt = DateTime.UtcNow;
                 await _inviteRepository.SaveChangesAsync();
-                throw new ForbiddenException("Phòng chờ riêng tư yêu cầu quan hệ bạn bè đang hoạt động.");
+                throw new ForbiddenException(ApiErrorMessages.LobbyInvite.PrivateLobbyRequiresActiveFriendship);
             }
         }
 
@@ -198,7 +198,7 @@ public class LobbyInviteService : ILobbyInviteService
 
         if (invite.InviterId != currentUserId)
         {
-            throw new ForbiddenException("Chỉ người gửi lời mời mới có thể hủy.");
+            throw new ForbiddenException(ApiErrorMessages.LobbyInvite.OnlyInviterCanCancel);
         }
 
         if (invite.Status != LobbyInviteStatus.Pending)
@@ -225,7 +225,7 @@ public class LobbyInviteService : ILobbyInviteService
         {
             if (!Enum.TryParse<LobbyInviteStatus>(status, ignoreCase: true, out var s))
             {
-                throw new BadRequestException($"Trạng thái lời mời không hợp lệ: '{status}'.");
+                throw new BadRequestException(ApiErrorMessages.LobbyInvite.InviteInvalidStatus(status.ToString()));
             }
             parsed = s;
         }
@@ -237,13 +237,13 @@ public class LobbyInviteService : ILobbyInviteService
     public async Task<LobbyShareInfoDto> GetShareInfoAsync(Guid lobbyId, Guid currentUserId)
     {
         var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
-            ?? throw new NotFoundException($"Không tìm thấy phòng chờ '{lobbyId}'.");
+            ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
 
         // Chỉ thành viên mới xem được share code (kể cả khi lobby public) để tránh spam.
         var isMember = lobby.Members.Any(m => m.UserId == currentUserId && m.IsActive);
         if (!isMember)
         {
-            throw new ForbiddenException("Chỉ thành viên của phòng chờ mới có thể lấy share code.");
+            throw new ForbiddenException(ApiErrorMessages.LobbyInvite.OnlyLobbyMemberCanViewShareCode);
         }
 
         return new LobbyShareInfoDto

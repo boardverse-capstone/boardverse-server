@@ -186,18 +186,19 @@ namespace BoardVerse.API.Controllers
         /// </summary>
         /// <param name="cafeId">Mã định danh quán cafe.</param>
         /// <param name="staffId">Mã user của nhân viên cần xóa khỏi quán.</param>
-        /// <response code="200">Xóa nhân viên khỏi quán thành công; tự động hạ role Player nếu không còn quán nào.</response>
+        /// <response code="204">Xóa nhân viên khỏi quán thành công; tự động hạ role Player nếu không còn quán nào.</response>
         /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
         /// <response code="403">Không phải role Manager, hoặc Manager không phải chủ quán.</response>
         /// <response code="404">Không tìm thấy quán hoặc nhân viên không thuộc quán này.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpDelete("{cafeId:guid}/staff/{staffId:guid}")]
         [Authorize(Roles = "Manager")]
+        [ProducesResponseType(204)]
         public async Task<IActionResult> RemoveStaff(Guid cafeId, Guid staffId)
         {
             var managerId = GetUserIdFromClaims();
             await _cafeService.RemoveStaffAsync(cafeId, managerId, staffId);
-            return this.NewResponse(200, ApiSuccessMessages.Cafe.StaffRemoved, null);
+            return NoContent();
         }
 
         /// <summary>

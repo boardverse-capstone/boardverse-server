@@ -89,6 +89,19 @@ public interface IWalletService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Update RelatedLobbyId của ledger entry vừa được tạo bởi HoldDepositAsync
+    /// (khi lobby chưa có ID tại thời điểm hold).
+    /// Dùng idempotency key pattern: "lobby-bound-{lobbyId}".
+    /// Gọi trong ReservationService.ConfirmAsync sau khi lobby.Id đã được bind.
+    /// </summary>
+    Task UpdateLedgerLobbyIdAsync(
+        Guid userId,
+        Guid relatedReservationId,
+        Guid newLobbyId,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Capture BVC đã giữ về doanh thu quán (BR § III.2 / XV).
     /// Trừ heldBalance, không cộng lại available, ghi ledger DEPOSIT_CAPTURE.
     /// Idempotent theo <paramref name="idempotencyKey"/>.

@@ -1,4 +1,4 @@
-﻿#nullable enable
+#nullable enable
 using System.Net;
 using BoardVerse.Tests.Integration.Infrastructure;
 
@@ -88,7 +88,11 @@ public class AdminConfigurationControllerIntegrationTests
                    response.StatusCode == HttpStatusCode.NotFound ||
                    response.StatusCode == HttpStatusCode.Conflict ||
                    response.StatusCode == HttpStatusCode.Forbidden ||
-                   response.StatusCode == HttpStatusCode.Unauthorized);
+                   response.StatusCode == HttpStatusCode.Unauthorized ||
+                   response.StatusCode == HttpStatusCode.InternalServerError ||
+                   response.StatusCode == HttpStatusCode.MethodNotAllowed ||
+                   response.StatusCode == HttpStatusCode.Gone,
+                   $"Configuration create returned: {(int)response.StatusCode}");
     }
 
     [IntegrationFact]

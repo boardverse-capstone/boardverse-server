@@ -39,6 +39,9 @@ namespace BoardVerse.Core.Entities
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? CompletedAt { get; set; }
 
+        /// <summary>H4: Concurrency token cho webhook retry (status changes từ concurrent webhooks).</summary>
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
         // === Navigation ===
         public virtual User? User { get; set; }
         public virtual Cafe? Cafe { get; set; }

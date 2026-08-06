@@ -30,9 +30,11 @@ public class ReservationRepository : IReservationRepository
         return await query.FirstOrDefaultAsync(r => r.Id == reservationId);
     }
 
-    public Task<Reservation?> GetByIdempotencyKeyAsync(string idempotencyKey)
+    public async Task<Reservation?> GetByIdempotencyKeyAsync(string idempotencyKey)
     {
-        return _db.Reservations.FirstOrDefaultAsync(r => r.IdempotencyKey == idempotencyKey);
+        return await _db.Reservations
+            .Include(r => r.Lobby)
+            .FirstOrDefaultAsync(r => r.IdempotencyKey == idempotencyKey);
     }
 
     public Task<Reservation?> GetByReservationCodeAsync(string reservationCode)

@@ -60,11 +60,9 @@ namespace BoardVerse.Data.Configurations
                 .HasForeignKey(l => l.BookingId)
                 .OnDelete(DeleteBehavior.SetNull);
 
-            builder.HasOne(l => l.Reservation)
-                .WithOne(r => r.Lobby)
-                .HasForeignKey<Lobby>(l => l.ReservationId)
-                .OnDelete(DeleteBehavior.SetNull);
-
+            // 1:1 Lobby↔Reservation — FK is on Reservation (ReservationConfiguration.cs).
+            // Do NOT re-declare here to avoid EF seeing the relationship as a cycle
+            // and generating INSERTs in the wrong order (LobbyMembers FK fails).
             builder.HasIndex(l => l.ReservationId)
                 .HasDatabaseName("IX_Lobbies_ReservationId");
 
@@ -98,7 +96,8 @@ namespace BoardVerse.Data.Configurations
             builder.Property(m => m.JoinedAt).IsRequired();
             builder.Property(m => m.IsActive).IsRequired().HasDefaultValue(true);
             builder.Property(m => m.Status)
-                .HasConversion<int>()
+                .HasConversion<string>()
+                .HasMaxLength(20)
                 .HasDefaultValue(LobbyMemberStatus.Joined);
 
             builder.HasOne(m => m.Lobby)

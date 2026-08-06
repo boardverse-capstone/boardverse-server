@@ -44,3 +44,10 @@ CreateTestPlayers/CreateTestPlayers.csproj
 CreateTestPlayers/Program.cs
 ResetTestPlayerPasswords/Program.cs
 ResetTestPlayerPasswords/ResetTestPlayerPasswords.csproj
+
+# Temp/working files
+scripts/
+temp_*.txt
+temp_*.py
+temp_insert_boxes/
+temp_seed_boxes/

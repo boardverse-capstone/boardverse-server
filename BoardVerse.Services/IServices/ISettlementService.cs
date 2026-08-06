@@ -11,6 +11,6 @@ namespace BoardVerse.Services.IServices
             Guid cafeId,
             Guid sessionId,
             Guid activeSessionId);
-        Task<IReadOnlyList<CafeSettlement>> GetPendingSettlementsAsync(Guid cafeId);
+        Task<IReadOnlyList<CafeSettlement>> GetPendingSettlementsAsync(Guid cafeId, Guid actorUserId, string actorRole);
     }
 }

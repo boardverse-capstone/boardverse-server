@@ -25,10 +25,18 @@ public class ReservationQuoteRequestDto
     /// <summary>Optional, phải nằm trong [timeSlot.startTime, timeSlot.endTime].</summary>
     public TimeOnly? PreferredStartTime { get; set; }
 
-    [Range(2, 30)]
+    /// <summary>
+    /// 1-30 players. MinPlayers mặc định 2 để đảm bảo lobby đủ người.
+    /// Solo play (MaxPlayers=1) được phép cho trường hợp test hoặc chơi một mình.
+    /// </summary>
+    [Range(1, 30)]
     public int MaxPlayers { get; set; }
 
-    [Range(2, 30)]
+    /// <summary>
+    /// BR-LOBBY-02: Đạt minPlayers là đủ để xác nhận lobby.
+    /// MinPlayers có thể = 1 cho solo play, nhưng mặc định = 2.
+    /// </summary>
+    [Range(1, 30)]
     public int MinPlayers { get; set; } = 2;
 
     /// <summary>
@@ -110,10 +118,18 @@ public class ReservationConfirmRequestDto
     /// <summary>Optional, phải nằm trong [timeSlot.startTime, timeSlot.endTime].</summary>
     public TimeOnly? PreferredStartTime { get; set; }
 
-    [Range(2, 30)]
+    /// <summary>
+    /// 1-30 players. MinPlayers mặc định 2 để đảm bảo lobby đủ người.
+    /// Solo play (MaxPlayers=1) được phép cho trường hợp test hoặc chơi một mình.
+    /// </summary>
+    [Range(1, 30)]
     public int MaxPlayers { get; set; }
 
-    [Range(2, 30)]
+    /// <summary>
+    /// BR-LOBBY-02: Đạt minPlayers là đủ để xác nhận lobby.
+    /// MinPlayers có thể = 1 cho solo play, nhưng mặc định = 2.
+    /// </summary>
+    [Range(1, 30)]
     public int MinPlayers { get; set; } = 2;
 
     /// <summary>

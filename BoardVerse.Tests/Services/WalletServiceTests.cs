@@ -146,6 +146,14 @@ public class WalletServiceTests
         var userId = Guid.NewGuid();
         var req = new TopUpRequestDto { AmountVnd = 100_000, IdempotencyKey = "key-12345" };
 
+        // BUGFIX (subagent audit #21): User-level check trước khi tạo wallet.
+        _mockUserRepo.Setup(r => r.GetByIdAsync(userId)).ReturnsAsync(new User
+        {
+            Id = userId,
+            Username = "u1",
+            Email = "u1@test.com",
+            IsActive = true
+        });
         _mockWalletRepo.Setup(r => r.GetByUserIdAsync(userId)).ReturnsAsync(new Wallet
         {
             UserId = userId,
@@ -162,6 +170,14 @@ public class WalletServiceTests
         var userId = Guid.NewGuid();
         var req = new TopUpRequestDto { AmountVnd = 100_000, IdempotencyKey = "key-12345" };
 
+        // BUGFIX (subagent audit #21): User-level check trước khi tạo wallet.
+        _mockUserRepo.Setup(r => r.GetByIdAsync(userId)).ReturnsAsync(new User
+        {
+            Id = userId,
+            Username = "u1",
+            Email = "u1@test.com",
+            IsActive = true
+        });
         _mockWalletRepo.Setup(r => r.GetByUserIdAsync(userId)).ReturnsAsync(new Wallet
         {
             UserId = userId,
@@ -169,6 +185,38 @@ public class WalletServiceTests
         });
 
         await Assert.ThrowsAsync<ForbiddenException>(
+            () => _service.CreateTopUpAsync(userId, req));
+    }
+
+    [Fact]
+    public async Task CreateTopUpAsync_UserInactive_ThrowsForbidden()
+    {
+        // BUGFIX (subagent audit #21): User.IsActive=false bypasses BR-RISK-04.
+        var userId = Guid.NewGuid();
+        var req = new TopUpRequestDto { AmountVnd = 100_000, IdempotencyKey = "key-12345" };
+
+        _mockUserRepo.Setup(r => r.GetByIdAsync(userId)).ReturnsAsync(new User
+        {
+            Id = userId,
+            Username = "u1",
+            Email = "u1@test.com",
+            IsActive = false
+        });
+
+        await Assert.ThrowsAsync<ForbiddenException>(
+            () => _service.CreateTopUpAsync(userId, req));
+    }
+
+    [Fact]
+    public async Task CreateTopUpAsync_UserNotFound_ThrowsNotFound()
+    {
+        // BUGFIX (subagent audit #21): User not found → NotFound, not auto-create.
+        var userId = Guid.NewGuid();
+        var req = new TopUpRequestDto { AmountVnd = 100_000, IdempotencyKey = "key-12345" };
+
+        _mockUserRepo.Setup(r => r.GetByIdAsync(userId)).ReturnsAsync((User?)null);
+
+        await Assert.ThrowsAsync<NotFoundException>(
             () => _service.CreateTopUpAsync(userId, req));
     }
 
@@ -257,7 +305,7 @@ public class WalletServiceTests
 
         var ex = await Assert.ThrowsAsync<PaymentException>(
             () => _service.CreateTopUpAsync(userId, req));
-        Assert.Contains("SePay", ex.Message);
+        Assert.Contains("cổng thanh toán", ex.Message);
     }
 
     [Fact]

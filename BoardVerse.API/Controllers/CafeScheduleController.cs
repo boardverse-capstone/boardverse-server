@@ -66,16 +66,17 @@ public class CafeScheduleController : BaseApiController
     /// </summary>
     /// <param name="cafeId">Mã định danh cafe.</param>
     /// <param name="timeSlot">Slot cần xóa override (morning/afternoon/evening/night).</param>
-    /// <response code="200">Xóa override thành công.</response>
+    /// <response code="204">Xóa override thành công.</response>
     /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
     /// <response code="403">Không phải chủ cafe.</response>
     /// <response code="404">Không tìm thấy cafe hoặc override.</response>
     /// <response code="500">Lỗi hệ thống không mong đợi.</response>
     [HttpDelete("{timeSlot}")]
+    [ProducesResponseType(204)]
     public async Task<IActionResult> DeleteOverride(Guid cafeId, TimeSlot timeSlot)
     {
         var managerUserId = GetUserIdFromClaims();
         await _cafeScheduleService.DeleteOverrideAsync(cafeId, managerUserId, timeSlot);
-        return this.NewResponse(200, ApiSuccessMessages.CafeSchedule.OverrideDeleted, null);
+        return NoContent();
     }
 }

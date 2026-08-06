@@ -28,6 +28,13 @@ public class Reservation
     /// <summary>BR-LOBBY-01: scheduledTime - leadTimeMinutes (mặc định 20 phút).</summary>
     public DateTime RecruitmentDeadline { get; set; }
 
+    /// <summary>
+    /// ScheduledTime thực tế từ resolved schedule (CafeScheduleOverride nếu có).
+    /// Lưu vào DB để đảm bảo consistency với Quote response.
+    /// Dùng cho BR-REFUND-02 tính refund policy.
+    /// </summary>
+    public DateTime ScheduledTime { get; set; }
+
     public int MinPlayers { get; set; }
     public int MaxPlayers { get; set; }
 
@@ -68,26 +75,6 @@ public class Reservation
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
-
-    /// <summary>
-    /// ScheduledTime = playDate + timeSlot.startTime — dùng cho BR-REFUND-02.
-    /// Mapping (BR-NEW-15, cập nhật cover 24h):
-    /// <list type="bullet">
-    /// <item><description><c>Morning</c>: playDate 08:00.</description></item>
-    /// <item><description><c>Afternoon</c>: playDate 13:00.</description></item>
-    /// <item><description><c>Evening</c>: playDate 18:00.</description></item>
-    /// <item><description><c>Night</c>: playDate 00:00 (qua đêm, scheduledStart = playDate 00:00, endTime = playDate+1 08:00).</description></item>
-    /// </list>
-    /// </summary>
-    public DateTime ScheduledTime => PlayDate.ToDateTime(
-        TimeSlot switch
-        {
-            TimeSlot.Morning => new TimeOnly(8, 0),
-            TimeSlot.Afternoon => new TimeOnly(13, 0),
-            TimeSlot.Evening => new TimeOnly(18, 0),
-            TimeSlot.Night => new TimeOnly(0, 0),
-            _ => new TimeOnly(8, 0)
-        });
 
     public virtual User? Host { get; set; }
     public virtual Cafe? Cafe { get; set; }

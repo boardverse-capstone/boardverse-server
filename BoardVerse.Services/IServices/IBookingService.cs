@@ -18,9 +18,23 @@ public interface IBookingService
     Task<BookingResponseDto?> GetByIdAsync(Guid bookingId);
 
     /// <summary>
+    /// Lấy chi tiết booking theo ID và kiểm tra quyền truy cập.
+    /// Player: chỉ chủ booking (host lobby) hoặc member lobby.
+    /// Manager: chỉ booking thuộc cafe của mình.
+    /// Admin: xem tất cả.
+    /// Trả về null nếu booking không tồn tại hoặc caller không có quyền.
+    /// </summary>
+    Task<BookingResponseDto?> GetByIdForCallerAsync(Guid bookingId, Guid callerUserId, string callerRole);
+
+    /// <summary>
     /// Lấy booking theo lobby ID.
     /// </summary>
     Task<BookingResponseDto?> GetByLobbyIdAsync(Guid lobbyId);
+
+    /// <summary>
+    /// Lấy booking theo lobby ID, kiểm tra quyền caller là member của lobby hoặc Manager cafe / Admin.
+    /// </summary>
+    Task<BookingResponseDto?> GetByLobbyIdForCallerAsync(Guid lobbyId, Guid callerUserId, string callerRole);
 
     /// <summary>
     /// Lấy danh sách booking của cafe.

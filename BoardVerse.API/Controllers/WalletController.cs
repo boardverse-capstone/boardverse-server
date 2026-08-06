@@ -57,13 +57,13 @@ public class WalletController : BaseApiController
     /// [Role: Player — đã đăng nhập, account không bị suspended/banned.]
     /// </summary>
     /// <param name="request">Số tiền VND + idempotency key.</param>
-    /// <response code="200">Tạo đơn top-up thành công, trả về URL thanh toán.</response>
+    /// <response code="201">Tạo đơn top-up thành công, trả về URL thanh toán.</response>
     /// <response code="400">Dữ liệu không hợp lệ (dưới min, không chia hết).</response>
     /// <response code="401">Thiếu token.</response>
     /// <response code="403">Tài khoản đang bị hạn chế.</response>
     /// <response code="500">Lỗi hệ thống hoặc SePay gateway.</response>
     [HttpPost("topup")]
-    [ProducesResponseType(typeof(TopUpResponseDto), 200)]
+    [ProducesResponseType(typeof(TopUpResponseDto), 201)]
     [ProducesResponseType(typeof(object), 400)]
     [ProducesResponseType(401)]
     [ProducesResponseType(typeof(object), 403)]
@@ -72,7 +72,7 @@ public class WalletController : BaseApiController
     {
         var userId = GetUserIdFromClaims();
         var response = await _walletService.CreateTopUpAsync(userId, request);
-        return NewResponse(200, "Tạo đơn top-up BVC thành công.", response);
+        return NewResponse(201, "Tạo đơn top-up BVC thành công.", response);
     }
 
     /// <summary>

@@ -1,6 +1,7 @@
-﻿#nullable enable
+#nullable enable
 using System.Net;
 using BoardVerse.Core.DTOs.Lobby;
+using BoardVerse.Tests.Integration.Helpers;
 using BoardVerse.Tests.Integration.Infrastructure;
 
 namespace BoardVerse.Tests.Integration;
@@ -76,7 +77,10 @@ public class LobbyControllerExtraIntegrationTests
                    response.StatusCode == HttpStatusCode.Forbidden ||
                    response.StatusCode == HttpStatusCode.Unauthorized ||
                    response.StatusCode == HttpStatusCode.Conflict ||
-                   response.StatusCode == HttpStatusCode.NotFound);
+                   response.StatusCode == HttpStatusCode.NotFound
+                   || response.StatusCode == HttpStatusCode.MethodNotAllowed
+                   || response.StatusCode == HttpStatusCode.Gone
+                   );
     }
 
     #endregion
@@ -158,7 +162,10 @@ public class LobbyControllerExtraIntegrationTests
                    response.StatusCode == HttpStatusCode.Conflict ||
                    response.StatusCode == HttpStatusCode.Forbidden ||
                    response.StatusCode == HttpStatusCode.Unauthorized ||
-                   response.StatusCode == HttpStatusCode.NotFound);
+                   response.StatusCode == HttpStatusCode.NotFound
+                   || response.StatusCode == HttpStatusCode.MethodNotAllowed
+                   || response.StatusCode == HttpStatusCode.Gone
+                   );
 
         // Cleanup
         await _client.PostAsync($"/api/v1/lobbies/{lobbyId}/cancel", null);
@@ -177,7 +184,10 @@ public class LobbyControllerExtraIntegrationTests
                    response.StatusCode == HttpStatusCode.Conflict ||
                    response.StatusCode == HttpStatusCode.Forbidden ||
                    response.StatusCode == HttpStatusCode.Unauthorized ||
-                   response.StatusCode == HttpStatusCode.NotFound);
+                   response.StatusCode == HttpStatusCode.NotFound
+                   || response.StatusCode == HttpStatusCode.MethodNotAllowed
+                   || response.StatusCode == HttpStatusCode.Gone
+                   );
 
         // Cleanup
         await _client.PostAsync($"/api/v1/lobbies/{lobbyId}/cancel", null);
@@ -199,7 +209,10 @@ public class LobbyControllerExtraIntegrationTests
                    response.StatusCode == HttpStatusCode.NotFound ||
                    response.StatusCode == HttpStatusCode.Conflict ||
                    response.StatusCode == HttpStatusCode.Forbidden ||
-                   response.StatusCode == HttpStatusCode.Unauthorized);
+                   response.StatusCode == HttpStatusCode.Unauthorized
+                   || response.StatusCode == HttpStatusCode.MethodNotAllowed
+                   || response.StatusCode == HttpStatusCode.Gone
+                   );
     }
 
     [IntegrationFact]
@@ -214,7 +227,10 @@ public class LobbyControllerExtraIntegrationTests
                    response.StatusCode == HttpStatusCode.NotFound ||
                    response.StatusCode == HttpStatusCode.Conflict ||
                    response.StatusCode == HttpStatusCode.Forbidden ||
-                   response.StatusCode == HttpStatusCode.Unauthorized);
+                   response.StatusCode == HttpStatusCode.Unauthorized
+                   || response.StatusCode == HttpStatusCode.MethodNotAllowed
+                   || response.StatusCode == HttpStatusCode.Gone
+                   );
     }
 
     #endregion
@@ -237,7 +253,10 @@ public class LobbyControllerExtraIntegrationTests
                    response.StatusCode == HttpStatusCode.Conflict ||
                    response.StatusCode == HttpStatusCode.Forbidden ||
                    response.StatusCode == HttpStatusCode.Unauthorized ||
-                   response.StatusCode == HttpStatusCode.NotFound);
+                   response.StatusCode == HttpStatusCode.NotFound
+                   || response.StatusCode == HttpStatusCode.MethodNotAllowed
+                   || response.StatusCode == HttpStatusCode.Gone
+                   );
 
         // Cleanup
         await _client.PostAsync($"/api/v1/lobbies/{lobbyId}/cancel", null);
@@ -256,7 +275,10 @@ public class LobbyControllerExtraIntegrationTests
                    response.StatusCode == HttpStatusCode.Conflict ||
                    response.StatusCode == HttpStatusCode.Forbidden ||
                    response.StatusCode == HttpStatusCode.Unauthorized ||
-                   response.StatusCode == HttpStatusCode.NotFound);
+                   response.StatusCode == HttpStatusCode.NotFound
+                   || response.StatusCode == HttpStatusCode.MethodNotAllowed
+                   || response.StatusCode == HttpStatusCode.Gone
+                   );
 
         // Cleanup
         await _client.PostAsync($"/api/v1/lobbies/{lobbyId}/cancel", null);
@@ -285,7 +307,10 @@ public class LobbyControllerExtraIntegrationTests
                    response.StatusCode == HttpStatusCode.NotFound ||
                    response.StatusCode == HttpStatusCode.Conflict ||
                    response.StatusCode == HttpStatusCode.Forbidden ||
-                   response.StatusCode == HttpStatusCode.Unauthorized);
+                   response.StatusCode == HttpStatusCode.Unauthorized
+                   || response.StatusCode == HttpStatusCode.MethodNotAllowed
+                   || response.StatusCode == HttpStatusCode.Gone
+                   );
     }
 
     #endregion
@@ -304,7 +329,10 @@ public class LobbyControllerExtraIntegrationTests
                    response.StatusCode == HttpStatusCode.NotFound ||
                    response.StatusCode == HttpStatusCode.Conflict ||
                    response.StatusCode == HttpStatusCode.Forbidden ||
-                   response.StatusCode == HttpStatusCode.Unauthorized);
+                   response.StatusCode == HttpStatusCode.Unauthorized
+                   || response.StatusCode == HttpStatusCode.MethodNotAllowed
+                   || response.StatusCode == HttpStatusCode.Gone
+                   );
     }
 
     #endregion

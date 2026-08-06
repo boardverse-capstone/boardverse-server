@@ -266,8 +266,10 @@ public class TournamentServiceTests
         cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
         tournamentRepo.Setup(r => r.AddAsync(It.IsAny<Tournament>())).Returns(Task.CompletedTask);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        var responseEntity = BuildRegistrationOpenTournament();
+        responseEntity.NoShowKarmaPenalty = -50; // reflect request after clamping
         tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>()))
-            .ReturnsAsync(BuildRegistrationOpenTournament());
+            .ReturnsAsync(responseEntity);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 

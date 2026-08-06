@@ -284,8 +284,9 @@ public class SettlementServiceTests
         };
 
         _mockSettlementRepo.Setup(r => r.GetPendingAsync(cafeId)).ReturnsAsync(settlements);
+        _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(BuildCafe(cafeId));
 
-        var result = await _service.GetPendingSettlementsAsync(cafeId);
+        var result = await _service.GetPendingSettlementsAsync(cafeId, Guid.NewGuid(), "Admin");
 
         Assert.Single(result);
         Assert.Equal(CafeSettlementStatus.Pending, result[0].Status);

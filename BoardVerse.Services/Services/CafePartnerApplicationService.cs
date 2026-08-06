@@ -308,8 +308,15 @@ namespace BoardVerse.Services.Services
             cafe.TieredBlockRate = request.BillingModel == Core.Enum.CafePartnerBillingModel.TimeBased
                 ? request.TieredBlockRate
                 : null;
-            cafe.TieredBlockMinutes = request.TieredBlockMinutes;
-            cafe.DepositPercentage = request.DepositPercentage;
+            // PATCH semantics: chỉ cập nhật khi client gửi giá trị mới (non-null).
+            if (request.TieredBlockMinutes.HasValue)
+            {
+                cafe.TieredBlockMinutes = request.TieredBlockMinutes.Value;
+            }
+            if (request.DepositPercentage.HasValue)
+            {
+                cafe.DepositPercentage = request.DepositPercentage.Value;
+            }
             cafe.OperationalProfileUpdatedAt = DateTime.UtcNow;
             cafe.UpdatedAt = DateTime.UtcNow;
 
@@ -733,7 +740,7 @@ namespace BoardVerse.Services.Services
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to send cafe partner email to {Email}. Subject: {Subject}", to, subject);
+                _logger.LogWarning(ex, "Failed to send cafe partner email. Subject length: {SubjectLength}", subject.Length);
             }
         }
 

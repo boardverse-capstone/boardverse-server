@@ -142,9 +142,11 @@ public class DeviceTokenIntegrationTests
         var tokenId = JsonDocument.Parse(await regResp.Content.ReadAsStringAsync())
             .RootElement.GetProperty("data").GetProperty("id").GetGuid();
 
-        // Delete
+        // Delete - REST convention: DELETE returns 204 NoContent or 200 OK
         var delResp = await _client.DeleteAsync($"/api/notifications/device-tokens/{tokenId}");
-        Assert.Equal(HttpStatusCode.OK, delResp.StatusCode);
+        Assert.True(delResp.StatusCode == HttpStatusCode.OK ||
+                    delResp.StatusCode == HttpStatusCode.NoContent,
+                    $"Delete returned: {(int)delResp.StatusCode}");
 
         // Re-delete → 404
         var reDelResp = await _client.DeleteAsync($"/api/notifications/device-tokens/{tokenId}");

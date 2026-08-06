@@ -142,19 +142,19 @@ namespace BoardVerse.API.Controllers
         {
             if (limit < 1 || limit > 100)
             {
-                throw new BadRequestException("Limit phải nằm trong khoảng 1-100.");
+                throw new BadRequestException(ApiErrorMessages.Validation.LobbySearchLimitRange);
             }
 
             // Nếu truyền 1 trong 3 tham số geo thì bắt buộc cả 3
             var geoProvided = new[] { latitude.HasValue, longitude.HasValue, radiusKm.HasValue };
             if (geoProvided.Any(x => x) && !geoProvided.All(x => x))
             {
-                throw new BadRequestException("latitude, longitude, radiusKm phải truyền đồng thời nếu muốn filter theo khu vực.");
+                throw new BadRequestException(ApiErrorMessages.Validation.LobbySearchGeoRequired);
             }
 
             if (radiusKm.HasValue && (radiusKm.Value <= 0 || radiusKm.Value > 500))
             {
-                throw new BadRequestException("radiusKm phải nằm trong khoảng (0, 500] km.");
+                throw new BadRequestException(ApiErrorMessages.Validation.LobbySearchRadiusRange);
             }
 
             Guid? requestingUserId = excludeSelfOverlapping ? GetUserIdFromClaims() : null;

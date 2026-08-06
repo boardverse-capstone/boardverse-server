@@ -74,13 +74,18 @@ public class LobbyInviteController : BaseApiController
     /// Inviter hủy lời mời đã gửi. [Role: Player — chỉ inviter]
     /// </summary>
     /// <param name="inviteId">Mã lời mời.</param>
-    /// <response code="200">Đã hủy lời mời.</response>
+    /// <response code="204">Đã hủy lời mời.</response>
+    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+    /// <response code="403">Không phải inviter.</response>
+    /// <response code="404">Không tìm thấy lời mời.</response>
+    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
     [HttpDelete("invites/{inviteId:guid}")]
+    [ProducesResponseType(204)]
     public async Task<IActionResult> CancelInvite(Guid inviteId)
     {
         var userId = GetUserIdFromClaims();
         await _inviteService.CancelInviteAsync(inviteId, userId);
-        return this.NewResponse(200, ApiSuccessMessages.LobbyInvite.InviteCancelled, data: null);
+        return NoContent();
     }
 
     /// <summary>

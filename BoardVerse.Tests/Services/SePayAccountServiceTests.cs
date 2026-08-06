@@ -227,7 +227,7 @@ public class SePayAccountServiceTests
 
         var request = new UpdateSePayAccountRequestDto { MerchantId = "NEW-001" };
 
-        await Assert.ThrowsAsync<KeyNotFoundException>(() => _service.UpdateAsync(Guid.NewGuid(), request));
+        await Assert.ThrowsAsync<NotFoundException>(() => _service.UpdateAsync(Guid.NewGuid(), request));
     }
 
     [Fact]
@@ -338,11 +338,11 @@ public class SePayAccountServiceTests
     }
 
     [Fact]
-    public async Task DeleteAsync_NotFound_ThrowsKeyNotFoundException()
+    public async Task DeleteAsync_NotFound_ThrowsNotFoundException()
     {
         _mockRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((SePayAccount?)null);
 
-        await Assert.ThrowsAsync<KeyNotFoundException>(() => _service.DeleteAsync(Guid.NewGuid()));
+        await Assert.ThrowsAsync<NotFoundException>(() => _service.DeleteAsync(Guid.NewGuid()));
     }
 
     #endregion

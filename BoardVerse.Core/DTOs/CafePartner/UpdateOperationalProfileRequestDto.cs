@@ -32,12 +32,12 @@ namespace BoardVerse.Core.DTOs.CafePartner
         /// <summary>Giá block lũy tiến theo phút. Bắt buộc với TimeBased; bỏ qua với FlatEntry.</summary>
         public decimal? TieredBlockRate { get; set; }
 
-        /// <summary>Thời gian mỗi block tính tiền (phút). Mặc định 15.</summary>
+        /// <summary>Thời gian mỗi block tính tiền (phút). Bỏ qua khi PATCH nếu null (giữ giá trị hiện tại).</summary>
         [Range(1, 1440, ErrorMessage = ApiErrorMessages.Validation.TieredBlockMinutesRange)]
-        public int TieredBlockMinutes { get; set; } = 15;
+        public int? TieredBlockMinutes { get; set; }
 
-        /// <summary>% cọc so với giá base. Mặc định 50%.</summary>
+        /// <summary>% cọc so với giá base. Bỏ qua khi PATCH nếu null (giữ giá trị hiện tại).</summary>
         [Range(0, 0.5, ErrorMessage = ApiErrorMessages.Validation.DepositPercentageRange)]
-        public decimal DepositPercentage { get; set; } = 0.5m;
+        public decimal? DepositPercentage { get; set; }
     }
 }

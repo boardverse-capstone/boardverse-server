@@ -1,5 +1,6 @@
 using BoardVerse.Core.DTOs.Booking;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -65,13 +66,16 @@ public class BookingController : BaseApiController
     [HttpGet("{bookingId:guid}")]
     [ProducesResponseType(typeof(BookingResponseDto), 200)]
     [ProducesResponseType(401)]
+    [ProducesResponseType(typeof(object), 403)]
     [ProducesResponseType(typeof(object), 404)]
     public async Task<IActionResult> GetBooking(Guid bookingId)
     {
-        var booking = await _bookingService.GetByIdAsync(bookingId);
+        var userId = GetUserIdFromClaims();
+        var role = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? string.Empty;
+        var booking = await _bookingService.GetByIdForCallerAsync(bookingId, userId, role);
         if (booking == null)
         {
-            throw new NotFoundException($"Không tìm thấy booking '{bookingId}'.");
+            throw new NotFoundException(ApiErrorMessages.Booking.BookingNotFoundById(bookingId));
         }
         return NewResponse(200, "Lấy chi tiết booking thành công.", booking);
     }
@@ -110,9 +114,13 @@ public class BookingController : BaseApiController
     [HttpGet("lobby/{lobbyId:guid}")]
     [ProducesResponseType(typeof(BookingResponseDto), 200)]
     [ProducesResponseType(401)]
+    [ProducesResponseType(typeof(object), 403)]
+    [ProducesResponseType(typeof(object), 404)]
     public async Task<IActionResult> GetBookingByLobby(Guid lobbyId)
     {
-        var booking = await _bookingService.GetByLobbyIdAsync(lobbyId);
+        var userId = GetUserIdFromClaims();
+        var role = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? string.Empty;
+        var booking = await _bookingService.GetByLobbyIdForCallerAsync(lobbyId, userId, role);
         return NewResponse(200, "Lấy booking theo lobby thành công.", booking);
     }
 

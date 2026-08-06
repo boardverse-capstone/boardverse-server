@@ -1,5 +1,6 @@
 using BoardVerse.Core.DTOs.Wallet;
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -69,7 +70,7 @@ public class AdminWalletController : BaseApiController
         var result = await _walletService.GetWalletDetailAsync(userId);
         if (result == null)
         {
-            return NotFound(new { message = $"Không tìm thấy ví BVC của user '{userId}'." });
+            return NotFound(new { message = ApiErrorMessages.Wallet.NotFound(userId) });
         }
         return NewResponse(200, "Chi tiết wallet", result);
     }

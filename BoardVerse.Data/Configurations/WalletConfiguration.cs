@@ -13,13 +13,13 @@ public class WalletConfiguration : IEntityTypeConfiguration<Wallet>
         builder.HasKey(w => w.UserId);
 
         builder.Property(w => w.AvailableBalance)
-            .HasDefaultValue(0);
+            .HasDefaultValue(0L);
 
         builder.Property(w => w.HeldBalance)
-            .HasDefaultValue(0);
+            .HasDefaultValue(0L);
 
         builder.Property(w => w.TotalActiveDeposit)
-            .HasDefaultValue(0);
+            .HasDefaultValue(0L);
 
         builder.Property(w => w.RiskMultiplier)
             .HasColumnType("numeric(4,2)")
@@ -42,13 +42,16 @@ public class WalletConfiguration : IEntityTypeConfiguration<Wallet>
         builder.Property(w => w.CreatedAt)
             .HasDefaultValueSql("now() at time zone 'utc'");
 
+        // C17: UpdatedAt dùng làm concurrency token cho optimistic concurrency trên wallet balance updates.
         builder.Property(w => w.UpdatedAt)
-            .HasDefaultValueSql("now() at time zone 'utc'");
+            .HasDefaultValueSql("now() at time zone 'utc'")
+            .IsConcurrencyToken();
 
         builder.HasOne(w => w.User)
             .WithMany()
             .HasForeignKey(w => w.UserId)
-            .OnDelete(DeleteBehavior.Cascade);
+            // C16: Wallet is a financial record. Restrict delete to preserve audit.
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(w => w.AccountStatus)
             .HasDatabaseName("IX_Wallets_AccountStatus");

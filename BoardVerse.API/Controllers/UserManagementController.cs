@@ -91,16 +91,17 @@ namespace BoardVerse.API.Controllers
         /// Vô hiệu hóa tài khoản người dùng theo mã định danh. [Role: Admin — yêu cầu đăng nhập với role Admin.]
         /// </summary>
         /// <param name="id">Mã định danh của người dùng.</param>
-        /// <response code="200">Vô hiệu hóa người dùng thành công.</response>
+        /// <response code="204">Vô hiệu hóa người dùng thành công.</response>
         /// <response code="404">Không tìm thấy người dùng.</response>
         /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
         /// <response code="403">Người dùng không có quyền quản trị.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpDelete("{id:guid}")]
+        [ProducesResponseType(204)]
         public async Task<IActionResult> Disable(Guid id)
         {
             await _userManagementService.DisableAsync(id);
-            return this.NewResponse(200, ApiSuccessMessages.AdminUsers.Disabled, null);
+            return NoContent();
         }
 
         /// <summary>

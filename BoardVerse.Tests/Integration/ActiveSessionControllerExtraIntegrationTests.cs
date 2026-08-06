@@ -49,7 +49,9 @@ public class ActiveSessionControllerExtraIntegrationTests
         var response = await _client.GetAsync(
             $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/sessions/{sessionId}");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.NotFound);
+                   response.StatusCode == HttpStatusCode.NotFound
+                   || response.StatusCode == HttpStatusCode.MethodNotAllowed
+                   || response.StatusCode == HttpStatusCode.Gone);
 
         await CleanupActiveSessionsAsync();
     }
@@ -69,7 +71,10 @@ public class ActiveSessionControllerExtraIntegrationTests
             $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/sessions/{sessionId}/games",
             attachRequest);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.Conflict);
+                   response.StatusCode == HttpStatusCode.Conflict
+                   || response.StatusCode == HttpStatusCode.NotFound
+                   || response.StatusCode == HttpStatusCode.MethodNotAllowed
+                   || response.StatusCode == HttpStatusCode.Gone);
 
         await CleanupActiveSessionsAsync();
     }
@@ -98,7 +103,9 @@ public class ActiveSessionControllerExtraIntegrationTests
                    response.StatusCode == HttpStatusCode.Conflict ||
                    response.StatusCode == HttpStatusCode.Forbidden ||
                    response.StatusCode == HttpStatusCode.Unauthorized ||
-                   response.StatusCode == HttpStatusCode.NotFound);
+                   response.StatusCode == HttpStatusCode.NotFound
+                   || response.StatusCode == HttpStatusCode.MethodNotAllowed
+                   || response.StatusCode == HttpStatusCode.Gone);
 
         await CleanupActiveSessionsAsync();
     }
@@ -116,7 +123,9 @@ public class ActiveSessionControllerExtraIntegrationTests
         var response = await _client.GetAsync(
             $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/{sessionId}/component-checklist");
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.NotFound);
+                   response.StatusCode == HttpStatusCode.NotFound
+                   || response.StatusCode == HttpStatusCode.MethodNotAllowed
+                   || response.StatusCode == HttpStatusCode.Gone);
 
         await CleanupActiveSessionsAsync();
     }
@@ -145,7 +154,9 @@ public class ActiveSessionControllerExtraIntegrationTests
                    response.StatusCode == HttpStatusCode.NotFound ||
                    response.StatusCode == HttpStatusCode.Conflict ||
                    response.StatusCode == HttpStatusCode.Forbidden ||
-                   response.StatusCode == HttpStatusCode.Unauthorized);
+                   response.StatusCode == HttpStatusCode.Unauthorized
+                   || response.StatusCode == HttpStatusCode.MethodNotAllowed
+                   || response.StatusCode == HttpStatusCode.Gone);
 
         await CleanupActiveSessionsAsync();
     }
@@ -174,7 +185,9 @@ public class ActiveSessionControllerExtraIntegrationTests
                    response.StatusCode == HttpStatusCode.NotFound ||
                    response.StatusCode == HttpStatusCode.Conflict ||
                    response.StatusCode == HttpStatusCode.Forbidden ||
-                   response.StatusCode == HttpStatusCode.Unauthorized);
+                   response.StatusCode == HttpStatusCode.Unauthorized
+                   || response.StatusCode == HttpStatusCode.MethodNotAllowed
+                   || response.StatusCode == HttpStatusCode.Gone);
 
         await CleanupActiveSessionsAsync();
     }

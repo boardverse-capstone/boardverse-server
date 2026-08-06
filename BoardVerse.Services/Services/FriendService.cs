@@ -535,18 +535,26 @@ public class FriendService : IFriendService
         // BR-FRIEND-SUGGEST-BLOCK-FILTER: loại bỏ user bị chặn (cả 2 chiều).
         var blockedUserIds = (await _friendshipRepository.GetBlockedUserIdsAsync(userId)).ToHashSet();
 
-        // 1. Friends-of-friends (BR-FRIEND-SUGGEST-01).
+        // 1. Friends-of-friends (BR-FRIEND-SUGGEST-01) — batch query tránh N+1.
         var candidates = new Dictionary<Guid, int>();
         var friendIds = currentFriends.ToList();
-        foreach (var friendId in friendIds)
+        if (friendIds.Count > 0)
         {
-            var friendsOfFriend = await _friendshipRepository.GetFriendUserIdsAsync(friendId);
-            foreach (var fofId in friendsOfFriend)
+            var friendsOfFriendsMap = await _friendshipRepository.GetFriendsForUsersAsync(friendIds)
+                ?? new Dictionary<Guid, IReadOnlyList<Guid>>();
+            foreach (var friendId in friendIds)
             {
-                if (currentFriends.Contains(fofId)) continue;
-                if (blockedUserIds.Contains(fofId)) continue;
-                candidates.TryGetValue(fofId, out var count);
-                candidates[fofId] = count + 1;
+                if (!friendsOfFriendsMap.TryGetValue(friendId, out var friendsOfFriend))
+                {
+                    continue;
+                }
+                foreach (var fofId in friendsOfFriend)
+                {
+                    if (currentFriends.Contains(fofId)) continue;
+                    if (blockedUserIds.Contains(fofId)) continue;
+                    candidates.TryGetValue(fofId, out var count);
+                    candidates[fofId] = count + 1;
+                }
             }
         }
 
@@ -669,7 +677,7 @@ public class FriendService : IFriendService
         {
             var allowed = new[] { "Everyone", "FriendsOfFriends" };
             if (!allowed.Contains(dto.AcceptFriendRequestsFrom))
-                throw new BadRequestException($"AcceptFriendRequestsFrom phải là một trong: {string.Join(", ", allowed)}.");
+                throw new BadRequestException(ApiErrorMessages.Profile.AcceptFriendRequestsFromInvalid(string.Join(", ", allowed)));
             profile.Profile.AcceptFriendRequestsFrom = dto.AcceptFriendRequestsFrom;
         }
         if (dto.FriendLimit.HasValue) profile.Profile.FriendLimit = dto.FriendLimit.Value;
@@ -838,14 +846,15 @@ public class FriendService : IFriendService
         return sent.Count(f => f.RequesterId == requesterId && f.CreatedAt >= cutoff);
     }
 
+    // M3: Batch query friends-of-friends, tránh N queries trong loop.
     private async Task<bool> HasAnyFriendOfFriendAsync(Guid requesterId, Guid targetId, HashSet<Guid> currentFriends)
     {
-        foreach (var friendId in currentFriends)
+        if (currentFriends.Count == 0)
         {
-            var fof = await _friendshipRepository.GetFriendUserIdsAsync(friendId);
-            if (fof.Contains(targetId)) return true;
+            return false;
         }
-        return false;
+        var fofMap = await _friendshipRepository.GetFriendsForUsersAsync(currentFriends);
+        return fofMap.Values.Any(friendList => friendList.Contains(targetId));
     }
 
     private async Task EnforceFriendLimitAsync(Guid userId)

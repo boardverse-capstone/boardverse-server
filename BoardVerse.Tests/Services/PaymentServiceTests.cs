@@ -51,6 +51,16 @@ public class PaymentServiceTests
                 IsActive = true
             });
 
+        _mockSePayAccountService.Setup(s => s.GetRawMasterAccountAsync())
+            .ReturnsAsync(new SePayAccount
+            {
+                Id = Guid.NewGuid(),
+                BankCode = "MBBank",
+                AccountNumber = "0855199924",
+                AccountHolder = "TEST HOLDER",
+                IsActive = true
+            });
+
         _service = new PaymentService(
             _mockDepositService.Object,
             _mockCafeRepo.Object,
@@ -88,7 +98,7 @@ public class PaymentServiceTests
         _mockDepositService.Setup(s => s.GetByIdAsync(depositId)).ReturnsAsync(deposit);
 
         var ex = await Assert.ThrowsAsync<ConflictException>(
-            () => _service.CreateDepositPaymentAsync(request, Guid.NewGuid()));
+            () => _service.CreateDepositPaymentAsync(request, deposit.UserId));
 
         Assert.Contains("đã được xử lý", ex.Message);
     }
@@ -118,7 +128,7 @@ public class PaymentServiceTests
                 Message = "Test message"
             });
 
-        var result = await _service.CreateDepositPaymentAsync(request, Guid.NewGuid());
+        var result = await _service.CreateDepositPaymentAsync(request, deposit.UserId);
 
         Assert.Equal(qrUrl, result.PaymentUrl);
         Assert.Equal("VietQr", result.Gateway);
@@ -133,6 +143,7 @@ public class PaymentServiceTests
         var sessionId = Guid.NewGuid();
         var deposit = CreateTestDeposit(depositId, BookingDepositStatus.Pending);
         deposit.OrderId = string.Empty;
+        deposit.UserId = userId;
         deposit.ActiveSessionId = sessionId;
 
         var request = new CreatePaymentRequestDto
@@ -187,7 +198,7 @@ public class PaymentServiceTests
             });
 
         await Assert.ThrowsAsync<PaymentException>(
-            () => _service.CreateDepositPaymentAsync(request, Guid.NewGuid()));
+            () => _service.CreateDepositPaymentAsync(request, deposit.UserId));
     }
 
     #endregion
@@ -322,8 +333,11 @@ public class PaymentServiceTests
     }
 
     [Fact]
-    public async Task HandleSePayWebhook_FailedCancelsPendingDeposit_CallsMarkAsRefunded()
+    public async Task HandleSePayWebhook_FailedCancelsPendingDeposit_CallsExpireAsync()
     {
+        // BUGFIX (subagent audit #6): failed/cancelled webhook on Pending deposit
+        // now calls ExpireAsync (Pending → Refunded) instead of MarkAsRefundedAsync
+        // (which only accepts Paid).
         var depositId = Guid.NewGuid();
         var deposit = CreateTestDeposit(depositId, BookingDepositStatus.Pending);
 
@@ -340,7 +354,8 @@ public class PaymentServiceTests
 
         await _service.HandleSePayWebhookAsync(webhook);
 
-        _mockDepositService.Verify(s => s.MarkAsRefundedAsync(depositId), Times.Once);
+        _mockDepositService.Verify(s => s.ExpireAsync(depositId), Times.Once);
+        _mockDepositService.Verify(s => s.MarkAsRefundedAsync(It.IsAny<Guid>()), Times.Never);
     }
 
     [Fact]
@@ -501,7 +516,7 @@ public class PaymentServiceTests
         _mockDepositService.Setup(s => s.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((BookingDeposit?)null);
 
         var ex = await Assert.ThrowsAsync<NotFoundException>(
-            () => _service.RefundDepositAsync(Guid.NewGuid(), "test"));
+            () => _service.RefundDepositAsync(Guid.NewGuid(), "test", Guid.NewGuid(), "Manager"));
 
         Assert.Contains("deposit", ex.Message.ToLower());
     }
@@ -515,7 +530,7 @@ public class PaymentServiceTests
         _mockDepositService.Setup(s => s.GetByIdAsync(depositId)).ReturnsAsync(deposit);
 
         var ex = await Assert.ThrowsAsync<ConflictException>(
-            () => _service.RefundDepositAsync(depositId, "test"));
+            () => _service.RefundDepositAsync(depositId, "test", deposit.CafeManagerId, "Manager"));
 
         Assert.Contains("'Pending'", ex.Message);
     }
@@ -530,7 +545,7 @@ public class PaymentServiceTests
         _mockDepositService.Setup(s => s.GetByIdAsync(depositId)).ReturnsAsync(deposit);
         _mockDepositService.Setup(s => s.ForfeitAsync(depositId)).ReturnsAsync(deposit);
 
-        var result = await _service.RefundDepositAsync(depositId, "Customer no-showed");
+        var result = await _service.RefundDepositAsync(depositId, "Customer no-showed", deposit.CafeManagerId, "Manager");
 
         _mockDepositService.Verify(s => s.ForfeitAsync(depositId), Times.Once);
         _mockDepositService.Verify(s => s.MarkAsRefundedAsync(It.IsAny<Guid>()), Times.Never);
@@ -547,7 +562,7 @@ public class PaymentServiceTests
         _mockDepositService.Setup(s => s.GetByIdAsync(depositId)).ReturnsAsync(deposit);
         _mockDepositService.Setup(s => s.MarkAsRefundedAsync(depositId)).ReturnsAsync(deposit);
 
-        var result = await _service.RefundDepositAsync(depositId, "Cancelled by manager");
+        var result = await _service.RefundDepositAsync(depositId, "Cancelled by manager", deposit.CafeManagerId, "Manager");
 
         _mockDepositService.Verify(s => s.MarkAsRefundedAsync(depositId), Times.Once);
         _mockDepositService.Verify(s => s.ForfeitAsync(It.IsAny<Guid>()), Times.Never);

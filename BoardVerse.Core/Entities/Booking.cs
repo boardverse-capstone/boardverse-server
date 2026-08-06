@@ -40,6 +40,10 @@ public class Booking
     /// <summary>UserId của Staff đã thực hiện check-in.</summary>
     public Guid? CheckedInByUserId { get; set; }
 
+    // === Audit ===
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
     // === Navigation ===
     /// <summary>Nullable cho walk-in booking (mobile gap #3).</summary>
     public virtual Lobby? Lobby { get; set; }

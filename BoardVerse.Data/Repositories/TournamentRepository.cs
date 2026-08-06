@@ -21,6 +21,8 @@ public class TournamentRepository : ITournamentRepository
         return await _db.Tournaments
             .Include(t => t.Participants)
             .Include(t => t.Matches)
+            .Include(t => t.GameTemplate)
+            .Include(t => t.Cafe)
             .FirstOrDefaultAsync(t => t.Id == tournamentId);
     }
 
@@ -30,6 +32,8 @@ public class TournamentRepository : ITournamentRepository
             .Include(t => t.Participants)
                 .ThenInclude(p => p.User)
             .Include(t => t.Matches)
+            .Include(t => t.GameTemplate)
+            .Include(t => t.Cafe)
             .FirstOrDefaultAsync(t => t.Id == tournamentId);
     }
 
@@ -37,6 +41,8 @@ public class TournamentRepository : ITournamentRepository
     {
         var query = _db.Tournaments
             .Include(t => t.Participants)
+            .Include(t => t.GameTemplate)
+            .Include(t => t.Cafe)
             .Where(t => t.CafeId == cafeId);
 
         if (status.HasValue)
@@ -53,6 +59,8 @@ public class TournamentRepository : ITournamentRepository
     {
         return await _db.Tournaments
             .Include(t => t.Participants)
+            .Include(t => t.GameTemplate)
+            .Include(t => t.Cafe)
             .Where(t => t.Status == TournamentStatus.RegistrationOpen
                 && t.RegistrationDeadline > DateTime.UtcNow)
             .OrderBy(t => t.StartTime)
@@ -63,6 +71,7 @@ public class TournamentRepository : ITournamentRepository
     {
         return await _db.Tournaments
             .Include(t => t.Participants)
+            .Include(t => t.GameTemplate)
             .Where(t => t.Status == TournamentStatus.RegistrationOpen
                 && t.RegistrationDeadline <= cutoffTime)
             .ToListAsync();
@@ -74,6 +83,7 @@ public class TournamentRepository : ITournamentRepository
         return await _db.Tournaments
             .Include(t => t.Participants)
             .Include(t => t.Cafe)
+            .Include(t => t.GameTemplate)
             .Where(t => (t.Status == TournamentStatus.RegistrationOpen || t.Status == TournamentStatus.RegistrationClosed)
                 && t.StartTime > now
                 && t.StartTime <= windowEnd)
@@ -87,6 +97,7 @@ public class TournamentRepository : ITournamentRepository
         var windowStart = DateTime.UtcNow.AddMinutes(-5);
         return await _db.Tournaments
             .Include(t => t.Participants)
+            .Include(t => t.GameTemplate)
             .Where(t => t.Status == TournamentStatus.OnGoing
                 && t.CurrentRound == 1
                 && t.StartedAt.HasValue
@@ -98,6 +109,7 @@ public class TournamentRepository : ITournamentRepository
     {
         return await _db.Tournaments
             .Include(t => t.Participants)
+            .Include(t => t.GameTemplate)
             .Where(t => t.CafeId == cafeId
                 && t.Status == TournamentStatus.OnGoing)
             .OrderByDescending(t => t.CurrentRound)
