@@ -96,9 +96,8 @@ namespace BoardVerse.Data.Configurations
             builder.Property(m => m.JoinedAt).IsRequired();
             builder.Property(m => m.IsActive).IsRequired().HasDefaultValue(true);
             builder.Property(m => m.Status)
-                .HasConversion<string>()
-                .HasMaxLength(20)
-                .HasDefaultValue(LobbyMemberStatus.Joined);
+                 .HasConversion<int>()
+                .IsRequired();
 
             builder.HasOne(m => m.Lobby)
                 .WithMany(l => l.Members)
