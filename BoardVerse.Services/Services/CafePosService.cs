@@ -933,7 +933,8 @@ namespace BoardVerse.Services.Services
             Guid cafeId,
             Guid userId,
             string userRole,
-            Guid sessionGameId)
+            Guid sessionGameId,
+            Dictionary<Guid, int>? actualQuantities = null)
         {
             await EnsurePosAccessAsync(cafeId, userId, userRole);
 
@@ -965,15 +966,24 @@ namespace BoardVerse.Services.Services
             foreach (var component in components)
             {
                 penaltyMap.TryGetValue(component.Id, out var penalty);
+                var actualQty = actualQuantities != null && actualQuantities.TryGetValue(component.Id, out var aq)
+                    ? aq
+                    : 0;
+                var expectedQty = component.DefaultQuantity;
+                var missing = expectedQty - actualQty;
+                // PenaltyFee in response = total penalty (per-unit × số thiếu), not per-unit
+                var penaltyFee = penalty != null && missing > 0
+                    ? penalty.PenaltyFee * missing
+                    : 0;
 
                 checklist.Components.Add(new ComponentCheckItemDto
                 {
                     ComponentId = component.Id,
                     ComponentName = component.ComponentName,
                     ComponentKind = component.ComponentKind,
-                    ExpectedQuantity = component.DefaultQuantity,
-                    ActualQuantity = 0,
-                    PenaltyFee = penalty?.PenaltyFee ?? 0
+                    ExpectedQuantity = expectedQty,
+                    ActualQuantity = actualQty,
+                    PenaltyFee = penaltyFee
                 });
             }
 
@@ -1020,7 +1030,9 @@ namespace BoardVerse.Services.Services
                 sessionGame.CheckedAt = DateTime.UtcNow;
                 sessionGame.TotalPenaltyAmount = 0;
                 await _posRepository.SaveChangesAsync();
-                return await GetComponentChecklistAsync(cafeId, userId, userRole, request.SessionGameId);
+                // Pass empty dict so all components show ExpectedQuantity as ActualQuantity
+                return await GetComponentChecklistAsync(cafeId, userId, userRole, request.SessionGameId,
+                    new Dictionary<Guid, int>());
             }
 
             // Chi tiết từng linh kiện + tính penalty
@@ -1105,7 +1117,9 @@ namespace BoardVerse.Services.Services
 
             await _posRepository.SaveChangesAsync();
 
-            return await GetComponentChecklistAsync(cafeId, userId, userRole, request.SessionGameId);
+            // Pass actual quantities to return correct values in response
+            var actualQuantities = request.Results.ToDictionary(r => r.ComponentId, r => r.ActualQuantity);
+            return await GetComponentChecklistAsync(cafeId, userId, userRole, request.SessionGameId, actualQuantities);
         }
 
         // GAP-25 Fix: Reset checklist — cho phép staff reset lại checklist nếu đã kiểm tra sai

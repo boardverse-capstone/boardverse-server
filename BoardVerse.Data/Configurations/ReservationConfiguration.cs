@@ -108,7 +108,9 @@ public class SeatInventoryConfiguration : IEntityTypeConfiguration<SeatInventory
         builder.Property(s => s.InUseSeats).HasDefaultValue(0);
 
         // BR § XVII.3 — optimistic concurrency token.
+        // Production DB dùng bigint, không phải uint/integer.
         builder.Property(s => s.RowVersion)
+            .HasColumnType("bigint")
             .IsConcurrencyToken();
 
         // BR § 8 — mỗi cafe có 1 row cho mỗi (playDate, timeSlot).
@@ -138,7 +140,9 @@ public class GameInventoryConfiguration : IEntityTypeConfiguration<GameInventory
         builder.Property(g => g.HeldCopies).HasDefaultValue(0);
         builder.Property(g => g.InUseCopies).HasDefaultValue(0);
 
-        builder.Property(g => g.RowVersion).IsConcurrencyToken();
+        builder.Property(g => g.RowVersion)
+            .HasColumnType("bigint")
+            .IsConcurrencyToken();
 
         builder.HasIndex(g => new { g.CafeId, g.GameId, g.PlayDate, g.TimeSlot })
             .IsUnique()

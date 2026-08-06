@@ -89,7 +89,8 @@ namespace BoardVerse.Services.IServices
             Guid cafeId,
             Guid userId,
             string userRole,
-            Guid sessionGameId);
+            Guid sessionGameId,
+            Dictionary<Guid, int>? actualQuantities = null);
         Task<ComponentChecklistDto> SubmitComponentCheckAsync(
             Guid cafeId,
             Guid userId,
