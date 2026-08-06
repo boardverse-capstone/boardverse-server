@@ -225,6 +225,43 @@ public class ReservationService : IReservationService
                 throw new ConflictException(ApiErrorMessages.Reservation.IdempotencyKeyConflict);
             }
 
+            // Fix #Bug-IdempotentStrictParams: So sánh tất cả params để chống replay với params khác.
+            // Nếu client gửi request với params khác nhưng cùng IdempotencyKey → 409 Conflict.
+            var paramsMismatch = new List<string>();
+            if (existing.CafeId != request.CafeId)
+                paramsMismatch.Add($"CafeId (existing={existing.CafeId}, request={request.CafeId})");
+            if (existing.GameId != request.GameId)
+                paramsMismatch.Add($"GameId (existing={existing.GameId}, request={request.GameId})");
+            if (existing.PlayDate != request.PlayDate)
+                paramsMismatch.Add($"PlayDate (existing={existing.PlayDate}, request={request.PlayDate})");
+            if (existing.TimeSlot != request.TimeSlot)
+                paramsMismatch.Add($"TimeSlot (existing={existing.TimeSlot}, request={request.TimeSlot})");
+            if (existing.MaxPlayers != request.MaxPlayers)
+                paramsMismatch.Add($"MaxPlayers (existing={existing.MaxPlayers}, request={request.MaxPlayers})");
+            if (existing.MinPlayers != request.MinPlayers)
+                paramsMismatch.Add($"MinPlayers (existing={existing.MinPlayers}, request={request.MinPlayers})");
+            if (existing.DepositAmount != request.ExpectedFinalDeposit)
+                paramsMismatch.Add($"ExpectedFinalDeposit (existing={existing.DepositAmount}, request={request.ExpectedFinalDeposit})");
+
+            if (paramsMismatch.Count > 0)
+            {
+                _logger.LogWarning(
+                    "IdempotencyKey '{Key}' reused with different params: {Mismatches}. " +
+                    "Existing ReservationId={ReservationId}, LobbyId={LobbyId}, Status={Status}. " +
+                    "Rejecting replay with 409 Conflict.",
+                    request.IdempotencyKey,
+                    string.Join("; ", paramsMismatch),
+                    existing.Id,
+                    existing.LobbyId,
+                    existing.Status);
+
+                throw new ConflictException(
+                    $"IdempotencyKey '{request.IdempotencyKey}' đã được dùng cho reservation khác. " +
+                    $"Các tham số không khớp: {string.Join(", ", paramsMismatch)}. " +
+                    $"Dùng IdempotencyKey mới hoặc thay đổi params để khớp với reservation cũ.");
+            }
+
+            // Params khớp → kiểm tra self-heal (R-Bug-029) như cũ
             // Fix #Bug-IdempotentLobbyNull-3 + R-Bug-029: Self-heal — nếu LobbyId = null nhưng reservation tồn tại
             // (partial completion từ request trước), tìm lobby theo ReservationId ngược.
             if (existing.LobbyId == null)
@@ -407,6 +444,38 @@ public class ReservationService : IReservationService
                     _scheduleResolver,
                     request.CafeId);
             }
+            catch (Exception ex)
+            {
+                // Log non-serialization exceptions for debugging, then let it propagate
+                _logger.LogWarning(ex,
+                    "ConfirmAsync non-serialization error on attempt {Attempt}/{Max}. HostId={HostId}, IdempotencyKey={Key}. Exception: {ExceptionType}",
+                    attempt, maxRetries, hostId, request.IdempotencyKey, ex.GetType().FullName);
+
+                // Only retry for serialization failures; other exceptions should propagate
+                if (attempt >= maxRetries)
+                {
+                    throw;
+                }
+
+                // Reset EF change tracker để retry với snapshot mới.
+                _db.ChangeTracker.Clear();
+
+                // Nạp lại wallet + cafe config
+                wallet = await GetOrCreateWalletEntityAsync(hostId, now);
+                cafeConfig = await _cafeConfigRepository.GetOrCreateDefaultAsync(request.CafeId);
+                var cafeRetry = await _cafeRepository.GetActiveByIdAsync(request.CafeId)
+                    ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(request.CafeId));
+                quote = await _depositCalculator.CalculateWithScheduleAsync(
+                    quoteRequest,
+                    cafeConfig,
+                    cafeRetry.BasePrice,
+                    wallet.RiskMultiplier,
+                    wallet.IsCoolingOff,
+                    request.IsPrivate,
+                    now,
+                    _scheduleResolver,
+                    request.CafeId);
+            }
         }
 
         // Không bao giờ đến đây, nhưng compiler cần.
@@ -542,12 +611,22 @@ public class ReservationService : IReservationService
             // 14. Hold BVC (ledger + wallet mutation) — phải gọi SAU SaveChangesAsync đầu tiên
             // để có reservation.Id gán vào ledger entry.
             // Signature: HoldDepositAsync(userId, amount, relatedLobbyId?, relatedReservationId?, idempotencyKey)
-            await _walletService.HoldDepositAsync(
-                hostId,
-                quote.FinalDeposit,
-                null,                    // relatedLobbyId: chưa có (sẽ update sau step 16)
-                reservation.Id,          // relatedReservationId: có sau SaveChangesAsync đầu tiên
-                request.IdempotencyKey);
+            try
+            {
+                await _walletService.HoldDepositAsync(
+                    hostId,
+                    quote.FinalDeposit,
+                    null,                    // relatedLobbyId: chưa có (sẽ update sau step 16)
+                    reservation.Id,          // relatedReservationId: có sau SaveChangesAsync đầu tiên
+                    request.IdempotencyKey);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "HoldDepositAsync failed. HostId={HostId}, ReservationId={ReservationId}, Amount={Amount}, IdempotencyKey={Key}",
+                    hostId, reservation.Id, quote.FinalDeposit, request.IdempotencyKey);
+                throw;
+            }
 
             // 15. Bind FK reservation ↔ lobby (chỉ sau khi cả 2 đã insert thành công).
             reservation.LobbyId = lobby.Id;
@@ -655,8 +734,12 @@ public class ReservationService : IReservationService
                 HeldBvc = quote.FinalDeposit
             };
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex,
+                "ExecuteConfirmTransactionAsync FAILED. HostId={HostId}, CafeId={CafeId}, GameId={GameId}, PlayDate={PlayDate}, TimeSlot={TimeSlot}, IdempotencyKey={IdempotencyKey}. Exception: {ExceptionType} - {ExceptionMessage}",
+                hostId, request.CafeId, request.GameId, request.PlayDate, request.TimeSlot, request.IdempotencyKey,
+                ex.GetType().FullName, ex.Message);
             await tx.RollbackAsync();
             throw;
         }

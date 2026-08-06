@@ -967,8 +967,36 @@ public class WalletService : IWalletService
             }
 
             // Lock wallet row để tránh race condition khi concurrent hold + release.
-            var wallet = await _walletRepository.GetByUserIdForUpdateAsync(userId)
-                ?? throw new NotFoundException(ApiErrorMessages.Wallet.WalletAutoCreateUserNotFound);
+            var wallet = await _walletRepository.GetByUserIdForUpdateAsync(userId);
+            if (wallet == null)
+            {
+                // FIX #500: Wallet might not exist - try to create it first
+                // This handles the case where wallet was deleted or never created
+                _logger.LogWarning(
+                    "Wallet not found for UserId={UserId} in BVC mutation. Attempting to create...",
+                    userId);
+
+                wallet = new Wallet
+                {
+                    UserId = userId,
+                    AvailableBalance = 0,
+                    HeldBalance = 0,
+                    TotalActiveDeposit = 0,
+                    RiskMultiplier = 1.0m,
+                    RiskScore = 0,
+                    RiskLevel = RiskLevel.Low,
+                    IsCoolingOff = false,
+                    AccountStatus = AccountStatus.Active,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                await _walletRepository.AddAsync(wallet);
+                await _walletRepository.SaveChangesAsync();
+
+                _logger.LogInformation(
+                    "Auto-created wallet for UserId={UserId} during BVC mutation",
+                    userId);
+            }
 
             mutate(wallet, amountBvc);
             wallet.UpdatedAt = DateTime.UtcNow;

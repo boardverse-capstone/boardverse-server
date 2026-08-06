@@ -371,30 +371,58 @@ Tạo quote cho reservation. **KHÔNG tạo row DB** — chỉ validate + tính 
     "bufferMinutes": 240,
     "bufferWarning": false,
     "requiresCafeApproval": false,
+    "riskLevel": "low",
+    "riskMultiplier": 1.0,
     "expiresAt": "2026-08-02T11:00:00Z",
     "warnings": []
   }
 }
 ```
 
+### Quote warnings
+
+Trường `warnings` chứa các cảnh báo từ server:
+
+| Warning code | Message | Action |
+|---|---|---|
+| `BUFFER_60_120` | Buffer chỉ còn 60-120 phút. Khuyến nghị chọn thời gian sớm hơn. | UI hiển thị warning |
+| `NEAR_CAPACITY` | Cafe gần đầy ghế cho khung giờ này. | UI hiển thị warning |
+| `RISK_MEDIUM` | Tài khoản có mức rủi ro trung bình. Tiền cọc nhân 1.25x. | UI hiển thị warning |
+| `RISK_HIGH` | Tài khoản có mức rủi ro cao. Tiền cọc nhân 1.5x. | UI cảnh báo mạnh |
+| `NEAR_MAX_LOBBIES` | Đã gần đạt giới hạn lobby/ngày. | UI hiển thị warning |
+
+### Risk level trong quote
+
+| Risk Level | riskMultiplier | Mô tả |
+|---|---|---|
+| `low` | 1.0 | Bình thường |
+| `medium` | 1.25 | 2-3 lobby fail trong 30 ngày |
+| `high` | 1.5 | ≥4 lobby fail hoặc từng no-show |
+| `critical` | 2.0 | Cooling-off hoặc tài khoản bị hạn chế |
+```
+
 ### Lỗi thường gặp
 
-| Status | Message rule |
-|---|---|
-| `400` | `playDate` ngoài [today, +7] |
-| `400` | `minPlayers < 2` |
-| `400` | `maxPlayers < minPlayers` |
-| `400` | `preferredStartTime` không nằm trong `timeSlot` window |
-| `400` | Buffer < 60 phút (BR-LOBBY-01b) |
-| `401` | Thiếu token |
-| `403` | User bị `suspended` / `banned` (BR-RISK-04) |
-| `403` | Vượt cap tổng `heldBalance` (BR-USER-LIMIT-03) |
-| `404` | Cafe không tồn tại / không active |
-| `404` | Game không có trong `CafeGameInventory` |
-| `409` | Đã có lobby overlap (BR-USER-LIMIT-02) |
-| `409` | Đã host lobby `playDate+cafe+slot` (BR-NEW-08) |
-| `409` | Vượt 5 lần tạo/hủy / `playDate` (BR-NEW-05) |
-| `409` | Cooling-off (BR-NEW-10) |
+| Status | Message rule | BR |
+|---|---|---|
+| `400` | `playDate` ngoài [today, +7] | - |
+| `400` | `minPlayers < 1` hoặc `maxPlayers > 30` | - |
+| `400` | `maxPlayers < minPlayers` | - |
+| `400` | `preferredStartTime` không nằm trong `timeSlot` window | BR-LOBBY-15b |
+| `400` | Buffer < 60 phút (từ chối) | BR-LOBBY-01b |
+| `400` | Buffer 60-120 phút (cảnh báo) | BR-LOBBY-01c |
+| `401` | Thiếu token | - |
+| `403` | User bị `suspended` / `banned` | BR-RISK-04 |
+| `403` | Cooling-off active (chỉ tạo lobby trong ngày, cọc ×2) | BR-NEW-10 |
+| `403` | User đang là member của lobby active (không được host) | BR-USER-LIMIT-04 |
+| `403` | User đang là host của lobby active (không được join) | BR-USER-LIMIT-05 |
+| `409` | Đã có lobby overlap (lịch chồng lấn +30 phút) | BR-USER-LIMIT-02 |
+| `409` | Đã host lobby `playDate+cafe+slot` | BR-NEW-08 |
+| `409` | Vượt 5 lần tạo/hủy / `playDate` | BR-NEW-05 |
+| `409` | Đã có lobby active cho user / `playDate` | BR-NEW-02 |
+| `409` | Vượt cap tổng `heldBalance` (500k thường, 1tr VIP, 200k risk cao) | BR-USER-LIMIT-03 |
+| `404` | Cafe không tồn tại / không active | - |
+| `404` | Game không có trong `CafeGameInventory` | - |
 
 ---
 
@@ -449,25 +477,75 @@ Nếu `isPrivate: true`, lobby không cần cafe duyệt dù playDate cách xa.
 
 ### Lỗi thường gặp
 
-| Status | Message rule |
+| Status | Message rule | BR |
+|---|---|---|
+| `400` | `expectedFinalDeposit` khác server (quote cũ) | BR §XVII.2 |
+| `400` | Buffer < 60 phút | BR-LOBBY-01b |
+| `400` | Insufficient `availableBalance` | - |
+| `401` | Thiếu token | - |
+| `403` | User không đủ điều kiện (BR-USER-LIMIT-*) | BR-USER-LIMIT |
+| `404` | Cafe/Game không tồn tại | - |
+| `409` | `IdempotencyKey` đã dùng cho user khác | BR §XVII.1 |
+| `409` | `IdempotencyKey` đã dùng với params khác (params mismatch) | BR §XVII.1 |
+| `409` | Cafe hết chỗ (`AvailableSeats < maxPlayers`) | BR-RESERVATION-01 |
+| `409` | Cafe hết game copy | BR-RESERVATION-02 |
+| `500` | Lỗi hệ thống (xem server logs) | - |
+
+### Private lobby (BR-LOBBY-PRIVACY-*)
+
+| Field | Mô tả |
 |---|---|
-| `400` | `expectedFinalDeposit` khác server (quote cũ) |
-| `400` | Buffer < 60 phút |
-| `400` | Insufficient `availableBalance` |
-| `401` | Thiếu token |
-| `403` | User không đủ điều kiện (BR-USER-LIMIT-*) |
-| `404` | Cafe/Game không tồn tại |
-| `409` | `IdempotencyKey` đã dùng cho user khác |
-| `409` | Cafe hết chỗ (`AvailableSeats < maxPlayers`) |
-| `409` | Cafe hết game copy |
+| `isPrivate: false` | Public lobby — xuất hiện trong search, có thể cần cafe duyệt nếu playDate > 2 ngày |
+| `isPrivate: true` | Private lobby — không xuất hiện trong search, chỉ thành viên invited hoặc có share code mới thấy |
+
+**Share code**: 6 ký tự alphanumeric uppercase (ví dụ `K7H3NP9X`). Chỉ thành viên active mới xem được.
+
+**Cafe duyệt**: Public lobby với `playDate > 2 ngày` → `PendingCafeApproval` (chờ 24h). Private lobby luôn bypass cafe duyệt.
+
+### Cooling-off (BR-NEW-10)
+
+Khi active:
+
+- User **không được tạo lobby** có `playDate > 1 ngày`
+- Cọc **nhân ×2** (kết hợp với `riskMultiplier`)
+- Thời hạn **30 ngày**
+
+Trigger: 3 lobby fail (`timeoutFailed` hoặc `hostCancelled` sau grace) trong 7 ngày.
+
+### Idempotency strict params (fix 2026-08-06)
+
+Confirm endpoint **verify tất cả params** trước khi trả kết quả cũ:
+
+- `CafeId`, `GameId`, `PlayDate`, `TimeSlot`
+- `MaxPlayers`, `MinPlayers`
+- `ExpectedFinalDeposit`
+
+| Trường hợp | Hành vi |
+|---|---|
+| Retry với **cùng params** | ✅ 200 — trả kết quả cũ |
+| Retry với **params khác** | ❌ 409 — `IdempotencyKeyParamsMismatch` |
+| Lobby cũ đã bị hủy | ✅ 200 — vẫn trả kết quả cũ (client cần dùng key mới) |
+
+**Ví dụ lỗi params mismatch:**
+
+```json
+{
+  "statusCode": 409,
+  "message": "IdempotencyKey 'abc123' đã được dùng cho reservation khác. " +
+             "Các tham số không khớp: TimeSlot (existing=Afternoon, request=Morning), " +
+             "MaxPlayers (existing=4, request=6). Dùng IdempotencyKey mới."
+}
+```
 
 ### Atomic transaction (BR §17.4)
 
-`BeginTransactionAsync(ReadCommitted)` → `SELECT FOR UPDATE` seat_inventory + game_inventory → `HoldDepositAsync` (trừ BVC + ghi ledger) → INSERT reservation (Holding) → INSERT lobby (`PendingCafeApproval` / `PendingActivation`) → Update Inventory counters → **Nếu lobby ở `PendingActivation` thì promote sang `Open` ngay trong transaction** → Insert 3 Outbox events → `SaveChangesAsync` → `CommitAsync`. Nếu throw → `RollbackAsync`.
+`BeginTransactionAsync(Serializable)` → `SELECT FOR UPDATE` seat_inventory + game_inventory → `HoldDepositAsync` (trừ BVC + ghi ledger) → INSERT reservation (Holding) → INSERT lobby (`PendingCafeApproval` / `PendingActivation`) → Update Inventory counters → **Nếu lobby ở `PendingActivation` thì promote sang `Open` ngay trong transaction** → Insert 3 Outbox events → `SaveChangesAsync` → `CommitAsync`. Nếu throw → `RollbackAsync`.
 
 > **Quan trọng (fix 2026-08-05):** Lobby `PendingActivation` được auto-promote sang `Open` ngay trong cùng transaction `ConfirmAsync` để tránh trạng thái stuck. Trước đây, lobby được insert với `PendingActivation` và chờ Outbox publisher promote — nhưng `LoggingOutboxPublisher` chỉ log, không update DB → lobby bị stuck vĩnh viễn, host không thể invite/join.
 >
 > Lobby `PendingCafeApproval` thì **giữ nguyên** — chờ `HandleCafeApprovalAsync` xử lý.
+
+> **Fix 2026-08-06:** Nếu wallet của user chưa tồn tại trong database, hệ thống sẽ tự động tạo wallet mới với `AvailableBalance = 0` trước khi thực hiện `HoldDepositAsync`. Điều này xử lý trường hợp user chưa từng nạp BVC trước đó.
 
 ---
 
@@ -634,31 +712,93 @@ Client                    ReservationController                ReservationServic
 
 ## State machine
 
-```text
-Reservation:
-  draft → Holding → Confirmed → CheckedIn → Completed
-                  ↘ Expired         ↘ CancelledByPlayer
-                  ↘ CancelledByCafe       ↘ CancelledByCafe
-                  ↘ NoShow                ↘ RejectedByCafe
-```
-
-Lobby:
+### Reservation states
 
 ```text
-PendingActivation → PendingCafeApproval → Open → Viable → Full → InProgress → Closed
-                                                                       ↘ TimeoutFailed
-                                                                       ↘ HostCancelled
-                                                                       ↘ ExpiredByCafe
-                                                                       ↘ RejectedByCafe
+draft
+ → awaitingDeposit (chờ khóa BVC / top-up)
+ → holding (đã khóa BVC, lobby đang tuyển)
+ → confirmed (đạt minPlayers trước deadline)
+ → expired (deadline trôi qua, không đủ người)
+ → checkedIn (POS quét QR check-in)
+ → completed (POS đóng phiên chơi)
+ → cancelledByPlayer | cancelledByCafe | noShow
 ```
+
+### Lobby states (12 trạng thái đầy đủ)
+
+```text
+pendingActivation (txn atomic đang xử lý, lobby chưa publish)
+ → pendingCafeApproval (public lobby > 2 ngày, chờ cafe duyệt)
+ → open (đang tuyển, recruitmentDeadline chưa tới)
+ → viable (đạt minPlayers, vẫn nhận thêm)
+ → full (đạt maxPlayers, ngừng nhận)
+ → inProgress (đã check-in tại quán)
+ → closed (phiên kết thúc)
+ → timeoutFailed (deadline trôi qua, không đủ người)
+ → hostCancelled (host hủy chủ động)
+ → rejectedByCafe (cafe từ chối duyệt)
+ → expiredByCafe (cafe không duyệt trong 24 giờ)
+```
+
+### Transition rules
+
+| Trigger | Current State | Next State | Action |
+|---|---|---|---|
+| Confirm success (playDate ≤ 2 ngày) | - | `open` | Tạo reservation + lobby |
+| Confirm success (playDate > 2 ngày, public) | - | `pendingCafeApproval` | Chờ cafe duyệt 24h |
+| Cafe approve | `pendingCafeApproval` | `open` | Lobby publish |
+| Cafe reject | `pendingCafeApproval` | `rejectedByCafe` | Refund 100% BVC |
+| 24h timeout | `pendingCafeApproval` | `expiredByCafe` | Refund 100% BVC |
+| Join → currentPlayers ≥ minPlayers | `open` | `viable` | Booking → confirmed |
+| Join → currentPlayers = maxPlayers | `open` | `full` | Đóng tuyển |
+| Check-in | `viable`/`full` | `inProgress` | Tạo ActiveSession |
+| Check-in | `open` | `inProgress` | Tạo ActiveSession |
+| Session paid | `inProgress` | `closed` | Settlement |
+| Deadline + insufficient players | `open`/`viable` | `timeoutFailed` | Refund 100% BVC |
+| Host cancel (grace 15p, no members) | `open` | `hostCancelled` | Refund 100% BVC |
+| Host cancel (≥24h before) | `open` | `hostCancelled` | Refund 100% BVC |
+| Host cancel (6-24h) | `open` | `hostCancelled` | Refund 50% BVC |
+| Host cancel (<6h) | `open` | `hostCancelled` | Forfeit 0% BVC |
 
 ---
 
 ## Idempotency (BR §XVII.1)
 
-| Endpoint | Idempotency field |
+Mọi request phải có `IdempotencyKey` 8–128 ký tự. Retry với cùng key trả cùng kết quả.
+
+### Confirm endpoint (strict params validation)
+
+Confirm verify **tất cả params** trước khi trả kết quả cũ:
+
+| Request params verified | Mục đích |
 |---|---|
-| `POST /quote` | `idempotencyKey` (request) — server không cache, chỉ client dedupe |
-| `POST /confirm` | `idempotencyKey` (request) — server check `Reservation.IdempotencyKey` table; cùng key + cùng user → trả cùng response; khác user → 409 |
-| `POST /cancel` | Dựa trên `reservationId` + `updatedAt` (server build idempotency key nội bộ) |
-| `POST /cafe-approval` | Dựa trên lobby.status (chỉ xử lý 1 lần khi `PendingCafeApproval`) |
+| `CafeId` | Đảm bảo đúng cafe |
+| `GameId` | Đảm bảo đúng game |
+| `PlayDate` | Đảm bảo đúng ngày |
+| `TimeSlot` | Đảm bảo đúng khung giờ |
+| `MaxPlayers` | Đảm bảo đúng số người |
+| `MinPlayers` | Đảm bảo đúng số người tối thiểu |
+| `ExpectedFinalDeposit` | Đảm bảo đúng số tiền cọc |
+
+### Idempotency matrix
+
+| Endpoint | Idempotency field | Cùng params | Khác params |
+|---|---|---|---|
+| `POST /quote` | `idempotencyKey` | ✅ 200 (server không cache) | ✅ 200 (quote chỉ tính toán) |
+| `POST /confirm` | `idempotencyKey` | ✅ 200 (trả kết quả cũ) | ❌ 409 (params mismatch) |
+| `POST /cancel` | `reservationId` + `updatedAt` | ✅ 200 | ✅ 200 (idempotent by design) |
+| `POST /cafe-approval` | `lobby.status` | ✅ 200 | ✅ 200 (chỉ xử lý 1 lần) |
+
+### Error codes
+
+| Code | Message | Trigger |
+|---|---|---|
+| `409` | `IdempotencyKeyConflict` | Cùng key, khác user |
+| `409` | `IdempotencyKeyParamsMismatch` | Cùng key, cùng user, khác params |
+
+### Best practices
+
+1. **Dùng key mới** khi muốn tạo reservation mới sau khi lobby cũ bị hủy
+2. **Lưu key** ở client để retry khi network fail
+3. **Client dedupe**: quote không cần server-side dedupe vì chỉ đọc
