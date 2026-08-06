@@ -225,16 +225,15 @@ public class ReservationService : IReservationService
                 throw new ConflictException(ApiErrorMessages.Reservation.IdempotencyKeyConflict);
             }
 
-            // Fix #Bug-IdempotentLobbyNull-3: Self-heal — nếu LobbyId = null nhưng reservation tồn tại
-            // (partial completion từ request trước), thử reload với relations để lấy lobby.
-            // Trường hợp: serialization failure sau khi tạo reservation nhưng trước khi tạo lobby,
-            // hoặc request trước throw trước khi bind FK.
+            // Fix #Bug-IdempotentLobbyNull-3 + R-Bug-029: Self-heal — nếu LobbyId = null nhưng reservation tồn tại
+            // (partial completion từ request trước), tìm lobby theo ReservationId ngược.
             if (existing.LobbyId == null)
             {
                 _logger.LogWarning(
-                    "Reservation idempotent '{Id:N}' has null LobbyId. Attempting self-heal by re-fetching with relations.",
+                    "Reservation idempotent '{Id:N}' has null LobbyId. Attempting self-heal by searching lobby by ReservationId.",
                     existing.Id);
 
+                // Bước 1: Thử reload với relations (nếu FK đã được set nhưng chưa reload)
                 var healed = await _reservationRepository.GetByIdAsync(existing.Id, includeRelations: true);
                 if (healed?.LobbyId != null)
                 {
@@ -242,6 +241,25 @@ public class ReservationService : IReservationService
                     _logger.LogInformation(
                         "Self-healed: Reservation '{Id:N}' now has LobbyId='{LobbyId}'.",
                         existing.Id, existing.LobbyId);
+                }
+                else
+                {
+                    // Bước 2: Tìm lobby theo ReservationId ngược (R-Bug-029)
+                    var orphanLobby = await _lobbyRepository.GetByReservationIdAsync(existing.Id);
+                    if (orphanLobby != null)
+                    {
+                        existing = await _reservationRepository.GetByIdAsync(existing.Id, includeRelations: true);
+                        if (existing != null)
+                        {
+                            // Bind FK để heal
+                            existing.LobbyId = orphanLobby.Id;
+                            await _reservationRepository.UpdateAsync(existing);
+                            await _db.SaveChangesAsync(); // Lưu bind
+                            _logger.LogInformation(
+                                "Self-healed orphan: Reservation '{Id:N}' bound to LobbyId='{LobbyId}'.",
+                                existing.Id, orphanLobby.Id);
+                        }
+                    }
                 }
             }
 

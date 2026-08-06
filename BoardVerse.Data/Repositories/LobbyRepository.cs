@@ -56,6 +56,15 @@ namespace BoardVerse.Data.Repositories
                 .FirstOrDefaultAsync(l => l.ShareCode == shareCode.ToUpperInvariant());
         }
 
+        /// <summary>
+        /// Tìm lobby theo ReservationId — dùng để self-heal orphan reservation (R-Bug-029).
+        /// </summary>
+        public async Task<Lobby?> GetByReservationIdAsync(Guid reservationId)
+        {
+            return await _db.Lobbies
+                .FirstOrDefaultAsync(l => l.ReservationId == reservationId);
+        }
+
         public async Task<IReadOnlyList<Lobby>> GetActiveLobbiesForGameAsync(Guid gameTemplateId, Guid? excludeLobbyId)
         {
             var query = _db.Lobbies

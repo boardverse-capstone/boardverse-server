@@ -103,6 +103,12 @@ public interface ILobbyRepository
     /// </summary>
     Task<bool> IsUserBookingParticipantAsync(Guid bookingId, Guid userId);
 
+    /// <summary>
+    /// Tìm lobby theo ReservationId — dùng để self-heal orphan reservation khi
+    /// Reservation.LobbyId = null nhưng Lobby.ReservationId tồn tại (R-Bug-029).
+    /// </summary>
+    Task<Lobby?> GetByReservationIdAsync(Guid reservationId);
+
     Task AddAsync(Lobby lobby);
     Task AddMemberAsync(LobbyMember member);
     Task AddReportAsync(LobbyReport report);
