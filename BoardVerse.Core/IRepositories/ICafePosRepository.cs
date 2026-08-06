@@ -27,6 +27,13 @@ namespace BoardVerse.Core.IRepositories
         Task AddSessionMemberAsync(ActiveSessionMember member);
         Task AddSessionGameAsync(ActiveSessionGame sessionGame);
         Task AddComponentLossReportAsync(ComponentLossReport report);
+
+        /// <summary>BR-12: Insert bộ kết quả kiểm kê chi tiết (mỗi component 1 dòng).</summary>
+        Task AddComponentCheckResultsAsync(IEnumerable<ComponentCheckResult> results);
+
+        /// <summary>BR-12: Xóa kết quả kiểm kê cũ khi staff reset checklist.</summary>
+        Task DeleteComponentCheckResultsAsync(Guid activeSessionGameId);
+
         Task UpdateDepositAsync(BookingDeposit deposit);
         Task SaveChangesAsync();
 

@@ -231,6 +231,22 @@ namespace BoardVerse.Data.Repositories
             return Task.CompletedTask;
         }
 
+        public async Task AddComponentCheckResultsAsync(IEnumerable<ComponentCheckResult> results)
+        {
+            await _context.ComponentCheckResults.AddRangeAsync(results);
+        }
+
+        public async Task DeleteComponentCheckResultsAsync(Guid activeSessionGameId)
+        {
+            var existing = await _context.ComponentCheckResults
+                .Where(r => r.ActiveSessionGameId == activeSessionGameId)
+                .ToListAsync();
+            if (existing.Count > 0)
+            {
+                _context.ComponentCheckResults.RemoveRange(existing);
+            }
+        }
+
         public Task UpdateDepositAsync(BookingDeposit deposit)
         {
             _context.BookingDeposits.Update(deposit);

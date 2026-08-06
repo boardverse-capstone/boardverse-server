@@ -285,7 +285,8 @@ namespace BoardVerse.API.Controllers
 
         /// <summary>
         /// Lấy bảng kiểm kê linh kiện số hóa của một game trong phiên. [Role: Manager, CafeStaff]
-        /// BR-12: Bắt buộc kiểm kê trước khi in hóa đơn.
+        /// BR-12: Bắt buộc kiểm kê trước khi in hóa đơn. Response chỉ chứa mô tả linh kiện
+        /// (ExpectedQuantity), chưa có số liệu thực tế — gọi POST để verify và lấy ActualQuantity + PenaltyFee.
         /// </summary>
         /// <param name="cafeId">Mã quán.</param>
         /// <param name="sessionGameId">Mã session game (ActiveSessionGame).</param>
@@ -304,7 +305,9 @@ namespace BoardVerse.API.Controllers
 
         /// <summary>
         /// Xác nhận kiểm kê linh kiện và tính phí phạt nếu thiếu. [Role: Manager, CafeStaff]
-        /// BR-12: Mở khóa in hóa đơn khi kiểm kê xong.
+        /// BR-12: Mở khóa in hóa đơn khi kiểm kê xong. Response là ComponentCheckResultDto
+        /// (khác với GET) — chứa ActualQuantity + PenaltyFee từng linh kiện, tổng TotalPenaltyAmount
+        /// và trạng thái CheckStatus (Verified | MissingComponents).
         /// </summary>
         /// <param name="cafeId">Mã quán.</param>
         /// <param name="request">Kết quả kiểm kê từng linh kiện.</param>

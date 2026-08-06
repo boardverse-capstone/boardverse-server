@@ -24,8 +24,8 @@ API vận hành quầy: bàn, kho hộp game, phiên chơi, kiểm kê, khách v
 | `/check-in` | POST | **POS check-in (canonical):** Staff quét QR (ReservationCode \| BookingCode legacy) để kích hoạt phiên chơi cho cả nhóm (BR §21A.7) | `CafePosController` |
 | `/sessions/{sessionId}/end` | POST | **Kết thúc phiên chơi** → session `CHECKING`, hộp → `Available`/`Maintenance` | `CafePosController` |
 | `/sessions/{sessionId}/resume` | POST | **Khôi phục phiên từ `CHECKING` → `ACTIVE`** khi nhân viên bấm nhầm (GAP-1) | `CafePosController` |
-| `/sessions/{sessionGameId}/component-checklist` | GET | Lấy bảng kiểm kê linh kiện của 1 game trong phiên | `CafePosController` |
-| `/sessions/component-check` | POST | Submit bảng kiểm kê linh kiện | `CafePosController` |
+| `/sessions/{sessionGameId}/component-checklist` | GET | Lấy mô tả bảng kiểm kê linh kiện của 1 game trong phiên (`ComponentChecklistDto` — chỉ ExpectedQuantity, chưa verify) | `CafePosController` |
+| `/sessions/component-check` | POST | Submit kết quả kiểm kê linh kiện (`ComponentCheckResultDto` — có ActualQuantity + PenaltyFee + TotalPenaltyAmount) | `CafePosController` |
 | `/sessions/component-check/reset` | POST | Reset checklist để kiểm tra lại khi bấm sai (GAP-25) | `CafePosController` |
 | `/sessions/{sessionId}/return-game` | POST | Trả 1 game sớm: tính `surcharge_fine`, cập nhật box status (session vẫn ACTIVE) | `CafePosController` |
 | `/sessions/{sessionId}/games` | POST | Gán thêm game vào phiên (Exception 6) | `CafePosController` |
@@ -422,9 +422,51 @@ Reset lại checklist linh kiện của 1 game trong session về trạng thái 
 
 **Dùng khi:** Staff đã bấm Submit nhưng nhập sai số lượng linh kiện → cần kiểm tra lại.
 
-**Response 200:** `ComponentChecklistDto` mới với `ActualQuantity = 0` cho tất cả components.
+**Side effect:** Xóa hết `ComponentCheckResult` thuộc session game này (audit trail cho lần submit trước). Khi staff submit lại → insert bộ dòng mới.
+
+**Response 200:** `ComponentChecklistDto` mới (chỉ chứa `ExpectedQuantity`).
+
+**Lưu ý phân biệt response model:**
+
+| Endpoint | Response type | Có `ActualQuantity` / `PenaltyFee`? |
+|---|---|---|
+| `GET /sessions/{sessionGameId}/component-checklist` | `ComponentChecklistDto` | ❌ Không — chỉ mô tả linh kiện cần kiểm |
+| `POST /sessions/component-check` (`markAllValid=true`) | `ComponentCheckResultDto` | ✅ = `ExpectedQuantity` (staff cam kết "đủ hết" nhưng không đếm chi tiết) |
+| `POST /sessions/component-check` (`markAllValid=false`) | `ComponentCheckResultDto` | ✅ = số nhân viên đếm được (có thể < `ExpectedQuantity` nếu thiếu) |
+| `POST /sessions/component-check/reset` | `ComponentChecklistDto` | ❌ Không — reset về chưa kiểm |
+
+**Audit trail:** Mỗi lần submit thành công, một bộ dòng `ComponentCheckResult` (mỗi component 1 dòng) được lưu vĩnh viễn. Admin có thể dùng query `WHERE ActiveSessionGameId = X` để:
+- Xem staff nào verify lúc nào
+- Phân biệt staff kiểm tra thật (ActualQuantity thay đổi) vs bấm `markAllValid`
+- Truy vết khiếu nại khách về "thiếu linh kiện"
 
 **Lỗi:** `409` — Phiên không ở `CHECKING`, hoặc session game không tồn tại.
+
+---
+
+## ComponentCheckResult (audit trail)
+
+Mỗi session game sau khi verify sẽ có 1 bộ dòng trong bảng `ComponentCheckResults`:
+
+| Cột | Mô tả |
+|---|---|
+| `Id` | PK |
+| `ActiveSessionGameId` | FK → session game đã verify |
+| `GameComponentTemplateId` | FK → linh kiện trong template |
+| `ExpectedQuantity` | Số theo template tại thời điểm verify (snapshot) |
+| `ActualQuantity` | Số nhân viên đếm được (hoặc = `ExpectedQuantity` nếu `markAllValid`) |
+| `PenaltyFee` | Phí phạt cho dòng này (= `0` nếu đủ) |
+| `StaffId` | Staff thực hiện kiểm kê |
+| `CheckedAt` | Thời điểm verify |
+
+**Khác `ComponentLossReport`:**
+
+| | `ComponentCheckResult` | `ComponentLossReport` |
+|---|---|---|
+| Trigger | BR-12 kiểm kê cuối phiên | Exception 7 ghi nhận hao hụt ngoài phiên |
+| FK session | Required (`ActiveSessionGameId`) | Optional (`ActiveSessionId` nullable) |
+| Ảnh hưởng hóa đơn | CÓ (cộng vào `TotalPenaltyAmount`) | KHÔNG (audit-only) |
+| Granularity | Per-component (audit chi tiết) | Per-incident (free-form text) |
 
 ---
 

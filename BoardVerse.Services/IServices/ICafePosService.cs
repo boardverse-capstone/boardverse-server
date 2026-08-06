@@ -85,13 +85,14 @@ namespace BoardVerse.Services.IServices
             Guid sessionId);
 
         // BR-12: Component Checklist
+        // GET: trả về mô tả các linh kiện cần kiểm (chưa có số liệu thực tế).
         Task<ComponentChecklistDto> GetComponentChecklistAsync(
             Guid cafeId,
             Guid userId,
             string userRole,
-            Guid sessionGameId,
-            Dictionary<Guid, int>? actualQuantities = null);
-        Task<ComponentChecklistDto> SubmitComponentCheckAsync(
+            Guid sessionGameId);
+        // POST verify: lưu kết quả kiểm kê, tính phí phạt, trả ComponentCheckResultDto.
+        Task<ComponentCheckResultDto> SubmitComponentCheckAsync(
             Guid cafeId,
             Guid userId,
             string userRole,

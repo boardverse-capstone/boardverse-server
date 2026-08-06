@@ -929,12 +929,12 @@ namespace BoardVerse.Services.Services
         }
 
         // BR-12: Component Checklist
+        // GET: trả danh sách linh kiện cần kiểm, chưa có số liệu thực tế.
         public async Task<ComponentChecklistDto> GetComponentChecklistAsync(
             Guid cafeId,
             Guid userId,
             string userRole,
-            Guid sessionGameId,
-            Dictionary<Guid, int>? actualQuantities = null)
+            Guid sessionGameId)
         {
             await EnsurePosAccessAsync(cafeId, userId, userRole);
 
@@ -951,46 +951,22 @@ namespace BoardVerse.Services.Services
 
             var components = sessionGame.GameTemplate.Components?.ToList() ?? [];
 
-            var componentIds = components.Select(c => c.Id).ToList();
-            var penaltyMap = await _posRepository.GetComponentPenaltiesByCafeGameAsync(
-                cafeId, sessionGame.GameTemplateId, componentIds);
-
-            var checklist = new ComponentChecklistDto
+            return new ComponentChecklistDto
             {
                 SessionGameId = sessionGame.Id,
                 GameTemplateId = sessionGame.GameTemplateId,
                 GameName = sessionGame.GameTemplate.Name,
-                Components = []
-            };
-
-            foreach (var component in components)
-            {
-                penaltyMap.TryGetValue(component.Id, out var penalty);
-                var actualQty = actualQuantities != null && actualQuantities.TryGetValue(component.Id, out var aq)
-                    ? aq
-                    : 0;
-                var expectedQty = component.DefaultQuantity;
-                var missing = expectedQty - actualQty;
-                // PenaltyFee in response = total penalty (per-unit × số thiếu), not per-unit
-                var penaltyFee = penalty != null && missing > 0
-                    ? penalty.PenaltyFee * missing
-                    : 0;
-
-                checklist.Components.Add(new ComponentCheckItemDto
+                Components = components.Select(c => new ComponentCheckItemDto
                 {
-                    ComponentId = component.Id,
-                    ComponentName = component.ComponentName,
-                    ComponentKind = component.ComponentKind,
-                    ExpectedQuantity = expectedQty,
-                    ActualQuantity = actualQty,
-                    PenaltyFee = penaltyFee
-                });
-            }
-
-            return checklist;
+                    ComponentId = c.Id,
+                    ComponentName = c.ComponentName,
+                    ComponentKind = c.ComponentKind,
+                    ExpectedQuantity = c.DefaultQuantity
+                }).ToList()
+            };
         }
 
-        public async Task<ComponentChecklistDto> SubmitComponentCheckAsync(
+        public async Task<ComponentCheckResultDto> SubmitComponentCheckAsync(
             Guid cafeId,
             Guid userId,
             string userRole,
@@ -1023,23 +999,55 @@ namespace BoardVerse.Services.Services
                     $"Chỉ có thể kiểm tra linh kiện khi phiên đang ở trạng thái CHECKING (đã trả game). Trạng thái hiện tại: {session.Status}.");
             }
 
-            // AC 3.2: "Tất cả hợp lệ" → skip kiểm tra chi tiết
+            var components = sessionGame.GameTemplate.Components?.ToList() ?? [];
+
+            // AC 3.2: "Tất cả hợp lệ" → mark Verified ngay. Vẫn insert 1 dòng result cho mỗi component
+            // với ActualQuantity = ExpectedQuantity để admin audit "staff bấm AllValid lúc Y, không đếm chi tiết".
             if (request.MarkAllValid)
             {
+                var now = DateTime.UtcNow;
                 sessionGame.CheckStatus = ComponentCheckStatus.Verified;
-                sessionGame.CheckedAt = DateTime.UtcNow;
+                sessionGame.CheckedAt = now;
+                sessionGame.CheckedByStaffId = userId;
                 sessionGame.TotalPenaltyAmount = 0;
+
+                var allValidResults = components.Select(c => new ComponentCheckResult
+                {
+                    Id = Guid.NewGuid(),
+                    ActiveSessionGameId = sessionGame.Id,
+                    GameComponentTemplateId = c.Id,
+                    ExpectedQuantity = c.DefaultQuantity,
+                    ActualQuantity = c.DefaultQuantity,
+                    PenaltyFee = 0,
+                    StaffId = userId,
+                    CheckedAt = now
+                }).ToList();
+                await _posRepository.AddComponentCheckResultsAsync(allValidResults);
                 await _posRepository.SaveChangesAsync();
-                // Pass empty dict so all components show ExpectedQuantity as ActualQuantity
-                return await GetComponentChecklistAsync(cafeId, userId, userRole, request.SessionGameId,
-                    new Dictionary<Guid, int>());
+
+                return new ComponentCheckResultDto
+                {
+                    SessionGameId = sessionGame.Id,
+                    GameTemplateId = sessionGame.GameTemplateId,
+                    GameName = sessionGame.GameTemplate.Name,
+                    CheckStatus = sessionGame.CheckStatus,
+                    CheckedAt = sessionGame.CheckedAt!.Value,
+                    TotalPenaltyAmount = 0,
+                    Components = components.Select(c => new ComponentCheckResultItemDto
+                    {
+                        ComponentId = c.Id,
+                        ComponentName = c.ComponentName,
+                        ComponentKind = c.ComponentKind,
+                        ExpectedQuantity = c.DefaultQuantity,
+                        ActualQuantity = c.DefaultQuantity,
+                        PenaltyFee = 0
+                    }).ToList()
+                };
             }
 
             // Chi tiết từng linh kiện + tính penalty
             var gameTemplateId = sessionGame.GameTemplateId;
-            var validComponentIds = sessionGame.GameTemplate.Components
-                .Select(c => c.Id)
-                .ToHashSet();
+            var validComponentIds = components.Select(c => c.Id).ToHashSet();
 
             foreach (var result in request.Results)
             {
@@ -1068,20 +1076,28 @@ namespace BoardVerse.Services.Services
             // GAP-16 Fix: Track components with missing penalty config for warning
             var missingPenaltyComponents = new List<string>();
 
-            var components = sessionGame.GameTemplate.Components.ToList();
             var componentIds = components.Select(c => c.Id).ToList();
             var penaltyMap = await _posRepository.GetComponentPenaltiesByCafeGameAsync(
                 cafeId, gameTemplateId, componentIds);
 
+            var resultComponents = new List<ComponentCheckResultItemDto>();
+            var nowDetailed = DateTime.UtcNow;
+            var hasMissing = false;
+
             foreach (var component in components)
             {
                 var actualQty = resultLookup.GetValueOrDefault(component.Id, 0);
-                if (actualQty < component.DefaultQuantity)
+                var expectedQty = component.DefaultQuantity;
+                var missing = expectedQty - actualQty;
+                decimal penaltyFee = 0;
+
+                if (actualQty < expectedQty)
                 {
+                    hasMissing = true;
                     if (penaltyMap.TryGetValue(component.Id, out var penalty))
                     {
-                        var missing = component.DefaultQuantity - actualQty;
-                        totalPenalty += penalty.PenaltyFee * missing;
+                        penaltyFee = penalty.PenaltyFee * missing;
+                        totalPenalty += penaltyFee;
                     }
                     else
                     {
@@ -1092,6 +1108,16 @@ namespace BoardVerse.Services.Services
                             cafeId, gameTemplateId, component.Id, component.ComponentName);
                     }
                 }
+
+                resultComponents.Add(new ComponentCheckResultItemDto
+                {
+                    ComponentId = component.Id,
+                    ComponentName = component.ComponentName,
+                    ComponentKind = component.ComponentKind,
+                    ExpectedQuantity = expectedQty,
+                    ActualQuantity = actualQty,
+                    PenaltyFee = penaltyFee
+                });
             }
 
             // GAP-16 Fix: Log warning with all missing penalty components
@@ -1102,24 +1128,39 @@ namespace BoardVerse.Services.Services
                     missingPenaltyComponents.Count, request.SessionGameId, string.Join("; ", missingPenaltyComponents));
             }
 
-            var hasMissing = request.Results.Any(r =>
-            {
-                var component = sessionGame.GameTemplate.Components
-                    .FirstOrDefault(c => c.Id == r.ComponentId);
-                return component != null && r.ActualQuantity < component.DefaultQuantity;
-            });
-
             sessionGame.CheckStatus = hasMissing
                 ? ComponentCheckStatus.MissingComponents
                 : ComponentCheckStatus.Verified;
-            sessionGame.CheckedAt = DateTime.UtcNow;
+            sessionGame.CheckedAt = nowDetailed;
+            sessionGame.CheckedByStaffId = userId;
             sessionGame.TotalPenaltyAmount = totalPenalty;
 
+            // BR-12: Lưu audit trail cho từng component (kể cả đủ, ActualQuantity = ExpectedQuantity).
+            // Admin có thể truy vết staff có thật sự kiểm tra hay bấm AllValid.
+            var detailedResults = resultComponents.Select(r => new ComponentCheckResult
+            {
+                Id = Guid.NewGuid(),
+                ActiveSessionGameId = sessionGame.Id,
+                GameComponentTemplateId = r.ComponentId,
+                ExpectedQuantity = r.ExpectedQuantity,
+                ActualQuantity = r.ActualQuantity,
+                PenaltyFee = r.PenaltyFee,
+                StaffId = userId,
+                CheckedAt = nowDetailed
+            }).ToList();
+            await _posRepository.AddComponentCheckResultsAsync(detailedResults);
             await _posRepository.SaveChangesAsync();
 
-            // Pass actual quantities to return correct values in response
-            var actualQuantities = request.Results.ToDictionary(r => r.ComponentId, r => r.ActualQuantity);
-            return await GetComponentChecklistAsync(cafeId, userId, userRole, request.SessionGameId, actualQuantities);
+            return new ComponentCheckResultDto
+            {
+                SessionGameId = sessionGame.Id,
+                GameTemplateId = sessionGame.GameTemplateId,
+                GameName = sessionGame.GameTemplate.Name,
+                CheckStatus = sessionGame.CheckStatus,
+                CheckedAt = sessionGame.CheckedAt!.Value,
+                TotalPenaltyAmount = totalPenalty,
+                Components = resultComponents
+            };
         }
 
         // GAP-25 Fix: Reset checklist — cho phép staff reset lại checklist nếu đã kiểm tra sai
@@ -1153,13 +1194,18 @@ namespace BoardVerse.Services.Services
             // Reset checklist
             sessionGame.CheckStatus = ComponentCheckStatus.NotChecked;
             sessionGame.CheckedAt = null;
+            sessionGame.CheckedByStaffId = null;
             sessionGame.TotalPenaltyAmount = 0;
+
+            // BR-12: Xóa audit trail cũ để staff có thể kiểm tra lại từ đầu.
+            // Lưu ý: chỉ xóa các dòng thuộc session game hiện tại (không cascade sang session khác).
+            await _posRepository.DeleteComponentCheckResultsAsync(sessionGameId);
 
             await _posRepository.SaveChangesAsync();
 
             _logger.LogInformation(
-                "Component checklist reset. SessionGameId={SessionGameId}, CafeId={CafeId}",
-                sessionGameId, cafeId);
+                "Component checklist reset. SessionGameId={SessionGameId}, CafeId={CafeId}, StaffId={StaffId}",
+                sessionGameId, cafeId, userId);
 
             return await GetComponentChecklistAsync(cafeId, userId, userRole, sessionGameId);
         }

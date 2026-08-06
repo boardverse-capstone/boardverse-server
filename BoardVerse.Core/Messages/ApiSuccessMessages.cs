@@ -229,8 +229,11 @@ namespace BoardVerse.Core.Messages
             public const string InviteAccepted = "Đã chấp nhận lời mời tham gia lobby.";
             public const string InviteDeclined = "Đã từ chối lời mời tham gia lobby.";
             public const string InviteCancelled = "Đã hủy lời mời tham gia lobby.";
+            public const string InviteResent = "Đã gửi lại lời mời vào lobby thành công.";
             public const string InvitesRetrieved = "Lấy danh sách lời mời lobby thành công.";
+            public const string LobbyInvitesRetrieved = "Lấy lịch sử lời mời của lobby thành công.";
             public const string ShareInfoRetrieved = "Lấy thông tin chia sẻ lobby thành công.";
+            public const string InvitableFriendsRetrieved = "Lấy danh sách bạn bè có thể mời vào lobby thành công.";
         }
 
         public static class Tournament

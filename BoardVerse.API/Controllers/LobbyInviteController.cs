@@ -146,4 +146,105 @@ public class LobbyInviteController : BaseApiController
         var result = await _lobbyService.JoinLobbyByShareCodeAsync(request.ShareCode, userId);
         return this.NewResponse(200, ApiSuccessMessages.Lobby.LobbyJoined, result);
     }
+
+    /// <summary>
+    /// Lấy lịch sử invite của lobby (Pending/Accepted/Declined/Expired/Cancelled).
+    /// [Role: Player — chỉ thành viên active của lobby]
+    /// </summary>
+    /// <param name="lobbyId">Mã phòng chờ.</param>
+    /// <param name="status">Filter optional: Pending / Accepted / Declined / Expired / Cancelled.</param>
+    /// <param name="limit">Giới hạn kết quả (1-200, mặc định 100).</param>
+    /// <response code="200">Danh sách invite của lobby (sắp xếp theo CreatedAt desc).</response>
+    /// <response code="400">Status filter không hợp lệ.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải thành viên lobby.</response>
+    /// <response code="404">Không tìm thấy lobby.</response>
+    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+    [HttpGet("{lobbyId:guid}/invites")]
+    [ProducesResponseType(typeof(IReadOnlyList<LobbyInviteResponseDto>), 200)]
+    [ProducesResponseType(400)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(403)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(500)]
+    public async Task<IActionResult> GetLobbyInvites(
+        Guid lobbyId,
+        [FromQuery] string? status = null,
+        [FromQuery] int limit = 100)
+    {
+        var userId = GetUserIdFromClaims();
+        var result = await _inviteService.GetLobbyInvitesAsync(lobbyId, userId, status, limit);
+        return this.NewResponse(200, ApiSuccessMessages.LobbyInvite.LobbyInvitesRetrieved, result);
+    }
+
+    /// <summary>
+    /// Gửi lại 1 invite đã ở trạng thái terminal (Declined / Expired / Cancelled).
+    /// Tạo record mới (Pending), reset ExpiresAt = now + 24h.
+    /// [Role: Player — chỉ inviter cũ hoặc host lobby]
+    /// </summary>
+    /// <param name="inviteId">Mã invite cần gửi lại.</param>
+    /// <response code="201">Đã gửi lại lời mời (trả về invite mới).</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải inviter cũ / host.</response>
+    /// <response code="404">Không tìm thấy invite / lobby.</response>
+    /// <response code="409">Invite đã Accepted / đã có Pending mới / lobby đã đóng / invitee đã là member / vi phạm rate limit.</response>
+    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+    [HttpPost("invites/{inviteId:guid}/resend")]
+    [ProducesResponseType(typeof(LobbyInviteResponseDto), 201)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(403)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(409)]
+    [ProducesResponseType(500)]
+    public async Task<IActionResult> ResendInvite(Guid inviteId)
+    {
+        var userId = GetUserIdFromClaims();
+        var result = await _inviteService.ResendInviteAsync(inviteId, userId);
+        return this.NewResponse(201, ApiSuccessMessages.LobbyInvite.InviteResent, result);
+    }
+
+    /// <summary>
+    /// Lấy danh sách bạn bè (Friendship.Accepted) của current user kèm trạng thái
+    /// mời vào lobby để render UI danh sách mời (nút "Mời" / "Đã gửi" / "Đã trong phòng" / v.v.).
+    /// [Role: Player — chỉ thành viên active của lobby]
+    /// </summary>
+    /// <param name="lobbyId">Mã phòng chờ.</param>
+    /// <param name="search">Từ khóa tìm username (case-insensitive contains).</param>
+    /// <param name="onlineOnly">Chỉ lấy friend đang Online / RecentlyActive.</param>
+    /// <param name="minKarma">Karma tối thiểu (lọc bạn dưới ngưỡng).</param>
+    /// <param name="status">Filter theo nhiều status (comma-separated, vd: <c>Invitable,InvitePending</c>).</param>
+    /// <param name="limit">Giới hạn kết quả (1-200, mặc định 100).</param>
+    /// <response code="200">Danh sách bạn bè kèm trạng thái invite.</response>
+    /// <response code="400">Status filter không hợp lệ.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải thành viên lobby.</response>
+    /// <response code="404">Không tìm thấy lobby.</response>
+    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+    [HttpGet("{lobbyId:guid}/invitable-friends")]
+    [ProducesResponseType(typeof(IReadOnlyList<LobbyInvitableFriendDto>), 200)]
+    [ProducesResponseType(400)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(403)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(500)]
+    public async Task<IActionResult> GetInvitableFriends(
+        Guid lobbyId,
+        [FromQuery] string? search = null,
+        [FromQuery] bool onlineOnly = false,
+        [FromQuery] int? minKarma = null,
+        [FromQuery] string? status = null,
+        [FromQuery] int limit = 100)
+    {
+        var userId = GetUserIdFromClaims();
+        var query = new LobbyInvitableFriendsQuery
+        {
+            Search = search,
+            OnlineOnly = onlineOnly,
+            MinKarma = minKarma,
+            Status = status,
+            Limit = limit
+        };
+        var result = await _inviteService.GetInvitableFriendsForLobbyAsync(lobbyId, userId, query);
+        return this.NewResponse(200, ApiSuccessMessages.LobbyInvite.InvitableFriendsRetrieved, result);
+    }
 }

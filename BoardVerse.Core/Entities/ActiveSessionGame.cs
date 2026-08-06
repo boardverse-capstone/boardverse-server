@@ -39,5 +39,8 @@ namespace BoardVerse.Core.Entities
         public virtual CafeInventoryBox CafeInventoryBox { get; set; } = null!;
         public virtual GameTemplate GameTemplate { get; set; } = null!;
         public virtual User? CheckedByStaff { get; set; }
+
+        /// <summary>BR-12: Kết quả kiểm kê chi tiết từng linh kiện (lưu vĩnh viễn cho audit).</summary>
+        public virtual ICollection<ComponentCheckResult> ComponentCheckResults { get; set; } = [];
     }
 }
