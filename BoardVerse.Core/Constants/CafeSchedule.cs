@@ -50,12 +50,12 @@ public static class CafeSchedule
             return true;
         }
 
-        var start = GetStartTime(slot);
-        var end = GetEndTime(slot);
-
-        return slot == TimeSlot.Night
-            ? IsPreferredStartTimeValidOvernight(preferred.Value)
-            : preferred >= start && preferred <= end;
+        return slot switch
+        {
+            TimeSlot.Night => IsPreferredStartTimeValidOvernight(preferred.Value),
+            TimeSlot.Evening => preferred >= new TimeOnly(18, 0) && preferred <= new TimeOnly(23, 59),
+            _ => preferred >= GetStartTime(slot) && preferred <= GetEndTime(slot)
+        };
     }
 
     /// <summary>

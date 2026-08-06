@@ -371,16 +371,32 @@ public class DepositCalculatorTests
     }
 
     [Fact]
-    public void Calculate_MinPlayersBelow2_ThrowsArgumentException()
+    public void Calculate_MinPlayersBelow1_ThrowsArgumentException()
     {
-        // Arrange
+        // Arrange - Solo play (MinPlayers = 1) được phép, nhưng MinPlayers < 1 thì không
         var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
-        var request = BuildRequest(DateOnly.FromDateTime(now.Date), minPlayers: 1, maxPlayers: 4);
+        var request = BuildRequest(DateOnly.FromDateTime(now.Date), minPlayers: 0, maxPlayers: 4);
         var config = BuildCafeConfig();
 
         // Act & Assert
         Assert.Throws<ArgumentException>(() =>
             _calculator.Calculate(request, config, cafeBasePrice: 100_000m, 1.0m, false, false, now));
+    }
+
+    [Fact]
+    public void Calculate_SoloPlay_MinPlayers1_IsAllowed()
+    {
+        // Arrange - Solo play (MinPlayers = 1) được phép theo business rule mới
+        var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
+        var request = BuildRequest(DateOnly.FromDateTime(now.Date), minPlayers: 1, maxPlayers: 4);
+        var config = BuildCafeConfig();
+
+        // Act - Không throw exception
+        var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, 1.0m, false, false, now);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.True(result.FinalDeposit > 0);
     }
 
     [Fact]
