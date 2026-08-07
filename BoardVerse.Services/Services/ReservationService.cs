@@ -1175,6 +1175,9 @@ public class ReservationService : IReservationService
     /// <summary>
     /// GAP #11 fix: Wrap từng deadline processing trong 1 Serializable transaction.
     /// Trước: update status + refund + release inventory rời rạc → race với member join / cancel.
+    /// Lưu ý: transaction cấp batch đã được mở ở <see cref="ProcessDeadlineReservationsAsync"/>
+    /// (FOR UPDATE SKIP LOCKED cần transaction bao ngoài). Không mở thêm transaction
+    /// con ở đây — Npgsql không cho phép nested transaction.
     /// </summary>
     private async Task ProcessSingleDeadlineAsync(Reservation reservation, DateTime now)
     {
@@ -1194,64 +1197,52 @@ public class ReservationService : IReservationService
         {
             try
             {
-                await using var tx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
-
-                try
+                if (reservation.CurrentPlayers >= reservation.MinPlayers)
                 {
-                    if (reservation.CurrentPlayers >= reservation.MinPlayers)
-                    {
-                        // Đạt minPlayers → viable/full → confirmed.
-                        reservation.Status = ReservationStatus.Confirmed;
-                        lobby.Status = lobby.Status == LobbyStatus.PendingCafeApproval
-                            ? LobbyStatus.PendingCafeApproval
-                            : (reservation.CurrentPlayers >= reservation.MaxPlayers ? LobbyStatus.Full : LobbyStatus.Viable);
-                        lobby.UpdatedAt = now;
+                    // Đạt minPlayers → viable/full → confirmed.
+                    reservation.Status = ReservationStatus.Confirmed;
+                    lobby.Status = lobby.Status == LobbyStatus.PendingCafeApproval
+                        ? LobbyStatus.PendingCafeApproval
+                        : (reservation.CurrentPlayers >= reservation.MaxPlayers ? LobbyStatus.Full : LobbyStatus.Viable);
+                    lobby.UpdatedAt = now;
 
-                        await _reservationRepository.UpdateAsync(reservation);
-                        await _lobbyRepository.UpdateAsync(lobby);
-                        await _reservationRepository.SaveChangesAsync();
-                        await tx.CommitAsync();
+                    await _reservationRepository.UpdateAsync(reservation);
+                    await _lobbyRepository.UpdateAsync(lobby);
+                    await _reservationRepository.SaveChangesAsync();
 
-                        _logger.LogInformation(
-                            "Reservation confirmed at deadline. ReservationId={ReservationId}, Players={Players}",
-                            reservation.Id, reservation.CurrentPlayers);
-                    }
-                    else
-                    {
-                        // Timeout → refund 100% BVC.
-                        // GAP #12 fix: Lock inventory rows trước khi refund.
-                        await ReleaseInventoriesAsync(reservation, now);
-
-                        var refundIdempotencyKey = $"timeout-{reservation.Id:N}";
-                        await _walletService.ReleaseDepositAsync(
-                            reservation.HostId,
-                            reservation.DepositAmount,
-                            lobby.Id,
-                            reservation.Id,
-                            refundIdempotencyKey);
-
-                        reservation.Status = ReservationStatus.Expired;
-                        lobby.Status = LobbyStatus.TimeoutFailed;
-                        lobby.ClosedAt = now;
-                        lobby.ClosedReason = "Đến recruitmentDeadline mà chưa đạt minPlayers.";
-                        lobby.UpdatedAt = now;
-
-                        await _reservationRepository.UpdateAsync(reservation);
-                        await _lobbyRepository.UpdateAsync(lobby);
-                        await _reservationRepository.SaveChangesAsync();
-                        await tx.CommitAsync();
-
-                        _logger.LogInformation(
-                            "Reservation timeout. ReservationId={ReservationId}, RefundBvc={RefundBvc}",
-                            reservation.Id, reservation.DepositAmount);
-                    }
-                    return;
+                    _logger.LogInformation(
+                        "Reservation confirmed at deadline. ReservationId={ReservationId}, Players={Players}",
+                        reservation.Id, reservation.CurrentPlayers);
                 }
-                catch
+                else
                 {
-                    await tx.RollbackAsync();
-                    throw;
+                    // Timeout → refund 100% BVC.
+                    // GAP #12 fix: Lock inventory rows trước khi refund.
+                    await ReleaseInventoriesAsync(reservation, now);
+
+                    var refundIdempotencyKey = $"timeout-{reservation.Id:N}";
+                    await _walletService.ReleaseDepositAsync(
+                        reservation.HostId,
+                        reservation.DepositAmount,
+                        lobby.Id,
+                        reservation.Id,
+                        refundIdempotencyKey);
+
+                    reservation.Status = ReservationStatus.Expired;
+                    lobby.Status = LobbyStatus.TimeoutFailed;
+                    lobby.ClosedAt = now;
+                    lobby.ClosedReason = "Đến recruitmentDeadline mà chưa đạt minPlayers.";
+                    lobby.UpdatedAt = now;
+
+                    await _reservationRepository.UpdateAsync(reservation);
+                    await _lobbyRepository.UpdateAsync(lobby);
+                    await _reservationRepository.SaveChangesAsync();
+
+                    _logger.LogInformation(
+                        "Reservation timeout. ReservationId={ReservationId}, RefundBvc={RefundBvc}",
+                        reservation.Id, reservation.DepositAmount);
                 }
+                return;
             }
             catch (DbUpdateException ex) when (IsSerializationFailure(ex) && attempt < MaxRetries)
             {
@@ -1319,42 +1310,31 @@ public class ReservationService : IReservationService
         {
             try
             {
-                await using var tx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+                // GAP #12 fix: Lock inventory rows trước khi refund.
+                await ReleaseInventoriesAsync(reservation, now);
 
-                try
-                {
-                    // GAP #12 fix: Lock inventory rows trước khi refund.
-                    await ReleaseInventoriesAsync(reservation, now);
+                var refundIdempotencyKey = $"cafe-expired-{reservation.Id:N}";
+                await _walletService.ReleaseDepositAsync(
+                    reservation.HostId,
+                    reservation.DepositAmount,
+                    lobby.Id,
+                    reservation.Id,
+                    refundIdempotencyKey);
 
-                    var refundIdempotencyKey = $"cafe-expired-{reservation.Id:N}";
-                    await _walletService.ReleaseDepositAsync(
-                        reservation.HostId,
-                        reservation.DepositAmount,
-                        lobby.Id,
-                        reservation.Id,
-                        refundIdempotencyKey);
+                reservation.Status = ReservationStatus.Expired;
+                lobby.Status = LobbyStatus.ExpiredByCafe;
+                lobby.ClosedAt = now;
+                lobby.ClosedReason = "Cafe không duyệt lobby trong 24 giờ.";
+                lobby.UpdatedAt = now;
 
-                    reservation.Status = ReservationStatus.Expired;
-                    lobby.Status = LobbyStatus.ExpiredByCafe;
-                    lobby.ClosedAt = now;
-                    lobby.ClosedReason = "Cafe không duyệt lobby trong 24 giờ.";
-                    lobby.UpdatedAt = now;
+                await _reservationRepository.UpdateAsync(reservation);
+                await _lobbyRepository.UpdateAsync(lobby);
+                await _reservationRepository.SaveChangesAsync();
 
-                    await _reservationRepository.UpdateAsync(reservation);
-                    await _lobbyRepository.UpdateAsync(lobby);
-                    await _reservationRepository.SaveChangesAsync();
-                    await tx.CommitAsync();
-
-                    _logger.LogInformation(
-                        "Reservation expired by cafe no-approval. ReservationId={ReservationId}",
-                        reservation.Id);
-                    return;
-                }
-                catch
-                {
-                    await tx.RollbackAsync();
-                    throw;
-                }
+                _logger.LogInformation(
+                    "Reservation expired by cafe no-approval. ReservationId={ReservationId}",
+                    reservation.Id);
+                return;
             }
             catch (DbUpdateException ex) when (IsSerializationFailure(ex) && attempt < MaxRetries)
             {
@@ -1406,6 +1386,9 @@ public class ReservationService : IReservationService
 
     /// <summary>
     /// GAP #11 fix: Wrap no-show processing trong Serializable transaction.
+    /// Lưu ý: transaction cấp batch đã được mở ở <see cref="ProcessNoShowAsync"/>
+    /// (FOR UPDATE SKIP LOCKED cần transaction bao ngoài). Không mở thêm transaction
+    /// con ở đây — Npgsql không cho phép nested transaction.
     /// </summary>
     private async Task ProcessSingleNoShowAsync(Reservation reservation, DateTime now)
     {
@@ -1425,43 +1408,32 @@ public class ReservationService : IReservationService
         {
             try
             {
-                await using var tx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+                // Forfeit 100% (no-show).
+                // Idempotency key dựa trên reservationId (stable).
+                var forfeitIdempotencyKey = $"no-show-{reservation.Id:N}";
 
-                try
-                {
-                    // Forfeit 100% (no-show).
-                    // Idempotency key dựa trên reservationId (stable).
-                    var forfeitIdempotencyKey = $"no-show-{reservation.Id:N}";
+                reservation.Status = ReservationStatus.NoShow;
+                lobby.Status = LobbyStatus.Closed;
+                lobby.ClosedAt = now;
+                lobby.ClosedReason = "No-show (không check-in sau grace period).";
+                lobby.UpdatedAt = now;
 
-                    reservation.Status = ReservationStatus.NoShow;
-                    lobby.Status = LobbyStatus.Closed;
-                    lobby.ClosedAt = now;
-                    lobby.ClosedReason = "No-show (không check-in sau grace period).";
-                    lobby.UpdatedAt = now;
+                await _reservationRepository.UpdateAsync(reservation);
+                await _lobbyRepository.UpdateAsync(lobby);
 
-                    await _reservationRepository.UpdateAsync(reservation);
-                    await _lobbyRepository.UpdateAsync(lobby);
+                await _walletService.ForfeitDepositAsync(
+                    reservation.HostId,
+                    reservation.DepositAmount,
+                    lobby.Id,
+                    reservation.Id,
+                    forfeitIdempotencyKey);
 
-                    await _walletService.ForfeitDepositAsync(
-                        reservation.HostId,
-                        reservation.DepositAmount,
-                        lobby.Id,
-                        reservation.Id,
-                        forfeitIdempotencyKey);
+                await _reservationRepository.SaveChangesAsync();
 
-                    await _reservationRepository.SaveChangesAsync();
-                    await tx.CommitAsync();
-
-                    _logger.LogInformation(
-                        "Reservation no-show. ReservationId={ReservationId}, ForfeitBvc={ForfeitBvc}",
-                        reservation.Id, reservation.DepositAmount);
-                    return;
-                }
-                catch
-                {
-                    await tx.RollbackAsync();
-                    throw;
-                }
+                _logger.LogInformation(
+                    "Reservation no-show. ReservationId={ReservationId}, ForfeitBvc={ForfeitBvc}",
+                    reservation.Id, reservation.DepositAmount);
+                return;
             }
             catch (DbUpdateException ex) when (IsSerializationFailure(ex) && attempt < MaxRetries)
             {

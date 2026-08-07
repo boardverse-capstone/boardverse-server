@@ -241,18 +241,4 @@ public class TournamentController : BaseApiController
         var result = await _spectatorService.GetMySpectatorEntryAsync(userId, tournamentId);
         return this.NewResponse(200, "Thông tin spectate.", result);
     }
-
-    /// <summary>
-    /// T-04: Lấy danh sách spectators của một tournament. [Role: Player]
-    /// </summary>
-    /// <param name="tournamentId">Mã giải đấu.</param>
-    /// <response code="200">Danh sách spectators.</response>
-    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
-    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
-    [HttpGet("{tournamentId:guid}/spectators")]
-    public async Task<IActionResult> GetSpectators(Guid tournamentId)
-    {
-        var result = await _spectatorService.GetSpectatorsAsync(tournamentId);
-        return this.NewResponse(200, "Danh sách spectators.", result);
-    }
 }
