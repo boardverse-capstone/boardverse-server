@@ -40,7 +40,7 @@ public class SePayAccountController : BaseApiController
     public async Task<IActionResult> GetAll([FromQuery] SePayAccountQuery query)
     {
         var accounts = await _sePayAccountService.GetAllAsync(query);
-        return Ok(accounts);
+        return this.NewResponse(200, ApiSuccessMessages.Payment.SePayAccountsRetrieved, accounts);
     }
 
     /// <summary>
@@ -60,7 +60,7 @@ public class SePayAccountController : BaseApiController
         {
             return NotFound(new { message = ApiErrorMessages.Payment.SePayAccountNotFound(id) });
         }
-        return Ok(account);
+            return this.NewResponse(200, ApiSuccessMessages.Payment.SePayAccountRetrieved, account);
     }
 
     /// <summary>
@@ -77,7 +77,7 @@ public class SePayAccountController : BaseApiController
         {
             return NotFound(new { message = ApiErrorMessages.Payment.SePayMasterAccountNotCreated });
         }
-        return Ok(account);
+        return this.NewResponse(200, ApiSuccessMessages.Payment.SePayMasterAccountRetrieved, account);
     }
 
     /// <summary>
@@ -125,7 +125,7 @@ public class SePayAccountController : BaseApiController
         try
         {
             var account = await _sePayAccountService.UpdateAsync(id, request);
-            return Ok(account);
+            return this.NewResponse(200, ApiSuccessMessages.Payment.SePayAccountUpdated, account);
         }
         catch (KeyNotFoundException)
         {
@@ -174,7 +174,7 @@ public class SePayAccountController : BaseApiController
         try
         {
             var account = await _sePayAccountService.SetEnvironmentAsync(id, dto.Environment);
-            return Ok(account);
+            return this.NewResponse(200, ApiSuccessMessages.Payment.SePayEnvironmentUpdated, account);
         }
         catch (KeyNotFoundException)
         {
@@ -204,7 +204,7 @@ public class SePayAccountController : BaseApiController
         {
             return NotFound(new { message = ApiErrorMessages.Payment.SePayCafeNotConfigured });
         }
-        return Ok(account);
+            return this.NewResponse(200, ApiSuccessMessages.Payment.SePayAccountRetrieved, account);
     }
 
     /// <summary>
@@ -222,7 +222,7 @@ public class SePayAccountController : BaseApiController
         try
         {
             var account = await _sePayAccountService.UpdateByManagerCafeAsync(request);
-            return Ok(account);
+            return this.NewResponse(200, ApiSuccessMessages.Payment.SePayAccountUpdated, account);
         }
         catch (KeyNotFoundException)
         {
@@ -247,7 +247,7 @@ public class SePayAccountController : BaseApiController
         try
         {
             var account = await _sePayAccountService.SetEnvironmentByManagerCafeAsync(dto.Environment);
-            return Ok(account);
+            return this.NewResponse(200, ApiSuccessMessages.Payment.SePayEnvironmentUpdated, account);
         }
         catch (KeyNotFoundException)
         {

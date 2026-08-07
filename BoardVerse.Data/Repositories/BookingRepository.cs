@@ -157,4 +157,40 @@ public class BookingRepository : IBookingRepository
     {
         await _db.SaveChangesAsync();
     }
+
+    // === Admin: Reports ===
+
+    public async Task<int> CountByStatusAsync(BookingStatus status, DateTime? fromUtc, DateTime? toUtc)
+    {
+        var query = _db.Bookings.Where(b => b.Status == status);
+
+        if (fromUtc.HasValue)
+        {
+            query = query.Where(b => b.CreatedAt >= fromUtc.Value);
+        }
+
+        if (toUtc.HasValue)
+        {
+            query = query.Where(b => b.CreatedAt <= toUtc.Value);
+        }
+
+        return await query.CountAsync();
+    }
+
+    public async Task<int> CountAllAsync(DateTime? fromUtc, DateTime? toUtc)
+    {
+        var query = _db.Bookings.AsQueryable();
+
+        if (fromUtc.HasValue)
+        {
+            query = query.Where(b => b.CreatedAt >= fromUtc.Value);
+        }
+
+        if (toUtc.HasValue)
+        {
+            query = query.Where(b => b.CreatedAt <= toUtc.Value);
+        }
+
+        return await query.CountAsync();
+    }
 }

@@ -58,18 +58,21 @@ Tài liệu tổng hợp cho hệ thống BoardVerse — board game center manag
 #### Payment
 - [booking.md](./api/booking.md) — Booking flow & payment (cập nhật → không còn `BookingController`, đi qua Payment)
 - [settlement.md](./api/settlement.md) — `CafeSettlementController` (giải ngân deposit)
-- [payment-master-account.md](./api/payment-master-account.md) — `PaymentMasterAccountController` Admin
+- [payment-master-account.md](./api/payment-master-account.md) — `PaymentMasterAccountController` Admin (DEPRECATED — gộp vào SePayAccount)
 - [sepay-account.md](./api/sepay-account.md) — `SePayAccountController` (Admin + Manager endpoints)
 - [sepay-webhook.md](./api/sepay-webhook.md) — `SePayWebhookController` (webhook + return + mock)
 - [debug-sepay.md](./api/debug-sepay.md) — `DebugSePayController` (dev-only)
 
 #### Admin
-- [admin-cafe.md](./api/admin-cafe.md) — `AdminCafeController` (operational status)
+- [admin-cafe.md](./api/admin-cafe.md) — `AdminCafeController` (CRUD + operational status)
+- [admin-tournament.md](./api/admin-tournament.md) — `AdminTournamentController` (CRUD + tournament operations)
+- [admin-reports.md](./api/admin-reports.md) — `AdminReportController` (dashboard + reports)
 - [admin-configuration.md](./api/admin-configuration.md) — `AdminConfigurationController` (system config key-value)
 - [admin-moderation.md](./api/admin-moderation.md) — `AdminModerationController` (Karma logs, punish, adjust)
 
 #### Tournament
 - [tournament.md](./api/tournament.md) — `TournamentController` (Player-facing)
+- [tournament-waitlist.md](./api/tournament-waitlist.md) — `TournamentWaitlistController` (Waitlist management)
 - [tournament-pos.md](./api/tournament-pos.md) — `TournamentPosController` (Manager/POS-facing)
 
 #### Health & Common
@@ -92,6 +95,10 @@ Tài liệu tổng hợp cho hệ thống BoardVerse — board game center manag
 | `AdminConfigurationController` | [admin-configuration.md](./api/admin-configuration.md) |
 | `AdminMasterCatalogController` | [admin-master-catalog.md](./api/admin-master-catalog.md) |
 | `AdminModerationController` | [admin-moderation.md](./api/admin-moderation.md) |
+| `AdminReportController` | [admin-reports.md](./api/admin-reports.md) |
+| `AdminSettlementController` | [admin-settlement.md](./api/admin-settlement.md) |
+| `AdminTournamentController` | [admin-tournament.md](./api/admin-tournament.md) |
+| `AdminWalletController` | [wallet.md](./api/wallet.md) (Admin endpoints) |
 | `AuthController` | [auth.md](./api/auth.md) |
 | `BggController` | [bgg.md](./api/bgg.md) |
 | `BoardGameController` | [board-games.md](./api/board-games.md) |
@@ -101,24 +108,34 @@ Tài liệu tổng hợp cho hệ thống BoardVerse — board game center manag
 | `CafePosController` | [cafe-pos.md](./api/cafe-pos.md) |
 | `CafeSettlementController` | [settlement.md](./api/settlement.md) |
 | `CafeScheduleController` | [cafe-schedule.md](./api/cafe-schedule.md) |
+| `CafeShiftController` | [cafe-shift.md](./api/cafe-shift.md) |
 | `DebugSePayController` | [debug-sepay.md](./api/debug-sepay.md) |
+| `DeviceTokenController` | [notifications.md](./api/notifications.md) |
+| `FriendController` | [friend.md](./api/friend.md) |
 | `HealthController` | [health.md](./api/health.md) |
+| `LeaderboardController` | [leaderboard.md](./api/leaderboard.md) |
 | `LobbyController` | [lobby.md](./api/lobby.md) |
+| `LobbyInviteController` | [lobby-invite.md](./api/lobby-invite.md) |
 | `ManagerController` | [manager.md](./api/manager.md) |
 | `ManagerCafeProfileController` | [manager.md](./api/manager.md) |
 | `MasterGameController` | [master-games.md](./api/master-games.md) |
 | `MatchController` | [matches.md](./api/matches.md) |
 | `PaymentController` | [booking.md](./api/booking.md) |
-| `PaymentMasterAccountController` | [payment-master-account.md](./api/payment-master-account.md) |
+| `PaymentMasterAccountController` | [payment-master-account.md](./api/payment-master-account.md) (DEPRECATED) |
+| `PlayerCheckInController` | [player-check-in.md](./api/player-check-in.md) |
 | `ProtectedController` | [protected.md](./api/protected.md) |
+| `ReceiptController` | [receipt.md](./api/receipt.md) |
+| `ReservationController` | [reservation.md](./api/reservation.md) |
 | `SePayAccountController` | [sepay-account.md](./api/sepay-account.md) |
 | `SePayWebhookController` | [sepay-webhook.md](./api/sepay-webhook.md) |
 | `StaffController` | [staff.md](./api/staff.md) |
 | `TournamentController` | [tournament.md](./api/tournament.md) |
 | `TournamentPosController` | [tournament-pos.md](./api/tournament-pos.md) |
+| `TournamentWaitlistController` | [tournament-waitlist.md](./api/tournament-waitlist.md) |
 | `UserManagementController` | [user-management.md](./api/user-management.md) |
 | `UserProfileController` | [user-profile.md](./api/user-profile.md) |
 | `UserRatingController` | [user-ratings.md](./api/user-ratings.md) |
+| `WalletController` | [wallet.md](./api/wallet.md) |
 
 ---
 

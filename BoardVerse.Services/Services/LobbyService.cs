@@ -30,6 +30,8 @@ namespace BoardVerse.Services.Services
         private readonly IFriendshipRepository _friendshipRepository;
         private readonly IReservationRepository _reservationRepository;
         private readonly EligibilityValidator _eligibilityValidator;
+        private readonly IUserProfileService _userProfileService;
+        private const int ExpRewardPerCompletedLobby = 10; // K-04: exp reward for completing a lobby session
 
         public LobbyService(
             ILobbyRepository lobbyRepository,
@@ -41,7 +43,8 @@ namespace BoardVerse.Services.Services
             ILobbyMessageRepository lobbyMessageRepository,
             IFriendshipRepository friendshipRepository,
             IReservationRepository reservationRepository,
-            EligibilityValidator eligibilityValidator)
+            EligibilityValidator eligibilityValidator,
+            IUserProfileService userProfileService)
         {
             _lobbyRepository = lobbyRepository;
             _gameTemplateRepository = gameTemplateRepository;
@@ -53,6 +56,7 @@ namespace BoardVerse.Services.Services
             _friendshipRepository = friendshipRepository;
             _reservationRepository = reservationRepository;
             _eligibilityValidator = eligibilityValidator;
+            _userProfileService = userProfileService;
         }
 
         public async Task<LobbyResponseDto> CreateLobbyAsync(Guid hostUserId, CreateLobbyRequestDto request)
@@ -187,13 +191,58 @@ namespace BoardVerse.Services.Services
                 }
             }
 
+            var now = DateTime.UtcNow;
+
+            // L-02: Kiểm tra inactive member TRƯỚC — nếu user đã rời lobby trước đó thì reactivate
+            // thay vì throw duplicate. (Fix: thứ tự đúng là inactive → active)
+            var inactiveMember = lobby.Members.FirstOrDefault(m => m.UserId == userId && !m.IsActive);
+            if (inactiveMember != null)
+            {
+                inactiveMember.IsActive = true;
+                inactiveMember.Status = LobbyMemberStatus.Joined;
+                inactiveMember.JoinedAt = now;
+                inactiveMember.LeftAt = null;
+
+                lobby.UpdatedAt = now;
+
+                var filledToMaxActiveMembers = lobby.Members.Count(m => m.IsActive) >= lobby.MaxMembers;
+                if (filledToMaxActiveMembers)
+                {
+                    if (lobby.Status != LobbyStatus.Full)
+                    {
+                        lobby.FullAt = DateTime.UtcNow;
+                    }
+                    lobby.Status = LobbyStatus.Full;
+                }
+
+                await _lobbyRepository.SaveChangesAsync();
+
+                await _lobbyMessageService.AddSystemMessageAsync(lobby.Id, $"Thành viên đã quay trở lại phòng.");
+
+                await _hubService.NotifyMemberJoined(lobby.Id, new LobbyMemberDto
+                {
+                    Id = inactiveMember.Id,
+                    UserId = userId,
+                    JoinedAt = now,
+                    IsActive = true,
+                    IsHost = inactiveMember.IsHost
+                });
+
+                if (filledToMaxActiveMembers)
+                {
+                    await _hubService.NotifyLobbyFull(lobby.Id);
+                }
+
+                return MapLobbyDto(lobby, null);
+            }
+
+            // Chỉ throw duplicate khi user đang là active member (không phải inactive)
             if (lobby.Members.Any(m => m.UserId == userId && m.IsActive))
             {
                 throw new ConflictException(ApiErrorMessages.Lobby.MemberAlreadyInLobby);
             }
 
             // BR-LOBBY-01: chặn join sau recruitmentDeadline.
-            var now = DateTime.UtcNow;
             if (lobby.RecruitmentDeadline.HasValue && now > lobby.RecruitmentDeadline.Value)
             {
                 throw new ConflictException(ApiErrorMessages.Reservation.LobbyExpired);
@@ -479,7 +528,7 @@ namespace BoardVerse.Services.Services
             if (request.MinKarmaScore.HasValue)
             {
                 filtered = filtered
-                    .Where(l => l.Members.All(m => (m.User.Profile?.KarmaPoints ?? 100) >= request.MinKarmaScore.Value))
+                    .Where(l => l.Members.All(m => (m.User?.Profile?.KarmaPoints ?? 100) >= request.MinKarmaScore.Value))
                     .ToList();
             }
 
@@ -657,6 +706,20 @@ namespace BoardVerse.Services.Services
             await _lobbyInviteRepository.CancelAllPendingForLobbyAsync(lobbyId);
 
             await _lobbyRepository.SaveChangesAsync();
+
+            // K-04: Reward exp to all active members when lobby is closed
+            var activeMembers = lobby.Members?.Where(m => m.IsActive).ToList() ?? [];
+            foreach (var member in activeMembers)
+            {
+                try
+                {
+                    await _userProfileService.AddExpAndUpdateLevelAsync(member.UserId, ExpRewardPerCompletedLobby);
+                }
+                catch (Exception)
+                {
+                    // Non-critical: exp reward should not block lobby close
+                }
+            }
 
             await _lobbyMessageService.AddSystemMessageAsync(lobby.Id, $"Phòng chờ đã đóng: {lobby.ClosedReason}");
 
@@ -849,6 +912,20 @@ namespace BoardVerse.Services.Services
 
             await _lobbyRepository.SaveChangesAsync();
 
+            // K-04: Reward exp to all active members when lobby is successfully closed
+            var activeMembers = lobby.Members?.Where(m => m.IsActive).ToList() ?? [];
+            foreach (var member in activeMembers)
+            {
+                try
+                {
+                    await _userProfileService.AddExpAndUpdateLevelAsync(member.UserId, ExpRewardPerCompletedLobby);
+                }
+                catch (Exception)
+                {
+                    // Non-critical: exp reward should not block lobby close
+                }
+            }
+
             return MapLobbyDto(lobby, null);
         }
 
@@ -881,6 +958,20 @@ namespace BoardVerse.Services.Services
                 throw new NotFoundException(ApiErrorMessages.Lobby.TargetMemberNotInLobby);
             }
 
+            // L-04: BR-USER-LIMIT-04 validation cho new host — new host không được đang host lobby active khác
+            var newHostActiveLobbies = await _lobbyRepository.GetActiveLobbiesByHostAsync(newHostUserId);
+            if (newHostActiveLobbies.Count > 0)
+            {
+                throw new ConflictException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
+            }
+
+            // L-04: BR-USER-LIMIT-05 validation cho new host — new host không được đang là member của lobby active khác
+            var newHostMemberLobbies = await _lobbyRepository.GetActiveLobbiesByMemberAsync(newHostUserId);
+            if (newHostMemberLobbies.Count > 0)
+            {
+                throw new ConflictException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);
+            }
+
             currentHost.IsHost = false;
             newHost.IsHost = true;
 
@@ -895,6 +986,47 @@ namespace BoardVerse.Services.Services
                 $"{newHost.User?.Username ?? "Thành viên"} đã trở thành Host mới.");
 
             await _hubService.NotifyHostChanged(lobbyId, newHostUserId);
+
+            return MapLobbyDto(lobby, null);
+        }
+
+        /// <summary>
+        /// L-03: Host tạo mã chia sẻ mới, invalidate mã cũ.
+        /// Logic: Generate new code, update DB, old code becomes invalid immediately.
+        /// </summary>
+        public async Task<LobbyResponseDto> RegenerateShareCodeAsync(Guid lobbyId, Guid hostUserId)
+        {
+            var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
+                ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
+
+            var host = lobby.Members.FirstOrDefault(m => m.UserId == hostUserId && m.IsHost && m.IsActive);
+            if (host == null)
+            {
+                throw new ForbiddenException(ApiErrorMessages.Lobby.OnlyHostCanUpdate);
+            }
+
+            if (lobby.Status != LobbyStatus.Open && lobby.Status != LobbyStatus.Full)
+            {
+                throw new ConflictException(ApiErrorMessages.Lobby.CannotSwitchHostWhenClosed);
+            }
+
+            var oldCode = lobby.ShareCode;
+            var newCode = await GenerateUniqueShareCodeAsync();
+
+            // Ensure new code is different from old code
+            while (newCode == oldCode)
+            {
+                newCode = await GenerateUniqueShareCodeAsync();
+            }
+
+            lobby.ShareCode = newCode;
+            lobby.UpdatedAt = DateTime.UtcNow;
+
+            await _lobbyRepository.SaveChangesAsync();
+
+            await _lobbyMessageService.AddSystemMessageAsync(
+                lobby.Id,
+                $"Mã chia sẻ đã được thay đổi. Mã cũ không còn hợp lệ.");
 
             return MapLobbyDto(lobby, null);
         }

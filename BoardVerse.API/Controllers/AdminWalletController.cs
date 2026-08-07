@@ -155,4 +155,21 @@ public class AdminWalletController : BaseApiController
             $"Đã {(request.IsCredit ? "cộng" : "trừ")} {request.AmountBvc} BVC cho user '{request.TargetUserId}'.",
             result);
     }
+
+    /// <summary>
+    /// W-05: Verify SUM(ledger entries) = wallet.availableBalance.
+    /// Logic: SUM(TopUp + AdminCredit) - SUM(DepositHold + AdminDebit + DepositCapture + DepositForfeit) = availableBalance.
+    /// [Role: Admin]
+    /// </summary>
+    /// <param name="userId">UserId cần reconcile.</param>
+    /// <response code="200">Kết quả reconcile.</response>
+    /// <response code="404">User không có ví.</response>
+    [HttpGet("{userId:guid}/reconcile")]
+    [ProducesResponseType(typeof(WalletReconcileResultDto), 200)]
+    [ProducesResponseType(404)]
+    public async Task<IActionResult> ReconcileWallet(Guid userId)
+    {
+        var result = await _walletService.ReconcileWalletAsync(userId);
+        return NewResponse(200, "Kết quả reconcile ví BVC.", result);
+    }
 }

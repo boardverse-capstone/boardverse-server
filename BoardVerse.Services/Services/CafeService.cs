@@ -1,6 +1,7 @@
 using BoardVerse.Core.Common;
 using BoardVerse.Core.Data;
 using BoardVerse.Core.DTOs.Cafe;
+using BoardVerse.Core.DTOs.Admin;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
@@ -641,26 +642,258 @@ namespace BoardVerse.Services.Services
             user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(password);
         }
 
-        private static CafeDto MapToDto(Cafe cafe) => new()
+        private static CafeDto MapToDto(Cafe cafe)
         {
-            Id = cafe.Id,
-            Name = cafe.Name,
-            Address = cafe.Address,
-            Latitude = cafe.Latitude,
-            Longitude = cafe.Longitude,
-            PhoneNumber = cafe.PhoneNumber,
-            Description = cafe.Description,
-            CreatedAt = cafe.CreatedAt,
-            TotalSeats = cafe.TotalSeats,
-            BillingModel = CafePartnerStatusMapper.ToApiBillingModel(cafe.BillingModel),
-            BasePrice = cafe.BasePrice,
-            TieredBlockRate = cafe.TieredBlockRate,
-            TieredBlockMinutes = cafe.TieredBlockMinutes,
-            DepositPercentage = cafe.DepositPercentage,
-            IsPricingLocked = cafe.IsPricingLocked,
-            HasSePayConfigured = !string.IsNullOrWhiteSpace(cafe.SePayMerchantId)
-                              && !string.IsNullOrWhiteSpace(cafe.SePayApiKey)
-                              && !string.IsNullOrWhiteSpace(cafe.SePaySecretKey)
+            return new()
+            {
+                Id = cafe.Id,
+                Name = cafe.Name,
+                Address = cafe.Address,
+                Latitude = cafe.Latitude,
+                Longitude = cafe.Longitude,
+                PhoneNumber = cafe.PhoneNumber,
+                Description = cafe.Description,
+                CreatedAt = cafe.CreatedAt,
+                TotalSeats = cafe.TotalSeats,
+                BillingModel = CafePartnerStatusMapper.ToApiBillingModel(cafe.BillingModel),
+                BasePrice = cafe.BasePrice,
+                TieredBlockRate = cafe.TieredBlockRate,
+                TieredBlockMinutes = cafe.TieredBlockMinutes,
+                DepositPercentage = cafe.DepositPercentage,
+                IsPricingLocked = cafe.IsPricingLocked,
+                HasSePayConfigured = !string.IsNullOrWhiteSpace(cafe.SePayMerchantId)
+                                  && !string.IsNullOrWhiteSpace(cafe.SePayApiKey)
+                                  && !string.IsNullOrWhiteSpace(cafe.SePaySecretKey)
+            };
+        }
+
+    // ====================================================================
+    // ADMIN: FULL CRUD
+    // ====================================================================
+
+    public async Task<AdminCafeListResponseDto> GetAdminCafesAsync(
+        int page, int pageSize, string? searchTerm, string? status, Guid? managerId)
+    {
+        bool? isActive = null;
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            isActive = status.Equals("active", StringComparison.OrdinalIgnoreCase) ||
+                       status.Equals("true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        var (items, totalCount) = await _cafeRepository.GetAdminListAsync(
+            page, pageSize, searchTerm, isActive, managerId);
+
+        var totalPages = (int)Math.Ceiling((double)totalCount / pageSize);
+
+        return new AdminCafeListResponseDto
+        {
+            Items = items.Select(c => new AdminCafeListItemDto
+            {
+                Id = c.Id,
+                Name = c.Name,
+                Address = c.Address,
+                TotalSeats = c.TotalSeats,
+                IsActive = c.IsActive,
+                DepositPercentage = c.DepositPercentage,
+                HasSePayConfigured = !string.IsNullOrWhiteSpace(c.SePayMerchantId),
+                ManagerId = c.ManagerId,
+                ManagerName = c.Manager?.Username ?? "N/A",
+                NumberOfTables = c.NumberOfTables,
+                NumberOfGamesOwned = c.NumberOfGamesOwned,
+                StaffCount = c.StaffMembers?.Count ?? 0,
+                CreatedAt = c.CreatedAt
+            }).ToList(),
+            TotalCount = totalCount,
+            PageNumber = page,
+            PageSize = pageSize,
+            TotalPages = totalPages,
+            HasPreviousPage = page > 1,
+            HasNextPage = page < totalPages
         };
     }
+
+    public async Task<AdminCafeDetailDto?> GetAdminCafeDetailAsync(Guid cafeId)
+    {
+        var c = await _cafeRepository.GetByIdAsync(cafeId);
+        if (c == null)
+        {
+            return null;
+        }
+
+        return new AdminCafeDetailDto
+        {
+            Id = c.Id,
+            Name = c.Name,
+            Address = c.Address,
+            Latitude = c.Latitude,
+            Longitude = c.Longitude,
+            PhoneNumber = c.PhoneNumber,
+            Description = c.Description,
+            ManagerId = c.ManagerId,
+            TotalSeats = c.TotalSeats,
+            IsActive = c.IsActive,
+            BillingModel = c.BillingModel.ToString(),
+            BasePrice = c.BasePrice,
+            TieredBlockRate = c.TieredBlockRate,
+            TieredBlockMinutes = c.TieredBlockMinutes,
+            DepositPercentage = c.DepositPercentage,
+            DefaultHoldDurationMinutes = c.DefaultHoldDurationMinutes,
+            RefundPolicy = c.RefundPolicy.ToString(),
+            IsPricingLocked = c.IsPricingLocked,
+            HasSePayConfigured = !string.IsNullOrWhiteSpace(c.SePayMerchantId),
+            CreatedAt = c.CreatedAt,
+            UpdatedAt = c.UpdatedAt
+        };
+    }
+
+    public async Task<AdminCafeDetailDto> AdminCreateCafeAsync(AdminCreateCafeRequestDto request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Name))
+        {
+            throw new BadRequestException("Tên cafe không được để trống.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Address))
+        {
+            throw new BadRequestException("Địa chỉ cafe không được để trống.");
+        }
+
+        if (request.ManagerId == Guid.Empty)
+        {
+            throw new BadRequestException("ManagerId không hợp lệ.");
+        }
+
+        var manager = await _userProfileRepository.GetByIdWithProfileAsync(request.ManagerId);
+        if (manager == null)
+        {
+            throw new NotFoundException($"Manager {request.ManagerId} không tìm thấy.");
+        }
+
+        var cafe = new Cafe
+        {
+            Id = Guid.NewGuid(),
+            ManagerId = request.ManagerId,
+            Name = request.Name.Trim(),
+            Address = request.Address.Trim(),
+            PhoneNumber = request.PhoneNumber?.Trim(),
+            Description = request.Description?.Trim(),
+            Latitude = request.Latitude,
+            Longitude = request.Longitude,
+            TotalSeats = request.TotalSeats,
+            BillingModel = request.BillingModel,
+            BasePrice = request.BasePrice,
+            TieredBlockRate = request.TieredBlockRate,
+            TieredBlockMinutes = request.TieredBlockMinutes,
+            DepositPercentage = request.DepositPercentage,
+            IsActive = true,
+            IsPricingLocked = false,
+            SePayMerchantId = request.SePayMerchantId,
+            SePayApiKey = request.SePayApiKey,
+            SePaySecretKey = request.SePaySecretKey,
+            SePayReturnUrl = request.SePayReturnUrl,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        await _cafeRepository.AddCafeAsync(cafe);
+
+        var result = await GetAdminCafeDetailAsync(cafe.Id);
+        if (result == null)
+            throw new Exception("Failed to retrieve created cafe.");
+        return result;
+    }
+
+    public async Task<AdminCafeDetailDto> AdminUpdateCafeAsync(Guid cafeId, AdminUpdateCafeRequestDto request)
+    {
+        var cafe = await _cafeRepository.GetByIdAsync(cafeId)
+            ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
+
+        if (!string.IsNullOrWhiteSpace(request.Name))
+        {
+            cafe.Name = request.Name.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Address))
+        {
+            cafe.Address = request.Address.Trim();
+        }
+
+        if (request.PhoneNumber != null)
+        {
+            cafe.PhoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim();
+        }
+
+        if (request.Description != null)
+        {
+            cafe.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
+        }
+
+        if (request.Latitude.HasValue && request.Longitude.HasValue)
+        {
+            try
+            {
+                GeoLocationHelper.ApplyCoordinates(cafe, request.Latitude.Value, request.Longitude.Value);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                throw new BadRequestException("Tọa độ không hợp lệ.");
+            }
+        }
+
+        if (request.TotalSeats.HasValue)
+        {
+            cafe.TotalSeats = request.TotalSeats.Value;
+        }
+
+        if (request.BasePrice.HasValue)
+        {
+            cafe.BasePrice = request.BasePrice.Value;
+        }
+
+        if (request.DepositPercentage.HasValue)
+        {
+            cafe.DepositPercentage = request.DepositPercentage.Value;
+        }
+
+        if (request.SePayMerchantId != null)
+        {
+            cafe.SePayMerchantId = string.IsNullOrWhiteSpace(request.SePayMerchantId) ? null : request.SePayMerchantId.Trim();
+        }
+
+        if (request.SePayApiKey != null)
+        {
+            cafe.SePayApiKey = string.IsNullOrWhiteSpace(request.SePayApiKey) ? null : request.SePayApiKey.Trim();
+        }
+
+        if (request.SePaySecretKey != null)
+        {
+            cafe.SePaySecretKey = string.IsNullOrWhiteSpace(request.SePaySecretKey) ? null : request.SePaySecretKey.Trim();
+        }
+
+        if (request.SePayReturnUrl != null)
+        {
+            cafe.SePayReturnUrl = string.IsNullOrWhiteSpace(request.SePayReturnUrl) ? null : request.SePayReturnUrl.Trim();
+        }
+
+        cafe.UpdatedAt = DateTime.UtcNow;
+        await _cafeRepository.SaveChangesAsync();
+
+        var result = await GetAdminCafeDetailAsync(cafeId);
+        if (result == null)
+            throw new Exception("Failed to retrieve updated cafe.");
+        return result;
+    }
+
+    public async Task AdminDeleteCafeAsync(Guid cafeId)
+    {
+        var cafe = await _cafeRepository.GetByIdAsync(cafeId)
+            ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
+
+        cafe.IsActive = false;
+        cafe.UpdatedAt = DateTime.UtcNow;
+        await _cafeRepository.SaveChangesAsync();
+    }
 }
+}
+

@@ -82,6 +82,9 @@ Tạo master account mới.
 
 ```powershell
 # 1. Login Admin
-# 2. POST /api/admin/payment-master-accounts
-# 3. GET /api/admin/payment-master-accounts (nếu có endpoint list)
+# 2. Tạo master account: POST /api/admin/sepay-accounts với accountType="Master"
+# 3. Kiểm tra: GET /api/admin/sepay-accounts?accountType=Master
+# 4. Hoặc xem chi tiết: GET /api/admin/sepay-accounts/{id}
 ```
+
+> **Lưu ý:** Master account đã được gộp vào `SePayAccount`. Xem [sepay-account.md](./sepay-account.md) để biết thêm chi tiết.

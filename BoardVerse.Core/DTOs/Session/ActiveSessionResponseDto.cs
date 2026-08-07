@@ -24,6 +24,10 @@ namespace BoardVerse.Core.DTOs.Session
         public decimal TotalAmount { get; set; }
         public bool IsCheckingInventory { get; set; }
         public bool HasMissingComponents { get; set; }
+        /// <summary>L-05: Phiên đang bị tạm dừng.</summary>
+        public bool IsPaused { get; set; }
+        /// <summary>L-05: Thời điểm phiên bị tạm dừng.</summary>
+        public DateTime? PausedAt { get; set; }
         public DateTime? EndedAt { get; set; }
         public DateTime? PaidAt { get; set; }
         public List<ActiveSessionMemberDto> Members { get; set; } = new();

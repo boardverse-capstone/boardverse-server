@@ -1,3 +1,4 @@
+using BoardVerse.Core.DTOs.Admin;
 using BoardVerse.Core.DTOs.Tournament;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
@@ -125,4 +126,22 @@ public interface ITournamentService
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Result chứa TournamentId và số no-show đã đánh dấu.</returns>
     Task<NoShowDetectionResult> AutoMarkNoShowsAsync(CancellationToken ct = default);
+
+    // === Admin: Tournament management ===
+    Task<AdminTournamentListResponseDto> GetAdminTournamentsAsync(
+        int page, int pageSize, string? searchTerm, string? status, Guid? cafeId);
+    Task<AdminTournamentDetailDto?> GetAdminTournamentDetailAsync(Guid tournamentId);
+    Task<TournamentResponseDto> AdminCreateTournamentAsync(
+        Guid adminUserId, AdminCreateTournamentRequestDto request);
+    Task<TournamentResponseDto> AdminUpdateTournamentAsync(
+        Guid adminUserId, Guid tournamentId, AdminUpdateTournamentRequestDto request);
+    Task AdminDeleteTournamentAsync(Guid adminUserId, Guid tournamentId);
+    Task<AdminTournamentParticipantsResponseDto> GetAdminTournamentParticipantsAsync(
+        Guid tournamentId, string? status);
+    Task<TournamentResponseDto> AdminOpenRegistrationAsync(Guid adminUserId, Guid tournamentId);
+    Task<TournamentResponseDto> AdminCloseRegistrationAsync(Guid adminUserId, Guid tournamentId);
+    Task<TournamentResponseDto> AdminStartTournamentAsync(Guid adminUserId, Guid tournamentId);
+    Task<TournamentResponseDto> AdminCompleteTournamentAsync(Guid adminUserId, Guid tournamentId);
+    Task<TournamentResponseDto> AdminCancelTournamentAsync(
+        Guid adminUserId, Guid tournamentId, string? reason);
 }

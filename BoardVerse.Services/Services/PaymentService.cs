@@ -15,7 +15,6 @@ public class PaymentService : IPaymentService
     private readonly IBookingDepositService _depositService;
     private readonly ICafeRepository _cafeRepository;
     private readonly ICafeSettlementRepository _settlementRepository;
-    private readonly IPaymentMasterAccountRepository _masterAccountRepository;
     private readonly IActiveSessionRepository _activeSessionRepository;
     private readonly IPaymentGatewayService _paymentGateway;
     private readonly ISePayClient _sePayClient;
@@ -27,7 +26,6 @@ public class PaymentService : IPaymentService
         IBookingDepositService depositService,
         ICafeRepository cafeRepository,
         ICafeSettlementRepository settlementRepository,
-        IPaymentMasterAccountRepository masterAccountRepository,
         IActiveSessionRepository activeSessionRepository,
         IPaymentGatewayService paymentGateway,
         ISePayClient sePayClient,
@@ -38,7 +36,6 @@ public class PaymentService : IPaymentService
         _depositService = depositService;
         _cafeRepository = cafeRepository;
         _settlementRepository = settlementRepository;
-        _masterAccountRepository = masterAccountRepository;
         _activeSessionRepository = activeSessionRepository;
         _paymentGateway = paymentGateway;
         _sePayClient = sePayClient;
@@ -500,16 +497,14 @@ public class PaymentService : IPaymentService
             return;
         }
 
-        // BR § IV: BVC top-up qua userId hash (transferContent = "BVC-TOPUP-{8-hex}").
-        // SePay strip dấu '-' → content chứa "BVCTOPUP{8-hex}". Tìm userId từ đây.
+        // W-07: BVC top-up qua OrderId exact match (transferContent = "BVC-{18hex}").
+        // SePay strip dấu '-' → content chứa "BVC{18hex}". Tìm OrderId từ đây.
         if (!string.IsNullOrWhiteSpace(webhook.Content))
         {
-            var bvcUserHash = TryExtractBvcTopUpUserHash(webhook.Content);
-            if (bvcUserHash != null)
+            var orderId = TryExtractBvcTopUpOrderId(webhook.Content);
+            if (orderId != null)
             {
-                var resolvedOrderId = await _walletService.FindPendingTopUpOrderIdAsync(
-                    userIdHash: bvcUserHash,
-                    amountVnd: webhook.Amount);
+                var resolvedOrderId = await _walletService.FindPendingTopUpOrderIdAsync(orderId);
                 if (!string.IsNullOrWhiteSpace(resolvedOrderId))
                 {
                     var bvcAmount = (long)(webhook.Amount / 1000m);
@@ -522,8 +517,8 @@ public class PaymentService : IPaymentService
                 }
 
                 _logger.LogWarning(
-                    "SePay webhook BVC top-up user matched but no pending order. Hash={Hash}, Amount={Amount}",
-                    bvcUserHash, webhook.Amount);
+                    "SePay webhook BVC top-up order matched but no pending request. OrderId={OrderId}, Amount={Amount}",
+                    orderId, webhook.Amount);
                 return;
             }
         }
@@ -559,11 +554,16 @@ public class PaymentService : IPaymentService
     ///   "140465213621-BVCTOPUP364BED39-CHUYEN TIEN-..." →
     ///     match "BVCTOPUP" + 8 hex chars → "364BED39".
     /// </summary>
-    private static string? TryExtractBvcTopUpUserHash(string content)
+    /// <summary>
+    /// W-07: Extract OrderId from transferContent.
+    /// New format: "BVC-{18hex}" → after SePay strip dashes: "BVC{18hex}".
+    /// Regex captures exactly 18 hex chars following "BVC" prefix.
+    /// </summary>
+    private static string? TryExtractBvcTopUpOrderId(string content)
     {
         var match = System.Text.RegularExpressions.Regex.Match(
             content,
-            @"BVCTOPUP([A-F0-9]{6,16})",
+            @"BVCTOPUP([A-F0-9]{18})",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         return match.Success ? match.Groups[1].Value.ToUpperInvariant() : null;
     }

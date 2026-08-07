@@ -16,7 +16,6 @@ public class PaymentServiceTests
     private readonly Mock<IBookingDepositService> _mockDepositService;
     private readonly Mock<ICafeRepository> _mockCafeRepo;
     private readonly Mock<ICafeSettlementRepository> _mockSettlementRepo;
-    private readonly Mock<IPaymentMasterAccountRepository> _mockMasterAccountRepo;
     private readonly Mock<IActiveSessionRepository> _mockSessionRepo;
     private readonly Mock<IPaymentGatewayService> _mockGateway;
     private readonly Mock<ISePayClient> _mockSePayClient;
@@ -30,7 +29,6 @@ public class PaymentServiceTests
         _mockDepositService = new Mock<IBookingDepositService>();
         _mockCafeRepo = new Mock<ICafeRepository>();
         _mockSettlementRepo = new Mock<ICafeSettlementRepository>();
-        _mockMasterAccountRepo = new Mock<IPaymentMasterAccountRepository>();
         _mockSessionRepo = new Mock<IActiveSessionRepository>();
         _mockSessionRepo.Setup(r => r.GetAllUnpaidAsync()).ReturnsAsync(new List<ActiveSession>());
         _mockGateway = new Mock<IPaymentGatewayService>();
@@ -65,7 +63,6 @@ public class PaymentServiceTests
             _mockDepositService.Object,
             _mockCafeRepo.Object,
             _mockSettlementRepo.Object,
-            _mockMasterAccountRepo.Object,
             _mockSessionRepo.Object,
             _mockGateway.Object,
             _mockSePayClient.Object,

@@ -3,6 +3,7 @@ using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace BoardVerse.API.Controllers;
 
@@ -139,7 +140,9 @@ public class LobbyInviteController : BaseApiController
     /// <response code="401">Thiếu token.</response>
     /// <response code="404">Share code không hợp lệ.</response>
     /// <response code="409">Đã là thành viên / lobby đầy / lobby đã đóng.</response>
+    /// <response code="429">Thử quá nhiều mã chia sẻ. Vui lòng chờ 15 phút.</response>
     [HttpPost("join-by-code")]
+    [EnableRateLimiting("ShareCodePolicy")]
     public async Task<IActionResult> JoinByShareCode([FromBody] JoinLobbyByShareCodeRequestDto request)
     {
         var userId = GetUserIdFromClaims();

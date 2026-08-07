@@ -6,7 +6,7 @@
 
 Quản lý tài khoản SePay (Master Account cho BoardVerse + Cafe Account cho từng quán). Phục vụ cho flow thanh toán SePay (xem [sepay-payment-flow.mdc](../../.cursor/rules/sepay-payment-flow.mdc)).
 
-> **Phân biệt:** SePayAccount ≠ PaymentMasterAccount. `PaymentMasterAccount` chỉ là tài khoản tổng (master), còn `SePayAccount` quản lý cả master + cafe + environment switching.
+> **Phân biệt:** `SePayAccount` ≠ `PaymentMasterAccount` (đã DEPRECATED). `SePayAccount` quản lý cả master + cafe + environment switching trong một entity duy nhất.
 
 ---
 

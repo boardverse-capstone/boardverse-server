@@ -246,11 +246,23 @@ public static class Auth
  public const string PartialTiersDuplicateMinHours =
  "Các bậc hoàn không được trùng mốc giờ.";
 
- public const string PricingLockedWhileOpen =
- "Quán đang trong khung giờ hoạt động. Bạn chỉ có thể chỉnh biểu phí khi quán đóng cửa.";
- }
+    public const string PricingLockedWhileOpen =
+        "Quán đang trong khung giờ hoạt động. Bạn chỉ có thể chỉnh biểu phí khi quán đóng cửa.";
+    }
 
- public static class Inventory
+    public static class CafeShift
+    {
+        public static string ShiftNotFound(Guid id) =>
+            $"Không tìm thấy ca làm việc '{id}'.";
+
+        public static string ShiftAlreadyOpen(Guid existingShiftId) =>
+            $"Quán đang có ca làm việc đang mở (ID: '{existingShiftId}'). Đóng ca hiện tại trước khi mở ca mới.";
+
+        public static string ShiftAlreadyClosed(Guid shiftId) =>
+            $"Ca làm việc '{shiftId}' đã được đóng.";
+    }
+
+    public static class Inventory
  {
  public static string MasterGameNotFound(Guid gameTemplateId) =>
  $"Không tìm thấy game master '{gameTemplateId}' hoặc game đã bị vô hiệu hóa.";
@@ -422,8 +434,11 @@ public static class Auth
  public static string SessionCafeMismatch(Guid sessionId, Guid cafeId) =>
  $"Phiên chơi '{sessionId}' không thuộc quán '{cafeId}'.";
 
- public static string ResumeInvalidStatus(GroupSessionStatus current) =>
+        public static string ResumeInvalidStatus(GroupSessionStatus current) =>
  $"Chỉ có thể khôi phục phiên đang ở trạng thái kiểm kê linh kiện. Trạng thái hiện tại: {current}.";
+
+        public const string SessionNotPaused =
+            "Phiên chơi không ở trạng thái bị tạm dừng.";
 
  public static string MergeTargetMustBeActive =>
  "Phiên chơi đích phải đang hoạt động (ACTIVE) để ghép thành viên vào.";
@@ -1150,26 +1165,35 @@ public static string SessionNotUnpaid(string current) =>
  "Gửi kết quả trận đấu thất bại. Kết quả phải là Win, Loss hoặc Draw.";
  }
 
- public static class AdminModeration
- {
- public const string InvalidPunishmentAction =
- "Hành động xử phạt không hợp lệ. Dùng Warning, Suspend hoặc Ban.";
+    public static class AdminModeration
+    {
+        public const string InvalidPunishmentAction =
+        "Hành động xử phạt không hợp lệ. Dùng Warning, Suspend hoặc Ban.";
 
- public const string SuspendDurationRequired =
- "Đình chỉ yêu cầu duration_days từ 1 đến 365.";
+        public const string SuspendDurationRequired =
+        "Đình chỉ yêu cầu duration_days từ 1 đến 365.";
 
- public const string KarmaAdjustmentZeroNotAllowed =
- "Số điểm điều chỉnh karma không được bằng 0.";
+        public const string KarmaAdjustmentZeroNotAllowed =
+        "Số điểm điều chỉnh karma không được bằng 0.";
 
- public const string CannotPunishAdmin =
- "Không thể xử phạt tài khoản Admin qua endpoint này.";
+        public const string KarmaAdjustmentRange =
+        "Số điểm điều chỉnh karma phải từ -100 đến 100.";
 
- public static string ProfileNotFound(Guid userId) =>
- $"Người dùng '{userId}' chưa có hồ sơ.";
+        public const string CannotPunishAdmin =
+        "Không thể xử phạt tài khoản Admin qua endpoint này.";
 
- public const string InvalidViolationCategoryFilter =
- "Giá trị lọc loại vi phạm không hợp lệ.";
- }
+        public const string UserNotInCoolingOff =
+        "Người dùng này không đang trong trạng thái cooling-off.";
+
+        public static string WalletNotFound(Guid userId) =>
+        $"Không tìm thấy ví của người dùng '{userId}'.";
+
+        public static string ProfileNotFound(Guid userId) =>
+        $"Người dùng '{userId}' chưa có hồ sơ.";
+
+        public const string InvalidViolationCategoryFilter =
+        "Giá trị lọc loại vi phạm không hợp lệ.";
+    }
 
  public static class AdminCatalog
  {
@@ -1585,8 +1609,12 @@ $"Direction không hợp lệ. Giá trị hợp lệ: {validValues}";
  public static string ShareCodeInvalid =>
  "Mã chia sẻ không hợp lệ hoặc không tồn tại.";
 
- public const string InviteRateLimitExceeded =
- "Bạn đã gửi/nhận quá nhiều lời mời trong ngày. Thử lại sau.";
+    public const string InviteRateLimitExceeded =
+    "Bạn đã gửi/nhận quá nhiều lời mời trong ngày. Thử lại sau.";
+
+    // L-01: Share code brute-force protection
+    public const string ShareCodeRateLimitExceeded =
+    "Bạn đã thử quá nhiều mã chia sẻ. Vui lòng chờ 15 phút rồi thử lại.";
 
  // ===== LobbyInviteService specific =====
  public const string LobbyClosedOrUnavailable =
@@ -1798,9 +1826,34 @@ $"Direction không hợp lệ. Giá trị hợp lệ: {validValues}";
  }
 
  // ===== BR-NEW-* § XXI-G Phase 2/3 =====
- public static class Reservation
- {
- // ===== Buffer validation (BR-LOBBY-01a/b/c) =====
+public static class Reservation
+    {
+    // ===== POS QR check-in (BR §21A.7 — 2 chiều) =====
+    public const string PosTokenExpired =
+        "Mã QR mời quét đã hết hạn. Yêu cầu nhân viên tạo mã mới.";
+
+    public const string PosTokenAlreadyUsed =
+        "Mã QR mời quét đã được sử dụng. Yêu cầu nhân viên tạo mã mới.";
+
+    public const string PosTokenRevoked =
+        "Mã QR mời quét đã bị thu hồi. Yêu cầu nhân viên tạo mã mới.";
+
+    public static string PosTokenNotFound(string token) =>
+        $"Không tìm thấy mã QR mời quét '{token}'.";
+
+    public static string PosTokenNotInCheckInWindow(Guid reservationId) =>
+        $"Reservation '{reservationId}' không nằm trong khung giờ cho phép check-in. Vui lòng đến đúng giờ hoặc liên hệ nhân viên.";
+
+    public static string NotReservationMember(Guid reservationId, Guid userId) =>
+        $"Người dùng '{userId}' không phải thành viên của reservation '{reservationId}'. Không thể check-in.";
+
+    public static string PosTokenReservationMissing =>
+        "Mã QR POS này không liên kết với reservation nào. Liên hệ nhân viên để tạo lại.";
+
+    public static string InvalidStatusForCheckIn(Guid reservationId, string currentStatus, string expectedStatus) =>
+        $"Reservation '{reservationId}' không thể check-in. Trạng thái hiện tại: '{currentStatus}', yêu cầu: '{expectedStatus}'.";
+
+    // ===== Buffer validation (BR-LOBBY-01a/b/c) =====
  public static string BufferTooShort(int bufferMinutes, int minRequired) =>
  $"Thời gian đệm đến hạn tuyển người quá ngắn ({bufferMinutes} phút). Cần tối thiểu {minRequired} phút — vui lòng chọn khung giờ khác.";
 

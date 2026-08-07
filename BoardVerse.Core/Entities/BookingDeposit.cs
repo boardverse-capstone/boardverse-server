@@ -18,11 +18,13 @@ public class BookingDeposit
     /// <summary>BR-05: Booking liên kết. Nullable để hỗ trợ walk-in deposit không qua booking.</summary>
     public Guid? BookingId { get; set; }
 
+    /// <summary>Master account nhận tiền cọc khi settlement.</summary>
+    public Guid? MasterAccountId { get; set; }
+
     /// <summary>UserId của người đặt chỗ (Host). Dùng làm HostId khi check-in tạo ActiveSession.</summary>
     public Guid UserId { get; set; }
     public Guid CafeId { get; set; }
     public Guid CafeManagerId { get; set; }
-    public Guid? MasterAccountId { get; set; }
     public decimal Amount { get; set; }
     public DepositRefundPolicy RefundPolicy { get; set; }
     public BookingDepositStatus Status { get; set; } = BookingDepositStatus.Pending;
@@ -42,9 +44,9 @@ public class BookingDeposit
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
 
-    public virtual PaymentMasterAccount? MasterAccount { get; set; }
     public virtual Cafe Cafe { get; set; } = null!;
     public virtual User User { get; set; } = null!;
+    public virtual User? MasterAccount { get; set; }
     public virtual ActiveSession? ActiveSession { get; set; }
     /// <summary>BR-05: Navigation đến Booking (nếu deposit này thuộc booking).</summary>
     public virtual Booking? Booking { get; set; }

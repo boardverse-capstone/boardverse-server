@@ -227,4 +227,50 @@ public class LobbyHubService : ILobbyHubService
         _logger.LogInformation("Broadcast CafePricingChanged to cafe {CafeId}: {Old} -> {New}, affected {Count}",
             cafeId, oldFirstHourPrice, newFirstHourPrice, affectedBookingsCount);
     }
+
+    public async Task NotifyLobbyActivated(Guid lobbyId, Guid hostUserId)
+    {
+        await _hubContext.Clients.Group(lobbyId.ToString()).SendAsync("LobbyActivated", new
+        {
+            LobbyId = lobbyId,
+            HostUserId = hostUserId,
+            Message = "Lobby đã được tạo thành công. Đang tuyển người chơi!",
+            Timestamp = DateTime.UtcNow
+        });
+        _logger.LogInformation("Broadcast LobbyActivated to lobby {LobbyId}, host {HostId}", lobbyId, hostUserId);
+    }
+
+    public async Task NotifyLobbyConfirmed(Guid lobbyId)
+    {
+        await _hubContext.Clients.Group(lobbyId.ToString()).SendAsync("LobbyConfirmed", new
+        {
+            LobbyId = lobbyId,
+            Message = "Đã đủ người! Booking đã được xác nhận.",
+            Timestamp = DateTime.UtcNow
+        });
+        _logger.LogInformation("Broadcast LobbyConfirmed to lobby {LobbyId}", lobbyId);
+    }
+
+    public async Task NotifyLobbyCancelled(Guid lobbyId)
+    {
+        await _hubContext.Clients.Group(lobbyId.ToString()).SendAsync("LobbyCancelled", new
+        {
+            LobbyId = lobbyId,
+            Message = "Lobby đã bị hủy. Tiền cọc đã được xử lý theo chính sách.",
+            Timestamp = DateTime.UtcNow
+        });
+        _logger.LogInformation("Broadcast LobbyCancelled to lobby {LobbyId}", lobbyId);
+    }
+
+    public async Task NotifyLobbyCheckedIn(Guid lobbyId, Guid checkedInByUserId)
+    {
+        await _hubContext.Clients.Group(lobbyId.ToString()).SendAsync("LobbyCheckedIn", new
+        {
+            LobbyId = lobbyId,
+            CheckedInByUserId = checkedInByUserId,
+            Message = "Đã check-in tại quán. Bắt đầu phiên chơi!",
+            Timestamp = DateTime.UtcNow
+        });
+        _logger.LogInformation("Broadcast LobbyCheckedIn to lobby {LobbyId}, checked-in by {UserId}", lobbyId, checkedInByUserId);
+    }
 }

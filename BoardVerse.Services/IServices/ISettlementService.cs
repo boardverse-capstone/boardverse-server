@@ -12,5 +12,11 @@ namespace BoardVerse.Services.IServices
             Guid sessionId,
             Guid activeSessionId);
         Task<IReadOnlyList<CafeSettlement>> GetPendingSettlementsAsync(Guid cafeId, Guid actorUserId, string actorRole);
+
+        /// <summary>
+        /// W-06: Admin manually override a failed settlement after retry exhaustion.
+        /// Sets Status = Overridden, OverrideBy = adminId, OverrideAt = now.
+        /// </summary>
+        Task<CafeSettlement> OverrideSettlementAsync(Guid settlementId, Guid adminUserId);
     }
 }

@@ -38,6 +38,22 @@ namespace BoardVerse.Core.DTOs.Session
         public string? Notes { get; set; }
     }
 
+    /// <summary>
+    /// P-04: Ghi nhận hao hụt linh kiện TRƯỚC KHI có phiên chơi (shift handoff).
+    /// Không cần sessionId, chỉ cần cafeId + game box info.
+    /// </summary>
+    public class RecordPreSessionInventoryLossRequestDto
+    {
+        [Required]
+        public Guid CafeInventoryBoxId { get; set; }
+
+        /// <summary>Danh sách linh kiện bị thiếu/hỏng.</summary>
+        public List<ComponentLossItemDto> LostComponents { get; set; } = new();
+
+        /// <summary>Ghi chú (vd: "Phát hiện từ ca sáng, audit trước khi giao ca").</summary>
+        public string? Notes { get; set; }
+    }
+
     public class ComponentLossItemDto
     {
         [Required]

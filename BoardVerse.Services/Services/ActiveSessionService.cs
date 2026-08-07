@@ -710,6 +710,8 @@ namespace BoardVerse.Services.Services
                 TotalAmount = session.TotalAmount,
                 IsCheckingInventory = session.IsCheckingInventory,
                 HasMissingComponents = session.HasMissingComponents,
+                IsPaused = session.IsPaused,
+                PausedAt = session.PausedAt,
                 EndedAt = session.EndedAt,
                 PaidAt = session.PaidAt,
                 Members = session.Members?.Select(m => new ActiveSessionMemberDto
@@ -1080,6 +1082,82 @@ public async Task<AlternativeCafesResponseDto> GetAlternativeCafesAsync(Guid exc
 
             _logger.LogInformation(
                 "Session resumed from CHECKING to ACTIVE. SessionId={SessionId}, CafeId={CafeId}",
+                sessionId, cafeId);
+
+            return MapSessionDto(session);
+        }
+
+        /// <summary>
+        /// L-05: Tạm dừng phiên chơi — timer không đếm.
+        /// Chỉ áp dụng khi phiên đang ACTIVE và chưa bị tạm dừng.
+        /// </summary>
+        public async Task<ActiveSessionResponseDto> PauseSessionAsync(Guid cafeId, Guid sessionId)
+        {
+            var session = await _activeSessionRepository.GetByIdAsync(sessionId)
+                ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
+
+            if (session.CafeId != cafeId)
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.SessionCafeMismatch(sessionId, cafeId));
+            }
+
+            if (session.Status != GroupSessionStatus.Active)
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.SessionMustBeActiveForEnd(session.Status.ToString()));
+            }
+
+            if (session.IsPaused)
+            {
+                throw new ConflictException("Phiên chơi đã bị tạm dừng trước đó.");
+            }
+
+            session.IsPaused = true;
+            session.PausedAt = DateTime.UtcNow;
+            session.UpdatedAt = DateTime.UtcNow;
+
+            await _activeSessionRepository.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Session paused. SessionId={SessionId}, CafeId={CafeId}, PausedAt={PausedAt}",
+                sessionId, cafeId, session.PausedAt);
+
+            return MapSessionDto(session);
+        }
+
+        /// <summary>
+        /// L-05: Tiếp tục phiên đang bị tạm dừng — timer tiếp tục đếm.
+        /// Chỉ hoạt động khi phiên đang ACTIVE và IsPaused = true.
+        /// </summary>
+        public async Task<ActiveSessionResponseDto> ResumeFromPauseAsync(Guid cafeId, Guid sessionId)
+        {
+            var session = await _activeSessionRepository.GetByIdAsync(sessionId)
+                ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
+
+            if (session.CafeId != cafeId)
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.SessionCafeMismatch(sessionId, cafeId));
+            }
+
+            if (session.Status != GroupSessionStatus.Active)
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.SessionMustBeActiveForEnd(session.Status.ToString()));
+            }
+
+            if (!session.IsPaused)
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.SessionNotPaused);
+            }
+
+            // Cộng thêm thời gian đã tạm dừng vào TotalMinutesPlayed (nếu có logic tính phút)
+            // Lưu ý: timer sẽ tiếp tục đếm từ thời điểm resume
+            session.IsPaused = false;
+            session.PausedAt = null;
+            session.UpdatedAt = DateTime.UtcNow;
+
+            await _activeSessionRepository.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Session resumed from PAUSED. SessionId={SessionId}, CafeId={CafeId}",
                 sessionId, cafeId);
 
             return MapSessionDto(session);

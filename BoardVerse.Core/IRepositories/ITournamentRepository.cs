@@ -71,4 +71,11 @@ public interface ITournamentRepository
     Task AddEloContributionAsync(TournamentMatchEloContribution contribution);
     Task<IReadOnlyList<TournamentMatchEloContribution>> GetEloContributionsByMatchAsync(Guid matchId);
     Task DeleteEloContributionsByMatchAsync(Guid matchId);
+
+    // === Admin: Full CRUD + Reports ===
+    Task<(IReadOnlyList<Tournament> Items, int TotalCount)> GetAdminListAsync(
+        int page, int pageSize, string? searchTerm, TournamentStatus? status, Guid? cafeId);
+    Task<Tournament?> GetAdminDetailAsync(Guid tournamentId);
+    Task<int> CountAllAsync();
+    Task<int> CountByStatusAsync(TournamentStatus status);
 }

@@ -1,4 +1,5 @@
 using BoardVerse.Core.Entities;
+using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Core.IRepositories
 {
@@ -122,5 +123,20 @@ public interface ILobbyRepository
     Task RemoveAsync(Lobby lobby);
 
     Task SaveChangesAsync();
+
+    // === Admin: Reports ===
+    /// <summary>
+    /// Đếm lobby failures theo loại trong khoảng thời gian.
+    /// </summary>
+    Task<int> CountFailuresByTypeAsync(
+        DateTime? fromUtc, DateTime? toUtc,
+        LobbyStatus? failureType);
+    /// <summary>
+    /// Lấy danh sách lobby failures có phân trang.
+    /// </summary>
+    Task<(IReadOnlyList<Lobby> Items, int TotalCount)> GetAdminLobbyFailuresAsync(
+        int page, int pageSize,
+        DateTime? fromUtc, DateTime? toUtc,
+        LobbyStatus? failureType);
 }
 }

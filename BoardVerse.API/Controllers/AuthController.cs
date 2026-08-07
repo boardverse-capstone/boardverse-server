@@ -26,7 +26,7 @@ namespace BoardVerse.API.Controllers
         /// Đăng ký tài khoản người dùng mới vào hệ thống BoardVerse. [Role: Public — không cần đăng nhập.]
         /// </summary>
         /// <param name="request">Thông tin đăng ký của người dùng.</param>
-        /// <response code="200">Đăng ký thành công.</response>
+        /// <response code="201">Đăng ký thành công.</response>
         /// <response code="400">Dữ liệu đầu vào không hợp lệ (email, username, password).</response>
         /// <response code="409">Email hoặc username đã tồn tại.</response>
         /// <response code="500">Lỗi hệ thống khi xử lý đăng ký.</response>
@@ -34,7 +34,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> Register([FromBody] RegisterRequestDto request)
         {
             var response = await _authService.RegisterAsync(request);
-            return this.NewResponse(200, ApiSuccessMessages.Auth.RegistrationSuccessful, response);
+            return this.NewResponse(201, ApiSuccessMessages.Auth.RegistrationSuccessful, response);
         }
 
         /// <summary>

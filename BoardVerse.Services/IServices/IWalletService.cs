@@ -142,13 +142,13 @@ public interface IWalletService
     /// Tìm OrderId của đơn top-up BVC pending theo userId hash + amount.
     /// SePay BankAPINotify strip dấu '-' khỏi transferContent nên OrderId thật
     /// (dạng BVC-XXXXXXXX) không còn trong content. Handler cần lookup lại.
+    /// <summary>
+    /// W-07: Resolve OrderId from SePay webhook transferContent via exact lookup.
     /// </summary>
-    /// <param name="userIdHash">8-char hex hash từ content (substring Guid userId).</param>
-    /// <param name="amountVnd">Số tiền SePay gửi về.</param>
+    /// <param name="orderId">18-char hex OrderId extracted from transferContent.</param>
     /// <returns>OrderId pending phù hợp, hoặc null nếu không có.</returns>
     Task<string?> FindPendingTopUpOrderIdAsync(
-        string userIdHash,
-        decimal amountVnd,
+        string orderId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -213,6 +213,14 @@ public interface IWalletService
         Guid adminUserId,
         string idempotencyKey,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// W-05: Verify SUM(ledger entries) = wallet.availableBalance.
+    /// Credits: TopUp + AdminCredit.
+    /// Debits: DepositHold + AdminDebit + DepositCapture + DepositForfeit.
+    /// Computed = Credits - Debits; compare with wallet.AvailableBalance.
+    /// </summary>
+    Task<WalletReconcileResultDto> ReconcileWalletAsync(Guid userId);
 }
 
 /// <summary>

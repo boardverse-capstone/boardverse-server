@@ -22,6 +22,7 @@ API vận hành quầy: bàn, kho hộp game, phiên chơi, kiểm kê, khách v
 | `/bookings/{bookingCode}` | GET | Preview booking trước check-in (AC 1.1) | `CafePosController` |
 | `/sessions` | POST | Giao game cho bàn — bắt đầu phiên chơi (POS scan barcode) | `CafePosController` |
 | `/check-in` | POST | **POS check-in (canonical):** Staff quét QR (ReservationCode \| BookingCode legacy) để kích hoạt phiên chơi cho cả nhóm (BR §21A.7) | `CafePosController` |
+| `/check-in-tokens` | POST | **POS tạo QR cho player scan (BR §21A.7):** Staff bấm tạo token → server sinh token → trả QR payload. Player dùng app scan QR → `POST /api/check-in/scan-qr` để check-in. | `CafePosController` |
 | `/sessions/{sessionId}/end` | POST | **Kết thúc phiên chơi** → session `CHECKING`, hộp → `Available`/`Maintenance` | `CafePosController` |
 | `/sessions/{sessionId}/resume` | POST | **Khôi phục phiên từ `CHECKING` → `ACTIVE`** khi nhân viên bấm nhầm (GAP-1) | `CafePosController` |
 | `/sessions/{sessionGameId}/component-checklist` | GET | Lấy mô tả bảng kiểm kê linh kiện của 1 game trong phiên (`ComponentChecklistDto` — chỉ ExpectedQuantity, chưa verify) | `CafePosController` |
@@ -312,6 +313,82 @@ Server tự động phân biệt 2 format mã qua `ReservationCodeDetector`:
 - `404` quán, bàn hoặc game không tồn tại
 - `409` reservation không thuộc cafe, sai cafe, chưa `Confirmed`, sai game, hoặc bàn/hộp không khả dụng
 - `500` lỗi hệ thống không mong đợi
+
+---
+
+## POST /api/cafes/{cafeId}/pos/check-in-tokens
+
+**POS tạo QR cho player scan check-in (BR §21A.7 — 2 chiều check-in).**
+
+Staff bấm "Tạo QR mời khách scan" → server sinh token 16-char alphanumeric → lưu DB → trả QR payload. Player mở app → scan QR POS → `POST /api/check-in/scan-qr` để check-in vào cùng reservation.
+
+Token có TTL 30 phút mặc định (tối đa 240 phút). Mỗi token chỉ dùng 1 lần. Có thể gắn với 1 reservation cụ thể; nếu trống → token dùng cho walk-in/general.
+
+**Role:** Manager (chủ quán) hoặc CafeStaff thuộc cafe.
+
+**Body — `CreatePosCheckInTokenRequestDto`:**
+
+```json
+{
+  "reservationId": "guid",
+  "ttlMinutes": 30
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `reservationId` | guid | No | Gắn token với reservation cụ thể. Nếu null → token dùng chung (walk-in/general). |
+| `ttlMinutes` | int | No | TTL token (phút). Mặc định 30. Tối đa 240. |
+
+**Response 201 — `PosCheckInTokenDto`:**
+
+```json
+{
+  "id": "guid",
+  "cafeId": "guid",
+  "reservationId": "guid-or-null",
+  "token": "ABCDEFGHJKLMNPQR",
+  "qrPayload": "boardverse://check-in?token=ABCDEFGHJKLMNPQR",
+  "createdAt": "2026-08-07T10:00:00Z",
+  "expiresAt": "2026-08-07T10:30:00Z"
+}
+```
+
+**Token format:** 16 ký tự alphanumeric uppercase, loại trừ `0/1/I/O` để tránh nhầm lẫn khi quét.
+
+**QR payload** là deep-link URI — client hiển thị dưới dạng QR code image. Khi player scan:
+
+```bash
+# Player gọi (không qua CafeId route)
+POST /api/check-in/scan-qr
+{
+  "token": "ABCDEFGHJKLMNPQR"
+}
+```
+
+**Lỗi:**
+- `400` — TTL âm hoặc vượt giới hạn 240 phút.
+- `401` thiếu token.
+- `403` không đủ quyền vận hành quán.
+- `404` quán hoặc reservation không tồn tại.
+- `409` reservation không thuộc cafe hiện tại.
+- `500` lỗi hệ thống.
+
+**Ví dụ curl:**
+
+```bash
+# Staff tạo token cho reservation cụ thể
+curl -X POST "https://api.boardverse.local/api/cafes/{cafeId}/pos/check-in-tokens" \
+  -H "Authorization: Bearer <staff-jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{ "reservationId": "guid", "ttlMinutes": 30 }'
+
+# Staff tạo token chung cho walk-in
+curl -X POST "https://api.boardverse.local/api/cafes/{cafeId}/pos/check-in-tokens" \
+  -H "Authorization: Bearer <staff-jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{ "ttlMinutes": 60 }'
+```
 
 ---
 
@@ -672,6 +749,33 @@ POST /api/cafes/{cafeId}/pos/check-in
 GET /api/cafes/{cafeId}/pos/sessions/{sessionId}
 ```
 
+### Luồng 1b: Vào quán với QR POS (BR §21A.7 — 2 chiều)
+
+Staff chọn "Tạo QR mời khách scan" → player tự check-in bằng điện thoại.
+
+```powershell
+# Bước 1: Staff tạo token QR
+POST /api/cafes/{cafeId}/pos/check-in-tokens
+{
+  "reservationId": "guid",
+  "ttlMinutes": 30
+}
+# → Trả PosCheckInTokenDto với token + QrPayload (deep-link URI)
+# → Staff hiển thị QR trên màn hình POS
+
+# Bước 2: Player mở app, quét QR
+POST /api/check-in/scan-qr
+{
+  "token": "ABCDEFGHJKLMNPQR"
+}
+# → Backend lookup token, validate còn hiệu lực
+# → Player là host/member của reservation
+# → Auto-pick bàn + box available
+# → Gọi CheckInByCodeAsync với reservationCode nội bộ
+# → Mark token consumed, trả ActiveSession info
+# → Player thấy "Đang chơi tại quán X"
+```
+
 ### Luồng 2: Vào quán với BookingCode (legacy VND)
 
 ```powershell
@@ -687,8 +791,10 @@ POST /api/cafes/{cafeId}/pos/check-in
 
 ### Luồng 3: Walk-in (không có booking)
 
+Walk-in **không cần quét QR** — đi thẳng vào POS, staff tạo session cho họ.
+
 ```powershell
-# Bước 1: Chọn bàn + scan barcode hộp game
+# Staff chọn bàn + scan barcode → tạo session bình thường
 POST /api/cafes/{cafeId}/pos/sessions
 {
   "cafeTableId": "guid",
@@ -697,6 +803,8 @@ POST /api/cafes/{cafeId}/pos/sessions
 }
 # → ActiveSession tạo mới, box → InUse, table → InUse
 ```
+
+> Walk-in không có reservation → không dùng `PosCheckInToken` (token yêu cầu reservationId). Staff tạo session trực tiếp qua `/sessions` endpoint.
 
 ### Luồng 4: Trong khi chơi
 

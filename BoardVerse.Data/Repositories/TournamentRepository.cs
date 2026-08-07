@@ -329,4 +329,64 @@ public class TournamentRepository : ITournamentRepository
             x => x.UserId,
             x => (x.TournamentsPlayed, x.Champions));
     }
+
+    // === Admin: Full CRUD + Reports ===
+
+    public async Task<(IReadOnlyList<Tournament> Items, int TotalCount)> GetAdminListAsync(
+        int page, int pageSize, string? searchTerm, TournamentStatus? status, Guid? cafeId)
+    {
+        var query = _db.Tournaments
+            .Include(t => t.GameTemplate)
+            .Include(t => t.Cafe)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(searchTerm))
+        {
+            var term = searchTerm.Trim().ToLower();
+            query = query.Where(t =>
+                t.Title.ToLower().Contains(term) ||
+                (t.Description != null && t.Description.ToLower().Contains(term)));
+        }
+
+        if (status.HasValue)
+        {
+            query = query.Where(t => t.Status == status.Value);
+        }
+
+        if (cafeId.HasValue)
+        {
+            query = query.Where(t => t.CafeId == cafeId.Value);
+        }
+
+        var totalCount = await query.CountAsync();
+
+        var items = await query
+            .OrderByDescending(t => t.StartTime)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return (items, totalCount);
+    }
+
+    public async Task<Tournament?> GetAdminDetailAsync(Guid tournamentId)
+    {
+        return await _db.Tournaments
+            .Include(t => t.GameTemplate)
+            .Include(t => t.Cafe)
+            .Include(t => t.Participants)
+                .ThenInclude(p => p.User)
+            .Include(t => t.Matches)
+            .FirstOrDefaultAsync(t => t.Id == tournamentId);
+    }
+
+    public async Task<int> CountAllAsync()
+    {
+        return await _db.Tournaments.CountAsync();
+    }
+
+    public async Task<int> CountByStatusAsync(TournamentStatus status)
+    {
+        return await _db.Tournaments.CountAsync(t => t.Status == status);
+    }
 }

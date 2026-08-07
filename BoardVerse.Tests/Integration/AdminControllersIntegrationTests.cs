@@ -1,4 +1,4 @@
-﻿#nullable enable
+#nullable enable
 using System.Net;
 using BoardVerse.Core.DTOs.Cafe;
 using BoardVerse.Tests.Integration.Infrastructure;
@@ -262,61 +262,6 @@ public class AdminControllersIntegrationTests
             $"/api/v1/admin/users/{IntegrationTestFixtures.DemoPlayer1UserId}/adjust-karma",
             adjustRequest);
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.BadRequest ||
-                   response.StatusCode == HttpStatusCode.NotFound ||
-                   response.StatusCode == HttpStatusCode.Conflict ||
-                   response.StatusCode == HttpStatusCode.Forbidden ||
-                   response.StatusCode == HttpStatusCode.Unauthorized);
-    }
-
-    #endregion
-
-    #region === PAYMENT MASTER ACCOUNT CONTROLLER ===
-
-    [IntegrationFact]
-    public async Task PaymentMasterAccount_GetAll()
-    {
-        var token = await IntegrationTestAuth.AsAdminAsync(_client);
-        ApiTestClient.Authorize(_client, token);
-
-        var response = await _client.GetAsync("/api/admin/payment-master-accounts");
-        Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.Forbidden ||
-                   response.StatusCode == HttpStatusCode.NotFound);
-    }
-
-    [IntegrationFact]
-    public async Task PaymentMasterAccount_GetById()
-    {
-        var token = await IntegrationTestAuth.AsAdminAsync(_client);
-        ApiTestClient.Authorize(_client, token);
-
-        var response = await _client.GetAsync($"/api/admin/payment-master-accounts/{Guid.NewGuid()}");
-        Assert.True(response.StatusCode == HttpStatusCode.OK ||
-                   response.StatusCode == HttpStatusCode.NotFound);
-    }
-
-    [IntegrationFact]
-    public async Task PaymentMasterAccount_Create()
-    {
-        var token = await IntegrationTestAuth.AsAdminAsync(_client);
-        ApiTestClient.Authorize(_client, token);
-
-        var createRequest = new
-        {
-            provider = "SePay",
-            accountHolder = "Test Company",
-            bankCode = "TPBANK",
-            maskedAccountNumber = "****5678",
-            virtualAccountNumber = $"TEST{Guid.NewGuid():N}".Substring(0, 12),
-            qrContent = "https://qr.sepay.vn/img?acc=TEST5678",
-            webhookSecret = "test_webhook_secret_admin"
-        };
-
-        var response = await ApiTestClient.PostJsonAsync(_client,
-            "/api/admin/payment-master-accounts",
-            createRequest);
-        Assert.True(response.StatusCode == HttpStatusCode.Created ||
                    response.StatusCode == HttpStatusCode.BadRequest ||
                    response.StatusCode == HttpStatusCode.NotFound ||
                    response.StatusCode == HttpStatusCode.Conflict ||

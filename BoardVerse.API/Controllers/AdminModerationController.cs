@@ -118,5 +118,43 @@ namespace BoardVerse.API.Controllers
             var result = await _adminModerationService.AdjustKarmaAsync(adminUserId, id, request);
             return NewResponse(200, ApiSuccessMessages.AdminModeration.KarmaAdjusted, result);
         }
+
+        /// <summary>
+        /// Lấy danh sách user đang cooling-off. [Role: Admin]
+        /// </summary>
+        /// <param name="pageNumber">Số trang (mặc định 1).</param>
+        /// <param name="pageSize">Kích thước trang (mặc định 20).</param>
+        /// <response code="200">Danh sách user cooling-off.</response>
+        /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
+        /// <response code="403">Không có quyền Admin.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpGet("cooling-off")]
+        public async Task<IActionResult> GetCoolingOffUsers(
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            var pagination = new PaginationParams { PageNumber = pageNumber, PageSize = pageSize };
+            var result = await _adminModerationService.GetCoolingOffUsersAsync(pagination);
+            return NewResponse(200, ApiSuccessMessages.AdminModeration.CoolingOffUsersRetrieved, result);
+        }
+
+        /// <summary>
+        /// Release cooling-off cho một user. [Role: Admin]
+        /// </summary>
+        /// <param name="userId">Mã người dùng cần release.</param>
+        /// <param name="dto">Lý do release cooling-off.</param>
+        /// <response code="200">Đã release cooling-off thành công.</response>
+        /// <response code="400">Dữ liệu không hợp lệ hoặc user không trong trạng thái cooling-off.</response>
+        /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
+        /// <response code="403">Không có quyền Admin.</response>
+        /// <response code="404">Không tìm thấy ví của người dùng.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpPost("cooling-off/{userId:guid}/release")]
+        public async Task<IActionResult> ReleaseCoolingOff(Guid userId, [FromBody] ReleaseCoolingOffRequestDto dto)
+        {
+            var adminUserId = GetUserIdFromClaims();
+            var result = await _adminModerationService.ReleaseCoolingOffAsync(adminUserId, userId, dto.Reason);
+            return NewResponse(200, ApiSuccessMessages.AdminModeration.CoolingOffReleased, result);
+        }
     }
 }

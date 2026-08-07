@@ -38,4 +38,16 @@ public interface ILobbyHubService
 
     /// <summary>Mobile task #13: Broadcast CafePricingChanged (BR-04).</summary>
     Task NotifyCafePricingChanged(Guid cafeId, string cafeName, decimal oldFirstHourPrice, decimal newFirstHourPrice, DateTime effectiveDate, int affectedBookingsCount);
+
+    /// <summary>BR-REQUIRED §17.5: Lobby đã được tạo thành công + atomic hold BVC/seat/game.</summary>
+    Task NotifyLobbyActivated(Guid lobbyId, Guid hostUserId);
+
+    /// <summary>BR-REQUIRED §17.5: Lobby đạt minPlayers → booking confirmed.</summary>
+    Task NotifyLobbyConfirmed(Guid lobbyId);
+
+    /// <summary>BR-REQUIRED §17.5: Lobby bị hủy (host/cafe/no-show/timeout).</summary>
+    Task NotifyLobbyCancelled(Guid lobbyId);
+
+    /// <summary>BR-REQUIRED §17.5: Lobby đã check-in tại quán.</summary>
+    Task NotifyLobbyCheckedIn(Guid lobbyId, Guid checkedInByUserId);
 }

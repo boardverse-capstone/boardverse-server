@@ -44,5 +44,13 @@ namespace BoardVerse.Core.IRepositories
         Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<CafeTableSyncItem> tables);
         Task RefreshTableLayoutJsonAsync(Guid cafeId);
         Task SaveChangesAsync();
+
+        // === Admin: Full CRUD ===
+        Task AddCafeAsync(Cafe cafe);
+        Task<(IReadOnlyList<Cafe> Items, int TotalCount)> GetAdminListAsync(
+            int page, int pageSize, string? searchTerm, bool? isActive, Guid? managerId);
+        Task<Cafe?> GetAdminDetailAsync(Guid cafeId);
+        Task<int> CountAllAsync();
+        Task<int> CountActiveAsync();
     }
 }

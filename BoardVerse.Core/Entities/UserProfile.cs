@@ -9,8 +9,16 @@ namespace BoardVerse.Core.Entities
 
         // --- Gamer Identity ---
         public string? AvatarUrl { get; set; }
-
         public string? AvatarBorderUrl { get; set; }
+
+        /// <summary>K-05: Cover photo for player profile page.</summary>
+        public string? CoverPhotoUrl { get; set; }
+
+        /// <summary>K-05: JSON array of favorite game template IDs.</summary>
+        public string? FavoriteGamesJson { get; set; }
+
+        /// <summary>K-05: Preferred play mode.</summary>
+        public PlayerPlayMode PreferredPlayMode { get; set; } = PlayerPlayMode.Group;
 
         public string? Bio { get; set; }
 

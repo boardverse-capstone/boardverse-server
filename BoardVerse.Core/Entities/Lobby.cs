@@ -147,4 +147,10 @@ public class Lobby
     public virtual ICollection<LobbyMember> Members { get; set; } = [];
     public virtual ICollection<LobbyInvite> Invites { get; set; } = [];
     public virtual ICollection<LobbyMessage> Messages { get; set; } = [];
+
+    // N-01: Lobby milestone notification tracking (BR-NEW-13)
+    public virtual ICollection<LobbyNotificationSent> NotificationSents { get; set; } = [];
+
+    // N-02: Lobby at-risk warning tracking (BR-NEW-14)
+    public virtual ICollection<LobbyAtRiskWarning> AtRiskWarnings { get; set; } = [];
 }

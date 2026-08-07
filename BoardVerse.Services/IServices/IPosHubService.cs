@@ -22,4 +22,7 @@ public interface IPosHubService
     /// Notify tất cả members trong session về thay đổi (game returned, checkout, etc).
     /// </summary>
     Task NotifySessionUpdateAsync(Guid sessionId, string eventType, object? data = null);
+
+    /// <summary>BR-REQUIRED §17.5: POS đóng phiên → SessionCompleted.</summary>
+    Task NotifySessionCompleted(Guid lobbyId);
 }

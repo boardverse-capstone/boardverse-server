@@ -1,5 +1,6 @@
 using BoardVerse.Core.Data;
 using BoardVerse.Core.DTOs.Tournament;
+using BoardVerse.Core.DTOs.Admin;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
@@ -15,28 +16,37 @@ namespace BoardVerse.Services.Services;
 public class TournamentService : ITournamentService
 {
     private readonly ITournamentRepository _tournamentRepository;
+    private readonly ITournamentWaitlistRepository _waitlistRepository;
     private readonly IGameTemplateRepository _gameTemplateRepository;
     private readonly ICafePosRepository _cafePosRepository;
+    private readonly ICafeRepository _cafeRepository;
     private readonly IUserProfileRepository _userProfileRepository;
     private readonly ISystemConfigurationProvider _systemConfigurationProvider;
     private readonly IKarmaRatingRepository _karmaRatingRepository;
+    private readonly IPushNotificationService _pushNotificationService;
     private readonly ILogger<TournamentService> _logger;
 
     public TournamentService(
         ITournamentRepository tournamentRepository,
+        ITournamentWaitlistRepository waitlistRepository,
         IGameTemplateRepository gameTemplateRepository,
         ICafePosRepository cafePosRepository,
+        ICafeRepository cafeRepository,
         IUserProfileRepository userProfileRepository,
         ISystemConfigurationProvider systemConfigurationProvider,
         IKarmaRatingRepository karmaRatingRepository,
+        IPushNotificationService pushNotificationService,
         ILogger<TournamentService> logger)
     {
         _tournamentRepository = tournamentRepository;
+        _waitlistRepository = waitlistRepository;
         _gameTemplateRepository = gameTemplateRepository;
         _cafePosRepository = cafePosRepository;
+        _cafeRepository = cafeRepository;
         _userProfileRepository = userProfileRepository;
         _systemConfigurationProvider = systemConfigurationProvider;
         _karmaRatingRepository = karmaRatingRepository;
+        _pushNotificationService = pushNotificationService;
         _logger = logger;
     }
 
@@ -104,6 +114,7 @@ public class TournamentService : ITournamentService
             TotalRounds = 4,
             PreliminaryRounds = 3,
             FinalistCount = 4,
+            HasThirdPlaceMatch = request.HasThirdPlaceMatch,
             CurrentRound = 0,
             MinKarmaRequirement = TournamentKarmaPolicy.ClampKarma(request.MinKarmaRequirement),
             MinEloRequirement = request.MinEloRequirement,
@@ -721,7 +732,43 @@ public class TournamentService : ITournamentService
         var activeCount = await _tournamentRepository.CountActiveParticipantsAsync(tournamentId);
         if (activeCount >= tournament.MaxParticipants)
         {
-            throw new ConflictException(ApiErrorMessages.Tournament.TournamentFull(tournamentId));
+            // T-03: Tournament full → add to waitlist instead of throwing error
+            var existingWaitlist = await _waitlistRepository.GetPendingByUserAsync(tournamentId, userId);
+            if (existingWaitlist != null)
+            {
+                throw new ConflictException("Bạn đã có trong waitlist của giải này.");
+            }
+
+            var position = await _waitlistRepository.GetNextPositionAsync(tournamentId);
+            var waitlistEntry = new TournamentWaitlist
+            {
+                Id = Guid.NewGuid(),
+                TournamentId = tournamentId,
+                UserId = userId,
+                Position = position,
+                Status = TournamentWaitlistStatus.Pending,
+                JoinedAt = DateTime.UtcNow
+            };
+
+            await _waitlistRepository.AddAsync(waitlistEntry);
+            await _waitlistRepository.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "User {UserId} added to waitlist for tournament {TournamentId} at position {Position}",
+                userId, tournamentId, position);
+
+            // Return a placeholder DTO indicating waitlist status
+            return new TournamentParticipantResponseDto
+            {
+                Id = waitlistEntry.Id,
+                TournamentId = tournamentId,
+                UserId = userId,
+                Username = string.Empty, // Not fetched in waitlist path
+                Status = TournamentParticipantStatus.Registered,
+                IsWaitlisted = true,
+                WaitlistPosition = position,
+                RegisteredAt = waitlistEntry.JoinedAt
+            };
         }
 
         // Karma check
@@ -1849,10 +1896,29 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
                 if (message != null)
                 {
-                    // TODO: Khi IPushNotificationService sẵn sàng, hook vào đây
-                    // await _pushNotificationService.SendAsync(participant.UserId.Value, message);
+                    var reminderTypeLabel = reminderType switch
+                    {
+                        "30min" => "30 phút",
+                        "15min" => "15 phút",
+                        "5min" => "5 phút",
+                        _ => reminderType
+                    };
+
+                    await _pushNotificationService.SendToUsersAsync(
+                        new[] { participant.UserId ?? Guid.Empty },
+                        new PushNotificationPayload
+                        {
+                            Type = "TournamentReminder",
+                            Title = $"Nhắc nhở: Giải đấu '{tournament.Title}' bắt đầu sau {reminderTypeLabel}",
+                            Body = message,
+                            Data = new Dictionary<string, string>
+                            {
+                                ["tournamentId"] = tournament.Id.ToString()
+                            }
+                        });
+
                     _logger.LogInformation(
-                        "[TournamentReminder] Would send '{ReminderType}' reminder to User {UserId} for Tournament {TournamentId}: {Message}",
+                        "[TournamentReminder] Sent '{ReminderType}' reminder to User {UserId} for Tournament {TournamentId}: {Message}",
                         reminderType, participant.UserId, tournament.Id, message);
                     sentCount++;
                 }
@@ -1942,6 +2008,23 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
                 _logger.LogInformation(
                     "[TournamentNoShow] User {UserId} marked no-show for Tournament {TournamentId}. Karma penalty: {Penalty}",
                     participant.UserId, tournament.Id, karmaPenalty);
+
+                // T-01: Send no-show push notification
+                if (participant.UserId.HasValue)
+                {
+                    await _pushNotificationService.SendToUsersAsync(
+                        new[] { participant.UserId.Value },
+                        new PushNotificationPayload
+                        {
+                            Type = "TournamentNoShow",
+                            Title = "Bạn bị đánh dấu vắng mặt",
+                            Body = $"Bạn bị đánh dấu vắng mặt (no-show) tại giải đấu '{tournament.Title}'.",
+                            Data = new Dictionary<string, string>
+                            {
+                                ["tournamentId"] = tournament.Id.ToString()
+                            }
+                        });
+                }
             }
 
             if (karmaLogs.Count > 0)
@@ -2074,6 +2157,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
                 RoundNumber = roundNumber,
                 MatchNumber = matchNumber++,
                 IsFinal = false,
+                MatchType = Core.Enum.MatchType.Swiss,
                 Player1Id = table.Count > 0 ? table[0].UserId : null,
                 Player2Id = table.Count > 1 ? table[1].UserId : null,
                 Player3Id = table.Count > 2 ? table[2].UserId : null,
@@ -2227,6 +2311,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
             RoundNumber = tournament.TotalRounds,
             MatchNumber = 1,
             IsFinal = true,
+            MatchType = Core.Enum.MatchType.Final,
             // Dùng Participant.Id để walk-in có thể tham gia Final
             Player1Id = top4.ElementAtOrDefault(0)?.Id,
             Player2Id = top4.ElementAtOrDefault(1)?.Id,
@@ -2237,6 +2322,33 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         };
 
         await _tournamentRepository.AddMatchAsync(finalMatch);
+
+        // T-02: Build Third Place Match khi có cấu hình
+        if (tournament.HasThirdPlaceMatch && top4.Count >= 4)
+        {
+            await BuildThirdPlaceMatchAsync(tournament, top4);
+        }
+    }
+
+    private async Task BuildThirdPlaceMatchAsync(Tournament tournament, List<TournamentParticipant> topParticipants)
+    {
+        // Third place match: player xếp hạng 3 và 4 từ Swiss
+        // Dùng RoundNumber = tournament.TotalRounds (cùng round với Final, phân biệt bằng MatchNumber = 2)
+        var thirdPlaceMatch = new TournamentMatchBracket
+        {
+            Id = Guid.NewGuid(),
+            TournamentId = tournament.Id,
+            RoundNumber = tournament.TotalRounds,
+            MatchNumber = 2,
+            IsFinal = false,
+            MatchType = Core.Enum.MatchType.ThirdPlaceMatch,
+            Player1Id = topParticipants.Count > 2 ? topParticipants[2].Id : null,
+            Player2Id = topParticipants.Count > 3 ? topParticipants[3].Id : null,
+            Status = TournamentMatchStatus.Scheduled,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        await _tournamentRepository.AddMatchAsync(thirdPlaceMatch);
     }
 
     private void AssignFinalRanks(Tournament tournament, TournamentMatchBracket finalMatch)
@@ -2439,6 +2551,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
             TotalRounds = tournament.TotalRounds,
             PreliminaryRounds = tournament.PreliminaryRounds,
             FinalistCount = tournament.FinalistCount,
+            HasThirdPlaceMatch = tournament.HasThirdPlaceMatch,
             CurrentRound = tournament.CurrentRound,
             StartedAt = tournament.StartedAt,
             MinKarmaRequirement = tournament.MinKarmaRequirement,
@@ -2531,6 +2644,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
             RoundNumber = m.RoundNumber,
             MatchNumber = m.MatchNumber,
             IsFinal = m.IsFinal,
+            MatchType = m.MatchType,
             Player1Id = m.Player1Id,
             Player2Id = m.Player2Id,
             Player3Id = m.Player3Id,
@@ -2862,6 +2976,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
                 RoundNumber = roundNumber,
                 MatchNumber = p.MatchNumber,
                 IsFinal = roundNumber == tournament.TotalRounds,
+                MatchType = roundNumber == tournament.TotalRounds ? Core.Enum.MatchType.Final : Core.Enum.MatchType.Swiss,
                 Player1Id = p.PlayerIds.Count > 0 ? p.PlayerIds[0] : null,
                 Player2Id = p.PlayerIds.Count > 1 ? p.PlayerIds[1] : null,
                 Player3Id = p.PlayerIds.Count > 2 ? p.PlayerIds[2] : null,
@@ -2904,5 +3019,372 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
             .ThenByDescending(p => p.TotalPrestigePoints)
             .ThenBy(p => p.CheckedInAt ?? p.RegisteredAt)
             .ToList();
+    }
+
+    // ====================================================================
+    // ADMIN: FULL CRUD + REPORTS
+    // ====================================================================
+
+    public async Task<AdminTournamentListResponseDto> GetAdminTournamentsAsync(
+        int page, int pageSize, string? searchTerm, string? status, Guid? cafeId)
+    {
+        TournamentStatus? tournamentStatus = null;
+        if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<TournamentStatus>(status, true, out var parsed))
+        {
+            tournamentStatus = parsed;
+        }
+
+        var (items, totalCount) = await _tournamentRepository.GetAdminListAsync(
+            page, pageSize, searchTerm, tournamentStatus, cafeId);
+
+        var totalPages = (int)Math.Ceiling((double)totalCount / pageSize);
+
+        return new AdminTournamentListResponseDto
+        {
+            Items = items.Select(t => new AdminTournamentListItemDto
+            {
+                Id = t.Id,
+                Title = t.Title,
+                CafeId = t.CafeId,
+                CafeName = t.Cafe?.Name ?? "N/A",
+                GameName = t.GameTemplate?.Name ?? "N/A",
+                StartTime = t.StartTime,
+                RegistrationDeadline = t.RegistrationDeadline,
+                MinParticipants = t.MinParticipants,
+                MaxParticipants = t.MaxParticipants,
+                CurrentParticipants = t.Participants?.Count ?? 0,
+                Status = t.Status.ToString(),
+                CreatedAt = t.CreatedAt
+            }).ToList(),
+            TotalCount = totalCount,
+            PageNumber = page,
+            PageSize = pageSize,
+            TotalPages = totalPages,
+            HasPreviousPage = page > 1,
+            HasNextPage = page < totalPages
+        };
+    }
+
+    public async Task<AdminTournamentDetailDto?> GetAdminTournamentDetailAsync(Guid tournamentId)
+    {
+        var t = await _tournamentRepository.GetAdminDetailAsync(tournamentId);
+        if (t == null)
+        {
+            return null;
+        }
+
+        return new AdminTournamentDetailDto
+        {
+            Id = t.Id,
+            Title = t.Title,
+            Description = t.Description,
+            CafeId = t.CafeId,
+            CafeName = t.Cafe?.Name ?? "N/A",
+            GameTemplateId = t.GameTemplateId,
+            GameName = t.GameTemplate?.Name ?? "N/A",
+            StartTime = t.StartTime,
+            RegistrationDeadline = t.RegistrationDeadline,
+            RoundDurationMinutes = t.RoundDurationMinutes,
+            MinParticipants = t.MinParticipants,
+            MaxParticipants = t.MaxParticipants,
+            CurrentParticipants = t.Participants?.Count ?? 0,
+            CurrentRound = t.CurrentRound,
+            TotalRounds = t.TotalRounds,
+            MinKarmaRequirement = t.MinKarmaRequirement,
+            MinEloRequirement = t.MinEloRequirement,
+            MaxEloRequirement = t.MaxEloRequirement,
+            Status = t.Status.ToString(),
+            CreatedAt = t.CreatedAt,
+            UpdatedAt = t.UpdatedAt,
+            Participants = t.Participants?.Select(p => new AdminTournamentParticipantDto
+            {
+                Id = p.Id,
+                UserId = p.UserId,
+                Username = p.User?.Username ?? "N/A",
+                Status = p.Status.ToString(),
+                CheckedInAt = p.CheckedInAt,
+                FinalRank = p.FinalRank,
+                SwissWins = p.SwissWins,
+                SwissDraws = p.SwissDraws,
+                TotalPrestigePoints = p.TotalPrestigePoints,
+                RegisteredAt = p.RegisteredAt
+            }).ToList() ?? new List<AdminTournamentParticipantDto>()
+        };
+    }
+
+    public async Task<TournamentResponseDto> AdminCreateTournamentAsync(Guid adminUserId, AdminCreateTournamentRequestDto request)
+    {
+        // Validate
+        if (string.IsNullOrWhiteSpace(request.Title))
+        {
+            throw new BadRequestException(ApiErrorMessages.Tournament.TitleRequired);
+        }
+
+        if (request.StartTime <= DateTime.UtcNow)
+        {
+            throw new BadRequestException("Thời gian bắt đầu phải trong tương lai.");
+        }
+
+        var gameTemplate = await _gameTemplateRepository.GetByIdAsync(request.GameTemplateId)
+            ?? throw new NotFoundException($"Game template {request.GameTemplateId} không tìm thấy.");
+
+        var cafe = await _cafeRepository.GetByIdAsync(request.CafeId)
+            ?? throw new NotFoundException($"Cafe {request.CafeId} không tìm thấy.");
+
+        var minParticipants = request.MinParticipants > 0 ? request.MinParticipants : gameTemplate.TournamentMinPlayersPerTable;
+        var deadline = request.RegistrationDeadline != default ? request.RegistrationDeadline : request.StartTime.AddHours(-24);
+
+        var tournament = new Tournament
+        {
+            Id = Guid.NewGuid(),
+            CafeId = request.CafeId,
+            CreatedByManagerId = Guid.Empty, // Admin doesn't have manager ID
+            Title = request.Title.Trim(),
+            Description = request.Description?.Trim(),
+            GameTemplateId = request.GameTemplateId,
+            StartTime = request.StartTime,
+            RegistrationDeadline = deadline,
+            RoundDurationMinutes = request.RoundDurationMinutes,
+            MinParticipants = minParticipants,
+            MaxParticipants = request.MaxParticipants,
+            EntryFee = request.EntryFee,
+            TotalRounds = request.TotalRounds > 0 ? request.TotalRounds : 4,
+            PreliminaryRounds = request.PreliminaryRounds > 0 ? request.PreliminaryRounds : 3,
+            FinalistCount = request.FinalistCount > 0 ? request.FinalistCount : 4,
+            CurrentRound = 0,
+            MinKarmaRequirement = request.MinKarmaRequirement,
+            MinEloRequirement = request.MinEloRequirement,
+            MaxEloRequirement = request.MaxEloRequirement,
+            WinnerKarmaBonus = 20,
+            FinalistKarmaBonus = 10,
+            NoShowKarmaPenalty = -10,
+            PairingMode = request.PairingMode,
+            Status = TournamentStatus.Draft,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        await _tournamentRepository.AddAsync(tournament);
+        await _tournamentRepository.SaveChangesAsync();
+
+        return await BuildResponseAsync(tournament, null);
+    }
+
+    public async Task<TournamentResponseDto> AdminUpdateTournamentAsync(Guid adminUserId, Guid tournamentId, AdminUpdateTournamentRequestDto request)
+    {
+        var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
+            ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
+
+        if (!string.IsNullOrWhiteSpace(request.Title))
+        {
+            tournament.Title = request.Title.Trim();
+        }
+
+        if (request.Description != null)
+        {
+            tournament.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
+        }
+
+        if (request.StartTime.HasValue)
+        {
+            tournament.StartTime = request.StartTime.Value;
+        }
+
+        if (request.RegistrationDeadline.HasValue)
+        {
+            tournament.RegistrationDeadline = request.RegistrationDeadline.Value;
+        }
+
+        if (request.RoundDurationMinutes.HasValue && request.RoundDurationMinutes.Value > 0)
+        {
+            tournament.RoundDurationMinutes = request.RoundDurationMinutes.Value;
+        }
+
+        if (request.MinParticipants.HasValue && request.MinParticipants.Value > 0)
+        {
+            tournament.MinParticipants = request.MinParticipants.Value;
+        }
+
+        if (request.MaxParticipants.HasValue && request.MaxParticipants.Value > 0)
+        {
+            tournament.MaxParticipants = request.MaxParticipants.Value;
+        }
+
+        if (request.EntryFee.HasValue)
+        {
+            tournament.EntryFee = request.EntryFee.Value;
+        }
+
+        if (request.MinKarmaRequirement.HasValue)
+        {
+            tournament.MinKarmaRequirement = request.MinKarmaRequirement.Value;
+        }
+
+        tournament.UpdatedAt = DateTime.UtcNow;
+        await _tournamentRepository.SaveChangesAsync();
+
+        var result = await GetAdminTournamentDetailAsync(tournamentId);
+        if (result == null)
+            throw new Exception("Failed to retrieve updated tournament.");
+        var updated = await _tournamentRepository.GetByIdAsync(tournamentId);
+        return await BuildResponseAsync(updated!, null);
+    }
+
+    public async Task AdminDeleteTournamentAsync(Guid adminUserId, Guid tournamentId)
+    {
+        var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
+            ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
+
+        if (tournament.Status != TournamentStatus.Draft &&
+            tournament.Status != TournamentStatus.Cancelled &&
+            tournament.Status != TournamentStatus.Completed)
+        {
+            throw new ConflictException("Chỉ có thể xóa tournament ở trạng thái Draft, Cancelled hoặc Completed.");
+        }
+
+        await _tournamentRepository.UpdateAsync(tournament);
+        await _tournamentRepository.SaveChangesAsync();
+    }
+
+    public async Task<AdminTournamentParticipantsResponseDto> GetAdminTournamentParticipantsAsync(
+        Guid tournamentId, string? status)
+    {
+        var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
+            ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
+
+        var query = tournament.Participants.AsEnumerable();
+
+        if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<TournamentParticipantStatus>(status, true, out var parsed))
+        {
+            query = query.Where(p => p.Status == parsed);
+        }
+
+        var allParticipants = query.ToList();
+        var totalCount = allParticipants.Count;
+
+        var participants = allParticipants
+            .Select(p => new AdminTournamentParticipantDto
+            {
+                Id = p.Id,
+                UserId = p.UserId,
+                Username = p.User?.Username ?? "N/A",
+                Status = p.Status.ToString(),
+                CheckedInAt = p.CheckedInAt,
+                FinalRank = p.FinalRank,
+                SwissWins = p.SwissWins,
+                SwissDraws = p.SwissDraws,
+                TotalPrestigePoints = p.TotalPrestigePoints,
+                RegisteredAt = p.RegisteredAt
+            }).ToList();
+
+        return new AdminTournamentParticipantsResponseDto
+        {
+            TournamentId = tournamentId,
+            TournamentTitle = tournament.Title,
+            Participants = participants,
+            TotalCount = totalCount
+        };
+    }
+
+    public async Task<TournamentResponseDto> AdminOpenRegistrationAsync(Guid adminUserId, Guid tournamentId)
+    {
+        var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
+            ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
+
+        if (tournament.Status != TournamentStatus.Draft)
+        {
+            throw new ConflictException("Chỉ có thể mở đăng ký cho tournament ở trạng thái Draft.");
+        }
+
+        if (tournament.RegistrationDeadline <= DateTime.UtcNow)
+        {
+            throw new BadRequestException("Thời hạn đăng ký phải trong tương lai.");
+        }
+
+        tournament.Status = TournamentStatus.RegistrationOpen;
+        tournament.UpdatedAt = DateTime.UtcNow;
+        await _tournamentRepository.SaveChangesAsync();
+
+        return await BuildResponseAsync(tournament, null);
+    }
+
+    public async Task<TournamentResponseDto> AdminCloseRegistrationAsync(Guid adminUserId, Guid tournamentId)
+    {
+        var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
+            ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
+
+        if (tournament.Status != TournamentStatus.RegistrationOpen)
+        {
+            throw new ConflictException("Chỉ có thể đóng đăng ký cho tournament đang mở đăng ký.");
+        }
+
+        tournament.Status = TournamentStatus.RegistrationClosed;
+        tournament.UpdatedAt = DateTime.UtcNow;
+        await _tournamentRepository.SaveChangesAsync();
+
+        return await BuildResponseAsync(tournament, null);
+    }
+
+    public async Task<TournamentResponseDto> AdminStartTournamentAsync(Guid adminUserId, Guid tournamentId)
+    {
+        var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
+            ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
+
+        if (tournament.Status != TournamentStatus.RegistrationClosed)
+        {
+            throw new ConflictException("Chỉ có thể bắt đầu tournament đang ở trạng thái RegistrationClosed.");
+        }
+
+        var activeCount = tournament.Participants?.Count(p =>
+            p.Status == TournamentParticipantStatus.Active ||
+            p.Status == TournamentParticipantStatus.CheckedIn) ?? 0;
+
+        if (activeCount < tournament.MinParticipants)
+        {
+            throw new ConflictException($"Không đủ người tham gia. Cần tối thiểu {tournament.MinParticipants}, hiện có {activeCount}.");
+        }
+
+        tournament.Status = TournamentStatus.OnGoing;
+        tournament.CurrentRound = 1;
+        tournament.UpdatedAt = DateTime.UtcNow;
+        await _tournamentRepository.SaveChangesAsync();
+
+        return await BuildResponseAsync(tournament, null);
+    }
+
+    public async Task<TournamentResponseDto> AdminCompleteTournamentAsync(Guid adminUserId, Guid tournamentId)
+    {
+        var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
+            ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
+
+        if (tournament.Status != TournamentStatus.OnGoing)
+        {
+            throw new ConflictException("Chỉ có thể hoàn thành tournament đang diễn ra.");
+        }
+
+        tournament.Status = TournamentStatus.Completed;
+        tournament.UpdatedAt = DateTime.UtcNow;
+        await _tournamentRepository.SaveChangesAsync();
+
+        return await BuildResponseAsync(tournament, null);
+    }
+
+    public async Task<TournamentResponseDto> AdminCancelTournamentAsync(Guid adminUserId, Guid tournamentId, string? reason)
+    {
+        var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
+            ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
+
+        if (tournament.Status == TournamentStatus.Completed || tournament.Status == TournamentStatus.Cancelled)
+        {
+            throw new ConflictException("Tournament đã kết thúc hoặc bị hủy trước đó.");
+        }
+
+        tournament.Status = TournamentStatus.Cancelled;
+        tournament.CancellationReason = reason;
+        tournament.CancelledAt = DateTime.UtcNow;
+        tournament.UpdatedAt = DateTime.UtcNow;
+        await _tournamentRepository.SaveChangesAsync();
+
+        return await BuildResponseAsync(tournament, null);
     }
 }

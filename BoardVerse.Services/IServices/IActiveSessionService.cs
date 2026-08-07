@@ -30,5 +30,17 @@ namespace BoardVerse.Services.IServices
         /// Chỉ cho phép khi chưa có thành viên nào được checkout (chưa có member trong trạng thái FINISHED).
         /// </summary>
         Task<ActiveSessionResponseDto> ResumeSessionAsync(Guid cafeId, Guid sessionId);
+
+        /// <summary>
+        /// L-05: Tiếp tục phiên đang bị tạm dừng.
+        /// Chỉ hoạt động khi phiên đang ACTIVE và IsPaused = true.
+        /// </summary>
+        Task<ActiveSessionResponseDto> ResumeFromPauseAsync(Guid cafeId, Guid sessionId);
+
+        /// <summary>
+        /// L-05: Tạm dừng phiên chơi — timer không đếm.
+        /// Chỉ áp dụng khi phiên đang ACTIVE.
+        /// </summary>
+        Task<ActiveSessionResponseDto> PauseSessionAsync(Guid cafeId, Guid sessionId);
     }
 }

@@ -43,5 +43,11 @@ public enum OutboxEventType
     /// BR §21A.8 + BR-REVENUE-01: POS đóng phiên (ActiveSession → Paid) → capture BVC đã giữ
     /// về doanh thu quán, Reservation.Status = Completed, giải phóng seat + game inventory.
     /// </summary>
-    SessionCompleted = 11
+    SessionCompleted = 11,
+
+    /// <summary>Deposit đã được hoàn về ví user (timeout, cancel, cafe hủy).</summary>
+    DepositReleased = 12,
+
+    /// <summary>Deposit đã được capture về doanh thu quán (check-in hoặc settlement).</summary>
+    DepositCaptured = 13
 }

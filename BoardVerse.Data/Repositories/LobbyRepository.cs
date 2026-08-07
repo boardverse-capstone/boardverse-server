@@ -408,5 +408,91 @@ namespace BoardVerse.Data.Repositories
         {
             return _db.SaveChangesAsync();
         }
+
+        // === Admin: Reports ===
+
+        public async Task<int> CountFailuresByTypeAsync(
+            DateTime? fromUtc, DateTime? toUtc,
+            LobbyStatus? failureType)
+        {
+            var query = _db.Lobbies.AsQueryable();
+
+            if (fromUtc.HasValue)
+            {
+                query = query.Where(l => l.UpdatedAt >= fromUtc.Value);
+            }
+
+            if (toUtc.HasValue)
+            {
+                query = query.Where(l => l.UpdatedAt <= toUtc.Value);
+            }
+
+            if (failureType.HasValue)
+            {
+                query = query.Where(l => l.Status == failureType.Value);
+            }
+            else
+            {
+                // Count all failure types
+                var failureTypes = new[]
+                {
+                    LobbyStatus.TimeoutFailed,
+                    LobbyStatus.HostCancelled,
+                    LobbyStatus.RejectedByCafe,
+                    LobbyStatus.ExpiredByCafe
+                };
+                query = query.Where(l => failureTypes.Contains(l.Status));
+            }
+
+            return await query.CountAsync();
+        }
+
+        public async Task<(IReadOnlyList<Lobby> Items, int TotalCount)> GetAdminLobbyFailuresAsync(
+            int page, int pageSize,
+            DateTime? fromUtc, DateTime? toUtc,
+            LobbyStatus? failureType)
+        {
+            var query = _db.Lobbies
+                .Include(l => l.GameTemplate)
+                .Include(l => l.HostUser)
+                .Include(l => l.Members)
+                .AsQueryable();
+
+            if (fromUtc.HasValue)
+            {
+                query = query.Where(l => l.UpdatedAt >= fromUtc.Value);
+            }
+
+            if (toUtc.HasValue)
+            {
+                query = query.Where(l => l.UpdatedAt <= toUtc.Value);
+            }
+
+            if (failureType.HasValue)
+            {
+                query = query.Where(l => l.Status == failureType.Value);
+            }
+            else
+            {
+                var failureTypes = new[]
+                {
+                    LobbyStatus.TimeoutFailed,
+                    LobbyStatus.HostCancelled,
+                    LobbyStatus.RejectedByCafe,
+                    LobbyStatus.ExpiredByCafe
+                };
+                query = query.Where(l => failureTypes.Contains(l.Status));
+            }
+
+            var totalCount = await query.CountAsync();
+
+            var items = await query
+                .OrderByDescending(l => l.UpdatedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            return (items, totalCount);
+        }
     }
 }

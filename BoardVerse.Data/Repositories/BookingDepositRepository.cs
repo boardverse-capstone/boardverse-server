@@ -18,7 +18,6 @@ namespace BoardVerse.Data.Repositories
         public async Task<BookingDeposit?> GetByIdAsync(Guid depositId)
         {
             return await _db.BookingDeposits
-                .Include(d => d.MasterAccount)
                 .Include(d => d.Cafe)
                 .FirstOrDefaultAsync(d => d.Id == depositId);
         }
@@ -26,7 +25,6 @@ namespace BoardVerse.Data.Repositories
         public async Task<BookingDeposit?> GetByOrderIdAsync(string orderId)
         {
             return await _db.BookingDeposits
-                .Include(d => d.MasterAccount)
                 .Include(d => d.Cafe)
                 .FirstOrDefaultAsync(d => d.OrderId == orderId);
         }
@@ -37,7 +35,6 @@ namespace BoardVerse.Data.Repositories
         public async Task<BookingDeposit?> GetByBookingCodeAsync(string bookingCode)
         {
             return await _db.BookingDeposits
-                .Include(d => d.MasterAccount)
                 .Include(d => d.Cafe)
                 .FirstOrDefaultAsync(d => d.OrderId == bookingCode);
         }
@@ -45,14 +42,12 @@ namespace BoardVerse.Data.Repositories
         public async Task<BookingDeposit?> GetByActiveSessionIdAsync(Guid activeSessionId)
         {
             return await _db.BookingDeposits
-                .Include(d => d.MasterAccount)
                 .FirstOrDefaultAsync(d => d.ActiveSessionId == activeSessionId);
         }
 
         public async Task<BookingDeposit?> GetBySePayTransactionIdAsync(string sePayTransactionId)
         {
             return await _db.BookingDeposits
-                .Include(d => d.MasterAccount)
                 .FirstOrDefaultAsync(d => d.SePayTransactionId == sePayTransactionId);
         }
 
@@ -60,7 +55,6 @@ namespace BoardVerse.Data.Repositories
         public async Task<BookingDeposit?> GetByBookingIdAsync(Guid bookingId)
         {
             return await _db.BookingDeposits
-                .Include(d => d.MasterAccount)
                 .FirstOrDefaultAsync(d => d.BookingId == bookingId);
         }
 

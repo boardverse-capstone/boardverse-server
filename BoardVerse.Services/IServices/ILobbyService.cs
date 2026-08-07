@@ -65,6 +65,9 @@ namespace BoardVerse.Services.IServices
         /// <summary>Host chuyển quyền host cho thành viên khác.</summary>
         Task<LobbyResponseDto> TransferHostAsync(Guid lobbyId, Guid currentHostUserId, Guid newHostUserId);
 
+        /// <summary>L-03: Host tạo mã chia sẻ mới, invalidate mã cũ.</summary>
+        Task<LobbyResponseDto> RegenerateShareCodeAsync(Guid lobbyId, Guid hostUserId);
+
         /// <summary>Host kick thành viên khác khỏi lobby.</summary>
         Task<LobbyResponseDto> KickMemberAsync(Guid lobbyId, Guid hostUserId, Guid targetUserId, string? reason = null);
 

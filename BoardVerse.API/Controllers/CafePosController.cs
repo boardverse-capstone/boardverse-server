@@ -266,6 +266,33 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
+        /// POS tạo mã QR cho player scan check-in (BR §21A.7 — 2 chiều check-in).
+        /// Staff bấm "Tạo QR mời khách scan" → server sinh token 16-char alphanumeric → lưu DB → trả QR payload.
+        /// Player mở app → scan QR POS → server lookup token → check-in vào cùng reservation.
+        ///
+        /// Token có TTL 30 phút mặc định (tối đa 240 phút qua <c>ttlMinutes</c>). Mỗi token chỉ dùng 1 lần.
+        /// Có thể gắn với 1 reservation cụ thể qua <c>reservationId</c>; nếu trống → token dùng cho walk-in/general.
+        /// </summary>
+        /// <param name="cafeId">Mã định danh quán staff đang vận hành.</param>
+        /// <param name="request">ReservationId (optional) + TTL tùy chỉnh (optional).</param>
+        /// <response code="201">Tạo QR token thành công, trả token + QrPayload sẵn sàng hiển thị.</response>
+        /// <response code="400">Request không hợp lệ (TTL âm/vượt giới hạn, reservation không tồn tại).</response>
+        /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+        /// <response code="403">Không đủ quyền vận hành quán.</response>
+        /// <response code="404">Quán hoặc reservation không tồn tại.</response>
+        /// <response code="409">Reservation không thuộc cafe hiện tại.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpPost("check-in-tokens")]
+        public async Task<IActionResult> CreateCheckInToken(
+            Guid cafeId,
+            [FromBody] CreatePosCheckInTokenRequestDto request)
+        {
+            var (userId, role) = GetViewerContext();
+            var result = await _posService.CreateCheckInTokenAsync(cafeId, userId, role, request);
+            return this.NewResponse(201, ApiSuccessMessages.Pos.CheckInTokenCreated, result);
+        }
+
+        /// <summary>
         /// Kết thúc phiên chơi — trả hộp game và giải phóng bàn nếu không còn session khác. [Role: Manager, CafeStaff]
         /// </summary>
         /// <param name="cafeId">Mã định danh quán cafe.</param>
@@ -367,6 +394,48 @@ namespace BoardVerse.API.Controllers
             var (userId, role) = GetViewerContext();
             var result = await _sessionService.ResumeSessionAsync(cafeId, sessionId);
             return this.NewResponse(200, "Đã khôi phục phiên về trạng thái ACTIVE.", result);
+        }
+
+        /// <summary>
+        /// L-05: Tạm dừng phiên chơi — timer ngừng đếm. [Role: Manager, CafeStaff]
+        /// Chỉ hoạt động khi phiên đang ACTIVE và chưa bị tạm dừng.
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="sessionId">Mã phiên chơi cần tạm dừng.</param>
+        /// <response code="200">Tạm dừng thành công.</response>
+        /// <response code="400">Dữ liệu không hợp lệ.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy phiên chơi.</response>
+        /// <response code="409">Phiên không ở trạng thái ACTIVE hoặc đã bị tạm dừng.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPost("sessions/{sessionId:guid}/pause")]
+        public async Task<IActionResult> PauseSession(Guid cafeId, Guid sessionId)
+        {
+            var (userId, role) = GetViewerContext();
+            var result = await _sessionService.PauseSessionAsync(cafeId, sessionId);
+            return this.NewResponse(200, "Đã tạm dừng phiên chơi.", result);
+        }
+
+        /// <summary>
+        /// L-05: Tiếp tục lại phiên đang bị tạm dừng — timer tiếp tục đếm. [Role: Manager, CafeStaff]
+        /// Chỉ hoạt động khi phiên đang ACTIVE và IsPaused = true.
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="sessionId">Mã phiên chơi cần tiếp tục.</param>
+        /// <response code="200">Tiếp tục thành công.</response>
+        /// <response code="400">Dữ liệu không hợp lệ.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy phiên chơi.</response>
+        /// <response code="409">Phiên không bị tạm dừng.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPost("sessions/{sessionId:guid}/resume-pause")]
+        public async Task<IActionResult> ResumePauseSession(Guid cafeId, Guid sessionId)
+        {
+            var (userId, role) = GetViewerContext();
+            var result = await _sessionService.ResumeFromPauseAsync(cafeId, sessionId);
+            return this.NewResponse(200, "Đã tiếp tục phiên chơi.", result);
         }
 
         /// <summary>
@@ -474,6 +543,27 @@ namespace BoardVerse.API.Controllers
             var (userId, role) = GetViewerContext();
             await _posService.RecordInventoryLossAsync(cafeId, userId, role, sessionId, request);
             return this.NewResponse(200, "Đã ghi nhận hao hụt linh kiện.", new { });
+        }
+
+        /// <summary>
+        /// P-04: Ghi nhận hao hụt linh kiện TRƯỚC KHI có phiên chơi — dùng cho shift handoff.
+        /// Endpoint này không cần sessionId, chỉ cần cafeId + gameInventoryBoxId.
+        /// [Role: Manager, CafeStaff]
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="request">Thông tin game box và danh sách linh kiện thiếu/hỏng.</param>
+        /// <response code="200">Đã ghi nhận hao hụt.</response>
+        /// <response code="400">Dữ liệu không hợp lệ.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Game box không tồn tại.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPost("inventory-loss/pre-session")]
+        public async Task<IActionResult> RecordPreSessionInventoryLoss(Guid cafeId, [FromBody] RecordPreSessionInventoryLossRequestDto request)
+        {
+            var (userId, role) = GetViewerContext();
+            await _posService.RecordPreSessionInventoryLossAsync(cafeId, userId, role, request);
+            return this.NewResponse(200, "Đã ghi nhận hao hụt linh kiện trước ca làm việc.", new { });
         }
 
         // ====== Checkout & Payment Operations ======

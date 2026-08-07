@@ -58,6 +58,12 @@ namespace BoardVerse.Core.Entities
         public DateTime StartedAt { get; set; }
         public DateTime? EndedAt { get; set; }
 
+        /// <summary>L-05: Phiên đang tạm dừng (timer không đếm).</summary>
+        public bool IsPaused { get; set; }
+
+        /// <summary>L-05: Thời điểm phiên bị tạm dừng.</summary>
+        public DateTime? PausedAt { get; set; }
+
         /// <summary>Tổng số phút đã chơi (tính đến thời điểm hiện tại hoặc EndedAt).</summary>
         public int TotalMinutesPlayed { get; set; }
 

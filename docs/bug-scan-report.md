@@ -27,7 +27,7 @@
 | Lobby Seat Limit | `CreateLobby_ExceedsSeatCount_Returns400` | BR-07 |
 | Join Lobby | `JoinLobby_WhenOpen_AddsMember` | BR-10 (Karma) |
 | Lock Lobby | `LockLobby_WhenFull_TransitionsToFull` | BR-08 |
-| Payment Master Account | `CreatePaymentMasterAccount_AsAdmin_Returns201` | BR-02, BR-03 |
+| SePay Account | `CreateSePayMasterAccount_AsAdmin_Returns201` | BR-02, BR-03 |
 | Webhook Processing | `MockWebhook_Success_ProcessesPayment` | BR-05 |
 | Start Session | `StartSession_WithValidBarcode_Returns201` | BR-16, BR-17 |
 | Invalid Barcode | `StartSession_WithInvalidBarcode_Returns404` | - |

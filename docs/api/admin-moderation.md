@@ -87,6 +87,69 @@ Trả danh sách user có `karmaPoints < 50` (cảnh báo admin).
 
 ---
 
+## GET /api/v1/admin/cooling-off
+
+Lấy danh sách user đang trong trạng thái **cooling-off** (A-05).
+
+**Query:**
+
+| Param | Mô tả |
+|-------|--------|
+| `page` | Số trang (mặc định 1) |
+| `pageSize` | Kích thước trang (mặc định 20) |
+
+**Response 200:**
+
+```json
+{
+  "data": {
+    "items": [
+      {
+        "userId": "guid",
+        "username": "user1",
+        "karmaPoints": 20,
+        "gamerTier": "Bronze",
+        "isCoolingOff": true,
+        "coolingOffExpiresAt": "2026-08-14T15:00:00Z",
+        "riskMultiplier": 2.0,
+        "failedLobbyCount": 3,
+        "coolingOffTriggerReason": "3 lobby failures trong 7 ngày"
+      }
+    ],
+    "page": 1,
+    "pageSize": 20,
+    "totalCount": 5,
+    "totalPages": 1
+  }
+}
+```
+
+**Lỗi:** `401`, `403`.
+
+---
+
+## DELETE /api/v1/admin/cooling-off/{userId}
+
+Release thủ công cooling-off cho một user (A-05).
+
+**Response 200:**
+
+```json
+{
+  "data": {
+    "userId": "guid",
+    "username": "user1",
+    "isCoolingOff": false,
+    "coolingOffExpiresAt": null,
+    "riskMultiplier": 1.0
+  }
+}
+```
+
+**Lỗi:** `401`, `403`, `404` user không tồn tại.
+
+---
+
 ## POST /api/v1/admin/users/{id}/punish
 
 **Body:**

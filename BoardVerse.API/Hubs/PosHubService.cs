@@ -112,4 +112,26 @@ public class PosHubService : IPosHubService
             sessionId,
             eventType);
     }
+
+    /// <summary>
+    /// BR-REQUIRED §17.5: POS đóng phiên → SessionCompleted.
+    /// </summary>
+    public async Task NotifySessionCompleted(Guid lobbyId)
+    {
+        var notification = new
+        {
+            EventType = "SessionCompleted",
+            LobbyId = lobbyId,
+            Message = "Phiên chơi đã kết thúc. Cảm ơn bạn đã sử dụng BoardVerse!",
+            Timestamp = DateTime.UtcNow
+        };
+
+        await _hubContext.Clients
+            .Group($"session:{lobbyId}")
+            .SendAsync("SessionCompleted", notification);
+
+        _logger.LogInformation(
+            "Notified session {LobbyId} about SessionCompleted",
+            lobbyId);
+    }
 }

@@ -2,9 +2,11 @@ using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
+using BoardVerse.Data;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
 using BoardVerse.Services.Services.Payments;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Moq;
 
@@ -15,10 +17,12 @@ public class SettlementServiceTests
     private readonly Mock<IBookingDepositRepository> _mockDepositRepo;
     private readonly Mock<ICafeSettlementRepository> _mockSettlementRepo;
     private readonly Mock<ICafeRepository> _mockCafeRepo;
-    private readonly Mock<IPaymentMasterAccountRepository> _mockMasterAccountRepo;
     private readonly Mock<IActiveSessionRepository> _mockSessionRepo;
+    private readonly Mock<IBvcLedgerEntryRepository> _mockLedgerRepo;
     private readonly Mock<ISePayClient> _mockSePayClient;
+    private readonly Mock<ISePayAccountService> _mockSePayAccountService;
     private readonly Mock<ILogger<SettlementService>> _mockLogger;
+    private readonly BoardVerseDbContext _db;
     private readonly SettlementService _service;
 
     public SettlementServiceTests()
@@ -26,19 +30,28 @@ public class SettlementServiceTests
         _mockDepositRepo = new Mock<IBookingDepositRepository>();
         _mockSettlementRepo = new Mock<ICafeSettlementRepository>();
         _mockCafeRepo = new Mock<ICafeRepository>();
-        _mockMasterAccountRepo = new Mock<IPaymentMasterAccountRepository>();
         _mockSessionRepo = new Mock<IActiveSessionRepository>();
+        _mockLedgerRepo = new Mock<IBvcLedgerEntryRepository>();
         _mockSePayClient = new Mock<ISePayClient>();
+        _mockSePayAccountService = new Mock<ISePayAccountService>();
         _mockLogger = new Mock<ILogger<SettlementService>>();
+
+        // Use in-memory database for DbContext
+        var options = new DbContextOptionsBuilder<BoardVerseDbContext>()
+            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .Options;
+        _db = new BoardVerseDbContext(options);
 
         _service = new SettlementService(
             _mockDepositRepo.Object,
             _mockSettlementRepo.Object,
             _mockCafeRepo.Object,
-            _mockMasterAccountRepo.Object,
             _mockSessionRepo.Object,
+            _mockLedgerRepo.Object,
             _mockSePayClient.Object,
-            _mockLogger.Object);
+            _mockSePayAccountService.Object,
+            _mockLogger.Object,
+            _db);
     }
 
     /// <summary>
@@ -80,7 +93,7 @@ public class SettlementServiceTests
     }
 
     [Fact]
-    public async Task ReleaseSessionDepositAsync_NoDepositApplied_ThrowsConflictException()
+    public async Task ReleaseSessionDepositAsync_NoMasterAccount_ThrowsConflictException()
     {
         var cafeId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
@@ -95,6 +108,8 @@ public class SettlementServiceTests
 
         _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(BuildCafe(cafeId));
         _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        _mockSePayAccountService.Setup(s => s.GetRawMasterAccountAsync())
+            .ReturnsAsync((SePayAccount?)null);
 
         var ex = await Assert.ThrowsAsync<ConflictException>(
             () => _service.ReleaseSessionDepositAsync(cafeId, sessionId, sessionId));
@@ -129,8 +144,8 @@ public class SettlementServiceTests
             // SePayAccountNumber/SePayBankCode null intentionally
         });
         _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
-        _mockMasterAccountRepo.Setup(r => r.GetActiveAsync())
-            .ReturnsAsync(new PaymentMasterAccount { Id = Guid.NewGuid(), AccountHolder = "Test", IsActive = true });
+        _mockSePayAccountService.Setup(s => s.GetRawMasterAccountAsync())
+            .ReturnsAsync(new SePayAccount { Id = Guid.NewGuid(), AccountHolder = "Test", IsActive = true });
 
         var ex = await Assert.ThrowsAsync<ConflictException>(
             () => _service.ReleaseSessionDepositAsync(cafeId, sessionId, sessionId));
@@ -154,8 +169,8 @@ public class SettlementServiceTests
 
         _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(BuildCafe(cafeId));
         _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
-        _mockMasterAccountRepo.Setup(r => r.GetActiveAsync())
-            .ReturnsAsync(new PaymentMasterAccount { Id = Guid.NewGuid(), AccountHolder = "Test", IsActive = true });
+        _mockSePayAccountService.Setup(s => s.GetRawMasterAccountAsync())
+            .ReturnsAsync(new SePayAccount { Id = Guid.NewGuid(), AccountHolder = "Test", IsActive = true });
         _mockDepositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
 
         await Assert.ThrowsAsync<NotFoundException>(
@@ -188,8 +203,8 @@ public class SettlementServiceTests
 
         _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(BuildCafe(cafeId));
         _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
-        _mockMasterAccountRepo.Setup(r => r.GetActiveAsync())
-            .ReturnsAsync(new PaymentMasterAccount { Id = Guid.NewGuid(), AccountHolder = "Test", IsActive = true });
+        _mockSePayAccountService.Setup(s => s.GetRawMasterAccountAsync())
+            .ReturnsAsync(new SePayAccount { Id = Guid.NewGuid(), AccountHolder = "Test", IsActive = true });
         _mockDepositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync(deposit);
 
         var ex = await Assert.ThrowsAsync<ConflictException>(
@@ -234,8 +249,8 @@ public class SettlementServiceTests
 
         _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(BuildCafe(cafeId));
         _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
-        _mockMasterAccountRepo.Setup(r => r.GetActiveAsync())
-            .ReturnsAsync(new PaymentMasterAccount { Id = Guid.NewGuid(), AccountHolder = "Test", IsActive = true });
+        _mockSePayAccountService.Setup(s => s.GetRawMasterAccountAsync())
+            .ReturnsAsync(new SePayAccount { Id = Guid.NewGuid(), AccountHolder = "Test", IsActive = true });
         _mockDepositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync(deposit);
         _mockSePayClient.Setup(c => c.CreateTransferAsync(It.IsAny<CreateTransferRequest>(), default))
             .Callback<CreateTransferRequest, CancellationToken>((req, _) =>

@@ -110,6 +110,17 @@ public class FcmPushNotificationService : IPushNotificationService, IDisposable
         _logger.LogInformation("[FCM] Invalidated device token id={TokenId}", existing.Id);
     }
 
+    public async Task<int> SendAsync(Guid userId, string title, string body, Dictionary<string, string>? data = null)
+    {
+        var payload = new PushNotificationPayload
+        {
+            Title = title,
+            Body = body,
+            Data = data ?? new Dictionary<string, string>()
+        };
+        return await SendToUsersAsync(new[] { userId }, payload);
+    }
+
     private async Task EnsureFirebaseInitializedAsync()
     {
         if (_firebaseInitialized)

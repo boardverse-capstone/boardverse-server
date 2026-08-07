@@ -111,6 +111,12 @@ namespace BoardVerse.Services.Services
             Guid targetUserId,
             AdminAdjustKarmaRequestDto request)
         {
+            // K-07: Enforce karma adjustment range [-100, 100] at server-side.
+            if (request.Amount < -100 || request.Amount > 100)
+            {
+                throw new BadRequestException(ApiErrorMessages.AdminModeration.KarmaAdjustmentRange);
+            }
+
             if (request.Amount == 0)
             {
                 throw new BadRequestException(ApiErrorMessages.AdminModeration.KarmaAdjustmentZeroNotAllowed);
@@ -154,6 +160,50 @@ namespace BoardVerse.Services.Services
                 NewKarma = karmaAfter,
                 AdjustedAmount = request.Amount,
                 KarmaLogId = log.Id
+            };
+        }
+
+        public async Task<PaginatedResponse<CoolingOffUserDto>> GetCoolingOffUsersAsync(PaginationParams pagination)
+        {
+            return await _repository.GetCoolingOffUsersAsync(pagination);
+        }
+
+        public async Task<ReleaseCoolingOffResponseDto> ReleaseCoolingOffAsync(Guid adminUserId, Guid targetUserId, string reason)
+        {
+            var wallet = await _repository.GetWalletForUpdateAsync(targetUserId);
+            if (wallet == null)
+            {
+                throw new NotFoundException(ApiErrorMessages.AdminModeration.WalletNotFound(targetUserId));
+            }
+
+            if (!wallet.IsCoolingOff)
+            {
+                throw new ConflictException(ApiErrorMessages.AdminModeration.UserNotInCoolingOff);
+            }
+
+            var user = await _repository.GetUserWithProfileForUpdateAsync(targetUserId);
+            if (user == null)
+            {
+                throw new UserNotFoundException(ApiErrorMessages.AdminUsers.UserNotFound(targetUserId));
+            }
+
+            var previousCoolingOffExpiresAt = wallet.CoolingOffExpiresAt;
+
+            wallet.IsCoolingOff = false;
+            wallet.CoolingOffExpiresAt = null;
+            wallet.UpdatedAt = DateTime.UtcNow;
+
+            await _repository.SaveChangesAsync();
+
+            return new ReleaseCoolingOffResponseDto
+            {
+                UserId = targetUserId,
+                Username = user.Username,
+                WasCoolingOff = true,
+                PreviousCoolingOffExpiresAt = previousCoolingOffExpiresAt,
+                ReleaseReason = reason.Trim(),
+                ReleasedBy = adminUserId,
+                ReleasedAt = DateTime.UtcNow
             };
         }
     }

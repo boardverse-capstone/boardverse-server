@@ -58,4 +58,11 @@ public class TournamentParticipantResponseDto
 
     /// <summary>Điểm Swiss = Wins + Draws*0.5.</summary>
     public double SwissScore { get; set; }
+
+    // === T-03: Waitlist ===
+    /// <summary>True nếu user được thêm vào waitlist thay vì đăng ký trực tiếp.</summary>
+    public bool IsWaitlisted { get; set; }
+
+    /// <summary>Vị trí trong waitlist (null nếu không phải waitlist).</summary>
+    public int? WaitlistPosition { get; set; }
 }

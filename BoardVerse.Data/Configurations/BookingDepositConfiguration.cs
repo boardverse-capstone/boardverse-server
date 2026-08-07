@@ -32,11 +32,6 @@ public class BookingDepositConfiguration : IEntityTypeConfiguration<BookingDepos
         builder.Property(d => d.QrUrl).HasMaxLength(2000);
         builder.Property(d => d.QrExpiresAt);
 
-        builder.HasOne(d => d.MasterAccount)
-            .WithMany()
-            .HasForeignKey(d => d.MasterAccountId)
-            .OnDelete(DeleteBehavior.SetNull);
-
         builder.HasOne(d => d.Cafe)
             .WithMany()
             .HasForeignKey(d => d.CafeId)
@@ -67,6 +62,5 @@ public class BookingDepositConfiguration : IEntityTypeConfiguration<BookingDepos
         builder.HasIndex(d => d.SePayTransactionId).HasFilter("\"SePayTransactionId\" IS NOT NULL");
         builder.HasIndex(d => d.UserId);
         builder.HasIndex(d => d.CafeManagerId).HasDatabaseName("IX_BookingDeposits_CafeManagerId"); // L4
-        builder.HasIndex(d => d.MasterAccountId).HasDatabaseName("IX_BookingDeposits_MasterAccountId"); // L6
     }
 }

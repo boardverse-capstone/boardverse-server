@@ -106,7 +106,7 @@ public class ReservationController : BaseApiController
         {
             var userId = GetUserIdFromClaims();
             var result = await _reservationService.ConfirmAsync(userId, request);
-            return this.NewResponse(200, "ReservationConfirmed", result);
+            return this.NewResponse(201, "ReservationConfirmed", result);
         }
         catch (InvalidOperationException ex)
         {

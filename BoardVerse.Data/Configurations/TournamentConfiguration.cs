@@ -37,6 +37,7 @@ public class TournamentConfiguration : IEntityTypeConfiguration<Tournament>
         builder.Property(t => t.TotalRounds).IsRequired().HasDefaultValue(4);
         builder.Property(t => t.PreliminaryRounds).IsRequired().HasDefaultValue(3);
         builder.Property(t => t.FinalistCount).IsRequired().HasDefaultValue(4);
+        builder.Property(t => t.HasThirdPlaceMatch).IsRequired().HasDefaultValue(false);
         builder.Property(t => t.CurrentRound).IsRequired().HasDefaultValue(0);
 
         // MinElo/MaxElo/MinKarma: KHÔNG dùng HasDefaultValue để EF luôn insert giá trị set trong code.
@@ -193,6 +194,10 @@ public class TournamentMatchBracketConfiguration : IEntityTypeConfiguration<Tour
         builder.Property(m => m.RoundNumber).IsRequired();
         builder.Property(m => m.MatchNumber).IsRequired();
         builder.Property(m => m.IsFinal).IsRequired().HasDefaultValue(false);
+        builder.Property(m => m.MatchType)
+            .HasConversion<int>()
+            .IsRequired()
+            .HasDefaultValue(BoardVerse.Core.Enum.MatchType.Swiss);
 
         builder.Property(m => m.Player1Id);
         builder.Property(m => m.Player2Id);

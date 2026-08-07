@@ -78,6 +78,7 @@ Lấy hồ sơ **của chính user đang đăng nhập** (không cần truyền 
     "globalElo": 1200,
     "level": 1,
     "currentExp": 0,
+    "preferredPlayMode": "Group",
     "lastActiveAt": "2026-06-08T12:00:00Z",
     "updatedAt": "2026-06-08T12:00:00Z",
     "hasProfile": true,
@@ -150,14 +151,15 @@ Cập nhật một phần — chỉ gửi field cần đổi.
   "level": 5,
   "firstName": "Alice",
   "lastName": "Tran",
-  "dateOfBirth": "1998-01-01T00:00:00Z"
+  "dateOfBirth": "1998-01-01T00:00:00Z",
+  "preferredPlayMode": "Group"
 }
 ```
 
 | Field | Ràng buộc |
 |-------|-----------|
 | `globalElo` | ≥ 0 |
-| `level` | ≥ 1 |
+| `preferredPlayMode` | `0` (Solo) hoặc `1` (Group) |
 
 **Response 200:** Profile đã cập nhật.
 

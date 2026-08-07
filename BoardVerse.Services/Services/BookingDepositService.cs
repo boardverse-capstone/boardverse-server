@@ -339,22 +339,26 @@ public class BookingDepositService : IBookingDepositService
 
     private static decimal CalculatePartialRefund(BookingDeposit deposit)
     {
-        var elapsedHours = (DateTime.UtcNow - deposit.CreatedAt).TotalHours;
+        // BR-REFUND-02 (BR mới): tính theo khoảng cách từ lúc hủy đến giờ chơi dự kiến
+        // >= 24 giờ trước giờ chơi → hoàn 100%
+        // 6 giờ đến < 24 giờ → hoàn 50%
+        // < 6 giờ → 0%
+        var scheduledAt = deposit.ScheduledAt ?? DateTime.UtcNow;
+        var hoursUntilPlay = (scheduledAt - DateTime.UtcNow).TotalHours;
 
-        // P1 Fix #5: Guard against negative elapsed hours (clock skew)
-        if (elapsedHours < 0)
+        if (hoursUntilPlay < 0)
         {
             return 0m;
         }
 
-        if (elapsedHours >= 24)
+        if (hoursUntilPlay >= 24)
         {
-            return deposit.Amount * 0.50m;
+            return deposit.Amount; // 100%
         }
-        if (elapsedHours >= 12)
+        if (hoursUntilPlay >= 6)
         {
-            return deposit.Amount * 0.25m;
+            return deposit.Amount * 0.50m; // 50%
         }
-        return 0m;
+        return 0m; // < 6 giờ
     }
 }

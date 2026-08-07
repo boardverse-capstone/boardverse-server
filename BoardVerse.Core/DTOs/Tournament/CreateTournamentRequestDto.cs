@@ -71,4 +71,10 @@ public class CreateTournamentRequestDto
     /// </summary>
     [Range(2, 32)]
     public int? MinParticipants { get; set; }
+
+    /// <summary>
+    /// T-02: Có trận tranh hạng 3 hay không. Mặc định false.
+    /// Khi FinalistCount >= 4, organizer có thể bật để tạo thêm match cho hạng 3.
+    /// </summary>
+    public bool HasThirdPlaceMatch { get; set; } = false;
 }

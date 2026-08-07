@@ -1,4 +1,5 @@
 using BoardVerse.Core.Common;
+using BoardVerse.Core.DTOs.Admin;
 using BoardVerse.Core.DTOs.Cafe;
 
 namespace BoardVerse.Services.IServices
@@ -37,5 +38,13 @@ namespace BoardVerse.Services.IServices
 
         /// <summary>Mobile task #13: cập nhật biểu phí (BR-01/BR-04).</summary>
         Task<CafePricingConfigResponseDto> UpdatePricingConfigAsync(Guid cafeId, Guid managerId, UpdatePricingConfigRequestDto dto);
+
+        // === Admin: Cafe management ===
+        Task<AdminCafeListResponseDto> GetAdminCafesAsync(
+            int page, int pageSize, string? searchTerm, string? status, Guid? managerId);
+        Task<AdminCafeDetailDto?> GetAdminCafeDetailAsync(Guid cafeId);
+        Task<AdminCafeDetailDto> AdminCreateCafeAsync(AdminCreateCafeRequestDto request);
+        Task<AdminCafeDetailDto> AdminUpdateCafeAsync(Guid cafeId, AdminUpdateCafeRequestDto request);
+        Task AdminDeleteCafeAsync(Guid cafeId);
     }
 }

@@ -70,6 +70,16 @@ public class BvcTopUpRequestRepository : IBvcTopUpRequestRepository
         await _db.BvcTopUpRequests.AddAsync(request);
     }
 
+    /// <summary>
+    /// W-07: Lookup pending top-up by exact OrderId prefix (18 hex chars) match.
+    /// Safer than 8-char hash prefix matching.
+    /// </summary>
+    public async Task<BvcTopUpRequest?> GetPendingByExactOrderIdAsync(string orderId, CancellationToken cancellationToken = default)
+    {
+        return await _db.BvcTopUpRequests
+            .FirstOrDefaultAsync(r => r.OrderId == orderId && r.Status == BvcTopUpStatus.Pending, cancellationToken);
+    }
+
     public Task UpdateAsync(BvcTopUpRequest request)
     {
         _db.BvcTopUpRequests.Update(request);

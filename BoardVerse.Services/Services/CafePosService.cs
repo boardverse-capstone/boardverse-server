@@ -17,6 +17,8 @@ namespace BoardVerse.Services.Services
 {
     public class CafePosService : ICafePosService
     {
+        private const int DefaultTokenTtlMinutes = 30;
+
         private readonly ICafePosRepository _posRepository;
         private readonly ICafeRepository _cafeRepository;
         private readonly IBookingDepositRepository _depositRepository;
@@ -28,6 +30,7 @@ namespace BoardVerse.Services.Services
         private readonly IUserProfileRepository _userProfileRepository;
         private readonly IReservationService _reservationService;
         private readonly IReservationRepository _reservationRepository;
+        private readonly IPosCheckInTokenRepository _tokenRepository;
         private readonly ILogger<CafePosService> _logger;
         private readonly BoardVerseDbContext _db;
 
@@ -43,6 +46,7 @@ namespace BoardVerse.Services.Services
             IUserProfileRepository userProfileRepository,
             IReservationService reservationService,
             IReservationRepository reservationRepository,
+            IPosCheckInTokenRepository tokenRepository,
             ILogger<CafePosService> logger,
             BoardVerseDbContext db)
         {
@@ -57,6 +61,7 @@ namespace BoardVerse.Services.Services
             _userProfileRepository = userProfileRepository;
             _reservationService = reservationService;
             _reservationRepository = reservationRepository;
+            _tokenRepository = tokenRepository;
             _logger = logger;
             _db = db;
         }
@@ -441,6 +446,97 @@ namespace BoardVerse.Services.Services
 
             return MapSession(session, now);
         }
+
+        /// <summary>
+        /// POS tạo QR token cho player scan check-in (BR §21A.7 — 2 chiều).
+        /// Staff bấm "Tạo QR mời khách scan" → lưu token vào DB → hiển thị QR.
+        /// Player scan token → check-in vào cùng reservation.
+        ///
+        /// Flow:
+        /// 1. Validate staff có quyền POS.
+        /// 2. Nếu có ReservationId: validate thuộc cafe, status sẵn sàng check-in.
+        /// 3. Sinh token unique (collision check tối đa 5 lần).
+        /// 4. Set TTL mặc định 30 phút.
+        /// </summary>
+        public async Task<PosCheckInTokenDto> CreateCheckInTokenAsync(
+            Guid cafeId,
+            Guid staffUserId,
+            string staffRole,
+            CreatePosCheckInTokenRequestDto request)
+        {
+            await EnsurePosAccessAsync(cafeId, staffUserId, staffRole);
+
+            // Validate cafe đang active
+            var cafe = await _cafeRepository.GetByIdAsync(cafeId);
+            if (cafe == null)
+            {
+                throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
+            }
+
+            // Nếu gắn reservation: validate thuộc cafe + status cho phép check-in
+            if (request.ReservationId.HasValue)
+            {
+                var reservation = await _reservationRepository.GetByIdAsync(request.ReservationId.Value);
+                if (reservation == null)
+                {
+                    throw new NotFoundException(
+                        ApiErrorMessages.Reservation.ReservationNotFound(request.ReservationId.Value));
+                }
+                if (reservation.CafeId != cafeId)
+                {
+                    throw new ConflictException(
+                        ApiErrorMessages.Reservation.CafeMismatchOnCheckIn(reservation.CafeId, cafeId));
+                }
+            }
+
+            // Sinh token unique
+            var ttl = TimeSpan.FromMinutes(request.TtlMinutes ?? DefaultTokenTtlMinutes);
+            var expiresAt = DateTime.UtcNow.Add(ttl);
+
+            string token;
+            var attempts = 0;
+            do
+            {
+                token = PosTokenGenerator.Generate();
+                attempts++;
+                if (attempts > 5)
+                {
+                    throw new InvalidOperationException("Không thể sinh PosCheckInToken unique sau 5 lần thử.");
+                }
+            } while (await _tokenRepository.TokenExistsAsync(token));
+
+            var entity = new PosCheckInToken
+            {
+                Id = Guid.NewGuid(),
+                CafeId = cafeId,
+                ReservationId = request.ReservationId,
+                Token = token,
+                CreatedByStaffId = staffUserId,
+                CreatedAt = DateTime.UtcNow,
+                ExpiresAt = expiresAt,
+                IsRevoked = false
+            };
+
+            await _tokenRepository.AddAsync(entity);
+
+            _logger.LogInformation(
+                "PosCheckInToken created. Token={Token}, CafeId={CafeId}, ReservationId={ReservationId}, ExpiresAt={ExpiresAt}",
+                token, cafeId, request.ReservationId, expiresAt);
+
+            return new PosCheckInTokenDto
+            {
+                Id = entity.Id,
+                CafeId = entity.CafeId,
+                ReservationId = entity.ReservationId,
+                Token = entity.Token,
+                QrPayload = BuildQrPayload(entity.Token),
+                CreatedAt = entity.CreatedAt,
+                ExpiresAt = entity.ExpiresAt
+            };
+        }
+
+        private static string BuildQrPayload(string token) =>
+            $"boardverse://check-in?token={Uri.EscapeDataString(token)}";
 
         /// <summary>
         /// POS check-in (BR §21A.7): Staff quét QR (ReservationCode hoặc BookingCode legacy) để kích hoạt phiên chơi.
@@ -1031,7 +1127,7 @@ namespace BoardVerse.Services.Services
                     GameTemplateId = sessionGame.GameTemplateId,
                     GameName = sessionGame.GameTemplate.Name,
                     CheckStatus = sessionGame.CheckStatus,
-                    CheckedAt = sessionGame.CheckedAt!.Value,
+                    CheckedAt = sessionGame.CheckedAt ?? now,
                     TotalPenaltyAmount = 0,
                     Components = components.Select(c => new ComponentCheckResultItemDto
                     {
@@ -1157,7 +1253,7 @@ namespace BoardVerse.Services.Services
                 GameTemplateId = sessionGame.GameTemplateId,
                 GameName = sessionGame.GameTemplate.Name,
                 CheckStatus = sessionGame.CheckStatus,
-                CheckedAt = sessionGame.CheckedAt!.Value,
+                CheckedAt = sessionGame.CheckedAt ?? nowDetailed,
                 TotalPenaltyAmount = totalPenalty,
                 Components = resultComponents
             };
@@ -1373,6 +1469,40 @@ namespace BoardVerse.Services.Services
             await EnsurePosAccessAsync(cafeId, userId, userRole);
 
             await _activeSessionService.RecordInventoryLossAsync(cafeId, userId, sessionId, request);
+        }
+
+        /// <summary>
+        /// P-04: Ghi nhận hao hụt linh kiện TRƯỚC KHI có phiên chơi — dùng cho shift handoff.
+        /// Không cần sessionId, chỉ cần cafeId + game box info.
+        /// Tạo ComponentLossReport với ActiveSessionId = null.
+        /// </summary>
+        public async Task RecordPreSessionInventoryLossAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            RecordPreSessionInventoryLossRequestDto request)
+        {
+            await EnsurePosAccessAsync(cafeId, userId, userRole);
+
+            var report = new ComponentLossReport
+            {
+                Id = Guid.NewGuid(),
+                CafeId = cafeId,
+                ActiveSessionId = null, // P-04: không có phiên chơi
+                CafeInventoryBoxId = request.CafeInventoryBoxId,
+                ReportedByUserId = userId,
+                LossDescription = request.LostComponents.Count > 0
+                    ? $"Hao hụt trước ca: thiếu {request.LostComponents.Count} linh kiện"
+                    : "Ghi nhận hao hụt trước ca làm việc",
+                Notes = request.Notes,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _posRepository.AddComponentLossReportAsync(report);
+
+            _logger.LogInformation(
+                "Pre-session inventory loss recorded. CafeId={CafeId}, BoxId={BoxId}, ReportedBy={UserId}",
+                cafeId, request.CafeInventoryBoxId, userId);
         }
 
         // ====== Checkout & Payment Operations ======

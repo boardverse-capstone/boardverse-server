@@ -36,7 +36,6 @@ namespace BoardVerse.Data
         public DbSet<MatchHistoryParticipant> MatchHistoryParticipants => Set<MatchHistoryParticipant>();
         public DbSet<KarmaLog> KarmaLogs => Set<KarmaLog>();
         public DbSet<SystemConfiguration> SystemConfigurations => Set<SystemConfiguration>();
-        public DbSet<PaymentMasterAccount> PaymentMasterAccounts => Set<PaymentMasterAccount>();
         public DbSet<SePayAccount> SePayAccounts => Set<SePayAccount>();
         public DbSet<BookingDeposit> BookingDeposits => Set<BookingDeposit>();
         public DbSet<Booking> Bookings => Set<Booking>();
@@ -72,6 +71,24 @@ namespace BoardVerse.Data
 
         // BR-REQUIRED §17.5: Transactional Outbox.
         public DbSet<OutboxEvent> OutboxEvents => Set<OutboxEvent>();
+
+        // POS QR 2-chiều check-in (BR §21A.7)
+        public DbSet<PosCheckInToken> PosCheckInTokens => Set<PosCheckInToken>();
+
+        // T-03: Tournament waitlist
+        public DbSet<TournamentWaitlist> TournamentWaitlists => Set<TournamentWaitlist>();
+
+        // T-04: Tournament spectator
+        public DbSet<TournamentSpectator> TournamentSpectators => Set<TournamentSpectator>();
+
+        // N-01: Lobby milestone notification tracking (BR-NEW-13)
+        public DbSet<LobbyNotificationSent> LobbyNotificationSents => Set<LobbyNotificationSent>();
+
+        // N-02: Lobby at-risk warning tracking (BR-NEW-14)
+        public DbSet<LobbyAtRiskWarning> LobbyAtRiskWarnings => Set<LobbyAtRiskWarning>();
+
+        // P-03: Shift management
+        public DbSet<CafeShift> CafeShifts => Set<CafeShift>();
 
     public BoardVerseDbContext(DbContextOptions<BoardVerseDbContext> options) : base(options)
     {

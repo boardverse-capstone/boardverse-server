@@ -163,7 +163,9 @@ public class WalletService : IWalletService
         }
 
         var orderId = GenerateOrderId(userId);
-        var transferContent = $"BVC-TOPUP-{userId.ToString("N").Substring(0, 8).ToUpperInvariant()}";
+        // W-07: Include full 18-char OrderId in transferContent so webhook can do exact lookup.
+        // Previously used only 8-char user hash which caused collision risk.
+        var transferContent = $"BVC-{orderId}";
 
         var gatewayRequest = new PaymentGatewayRequest
         {
@@ -335,7 +337,9 @@ public class WalletService : IWalletService
         }
 
         var orderId = GenerateOrderId(userId);
-        var transferContent = $"BVC-TOPUP-{userId.ToString("N").Substring(0, 8).ToUpperInvariant()}";
+        // W-07: Include full 18-char OrderId in transferContent so webhook can do exact lookup.
+        // Previously used only 8-char user hash which caused collision risk.
+        var transferContent = $"BVC-{orderId}";
 
         var gatewayRequest = new PaymentGatewayRequest
         {
@@ -621,49 +625,22 @@ public class WalletService : IWalletService
     }
 
     /// <summary>
-    /// Phase 2: Xử lý SePay webhook cho BVC top-up (OrderId prefix BVC-XXX).
+    /// W-07: Resolve OrderId from SePay webhook transferContent.
+    /// Uses exact OrderId lookup instead of fragile 8-char hash prefix matching.
     /// Idempotent: cùng OrderId + success → chỉ cộng ví 1 lần.
     /// </summary>
-    /// <param name="orderId">OrderId do SePay gửi (BVC-XXX).</param>
-    /// <param name="gatewayTransactionId">Mã giao dịch SePay.</param>
+    /// <param name="orderId">18-char hex OrderId extracted from transferContent.</param>
     public async Task<string?> FindPendingTopUpOrderIdAsync(
-        string userIdHash,
-        decimal amountVnd,
+        string orderId,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(userIdHash))
+        if (string.IsNullOrWhiteSpace(orderId) || orderId.Length != 18)
         {
             return null;
         }
 
-        var expectedBvc = (long)(amountVnd / BvcVndRate);
-        if (expectedBvc <= 0)
-        {
-            return null;
-        }
-
-        // Tìm tất cả user có Guid hash bắt đầu bằng userIdHash (8 hex chars đầu của N-format).
-        // Match bằng cách so khớp với UserId.ToString("N").Substring(0, 8) trong tất cả
-        // BvcTopUpRequest pending có AmountVnd khớp expected.
-        // Cách an toàn: lấy top pending theo CreatedAt DESC + filter client-side.
-        var pending = await _topUpRequestRepository.GetPendingByAmountVndAsync(
-            amountVnd,
-            cancellationToken);
-        if (pending == null || pending.Count == 0)
-        {
-            return null;
-        }
-
-        foreach (var p in pending)
-        {
-            var pUserHash = p.UserId.ToString("N").Substring(0, 8).ToUpperInvariant();
-            if (string.Equals(pUserHash, userIdHash, StringComparison.OrdinalIgnoreCase))
-            {
-                return p.OrderId;
-            }
-        }
-
-        return null;
+        var pending = await _topUpRequestRepository.GetPendingByExactOrderIdAsync(orderId, cancellationToken);
+        return pending?.OrderId;
     }
 
     /// <summary>
@@ -1345,6 +1322,38 @@ public class WalletService : IWalletService
             NewStatus = newStatus,
             ExpiresAt = expiresAt,
             ChangedAt = DateTime.UtcNow
+        };
+    }
+
+    /// <summary>
+    /// W-05: Verify SUM(ledger entries) = wallet.availableBalance.
+    /// Credits: TopUp + AdminCredit.
+    /// Debits: DepositHold + AdminDebit + DepositCapture + DepositForfeit.
+    /// </summary>
+    public async Task<WalletReconcileResultDto> ReconcileWalletAsync(Guid userId)
+    {
+        var wallet = await _walletRepository.GetByUserIdAsync(userId);
+        if (wallet == null)
+        {
+            throw new NotFoundException(ApiErrorMessages.Wallet.NotFound(userId));
+        }
+
+        var creditTypes = new[] { LedgerEntryType.TopUp, LedgerEntryType.AdminCredit };
+        var debitTypes = new[] { LedgerEntryType.DepositHold, LedgerEntryType.AdminDebit, LedgerEntryType.DepositCapture, LedgerEntryType.DepositForfeit };
+
+        var credits = await _ledgerRepository.SumAmountByTypesAsync(userId, creditTypes);
+        var debits = await _ledgerRepository.SumAmountByTypesAsync(userId, debitTypes);
+        var computed = credits - debits;
+
+        return new WalletReconcileResultDto
+        {
+            UserId = userId,
+            WalletAvailableBalance = wallet.AvailableBalance,
+            LedgerCredits = credits,
+            LedgerDebits = debits,
+            ComputedAvailableBalance = computed,
+            IsBalanced = computed == wallet.AvailableBalance,
+            ReconciledAt = DateTime.UtcNow
         };
     }
 

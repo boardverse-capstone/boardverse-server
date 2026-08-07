@@ -24,6 +24,13 @@ public interface IBvcLedgerEntryRepository
 
     Task<int> CountByTypeSinceAsync(Guid userId, LedgerEntryType type, DateTime since);
 
+    /// <summary>
+    /// W-04: Tính tổng amount theo loại entry cho user để reconcile ví.
+    /// Credits: TopUp + AdminCredit.
+    /// Debits: DepositHold + AdminDebit + DepositCapture + DepositForfeit.
+    /// </summary>
+    Task<long> SumAmountByTypesAsync(Guid userId, IEnumerable<LedgerEntryType> types);
+
     Task AddAsync(BvcLedgerEntry entry);
 
     Task SaveChangesAsync();

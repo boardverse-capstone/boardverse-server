@@ -19,10 +19,14 @@ namespace BoardVerse.API.Controllers;
 public class TournamentController : BaseApiController
 {
     private readonly ITournamentService _tournamentService;
+    private readonly ITournamentSpectatorService _spectatorService;
 
-    public TournamentController(ITournamentService tournamentService)
+    public TournamentController(
+        ITournamentService tournamentService,
+        ITournamentSpectatorService spectatorService)
     {
         _tournamentService = tournamentService;
+        _spectatorService = spectatorService;
     }
 
     /// <summary>
@@ -183,5 +187,72 @@ public class TournamentController : BaseApiController
     {
         var result = await _tournamentService.GetLeaderboardAsync(topCount, gameTemplateId);
         return this.NewResponse(200, ApiSuccessMessages.Tournament.LeaderboardRetrieved, result);
+    }
+
+    // ====================================================================
+    // T-04: SPECTATOR MODE
+    // ====================================================================
+
+    /// <summary>
+    /// T-04: Bắt đầu spectate một tournament. [Role: Player]
+    /// </summary>
+    /// <param name="tournamentId">Mã giải đấu.</param>
+    /// <response code="200">Bắt đầu spectate thành công.</response>
+    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+    /// <response code="404">Không tìm thấy giải đấu.</response>
+    /// <response code="409">Bạn là người chơi trong tournament này.</response>
+    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+    [HttpPost("{tournamentId:guid}/spectate")]
+    public async Task<IActionResult> Spectate(Guid tournamentId)
+    {
+        var userId = GetUserIdFromClaims();
+        var result = await _spectatorService.SpectateAsync(userId, tournamentId);
+        return this.NewResponse(200, "Bắt đầu spectate thành công.", result);
+    }
+
+    /// <summary>
+    /// T-04: Ngừng spectate một tournament. [Role: Player]
+    /// </summary>
+    /// <param name="tournamentId">Mã giải đấu.</param>
+    /// <response code="200">Ngừng spectate thành công.</response>
+    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+    /// <response code="404">Bạn không spectate tournament này.</response>
+    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+    [HttpPost("{tournamentId:guid}/unspectate")]
+    public async Task<IActionResult> Unspectate(Guid tournamentId)
+    {
+        var userId = GetUserIdFromClaims();
+        await _spectatorService.LeaveSpectateAsync(userId, tournamentId);
+        return this.NewResponse(200, "Ngừng spectate thành công.", (object?)null);
+    }
+
+    /// <summary>
+    /// T-04: Lấy thông tin spectating của user hiện tại. [Role: Player]
+    /// </summary>
+    /// <param name="tournamentId">Mã giải đấu.</param>
+    /// <response code="200">Thông tin spectator entry.</response>
+    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+    /// <response code="404">Bạn không spectate tournament này.</response>
+    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+    [HttpGet("{tournamentId:guid}/spectate/me")]
+    public async Task<IActionResult> GetMySpectateStatus(Guid tournamentId)
+    {
+        var userId = GetUserIdFromClaims();
+        var result = await _spectatorService.GetMySpectatorEntryAsync(userId, tournamentId);
+        return this.NewResponse(200, "Thông tin spectate.", result);
+    }
+
+    /// <summary>
+    /// T-04: Lấy danh sách spectators của một tournament. [Role: Player]
+    /// </summary>
+    /// <param name="tournamentId">Mã giải đấu.</param>
+    /// <response code="200">Danh sách spectators.</response>
+    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+    [HttpGet("{tournamentId:guid}/spectators")]
+    public async Task<IActionResult> GetSpectators(Guid tournamentId)
+    {
+        var result = await _spectatorService.GetSpectatorsAsync(tournamentId);
+        return this.NewResponse(200, "Danh sách spectators.", result);
     }
 }

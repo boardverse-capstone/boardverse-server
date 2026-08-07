@@ -146,6 +146,13 @@ namespace BoardVerse.Services.IServices
             Guid sessionId,
             RecordInventoryLossRequestDto request);
 
+        // P-04: Ghi nhận hao hụt TRƯỚC KHI có phiên chơi (shift handoff)
+        Task RecordPreSessionInventoryLossAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            RecordPreSessionInventoryLossRequestDto request);
+
         // ====== Checkout & Payment Operations ======
         // Checkout: Thanh toán toàn bộ sau kiểm kê (BR-12)
         // GAP-7 Fix: Nhận userId/userRole để EnsurePosAccessAsync đúng cách.
@@ -173,6 +180,13 @@ namespace BoardVerse.Services.IServices
             string userRole,
             Guid sessionId,
             PartialCheckoutRequestDto request);
+
+        // ====== POS QR 2-chiều check-in (BR §21A.7) ======
+        Task<PosCheckInTokenDto> CreateCheckInTokenAsync(
+            Guid cafeId,
+            Guid staffUserId,
+            string staffRole,
+            CreatePosCheckInTokenRequestDto request);
 
         // Merge: Ghép thành viên vào nhóm mới (Exception 4)
         // GAP-7 Fix: Nhận userId/userRole để EnsurePosAccessAsync đúng cách.

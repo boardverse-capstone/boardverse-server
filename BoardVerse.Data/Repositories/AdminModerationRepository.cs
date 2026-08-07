@@ -121,5 +121,51 @@ namespace BoardVerse.Data.Repositories
         }
 
         public Task SaveChangesAsync() => _context.SaveChangesAsync();
+
+        public async Task<PaginatedResponse<CoolingOffUserDto>> GetCoolingOffUsersAsync(PaginationParams pagination)
+        {
+            var query = _context.Wallets
+                .AsNoTracking()
+                .Include(w => w.User)
+                .Where(w => w.IsCoolingOff && w.CoolingOffExpiresAt > DateTime.UtcNow)
+                .AsQueryable();
+
+            var total = await query.CountAsync();
+            var items = await query
+                .OrderBy(w => w.CoolingOffExpiresAt)
+                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
+                .Take(pagination.PageSize)
+                .Select(w => new CoolingOffUserDto
+                {
+                    UserId = w.UserId,
+                    Username = w.User.Username,
+                    Email = w.User.Email,
+                    IsCoolingOff = w.IsCoolingOff,
+                    CoolingOffExpiresAt = w.CoolingOffExpiresAt,
+                    CoolingOffDaysRemaining = w.CoolingOffExpiresAt.HasValue
+                        ? (int)Math.Max(0, (w.CoolingOffExpiresAt.Value - DateTime.UtcNow).TotalDays)
+                        : 0,
+                    FailedLobbiesInWeek = 0,
+                    CancelledLobbiesInWeek = 0,
+                    TotalForfeitedBvc = 0,
+                    CoolingOffStartedAt = w.UpdatedAt
+                })
+                .ToListAsync();
+
+            return new PaginatedResponse<CoolingOffUserDto>
+            {
+                Data = items,
+                Meta = new PaginationMeta
+                {
+                    CurrentPage = pagination.PageNumber,
+                    PageSize = pagination.PageSize,
+                    TotalItems = total,
+                    TotalPages = total == 0 ? 0 : (int)Math.Ceiling(total / (double)pagination.PageSize)
+                }
+            };
+        }
+
+        public Task<Wallet?> GetWalletForUpdateAsync(Guid userId) =>
+            _context.Wallets.FirstOrDefaultAsync(w => w.UserId == userId);
     }
 }

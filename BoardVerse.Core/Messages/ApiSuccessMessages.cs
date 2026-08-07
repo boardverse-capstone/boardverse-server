@@ -40,6 +40,7 @@ namespace BoardVerse.Core.Messages
             public const string StaffRemoved = "Xóa nhân viên thành công.";
             public const string ListRetrieved = "Lấy danh sách quán thành công.";
             public const string OperationalStatusUpdated = "Cập nhật trạng thái vận hành quán thành công.";
+            public const string RevenueReportRetrieved = "Lấy báo cáo doanh thu thành công."; // P-02
         }
 
         public static class CafeSchedule
@@ -47,6 +48,23 @@ namespace BoardVerse.Core.Messages
             public const string ScheduleRetrieved = "Lấy lịch cafe thành công.";
             public const string OverrideUpserted = "Cập nhật override lịch cafe thành công.";
             public const string OverrideDeleted = "Xóa override, cafe quay về dùng lịch mặc định thành công.";
+        }
+
+        public static class CafeShift
+        {
+            public const string ShiftOpened = "Mở ca làm việc thành công.";
+            public const string ShiftClosed = "Đóng ca làm việc thành công.";
+            public const string ShiftHistoryRetrieved = "Lấy lịch sử ca làm việc thành công.";
+        }
+
+        public static class Payment
+        {
+            public const string SePayAccountsRetrieved = "Lấy danh sách tài khoản SePay thành công.";
+            public const string SePayAccountRetrieved = "Lấy thông tin tài khoản SePay thành công.";
+            public const string SePayMasterAccountRetrieved = "Lấy thông tin master account SePay thành công.";
+            public const string SePayAccountCreated = "Tạo tài khoản SePay thành công.";
+            public const string SePayAccountUpdated = "Cập nhật tài khoản SePay thành công.";
+            public const string SePayEnvironmentUpdated = "Cập nhật môi trường SePay thành công.";
         }
 
         public static class Inventory
@@ -71,6 +89,8 @@ namespace BoardVerse.Core.Messages
             public const string SessionStarted = "Bắt đầu phiên chơi thành công.";
             public const string SessionEnded = "Kết thúc phiên chơi thành công.";
             public const string TableUpdated = "Cập nhật thông tin bàn thành công.";
+            public const string CheckInTokenCreated = "Tạo mã QR mời quét thành công.";
+            public const string PlayerCheckedInByToken = "Check-in bằng mã QR thành công.";
         }
 
         public static class Lobby
@@ -92,6 +112,7 @@ namespace BoardVerse.Core.Messages
             public const string GuestSlotAdded = "Thêm khách vô danh thành công.";
             public const string PartialCheckoutRequested = "Yêu cầu thanh toán một phần thành công.";
             public const string DepositSettlementReleased = "Đã tạo bản ghi giải ngân deposit.";
+            public const string ReceiptGenerated = "Tạo receipt thành công."; // P-01
         }
 
         public static class Settlement
@@ -163,6 +184,8 @@ namespace BoardVerse.Core.Messages
             public const string KarmaAlertsRetrieved = "Lấy cảnh báo karma thành công.";
             public const string PunishmentApplied = "Áp dụng hình phạt thành công.";
             public const string KarmaAdjusted = "Điều chỉnh karma thành công.";
+            public const string CoolingOffUsersRetrieved = "Lấy danh sách user cooling-off thành công.";
+            public const string CoolingOffReleased = "Đã release cooling-off cho người dùng.";
         }
 
         public static class AdminCatalog

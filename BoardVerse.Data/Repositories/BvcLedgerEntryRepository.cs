@@ -75,6 +75,25 @@ public class BvcLedgerEntryRepository : IBvcLedgerEntryRepository
             .CountAsync(e => e.UserId == userId && e.Type == type && e.CreatedAt >= since);
     }
 
+    /// <summary>
+    /// W-04: Tính tổng amount theo loại entry cho user để reconcile ví.
+    /// </summary>
+    public async Task<long> SumAmountByTypesAsync(Guid userId, IEnumerable<LedgerEntryType> types)
+    {
+        var typeList = types.ToList();
+        var entries = await _db.BvcLedgerEntries
+            .Where(e => e.UserId == userId && typeList.Contains(e.Type))
+            .Select(e => e.Amount)
+            .ToListAsync();
+
+        long sum = 0;
+        foreach (var amount in entries)
+        {
+            checked { sum += amount; }
+        }
+        return sum;
+    }
+
     public Task AddAsync(BvcLedgerEntry entry)
     {
         _db.BvcLedgerEntries.Add(entry);

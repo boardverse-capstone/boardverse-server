@@ -23,5 +23,9 @@ namespace BoardVerse.Core.IRepositories
         Task AddKarmaLogAsync(KarmaLog log);
 
         Task SaveChangesAsync();
+
+        Task<PaginatedResponse<CoolingOffUserDto>> GetCoolingOffUsersAsync(PaginationParams pagination);
+
+        Task<Wallet?> GetWalletForUpdateAsync(Guid userId);
     }
 }

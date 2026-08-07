@@ -23,6 +23,7 @@ using System.Text;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using BoardVerse.Core.DTOs.Common;
 using BoardVerse.Core.Json;
 using BoardVerse.Core.Settings;
@@ -151,7 +152,7 @@ builder.Services.AddScoped<ISeatInventoryRepository, SeatInventoryRepository>();
 builder.Services.AddScoped<IGameInventoryRepository, GameInventoryRepository>();
 builder.Services.AddScoped<ICafeConfigRepository, CafeConfigRepository>();
 builder.Services.AddScoped<IOutboxRepository, OutboxRepository>();
-builder.Services.AddSingleton<IOutboxEventPublisher, LoggingOutboxPublisher>();
+builder.Services.AddSingleton<IOutboxEventPublisher, RealOutboxPublisher>();
 builder.Services.AddScoped<DepositCalculator>();
 builder.Services.AddScoped<EligibilityValidator>();
 builder.Services.AddScoped<IReservationService, ReservationService>();
@@ -170,18 +171,21 @@ builder.Services.AddScoped<ICafeTableRepository, CafeTableRepository>();
 builder.Services.AddScoped<ICafeInventoryRepository, CafeInventoryRepository>();
 builder.Services.AddScoped<ICafePosRepository, CafePosRepository>();
 builder.Services.AddScoped<ILobbyRepository, LobbyRepository>();
+builder.Services.AddScoped<IPosCheckInTokenRepository, PosCheckInTokenRepository>();
+builder.Services.AddScoped<IPlayerCheckInService, PlayerCheckInService>();
 builder.Services.AddScoped<IActiveSessionRepository, ActiveSessionRepository>();
 builder.Services.AddScoped<IKarmaRatingRepository, KarmaRatingRepository>();
 builder.Services.AddScoped<IMatchResultRepository, MatchResultRepository>();
 builder.Services.AddScoped<IAdminModerationRepository, AdminModerationRepository>();
 builder.Services.AddScoped<ISystemConfigurationRepository, SystemConfigurationRepository>();
 builder.Services.AddScoped<ICafePartnerApplicationRepository, CafePartnerApplicationRepository>();
-builder.Services.AddScoped<IPaymentMasterAccountRepository, PaymentMasterAccountRepository>();
 builder.Services.AddScoped<IBookingDepositRepository, BookingDepositRepository>();
 builder.Services.AddScoped<IBookingRepository, BookingRepository>();
 builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
 builder.Services.AddScoped<ICafeSettlementRepository, CafeSettlementRepository>();
-builder.Services.AddScoped<ISettlementService, SettlementService>();
+        builder.Services.AddScoped<ISettlementService, SettlementService>();
+        builder.Services.AddScoped<ICafeShiftRepository, CafeShiftRepository>();
+        builder.Services.AddScoped<ICafeShiftService, CafeShiftService>();
 builder.Services.AddScoped<IBookingNoShowVoteRepository, BookingNoShowVoteRepository>();
 builder.Services.AddScoped<IBookingRatingRepository, BookingRatingRepository>();
 builder.Services.AddScoped<ICafeBookingService, CafeBookingService>();
@@ -189,6 +193,7 @@ builder.Services.AddScoped<IBookingRatingService, BookingRatingService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserProfileService, UserProfileService>();
+builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
 builder.Services.AddScoped<IUserManagementService, UserManagementService>();
 builder.Services.AddScoped<IHealthService, HealthService>();
 builder.Services.AddScoped<IGameTemplateService, GameTemplateService>();
@@ -196,6 +201,7 @@ builder.Services.AddScoped<IBoardGameService, BoardGameService>();
 builder.Services.AddScoped<ICafeService, CafeService>();
 builder.Services.AddScoped<ICafeInventoryService, CafeInventoryService>();
 builder.Services.AddScoped<ICafePosService, CafePosService>();
+builder.Services.AddScoped<IReceiptService, ReceiptService>(); // P-01 & P-02
 builder.Services.AddScoped<ILobbyService, LobbyService>();
 builder.Services.AddScoped<IActiveSessionService, ActiveSessionService>();
 builder.Services.AddScoped<IKarmaRatingService, KarmaRatingService>();
@@ -206,11 +212,17 @@ builder.Services.AddScoped<SystemConfigurationService>();
 builder.Services.AddScoped<ISystemConfigurationProvider>(sp => sp.GetRequiredService<SystemConfigurationService>());
 builder.Services.AddScoped<IAdminSystemConfigurationService>(sp => sp.GetRequiredService<SystemConfigurationService>());
 builder.Services.AddScoped<IKarmaConfigurationService, KarmaConfigurationService>();
+builder.Services.AddScoped<ILevelingService, LevelingService>();
 builder.Services.AddScoped<ICafePartnerApplicationService, CafePartnerApplicationService>();
 builder.Services.AddScoped<ISePayAccountRepository, SePayAccountRepository>();
 builder.Services.AddScoped<ISePayAccountService, SePayAccountService>();
 builder.Services.AddScoped<ITournamentRepository, TournamentRepository>();
 builder.Services.AddScoped<ITournamentService, TournamentService>();
+builder.Services.AddScoped<ITournamentWaitlistRepository, TournamentWaitlistRepository>();
+builder.Services.AddScoped<ITournamentWaitlistService, TournamentWaitlistService>();
+builder.Services.AddScoped<ITournamentSpectatorRepository, TournamentSpectatorRepository>();
+builder.Services.AddScoped<ITournamentSpectatorService, TournamentSpectatorService>();
+builder.Services.AddScoped<IAdminReportService, AdminReportService>();
 builder.Services.AddScoped<IFriendshipRepository, FriendshipRepository>();
 builder.Services.AddScoped<IFriendNoteRepository, FriendNoteRepository>();
 builder.Services.AddScoped<IFriendReportRepository, FriendReportRepository>();
@@ -232,6 +244,7 @@ if (!builder.Environment.IsEnvironment("Testing"))
 {
     builder.Services.AddHostedService<LobbyTimeoutJob>();
     builder.Services.AddHostedService<KarmaWindowJob>();
+    builder.Services.AddHostedService<KarmaWindowExpiryJob>(); // K-01: close karma window after 48h
     builder.Services.AddHostedService<BookingDepositExpiryJob>();
     builder.Services.AddHostedService<ReservationDeadlineJob>(); // GAP #17: deadline + cafe approval expiry + no-show
     builder.Services.AddHostedService<BvcTopUpExpiryJob>(); // BVC top-up pending expire sau 30 phút
@@ -242,6 +255,8 @@ if (!builder.Environment.IsEnvironment("Testing"))
     builder.Services.AddHostedService<TournamentNoShowDetectionJob>();
     builder.Services.AddHostedService<FriendRequestExpiryJob>();
     builder.Services.AddHostedService<LobbyInviteExpiryJob>(); // BR-LOBBY-INVITE-08: expire invite 24h
+    builder.Services.AddHostedService<LobbyNotificationJob>(); // N-01: BR-NEW-13 milestone notifications
+    builder.Services.AddHostedService<LobbyAtRiskWarningJob>(); // N-02: BR-NEW-14 at-risk warning
 
     // BR §XXI-H.8: Reservation scheduler jobs (recruitmentDeadline, cafe approval 24h, no-show grace).
     builder.Services.AddReservationSchedulers();
@@ -266,9 +281,30 @@ builder.Services.AddControllers(options =>
     options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
 });
 
-builder.Services.Configure<ApiBehaviorOptions>(options =>
+// Add Rate Limiting
+// L-01: 5 attempts per IP per 15 minutes for share code join brute-force protection
+builder.Services.AddRateLimiter(options =>
 {
-    options.SuppressModelStateInvalidFilter = true;
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsJsonAsync(new
+        {
+            status = 429,
+            message = BoardVerse.Core.Messages.ApiErrorMessages.LobbyInvite.ShareCodeRateLimitExceeded
+        }, cancellationToken);
+    };
+    options.AddPolicy("ShareCodePolicy", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(15),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
 });
 
 // Add Swagger
@@ -398,6 +434,8 @@ app.UseStaticFiles(new StaticFileOptions
 
 // Register exception middleware so every response uses the unified shape
 app.UseMiddleware<BoardVerse.API.Middleware.ApiExceptionMiddleware>();
+
+app.UseRateLimiter();
 
 app.UseAuthentication();
 app.UseAuthorization();

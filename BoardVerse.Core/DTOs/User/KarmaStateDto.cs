@@ -8,5 +8,8 @@ namespace BoardVerse.Core.DTOs.User
         public string GamerTier { get; set; } = "Bronze";
         public string? AvatarUrl { get; set; }
         public DateTime UpdatedAt { get; set; }
+
+        /// <summary>Lịch sử thay đổi Karma (entries gần nhất).</summary>
+        public List<KarmaLogEntryDto> RecentHistory { get; set; } = new();
     }
 }

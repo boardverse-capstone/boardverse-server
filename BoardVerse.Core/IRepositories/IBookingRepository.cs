@@ -25,4 +25,14 @@ public interface IBookingRepository
     Task AddAsync(Booking booking);
     Task UpdateAsync(Booking booking);
     Task SaveChangesAsync();
+
+    // === Admin: Reports ===
+    /// <summary>
+    /// Đếm bookings theo trạng thái trong khoảng thời gian.
+    /// </summary>
+    Task<int> CountByStatusAsync(BookingStatus status, DateTime? fromUtc, DateTime? toUtc);
+    /// <summary>
+    /// Đếm tổng bookings.
+    /// </summary>
+    Task<int> CountAllAsync(DateTime? fromUtc, DateTime? toUtc);
 }

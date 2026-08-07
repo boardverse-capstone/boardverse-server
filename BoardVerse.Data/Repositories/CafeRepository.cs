@@ -531,5 +531,67 @@ namespace BoardVerse.Data.Repositories
         {
             await _context.SaveChangesAsync();
         }
+
+        // === Admin: Full CRUD ===
+
+        public async Task AddCafeAsync(Cafe cafe)
+        {
+            _context.Cafes.Add(cafe);
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task<(IReadOnlyList<Cafe> Items, int TotalCount)> GetAdminListAsync(
+            int page, int pageSize, string? searchTerm, bool? isActive, Guid? managerId)
+        {
+            var query = _context.Cafes.AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(searchTerm))
+            {
+                var term = searchTerm.Trim().ToLower();
+                query = query.Where(c =>
+                    c.Name.ToLower().Contains(term) ||
+                    (c.Address != null && c.Address.ToLower().Contains(term)));
+            }
+
+            if (isActive.HasValue)
+            {
+                query = query.Where(c => c.IsActive == isActive.Value);
+            }
+
+            if (managerId.HasValue)
+            {
+                query = query.Where(c => c.ManagerId == managerId.Value);
+            }
+
+            var totalCount = await query.CountAsync();
+
+            var items = await query
+                .Include(c => c.StaffMembers)
+                .OrderByDescending(c => c.CreatedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            return (items, totalCount);
+        }
+
+        public async Task<Cafe?> GetAdminDetailAsync(Guid cafeId)
+        {
+            return await _context.Cafes
+                .Include(c => c.StaffMembers)
+                    .ThenInclude(s => s.User)
+                .Include(c => c.Inventories)
+                .FirstOrDefaultAsync(c => c.Id == cafeId);
+        }
+
+        public async Task<int> CountAllAsync()
+        {
+            return await _context.Cafes.CountAsync();
+        }
+
+        public async Task<int> CountActiveAsync()
+        {
+            return await _context.Cafes.CountAsync(c => c.IsActive);
+        }
     }
 }

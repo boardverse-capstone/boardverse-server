@@ -23,6 +23,11 @@ public interface IPushNotificationService
     Task<int> SendToUsersAsync(IReadOnlyCollection<Guid> userIds, PushNotificationPayload payload);
 
     /// <summary>
+    /// Gửi notification tới 1 user (single overload).
+    /// </summary>
+    Task<int> SendAsync(Guid userId, string title, string body, Dictionary<string, string>? data = null);
+
+    /// <summary>
     /// Invalidate token khi mobile báo token hết hạn (vd: gọi từ cleanup job
     /// sau khi FCM trả lỗi). Token sẽ không được push nữa.
     /// </summary>

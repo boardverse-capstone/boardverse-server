@@ -28,6 +28,9 @@ public class TournamentMatchBracket
     /// <summary>True nếu đây là bàn chung kết.</summary>
     public bool IsFinal { get; set; }
 
+    /// <summary>Loại bàn đấu: Swiss / Final / ThirdPlaceMatch.</summary>
+    public BoardVerse.Core.Enum.MatchType MatchType { get; set; } = BoardVerse.Core.Enum.MatchType.Swiss;
+
     // === Players (tối đa 4 cho Splendor) ===
     public Guid? Player1Id { get; set; }
     public Guid? Player2Id { get; set; }

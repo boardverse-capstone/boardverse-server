@@ -16,5 +16,17 @@ namespace BoardVerse.Services.IServices
         Task<PlayerLocationDto> GetCurrentLocationAsync(Guid userId);
         Task<PlayerLocationDto> UpdateCurrentLocationAsync(Guid userId, UpdatePlayerLocationRequestDto request);
         Task ClearCurrentLocationAsync(Guid userId);
+
+        /// <summary>
+        /// K-05: Update player profile with new fields (cover photo, favorite games).
+        /// GamesPlayedCount and WinRate are computed from MatchHistory.
+        /// </summary>
+        Task<PlayerProfileWithStatsDto> UpdatePlayerProfileAsync(Guid userId, UpdatePlayerProfileDto request);
+
+        /// <summary>
+        /// K-04: Add exp for user and auto-update level.
+        /// Called when user completes lobby, tournament, or reaches milestone.
+        /// </summary>
+        Task<(int NewLevel, long RemainingExp)> AddExpAndUpdateLevelAsync(Guid userId, long expToAdd, CancellationToken cancellationToken = default);
     }
 }

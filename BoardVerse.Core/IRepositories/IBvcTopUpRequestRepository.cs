@@ -9,6 +9,12 @@ public interface IBvcTopUpRequestRepository
     Task<BvcTopUpRequest?> GetByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// W-07: Lookup pending top-up by exact OrderId prefix (18 hex chars) match.
+    /// Safer than 8-char hash prefix matching (avoids birthday paradox).
+    /// </summary>
+    Task<BvcTopUpRequest?> GetPendingByExactOrderIdAsync(string orderId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Batch fetch top-up pending đã quá hạn (ExpiresAt &lt; now).
     /// Dùng FOR UPDATE SKIP LOCKED + batch transaction để cluster-safe.
     /// Caller phải wrap transaction.
