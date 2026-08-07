@@ -416,6 +416,139 @@ Khôi phục phiên từ `CHECKING` → `ACTIVE` khi nhân viên bấm "Trả ga
 
 ---
 
+### GET /api/cafes/{cafeId}/pos/sessions/{sessionGameId}/component-checklist
+
+Lấy mô tả bảng kiểm kê linh kiện của 1 game trong phiên — trả về các linh kiện cần kiểm với **số lượng kỳ vọng** từ `GameComponentTemplate`. Endpoint **không** có dữ liệu thực tế / phí phạt — chỉ là danh sách mô tả để staff đếm trước khi submit.
+
+**Role:** Manager (chủ quán) hoặc CafeStaff thuộc cafe.
+
+**Path params:**
+- `cafeId` (guid): mã quán.
+- `sessionGameId` (guid): mã `ActiveSessionGame` cần kiểm kê.
+
+**Response 200 — `ComponentChecklistDto`:**
+```json
+{
+  "sessionGameId": "guid",
+  "gameTemplateId": "guid",
+  "gameName": "Catan",
+  "components": [
+    { "componentId": "guid", "componentName": "Road tile",   "componentKind": 0, "expectedQuantity": 15 },
+    { "componentId": "guid", "componentName": "Settlement",  "componentKind": 1, "expectedQuantity": 20 },
+    { "componentId": "guid", "componentName": "City",        "componentKind": 1, "expectedQuantity": 4  }
+  ]
+}
+```
+
+**Trường hợp không có component nào (`Components = []`):** Game template không cấu hình linh kiện → trả về danh sách rỗng. Staff vẫn có thể submit `markAllValid=true` để đóng kiểm kê.
+
+**Lỗi:**
+- `401` thiếu token.
+- `403` không thuộc cafe.
+- `404` không tìm thấy session game hoặc không thuộc cafe này.
+- `500` lỗi hệ thống.
+
+**Ví dụ curl:**
+```bash
+curl -X GET "https://api.boardverse.local/api/cafes/{cafeId}/pos/sessions/{sessionGameId}/component-checklist" \
+  -H "Authorization: Bearer <staff-jwt>"
+```
+
+---
+
+### POST /api/cafes/{cafeId}/pos/sessions/component-check
+
+Xác nhận kiểm kê linh kiện và tính phí phạt nếu thiếu. **BR-12:** Sau khi submit thành công → mở khóa in hóa đơn cho session.
+
+**Role:** Manager (chủ quán) hoặc CafeStaff thuộc cafe.
+
+**Điều kiện tiên quyết:**
+- `ActiveSession.Status == Checking` (đã qua bước "Trả game" — `POST /sessions/{id}/end`).
+- `ActiveSessionGame.CheckStatus == NotChecked` (chưa submit lần nào — idempotent check).
+
+**Body — `SubmitComponentCheckRequestDto`:**
+
+```json
+{
+  "sessionGameId": "guid",
+  "markAllValid": false,
+  "results": [
+    { "componentId": "guid-road",   "actualQuantity": 14 },
+    { "componentId": "guid-city",   "actualQuantity": 4  }
+  ]
+}
+```
+
+**2 mode:**
+
+| Mode | `markAllValid` | `results` | Hành vi |
+|---|---|---|---|
+| **All valid (nhanh)** | `true` | `[]` (bỏ qua) | Tự động `ActualQuantity = ExpectedQuantity` cho mọi component, `TotalPenaltyAmount = 0`, `CheckStatus = Verified`. Vẫn insert 1 bộ dòng audit (`ComponentCheckResults`) để truy vết staff bấm AllValid. |
+| **Chi tiết** | `false` | Bắt buộc (mỗi component trong template = 1 dòng) | Tính `penalty = (ExpectedQuantity − ActualQuantity) × PenaltyFee` cho từng component. Tổng cộng vào `TotalPenaltyAmount`. Nếu có component thiếu → `CheckStatus = MissingComponents`; nếu đủ hết → `Verified`. |
+
+**Validation:**
+- `results` phải chứa tất cả component trong template. Component nào thiếu → coi như `actualQuantity = 0` (penalty tối đa).
+- ComponentId trong `results` phải thuộc template của session game → nếu không → `400 ComponentNotBelongToGame`.
+- Không được trùng `componentId` trong `results` → `400 duplicate component IDs`.
+- Component thiếu mà **không có `CafeGameComponentPenalty` cấu hình** → `PenaltyFee = 0` cho dòng đó + log warning (staff vẫn tiếp tục được, không chặn).
+
+**Response 200 — `ComponentCheckResultDto`:**
+```json
+{
+  "sessionGameId": "guid",
+  "gameTemplateId": "guid",
+  "gameName": "Catan",
+  "checkStatus": 2,
+  "checkedAt": "2026-08-06T12:34:56Z",
+  "totalPenaltyAmount": 5000,
+  "components": [
+    { "componentId": "guid-road",  "componentName": "Road tile",  "componentKind": 0, "expectedQuantity": 15, "actualQuantity": 14, "penaltyFee": 5000 },
+    { "componentId": "guid-city",  "componentName": "City",       "componentKind": 1, "expectedQuantity": 4,  "actualQuantity": 4,  "penaltyFee": 0    }
+  ]
+}
+```
+
+**`checkStatus` enum:**
+- `0` = `NotChecked`
+- `1` = `Verified` — đủ hết, hoặc `markAllValid=true`
+- `2` = `MissingComponents` — có ít nhất 1 component thiếu
+
+**Side effect — audit trail:** Mỗi lần submit thành công, insert 1 bộ dòng vào bảng `ComponentCheckResults` (1 dòng / component / session game). Admin có thể query:
+- `WHERE ActiveSessionGameId = X` → staff nào verify lúc nào, đếm thật hay bấm AllValid.
+- Phân biệt staff kiểm tra thật (`ActualQuantity < ExpectedQuantity`) vs bấm `markAllValid` (`ActualQuantity = ExpectedQuantity`).
+
+**Lỗi:**
+- `400` `ComponentNotBelongToGame` / `duplicate component IDs`.
+- `401` thiếu token.
+- `403` không thuộc cafe.
+- `404` không tìm thấy session game hoặc không thuộc cafe.
+- `409` đã kiểm tra rồi (`ComponentCheckAlreadyDone`) hoặc session không ở `CHECKING`.
+- `500` lỗi hệ thống.
+
+**Ví dụ curl:**
+```bash
+# Mode 1: All valid
+curl -X POST "https://api.boardverse.local/api/cafes/{cafeId}/pos/sessions/component-check" \
+  -H "Authorization: Bearer <staff-jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{ "sessionGameId": "guid", "markAllValid": true, "results": [] }'
+
+# Mode 2: Chi tiết
+curl -X POST "https://api.boardverse.local/api/cafes/{cafeId}/pos/sessions/component-check" \
+  -H "Authorization: Bearer <staff-jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionGameId": "guid",
+    "markAllValid": false,
+    "results": [
+      { "componentId": "guid-road", "actualQuantity": 14 },
+      { "componentId": "guid-city", "actualQuantity": 4 }
+    ]
+  }'
+```
+
+---
+
 ### POST /api/cafes/{cafeId}/pos/sessions/component-check/reset?sessionGameId={guid}
 
 Reset lại checklist linh kiện của 1 game trong session về trạng thái chưa kiểm kê.
@@ -607,21 +740,40 @@ POST /api/cafes/{cafeId}/pos/sessions/{id}/return-game
 ### Luồng 6: Kiểm kê linh kiện (BR-12)
 
 ```powershell
-# Lấy checklist cho từng game trong session
+# Bước 1: Lấy checklist cho 1 game trong session (đã end → CHECKING)
 GET /api/cafes/{cafeId}/pos/sessions/{sessionGameId}/component-checklist
-# → Trả về danh sách components cần kiểm
+# → Trả ComponentChecklistDto: danh sách components với ExpectedQuantity
 
-# Staff kiểm tra + điền số lượng thực tế
+# Bước 2: Staff đếm linh kiện, submit kết quả
+
+# Mode A: Tất cả hợp lệ (không đếm chi tiết)
 POST /api/cafes/{cafeId}/pos/sessions/component-check
 {
   "sessionGameId": "guid",
-  "components": [
-    { "componentId": "guid", "actualQuantity": 5 }
+  "markAllValid": true,
+  "results": []
+}
+# → CheckStatus = Verified, TotalPenaltyAmount = 0
+# → Vẫn insert audit ComponentCheckResults (Actual = Expected) để truy vết
+
+# Mode B: Đếm chi tiết từng linh kiện
+POST /api/cafes/{cafeId}/pos/sessions/component-check
+{
+  "sessionGameId": "guid",
+  "markAllValid": false,
+  "results": [
+    { "componentId": "guid-road", "actualQuantity": 14 },
+    { "componentId": "guid-city", "actualQuantity": 4  }
   ]
 }
+# → Tính penalty = (Expected - Actual) × PenaltyFee cho từng component
+# → CheckStatus = Verified (đủ) hoặc MissingComponents (thiếu)
+# → TotalPenaltyAmount = tổng penalty → set trên ActiveSessionGame
 
-# Nếu bấm sai → reset
+# Bước 3: Nếu bấm sai → reset checklist (xóa audit trail cũ)
 POST /api/cafes/{cafeId}/pos/sessions/component-check/reset?sessionGameId={guid}
+# → CheckStatus về NotChecked, xóa hết ComponentCheckResults cũ
+# → Staff submit lại từ đầu
 ```
 
 ### Luồng 7: Kết thúc phiên chơi

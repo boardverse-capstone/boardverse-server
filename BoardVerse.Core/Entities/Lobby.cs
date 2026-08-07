@@ -120,6 +120,19 @@ public class Lobby
     /// <summary>Lý do đóng (audit trail).</summary>
     public string? ClosedReason { get; set; }
 
+    /// <summary>
+    /// BR-LOBBY-READY-03: Mốc thời điểm lobby chuyển sang FULL.
+    /// Scheduler dùng để timeout 20p nếu không có ai Ready.
+    /// Reset về null khi lobby rời Full (vd: host khóa sớm, member rời khiến ActiveMembers &lt; MaxMembers).
+    /// </summary>
+    public DateTime? FullAt { get; set; }
+
+    /// <summary>
+    /// BR-READY-TIMEOUT-MINUTES: Số phút cho phép sau khi lobby FULL mà không có ai Ready trước khi timeout.
+    /// Mặc định 20 phút — có thể cấu hình sau.
+    /// </summary>
+    public const int ReadyTimeoutMinutes = 20;
+
     // === Audit ===
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

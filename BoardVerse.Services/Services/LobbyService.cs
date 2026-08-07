@@ -242,6 +242,11 @@ namespace BoardVerse.Services.Services
             var filledToMax = lobby.Members.Count(m => m.IsActive) >= lobby.MaxMembers;
             if (filledToMax)
             {
+                // BR-LOBBY-READY-03: ghi nhận mốc FullAt khi chuyển sang Full để scheduler biết đếm 20p.
+                if (lobby.Status != LobbyStatus.Full)
+                {
+                    lobby.FullAt = DateTime.UtcNow;
+                }
                 lobby.Status = LobbyStatus.Full;
             }
 
@@ -380,6 +385,8 @@ namespace BoardVerse.Services.Services
                     if (lobby.Status == LobbyStatus.Full && activeAfter < lobby.MaxMembers)
                     {
                         lobby.Status = LobbyStatus.Open;
+                        // BR-LOBBY-READY-03: reset FullAt vì không còn FULL nữa.
+                        lobby.FullAt = null;
                     }
                 }
             }
@@ -746,6 +753,7 @@ namespace BoardVerse.Services.Services
             }
 
             lobby.Status = LobbyStatus.Full;
+            lobby.FullAt = DateTime.UtcNow;
             lobby.UpdatedAt = DateTime.UtcNow;
 
             await _lobbyRepository.SaveChangesAsync();
@@ -1042,9 +1050,17 @@ namespace BoardVerse.Services.Services
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
 
-            if (lobby.Status != LobbyStatus.Full)
+            // BR-LOBBY-READY-01 (mới): Cho phép Ready khi lobby còn đang hoạt động (Open/Full/Viable).
+            // Chỉ chặn khi lobby đã ở trạng thái kết thúc — vì lúc đó không có ý nghĩa.
+            var readyableStatuses = new[]
             {
-                throw new ConflictException(ApiErrorMessages.Lobby.OnlyFullLobbyCanReady);
+                LobbyStatus.Open,
+                LobbyStatus.Full,
+                LobbyStatus.Viable
+            };
+            if (!readyableStatuses.Contains(lobby.Status))
+            {
+                throw new ConflictException(ApiErrorMessages.Lobby.LobbyNotReadyForReady);
             }
 
             var member = lobby.Members.FirstOrDefault(m => m.UserId == userId && m.IsActive);
@@ -1068,17 +1084,26 @@ namespace BoardVerse.Services.Services
                 member.ReadyAt = null;
             }
 
+            // BR-LOBBY-READY-03 (mới): Ghi nhận FullAt khi lobby vừa chuyển FULL để scheduler biết mốc timeout 20p.
+            var activeMembersCount = lobby.Members.Count(m => m.IsActive);
+            if (lobby.Status != LobbyStatus.Full && activeMembersCount >= lobby.MaxMembers)
+            {
+                lobby.Status = LobbyStatus.Full;
+                lobby.FullAt = DateTime.UtcNow;
+            }
+
             lobby.UpdatedAt = DateTime.UtcNow;
             await _lobbyRepository.SaveChangesAsync();
 
             await _hubService.NotifyMemberReady(lobbyId, userId, isReady);
 
-            // Check: nếu tất cả members đều Ready → tự động chuyển sang InProgress
-            var allReady = lobby.Members
-                .Where(m => m.IsActive)
-                .All(m => m.Status == LobbyMemberStatus.Ready);
+            // BR-LOBBY-READY-01: Nếu TẤT CẢ members đều Ready → lobby tự chuyển InProgress.
+            // Áp dụng cho cả lobby Open/Full/Viable để cho phép Ready sớm (Option A).
+            var readyableMembers = lobby.Members.Where(m => m.IsActive).ToList();
+            var allReady = readyableMembers.Count > 0
+                && readyableMembers.All(m => m.Status == LobbyMemberStatus.Ready);
 
-            if (allReady && lobby.Members.Count(m => m.IsActive) >= lobby.MinPlayers)
+            if (allReady && readyableMembers.Count >= lobby.MinPlayers)
             {
                 lobby.Status = LobbyStatus.InProgress;
                 lobby.UpdatedAt = DateTime.UtcNow;

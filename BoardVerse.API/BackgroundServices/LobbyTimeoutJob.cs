@@ -1,5 +1,6 @@
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Messages;
 using BoardVerse.Data;
 using BoardVerse.Services.IServices;
 using Microsoft.EntityFrameworkCore;
@@ -10,6 +11,8 @@ namespace BoardVerse.API.BackgroundServices;
 /// Background job xử lý các phòng chờ bị hủy tự động khi chưa đủ người.
 /// BR-08: Tự động chuyển OPEN → TIMEOUT_FAILED nếu trước giờ hẹn X phút
 /// mà số lượng thành viên vẫn chưa đạt quy mô tối thiểu của tựa game.
+/// BR-LOBBY-READY-03: FULL + 20 phút không ai Ready → TIMEOUT_FAILED (LobbyReadyTimeout).
+/// BR-LOBBY-READY-04: Scheduled-timeout đếm readyCount thay vì memberCount.
 /// </summary>
 public class LobbyTimeoutJob : BackgroundService
 {
@@ -19,6 +22,9 @@ public class LobbyTimeoutJob : BackgroundService
 
     /// <summary>Lobby không có ScheduledStartTime mà tồn tại quá thời gian này → coi như timeout.</summary>
     private static readonly TimeSpan OrphanLobbyTimeout = TimeSpan.FromHours(24);
+
+    /// <summary>BR-LOBBY-READY-03: Số phút tối đa sau Full mà không có ai Ready → timeout.</summary>
+    public static readonly TimeSpan ReadyTimeoutWindow = TimeSpan.FromMinutes(Lobby.ReadyTimeoutMinutes);
 
     public LobbyTimeoutJob(IServiceProvider serviceProvider, ILogger<LobbyTimeoutJob> logger)
     {
@@ -84,16 +90,38 @@ public class LobbyTimeoutJob : BackgroundService
             .AsSplitQuery()
             .ToListAsync(stoppingToken);
 
+        // Case 3 (BR-LOBBY-READY-03): Lobby đã FULL + FullAt > 20 phút + chưa có ai Ready → timeout.
+        // Dùng `LobbyReadyTimeoutReason` để phân biệt với timeout vì thiếu người.
+        var readyCutoff = now - ReadyTimeoutWindow;
+        var fullButNotReady = await db.Lobbies
+            .FromSqlRaw(
+                "SELECT * FROM \"Lobbies\" WHERE \"Status\" = {0} " +
+                "AND \"FullAt\" IS NOT NULL " +
+                "AND \"FullAt\" <= {1} " +
+                "FOR UPDATE SKIP LOCKED",
+                LobbyStatus.Full.ToString(), readyCutoff)
+            .Include(l => l.Members)
+            .Include(l => l.GameTemplate)
+            .Include(l => l.Cafe)
+            .AsSplitQuery()
+            .ToListAsync(stoppingToken);
+
+        // Lọc thêm ở C# (sau khi load Members) để chỉ timeout những lobby thật sự chưa có ai Ready.
+        var fullButNotReadyFiltered = fullButNotReady
+            .Where(l => !l.Members.Any(m => m.IsActive && m.Status == LobbyMemberStatus.Ready))
+            .ToList();
+
         var timedOutLobbies = scheduledTimedOut
             .Concat(orphanTimedOut)
+            .Concat(fullButNotReadyFiltered)
             .DistinctBy(l => l.Id)
             .ToList();
 
         if (timedOutLobbies.Count == 0)
             return;
 
-        _logger.LogInformation("Found {Count} lobbies to check for timeout (scheduled={Scheduled}, orphan={Orphan})",
-            timedOutLobbies.Count, scheduledTimedOut.Count, orphanTimedOut.Count);
+        _logger.LogInformation("Found {Count} lobbies to check for timeout (scheduled={Scheduled}, orphan={Orphan}, fullNotReady={FullNotReady})",
+            timedOutLobbies.Count, scheduledTimedOut.Count, orphanTimedOut.Count, fullButNotReadyFiltered.Count);
 
         // GAP #16 fix: SKIP LOCKED chỉ có hiệu lực trong transaction. Mở transaction 1 lần cho cả batch,
         // commit sau khi đã flip status. Foreach loop chỉ mutate entity đã lock trong tx này.
@@ -106,15 +134,38 @@ public class LobbyTimeoutJob : BackgroundService
             var minPlayers = lobby.GameTemplate?.MinPlayers ?? 2;
 
             var isOrphan = lobby.ScheduledStartTime == null;
-            var memberShortage = lobby.Members.Count < minPlayers;
+
+            // BR-LOBBY-READY-04: Đếm readyCount thay vì memberCount cho scheduled-timeout.
+            // Nếu ≥ minPlayers đã Ready → KHÔNG timeout (lobby vẫn còn khả thi).
+            // Nếu readyCount < minPlayers → timeout vì nhóm chưa cam kết.
+            var readyCount = lobby.Members.Count(m => m.IsActive && m.Status == LobbyMemberStatus.Ready);
+            var memberShortage = readyCount < minPlayers;
+
+            // Đánh dấu source case để dùng đúng reason khi timeout.
+            var isFullNotReady = fullButNotReadyFiltered.Any(l => l.Id == lobby.Id);
 
             // Orphan luôn timeout (kể cả đủ người) vì không thể check-in.
-            // Scheduled timeout chỉ apply khi thiếu người.
-            if (isOrphan || memberShortage)
+            // Scheduled timeout chỉ apply khi thiếu ready.
+            // FullNotReady timeout áp dụng riêng (khi không ai Ready sau 20p).
+            var shouldTimeout = isOrphan || memberShortage || isFullNotReady;
+            if (shouldTimeout)
             {
                 lobby.Status = LobbyStatus.TimeoutFailed;
 
-                var reason = isOrphan ? "OrphanLobbyExpired" : "NotEnoughMembers";
+                string reason;
+                if (isFullNotReady)
+                {
+                    reason = "LobbyReadyTimeout";
+                }
+                else if (isOrphan)
+                {
+                    reason = "OrphanLobbyExpired";
+                }
+                else
+                {
+                    reason = "NotEnoughReadyMembers";
+                }
+
                 transitioned.Add((
                     lobby.Id,
                     lobby.CafeId,
@@ -123,7 +174,13 @@ public class LobbyTimeoutJob : BackgroundService
                     reason,
                     lobby.Members.Where(m => m.IsActive).Select(m => m.UserId).ToList()));
 
-                if (isOrphan)
+                if (isFullNotReady)
+                {
+                    _logger.LogInformation(
+                        "Lobby {LobbyId} timed out: FULL at {FullAt} but no member Ready after {TimeoutMinutes}m",
+                        lobby.Id, lobby.FullAt, Lobby.ReadyTimeoutMinutes);
+                }
+                else if (isOrphan)
                 {
                     _logger.LogInformation(
                         "Lobby {LobbyId} timed out as orphan (no ScheduledStartTime, age > {CutoffHours}h)",
@@ -132,8 +189,8 @@ public class LobbyTimeoutJob : BackgroundService
                 else
                 {
                     _logger.LogInformation(
-                        "Lobby {LobbyId} timed out with {MemberCount} members (min: {MinPlayers})",
-                        lobby.Id, lobby.Members.Count, minPlayers);
+                        "Lobby {LobbyId} timed out with {ReadyCount}/{MinPlayers} ready members",
+                        lobby.Id, readyCount, minPlayers);
                 }
             }
         }

@@ -306,15 +306,18 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Member bấm Ready/Unready khi lobby FULL. Nếu tất cả member Ready → lobby chuyển InProgress. [Role: Player]
+        /// Member bấm Ready/Unready để xác nhận tham gia lobby. Cho phép Ready khi lobby còn
+        /// Open/Full/Viable (không bắt buộc phải Full). Nếu TẤT CẢ member Ready → lobby chuyển InProgress.
+        /// Khi lobby vừa đạt MaxMembers (chuyển sang Full), BR-LOBBY-READY-03 ghi nhận FullAt;
+        /// scheduler sẽ timeout nếu 20 phút sau vẫn chưa có ai Ready. [Role: Player]
         /// </summary>
         /// <param name="lobbyId">Mã phòng chờ.</param>
-        /// <param name="request">isReady = true/false.</param>
-        /// <response code="200">Trạng thái ready đã cập nhật.</response>
+        /// <param name="request">isReady = true (sẵn sàng) hoặc false (hủy).</param>
+        /// <response code="200">Trạng thái ready đã cập nhật. Trả về lobby dto với status mới nhất (Full/InProgress nếu đủ điều kiện).</response>
         /// <response code="401">Thiếu token.</response>
         /// <response code="403">Không phải member.</response>
         /// <response code="404">Không tìm thấy phòng chờ.</response>
-        /// <response code="409">Lobby chưa FULL hoặc member bị Kicked/Left.</response>
+        /// <response code="409">Lobby đã đóng (TimeoutFailed/HostCancelled/Closed) hoặc member đã bị Kicked/Left.</response>
         /// <response code="500">Lỗi hệ thống.</response>
         [HttpPost("{lobbyId:guid}/ready")]
         public async Task<IActionResult> SetReady(Guid lobbyId, [FromBody] SetReadyRequestDto request)

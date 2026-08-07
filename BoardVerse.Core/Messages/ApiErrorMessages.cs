@@ -1784,6 +1784,12 @@ $"Direction không hợp lệ. Giá trị hợp lệ: {validValues}";
  public const string MemberNotReadyBecauseLeftOrKicked =
  "Không thể Ready khi đã rời/bị kick.";
 
+ public const string LobbyNotReadyForReady =
+ "Phòng chờ đã đóng hoặc không thể Ready ở trạng thái hiện tại.";
+
+ public const string LobbyReadyTimeoutReason =
+ "Phòng chờ đầy nhưng không có thành viên nào bấm Ready trong vòng 20 phút.";
+
  public const string SeatInventoryFull =
  "Số thành viên đã vượt quá số ghế cho phép.";
 

@@ -98,7 +98,7 @@ Xem chi tiết API:
 | `/{lobbyId}` | PATCH | Host cập nhật thông tin lobby (description, maxMembers, isPrivate, minKarmaScore, ...) | Host |
 | `/{lobbyId}/transfer-host` | POST | Host chuyển quyền host cho member khác | Host |
 | `/{lobbyId}/kick` | POST | Host kick thành viên khỏi lobby | Host |
-| `/{lobbyId}/ready` | POST | Member bấm Ready/Unready khi lobby FULL | Player |
+| `/{lobbyId}/ready` | POST | Member bấm Ready/Unready (cho phép ở Open/Full/Viable; auto InProgress khi tất cả Ready; timeout 20p không Ready sau khi Full) | Player |
 | `/{lobbyId}/report` | POST | Báo cáo lobby vi phạm | Player |
 | `/{lobbyId}/messages` | POST | Gửi tin nhắn chat trong lobby | Active member |
 | `/{lobbyId}/messages` | GET | Lấy lịch sử chat (cursor pagination) | Active member |
@@ -651,27 +651,43 @@ Host kick thành viên khỏi lobby.
 
 ## POST /api/v1/lobbies/{lobbyId}/ready
 
-Member bấm Ready/Unready khi lobby đã FULL.
+Member bấm Ready/Unready để xác nhận tham gia lobby. Cho phép gọi khi lobby còn
+ở các trạng thái `Open`, `Full`, `Viable`. **Không bắt buộc** lobby phải FULL mới cho Ready
+(sửa từ phiên bản trước theo BR-LOBBY-READY-01).
 
-**Role:** Player — chỉ member ACTIVE
+**Role:** Player — chỉ member ACTIVE (không bị Kicked/Left)
 
 **Body mẫu:**
 ```json
 { "isReady": true }
 ```
 
-**Behavior:**
-- Khi tất cả member Ready → lobby chuyển `Full → InProgress` (BR-05).
+**Behavior (BR-LOBBY-READY-01/02/03):**
 
-**Response 200:** trả `isReady` hiện tại.
+| Điều kiện | Kết quả |
+|---|---|
+| Member bấm Ready lần đầu | `member.Status = Ready`, ghi `ReadyAt` |
+| Member bấm Unready | `member.Status = Joined`, clear `ReadyAt` |
+| Lobby vừa đạt `MaxMembers` (do member join hoặc host lock) | `lobby.Status = Full`, ghi `FullAt = now` |
+| Tất cả member ACTIVE đều Ready VÀ `≥ MinPlayers` | `lobby.Status = InProgress` (auto-flip) |
+| Lobby đã Full 20 phút mà chưa có ai Ready | Scheduler timeout → `TimeoutFailed`, lý do `LobbyReadyTimeout` |
+| Scheduler đến `ScheduledStartTime - leadTime` mà `readyCount < MinPlayers` | `TimeoutFailed`, lý do `NotEnoughReadyMembers` |
+| Member bị `Kicked` hoặc `Left` | Không thể Ready, trả 409 |
+| Lobby đã terminal (TimeoutFailed/HostCancelled/Closed/...) | 409 `LobbyNotReadyForReady` |
+
+**Response 200:** trả `LobbyResponseDto` với status mới nhất.
 
 **Response codes:**
 - `200` — Cập nhật ready
 - `401` — Thiếu token
 - `403` — Không phải member
 - `404` — Không tìm thấy lobby
-- `409` — Lobby chưa FULL hoặc member đã bị Kicked/Left
+- `409` — Lobby đã đóng hoặc member đã bị Kicked/Left
 - `500` — Lỗi hệ thống
+
+**Lưu ý vận hành:**
+- `FullAt` được reset về `null` khi lobby rời trạng thái Full (vd: member rời khiến ActiveMembers < MaxMembers).
+- Hằng số timeout `Lobby.ReadyTimeoutMinutes = 20` đặt trong entity, có thể cấu hình sau.
 
 ---
 
