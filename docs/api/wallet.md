@@ -82,6 +82,9 @@ Admin cộng/trừ thủ công:
 | `PATCH` | `/api/v1/wallet/topup/{topUpId}` | Player | Đổi số tiền đơn top-up đang Pending (chưa thanh toán) |
 | `DELETE` | `/api/v1/wallet/topup/{topUpId}` | Player | Hủy đơn top-up đang Pending (chưa thanh toán) |
 | `GET` | `/api/v1/wallet/transactions` | Player | Lịch sử ledger phân trang |
+| `POST` | `/api/v1/wallet/refund-requests` | Player | Gửi yêu cầu hoàn BVC (liên kết ledger entry) |
+| `GET` | `/api/v1/wallet/refund-requests` | Player | Lịch sử yêu cầu hoàn BVC của player (phân trang) |
+| `DELETE` | `/api/v1/wallet/refund-requests/{requestId}` | Player | Hủy yêu cầu hoàn đang Pending do player tạo |
 
 **Header bắt buộc:** `Authorization: Bearer <token>`
 
@@ -404,6 +407,157 @@ Theo BR § XVII.1, mọi request quan trọng (top-up / confirm / cancel / refun
 
 ---
 
+## BVC Refund Request — Player
+
+**Controller:** `WalletController.cs` (`/api/v1/wallet/refund-requests`)
+**Role:** Player — đã đăng nhập (JWT)
+
+Player gửi yêu cầu hoàn BVC cho một ledger entry (vd. top-up nhầm số tiền, hold cọc không cần thiết...). Admin sẽ xét duyệt thủ công. Đảm bảo BR-RISK-05 (mọi admin resolve đều ghi `PlayerActionHistory` vĩnh viễn) + BR § III.3 (ledger append-only).
+
+**Scope giới hạn (MVP):**
+- Chỉ áp dụng cho ledger entry do player sở hữu.
+- Số BVC player yêu cầu **không vượt** `Amount` của ledger entry liên kết (nếu vượt → admin điều chỉnh `ApprovedAmountBvc` khi duyệt).
+- Player chỉ tạo tối đa 1 yêu cầu `Pending` cho mỗi ledger entry (mỗi ledger entry có thể có nhiều yêu cầu theo thời gian, nhưng chỉ 1 đang chờ).
+- Idempotency theo `Idempotency-Key` header (BR § XVII.1).
+
+---
+
+### POST `/api/v1/wallet/refund-requests`
+
+Gửi yêu cầu hoàn BVC mới. Trỏ tới 1 ledger entry của player (vd. `BvcTopUpRequest` đã paid, hoặc `DepositHold` không cần giữ nữa).
+
+**Header bắt buộc:** `Idempotency-Key: <string 8-128 ký tự>`.
+
+**Body:**
+
+```json
+{
+  "relatedLedgerEntryId": "<guid>",
+  "requestedAmountBvc": 50000,
+  "playerReason": "Tôi top-up nhầm số tiền 200k thay vì 100k, xin admin hoàn lại 100k thừa."
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `relatedLedgerEntryId` | Guid | ✅ | Id của `BvcLedgerEntry` player muốn hoàn. Phải thuộc user hiện tại. |
+| `requestedAmountBvc` | long | ✅ | Số BVC player yêu cầu hoàn. 1 → 10.000.000. |
+| `playerReason` | string | ✅ | Lý do, 20-2000 ký tự. Bắt buộc đủ dài để admin có đủ thông tin xét duyệt. |
+
+**Validate:**
+- Thiếu `Idempotency-Key` → 400
+- `requestedAmountBvc <= 0` → 400
+- `playerReason` < 20 ký tự → 400
+- Ledger entry không tồn tại → 404
+- Ledger entry không thuộc player hiện tại → 403
+
+**Response `201`:**
+
+```json
+{
+  "id": "<guid>",
+  "userId": "<guid>",
+  "relatedLedgerEntryId": "<guid>",
+  "requestedAmountBvc": 50000,
+  "approvedAmountBvc": null,
+  "playerReason": "Tôi top-up nhầm số tiền 200k...",
+  "adminNote": null,
+  "status": "Pending",
+  "resolvedByAdminId": null,
+  "resolvedAt": null,
+  "resultLedgerEntryId": null,
+  "createdAt": "2026-08-08T15:00:00Z",
+  "updatedAt": "2026-08-08T15:00:00Z"
+}
+```
+
+**Idempotency:**
+- Cùng `Idempotency-Key` + cùng `userId` → trả request cũ (no double-create).
+- Cùng `Idempotency-Key` + khác `userId` → 409 (conflict).
+- Player có thể tạo lại sau khi request cũ ở terminal state (Approved/Rejected/Cancelled).
+
+**Error:**
+
+| Status | Mô tả |
+|--------|--------|
+| `400` | Thiếu `Idempotency-Key`, `requestedAmountBvc <= 0`, hoặc `playerReason` quá ngắn. |
+| `401` | Thiếu token. |
+| `403` | Ledger entry không thuộc player. |
+| `404` | Ledger entry không tồn tại. |
+| `409` | `Idempotency-Key` đã dùng bởi user khác. |
+| `500` | Lỗi hệ thống. |
+
+---
+
+### GET `/api/v1/wallet/refund-requests`
+
+Lấy danh sách yêu cầu hoàn BVC của player hiện tại. Sắp xếp mới nhất trước.
+
+**Query:**
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `page` | int | ❌ | 1 | Số trang (≥ 1). |
+| `pageSize` | int | ❌ | 20 | Số item / trang (1-100). |
+
+**Response `200`:**
+
+```json
+{
+  "items": [
+    {
+      "id": "<guid>",
+      "userId": "<guid>",
+      "relatedLedgerEntryId": "<guid>",
+      "requestedAmountBvc": 50000,
+      "approvedAmountBvc": 50000,
+      "playerReason": "...",
+      "adminNote": "Đã xác nhận top-up nhầm, hoàn 50k",
+      "status": "Approved",
+      "resolvedByAdminId": "<admin-guid>",
+      "resolvedAt": "2026-08-08T16:00:00Z",
+      "resultLedgerEntryId": "<ledger-guid>",
+      "createdAt": "2026-08-08T15:00:00Z",
+      "updatedAt": "2026-08-08T16:00:00Z"
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "totalItems": 1,
+  "totalPages": 1
+}
+```
+
+---
+
+### DELETE `/api/v1/wallet/refund-requests/{requestId}`
+
+Player tự hủy yêu cầu hoàn đang Pending (do player tạo). Sau khi admin resolve thì không hủy được nữa.
+
+**Path:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `requestId` | Guid | ✅ | Id của `BvcRefundRequest` cần hủy. |
+
+**Validate:**
+- Request không tồn tại → 404
+- Không phải chủ request → 403
+- Status ≠ `Pending` (đã Approved/Rejected/Cancelled) → 409
+
+**Response `200`:** trả `RefundRequestResponseDto` với `Status = Cancelled`.
+
+**Error:**
+
+| Status | Mô tả |
+|--------|--------|
+| `401` | Thiếu token. |
+| `403` | Không phải chủ request. |
+| `404` | Request không tồn tại. |
+| `409` | Request đã ở terminal state. |
+
+---
+
 ## Admin — Wallet Adjust
 
 **Controller:** `AdminWalletController.cs` (`/api/v1/admin/wallet`)
@@ -663,3 +817,124 @@ Thay đổi `AccountStatus` của 1 user (Active / Warning / Restricted / Suspen
 - `Suspended` với `expiresAt` → tự mở khóa khi đến hạn (BR-RISK-06, scheduler `suspension_expiry_check`).
 - `Banned` không tự hết hạn — chỉ Senior Admin (BR-RISK-07) mới có quyền set.
 - Mọi action đều ghi `PlayerActionHistory` với `actionBy`, `reason`, `metadata`, `expiresAt` — audit log vĩnh viễn.
+
+---
+
+## Admin — Refund Request Review
+
+**Controller:** `AdminWalletController.cs` (`/api/v1/admin/wallet/refund-requests`)
+**Role:** Admin (theo BR-RISK-07). Mỗi quyết định đều ghi `PlayerActionHistory` vĩnh viễn.
+
+Admin xem và giải quyết yêu cầu hoàn BVC do player gửi. Khi approve:
+1. Tạo ledger entry mới loại `AdminCredit` cho user (BR § III.2, append-only).
+2. `BvcRefundRequest.Status = Approved`, `approvedAmountBvc = X`, `resultLedgerEntryId = <id>`.
+3. Ghi `PlayerActionHistory(actionType=resolve_refund, actionBy=admin, reason=adminNote, metadata={requestedAmount, approvedAmount, ledgerEntryId})`.
+
+Khi reject: chỉ cập nhật status + admin note, không tạo ledger entry.
+
+---
+
+### GET `/api/v1/admin/wallet/refund-requests`
+
+Lấy danh sách yêu cầu hoàn BVC (toàn hệ thống). Hỗ trợ filter theo status, user.
+
+**Query:**
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `status` | string | ❌ | (all) | Một trong: `Pending`, `Approved`, `Rejected`, `Cancelled`. |
+| `userId` | Guid | ❌ | - | Filter theo user cụ thể. |
+| `page` | int | ❌ | 1 | Số trang (≥ 1). |
+| `pageSize` | int | ❌ | 50 | Số item / trang (1-100). |
+
+**Response `200`:** cùng shape `RefundRequestListDto` như player endpoint, nhưng có thêm filter `userId` ở server-side.
+
+---
+
+### GET `/api/v1/admin/wallet/refund-requests/{requestId}`
+
+Lấy chi tiết 1 yêu cầu hoàn. Trả về `RefundRequestResponseDto` với đầy đủ metadata.
+
+**Error:**
+
+| Status | Mô tả |
+|--------|--------|
+| `404` | Request không tồn tại. |
+
+---
+
+### POST `/api/v1/admin/wallet/refund-requests/{requestId}/resolve`
+
+Giải quyết yêu cầu hoàn. Duyệt (approve) hoặc từ chối (reject).
+
+**Body:**
+
+```json
+{
+  "approve": true,
+  "approvedAmountBvc": 50000,
+  "adminNote": "Đã xác nhận top-up nhầm qua lịch sử SePay, hoàn 50k BVC."
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `approve` | bool | ✅ | `true` = duyệt, `false` = từ chối. |
+| `approvedAmountBvc` | long | ✅ nếu approve | Số BVC thực sự hoàn (1 → 10.000.000). Có thể nhỏ hơn `requestedAmountBvc`. Bỏ qua khi reject. |
+| `adminNote` | string | ✅ | Ghi chú của admin (10-2000 ký tự). Bắt buộc cho cả approve và reject. |
+
+**Validate:**
+- `requestId` không tồn tại → 404
+- Request không ở `Pending` → 409 (chỉ resolve khi đang chờ)
+- `approve=true` mà thiếu `approvedAmountBvc` hoặc `approvedAmountBvc <= 0` → 400
+- `adminNote` < 10 ký tự → 400
+
+**Response `200`:**
+
+```json
+{
+  "id": "<guid>",
+  "userId": "<guid>",
+  "relatedLedgerEntryId": "<guid>",
+  "requestedAmountBvc": 50000,
+  "approvedAmountBvc": 50000,
+  "playerReason": "...",
+  "adminNote": "Đã xác nhận top-up nhầm, hoàn 50k BVC.",
+  "status": "Approved",
+  "resolvedByAdminId": "<admin-guid>",
+  "resolvedAt": "2026-08-08T16:00:00Z",
+  "resultLedgerEntryId": "<new-ledger-guid>",
+  "createdAt": "2026-08-08T15:00:00Z",
+  "updatedAt": "2026-08-08T16:00:00Z"
+}
+```
+
+**Hành vi phía backend khi approve:**
+1. Bắt đầu DB transaction.
+2. Lock `BvcRefundRequest` (SELECT FOR UPDATE) tránh race.
+3. Insert `BvcLedgerEntry(Type=AdminCredit, Amount=approvedAmountBvc, UserId=player.Id, balanceSnapshot=player.AvailableBalance + approvedAmountBvc)`.
+4. Update `Wallet.AvailableBalance += approvedAmountBvc` (atomic).
+5. Update `BvcRefundRequest(Status=Approved, approvedAmountBvc, adminNote, resolvedByAdminId=admin, resolvedAt, resultLedgerEntryId=newLedger.Id)`.
+6. Insert `PlayerActionHistory(actionType=resolve_refund_approve, ...)`.
+7. Commit. Mọi bước trong 1 transaction — fail → rollback.
+
+**Hành vi phía backend khi reject:**
+1. Lock `BvcRefundRequest` (SELECT FOR UPDATE).
+2. Update `Status=Rejected, adminNote, resolvedByAdminId, resolvedAt`.
+3. Insert `PlayerActionHistory(actionType=resolve_refund_reject, ...)`.
+4. Commit.
+
+**Idempotency:**
+- Mỗi request chỉ resolve được 1 lần (Status phải = Pending). Double-click → 409.
+- Không có `Idempotency-Key` (admin endpoint, single-click đủ).
+
+**Error:**
+
+| Status | Mô tả |
+|--------|--------|
+| `400` | Thiếu field, `approvedAmountBvc <= 0`, hoặc `adminNote` quá ngắn. |
+| `401` | Thiếu token. |
+| `403` | Không đủ quyền admin. |
+| `404` | Request không tồn tại. |
+| `409` | Request đã ở terminal state. |
+| `500` | Lỗi hệ thống. |

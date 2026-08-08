@@ -1,4 +1,5 @@
 using BoardVerse.Core.Entities;
+using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
 using Microsoft.EntityFrameworkCore;
 
@@ -84,23 +85,111 @@ namespace BoardVerse.Data.Repositories
             return (participantCount, wonCount);
         }
 
-        // === K-06: Karma leaderboard ===
+        // === K-06: Karma + Elo leaderboard ===
 
-        public async Task<IReadOnlyList<(Guid userId, string username, string? avatarUrl, int karmaPoints, string gamerTier)>> GetKarmaLeaderboardAsync(int limit = 100)
+        public async Task<IReadOnlyList<KarmaLeaderboardRow>> GetKarmaLeaderboardAsync(int offset, int limit)
         {
-            var results = await _context.Users
+            if (offset < 0) offset = 0;
+            if (limit <= 0) limit = 1;
+
+            var query =
+                from u in _context.Users
+                join p in _context.UserProfiles on u.Id equals p.UserId
+                where u.IsActive && p.IsActive
+                orderby p.KarmaPoints descending, u.Username ascending
+                select new KarmaLeaderboardRow
+                {
+                    UserId = u.Id,
+                    Username = u.Username,
+                    DisplayName = p.FirstName == null && p.LastName == null
+                        ? null
+                        : $"{p.FirstName} {p.LastName}".Trim(),
+                    AvatarUrl = p.AvatarUrl,
+                    KarmaPoints = p.KarmaPoints,
+                    GlobalElo = p.GlobalElo,
+                    Level = p.Level,
+                    GamerTier = p.GamerTier
+                };
+
+            return await query.Skip(offset).Take(limit).ToListAsync();
+        }
+
+        public async Task<long> CountActiveKarmaUsersAsync()
+        {
+            return await _context.Users
                 .Where(u => u.IsActive)
                 .Join(_context.UserProfiles.Where(p => p.IsActive),
-                    u => u.Id,
-                    p => p.UserId,
-                    (u, p) => new { u.Id, u.Username, p.AvatarUrl, p.KarmaPoints, p.GamerTier })
-                .OrderByDescending(x => x.KarmaPoints)
-                .Take(limit)
-                .ToListAsync();
+                    u => u.Id, p => p.UserId, (u, p) => new { u, p })
+                .LongCountAsync();
+        }
 
-            return results
-                .Select(x => (x.Id, x.Username, x.AvatarUrl, x.KarmaPoints, x.GamerTier.ToString()))
-                .ToList();
+        public async Task<IReadOnlyList<EloLeaderboardRow>> GetEloLeaderboardAsync(int offset, int limit)
+        {
+            if (offset < 0) offset = 0;
+            if (limit <= 0) limit = 1;
+
+            var query =
+                from u in _context.Users
+                join p in _context.UserProfiles on u.Id equals p.UserId
+                where u.IsActive && p.IsActive
+                orderby p.GlobalElo descending, u.Username ascending
+                select new EloLeaderboardRow
+                {
+                    UserId = u.Id,
+                    Username = u.Username,
+                    DisplayName = p.FirstName == null && p.LastName == null
+                        ? null
+                        : $"{p.FirstName} {p.LastName}".Trim(),
+                    AvatarUrl = p.AvatarUrl,
+                    KarmaPoints = p.KarmaPoints,
+                    GlobalElo = p.GlobalElo,
+                    Level = p.Level,
+                    GamerTier = p.GamerTier
+                };
+
+            return await query.Skip(offset).Take(limit).ToListAsync();
+        }
+
+        public async Task<long> CountActiveEloUsersAsync()
+        {
+            return await _context.Users
+                .Where(u => u.IsActive)
+                .Join(_context.UserProfiles.Where(p => p.IsActive),
+                    u => u.Id, p => p.UserId, (u, p) => new { u, p })
+                .LongCountAsync();
+        }
+
+        public async Task<LeaderboardRankRow?> GetUserRankAsync(Guid userId, LeaderboardMetric metric)
+        {
+            // Base projection reused for both metrics.
+            var profileQuery =
+                from u in _context.Users
+                join p in _context.UserProfiles on u.Id equals p.UserId
+                where u.Id == userId && u.IsActive && p.IsActive
+                select new LeaderboardRankRow
+                {
+                    UserId = u.Id,
+                    Username = u.Username,
+                    DisplayName = p.FirstName == null && p.LastName == null
+                        ? null
+                        : $"{p.FirstName} {p.LastName}".Trim(),
+                    AvatarUrl = p.AvatarUrl,
+                    KarmaPoints = p.KarmaPoints,
+                    GlobalElo = p.GlobalElo,
+                    Level = p.Level,
+                    GamerTier = p.GamerTier
+                };
+
+            var profile = await profileQuery.FirstOrDefaultAsync();
+            if (profile == null) return null;
+
+            // Tie-breaker rule (matches the leaderboard ORDER BY):
+            //   DESC by metric, then ASC by Username for stability.
+            // "Rank" = number of users strictly ahead of this user + 1.
+            // For simplicity and DB-portability, the caller (LeaderboardService)
+            // reuses the same Skip(n).Take(limit) ordering to determine the
+            // 1-based rank after fetching the row above — see service code.
+            return profile;
         }
     }
 }

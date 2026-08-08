@@ -1,40 +1,217 @@
 using BoardVerse.Core.DTOs.User;
+using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.IServices;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace BoardVerse.Services.Services
 {
     public class LeaderboardService : ILeaderboardService
     {
         private readonly IUserProfileRepository _repository;
+        private readonly IMemoryCache _cache;
 
-        public LeaderboardService(IUserProfileRepository repository)
+        // K-06: cache 5 phút cho leaderboard (tránh spam DB).
+        private static readonly TimeSpan KarmaCacheTtl = TimeSpan.FromMinutes(5);
+        private static readonly TimeSpan EloCacheTtl = TimeSpan.FromMinutes(5);
+
+        public LeaderboardService(IUserProfileRepository repository, IMemoryCache cache)
         {
             _repository = repository;
+            _cache = cache;
+        }
+
+        /// <summary>K-06: Backwards-compatible simple karma leaderboard (no paging, no rank lookup).</summary>
+        public Task<KarmaLeaderboardDto> GetKarmaLeaderboardAsync(int limit = 100)
+        {
+            return GetKarmaLeaderboardPagedAsync(0, NormaliseLimit(limit), viewerUserId: null)
+                .ContinueWith(t => new KarmaLeaderboardDto
+                {
+                    Entries = t.Result.Entries
+                        .Select(e => new KarmaLeaderboardEntryDto
+                        {
+                            Rank = e.Rank,
+                            UserId = e.UserId,
+                            Username = e.Username,
+                            AvatarUrl = e.AvatarUrl,
+                            KarmaPoints = e.KarmaPoints,
+                            GamerTier = e.GamerTier
+                        })
+                        .ToList(),
+                    GeneratedAt = t.Result.GeneratedAt
+                }, TaskScheduler.Default);
+        }
+
+        /// <summary>K-06: Backwards-compatible simple elo leaderboard.</summary>
+        public Task<EloLeaderboardDto> GetEloLeaderboardAsync(int limit = 100)
+        {
+            return GetEloLeaderboardPagedAsync(0, NormaliseLimit(limit), viewerUserId: null)
+                .ContinueWith(t => new EloLeaderboardDto
+                {
+                    Entries = t.Result.Entries
+                        .Select(e => new EloLeaderboardEntryDto
+                        {
+                            Rank = e.Rank,
+                            UserId = e.UserId,
+                            Username = e.Username,
+                            AvatarUrl = e.AvatarUrl,
+                            GlobalElo = e.GlobalElo,
+                            GamerTier = e.GamerTier,
+                            Level = e.Level
+                        })
+                        .ToList(),
+                    GeneratedAt = t.Result.GeneratedAt
+                }, TaskScheduler.Default);
+        }
+
+        /// <summary>K-06: Karma leaderboard with paging (top/offset) and optional viewer rank.</summary>
+        public async Task<LeaderboardPagedDto<KarmaLeaderboardEntryDto>> GetKarmaLeaderboardPagedAsync(
+            int offset, int limit, Guid? viewerUserId)
+        {
+            offset = Math.Max(0, offset);
+            limit = NormaliseLimit(limit);
+
+            var cacheKey = $"lb:karma:{offset}:{limit}";
+            LeaderboardPagedDto<KarmaLeaderboardEntryDto> result;
+
+            if (_cache.TryGetValue(cacheKey, out LeaderboardPagedDto<KarmaLeaderboardEntryDto>? cached) && cached is not null)
+            {
+                result = cached;
+            }
+            else
+            {
+                var rows = await _repository.GetKarmaLeaderboardAsync(offset, limit);
+                var total = await _repository.CountActiveKarmaUsersAsync();
+                result = BuildKarmaPaged(rows, offset, limit, total);
+                _cache.Set(cacheKey, result, KarmaCacheTtl);
+            }
+
+            if (viewerUserId.HasValue && result.UserRank is null)
+            {
+                var viewer = await _repository.GetUserRankAsync(viewerUserId.Value, LeaderboardMetric.Karma);
+                result.UserRank = await BuildViewerRankAsync(viewer, LeaderboardMetric.Karma);
+            }
+            return result;
+        }
+
+        /// <summary>K-06: Elo leaderboard with paging (top/offset) and optional viewer rank.</summary>
+        public async Task<LeaderboardPagedDto<EloLeaderboardEntryDto>> GetEloLeaderboardPagedAsync(
+            int offset, int limit, Guid? viewerUserId)
+        {
+            offset = Math.Max(0, offset);
+            limit = NormaliseLimit(limit);
+
+            var cacheKey = $"lb:elo:{offset}:{limit}";
+            LeaderboardPagedDto<EloLeaderboardEntryDto> result;
+
+            if (_cache.TryGetValue(cacheKey, out LeaderboardPagedDto<EloLeaderboardEntryDto>? cached) && cached is not null)
+            {
+                result = cached;
+            }
+            else
+            {
+                var rows = await _repository.GetEloLeaderboardAsync(offset, limit);
+                var total = await _repository.CountActiveEloUsersAsync();
+                result = BuildEloPaged(rows, offset, limit, total);
+                _cache.Set(cacheKey, result, EloCacheTtl);
+            }
+
+            if (viewerUserId.HasValue && result.UserRank is null)
+            {
+                var viewer = await _repository.GetUserRankAsync(viewerUserId.Value, LeaderboardMetric.Elo);
+                result.UserRank = await BuildViewerRankAsync(viewer, LeaderboardMetric.Elo);
+            }
+            return result;
+        }
+
+        private static int NormaliseLimit(int limit)
+        {
+            if (limit <= 0) return 50;
+            return Math.Clamp(limit, 1, 500);
+        }
+
+        private static LeaderboardPagedDto<KarmaLeaderboardEntryDto> BuildKarmaPaged(
+            IReadOnlyList<KarmaLeaderboardRow> rows, int offset, int limit, long total)
+        {
+            var entries = rows.Select((r, i) => new KarmaLeaderboardEntryDto
+            {
+                Rank = offset + i + 1,
+                UserId = r.UserId,
+                Username = r.Username,
+                AvatarUrl = r.AvatarUrl,
+                KarmaPoints = r.KarmaPoints,
+                GamerTier = r.GamerTier
+            }).ToList();
+
+            return new LeaderboardPagedDto<KarmaLeaderboardEntryDto>
+            {
+                Entries = entries,
+                Offset = offset,
+                Limit = limit,
+                TotalCount = total,
+                GeneratedAt = DateTime.UtcNow
+            };
+        }
+
+        private static LeaderboardPagedDto<EloLeaderboardEntryDto> BuildEloPaged(
+            IReadOnlyList<EloLeaderboardRow> rows, int offset, int limit, long total)
+        {
+            var entries = rows.Select((r, i) => new EloLeaderboardEntryDto
+            {
+                Rank = offset + i + 1,
+                UserId = r.UserId,
+                Username = r.Username,
+                AvatarUrl = r.AvatarUrl,
+                GlobalElo = r.GlobalElo,
+                GamerTier = r.GamerTier,
+                Level = r.Level
+            }).ToList();
+
+            return new LeaderboardPagedDto<EloLeaderboardEntryDto>
+            {
+                Entries = entries,
+                Offset = offset,
+                Limit = limit,
+                TotalCount = total,
+                GeneratedAt = DateTime.UtcNow
+            };
         }
 
         /// <summary>
-        /// K-06: Get global karma leaderboard ordered by KarmaPoints DESC.
+        /// Tính rank 1-based cho <paramref name="viewer"/> bằng cách scan top 1000 user
+        /// đầu trên cùng metric (descending). Vì repository chưa có dedicated "count-ahead",
+        /// em dùng cursor scan — đủ cho MVP. Khi vượt quá (viewer nằm ngoài top 1000) trả về null.
         /// </summary>
-        public async Task<KarmaLeaderboardDto> GetKarmaLeaderboardAsync(int limit = 100)
+        private async Task<LeaderboardEntryDto?> BuildViewerRankAsync(LeaderboardRankRow? viewer, LeaderboardMetric metric)
         {
-            var rows = await _repository.GetKarmaLeaderboardAsync(limit);
+            if (viewer is null) return null;
 
-            var entries = rows.Select((r, index) => new KarmaLeaderboardEntryDto
-            {
-                Rank = index + 1,
-                UserId = r.userId,
-                Username = r.username,
-                AvatarUrl = r.avatarUrl,
-                KarmaPoints = r.karmaPoints,
-                GamerTier = r.gamerTier
-            }).ToList();
+            const int CursorLimit = 1000;
+            IReadOnlyList<LeaderboardRankRow> rows = metric == LeaderboardMetric.Karma
+                ? await _repository.GetKarmaLeaderboardAsync(0, CursorLimit) ?? (IReadOnlyList<LeaderboardRankRow>)Array.Empty<LeaderboardRankRow>()
+                : await _repository.GetEloLeaderboardAsync(0, CursorLimit) ?? (IReadOnlyList<LeaderboardRankRow>)Array.Empty<LeaderboardRankRow>();
 
-            return new KarmaLeaderboardDto
+            for (int i = 0; i < rows.Count; i++)
             {
-                Entries = entries,
-                GeneratedAt = DateTime.UtcNow
-            };
+                if (rows[i].UserId == viewer.UserId)
+                {
+                    return new LeaderboardEntryDto
+                    {
+                        Rank = i + 1,
+                        UserId = viewer.UserId,
+                        Username = viewer.Username,
+                        DisplayName = viewer.DisplayName,
+                        AvatarUrl = viewer.AvatarUrl,
+                        KarmaPoints = viewer.KarmaPoints,
+                        GlobalElo = viewer.GlobalElo,
+                        Level = viewer.Level,
+                        GamerTier = viewer.GamerTier
+                    };
+                }
+            }
+
+            // Viewer nằm ngoài top 1000 — không trả rank (tránh scan toàn bảng mỗi request).
+            return null;
         }
     }
 }

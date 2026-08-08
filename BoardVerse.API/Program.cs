@@ -74,6 +74,7 @@ builder.Services.AddDbContext<BoardVerseDbContext>(options =>
     BoardVerseDbContextOptions.UseBoardVersePostgreSql(options, resolvedConnectionString));
 
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddMemoryCache(); // K-06: leaderboard caching (5-min TTL); cũng dùng bởi các adapter in-memory khác.
 
 // Add Authentication
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
