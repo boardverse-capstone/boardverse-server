@@ -185,7 +185,8 @@ public class ReservationFlowIntegrationTests
             IdempotencyKey = idempotencyKey + "-confirm"
         };
         var confirmResponse = await _client.PostAsJsonAsync("/api/v1/reservations/confirm", confirmRequest);
-        Assert.Equal(HttpStatusCode.OK, confirmResponse.StatusCode);
+        // Server returns 201 Created per RFC 7231 (POST tạo resource mới).
+        Assert.Equal(HttpStatusCode.Created, confirmResponse.StatusCode);
 
         var confirmBody = await ApiTestClient.ReadApiResponseAsync<ReservationConfirmResponseDto>(confirmResponse);
         Assert.NotNull(confirmBody.Data);
@@ -250,7 +251,8 @@ public class ReservationFlowIntegrationTests
 
         // First call — should succeed.
         var firstResponse = await _client.PostAsJsonAsync("/api/v1/reservations/confirm", confirmRequest);
-        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+        // Server returns 201 Created per RFC 7231 (POST tạo resource mới).
+        Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
         var firstBody = (await ApiTestClient.ReadApiResponseAsync<ReservationConfirmResponseDto>(firstResponse)).Data!;
 
         var balanceAfterFirst = await GetAvailableBalanceAsync();
@@ -258,7 +260,8 @@ public class ReservationFlowIntegrationTests
 
         // Second call — same idempotency key, should return same result without double-debit.
         var secondResponse = await _client.PostAsJsonAsync("/api/v1/reservations/confirm", confirmRequest);
-        Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
+        // Idempotent replay also returns 201 Created (controller contract unchanged).
+        Assert.Equal(HttpStatusCode.Created, secondResponse.StatusCode);
         var secondBody = (await ApiTestClient.ReadApiResponseAsync<ReservationConfirmResponseDto>(secondResponse)).Data!;
 
         var balanceAfterSecond = await GetAvailableBalanceAsync();
@@ -322,7 +325,8 @@ public class ReservationFlowIntegrationTests
             IdempotencyKey = idempotencyKey + "-confirm"
         };
         var confirmResponse = await _client.PostAsJsonAsync("/api/v1/reservations/confirm", confirmRequest);
-        Assert.Equal(HttpStatusCode.OK, confirmResponse.StatusCode);
+        // Server returns 201 Created per RFC 7231 (POST tạo resource mới).
+        Assert.Equal(HttpStatusCode.Created, confirmResponse.StatusCode);
         var confirmBody = (await ApiTestClient.ReadApiResponseAsync<ReservationConfirmResponseDto>(confirmResponse)).Data!;
 
         var balanceAfterConfirm = await GetAvailableBalanceAsync();
@@ -396,7 +400,8 @@ public class ReservationFlowIntegrationTests
             IdempotencyKey = idempotencyKey + "-confirm"
         };
         var confirmResponse = await _client.PostAsJsonAsync("/api/v1/reservations/confirm", confirmRequest);
-        Assert.Equal(HttpStatusCode.OK, confirmResponse.StatusCode);
+        // Server returns 201 Created per RFC 7231 (POST tạo resource mới).
+        Assert.Equal(HttpStatusCode.Created, confirmResponse.StatusCode);
         var confirmBody = (await ApiTestClient.ReadApiResponseAsync<ReservationConfirmResponseDto>(confirmResponse)).Data!;
 
         // Player2 thử cancel reservation của player1 → 403.

@@ -92,7 +92,7 @@ public class ReservationController : BaseApiController
     /// Lobby có playDate &gt; 2 ngày sẽ vào trạng thái PendingCafeApproval (BR-NEW-11).
     /// </summary>
     /// <param name="request">CafeId, GameId, PlayDate, TimeSlot, MinPlayers, MaxPlayers, ExpectedFinalDeposit, IdempotencyKey.</param>
-    /// <response code="200">Trả ReservationId, LobbyId, RecruitmentDeadline, RequiresCafeApproval, CafeApprovalDeadline, HeldBvc.</response>
+    /// <response code="201">Reservation + Lobby đã được tạo trong transaction, trả ReservationId, LobbyId, RecruitmentDeadline, RequiresCafeApproval, CafeApprovalDeadline, HeldBvc.</response>
     /// <response code="400">Quote đã thay đổi (ExpectedFinalDeposit sai), buffer quá ngắn, insufficient balance, validate thất bại.</response>
     /// <response code="401">Thiếu token.</response>
     /// <response code="403">User không đủ điều kiện.</response>
