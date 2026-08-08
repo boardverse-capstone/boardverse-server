@@ -57,7 +57,10 @@ namespace BoardVerse.Services.Services.Geocoding
 
             var parsed = NominatimResponseParser.Parse(raw);
 
-            if (_settings.EnableCache)
+            // Only cache successful (non-null) results.
+            // Caching null would poison the cache for 30 days, causing all subsequent
+            // requests at the same quantized coordinate to skip the Nominatim call forever.
+            if (parsed is not null && _settings.EnableCache)
             {
                 var ttl = TimeSpan.FromHours(Math.Max(1, _settings.CacheTtlHours));
                 _cache.Set(cacheKey, parsed, ttl);
