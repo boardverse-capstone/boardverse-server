@@ -1220,6 +1220,38 @@ namespace BoardVerse.Services.Services
             var penaltyMap = await _posRepository.GetComponentPenaltiesByCafeGameAsync(
                 cafeId, gameTemplateId, componentIds);
 
+            // Penalty #1: Build map ResponsibleMemberId per component từ request.
+            // BR-14: nếu member là Guest_Slot thì reject lúc validate (xem dưới).
+            // null = phạt chung vào session.PenaltyAmount, không phân bổ cho member cụ thể.
+            var responsibleMemberMap = request.Results
+                .Where(r => r.ResponsibleMemberId.HasValue)
+                .ToDictionary(r => r.ComponentId, r => r.ResponsibleMemberId!.Value);
+
+            if (responsibleMemberMap.Count > 0)
+            {
+                var memberIds = responsibleMemberMap.Values.Distinct().ToList();
+                var sessionMemberIds = session.Members.Select(m => m.Id).ToHashSet();
+                var guestMemberIds = session.Members
+                    .Where(m => m.IsGuestSlot)
+                    .Select(m => m.Id)
+                    .ToHashSet();
+
+                foreach (var (componentId, memberId) in responsibleMemberMap)
+                {
+                    if (!sessionMemberIds.Contains(memberId))
+                    {
+                        // Member không thuộc session → BadRequest, không phải Conflict.
+                        throw new BadRequestException(
+                            ApiErrorMessages.Pos.ComponentPenaltyMemberNotInSession(componentId, memberId));
+                    }
+                    if (guestMemberIds.Contains(memberId))
+                    {
+                        // BR-14: cấm gán penalty cho Guest_Slot
+                        throw new BadRequestException(ApiErrorMessages.Pos.PenaltyCannotAssignToGuestSlot);
+                    }
+                }
+            }
+
             var resultComponents = new List<ComponentCheckResultItemDto>();
             var nowDetailed = DateTime.UtcNow;
             var hasMissing = false;
@@ -1249,6 +1281,8 @@ namespace BoardVerse.Services.Services
                     }
                 }
 
+                responsibleMemberMap.TryGetValue(component.Id, out var responsibleMemberId);
+
                 resultComponents.Add(new ComponentCheckResultItemDto
                 {
                     ComponentId = component.Id,
@@ -1256,7 +1290,8 @@ namespace BoardVerse.Services.Services
                     ComponentKind = component.ComponentKind,
                     ExpectedQuantity = expectedQty,
                     ActualQuantity = actualQty,
-                    PenaltyFee = penaltyFee
+                    PenaltyFee = penaltyFee,
+                    ResponsibleMemberId = actualQty < expectedQty ? responsibleMemberId : null
                 });
             }
 
@@ -1285,6 +1320,7 @@ namespace BoardVerse.Services.Services
                 ExpectedQuantity = r.ExpectedQuantity,
                 ActualQuantity = r.ActualQuantity,
                 PenaltyFee = r.PenaltyFee,
+                ResponsibleMemberId = r.ResponsibleMemberId,
                 StaffId = userId,
                 CheckedAt = nowDetailed
             }).ToList();
@@ -1618,6 +1654,83 @@ namespace BoardVerse.Services.Services
             await EnsurePosAccessAsync(cafeId, userId, userRole);
 
             return await _activeSessionService.MergeSessionAsync(cafeId, sourceSessionId, request);
+        }
+
+        // Box history #1: truy vấn lịch sử kiểm kê MissingComponents của 1 hộp.
+        public async Task<BoxComponentHistoryDto> GetBoxComponentHistoryAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid boxId)
+        {
+            await EnsurePosAccessAsync(cafeId, userId, userRole);
+
+            var box = await _posRepository.GetInventoryBoxByIdAsync(boxId);
+            if (box == null)
+            {
+                throw new NotFoundException(ApiErrorMessages.Pos.BoxNotFoundById(boxId));
+            }
+
+            // Cross-cafe guard: box phải thuộc cafe của caller (qua CafeGameInventory.CafeId).
+            var boxCafeId = box.CafeGameInventory?.CafeId ?? Guid.Empty;
+            if (boxCafeId != cafeId)
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.BoxCafeMismatch(boxId, cafeId));
+            }
+
+            var incidents = await _posRepository.GetMissingComponentIncidentsByBoxAsync(boxId);
+
+            var dto = new BoxComponentHistoryDto
+            {
+                BoxId = box.Id,
+                BoxLabel = box.Barcode, // CafeInventoryBox không có Label; dùng Barcode làm label hiển thị.
+                Barcode = box.Barcode,
+                GameTemplateId = box.CafeGameInventory?.GameTemplateId ?? Guid.Empty,
+                GameName = box.CafeGameInventory?.GameTemplate?.Name ?? string.Empty,
+                TotalIncidents = incidents.Count,
+                Incidents = []
+            };
+
+            foreach (var incident in incidents)
+            {
+                var memberLookup = incident.ActiveSession?.Members?
+                    .ToDictionary(m => m.Id, m => m.IsGuestSlot
+                        ? (incident.CheckedByStaff != null
+                            ? $"Staff_{incident.CheckedByStaff.Id.ToString()[..8]}"
+                            : "Khách vô danh")
+                        : $"User_{m.UserId.ToString()[..8]}");
+
+                var incidentDto = new BoxComponentIncidentDto
+                {
+                    SessionGameId = incident.Id,
+                    SessionId = incident.ActiveSessionId,
+                    CheckedAt = incident.CheckedAt ?? DateTime.MinValue,
+                    StaffId = incident.CheckedByStaffId ?? Guid.Empty,
+                    StaffName = incident.CheckedByStaff != null
+                        ? $"Staff_{incident.CheckedByStaff.Id.ToString()[..8]}"
+                        : null,
+                    TotalPenaltyAmount = incident.TotalPenaltyAmount,
+                    MissingComponents = incident.ComponentCheckResults
+                        .Where(r => r.PenaltyFee > 0 || r.ActualQuantity < r.ExpectedQuantity)
+                        .Select(r => new BoxMissingComponentDto
+                        {
+                            ComponentId = r.GameComponentTemplateId,
+                            ComponentName = r.GameComponentTemplate?.ComponentName ?? string.Empty,
+                            ComponentKind = r.GameComponentTemplate?.ComponentKind,
+                            ExpectedQuantity = r.ExpectedQuantity,
+                            ActualQuantity = r.ActualQuantity,
+                            PenaltyFee = r.PenaltyFee,
+                            ResponsibleMemberId = r.ResponsibleMemberId,
+                            ResponsibleMemberName = r.ResponsibleMemberId.HasValue && memberLookup != null
+                                ? memberLookup.GetValueOrDefault(r.ResponsibleMemberId.Value)
+                                : null
+                        })
+                        .ToList()
+                };
+                dto.Incidents.Add(incidentDto);
+            }
+
+            return dto;
         }
     }
 }

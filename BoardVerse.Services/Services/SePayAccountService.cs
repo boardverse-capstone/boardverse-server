@@ -242,8 +242,18 @@ throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountE
         await _repository.AddAsync(account);
         await _repository.SaveChangesAsync();
 
+        // 5. BUGFIX: Link Cafe.SePayAccountId → SePayAccount vừa tạo.
+        // Trước đây thiếu bước này khiến CreateSessionPaymentAsync ở PaymentService
+        // luôn check cafe.SePayAccountId.HasValue() == false → throw
+        // PaymentCafeNotConfiguredSePay ngay cả khi SePayAccount đã tồn tại.
+        var cafe = await _cafeRepository.GetByIdAsync(cafeId)
+            ?? throw new NotFoundException(ApiErrorMessages.Cafe.CafeRecordNotFound(cafeId));
+        cafe.SePayAccountId = account.Id;
+        cafe.UpdatedAt = DateTime.UtcNow;
+        await _cafeRepository.SaveChangesAsync();
+
         _logger.LogInformation(
-            "SePayAccount for cafe {CafeId} created by manager. Id={Id}, BankCode={BankCode}, ByUser={UserId}",
+            "SePayAccount for cafe {CafeId} created by manager. Id={Id}, BankCode={BankCode}, ByUser={UserId}; Cafe.SePayAccountId linked.",
             cafeId, account.Id, account.BankCode, account.CreatedByUserId);
 
         return ToDto(account);

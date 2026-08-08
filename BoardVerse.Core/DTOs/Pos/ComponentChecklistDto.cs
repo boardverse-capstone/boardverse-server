@@ -58,5 +58,11 @@ namespace BoardVerse.Core.DTOs.Pos
         public int ExpectedQuantity { get; set; }
         public int ActualQuantity { get; set; }
         public decimal PenaltyFee { get; set; }
+
+        /// <summary>
+        /// Member chịu trách nhiệm penalty cho linh kiện này (optional).
+        /// Null = phạt chung vào <c>session.PenaltyAmount</c>.
+        /// </summary>
+        public Guid? ResponsibleMemberId { get; set; }
     }
 }

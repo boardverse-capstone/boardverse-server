@@ -50,10 +50,19 @@ public class VietQrClient : IVietQrClient
         if (amount <= 0)
             throw new ArgumentException("Amount must be greater than 0", nameof(amount));
 
+        // Normalize: trim trailing/leading whitespace from bank/account/holder.
+        // BUGFIX: previously trailing space in BankCode (e.g. "970436 ") was
+        // URL-encoded to "970436%20" and vietqr.app fell back to a different bank
+        // (e.g. ACB instead of Vietcombank) and a wrong account holder. Real bug
+        // caught from production data "970436 " rendering as "Quoc Duy LE / ACB".
+        var normalizedBankCode = bankCode.Trim();
+        var normalizedAccountNumber = accountNumber.Trim();
+        var normalizedAccountHolder = accountHolder?.Trim();
+
         var parts = new List<string>
         {
-            $"bank={Uri.EscapeDataString(bankCode)}",
-            $"acc={Uri.EscapeDataString(accountNumber)}",
+            $"bank={Uri.EscapeDataString(normalizedBankCode)}",
+            $"acc={Uri.EscapeDataString(normalizedAccountNumber)}",
             $"template={Uri.EscapeDataString(template)}",
             $"amount={((int)amount)}",
             $"showinfo={(showInfo ? "true" : "false")}",
@@ -61,10 +70,10 @@ public class VietQrClient : IVietQrClient
         };
 
         if (!string.IsNullOrWhiteSpace(description))
-            parts.Add($"des={Uri.EscapeDataString(description)}");
+            parts.Add($"des={Uri.EscapeDataString(description.Trim())}");
 
-        if (!string.IsNullOrWhiteSpace(accountHolder))
-            parts.Add($"holder={Uri.EscapeDataString(accountHolder)}");
+        if (!string.IsNullOrWhiteSpace(normalizedAccountHolder))
+            parts.Add($"holder={Uri.EscapeDataString(normalizedAccountHolder)}");
 
         var url = $"{BaseUrl}?{string.Join("&", parts)}";
 

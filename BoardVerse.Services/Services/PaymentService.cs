@@ -481,46 +481,27 @@ public class PaymentService : IPaymentService
             }
         }
 
-        // Phase 2: BVC top-up — OrderId prefix "BVC-" (top-up mới derive từ content).
-        // Lưu ý: SePay BankAPINotify strip dấu '-' khỏi content, nên OrderId thật
-        // (dạng BVC-B796952CBCEC4E) KHÔNG còn trong content. Cần tìm userId hash từ
-        // pattern "BVCTOPUP{8-hex}" trong content để match pending top-up request.
+        // Phase 2 v2: BVC top-up với OrderId dạng 18 hex chars (BVC-{18hex} bị SePay strip '-').
+        // ExtractOrderId đã strip prefix → webhook.OrderId = 817488C746BE78FE58 (hex only).
+        // Dùng lookup DB (OrderId exact match 18 chars) thay vì regex Content vì Content
+        // có thể rỗng hoặc prefix thay đổi (MoMo/BVCTOPUP/BVC-...).
+        // BR-22 / BR § II.2: chỉ route sang top-up khi tìm thấy pending BvcTopUpRequest.
         if (!string.IsNullOrWhiteSpace(webhook.OrderId)
-            && webhook.OrderId.StartsWith("BVC-", StringComparison.OrdinalIgnoreCase))
+            && webhook.OrderId.Length == 18
+            && System.Text.RegularExpressions.Regex.IsMatch(webhook.OrderId, "^[0-9A-F]+$"))
         {
-            var bvcAmount = (long)(webhook.Amount / 1000m);
-            await _walletService.HandleTopUpWebhookAsync(
-                orderId: webhook.OrderId,
-                gatewayTransactionId: webhook.GatewayTransactionId ?? string.Empty,
-                amountBvc: bvcAmount,
-                status: webhook.Status);
-            return;
-        }
-
-        // W-07: BVC top-up qua OrderId exact match (transferContent = "BVC-{18hex}").
-        // SePay strip dấu '-' → content chứa "BVC{18hex}". Tìm OrderId từ đây.
-        if (!string.IsNullOrWhiteSpace(webhook.Content))
-        {
-            var orderId = TryExtractBvcTopUpOrderId(webhook.Content);
-            if (orderId != null)
+            var resolvedTopUpOrderId = await _walletService.FindPendingTopUpOrderIdAsync(webhook.OrderId);
+            if (!string.IsNullOrWhiteSpace(resolvedTopUpOrderId))
             {
-                var resolvedOrderId = await _walletService.FindPendingTopUpOrderIdAsync(orderId);
-                if (!string.IsNullOrWhiteSpace(resolvedOrderId))
-                {
-                    var bvcAmount = (long)(webhook.Amount / 1000m);
-                    await _walletService.HandleTopUpWebhookAsync(
-                        orderId: resolvedOrderId,
-                        gatewayTransactionId: webhook.GatewayTransactionId ?? string.Empty,
-                        amountBvc: bvcAmount,
-                        status: webhook.Status);
-                    return;
-                }
-
-                _logger.LogWarning(
-                    "SePay webhook BVC top-up order matched but no pending request. OrderId={OrderId}, Amount={Amount}",
-                    orderId, webhook.Amount);
+                var bvcAmount = (long)(webhook.Amount / 1000m);
+                await _walletService.HandleTopUpWebhookAsync(
+                    orderId: resolvedTopUpOrderId,
+                    gatewayTransactionId: webhook.GatewayTransactionId ?? string.Empty,
+                    amountBvc: bvcAmount,
+                    status: webhook.Status);
                 return;
             }
+            // Không có pending top-up với OrderId này → có thể là deposit/session (fallthrough).
         }
 
         BookingDeposit? deposit = null;
@@ -547,26 +528,9 @@ public class PaymentService : IPaymentService
     }
 
     /// <summary>
-    /// Extract userId hash (8 hex chars) từ SePay BankAPINotify content.
-    /// Trả về null nếu content không phải dạng BVC top-up.
-    ///
-    /// Pattern content SePay gửi về (MoMo prefix + transferContent gốc bị strip '-'):
-    ///   "140465213621-BVCTOPUP364BED39-CHUYEN TIEN-..." →
-    ///     match "BVCTOPUP" + 8 hex chars → "364BED39".
+    /// Phase 2 v2: Process SePay webhook for deposit/session payment.
+    /// Top-up đã được route trước đó qua FindPendingTopUpOrderIdAsync lookup.
     /// </summary>
-    /// <summary>
-    /// W-07: Extract OrderId from transferContent.
-    /// New format: "BVC-{18hex}" → after SePay strip dashes: "BVC{18hex}".
-    /// Regex captures exactly 18 hex chars following "BVC" prefix.
-    /// </summary>
-    private static string? TryExtractBvcTopUpOrderId(string content)
-    {
-        var match = System.Text.RegularExpressions.Regex.Match(
-            content,
-            @"BVCTOPUP([A-F0-9]{18})",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        return match.Success ? match.Groups[1].Value.ToUpperInvariant() : null;
-    }
 
     private async Task ProcessDepositWebhookAsync(SePayWebhookDto webhook, BookingDeposit deposit)
     {

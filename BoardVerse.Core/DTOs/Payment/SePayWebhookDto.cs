@@ -132,12 +132,47 @@ public class SePayWebhookDto
 
     private static string? ExtractOrderId(string content)
     {
-        // Tìm pattern BVC-XXXXXXXX (top-up) hoặc BVXXXXXXXX (deposit/session)
+        // Tìm pattern theo thứ tự ưu tiên:
+        //   1. BVC-[A-Z0-9]+     — top-up OrderId còn dấu '-'
+        //   2. BVC[A-Z0-9]{16,18} — top-up OrderId bị SePay strip '-' (BankAPINotify)
+        //   3. BV[A-Z0-9]{8,16}   — deposit/session OrderId (legacy)
+        // Bắt BUỘC dùng Matches() rồi chọn match dài nhất để tránh greedy-short
+        // khớp nhầm vào BVC{18hex} rồi cắt còn 16.
         var match = System.Text.RegularExpressions.Regex.Match(
             content,
-            @"(BVC-[A-Z0-9]{6,16}|BV[A-Z0-9]{6,16})",
+            @"BVC-?[A-Z0-9]{6,18}",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        return match.Success ? match.Groups[1].Value.ToUpperInvariant() : null;
+        if (!match.Success)
+        {
+            // Fallback cho legacy deposit/session.
+            var fallback = System.Text.RegularExpressions.Regex.Match(
+                content,
+                @"BV[A-Z0-9]{8,16}",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            return fallback.Success ? fallback.Value.ToUpperInvariant() : null;
+        }
+
+        // Nếu match có 'BVC-' (top-up format chuẩn) → strip prefix và giữ phần hex.
+        var raw = match.Value.ToUpperInvariant();
+        if (raw.StartsWith("BVC-", StringComparison.Ordinal))
+        {
+            return raw.Substring(4);
+        }
+
+        // Nếu match là 'BVC{hex}' (bị SePay strip '-') → strip 'BVC' prefix.
+        // Lưu ý: phân biệt với deposit/session 'BV...' bằng cách check 18 hex
+        // (top-up mới dùng 18 hex, deposit/session legacy dùng 8 hex).
+        if (raw.StartsWith("BVC", StringComparison.Ordinal) && raw.Length >= 18 + 3)
+        {
+            var hex = raw.Substring(3);
+            if (hex.Length >= 16 && System.Text.RegularExpressions.Regex.IsMatch(hex, "^[0-9A-F]+$"))
+            {
+                return hex;
+            }
+        }
+
+        // Không match được pattern top-up, trả match gốc để downstream xử lý.
+        return raw;
     }
 
     // === Backward-compat để handler cũ dùng PaidAt ===

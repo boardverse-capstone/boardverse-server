@@ -431,6 +431,9 @@ public static string AccessForbidden(Guid cafeId) =>
  public const string PenaltyCannotAssignToGuestSlot =
  "Không thể gán phí phạt cho khách vô danh. Gán vào hóa đơn của người khởi tạo hoặc thu tiền mặt trực tiếp từ người về sớm.";
 
+ public static string ComponentPenaltyMemberNotInSession(Guid componentId, Guid memberId) =>
+ $"Không thể gán phí phạt cho linh kiện '{componentId}' vào thành viên '{memberId}': thành viên không thuộc phiên chơi này.";
+
  public const string GameAlreadyAttachedToSession =
  "Hộp game này đã được gán vào phiên chơi.";
 
@@ -496,6 +499,9 @@ public static string AccessForbidden(Guid cafeId) =>
 
  public static string BoxNotFoundById(Guid id) =>
  $"Không tìm thấy hộp game '{id}'.";
+
+ public static string BoxCafeMismatch(Guid boxId, Guid cafeId) =>
+ $"Hộp game '{boxId}' không thuộc quán '{cafeId}'.";
 
  public static string SessionMustBeActiveForEnd(string current) =>
  $"Phiên chơi phải đang hoạt động để kết thúc. Trạng thái hiện tại: '{current}'.";
@@ -1930,19 +1936,19 @@ public static class Reservation
  public static string MaxPlayersExceedsDistanceLimit(int requested, int maxAllowed, int daysAhead) =>
  $"Số người tối đa ({requested}) vượt quá giới hạn cho phép ({maxAllowed}) khi chơi cách {daysAhead} ngày.";
 
- // ===== BR-USER-LIMIT-01: 1 host lobby + 1 member lobby =====
- public const string ActiveLobbyHostLimitReached =
- "Bạn đã là host của 1 lobby đang hoạt động. Hủy hoặc đợi lobby kết thúc trước khi tạo lobby mới.";
+    // ===== BR-USER-LIMIT-01: 1 host lobby + 1 member lobby =====
+    public const string ActiveLobbyHostLimitReached =
+        "Bạn đang là chủ phòng của 1 lobby khác. Hãy hủy lobby đó hoặc đợi nó kết thúc rồi hãy tạo phòng mới.";
 
- public const string ActiveLobbyMemberLimitReached =
- "Bạn đã tham gia 1 lobby đang hoạt động. Rời lobby trước khi tạo lobby mới làm host.";
+    public const string ActiveLobbyMemberLimitReached =
+        "Bạn đang là thành viên của 1 lobby khác. Hãy rời lobby đó trước khi tạo phòng mới làm chủ phòng.";
 
- // ===== BR-USER-LIMIT-04/05: cross-role =====
- public const string MemberCannotCreateLobby =
- "Bạn đang là thành viên của 1 lobby đang hoạt động nên không thể tạo lobby mới làm host.";
+    // ===== BR-USER-LIMIT-04/05: cross-role =====
+    public const string MemberCannotCreateLobby =
+        "Bạn đang là thành viên của 1 lobby đang tuyển người, nên chưa thể tạo lobby mới làm chủ phòng. Hãy rời lobby hiện tại trước.";
 
- public const string HostCannotJoinLobby =
- "Bạn đang là host của 1 lobby đang hoạt động nên không thể tham gia lobby khác làm member.";
+    public const string HostCannotJoinLobby =
+        "Bạn đang là chủ phòng của 1 lobby khác, nên chưa thể tham gia lobby người khác làm thành viên. Hãy hủy lobby của bạn trước.";
 
  // ===== BR-NEW-08: 1 lobby / cafe / playDate+timeSlot / user =====
  public static string SameCafeSlotLobbyAlreadyActive =>

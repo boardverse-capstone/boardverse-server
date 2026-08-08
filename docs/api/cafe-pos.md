@@ -26,8 +26,9 @@ API vận hành quầy: bàn, kho hộp game, phiên chơi, kiểm kê, khách v
 | `/sessions/{sessionId}/end` | POST | **Kết thúc phiên chơi** → session `CHECKING`, hộp → `Available`/`Maintenance` | `CafePosController` |
 | `/sessions/{sessionId}/resume` | POST | **Khôi phục phiên từ `CHECKING` → `ACTIVE`** khi nhân viên bấm nhầm (GAP-1) | `CafePosController` |
 | `/sessions/{sessionGameId}/component-checklist` | GET | Lấy mô tả bảng kiểm kê linh kiện của 1 game trong phiên (`ComponentChecklistDto` — chỉ ExpectedQuantity, chưa verify) | `CafePosController` |
-| `/sessions/component-check` | POST | Submit kết quả kiểm kê linh kiện (`ComponentCheckResultDto` — có ActualQuantity + PenaltyFee + TotalPenaltyAmount) | `CafePosController` |
+| `/sessions/component-check` | POST | Submit kết quả kiểm kê linh kiện (`ComponentCheckResultDto` — có ActualQuantity + PenaltyFee + TotalPenaltyAmount). **[Penalty #1]** Hỗ trợ `responsibleMemberId` per-component để phân bổ phí phạt cho member cụ thể. | `CafePosController` |
 | `/sessions/component-check/reset` | POST | Reset checklist để kiểm tra lại khi bấm sai (GAP-25) | `CafePosController` |
+| `/boxes/{boxId}/component-history` | GET | **[Box history #1]** Lịch sử kiểm kê thiếu linh kiện của 1 hộp qua các phiên trước (staff kiểm tra trước khi giao hộp). | `CafePosController` |
 | `/sessions/{sessionId}/return-game` | POST | Trả 1 game sớm: tính `surcharge_fine`, cập nhật box status (session vẫn ACTIVE) | `CafePosController` |
 | `/sessions/{sessionId}/games` | POST | Gán thêm game vào phiên (Exception 6) | `CafePosController` |
 | `/sessions/{sessionId}/guest-slots` | POST | Thêm khách vô danh (BR-13) | `CafePosController` |
@@ -638,18 +639,24 @@ Xác nhận kiểm kê linh kiện và tính phí phạt nếu thiếu. **BR-12:
   "sessionGameId": "guid",
   "markAllValid": false,
   "results": [
-    { "componentId": "guid-road",   "actualQuantity": 14 },
-    { "componentId": "guid-city",   "actualQuantity": 4  }
+    { "componentId": "guid-road",   "actualQuantity": 14, "responsibleMemberId": "guid-member-A" },
+    { "componentId": "guid-city",   "actualQuantity": 4,  "responsibleMemberId": null }
   ]
 }
 ```
+
+> **Penalty #1 (2026-08-08):** Mỗi component thiếu có thể gán `responsibleMemberId` (optional).
+> - **Có memberId**: penalty sẽ được cộng vào `member.PenaltyAmount` trong `MemberInvoiceDto`.
+> - **null**: penalty được cộng chung vào `session.PenaltyAmount` mà không phân bổ cho member cụ thể.
+> - **BR-14**: KHÔNG được gán memberId cho `Guest_Slot` → `400 PenaltyCannotAssignToGuestSlot`.
+> - MemberId phải thuộc session → `400 ComponentPenaltyMemberNotInSession` nếu không.
 
 **2 mode:**
 
 | Mode | `markAllValid` | `results` | Hành vi |
 |---|---|---|---|
-| **All valid (nhanh)** | `true` | `[]` (bỏ qua) | Tự động `ActualQuantity = ExpectedQuantity` cho mọi component, `TotalPenaltyAmount = 0`, `CheckStatus = Verified`. Vẫn insert 1 bộ dòng audit (`ComponentCheckResults`) để truy vết staff bấm AllValid. |
-| **Chi tiết** | `false` | Bắt buộc (mỗi component trong template = 1 dòng) | Tính `penalty = (ExpectedQuantity − ActualQuantity) × PenaltyFee` cho từng component. Tổng cộng vào `TotalPenaltyAmount`. Nếu có component thiếu → `CheckStatus = MissingComponents`; nếu đủ hết → `Verified`. |
+| **All valid (nhanh)** | `true` | `[]` (bỏ qua) | Tự động `ActualQuantity = ExpectedQuantity` cho mọi component, `TotalPenaltyAmount = 0`, `CheckStatus = Verified`. Vẫn insert 1 bộ dòng audit (`ComponentCheckResults`) để truy vết staff bấm AllValid. `ResponsibleMemberId` luôn `null`. |
+| **Chi tiết** | `false` | Bắt buộc (mỗi component trong template = 1 dòng) | Tính `penalty = (ExpectedQuantity − ActualQuantity) × PenaltyFee` cho từng component. Tổng cộng vào `TotalPenaltyAmount`. Lưu `ResponsibleMemberId` nếu client gửi (chỉ áp dụng khi component bị thiếu). Nếu có component thiếu → `CheckStatus = MissingComponents`; nếu đủ hết → `Verified`. |
 
 **Validation:**
 - `results` phải chứa tất cả component trong template. Component nào thiếu → coi như `actualQuantity = 0` (penalty tối đa).
@@ -667,8 +674,8 @@ Xác nhận kiểm kê linh kiện và tính phí phạt nếu thiếu. **BR-12:
   "checkedAt": "2026-08-06T12:34:56Z",
   "totalPenaltyAmount": 5000,
   "components": [
-    { "componentId": "guid-road",  "componentName": "Road tile",  "componentKind": 0, "expectedQuantity": 15, "actualQuantity": 14, "penaltyFee": 5000 },
-    { "componentId": "guid-city",  "componentName": "City",       "componentKind": 1, "expectedQuantity": 4,  "actualQuantity": 4,  "penaltyFee": 0    }
+    { "componentId": "guid-road",  "componentName": "Road tile",  "componentKind": 0, "expectedQuantity": 15, "actualQuantity": 14, "penaltyFee": 5000, "responsibleMemberId": "guid-member-A" },
+    { "componentId": "guid-city",  "componentName": "City",       "componentKind": 1, "expectedQuantity": 4,  "actualQuantity": 4,  "penaltyFee": 0,    "responsibleMemberId": null }
   ]
 }
 ```
@@ -742,6 +749,72 @@ Reset lại checklist linh kiện của 1 game trong session về trạng thái 
 
 ---
 
+### GET /api/cafes/{cafeId}/pos/boxes/{boxId}/component-history
+
+Lấy lịch sử kiểm kê linh kiện của một hộp game (CafeInventoryBox). **Box history #1:** Staff dùng trước khi giao hộp cho khách phiên mới — biết ngay hộp này từng thiếu linh kiện ở phiên trước, kiểm tra kỹ hơn lúc nhận/giao.
+
+**Role:** Manager (chủ quán) hoặc CafeStaff thuộc cafe.
+
+**Điều kiện:**
+- `boxId` phải tồn tại.
+- Box phải thuộc `cafeId` trong URL → nếu không → `409 BoxCafeMismatch`.
+
+**Trả về:**
+- Danh sách các `ActiveSessionGame` của box này có `CheckStatus = MissingComponents`, sắp xếp theo `CheckedAt DESC`.
+- Mỗi incident kèm danh sách linh kiện thiếu + staff đã kiểm kê + member chịu trách nhiệm (nếu có).
+- Trả danh sách rỗng (`200`) nếu hộp chưa từng bị ghi nhận `MissingComponents`.
+
+**Response 200 — `BoxComponentHistoryDto`:**
+
+```json
+{
+  "boxId": "guid-box",
+  "boxLabel": "BARCODE-001",
+  "barcode": "BARCODE-001",
+  "gameTemplateId": "guid-template",
+  "gameName": "Catan",
+  "totalIncidents": 2,
+  "incidents": [
+    {
+      "sessionGameId": "guid-sg",
+      "sessionId": "guid-session",
+      "checkedAt": "2026-08-07T19:23:00Z",
+      "staffId": "guid-staff",
+      "staffName": "Staff_a3b4c5d6",
+      "totalPenaltyAmount": 5000,
+      "missingComponents": [
+        {
+          "componentId": "guid-road",
+          "componentName": "Road tile",
+          "componentKind": 0,
+          "expectedQuantity": 15,
+          "actualQuantity": 14,
+          "missingQuantity": 1,
+          "penaltyFee": 5000,
+          "responsibleMemberId": "guid-member-A",
+          "responsibleMemberName": "User_a1b2c3d4"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Lỗi:**
+- `401` thiếu token.
+- `403` không thuộc cafe.
+- `404` `BoxNotFoundById` — không tìm thấy hộp.
+- `409` `BoxCafeMismatch` — hộp thuộc quán khác.
+- `500` lỗi hệ thống.
+
+**Ví dụ curl:**
+```bash
+curl -X GET "https://api.boardverse.local/api/cafes/{cafeId}/pos/boxes/{boxId}/component-history" \
+  -H "Authorization: Bearer <staff-jwt>"
+```
+
+---
+
 ## ComponentCheckResult (audit trail)
 
 Mỗi session game sau khi verify sẽ có 1 bộ dòng trong bảng `ComponentCheckResults`:
@@ -754,6 +827,7 @@ Mỗi session game sau khi verify sẽ có 1 bộ dòng trong bảng `ComponentC
 | `ExpectedQuantity` | Số theo template tại thời điểm verify (snapshot) |
 | `ActualQuantity` | Số nhân viên đếm được (hoặc = `ExpectedQuantity` nếu `markAllValid`) |
 | `PenaltyFee` | Phí phạt cho dòng này (= `0` nếu đủ) |
+| `ResponsibleMemberId` | **[Penalty #1]** Member chịu trách nhiệm penalty này (nullable). `null` = penalty cộng chung vào session. Set = penalty cộng vào `MemberInvoiceDto.PenaltyAmount` của member tương ứng trong `PaySessionAsync`. BR-14: không được set cho `Guest_Slot`. |
 | `StaffId` | Staff thực hiện kiểm kê |
 | `CheckedAt` | Thời điểm verify |
 
@@ -1013,27 +1087,53 @@ POST /api/cafes/{cafeId}/pos/sessions/{id}/pay
 
 ### Luồng 9: Thanh toán một phần (Exception 4 — nhóm về sớm)
 
+> **Cập nhật 2026-08-08:** `partial-checkout` yêu cầu session phải ở `CHECKING` trước
+> (GAP-29 / BR-12: bắt buộc trả game về quầy + kiểm kê linh kiện trước khi cho về sớm).
+> Flow đầy đủ: end → partial-checkout → component-check → checkout → pay.
+
 ```powershell
-# Bước 1: Chọn member về sớm
+# Bước 0: BẮT BUỘC — Trả game về quầy để kiểm kê (session: ACTIVE → CHECKING).
+# Không có bước này → partial-checkout trả 409 SessionMustBeCheckingForPartialCheckout.
+POST /api/cafes/{cafeId}/pos/sessions/{id}/end
+
+# Bước 1: Chọn member về sớm (session vẫn ở CHECKING).
 POST /api/cafes/{cafeId}/pos/sessions/{id}/partial-checkout
 {
   "memberIds": ["member-1", "member-2"]
 }
-# → Members về FINISHED
-# → session: ACTIVE → CHECKING
-# → KHÔNG cho in hóa đơn cho đến khi kiểm kê
+# → Members chọn về → SUSPENDED_MUTATION (treo chờ kiểm kê).
+# → Members KHÔNG chọn → vẫn PLAYING (tiếp tục chơi).
+# → session.IsCheckingInventory = true.
+# → session vẫn ở CHECKING.
+# → KHÔNG cho in hóa đơn cho đến khi component-check xong.
 
-# Bước 2: Kiểm kê linh kiện (BR-12)
+# Bước 2: Kiểm kê linh kiện (BR-12) — staff có thể gán ResponsibleMemberId
+# cho từng linh kiện thiếu (Penalty #1) để phân bổ phí phạt cho member cụ thể.
 POST /api/cafes/{cafeId}/pos/sessions/component-check
-{ ... }
+{
+  "sessionGameId": "guid",
+  "markAllValid": false,
+  "results": [
+    { "componentId": "guid-road", "actualQuantity": 14, "responsibleMemberId": "guid-member-1" }
+  ]
+}
+# → CheckStatus = MissingComponents
+# → TotalPenaltyAmount lưu xuống ActiveSessionGame + audit ComponentCheckResult
+# → Penalty #1: penalty cho member-1 sẽ xuất hiện trong MemberInvoiceDto.PenaltyAmount
 
-# Bước 3: Member còn lại có thể merge sang nhóm khác
+# Bước 3: Member còn lại có thể merge sang nhóm khác (chỉ khi
+# member đã ở SUSPENDED_MUTATION + target session ACTIVE + cùng cafe)
 POST /api/cafes/{cafeId}/pos/sessions/{sourceSessionId}/merge
 {
-  "memberId": "member-3",
+  "memberId": "guid-member-3",
   "targetSessionId": "guid"
 }
-# → member-3 chuyển sang nhóm mới
+
+# Bước 4: Sau khi kiểm kê xong → checkout toàn session → UNPAID → pay → PAID
+POST /api/cafes/{cafeId}/pos/sessions/{id}/checkout
+POST /api/cafes/{cafeId}/pos/sessions/{id}/pay
+{ "notes": "Optional ghi chú" }
+# Pay KHÔNG cần PenaltyItems nữa — tự động lấy từ ComponentCheckResult.ResponsibleMemberId
 ```
 
 ### Luồng 10: Exception 7 — Hao hụt trước phiên
@@ -1075,9 +1175,9 @@ stateDiagram-v2
 | BR | Áp dụng |
 |----|---------|
 | BR-09 | Thanh toán session KHÔNG trừ tiền cọc (`DepositAppliedAmount = 0`). Deposit là phí giữ chỗ BoardVerse. |
-| BR-12 | Khóa in hóa đơn khi `CHECKING` (partial checkout) |
+| BR-12 | Khóa in hóa đơn khi `CHECKING` (partial checkout). **[Penalty #1]** Mỗi component thiếu lưu `ResponsibleMemberId` (nullable) để phân bổ phí phạt. **[Box history #1]** `GET /boxes/{boxId}/component-history` để staff tra lịch sử thiếu linh kiện qua các phiên trước. |
 | BR-13 | `GuestSlot` không chịu trách nhiệm tài sản |
-| BR-14 | Phí phạt không gán vào `GuestSlot` |
+| BR-14 | Phí phạt không gán vào `GuestSlot` (`PenaltyCannotAssignToGuestSlot`) |
 | BR-15 | `TotalAmount = Subtotal + Penalty − DepositApplied` |
 | BR-17 | Chỉ nhân viên POS được kết thúc/tách nhóm/tính tiền |
 | BR-22 | Mỗi member có deposit riêng, áp dụng per-member trong checkout |

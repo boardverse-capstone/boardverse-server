@@ -49,11 +49,26 @@ public class EligibilityValidator
 
         ValidateAccountStatus(context.IsAccountSuspended, context.IsAccountBanned);
 
+        // BR-USER-LIMIT-01: tổng active = host + member ≤ 2.
+        // Check tổng trước để message cụ thể (host vs member vs cả hai).
+        var totalActiveLobbies = (context.HasActiveHostLobby ? 1 : 0) + (context.HasActiveMemberLobby ? 1 : 0);
+        if (totalActiveLobbies >= 2)
+        {
+            // Đã đạt tối đa 2 lobby → phải ưu tiên thông báo cross-role cho user hiểu.
+            if (context.HasActiveMemberLobby)
+            {
+                throw new InvalidOperationException(ApiErrorMessages.Reservation.MemberCannotCreateLobby);
+            }
+            throw new InvalidOperationException(ApiErrorMessages.Reservation.ActiveLobbyHostLimitReached);
+        }
+
+        // BR-USER-LIMIT-04: member → không được host lobby khác.
         if (context.HasActiveMemberLobby)
         {
             throw new InvalidOperationException(ApiErrorMessages.Reservation.MemberCannotCreateLobby);
         }
 
+        // BR-USER-LIMIT-01: host đã có 1 lobby → không host thêm.
         if (context.HasActiveHostLobby)
         {
             throw new InvalidOperationException(ApiErrorMessages.Reservation.ActiveLobbyHostLimitReached);
@@ -98,16 +113,36 @@ public class EligibilityValidator
     /// </summary>
     public void ValidateMemberCanJoin(MemberJoinContext context)
     {
-        if (context.IsAccountSuspended || context.IsAccountBanned)
+        // BR-RISK-04: Banned → chặn vĩnh viễn. Suspended → chặn tạm thời.
+        if (context.IsAccountBanned)
         {
             throw new InvalidOperationException(ApiErrorMessages.Reservation.BannedCannotCreateLobby);
         }
+        if (context.IsAccountSuspended)
+        {
+            throw new InvalidOperationException(ApiErrorMessages.Reservation.SuspendedCannotCreateLobby);
+        }
 
+        // BR-USER-LIMIT-01: tổng active = host + member ≤ 2.
+        // Check tổng trước để message cụ thể (host vs member vs cả hai).
+        var totalActiveLobbies = (context.HasActiveHostLobby ? 1 : 0) + context.ActiveMemberLobbyCount;
+        if (totalActiveLobbies >= 2)
+        {
+            // Đã đạt tối đa 2 lobby → báo tổng quá (ưu tiên thông báo cross-role).
+            if (context.HasActiveHostLobby)
+            {
+                throw new InvalidOperationException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
+            }
+            throw new InvalidOperationException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);
+        }
+
+        // BR-USER-LIMIT-05: host → không được join lobby khác.
         if (context.HasActiveHostLobby)
         {
             throw new InvalidOperationException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
         }
 
+        // BR-USER-LIMIT-01: member → không join thêm (đã đếm 1 ở trên).
         if (context.ActiveMemberLobbyCount >= 1)
         {
             throw new InvalidOperationException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);
@@ -128,9 +163,15 @@ public class EligibilityValidator
 
     private static void ValidateAccountStatus(bool suspended, bool banned)
     {
-        if (suspended || banned)
+        // Banned → cấm vĩnh viễn. Suspended → cấm tạm thời.
+        // Phải tách rõ để user không nhận nhầm thông báo "cấm vĩnh viễn" khi chỉ bị tạm khóa.
+        if (banned)
         {
             throw new InvalidOperationException(ApiErrorMessages.Reservation.BannedCannotCreateLobby);
+        }
+        if (suspended)
+        {
+            throw new InvalidOperationException(ApiErrorMessages.Reservation.SuspendedCannotCreateLobby);
         }
     }
 

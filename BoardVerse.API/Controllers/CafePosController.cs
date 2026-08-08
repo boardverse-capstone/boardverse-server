@@ -413,6 +413,34 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
+        /// Lấy lịch sử kiểm kê linh kiện của một hộp game (CafeInventoryBox). [Role: Manager, CafeStaff]
+        /// <para>
+        /// Trả các lần hộp này từng bị ghi nhận <c>MissingComponents</c> qua các phiên trước,
+        /// kèm linh kiện thiếu, staff đã kiểm kê, member chịu trách nhiệm (nếu có).
+        /// Staff dùng trước khi giao hộp cho khách phiên mới — biết ngay hộp này từng
+        /// thiếu linh kiện ở phiên trước, kiểm tra kỹ hơn lúc nhận/giao.
+        /// </para>
+        /// <para>
+        /// BR-12: lịch sử từ ComponentCheckResult (audit trail vĩnh viễn).
+        /// </para>
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="boxId">Mã hộp game (CafeInventoryBox).</param>
+        /// <response code="200">Lấy lịch sử thành công — có thể là danh sách rỗng nếu hộp chưa từng bị kiểm kê thiếu.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền vận hành quán.</response>
+        /// <response code="404">Không tìm thấy hộp game.</response>
+        /// <response code="409">Hộp game không thuộc quán này.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpGet("boxes/{boxId:guid}/component-history")]
+        public async Task<IActionResult> GetBoxComponentHistory(Guid cafeId, Guid boxId)
+        {
+            var (userId, role) = GetViewerContext();
+            var result = await _posService.GetBoxComponentHistoryAsync(cafeId, userId, role, boxId);
+            return this.NewResponse(200, "Lấy lịch sử kiểm kê linh kiện của hộp thành công.", result);
+        }
+
+        /// <summary>
         /// Khôi phục phiên từ CHECKING về ACTIVE. [Role: Manager, CafeStaff]
         /// GAP-1 Fix: Cho phép staff hủy bỏ thao tác "Trả game" nếu bấm nhầm.
         /// Chỉ hoạt động khi chưa có thành viên nào được thanh toán (chưa có member FINISHED).

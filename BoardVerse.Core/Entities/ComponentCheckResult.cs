@@ -46,6 +46,15 @@ public class ComponentCheckResult
     /// <summary>Phí phạt cho linh kiện này (per-unit × số thiếu). 0 nếu đủ hoặc markAllValid.</summary>
     public decimal PenaltyFee { get; set; }
 
+    /// <summary>
+    /// Member chịu trách nhiệm cho penalty này (optional).
+    /// Null = penalty được cộng chung vào <c>session.PenaltyAmount</c> mà không phân bổ
+    /// cho member cụ thể (flow cũ, BR-14). Set = penalty sẽ cộng vào
+    /// <c>member.PenaltyAmount</c> tương ứng trong <c>PaySessionAsync</c>.
+    /// BR-14: không được gán cho <c>Guest_Slot</c>.
+    /// </summary>
+    public Guid? ResponsibleMemberId { get; set; }
+
     /// <summary>Staff thực hiện kiểm kê (FK User). Snapshot từ ActiveSessionGame.CheckedByStaffId.</summary>
     public Guid StaffId { get; set; }
 

@@ -428,29 +428,35 @@ namespace BoardVerse.Services.Services
                 }
             }
 
-            // BR-12: Read persisted penalty from component checks (single source of truth),
-            // CHỈ cộng dồn nếu client KHÔNG gửi penalty. Trước đây cộng cả
-            // `request.PenaltyItems` lẫn `sessionGames.TotalPenaltyAmount` → cùng 1 linh
-            // kiện thiếu có thể bị tính phạt 2 lần.
+            // BR-12: Single source of truth cho penalty = ComponentCheckResult.ResponsibleMemberId
+            // (đã lưu lúc submit component-check). KHÔNG dùng PenaltyItems từ client nữa.
             //
-            // R-Bug-025 Fix: schema hiện không lưu per-component breakdown của
-            // sessionGames (chỉ có TotalPenaltyAmount aggregate), nên dedup-by-ComponentId
-            // là không khả thi. Thay vào đó dùng quy tắc ưu tiên rõ ràng:
-            //   - Nếu client gửi PenaltyItems → đó là single source of truth, BỎ QUA persisted.
-            //   - Nếu client KHÔNG gửi PenaltyItems → dùng persisted TotalPenaltyAmount.
+            // Flow mới:
+            //   - Client submit component-check → chọn ResponsibleMemberId cho mỗi component thiếu.
+            //   - Lưu xuống ComponentCheckResult.PenaltyFee + ResponsibleMemberId.
+            //   - sessionGames.TotalPenaltyAmount = sum PenaltyFee của các component thiếu.
+            //   - Pay lấy persistedPenalty = sum TotalPenaltyAmount (BR-12 single source).
+            //
+            // Back-compat: nếu client vẫn gửi PenaltyItems (cũ), log warning và áp dụng cho
+            // session.PenaltyAmount (cộng dồn), nhưng KHÔNG ảnh hưởng member invoices.
             var sessionGames = await _posRepository.GetSessionGamesAsync(sessionId);
+            decimal persistedPenalty = sessionGames
+                .Where(g => g.CheckStatus == ComponentCheckStatus.MissingComponents)
+                .Sum(g => g.TotalPenaltyAmount);
+
             var hasClientPenaltyItems = request.PenaltyItems is { Count: > 0 };
-            decimal persistedPenalty = 0m;
-            if (!hasClientPenaltyItems)
+            decimal clientPenaltyTotal = 0m;
+            if (hasClientPenaltyItems)
             {
-                persistedPenalty = sessionGames
-                    .Where(g => g.CheckStatus == ComponentCheckStatus.MissingComponents)
-                    .Sum(g => g.TotalPenaltyAmount);
+                clientPenaltyTotal = request.PenaltyItems!.Sum(p => p.PenaltyAmount);
+                _logger.LogWarning(
+                    "PaySession: client vẫn gửi PenaltyItems (đã deprecated). Tổng={Total} cho session {SessionId}. Hãy dùng ResponsibleMemberId lúc submit component-check.",
+                    clientPenaltyTotal, sessionId);
             }
-            if (persistedPenalty > 0)
-            {
-                session.PenaltyAmount += persistedPenalty;
-            }
+
+            // Tổng penalty cuối cùng = persisted (single source) + client (back-compat, deprecated).
+            var totalPenaltyForSession = persistedPenalty + clientPenaltyTotal;
+            session.PenaltyAmount = totalPenaltyForSession;
 
             // BR-15: TotalAmount = Subtotal + PenaltyAmount (KHÔNG trừ deposit)
             // Deposit chỉ dùng để giữ chỗ, không cấn trừ vào hóa đơn
@@ -503,7 +509,12 @@ namespace BoardVerse.Services.Services
             var finalSession = await _activeSessionRepository.GetByIdAsync(sessionId);
 
             // GAP-33 Fix: Build per-member invoices
-            var memberInvoices = BuildMemberInvoices(session, cafe, request.PenaltyItems);
+            // Penalty #1: truyền componentCheckResults (persisted) + legacyPenaltyItems (deprecated).
+            var allComponentCheckResults = session.Games?
+                .SelectMany(g => g.ComponentCheckResults ?? new List<BoardVerse.Core.Entities.ComponentCheckResult>())
+                .ToList() ?? new List<BoardVerse.Core.Entities.ComponentCheckResult>();
+
+            var memberInvoices = BuildMemberInvoices(session, cafe, allComponentCheckResults, request.PenaltyItems);
 
             return new PaySessionResponseDto
             {
@@ -523,11 +534,15 @@ namespace BoardVerse.Services.Services
         /// Build per-member invoices for PaySession response.
         /// GAP-33 Fix: Return detailed per-member breakdown.
         /// GAP-12 Fix: Use OriginalSession.StartedAt for merged members to track continuous time.
+        /// Penalty #1: Đọc per-member penalty từ ComponentCheckResult.ResponsibleMemberId
+        /// (single source of truth lưu lúc submit component-check), KHÔNG dùng penaltyItems
+        /// từ client request. Back-compat: vẫn hỗ trợ penaltyItems (deprecated).
         /// </summary>
         private List<MemberInvoiceDto> BuildMemberInvoices(
             ActiveSession session,
             Cafe cafe,
-            List<ComponentPenaltyItemDto>? penaltyItems)
+            List<BoardVerse.Core.Entities.ComponentCheckResult> componentCheckResults,
+            List<ComponentPenaltyItemDto>? legacyPenaltyItems)
         {
             var invoices = new List<MemberInvoiceDto>();
             var now = DateTime.UtcNow;
@@ -548,6 +563,27 @@ namespace BoardVerse.Services.Services
                 }
             }
 
+            // Penalty #1: Aggregate persisted penalty theo member từ ComponentCheckResult
+            // (null = penalty chung vào session, không phân bổ).
+            var persistedPenaltyByMember = componentCheckResults
+                .Where(r => r.ResponsibleMemberId.HasValue && r.PenaltyFee > 0)
+                .GroupBy(r => r.ResponsibleMemberId!.Value)
+                .ToDictionary(g => g.Key, g => g.Sum(r => r.PenaltyFee));
+
+            // Penalty #1: Penalty details per-member cho invoice (từ persisted).
+            var penaltyDetailsByMember = componentCheckResults
+                .Where(r => r.ResponsibleMemberId.HasValue && r.PenaltyFee > 0)
+                .GroupBy(r => r.ResponsibleMemberId!.Value)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Select(r => new PenaltyDetailDto
+                    {
+                        ComponentId = r.GameComponentTemplateId,
+                        ComponentName = r.GameComponentTemplate?.ComponentName ?? string.Empty,
+                        PenaltyFee = r.PenaltyFee,
+                        TotalPenalty = r.PenaltyFee
+                    }).ToList());
+
             foreach (var member in session.Members)
             {
                 // GAP-12 Fix: For merged members, use the original session start time
@@ -567,16 +603,15 @@ namespace BoardVerse.Services.Services
                         : cafe.BasePrice)
                     : 0m;
 
-                // Get member's penalty from request
-                var memberPenalty = penaltyItems
-                    ?.Where(p => p.ResponsibleMemberId == member.Id)
-                    .Sum(p => p.PenaltyAmount) ?? 0;
+                // Penalty #1: Member penalty = persisted (single source) + member.PenaltyAmount (đã cộng ở PaySessionAsync).
+                var persistedMemberPenalty = persistedPenaltyByMember.GetValueOrDefault(member.Id, 0m);
 
-                // Add persisted penalty from component checks
-                if (member.PenaltyAmount > 0)
-                {
-                    memberPenalty += member.PenaltyAmount;
-                }
+                // Back-compat: nếu client gửi PenaltyItems, cộng thêm (deprecated).
+                var legacyMemberPenalty = legacyPenaltyItems
+                    ?.Where(p => p.ResponsibleMemberId == member.Id)
+                    .Sum(p => p.PenaltyAmount) ?? 0m;
+
+                var memberPenalty = persistedMemberPenalty + legacyMemberPenalty + member.PenaltyAmount;
 
                 // BR-15: Member total = Subtotal + Penalty - Deposit (BR-09: Deposit không trừ)
                 // BR-09: Deposit là phí giữ chỗ, KHÔNG trừ vào hóa đơn
@@ -585,17 +620,21 @@ namespace BoardVerse.Services.Services
                 var memberTotal = memberSubtotal + memberPenalty - memberDeposit;
                 memberTotal = Math.Max(0, memberTotal);
 
-                // Build penalty details
-                var penaltyDetails = penaltyItems
-                    ?.Where(p => p.ResponsibleMemberId == member.Id)
-                    .Select(p => new PenaltyDetailDto
-                    {
-                        ComponentId = p.ComponentId,
-                        ComponentName = p.ComponentName,
-                        PenaltyFee = p.PenaltyAmount,
-                        TotalPenalty = p.PenaltyAmount
-                    })
-                    .ToList() ?? [];
+                // Penalty #1: Ưu tiên penalty details từ persisted. Back-compat: nếu không có, dùng legacy.
+                List<PenaltyDetailDto> penaltyDetails = penaltyDetailsByMember.GetValueOrDefault(member.Id, []);
+                if (penaltyDetails.Count == 0 && legacyPenaltyItems != null)
+                {
+                    penaltyDetails = legacyPenaltyItems
+                        .Where(p => p.ResponsibleMemberId == member.Id)
+                        .Select(p => new PenaltyDetailDto
+                        {
+                            ComponentId = p.ComponentId,
+                            ComponentName = p.ComponentName,
+                            PenaltyFee = p.PenaltyAmount,
+                            TotalPenalty = p.PenaltyAmount
+                        })
+                        .ToList();
+                }
 
                 invoices.Add(new MemberInvoiceDto
                 {

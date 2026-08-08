@@ -1114,6 +1114,230 @@ public class ActiveSessionServiceTests
         Assert.Equal(75_000m, result.TotalAmount);
     }
 
+    // Penalty #1 (2026-08-08): PaySessionAsync đọc penalty từ ComponentCheckResult.ResponsibleMemberId
+    // (single source of truth), KHÔNG dùng PenaltyItems từ client. Khi component-check
+    // đã lưu ResponsibleMemberId thì per-member invoice phản ánh đúng phân bổ.
+    [Fact]
+    public async Task PaySessionAsync_PenaltyFromComponentCheckResult_AssignsToMemberInvoice()
+    {
+        var cafeId = Guid.NewGuid();
+        var sessionId = Guid.NewGuid();
+        var memberId = Guid.NewGuid();
+        var componentId = Guid.NewGuid();
+        var gameTemplateId = Guid.NewGuid();
+        var sessionGameId = Guid.NewGuid();
+
+        var member = new ActiveSessionMember
+        {
+            Id = memberId,
+            UserId = Guid.NewGuid(),
+            Status = IndividualSessionStatus.Playing,
+            IsGuestSlot = false,
+            JoinedAt = DateTime.UtcNow.AddHours(-1),
+            LeftAt = DateTime.UtcNow
+        };
+
+        var componentTemplate = new GameComponentTemplate
+        {
+            Id = componentId,
+            ComponentName = "Road piece",
+            DefaultQuantity = 15
+        };
+
+        // Persisted ComponentCheckResult với ResponsibleMemberId set
+        var checkResult = new ComponentCheckResult
+        {
+            Id = Guid.NewGuid(),
+            ActiveSessionGameId = sessionGameId,
+            GameComponentTemplateId = componentId,
+            GameComponentTemplate = componentTemplate,
+            ExpectedQuantity = 15,
+            ActualQuantity = 14,
+            PenaltyFee = 5_000m,
+            ResponsibleMemberId = memberId,
+            StaffId = Guid.NewGuid(),
+            CheckedAt = DateTime.UtcNow
+        };
+
+        var sessionGame = new ActiveSessionGame
+        {
+            Id = sessionGameId,
+            ActiveSessionId = sessionId,
+            CafeInventoryBoxId = Guid.NewGuid(),
+            GameTemplateId = gameTemplateId,
+            CheckStatus = ComponentCheckStatus.MissingComponents,
+            CheckedAt = DateTime.UtcNow,
+            TotalPenaltyAmount = 5_000m,
+            ComponentCheckResults = new List<ComponentCheckResult> { checkResult }
+        };
+
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Unpaid,
+            StartedAt = DateTime.UtcNow.AddHours(-1),
+            Members = new List<ActiveSessionMember> { member },
+            Games = new List<ActiveSessionGame> { sessionGame },
+            GameTemplate = new GameTemplate { Id = gameTemplateId, Name = "Catan", PlayTime = 60 }
+        };
+
+        var cafe = new Cafe
+        {
+            Id = cafeId,
+            Name = "Test Cafe",
+            Address = "123 St",
+            BillingModel = CafePartnerBillingModel.TimeBased,
+            BasePrice = 60_000m,
+            TieredBlockMinutes = 15,
+            TieredBlockRate = 10_000m
+        };
+
+        var repo = new Mock<IActiveSessionRepository>();
+        repo.SetupSequence(r => r.GetByIdAsync(sessionId))
+            .ReturnsAsync(session)
+            .ReturnsAsync(session)
+            .ReturnsAsync(session);
+
+        var cafeRepo = new Mock<ICafeRepository>();
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(cafe);
+
+        var posRepo = new Mock<ICafePosRepository>();
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame> { sessionGame });
+
+        var depositRepo = new Mock<IBookingDepositRepository>();
+        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
+
+        var settlementService = new Mock<ISettlementService>();
+        var service = new ActiveSessionService(
+            cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object,
+            settlementService.Object, new Mock<IReservationService>().Object,
+            new Mock<ILogger<ActiveSessionService>>().Object);
+
+        // Request KHÔNG gửi PenaltyItems — penalty phải tự lấy từ persisted.
+        var request = new PaySessionRequestDto();
+
+        var result = await service.PaySessionAsync(cafeId, sessionId, request);
+
+        Assert.Equal(5_000m, result.PenaltyAmount);
+        Assert.Equal(65_000m, result.TotalAmount); // 60_000 + 5_000 - 0
+        Assert.Single(result.MemberInvoices);
+        Assert.Equal(memberId, result.MemberInvoices[0].MemberId);
+        Assert.Equal(5_000m, result.MemberInvoices[0].PenaltyAmount);
+        Assert.Single(result.MemberInvoices[0].PenaltyDetails);
+        Assert.Equal(componentId, result.MemberInvoices[0].PenaltyDetails[0].ComponentId);
+        Assert.Equal(5_000m, result.MemberInvoices[0].PenaltyDetails[0].PenaltyFee);
+    }
+
+    // Penalty #1: Khi ResponsibleMemberId null, penalty cộng vào session.PenaltyAmount
+    // nhưng KHÔNG phân bổ cho member nào (PenaltyDetails rỗng cho mọi member).
+    [Fact]
+    public async Task PaySessionAsync_PenaltyWithoutResponsibleMember_GoesToSessionTotal()
+    {
+        var cafeId = Guid.NewGuid();
+        var sessionId = Guid.NewGuid();
+        var memberId = Guid.NewGuid();
+        var componentId = Guid.NewGuid();
+        var gameTemplateId = Guid.NewGuid();
+        var sessionGameId = Guid.NewGuid();
+
+        var member = new ActiveSessionMember
+        {
+            Id = memberId,
+            UserId = Guid.NewGuid(),
+            Status = IndividualSessionStatus.Playing,
+            IsGuestSlot = false,
+            JoinedAt = DateTime.UtcNow.AddHours(-1),
+            LeftAt = DateTime.UtcNow
+        };
+
+        var componentTemplate = new GameComponentTemplate
+        {
+            Id = componentId,
+            ComponentName = "Road piece",
+            DefaultQuantity = 15
+        };
+
+        // ResponsibleMemberId = null → penalty chung vào session
+        var checkResult = new ComponentCheckResult
+        {
+            Id = Guid.NewGuid(),
+            ActiveSessionGameId = sessionGameId,
+            GameComponentTemplateId = componentId,
+            GameComponentTemplate = componentTemplate,
+            ExpectedQuantity = 15,
+            ActualQuantity = 14,
+            PenaltyFee = 5_000m,
+            ResponsibleMemberId = null, // ← key: không gán member
+            StaffId = Guid.NewGuid(),
+            CheckedAt = DateTime.UtcNow
+        };
+
+        var sessionGame = new ActiveSessionGame
+        {
+            Id = sessionGameId,
+            ActiveSessionId = sessionId,
+            CafeInventoryBoxId = Guid.NewGuid(),
+            GameTemplateId = gameTemplateId,
+            CheckStatus = ComponentCheckStatus.MissingComponents,
+            CheckedAt = DateTime.UtcNow,
+            TotalPenaltyAmount = 5_000m,
+            ComponentCheckResults = new List<ComponentCheckResult> { checkResult }
+        };
+
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Unpaid,
+            StartedAt = DateTime.UtcNow.AddHours(-1),
+            Members = new List<ActiveSessionMember> { member },
+            Games = new List<ActiveSessionGame> { sessionGame },
+            GameTemplate = new GameTemplate { Id = gameTemplateId, Name = "Catan", PlayTime = 60 }
+        };
+
+        var cafe = new Cafe
+        {
+            Id = cafeId,
+            Name = "Test Cafe",
+            Address = "123 St",
+            BillingModel = CafePartnerBillingModel.TimeBased,
+            BasePrice = 60_000m
+        };
+
+        var repo = new Mock<IActiveSessionRepository>();
+        repo.SetupSequence(r => r.GetByIdAsync(sessionId))
+            .ReturnsAsync(session)
+            .ReturnsAsync(session)
+            .ReturnsAsync(session);
+
+        var cafeRepo = new Mock<ICafeRepository>();
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(cafe);
+
+        var posRepo = new Mock<ICafePosRepository>();
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame> { sessionGame });
+
+        var depositRepo = new Mock<IBookingDepositRepository>();
+        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
+
+        var settlementService = new Mock<ISettlementService>();
+        var service = new ActiveSessionService(
+            cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object,
+            settlementService.Object, new Mock<IReservationService>().Object,
+            new Mock<ILogger<ActiveSessionService>>().Object);
+
+        var request = new PaySessionRequestDto();
+
+        var result = await service.PaySessionAsync(cafeId, sessionId, request);
+
+        Assert.Equal(5_000m, result.PenaltyAmount);
+        Assert.Equal(65_000m, result.TotalAmount);
+        // Member có PenaltyAmount = 0 (không phân bổ)
+        Assert.Single(result.MemberInvoices);
+        Assert.Equal(0m, result.MemberInvoices[0].PenaltyAmount);
+        Assert.Empty(result.MemberInvoices[0].PenaltyDetails);
+    }
+
     #endregion
 
     #region AttachGameAsync — EX-06: Extra game added without scanning

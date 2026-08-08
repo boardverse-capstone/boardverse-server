@@ -108,6 +108,15 @@ namespace BoardVerse.Services.IServices
             string userRole,
             Guid sessionGameId);
 
+        // Box history #1: trả lịch sử các lần hộp bị ghi nhận MissingComponents
+        // qua các phiên trước, kèm linh kiện thiếu + staff + member chịu trách nhiệm.
+        // Staff dùng trước khi giao hộp cho khách phiên mới.
+        Task<BoxComponentHistoryDto> GetBoxComponentHistoryAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            Guid boxId);
+
         // Return Game: tính surcharge_fine
         Task<ReturnGameResponseDto> ReturnGameAsync(
             Guid cafeId,

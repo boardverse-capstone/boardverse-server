@@ -336,13 +336,26 @@ namespace BoardVerse.Services.Services
         {
             // BR-USER-LIMIT-05: User đang host lobby ACTIVE → không được join lobby khác.
             var activeHostLobbies = await _lobbyRepository.GetActiveLobbiesByHostAsync(userId);
+            var activeMemberLobbies = await _lobbyRepository.GetActiveLobbiesByMemberAsync(userId);
+
+            // BR-USER-LIMIT-01: tổng host + member ≤ 2 active. Check tổng trước.
+            var totalActiveLobbies = activeHostLobbies.Count + activeMemberLobbies.Count;
+            if (totalActiveLobbies >= 2)
+            {
+                // Ưu tiên message host trước (cross-role nghiêm trọng hơn).
+                if (activeHostLobbies.Count > 0)
+                {
+                    throw new InvalidOperationException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
+                }
+                throw new InvalidOperationException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);
+            }
+
             if (activeHostLobbies.Count > 0)
             {
                 throw new InvalidOperationException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
             }
 
-            // BR-USER-LIMIT-01 + BR-NEW-02: Member đã có 1 lobby member active → không join thêm.
-            var activeMemberLobbies = await _lobbyRepository.GetActiveLobbiesByMemberAsync(userId);
+            // BR-USER-LIMIT-01: Member đã có 1 lobby member active → không join thêm.
             if (activeMemberLobbies.Count >= 1)
             {
                 throw new InvalidOperationException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);
@@ -960,13 +973,25 @@ namespace BoardVerse.Services.Services
 
             // L-04: BR-USER-LIMIT-04 validation cho new host — new host không được đang host lobby active khác
             var newHostActiveLobbies = await _lobbyRepository.GetActiveLobbiesByHostAsync(newHostUserId);
+            var newHostMemberLobbies = await _lobbyRepository.GetActiveLobbiesByMemberAsync(newHostUserId);
+
+            // BR-USER-LIMIT-01: tổng host + member ≤ 2 active. Check tổng trước.
+            var totalActiveLobbies = newHostActiveLobbies.Count + newHostMemberLobbies.Count;
+            if (totalActiveLobbies >= 2)
+            {
+                if (newHostActiveLobbies.Count > 0)
+                {
+                    throw new ConflictException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
+                }
+                throw new ConflictException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);
+            }
+
             if (newHostActiveLobbies.Count > 0)
             {
                 throw new ConflictException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
             }
 
             // L-04: BR-USER-LIMIT-05 validation cho new host — new host không được đang là member của lobby active khác
-            var newHostMemberLobbies = await _lobbyRepository.GetActiveLobbiesByMemberAsync(newHostUserId);
             if (newHostMemberLobbies.Count > 0)
             {
                 throw new ConflictException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);

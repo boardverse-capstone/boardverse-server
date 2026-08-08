@@ -19,6 +19,14 @@ namespace BoardVerse.Core.IRepositories
         Task<ActiveSessionGame?> GetActiveSessionGameByIdAsync(Guid sessionGameId);
         Task<IReadOnlyList<ActiveSessionGame>> GetSessionGamesAsync(Guid sessionId);
         Task<bool> IsSessionFullyCheckedAsync(Guid sessionId);
+
+        /// <summary>
+        /// Box history #1: Lấy tất cả <c>ActiveSessionGame</c> thuộc một hộp cụ thể
+        /// đã được kiểm kê với trạng thái <c>MissingComponents</c>.
+        /// Trả kèm navigation: ComponentCheckResults + GameComponentTemplate + Staff + Members.
+        /// Sắp xếp theo CheckedAt DESC (mới nhất trước).
+        /// </summary>
+        Task<IReadOnlyList<ActiveSessionGame>> GetMissingComponentIncidentsByBoxAsync(Guid boxId);
         Task<GameTemplate?> GetGameTemplateWithComponentsAsync(Guid gameTemplateId);
         Task<CafeGameComponentPenalty?> GetComponentPenaltyAsync(Guid cafeId, Guid gameTemplateId, Guid componentId);
         Task<IReadOnlyDictionary<Guid, CafeGameComponentPenalty>> GetComponentPenaltiesByCafeGameAsync(

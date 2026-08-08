@@ -21,6 +21,8 @@ public class ComponentCheckResultConfiguration : IEntityTypeConfiguration<Compon
         builder.Property(x => x.PenaltyFee)
             .HasPrecision(18, 2)
             .IsRequired();
+        builder.Property(x => x.ResponsibleMemberId)
+            .IsRequired(false);
         builder.Property(x => x.StaffId).IsRequired();
         builder.Property(x => x.CheckedAt).IsRequired();
 

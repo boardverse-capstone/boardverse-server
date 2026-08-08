@@ -270,6 +270,22 @@ namespace BoardVerse.Data.Repositories
                 .Where(g => g.ActiveSessionId == sessionId)
                 .ToListAsync();
 
+        // Box history #1: query lịch sử thiếu linh kiện của 1 hộp, kèm navigation
+        // ComponentCheckResults → GameComponentTemplate, Staff (User), ActiveSession → Members.
+        public async Task<IReadOnlyList<ActiveSessionGame>> GetMissingComponentIncidentsByBoxAsync(Guid boxId) =>
+            await _context.ActiveSessionGames
+                .Where(g => g.CafeInventoryBoxId == boxId
+                    && g.CheckStatus == ComponentCheckStatus.MissingComponents)
+                .Include(g => g.CafeInventoryBox)
+                .Include(g => g.GameTemplate)
+                .Include(g => g.ComponentCheckResults)
+                    .ThenInclude(r => r.GameComponentTemplate)
+                .Include(g => g.CheckedByStaff)
+                .Include(g => g.ActiveSession)
+                    .ThenInclude(s => s.Members)
+                .OrderByDescending(g => g.CheckedAt ?? DateTime.MinValue)
+                .ToListAsync();
+
         /// <summary>
         /// BR-12: Kiểm tra tất cả game trong session đã được kiểm tra đủ linh kiện.
         /// Returns true only if ALL session games have CheckStatus != NotChecked.
