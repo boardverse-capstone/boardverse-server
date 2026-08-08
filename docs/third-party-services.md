@@ -130,6 +130,22 @@ Chi tiết: [docs/api/sepay-webhook.md](./api/sepay-webhook.md), [docs/api/sepay
 
 ---
 
+### 4.4 Nominatim (OpenStreetMap reverse-geocoding)
+
+- **Mục đích:** Reverse-geocode tọa độ GPS thành tên Quận/Thành phố/Quốc gia cho `GET/PUT /api/userprofile/me/location` (BR-NEW-* UX).
+- **Config:** `Geocoding:*` trong `appsettings.json` (`ApiBaseUrl`, `UserAgent`, `AcceptLanguage`, `RequestTimeoutSeconds`, `MaxRetryAttempts`, `CacheTtlHours`, `CoordinateQuantization`).
+- **Code:** `IGeocodingClient` → `NominatimClient`, `IPlayerGeocodingService` → `PlayerGeocodingService`, `NominatimResponseParser` (parse JSON → `ReverseGeocodeResult`).
+- **DI:** `AddBoardVerseGeocoding(IConfiguration)` đăng ký HttpClient + cache adapter (`DistributedCacheGeocodingAdapter`).
+- **Endpoint:** `GET https://nominatim.openstreetmap.org/reverse?lat=...&lon=...&format=jsonv2&addressdetails=1&accept-language=vi`
+- **Bắt buộc:** Không — nếu service lỗi / timeout, backend vẫn lưu lat/lng và trả `hasResolvedName: false` để UI fallback về toạ độ thô.
+- **Caching:** Kết quả cache trong `IDistributedCache` (Redis prod / memory dev) theo quantized lat/lng (mặc định 0.00001 ≈ 1.1m) — TTL mặc định 30 ngày.
+- **Label persist:** Backend lưu `LastResolvedDistrict/City/Country/DisplayName` + `LastResolvedAt` lên `UserProfiles` và `PlayerLocationHistories` (audit trail). `GET /me/location` trả label đã persist → không cần gọi Nominatim nếu đã resolve trước đó.
+- **Nominatim usage policy:** Bắt buộc có `User-Agent` identifying (vd: `BoardVerse/1.0 (contact@boardverse.app)`); rate limit 1 req/s (server tự enforce, app tự cache tránh spam).
+
+Chi tiết: [docs/api/user-profile.md `GET/PUT /me/location`](./api/user-profile.md)
+
+---
+
 ## 5. Không sử dụng
 
 - Payment: Stripe, PayPal, VNPay, MoMo (chỉ dùng SePay + VietQR fallback)
@@ -137,6 +153,7 @@ Chi tiết: [docs/api/sepay-webhook.md](./api/sepay-webhook.md), [docs/api/sepay
 - Push notification: Firebase FCM, OneSignal
 - File upload / CDN: AWS S3, Cloudinary, Imgur
 - AI / LLM APIs
+- Geocoding trả phí: Google Geocoding, Mapbox (dùng Nominatim free)
 
 ---
 
@@ -146,6 +163,7 @@ Chi tiết: [docs/api/sepay-webhook.md](./api/sepay-webhook.md), [docs/api/sepay
 - `https://api.brevo.com` — Brevo email
 - `https://boardgamegeek.com/xmlapi2` — BGG game catalog
 - `https://pgapi.sepay.vn` / `https://pay.sepay.vn` — SePay payment gateway
+- `https://nominatim.openstreetmap.org` — OpenStreetMap reverse-geocoding
 - `*.aws.neon.tech` — Neon PostgreSQL
 - `<REDIS_URL host>` — Redis (tùy chọn, production)
 
@@ -187,6 +205,12 @@ Chi tiết: [docs/api/sepay-webhook.md](./api/sepay-webhook.md), [docs/api/sepay
 - **Environment:** `Test` (sandbox) / `Production`
 - **Lưu ý:** Config từ DB (`SePayAccount`) sẽ override config từ appsettings ở runtime
 
+### `Geocoding__ApiBaseUrl` / `Geocoding__UserAgent` / `Geocoding__AcceptLanguage`
+
+- **Dịch vụ:** Nominatim OpenStreetMap reverse-geocoding
+- **Bắt buộc:** Không — chỉ dùng để resolve tên Quận/Thành phố cho `PlayerLocationDto`
+- **Lưu ý:** `UserAgent` phải là string identifying (vd: `BoardVerse/1.0 (contact@...)`) theo Nominatim usage policy; rate limit 1 req/s, có cache tránh spam.
+
 ---
 
 ## 8. Ghi chú triển khai
@@ -210,4 +234,4 @@ Chi tiết: [docs/api/sepay-webhook.md](./api/sepay-webhook.md), [docs/api/sepay
 - **Authentication:** Google OAuth, JWT (nội bộ), BCrypt
 - **Storage:** Neon PostgreSQL + PostGIS, Redis (optional), không file storage bên thứ 3
 - **AI APIs:** Không
-- **Khác:** Brevo (email), BoardGameGeek API (game catalog), SePay (payment gateway)
+- **Khác:** Brevo (email), BoardGameGeek API (game catalog), SePay (payment gateway), Nominatim (reverse-geocoding)

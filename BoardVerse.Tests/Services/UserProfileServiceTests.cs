@@ -3,7 +3,9 @@ using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
+using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
+using BoardVerse.Services.Services.Geocoding;
 using Moq;
 
 namespace BoardVerse.Tests.Services;
@@ -11,7 +13,10 @@ namespace BoardVerse.Tests.Services;
 public class UserProfileServiceTests
 {
     private readonly Mock<IUserProfileRepository> _profileRepo = new();
-    private UserProfileService CreateService() => new(_profileRepo.Object);
+    private readonly Mock<IPlayerGeocodingService> _geocoding = new();
+
+    private UserProfileService CreateService() =>
+        new(_profileRepo.Object, Mock.Of<ILevelingService>(), _geocoding.Object);
 
     private static User BuildUser(Guid id, string username = "alice", UserRole role = UserRole.Player, UserProfile? profile = null)
     {

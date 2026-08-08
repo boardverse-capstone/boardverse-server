@@ -593,7 +593,6 @@ public class PaymentServiceTests
             UserId = Guid.NewGuid(),
             CafeId = cafeId ?? Guid.NewGuid(),
             CafeManagerId = Guid.NewGuid(),
-            MasterAccountId = Guid.NewGuid(),
             Amount = 50_000m,
             RefundPolicy = DepositRefundPolicy.Full,
             Status = status,

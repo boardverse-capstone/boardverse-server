@@ -242,12 +242,17 @@ Vị trí **gần nhất** đã lưu trên server — **chỉ user đăng nhập
     "longitude": 106.700806,
     "updatedAt": "2026-06-14T10:00:00Z",
     "source": "Gps",
-    "hasLocation": true
+    "hasLocation": true,
+    "district": "Quận 1",
+    "city": "TP. Hồ Chí Minh",
+    "country": "Việt Nam",
+    "displayName": "Quận 1, TP. Hồ Chí Minh, Việt Nam",
+    "hasResolvedName": true
   }
 }
 ```
 
-Chưa từng lưu → `hasLocation: false`, các field tọa độ `null`.
+Chưa từng lưu → `hasLocation: false`, các field tọa độ `null`. Đã lưu lat/lng nhưng Nominatim chưa/hoặc không thể resolve → `hasLocation: true`, `hasResolvedName: false`, `district/city/country/displayName: null`.
 
 ---
 
@@ -256,6 +261,8 @@ Chưa từng lưu → `hasLocation: false`, các field tọa độ `null`.
 Cập nhật vị trí khi app mở map / lấy GPS. Backend:
 - Ghi **LastKnown** trên `UserProfiles` (đọc nhanh)
 - Append **PlayerLocationHistories** (audit)
+- **Reverse-geocode** sang tên Quận/Thành phố/Quốc gia qua Nominatim (OpenStreetMap) và persist label
+- Cache kết quả reverse-geocode trong `IDistributedCache` (Redis prod / in-memory dev) theo quantized lat/lng — tránh spam Nominatim khi GPS dao động
 
 **Body:**
 ```json
@@ -276,6 +283,8 @@ Cập nhật vị trí khi app mở map / lấy GPS. Backend:
 **Lỗi:** `400` tọa độ ngoài [-90,90] / [-180,180].
 
 **Luồng gợi ý:** App mở → `PUT me/location` → gọi `GET /api/cafes/nearby/me?gameTemplateId=...` hoặc `GET /api/cafes/nearby?latitude=...&longitude=...&gameTemplateId=...`.
+
+> **Lưu ý:** Nếu Nominatim không khả dụng (timeout, 5xx), backend vẫn lưu lat/lng nhưng `hasResolvedName` sẽ là `false`. UI có thể hiển thị fallback `"Vị trí: 10.776889, 106.700806"` khi `hasResolvedName = false`.
 
 ---
 

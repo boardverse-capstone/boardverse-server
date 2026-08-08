@@ -34,11 +34,14 @@ public class TournamentServiceTests
     private static readonly Guid SplendorId = Guid.Parse("aaaa8888-8888-8888-8888-888888888888");
 
     private static Mock<ITournamentRepository> BuildTournamentRepo() => new(MockBehavior.Strict);
+    private static Mock<ITournamentWaitlistRepository> BuildWaitlistRepo() => new(MockBehavior.Strict);
     private static Mock<IGameTemplateRepository> BuildGameRepo() => new(MockBehavior.Strict);
     private static Mock<ICafePosRepository> BuildCafeRepo() => new(MockBehavior.Strict);
+    private static Mock<ICafeRepository> BuildCafeEntityRepo() => new(MockBehavior.Strict);
     private static Mock<IUserProfileRepository> BuildUserRepo() => new(MockBehavior.Strict);
     private static Mock<ISystemConfigurationProvider> BuildConfigRepo() => new(MockBehavior.Strict);
     private static Mock<IKarmaRatingRepository> BuildKarmaRepo() => new(MockBehavior.Strict);
+    private static Mock<IPushNotificationService> BuildPushService() => new(MockBehavior.Loose);
     private static Mock<ILogger<TournamentService>> BuildLogger() => new(MockBehavior.Loose);
 
     private static TournamentService BuildService(
@@ -48,8 +51,9 @@ public class TournamentServiceTests
         Mock<IUserProfileRepository> userRepo,
         Mock<ISystemConfigurationProvider> configRepo,
         Mock<IKarmaRatingRepository> karmaRepo)
-        => new(tournamentRepo.Object, gameRepo.Object, cafeRepo.Object,
-               userRepo.Object, configRepo.Object, karmaRepo.Object, BuildLogger().Object);
+        => new(tournamentRepo.Object, BuildWaitlistRepo().Object, gameRepo.Object, cafeRepo.Object,
+               BuildCafeEntityRepo().Object, userRepo.Object, configRepo.Object, karmaRepo.Object,
+               BuildPushService().Object, BuildLogger().Object);
 
     // ============================================
     // === Tournament lifecycle (Manager POS) ===

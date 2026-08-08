@@ -6,7 +6,9 @@ using BoardVerse.Core.Helpers;
 using BoardVerse.Core.Messages;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.IServices;
+using BoardVerse.Services.Services.Geocoding;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace BoardVerse.Services.Services
 {
@@ -14,13 +16,19 @@ namespace BoardVerse.Services.Services
     {
         private readonly IUserProfileRepository _userRepository;
         private readonly ILevelingService _levelingService;
+        private readonly IPlayerGeocodingService _geocodingService;
+        private readonly ILogger<UserProfileService> _logger;
 
         public UserProfileService(
             IUserProfileRepository userRepository,
-            ILevelingService levelingService)
+            ILevelingService levelingService,
+            IPlayerGeocodingService geocodingService,
+            ILogger<UserProfileService>? logger = null)
         {
             _userRepository = userRepository;
             _levelingService = levelingService;
+            _geocodingService = geocodingService;
+            _logger = logger!;
         }
 
         public async Task<ProfileDto> GetPublicProfileAsync(Guid userId)
@@ -315,6 +323,37 @@ namespace BoardVerse.Services.Services
                 request.Source);
             profile.UpdatedAt = DateTime.UtcNow;
 
+            // ====== Reverse-geocode (Nominatim) ======
+            // Gọi async trước khi insert history để snapshot label tại thời điểm ghi.
+            // Fail-soft: nếu Nominatim fail, vẫn lưu lat/lng bình thường,
+            // history/label để null. Không throw ra controller.
+            ReverseGeocodeResult? resolved = null;
+            try
+            {
+                resolved = await _geocodingService.ReverseGeocodeAsync(
+                    request.Latitude,
+                    request.Longitude);
+            }
+            catch (Exception ex)
+            {
+                // Log nhưng không fail request — UX quan trọng hơn việc hiển thị tên Quận.
+                _logger?.LogWarning(
+                    ex,
+                    "Reverse geocode failed for user {UserId} at ({Lat}, {Lng}); continuing without label.",
+                    userId,
+                    request.Latitude,
+                    request.Longitude);
+            }
+
+            if (resolved is not null)
+            {
+                profile.LastResolvedDistrict = resolved.District;
+                profile.LastResolvedCity = resolved.City;
+                profile.LastResolvedCountry = resolved.Country;
+                profile.LastResolvedDisplayName = resolved.DisplayName;
+                profile.LastResolvedAt = DateTime.UtcNow;
+            }
+
             await _userRepository.AddPlayerLocationHistoryAsync(new PlayerLocationHistory
             {
                 Id = Guid.NewGuid(),
@@ -322,7 +361,11 @@ namespace BoardVerse.Services.Services
                 Latitude = request.Latitude,
                 Longitude = request.Longitude,
                 Source = request.Source,
-                RecordedAt = DateTime.UtcNow
+                RecordedAt = DateTime.UtcNow,
+                ResolvedDistrict = resolved?.District,
+                ResolvedCity = resolved?.City,
+                ResolvedCountry = resolved?.Country,
+                ResolvedDisplayName = resolved?.DisplayName
             });
 
             await _userRepository.SaveChangesAsync();
@@ -343,8 +386,18 @@ namespace BoardVerse.Services.Services
             }
 
             GeoLocationHelper.ClearLastKnownLocation(profile);
+            ClearResolvedLocation(profile);
             profile.UpdatedAt = DateTime.UtcNow;
             await _userRepository.SaveChangesAsync();
+        }
+
+        private static void ClearResolvedLocation(UserProfile profile)
+        {
+            profile.LastResolvedDistrict = null;
+            profile.LastResolvedCity = null;
+            profile.LastResolvedCountry = null;
+            profile.LastResolvedDisplayName = null;
+            profile.LastResolvedAt = null;
         }
 
         private async Task<UserProfile> EnsureProfileRowAsync(User user, Guid userId)
@@ -372,13 +425,21 @@ namespace BoardVerse.Services.Services
         private static PlayerLocationDto MapToPlayerLocationDto(UserProfile? profile)
         {
             var hasLocation = profile != null && GeoLocationHelper.HasLastKnownLocation(profile);
+            var hasResolvedName = hasLocation
+                && !string.IsNullOrWhiteSpace(profile!.LastResolvedDisplayName);
+
             return new PlayerLocationDto
             {
                 Latitude = profile?.LastKnownLatitude,
                 Longitude = profile?.LastKnownLongitude,
                 UpdatedAt = profile?.LastLocationUpdatedAt,
                 Source = profile?.LastLocationSource?.ToString(),
-                HasLocation = hasLocation
+                HasLocation = hasLocation,
+                District = profile?.LastResolvedDistrict,
+                City = profile?.LastResolvedCity,
+                Country = profile?.LastResolvedCountry,
+                DisplayName = profile?.LastResolvedDisplayName,
+                HasResolvedName = hasResolvedName
             };
         }
 

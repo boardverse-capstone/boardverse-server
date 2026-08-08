@@ -43,6 +43,15 @@ namespace BoardVerse.Core.Entities
         public DateTime? LastLocationUpdatedAt { get; set; }
         public PlayerLocationSource? LastLocationSource { get; set; }
 
+        // ====== Reverse-geocode cache (Nominatim) ======
+        // Persist label lần cuối đã resolve để GET /me/location trả ngay không cần lookup lại.
+        // Background job sẽ refresh khi LastLocationUpdatedAt > LastResolvedAt + 30 ngày (BR-NEW-* UX).
+        public string? LastResolvedDistrict { get; set; }
+        public string? LastResolvedCity { get; set; }
+        public string? LastResolvedCountry { get; set; }
+        public string? LastResolvedDisplayName { get; set; }
+        public DateTime? LastResolvedAt { get; set; }
+
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
         /// <summary>
         /// Derived from <see cref="User.IsActive"/>. Do not set this directly; it is enforced by the save pipeline / service layer.

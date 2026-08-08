@@ -143,7 +143,7 @@ public class DebugSePayController : ControllerBase
         await db.Database.ExecuteSqlRawAsync($@"
             INSERT INTO ""BookingDeposits""
             (""Id"", ""ActiveSessionId"", ""Amount"", ""CafeId"", ""CafeManagerId"", ""UserId"",
-             ""CreatedAt"", ""ForfeitedAt"", ""MasterAccountId"", ""OrderId"", ""PaidAt"",
+             ""CreatedAt"", ""ForfeitedAt"", ""OrderId"", ""PaidAt"",
              ""RefundPolicy"", ""RefundedAt"", ""ReleasedAt"", ""ScheduledAt"",
              ""SePayTransactionId"", ""SePayTransferId"", ""Status"", ""TransferContent"", ""UpdatedAt"")
             VALUES
@@ -267,7 +267,7 @@ public class DebugSePayController : ControllerBase
         await db.Database.ExecuteSqlRawAsync($@"
             INSERT INTO ""BookingDeposits""
             (""Id"", ""ActiveSessionId"", ""Amount"", ""CafeId"", ""CafeManagerId"", ""UserId"",
-             ""CreatedAt"", ""ForfeitedAt"", ""MasterAccountId"", ""OrderId"", ""PaidAt"",
+             ""CreatedAt"", ""ForfeitedAt"", ""OrderId"", ""PaidAt"",
              ""RefundPolicy"", ""RefundedAt"", ""ReleasedAt"", ""ScheduledAt"",
              ""SePayTransactionId"", ""SePayTransferId"", ""Status"", ""TransferContent"", ""UpdatedAt"")
             VALUES

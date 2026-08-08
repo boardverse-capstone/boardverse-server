@@ -145,6 +145,7 @@ builder.Services.AddBoardVerseRedis(builder.Configuration);
 
 builder.Services.AddBoardVerseEmail(builder.Configuration);
 builder.Services.AddBoardVerseBgg(builder.Configuration);
+builder.Services.AddBoardVerseGeocoding(builder.Configuration); // Nominatim reverse-geocode cho PlayerLocationDto
 builder.Services.AddBoardVersePayment();
 // Reservation flow (BR §XXI-A.2..21A.6) — Phase 1 wallet đã đăng ký ở AddBoardVersePayment.
 builder.Services.AddScoped<IReservationRepository, ReservationRepository>();
