@@ -64,8 +64,10 @@ namespace BoardVerse.Core.Messages
             public const string SePayMasterAccountRetrieved = "Lấy thông tin master account SePay thành công.";
             public const string SePayAccountCreated = "Tạo tài khoản SePay thành công.";
             public const string SePayAccountUpdated = "Cập nhật tài khoản SePay thành công.";
-            public const string SePayEnvironmentUpdated = "Cập nhật môi trường SePay thành công.";
-        }
+public const string SePayEnvironmentUpdated = "Cập nhật môi trường SePay thành công.";
+
+public const string SePayQrPreviewGenerated = "Đã tạo QR test cho payment account của cafe.";
+}
 
         public static class Inventory
         {

@@ -93,11 +93,14 @@ namespace BoardVerse.Data.Configurations
             builder.ToTable("LobbyMembers");
             builder.HasKey(m => m.Id);
             builder.Property(m => m.Id).ValueGeneratedNever();
-            builder.Property(m => m.JoinedAt).IsRequired();
+builder.Property(m => m.JoinedAt).IsRequired();
             builder.Property(m => m.IsActive).IsRequired().HasDefaultValue(true);
+            // BR-REQUIRED: DB column "Status" lưu dạng varchar (đã có data string sẵn).
+            // Phải dùng HasConversion<string>() để khớp schema, không dùng int.
             builder.Property(m => m.Status)
-                 .HasConversion<int>()
-                .IsRequired();
+                 .HasConversion<string>()
+                 .HasMaxLength(20)
+                 .IsRequired();
 
             builder.HasOne(m => m.Lobby)
                 .WithMany(l => l.Members)

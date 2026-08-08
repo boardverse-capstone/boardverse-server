@@ -1200,10 +1200,26 @@ public class ReservationService : IReservationService
                 if (reservation.CurrentPlayers >= reservation.MinPlayers)
                 {
                     // Đạt minPlayers → viable/full → confirmed.
+                    // BR-NEW-11: Lobby PendingCafeApproval đã đạt minPlayers tại deadline → chuyển sang Viable.
+                    // Lý do: cafe vẫn có 24h để duyệt nhưng recruitment window đã kết thúc,
+                    // không thể block Viable transition. Nếu cafe từ chối sau đó → ProcessCafeApprovalExpiryAsync xử lý.
                     reservation.Status = ReservationStatus.Confirmed;
-                    lobby.Status = lobby.Status == LobbyStatus.PendingCafeApproval
-                        ? LobbyStatus.PendingCafeApproval
-                        : (reservation.CurrentPlayers >= reservation.MaxPlayers ? LobbyStatus.Full : LobbyStatus.Viable);
+
+                    if (reservation.CurrentPlayers >= reservation.MaxPlayers)
+                    {
+                        lobby.Status = LobbyStatus.Full;
+                    }
+                    else if (lobby.Status == LobbyStatus.PendingCafeApproval
+                             || lobby.Status == LobbyStatus.PendingActivation)
+                    {
+                        // Cafe chưa duyệt nhưng đã đạt minPlayers → Viable chờ duyệt.
+                        lobby.Status = LobbyStatus.Viable;
+                    }
+                    else
+                    {
+                        lobby.Status = LobbyStatus.Viable;
+                    }
+
                     lobby.UpdatedAt = now;
 
                     await _reservationRepository.UpdateAsync(reservation);
@@ -1211,8 +1227,8 @@ public class ReservationService : IReservationService
                     await _reservationRepository.SaveChangesAsync();
 
                     _logger.LogInformation(
-                        "Reservation confirmed at deadline. ReservationId={ReservationId}, Players={Players}",
-                        reservation.Id, reservation.CurrentPlayers);
+                        "Reservation confirmed at deadline. ReservationId={ReservationId}, Players={Players}, LobbyStatus={LobbyStatus}",
+                        reservation.Id, reservation.CurrentPlayers, lobby.Status);
                 }
                 else
                 {

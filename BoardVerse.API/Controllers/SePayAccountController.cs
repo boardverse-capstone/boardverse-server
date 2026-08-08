@@ -1,5 +1,6 @@
 using BoardVerse.API.Controllers;
 using BoardVerse.Core.DTOs.Payment;
+using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
@@ -81,11 +82,13 @@ public class SePayAccountController : BaseApiController
     }
 
     /// <summary>
-    /// Tạo SePay account mới. [Role: Admin]
+    /// Tạo SePay account đầy đủ. [Role: Admin]
+    /// Manager KHÔNG dùng endpoint này — Manager dùng <c>POST /api/sepay-accounts/my-cafe</c>
+    /// với chỉ 4 field (bank info).
     /// </summary>
-    /// <param name="request">Thông tin SePay account.</param>
+    /// <param name="request">Thông tin SePay account đầy đủ (AccountType, CafeId, bank info, SePay credentials optional).</param>
     /// <response code="201">Tạo thành công.</response>
-    /// <response code="400">Dữ liệu không hợp lệ.</response>
+    /// <response code="400">Dữ liệu không hợp lệ (vd: thiếu CafeId cho AccountType=Cafe).</response>
     /// <response code="409">Master/Cafe account đã tồn tại.</response>
     [HttpPost]
     [Authorize(Roles = "Admin")]
@@ -205,6 +208,91 @@ public class SePayAccountController : BaseApiController
             return NotFound(new { message = ApiErrorMessages.Payment.SePayCafeNotConfigured });
         }
             return this.NewResponse(200, ApiSuccessMessages.Payment.SePayAccountRetrieved, account);
+    }
+
+    /// <summary>
+    /// Tạo payment account cho cafe mà Manager đang quản lý. [Role: Manager]
+    /// <para>
+    /// Manager CHỈ CẦN cung cấp 4 field: <c>bankCode</c>, <c>accountNumber</c>, <c>accountHolder</c>, <c>environment</c> (optional).
+    /// KHÔNG cần đăng ký SePay merchant — BoardVerse sẽ tự phát hiện giao dịch vào TK ngân hàng thật của cafe
+    /// thông qua SePay webhook (bank_mode=all) và sinh VietQR từ bank info này.
+    /// </para>
+    /// <para>
+    /// Sau khi Manager tạo xong, <b>admin BoardVerse</b> vào SePay dashboard link TK ngân hàng này vào
+    /// SePay company master để webhook phát hiện được giao dịch. Bước này chỉ làm 1 lần, không cần Manager đụng.
+    /// </para>
+    /// <para>Nếu cafe đã có payment account → 409 Conflict, dùng <c>PUT /api/sepay-accounts/my-cafe</c> để cập nhật.</para>
+    /// </summary>
+    /// <param name="request">Thông tin TK ngân hàng của cafe. Cả 3 field <c>bankCode</c>, <c>accountNumber</c>, <c>accountHolder</c> đều bắt buộc.</param>
+    /// <response code="201">Tạo thành công, trả về payment account của cafe (đã mask số TK).</response>
+    /// <response code="400">Thiếu bankCode/accountNumber/accountHolder.</response>
+    /// <response code="404">Manager không quản lý cafe nào.</response>
+    /// <response code="409">Cafe đã có payment account.</response>
+    [HttpPost("my-cafe")]
+    [Authorize(Roles = "Manager")]
+    [ProducesResponseType(typeof(SePayAccountDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> CreateMyCafeAccount([FromBody] CreateCafePaymentAccountRequestDto request)
+    {
+        try
+        {
+            var account = await _sePayAccountService.CreateByManagerCafeAsync(request);
+            return CreatedAtAction(nameof(GetMyCafeAccount), new { }, account);
+        }
+        catch (ArgumentException ex)
+        {
+            return this.NewResponse(400, ex.Message, null);
+        }
+        catch (NotFoundException ex)
+        {
+            return this.NewResponse(404, ex.Message, null);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return this.NewResponse(409, ex.Message, null);
+        }
+    }
+
+    /// <summary>
+    /// Generate QR test cho Manager verify payment account. [Role: Manager]
+    /// <para>
+    /// Manager scan QR 10k → CK thử → verify SePay detect được giao dịch.
+    /// KHÔNG tạo booking/session, KHÔNG cần tạo deposit giả.
+    /// </para>
+    /// <para>
+    /// <b>Workflow test:</b><br/>
+    /// 1. Manager gọi endpoint này.<br/>
+    /// 2. Server gen VietQR URL với số tiền cố định 10.000 VND + transfer content unique.<br/>
+    /// 3. Manager mở app ngân hàng, quét QR, CK 10k với nội dung đúng.<br/>
+    /// 4. SePay webhook sẽ detect giao dịch trong 1-2 phút.<br/>
+    /// 5. Nếu KHÔNG detect được → admin BoardVerse chưa link TK vào SePay company.
+    /// </para>
+    /// </summary>
+    /// <response code="200">Trả QR URL + test transfer content + hướng dẫn.</response>
+    /// <response code="404">Manager không quản lý cafe, hoặc cafe chưa có payment account.</response>
+    /// <response code="409">Bank info trong DB thiếu (lỗi data integrity).</response>
+    [HttpGet("my-cafe/qr-preview")]
+    [Authorize(Roles = "Manager")]
+    [ProducesResponseType(typeof(CafePaymentQrPreviewDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> GetMyCafeQrPreview()
+    {
+        try
+        {
+            var preview = await _sePayAccountService.GenerateTestQrByManagerCafeAsync();
+            return this.NewResponse(200, ApiSuccessMessages.Payment.SePayQrPreviewGenerated, preview);
+        }
+        catch (NotFoundException ex)
+        {
+            return this.NewResponse(404, ex.Message, null);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return this.NewResponse(409, ex.Message, null);
+        }
     }
 
     /// <summary>

@@ -797,6 +797,21 @@ public static string SessionNotUnpaid(string current) =>
 
  public const string CafeSePayAccountNotConfigured =
  "Cafe của bạn chưa được cấu hình SePay.";
+
+ public static string CafePaymentAccountBankCodeRequired =>
+ "Cấu hình payment account cho cafe thiếu 'bankCode'.";
+
+ public static string CafePaymentAccountAccountNumberRequired =>
+ "Cấu hình payment account cho cafe thiếu 'accountNumber'.";
+
+ public static string CafePaymentAccountAccountHolderRequired =>
+ "Cấu hình payment account cho cafe thiếu 'accountHolder'.";
+
+ public static string CafePaymentAccountAlreadyExists(Guid cafeId) =>
+ $"Cafe '{cafeId}' đã có payment account. Dùng PUT /api/sepay-accounts/my-cafe để cập nhật.";
+
+ public const string SePayBankInfoIncomplete =
+ "Payment account của cafe thiếu thông tin ngân hàng (bankCode/accountNumber/accountHolder). Cập nhật lại trước khi test.";
  }
 
  public static class BoardGame

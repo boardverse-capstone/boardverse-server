@@ -6,6 +6,7 @@ using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
+using BoardVerse.Services.Services.Payments;
 using Microsoft.Extensions.Logging;
 
 namespace BoardVerse.Services.Services;
@@ -16,17 +17,20 @@ public class SePayAccountService : ISePayAccountService
     private readonly ICafeRepository _cafeRepository;
     private readonly ILogger<SePayAccountService> _logger;
     private readonly ICurrentUserService _currentUserService;
+    private readonly IVietQrClient _vietQrClient;
 
     public SePayAccountService(
         ISePayAccountRepository repository,
         ICafeRepository cafeRepository,
         ILogger<SePayAccountService> logger,
-        ICurrentUserService currentUserService)
+        ICurrentUserService currentUserService,
+        IVietQrClient vietQrClient)
     {
         _repository = repository;
         _cafeRepository = cafeRepository;
         _logger = logger;
         _currentUserService = currentUserService;
+        _vietQrClient = vietQrClient;
     }
 
     private Guid? GetCurrentUserId() => _currentUserService.GetCurrentUserId();
@@ -199,6 +203,110 @@ throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountE
 
         var account = await _repository.GetByCafeIdAsync(cafeId.Value);
         return account == null ? null : ToDto(account);
+    }
+
+    public async Task<SePayAccountDto> CreateByManagerCafeAsync(CreateCafePaymentAccountRequestDto request)
+    {
+        // 1. Lấy cafe của Manager hiện tại
+        var cafeId = await GetCurrentUserCafeIdAsync()
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.ManagerHasNoCafe);
+
+        // 2. Validate 4 field bắt buộc — fail-fast với message rõ ràng
+        if (string.IsNullOrWhiteSpace(request.BankCode))
+            throw new ArgumentException(ApiErrorMessages.Payment.CafePaymentAccountBankCodeRequired);
+        if (string.IsNullOrWhiteSpace(request.AccountNumber))
+            throw new ArgumentException(ApiErrorMessages.Payment.CafePaymentAccountAccountNumberRequired);
+        if (string.IsNullOrWhiteSpace(request.AccountHolder))
+            throw new ArgumentException(ApiErrorMessages.Payment.CafePaymentAccountAccountHolderRequired);
+
+        // 3. Kiểm tra cafe chưa có payment account (mỗi cafe chỉ có 1)
+        var existing = await _repository.GetByCafeIdAsync(cafeId);
+        if (existing != null)
+            throw new InvalidOperationException(ApiErrorMessages.Payment.CafePaymentAccountAlreadyExists(cafeId));
+
+        // 4. Tạo SePayAccount với AccountType = Cafe, KHÔNG đụng SePay credentials
+        var account = new SePayAccount
+        {
+            AccountType = SePayAccountType.Cafe,
+            CafeId = cafeId,
+            // KHÔNG set MerchantId/ApiKey/SecretKey/WebhookToken — Manager không cần đăng ký SePay.
+            // Bank info là đủ để VietQR sinh QR và SePay detect giao dịch (bank_mode=all).
+            BankCode = request.BankCode.Trim(),
+            AccountNumber = request.AccountNumber.Trim(),
+            AccountHolder = request.AccountHolder.Trim(),
+            Environment = string.IsNullOrWhiteSpace(request.Environment) ? "Production" : NormalizeEnvironment(request.Environment!),
+            IsActive = true,
+            CreatedByUserId = GetCurrentUserId()
+        };
+
+        await _repository.AddAsync(account);
+        await _repository.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "SePayAccount for cafe {CafeId} created by manager. Id={Id}, BankCode={BankCode}, ByUser={UserId}",
+            cafeId, account.Id, account.BankCode, account.CreatedByUserId);
+
+        return ToDto(account);
+    }
+
+    private static string NormalizeEnvironment(string environment)
+    {
+        var validEnvironments = new[] { "Test", "Production" };
+        var normalizedEnv = char.ToUpper(environment[0]) + environment[1..].ToLower();
+        if (!validEnvironments.Contains(normalizedEnv))
+            throw new ArgumentException(ApiErrorMessages.Payment.SePayInvalidEnvironment(environment));
+        return normalizedEnv;
+    }
+
+    public async Task<CafePaymentQrPreviewDto> GenerateTestQrByManagerCafeAsync()
+    {
+        // 1. Lấy cafe + payment account của Manager
+        var cafeId = await GetCurrentUserCafeIdAsync()
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.ManagerHasNoCafe);
+
+        var account = await _repository.GetByCafeIdAsync(cafeId)
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.CafeSePayAccountNotConfigured);
+
+        // 2. Validate bank info có đủ để gen QR
+        if (string.IsNullOrWhiteSpace(account.BankCode)
+            || string.IsNullOrWhiteSpace(account.AccountNumber)
+            || string.IsNullOrWhiteSpace(account.AccountHolder))
+        {
+            throw new InvalidOperationException(ApiErrorMessages.Payment.SePayBankInfoIncomplete);
+        }
+
+        // 3. Sinh transfer content unique để Manager dễ identify giao dịch test
+        var testContent = $"BV-TEST-{Guid.NewGuid():N}".Substring(0, 20);
+
+        // 4. Gen VietQR URL — số tiền test 10.000 VND
+        const decimal testAmount = 10_000m;
+        var qrUrl = _vietQrClient.GenerateQrUrl(
+            bankCode: account.BankCode,
+            accountNumber: account.AccountNumber,
+            amount: testAmount,
+            description: testContent,
+            accountHolder: account.AccountHolder,
+            template: "compact",
+            showInfo: true);
+
+        _logger.LogInformation(
+            "Test QR generated for cafe {CafeId}. Amount={Amount}, Content={Content}",
+            cafeId, testAmount, testContent);
+
+        return new CafePaymentQrPreviewDto
+        {
+            QrUrl = qrUrl,
+            TestAmount = testAmount,
+            TestTransferContent = testContent,
+            BankCode = account.BankCode,
+            MaskedAccountNumber = MaskAccountNumber(account.AccountNumber) ?? account.AccountNumber,
+            AccountHolder = account.AccountHolder,
+            Instructions =
+                "1. Mở app ngân hàng và quét QR trên.\n" +
+                "2. Xác nhận số tiền 10.000 VND và nội dung CK đúng như hiển thị.\n" +
+                "3. Sau khi CK thành công, SePay sẽ gửi webhook về BoardVerse trong vòng 1-2 phút.\n" +
+                "4. Nếu SePay KHÔNG detect được (không thấy log webhook), liên hệ admin để kiểm tra TK đã được link vào SePay company chưa."
+        };
     }
 
     public async Task<SePayAccountDto> UpdateByManagerCafeAsync(UpdateSePayAccountRequestDto request)

@@ -414,4 +414,62 @@ public class DepositCalculatorTests
         Assert.Throws<ArgumentException>(() =>
             _calculator.Calculate(request, config, cafeBasePrice: 100_000m, 1.0m, false, false, now));
     }
+
+    // ===== BUG REPRO: deadline calc dùng DefaultLeadTimeMinutes=20 hard-coded =====
+
+    [Fact]
+    public void Calculate_BufferMinutes_MatchesDefaultLeadTimeMinutes()
+    {
+        // Arrange: now=10:00 today, slot Morning (08:00) tomorrow
+        // scheduledTime = tomorrow 08:00
+        // deadline = 08:00 - 20 = 07:40 tomorrow → buffer = 21h40m = 1300 phút
+        var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
+        var request = BuildRequest(DateOnly.FromDateTime(now.Date).AddDays(1), slot: TimeSlot.Morning);
+        var config = BuildCafeConfig();
+
+        // Act
+        var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, 1.0m, false, false, now);
+
+        // Assert
+        Assert.Equal(1300, result.BufferMinutes); // 21h40m
+        Assert.False(result.BufferWarning);
+    }
+
+    [Fact]
+    public void Calculate_BufferMinutes_10_BelowThreshold_NoWarning()
+    {
+        // Arrange: now=18:30, slot Night (00:00 next day) same day → scheduledTime = 00:00 tomorrow
+        // deadline = 00:00 - 20 = 23:40 today → buffer = 23:40 - 18:30 = 5h10m = 310p
+        // Use slot such that scheduledTime is +5h10m + 20m = 5h30m from now → scheduledTime = now + 5h30m
+        // Use slot Evening (18:00) same day, now=12:00 → scheduledTime = 18:00
+        // deadline = 18:00 - 20 = 17:40 → buffer = 17:40 - 12:00 = 5h40m = 340p
+        // For 10p test: now=17:30, slot Evening (18:00) → buffer = 17:40 - 17:30 = 10p
+        var now = new DateTime(2026, 8, 2, 17, 30, 0, DateTimeKind.Utc);
+        var request = BuildRequest(DateOnly.FromDateTime(now.Date), slot: TimeSlot.Evening);
+        var config = BuildCafeConfig();
+
+        // Act
+        var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, 1.0m, false, false, now);
+
+        // Assert
+        Assert.Equal(10, result.BufferMinutes);
+        Assert.False(result.BufferWarning); // < 60 → reject, không warning
+    }
+
+    [Fact]
+    public void Calculate_BufferMinutes_70_RaisesWarning()
+    {
+        // Arrange: now=6:30, slot Morning (08:00) same day
+        // deadline = 08:00 - 20 = 07:40 → buffer = 70 phút
+        var now = new DateTime(2026, 8, 2, 6, 30, 0, DateTimeKind.Utc);
+        var request = BuildRequest(DateOnly.FromDateTime(now.Date), slot: TimeSlot.Morning);
+        var config = BuildCafeConfig();
+
+        // Act
+        var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, 1.0m, false, false, now);
+
+        // Assert
+        Assert.Equal(70, result.BufferMinutes);
+        Assert.True(result.BufferWarning); // 60 ≤ 70 < 120 → warning
+    }
 }
