@@ -1,5 +1,6 @@
 using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.DTOs.Session;
+using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Services.IServices
 {
@@ -9,7 +10,9 @@ namespace BoardVerse.Services.IServices
             Guid cafeId,
             Guid userId,
             string userRole,
-            bool includeOnlyAvailable = true);
+            bool includeOnlyAvailable = true,
+            bool includeInactive = false,
+            IReadOnlyCollection<CafeTableStatus>? statuses = null);
 
         /// <summary>
         /// Legacy overload — đồng bộ chỉ tên bàn (giữ nguyên SeatCount cũ, default 4 cho bàn mới).

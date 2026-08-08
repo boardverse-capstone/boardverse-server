@@ -20,10 +20,14 @@ namespace BoardVerse.API.Controllers;
 public class AdminWalletController : BaseApiController
 {
     private readonly IWalletService _walletService;
+    private readonly IBvcRefundRequestService _refundRequestService;
 
-    public AdminWalletController(IWalletService walletService)
+    public AdminWalletController(
+        IWalletService walletService,
+        IBvcRefundRequestService refundRequestService)
     {
         _walletService = walletService;
+        _refundRequestService = refundRequestService;
     }
 
     /// <summary>
@@ -171,5 +175,106 @@ public class AdminWalletController : BaseApiController
     {
         var result = await _walletService.ReconcileWalletAsync(userId);
         return NewResponse(200, "Kết quả reconcile ví BVC.", result);
+    }
+
+    // ============================================================
+    // BVC Refund Request — admin xem/xét yêu cầu hoàn (BR-RISK-05).
+    // ============================================================
+
+    /// <summary>
+    /// Admin xem danh sách yêu cầu hoàn BVC (phân trang + filter theo status, userId).
+    /// [Role: Admin]
+    /// </summary>
+    /// <param name="statusFilter">Lọc theo status (Pending/Approved/Rejected/Cancelled).</param>
+    /// <param name="userIdFilter">Lọc theo user gửi yêu cầu.</param>
+    /// <param name="page">Số trang (mặc định 1).</param>
+    /// <param name="pageSize">Số item/trang (mặc định 20, max 100).</param>
+    /// <response code="200">Danh sách refund request.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải Admin.</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpGet("refund-requests")]
+    [ProducesResponseType(typeof(RefundRequestPageDto), 200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(403)]
+    [ProducesResponseType(500)]
+    public async Task<IActionResult> GetRefundRequests(
+        [FromQuery] RefundRequestStatus? statusFilter = null,
+        [FromQuery] Guid? userIdFilter = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        var result = await _refundRequestService.GetPagedAsync(
+            statusFilter, userIdFilter, page, pageSize);
+        return NewResponse(200, "Danh sách yêu cầu hoàn BVC.", result);
+    }
+
+    /// <summary>
+    /// Admin xem chi tiết 1 yêu cầu hoàn BVC (kèm ledger entry context).
+    /// [Role: Admin]
+    /// </summary>
+    /// <param name="requestId">Id của <c>BvcRefundRequest</c>.</param>
+    /// <response code="200">Chi tiết refund request.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải Admin.</response>
+    /// <response code="404">Không tìm thấy yêu cầu.</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpGet("refund-requests/{requestId:guid}")]
+    [ProducesResponseType(typeof(RefundRequestResponseDto), 200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(403)]
+    [ProducesResponseType(typeof(object), 404)]
+    [ProducesResponseType(500)]
+    public async Task<IActionResult> GetRefundRequestDetail([FromRoute] Guid requestId)
+    {
+        var result = await _refundRequestService.GetByIdAsync(requestId);
+        if (result == null)
+        {
+            return NewResponse(404, ApiErrorMessages.Wallet.RefundRequestNotFound(requestId), null);
+        }
+        return NewResponse(200, "Chi tiết yêu cầu hoàn BVC.", result);
+    }
+
+    /// <summary>
+    /// Admin duyệt hoặc từ chối yêu cầu hoàn BVC.
+    /// Approve → tạo ledger AdminCredit + cộng ví + ghi PlayerActionHistory (BR-RISK-05).
+    /// Reject → chỉ update status + ghi PlayerActionHistory.
+    /// Idempotent theo <c>Idempotency-Key</c> header (BR § XVII.1).
+    /// [Role: Admin]
+    /// </summary>
+    /// <param name="requestId">Id của <c>BvcRefundRequest</c>.</param>
+    /// <param name="request">Decision (Approve/Reject), ApprovedAmountBvc (chỉ khi Approve), AdminNote.</param>
+    /// <param name="idempotencyKey">Header Idempotency-Key, dùng để chống trùng resolve (BR § XVII.1).</param>
+    /// <response code="200">Resolve thành công.</response>
+    /// <response code="400">Dữ liệu không hợp lệ (AdminNote &lt; 5 ký tự, ApprovedAmount ≤ 0).</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải Admin.</response>
+    /// <response code="404">Không tìm thấy yêu cầu.</response>
+    /// <response code="409">Yêu cầu đã được xử lý trước đó (không còn Pending).</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpPost("refund-requests/{requestId:guid}/resolve")]
+    [ProducesResponseType(typeof(RefundRequestResponseDto), 200)]
+    [ProducesResponseType(typeof(object), 400)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(403)]
+    [ProducesResponseType(typeof(object), 404)]
+    [ProducesResponseType(typeof(object), 409)]
+    [ProducesResponseType(500)]
+    public async Task<IActionResult> ResolveRefundRequest(
+        [FromRoute] Guid requestId,
+        [FromBody] ResolveRefundRequestDto request,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            return NewResponse(400, ApiErrorMessages.Wallet.IdempotencyKeyRequired, null);
+        }
+
+        var adminUserId = GetUserIdFromClaims();
+        var result = await _refundRequestService.ResolveAsync(
+            requestId, request, adminUserId, idempotencyKey);
+        return NewResponse(200,
+            $"Đã xử lý yêu cầu hoàn BVC '{requestId}' — kết quả: {result.Status}.",
+            result);
     }
 }

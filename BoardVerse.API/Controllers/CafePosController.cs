@@ -1,5 +1,6 @@
 using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.DTOs.Session;
+using BoardVerse.Core.Enum;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
@@ -24,19 +25,54 @@ namespace BoardVerse.API.Controllers
         /// <summary>
         /// Lấy sơ đồ bàn realtime cho Web POS. [Role: Manager — chủ quán; CafeStaff — đã gắn quán.]
         /// GAP-21 Fix: Thêm query param includeOnlyAvailable.
+        /// Mở rộng: thêm includeInactive để debug/quản lý xem cả bàn soft-deleted.
         /// </summary>
         /// <param name="cafeId">Mã định danh quán cafe.</param>
         /// <param name="includeOnlyAvailable">Mặc định true — chỉ trả bàn Available. false = trả tất cả bàn (kể cả InUse/Reserved) để POS monitor.</param>
-        /// <response code="200">Trả về danh sách bàn active kèm trạng thái (Available, InUse, Reserved, EventInProgress).</response>
+        /// <param name="includeInactive">Mặc định false — chỉ trả bàn còn IsActive=true. true = trả cả bàn soft-deleted (IsActive=false) — dùng cho debug/manager audit.</param>
+        /// <param name="statuses">Optional CSV enum filter — chỉ trả bàn có Status khớp (vd: "InUse,Reserved,EventInProgress"). Khi set, ghi đè includeOnlyAvailable.</param>
+        /// <response code="200">Trả về danh sách bàn kèm trạng thái (Available, InUse, Reserved, EventInProgress) và cờ IsActive.</response>
         /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
         /// <response code="403">Không phải Manager chủ quán hoặc CafeStaff chưa được gắn quán.</response>
         /// <response code="404">Quán không tồn tại hoặc không ở trạng thái ACTIVE.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpGet("tables")]
-        public async Task<IActionResult> GetTables(Guid cafeId, [FromQuery] bool includeOnlyAvailable = true)
+        public async Task<IActionResult> GetTables(
+            Guid cafeId,
+            [FromQuery] bool includeOnlyAvailable = true,
+            [FromQuery] bool includeInactive = false,
+            [FromQuery] string? statuses = null)
         {
             var (userId, role) = GetViewerContext();
-            var result = await _posService.GetTablesAsync(cafeId, userId, role, includeOnlyAvailable);
+
+            IReadOnlyCollection<CafeTableStatus>? statusFilter = null;
+            if (!string.IsNullOrWhiteSpace(statuses))
+            {
+                var parsed = new List<CafeTableStatus>();
+                foreach (var raw in statuses.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    if (!Enum.TryParse<CafeTableStatus>(raw, ignoreCase: true, out var s))
+                    {
+                        return this.NewResponse(400,
+                            $"Trạng thái bàn không hợp lệ: '{raw}'. Giá trị hợp lệ: {string.Join(", ", Enum.GetNames<CafeTableStatus>())}.",
+                            null);
+                    }
+                    parsed.Add(s);
+                }
+                if (parsed.Count > 0)
+                {
+                    statusFilter = parsed;
+                    includeOnlyAvailable = false; // statuses filter ghi đè behavior default
+                }
+            }
+
+            var result = await _posService.GetTablesAsync(
+                cafeId,
+                userId,
+                role,
+                includeOnlyAvailable,
+                includeInactive,
+                statusFilter);
             return this.NewResponse(200, ApiSuccessMessages.Pos.TablesRetrieved, result);
         }
 
@@ -86,7 +122,9 @@ namespace BoardVerse.API.Controllers
                 await _posService.SyncTablesAsync(cafeId, managerId, request.TableNames!);
             }
 
-            var tables = await _posService.GetTablesAsync(cafeId, managerId, "Manager");
+            // Sync endpoint trả về TOÀN BỘ bàn (kể cả InUse/Reserved) để manager thấy đúng sơ đồ mới sync.
+            // Filter available chỉ áp dụng cho màn hình POS monitor (GET /pos/tables) — không dùng cho sync response.
+            var tables = await _posService.GetTablesAsync(cafeId, managerId, "Manager", includeOnlyAvailable: false);
             return this.NewResponse(200, ApiSuccessMessages.Pos.TablesRetrieved, tables);
         }
 

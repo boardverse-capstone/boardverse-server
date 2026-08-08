@@ -294,8 +294,17 @@ public static class Auth
 
  public static class Pos
  {
- public static string AccessForbidden(Guid cafeId) =>
- $"Từ chối truy cập POS. Bạn không có quyền vận hành quán '{cafeId}'.";
+public static string AccessForbidden(Guid cafeId) =>
+            $"Từ chối truy cập POS. Bạn không có quyền vận hành quán '{cafeId}'.";
+
+        /// <summary>
+        /// Lỗi khi payload PUT /pos/tables chứa nhiều bàn có cùng <c>SortOrder</c>.
+        /// Trùng SortOrder trong payload khiến Phase 2 không match được bàn cũ theo thứ tự
+        /// và sẽ gây nhầm lẫn — phải reject ngay với 400 để FE sửa.
+        /// </summary>
+        public static string DuplicateSortOrderInPayload(string duplicates) =>
+            $"SortOrder không được trùng lặp trong payload: [{duplicates}]. " +
+            $"Vui lòng đánh số thứ tự không trùng nhau (0, 1, 2, ...).";
 
  public const string BarcodeRequired =
  "Mã vạch không được để trống.";
@@ -560,6 +569,34 @@ public static class Auth
 
  public const string TopUpIdInvalid =
  "Id đơn top-up không hợp lệ.";
+
+ // ===== BVC Refund Request (player → admin review) =====
+ public static string RefundRequestNotFound(Guid id) =>
+ $"Không tìm thấy yêu cầu hoàn BVC '{id}'.";
+
+ public const string RefundRequestNotPending =
+ "Chỉ có thể thao tác trên yêu cầu hoàn BVC đang chờ xử lý (Pending).";
+
+ public const string RefundRequestNotOwned =
+ "Bạn không có quyền thao tác trên yêu cầu hoàn BVC này.";
+
+ public const string RefundRequestInvalidAmount =
+ "Số BVC yêu cầu hoàn phải lớn hơn 0.";
+
+ public const string RefundRequestLedgerEntryNotFound =
+ "Không tìm thấy ledger entry được tham chiếu. Kiểm tra lại id từ /api/v1/wallet/transactions.";
+
+ public const string RefundRequestLedgerEntryNotOwned =
+ "Ledger entry này không thuộc tài khoản của bạn.";
+
+ public const string RefundRequestReasonTooShort =
+ "Lý do hoàn cọc phải có ít nhất 20 ký tự để admin có đủ thông tin xem xét.";
+
+ public const string RefundRequestAdminNoteRequired =
+ "Admin phải ghi chú lý do duyệt hoặc từ chối (audit).";
+
+ public static string RefundRequestApproveAmountInvalid =>
+ "Số BVC duyệt hoàn phải lớn hơn 0 khi Decision = Approve.";
 
  // ===== BookingDepositService specific =====
  public static string DepositMarkAsPaidInvalidStatus(string current) =>

@@ -58,6 +58,7 @@ namespace BoardVerse.Data
         public DbSet<Wallet> Wallets => Set<Wallet>();
         public DbSet<BvcLedgerEntry> BvcLedgerEntries => Set<BvcLedgerEntry>();
         public DbSet<BvcTopUpRequest> BvcTopUpRequests => Set<BvcTopUpRequest>();
+        public DbSet<BvcRefundRequest> BvcRefundRequests => Set<BvcRefundRequest>();
         public DbSet<PlayerActionHistory> PlayerActionHistories => Set<PlayerActionHistory>();
 
         // ===== BR-NEW-* §19: Reservation flow =====

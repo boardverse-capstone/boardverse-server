@@ -15,6 +15,9 @@ namespace BoardVerse.Services.Services.Geocoding
     /// </summary>
     public sealed class FallbackGeocodingClient : IGeocodingClient
     {
+        private const string PhotonSourceMarker = "photon";
+        private const string NominatimSourceMarker = "nominatim";
+
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly NominatimSettings _settings;
         private readonly ILogger<FallbackGeocodingClient> _logger;
@@ -34,44 +37,18 @@ namespace BoardVerse.Services.Services.Geocoding
             double longitude,
             CancellationToken cancellationToken = default)
         {
-            // Primary: Nominatim. Response chuẩn (jsonv2) — PlayerGeocodingService parse thẳng.
-            var primaryRaw = await TryCallAsync(NominatimClient.HttpClientNameValue, async client =>
-            {
-                var url = BuildNominatimUrl(latitude, longitude);
-                using var response = await client.GetAsync(url, cancellationToken);
-                if (!response.IsSuccessStatusCode)
-                {
-                    _logger.LogWarning(
-                        "Primary geocoder (Nominatim) returned HTTP {Status} for ({Lat}, {Lng})",
-                        (int)response.StatusCode,
-                        latitude,
-                        longitude);
-                    return null;
-                }
-                return await response.Content.ReadAsStringAsync(cancellationToken);
-            }, cancellationToken);
-
-            if (!string.IsNullOrWhiteSpace(primaryRaw))
-            {
-                return primaryRaw;
-            }
-
-            // Fallback: Photon. Response khác format (FeatureCollection) — caller
-            // (PlayerGeocodingService) cần parse bằng PhotonClient.ParsePhoton.
-            // Trả về wrapper JSON có key "_photon":true để caller route tới parser phù hợp.
-            _logger.LogInformation(
-                "Primary geocoder failed for ({Lat}, {Lng}); falling back to Photon",
-                latitude,
-                longitude);
-
-            var fallbackRaw = await TryCallAsync(PhotonClient.HttpClientNameValue, async client =>
+            // Primary: Photon (photon.komoot.io) — không có hard cap 1 req/s, accessible từ Render Free.
+            // Trước đây Nominatim làm primary nhưng bị rate-limit nặng ở production do
+            // (a) cache quantization quá nhỏ → miss liên tục, và
+            // (b) Render Free egress thỉnh thoảng bị Nominatim block.
+            var photonRaw = await TryCallAsync(PhotonClient.HttpClientNameValue, async client =>
             {
                 var url = $"https://photon.komoot.io/reverse?lon={longitude.ToString("F7", CultureInfo.InvariantCulture)}&lat={latitude.ToString("F7", CultureInfo.InvariantCulture)}";
                 using var response = await client.GetAsync(url, cancellationToken);
                 if (!response.IsSuccessStatusCode)
                 {
                     _logger.LogWarning(
-                        "Fallback geocoder (Photon) returned HTTP {Status} for ({Lat}, {Lng})",
+                        "Primary geocoder (Photon) returned HTTP {Status} for ({Lat}, {Lng})",
                         (int)response.StatusCode,
                         latitude,
                         longitude);
@@ -80,13 +57,41 @@ namespace BoardVerse.Services.Services.Geocoding
                 return await response.Content.ReadAsStringAsync(cancellationToken);
             }, cancellationToken);
 
-            if (string.IsNullOrWhiteSpace(fallbackRaw))
+            if (!string.IsNullOrWhiteSpace(photonRaw))
+            {
+                // Trả về JSON wrapper với marker để PlayerGeocodingService route tới Photon parser.
+                return "{\"_source\":\"" + PhotonSourceMarker + "\"," + photonRaw.TrimStart('{');
+            }
+
+            // Fallback: Nominatim. Dùng rate tier cho phép nhưng cache miss nặng vẫn dẫn tới 429.
+            _logger.LogInformation(
+                "Primary geocoder (Photon) failed for ({Lat}, {Lng}); falling back to Nominatim",
+                latitude,
+                longitude);
+
+            var nominatimRaw = await TryCallAsync(NominatimClient.HttpClientNameValue, async client =>
+            {
+                var url = BuildNominatimUrl(latitude, longitude);
+                using var response = await client.GetAsync(url, cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning(
+                        "Fallback geocoder (Nominatim) returned HTTP {Status} for ({Lat}, {Lng})",
+                        (int)response.StatusCode,
+                        latitude,
+                        longitude);
+                    return null;
+                }
+                return await response.Content.ReadAsStringAsync(cancellationToken);
+            }, cancellationToken);
+
+            if (string.IsNullOrWhiteSpace(nominatimRaw))
             {
                 return null;
             }
 
-            // Trả về JSON wrapper để PlayerGeocodingService biết dùng Photon parser.
-            return "{\"_source\":\"photon\"," + fallbackRaw.TrimStart('{');
+            // Trả về JSON wrapper với marker để PlayerGeocodingService route tới Nominatim parser.
+            return "{\"_source\":\"" + NominatimSourceMarker + "\"," + nominatimRaw.TrimStart('{');
         }
 
         private async Task<string?> TryCallAsync(

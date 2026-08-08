@@ -31,11 +31,19 @@ namespace BoardVerse.Data.Repositories
             return false;
         }
 
-        public async Task<IReadOnlyList<CafeTable>> GetActiveTablesAsync(Guid cafeId) =>
-            await _context.CafeTables
+        public async Task<IReadOnlyList<CafeTable>> GetActiveTablesAsync(Guid cafeId, bool includeInactive = false)
+        {
+            var query = _context.CafeTables
                 .AsNoTracking()
-                .Where(t => t.CafeId == cafeId && t.IsActive)
-                .ToListAsync();
+                .Where(t => t.CafeId == cafeId);
+
+            if (!includeInactive)
+            {
+                query = query.Where(t => t.IsActive);
+            }
+
+            return await query.ToListAsync();
+        }
 
         public async Task<CafeTable?> GetTableAsync(Guid cafeId, Guid tableId) =>
             await _context.CafeTables

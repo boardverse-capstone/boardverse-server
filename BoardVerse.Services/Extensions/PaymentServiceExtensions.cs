@@ -36,6 +36,10 @@ public static class PaymentServiceExtensions
         services.AddScoped<IBvcTopUpRequestRepository, BvcTopUpRequestRepository>();
         services.AddScoped<IWalletService, WalletService>();
 
+        // BVC refund request — player gửi → admin duyệt (BR-RISK-05).
+        services.AddScoped<IBvcRefundRequestRepository, BvcRefundRequestRepository>();
+        services.AddScoped<IBvcRefundRequestService, BvcRefundRequestService>();
+
         return services;
     }
 }

@@ -68,23 +68,33 @@ namespace BoardVerse.Services.Services
 
         /// <summary>
         /// GAP-21 Fix: GetTables với filter includeOnlyAvailable.
+        /// includeInactive: lấy cả bàn soft-deleted (IsActive=false). Mặc định false để khớp hành vi cũ.
+        /// statuses: nếu khác null, chỉ trả bàn có Status thuộc collection này (ghi đè includeOnlyAvailable).
         /// </summary>
         public async Task<IReadOnlyList<CafeTableStatusDto>> GetTablesAsync(
             Guid cafeId,
             Guid userId,
             string userRole,
-            bool includeOnlyAvailable = true)
+            bool includeOnlyAvailable = true,
+            bool includeInactive = false,
+            IReadOnlyCollection<CafeTableStatus>? statuses = null)
         {
             await EnsurePosAccessAsync(cafeId, userId, userRole);
 
-            var allTables = await _posRepository.GetActiveTablesAsync(cafeId);
+            var allTables = await _posRepository.GetActiveTablesAsync(cafeId, includeInactive);
 
-            // GAP-21 Fix: Nếu includeOnlyAvailable=false, trả tất cả trạng thái để POS monitor
-            var tables = includeOnlyAvailable
-                ? allTables.Where(t => t.Status == CafeTableStatus.Available).ToList()
-                : allTables.ToList();
+            IEnumerable<CafeTable> filtered = allTables;
+            if (statuses is { Count: > 0 })
+            {
+                var statusSet = new HashSet<CafeTableStatus>(statuses);
+                filtered = allTables.Where(t => statusSet.Contains(t.Status));
+            }
+            else if (includeOnlyAvailable)
+            {
+                filtered = allTables.Where(t => t.Status == CafeTableStatus.Available);
+            }
 
-            return tables
+            return filtered
                 .OrderBy(t => t.SortOrder)
                 .ThenBy(t => t.Name)
                 .Select(t => new CafeTableStatusDto
@@ -92,7 +102,9 @@ namespace BoardVerse.Services.Services
                     Id = t.Id,
                     Name = t.Name,
                     SortOrder = t.SortOrder,
-                    Status = t.Status
+                    SeatCount = t.SeatCount,
+                    Status = t.Status,
+                    IsActive = t.IsActive
                 })
                 .ToList();
         }
@@ -124,7 +136,39 @@ namespace BoardVerse.Services.Services
                 throw new ForbiddenException(ApiErrorMessages.Pos.AccessForbidden(cafeId));
             }
 
-            await _cafeRepository.SyncCafeTablesAsync(cafeId, tables);
+            try
+            {
+                await _cafeRepository.SyncCafeTablesAsync(cafeId, tables);
+            }
+            catch (ArgumentException ex) when (ex.Message.Contains("SortOrder không được trùng lặp"))
+            {
+                // GAP-XX Fix: CafeTableSyncHelper throws ArgumentException khi payload có
+                // 2 bàn cùng SortOrder. Convert thành BadRequestException (400) thay vì
+                // để bubble lên 500.
+                // ex.Message format: "SortOrder không được trùng lặp: 0, 2. Vui lòng đánh số..."
+                var duplicates = ExtractDuplicates(ex.Message);
+                throw new BadRequestException(
+                    ApiErrorMessages.Pos.DuplicateSortOrderInPayload(duplicates));
+            }
+        }
+
+        /// <summary>
+        /// Parse số SortOrder trùng từ message của helper.
+        /// Input: "SortOrder không được trùng lặp: 0, 2. Vui lòng ..."
+        /// Output: "0, 2"
+        /// </summary>
+        private static string ExtractDuplicates(string message)
+        {
+            const string marker = "SortOrder không được trùng lặp: ";
+            var startIdx = message.IndexOf(marker, StringComparison.Ordinal);
+            if (startIdx < 0)
+            {
+                return message;
+            }
+
+            var afterMarker = message[(startIdx + marker.Length)..];
+            var endIdx = afterMarker.IndexOf('.', StringComparison.Ordinal);
+            return endIdx < 0 ? afterMarker : afterMarker[..endIdx];
         }
 
         /// <summary>

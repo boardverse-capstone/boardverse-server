@@ -5,7 +5,7 @@ namespace BoardVerse.Core.IRepositories
     public interface ICafePosRepository
     {
         Task<bool> CanOperateCafeAsync(Guid cafeId, Guid userId, string userRole);
-        Task<IReadOnlyList<CafeTable>> GetActiveTablesAsync(Guid cafeId);
+        Task<IReadOnlyList<CafeTable>> GetActiveTablesAsync(Guid cafeId, bool includeInactive = false);
         Task<CafeTable?> GetTableAsync(Guid cafeId, Guid tableId);
         Task UpdateTableAsync(CafeTable table);
         Task<bool> HasActiveSessionForTableAsync(Guid cafeId, Guid tableId);

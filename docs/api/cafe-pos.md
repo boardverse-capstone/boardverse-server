@@ -40,6 +40,94 @@ API vận hành quầy: bàn, kho hộp game, phiên chơi, kiểm kê, khách v
 
 ---
 
+## GET /api/cafes/{cafeId}/pos/tables
+
+Lấy sơ đồ bàn realtime cho Web POS. Trả `CafeTableStatusDto[]` gồm `Id`, `Name`, `SortOrder`, `SeatCount`, `Status` và `IsActive`.
+
+**Role:** Manager — chủ quán; CafeStaff — đã được gắn vào quán.
+
+### Query params
+
+| Param | Type | Default | Mô tả |
+|-------|------|---------|--------|
+| `includeOnlyAvailable` | bool | `true` | Lọc theo `Status`. `false` = trả tất cả bàn (kể cả `InUse`, `Reserved`, `EventInProgress`) để màn hình POS monitor thấy đúng trạng thái từng bàn. |
+| `includeInactive` | bool | `false` | Lọc theo `IsActive` (soft-delete). `true` = trả cả bàn đã ẩn (`IsActive=false`) — dùng cho debug/manager audit. |
+| `statuses` | string CSV | — | Filter theo `Status` cụ thể, vd `statuses=InUse`, `statuses=InUse,Reserved,EventInProgress`. **Khi set, ghi đè `includeOnlyAvailable`** (luôn trả đủ các status trong list). |
+
+### Response 200
+
+```json
+{
+  "status": 200,
+  "message": "Lấy danh sách bàn thành công.",
+  "data": [
+    {
+      "id": "f1a2b3c4-...",
+      "name": "Bàn 1",
+      "sortOrder": 0,
+      "seatCount": 4,
+      "status": "Available",
+      "isActive": true
+    },
+    {
+      "id": "a9b8c7d6-...",
+      "name": "Bàn VIP",
+      "sortOrder": 5,
+      "seatCount": 8,
+      "status": "InUse",
+      "isActive": true
+    }
+  ]
+}
+```
+
+### Response 400 — invalid `statuses`
+
+Khi một giá trị trong `statuses` không parse được enum `CafeTableStatus`:
+
+```json
+{
+  "status": 400,
+  "message": "Trạng thái bàn không hợp lệ: 'Garbage'. Giá trị hợp lệ: Available, InUse, Reserved, EventInProgress.",
+  "data": null
+}
+```
+
+Giá trị hợp lệ: `Available`, `InUse`, `Reserved`, `EventInProgress`.
+
+### Ví dụ
+
+```bash
+# Lấy chỉ bàn đang có khách (InUse)
+curl -G "https://api.boardverse.local/api/cafes/{cafeId}/pos/tables" \
+     --data-urlencode "statuses=InUse" \
+     -H "Authorization: Bearer {token}"
+
+# Lấy bàn InUse + Reserved (POS monitor)
+curl -G "https://api.boardverse.local/api/cafes/{cafeId}/pos/tables" \
+     --data-urlencode "statuses=InUse,Reserved" \
+     -H "Authorization: Bearer {token}"
+
+# Audit bàn đã ẩn (soft-deleted) — manager view
+curl -G "https://api.boardverse.local/api/cafes/{cafeId}/pos/tables" \
+     --data-urlencode "includeOnlyAvailable=false" \
+     --data-urlencode "includeInactive=true" \
+     -H "Authorization: Bearer {token}"
+```
+
+### Status codes
+
+| Code | Ý nghĩa |
+|------|---------|
+| 200 | OK — trả danh sách bàn (có thể rỗng). |
+| 400 | `statuses` chứa giá trị không hợp lệ. |
+| 401 | Thiếu token, token hết hạn hoặc token không hợp lệ. |
+| 403 | Không phải Manager chủ quán hoặc CafeStaff chưa được gắn quán. |
+| 404 | Quán không tồn tại hoặc không ở trạng thái ACTIVE. |
+| 500 | Lỗi hệ thống không mong đợi. |
+
+---
+
 ## PUT /api/cafes/{cafeId}/pos/tables
 
 Đồng bộ toàn bộ sơ đồ bàn — tạo mới, đổi tên, đổi SeatCount, hoặc xóa mềm bàn không còn trong layout.

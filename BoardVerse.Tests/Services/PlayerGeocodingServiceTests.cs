@@ -41,8 +41,12 @@ public class PlayerGeocodingServiceTests
         var fakeClient = new FakeGeocodingClient(
             """{"lat":"10.0","lon":"106.0","address":{"city":"HCM"}}""");
         var cache = new InMemoryCacheAdapter();
-        // Pre-seed cache
-        var key = PlayerGeocodingService.BuildCacheKey(10.776889, 106.700806);
+        // Pre-seed cache — phải dùng cùng quantization với service settings
+        // để key khớp với key được generate trong ReverseGeocodeAsync.
+        var key = PlayerGeocodingService.BuildCacheKey(
+            10.776889,
+            106.700806,
+            TestSettings.CoordinateQuantization);
         cache.Set(key, new ReverseGeocodeResult { City = "CachedCity" }, TimeSpan.FromMinutes(10));
 
         var service = new PlayerGeocodingService(
@@ -76,10 +80,11 @@ public class PlayerGeocodingServiceTests
     }
 
     [Fact]
-    public async Task ReverseGeocodeAsync_ClientReturnsEmpty_DoesNotCacheNull()
+    public async Task ReverseGeocodeAsync_ClientReturnsEmpty_NegativeCacheSkipsSecondCall()
     {
-        // Behavior sau fix: null KHÔNG được cache để tránh poison cache 30 ngày.
-        // Mỗi request sẽ gọi lại client.
+        // Behavior sau fix: client trả null/empty → cache NEGATIVE marker 5 phút
+        // để tránh spam Nominatim/Photon khi upstream rate-limit.
+        // Call thứ 2 trong TTL window sẽ skip client hoàn toàn (trả null nhưng không call).
         var fakeClient = new FakeGeocodingClient("");
         var cache = new InMemoryCacheAdapter();
 
@@ -93,9 +98,31 @@ public class PlayerGeocodingServiceTests
         var second = await service.ReverseGeocodeAsync(10.0, 106.0);
 
         Assert.Null(first);
-        // Second call phải gọi lại client (cache không lưu null)
-        Assert.Equal(2, fakeClient.CallCount);
+        // Negative cache: call thứ 2 skip client → CallCount = 1.
+        Assert.Equal(1, fakeClient.CallCount);
         Assert.Null(second);
+    }
+
+    [Fact]
+    public async Task ReverseGeocodeAsync_ClientThrows_NegativeCacheSkipsRetry()
+    {
+        // Exception cũng trigger negative cache để không gọi lại liên tục.
+        var throwingClient = new FakeGeocodingClient(throwOnCall: true);
+        var cache = new InMemoryCacheAdapter();
+
+        var service = new PlayerGeocodingService(
+            throwingClient,
+            Options.Create(TestSettings),
+            cache,
+            NullLogger<PlayerGeocodingService>.Instance);
+
+        var first = await service.ReverseGeocodeAsync(10.0, 106.0);
+        var second = await service.ReverseGeocodeAsync(10.0, 106.0);
+
+        Assert.Null(first);
+        Assert.Null(second);
+        // Negative cache: exception lần 1 vẫn gọi client, lần 2 skip.
+        Assert.Equal(1, throwingClient.CallCount);
     }
 
     [Fact]
@@ -160,6 +187,20 @@ public class PlayerGeocodingServiceTests
         // Cách nhau ~1.1km → khác key
         var key3 = PlayerGeocodingService.BuildCacheKey(10.786889, 106.700806);
         Assert.NotEqual(key1, key3);
+    }
+
+    [Fact]
+    public void BuildCacheKey_DifferentQuantization_ProducesDifferentKey()
+    {
+        // 0.00001 (1.1m) và 0.001 (100m) phải ra khác key cho cùng coord
+        // để tránh collision giữa 2 cache instance chạy khác precision.
+        var precise = PlayerGeocodingService.BuildCacheKey(10.776889, 106.700806, 0.00001);
+        var coarse = PlayerGeocodingService.BuildCacheKey(10.776889, 106.700806, 0.001);
+
+        Assert.NotEqual(precise, coarse);
+        // Coarse key format F3: "10.777:106.701"
+        Assert.Contains("10.777", coarse);
+        Assert.Contains("106.701", coarse);
     }
 
     private sealed class FakeGeocodingClient : IGeocodingClient
