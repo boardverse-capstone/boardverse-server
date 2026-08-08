@@ -99,6 +99,57 @@ public class PlayerGeocodingServiceTests
     }
 
     [Fact]
+    public async Task ReverseGeocodeAsync_PhotonWrapper_ParsesAndStores()
+    {
+        // Wrapper {"_source":"photon", ...} do FallbackGeocodingClient chèn vào
+        // khi Nominatim fail → Photon success. Test parser route đúng.
+        var photonWrapper = """
+        {"_source":"photon","type":"FeatureCollection","features":[{"type":"Feature","properties":{"osm_id":123,"city":"Thành phố Hồ Chí Minh","district":"Quận 1","country":"Việt Nam","countrycode":"vn"}}]}
+        """;
+
+        var fakeClient = new FakeGeocodingClient(photonWrapper);
+        var cache = new InMemoryCacheAdapter();
+
+        var service = new PlayerGeocodingService(
+            fakeClient,
+            Options.Create(TestSettings),
+            cache,
+            NullLogger<PlayerGeocodingService>.Instance);
+
+        var result = await service.ReverseGeocodeAsync(10.7769, 106.7008);
+
+        Assert.NotNull(result);
+        Assert.Equal("Quận 1", result!.District);
+        Assert.Equal("Thành phố Hồ Chí Minh", result.City);
+        Assert.Equal("Việt Nam", result.Country);
+    }
+
+    [Fact]
+    public async Task ReverseGeocodeAsync_PhotonWrapper_FieldInMiddle_StillParses()
+    {
+        // Wrapper có thể có field "_source" ở giữa (không phải đầu tiên), vẫn phải parse được.
+        // Dùng JSON parser để strip an toàn thay vì string IndexOf.
+        var photonWrapper = """
+        {"type":"FeatureCollection","_source":"photon","features":[{"properties":{"city":"Hà Nội","country":"Việt Nam"}}]}
+        """;
+
+        var fakeClient = new FakeGeocodingClient(photonWrapper);
+        var cache = new InMemoryCacheAdapter();
+
+        var service = new PlayerGeocodingService(
+            fakeClient,
+            Options.Create(TestSettings),
+            cache,
+            NullLogger<PlayerGeocodingService>.Instance);
+
+        var result = await service.ReverseGeocodeAsync(21.0285, 105.8542);
+
+        Assert.NotNull(result);
+        Assert.Equal("Hà Nội", result!.City);
+        Assert.Equal("Việt Nam", result.Country);
+    }
+
+    [Fact]
     public void BuildCacheKey_QuantizesCoordinates()
     {
         // Hai toạ độ cách nhau ~0.5m vẫn ra cùng key

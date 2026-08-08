@@ -84,14 +84,53 @@ namespace BoardVerse.Services.Services.Geocoding
             // → nhận diện bằng field "_source" ngay đầu object.
             if (raw.Contains("\"_source\":\"photon\"", StringComparison.Ordinal))
             {
-                // Strip wrapper — chỉ giữ JSON gốc của Photon để PhotonClient.ParsePhoton xử lý.
-                var innerStart = raw.IndexOf('{', raw.IndexOf("\"_source\"", StringComparison.Ordinal));
-                if (innerStart > 0)
+                // Dùng JSON parser để strip wrapper an toàn — không phụ thuộc vị trí `{`.
+                try
                 {
-                    var inner = raw[innerStart..];
-                    return PhotonClient.ParsePhoton(inner);
+                    using var doc = System.Text.Json.JsonDocument.Parse(raw);
+                    if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object)
+                    {
+                        return null;
+                    }
+
+                    // Tạo object mới không có field "_source" → chính là JSON gốc của Photon.
+                    using var ms = new System.IO.MemoryStream();
+                    using (var writer = new System.Text.Json.Utf8JsonWriter(ms))
+                    {
+                        writer.WriteStartObject();
+                        foreach (var prop in doc.RootElement.EnumerateObject())
+                        {
+                            if (prop.NameEquals("_source"))
+                            {
+                                continue;
+                            }
+                            prop.WriteTo(writer);
+                        }
+                        writer.WriteEndObject();
+                    }
+                    ms.Position = 0;
+                    using var photonDoc = System.Text.Json.JsonDocument.Parse(ms);
+                    var photonJson = photonDoc.RootElement.GetRawText();
+                    return PhotonClient.ParsePhoton(photonJson);
                 }
-                return null;
+                catch (System.Text.Json.JsonException)
+                {
+                    // Fallback: regex cắt thủ công nếu parse fail.
+                    var marker = "\"_source\":\"photon\"";
+                    var idx = raw.IndexOf(marker, StringComparison.Ordinal);
+                    if (idx > 0)
+                    {
+                        // Wrapper shape: {"_source":"photon", <photon-json>}
+                        // Tìm dấu `,` đầu tiên SAU marker → bỏ prefix.
+                        var commaIdx = raw.IndexOf(',', idx);
+                        if (commaIdx > 0)
+                        {
+                            var inner = raw[(commaIdx + 1)..].TrimStart();
+                            return PhotonClient.ParsePhoton(inner);
+                        }
+                    }
+                    return null;
+                }
             }
 
             return NominatimResponseParser.Parse(raw);
