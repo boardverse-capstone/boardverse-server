@@ -39,8 +39,18 @@ namespace BoardVerse.Services.Extensions
                 }
             });
 
+            // Photon fallback (komoot.io) — không cần UA, thường accessible từ Render Free.
+            services.AddHttpClient(PhotonClient.HttpClientNameValue, client =>
+            {
+                client.Timeout = TimeSpan.FromSeconds(5);
+                client.DefaultRequestVersion = HttpVersion.Version11;
+                client.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("BoardVerse/1.0 (contact@boardverse.app)");
+                client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("vi");
+            });
+
             services.AddSingleton<IMemoryCacheGeocoding, DistributedCacheGeocodingAdapter>();
-            services.AddScoped<IGeocodingClient, NominatimClient>();
+            services.AddScoped<IGeocodingClient, FallbackGeocodingClient>();
             services.AddScoped<IPlayerGeocodingService, PlayerGeocodingService>();
 
             return services;

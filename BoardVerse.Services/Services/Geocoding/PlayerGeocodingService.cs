@@ -55,7 +55,7 @@ namespace BoardVerse.Services.Services.Geocoding
                 return null;
             }
 
-            var parsed = NominatimResponseParser.Parse(raw);
+            var parsed = ParseAnyResponse(raw);
 
             // Only cache successful (non-null) results.
             // Caching null would poison the cache for 30 days, causing all subsequent
@@ -67,6 +67,34 @@ namespace BoardVerse.Services.Services.Geocoding
             }
 
             return parsed;
+        }
+
+        /// <summary>
+        /// Route response tới parser phù hợp dựa trên wrapper <c>"_source":"photon"</c>
+        /// do <see cref="FallbackGeocodingClient"/> chèn vào khi dùng Photon fallback.
+        /// </summary>
+        private static ReverseGeocodeResult? ParseAnyResponse(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return null;
+            }
+
+            // FallbackGeocodingClient trả wrapper {"_source":"photon", "features":[...]}
+            // → nhận diện bằng field "_source" ngay đầu object.
+            if (raw.Contains("\"_source\":\"photon\"", StringComparison.Ordinal))
+            {
+                // Strip wrapper — chỉ giữ JSON gốc của Photon để PhotonClient.ParsePhoton xử lý.
+                var innerStart = raw.IndexOf('{', raw.IndexOf("\"_source\"", StringComparison.Ordinal));
+                if (innerStart > 0)
+                {
+                    var inner = raw[innerStart..];
+                    return PhotonClient.ParsePhoton(inner);
+                }
+                return null;
+            }
+
+            return NominatimResponseParser.Parse(raw);
         }
 
         /// <summary>

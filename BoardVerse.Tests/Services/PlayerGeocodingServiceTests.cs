@@ -76,8 +76,10 @@ public class PlayerGeocodingServiceTests
     }
 
     [Fact]
-    public async Task ReverseGeocodeAsync_ClientReturnsEmpty_StoresNullInCache()
+    public async Task ReverseGeocodeAsync_ClientReturnsEmpty_DoesNotCacheNull()
     {
+        // Behavior sau fix: null KHÔNG được cache để tránh poison cache 30 ngày.
+        // Mỗi request sẽ gọi lại client.
         var fakeClient = new FakeGeocodingClient("");
         var cache = new InMemoryCacheAdapter();
 
@@ -91,8 +93,8 @@ public class PlayerGeocodingServiceTests
         var second = await service.ReverseGeocodeAsync(10.0, 106.0);
 
         Assert.Null(first);
-        // Second call should hit cache (null was cached)
-        Assert.Equal(1, fakeClient.CallCount);
+        // Second call phải gọi lại client (cache không lưu null)
+        Assert.Equal(2, fakeClient.CallCount);
         Assert.Null(second);
     }
 
