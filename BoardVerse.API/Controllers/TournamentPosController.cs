@@ -157,6 +157,25 @@ public class TournamentPosController : BaseApiController
     }
 
     /// <summary>
+    /// Gia hạn đăng ký thêm thời gian khi sắp hết hạn nhưng chưa đủ người.
+    /// Chỉ áp dụng khi đang ở RegistrationOpen. [Role: Manager]
+    /// </summary>
+    /// <param name="tournamentId">Mã giải đấu.</param>
+    /// <response code="200">Gia hạn đăng ký thành công.</response>
+    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+    /// <response code="403">Không phải Manager của cafe.</response>
+    /// <response code="404">Không tìm thấy giải.</response>
+    /// <response code="409">Giải không ở trạng thái RegistrationOpen.</response>
+    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+    [HttpPost("{tournamentId:guid}/extend-registration")]
+    public async Task<IActionResult> ExtendRegistration(Guid tournamentId)
+    {
+        var managerId = GetUserIdFromClaims();
+        var result = await _tournamentService.ExtendRegistrationAsync(managerId, tournamentId);
+        return this.NewResponse(200, ApiSuccessMessages.Tournament.RegistrationExtended, result);
+    }
+
+    /// <summary>
     /// Bắt đầu giải đấu: tự động ghép bàn Swiss round 1. [Role: Manager]
     /// </summary>
     /// <param name="tournamentId">Mã giải đấu.</param>
@@ -173,6 +192,29 @@ public class TournamentPosController : BaseApiController
         var managerId = GetUserIdFromClaims();
         var result = await _tournamentService.StartTournamentAsync(managerId, tournamentId);
         return this.NewResponse(200, ApiSuccessMessages.Tournament.Started, result);
+    }
+
+    /// <summary>
+    /// Bắt đầu giải với options override (partial start, reduced rounds). Dùng khi số người
+    /// không đạt MinParticipants nhưng Manager muốn vẫn tiến hành. [Role: Manager]
+    /// </summary>
+    /// <param name="tournamentId">Mã giải đấu.</param>
+    /// <param name="request">Options: AllowPartialStart, ReducedRounds, AutoShortenMode (Auto/Manual), Reason.</param>
+    /// <response code="200">Bắt đầu thành công.</response>
+    /// <response code="400">Options không hợp lệ hoặc thiếu Reason khi AllowPartialStart=true.</response>
+    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+    /// <response code="403">Không phải Manager của cafe.</response>
+    /// <response code="404">Không tìm thấy giải.</response>
+    /// <response code="409">Trạng thái giải không cho phép.</response>
+    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+    [HttpPost("{tournamentId:guid}/start-with-options")]
+    public async Task<IActionResult> StartTournamentWithOptions(
+        Guid tournamentId,
+        [FromBody] StartTournamentOptionsDto request)
+    {
+        var managerId = GetUserIdFromClaims();
+        var result = await _tournamentService.StartTournamentWithOptionsAsync(managerId, tournamentId, request);
+        return this.NewResponse(200, ApiSuccessMessages.Tournament.StartedWithOptions, result);
     }
 
     /// <summary>
@@ -274,6 +316,32 @@ public class TournamentPosController : BaseApiController
         var managerId = GetUserIdFromClaims();
         var result = await _tournamentService.MarkNoShowAsync(managerId, tournamentId, participantId);
         return this.NewResponse(200, ApiSuccessMessages.Tournament.ParticipantStatusUpdated, result);
+    }
+
+    /// <summary>
+    /// Manager xóa (kick) 1 participant khỏi tournament (BR-MGR-KICK-01). Set status = Withdrawn,
+    /// audit log reason. Không thể kick khi đã check-in/active/finished. [Role: Manager]
+    /// </summary>
+    /// <param name="tournamentId">Mã giải đấu.</param>
+    /// <param name="participantId">Mã participant.</param>
+    /// <param name="request">Lý do kick (bắt buộc, dùng để audit).</param>
+    /// <response code="200">Kick participant thành công.</response>
+    /// <response code="400">Thiếu lý do kick.</response>
+    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+    /// <response code="403">Không phải Manager của cafe.</response>
+    /// <response code="404">Không tìm thấy giải hoặc participant.</response>
+    /// <response code="409">Participant đã check-in / tournament terminal.</response>
+    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+    [HttpPost("{tournamentId:guid}/participants/{participantId:guid}/kick")]
+    public async Task<IActionResult> KickParticipant(
+        Guid tournamentId,
+        Guid participantId,
+        [FromBody] KickTournamentParticipantRequestDto request)
+    {
+        var managerId = GetUserIdFromClaims();
+        var result = await _tournamentService.ManagerKickParticipantAsync(
+            managerId, tournamentId, participantId, request.Reason);
+        return this.NewResponse(200, "Đã kick participant khỏi giải đấu.", result);
     }
 
     // === Match endpoints ===
@@ -468,4 +536,11 @@ public class TournamentPosController : BaseApiController
         var result = await _tournamentService.ClearRoundPairingsAsync(managerId, tournamentId, roundNumber);
         return this.NewResponse(200, ApiSuccessMessages.Tournament.PairingsUpdated, result);
     }
+}
+
+/// <summary>Request body cho TournamentPosController.KickParticipant.</summary>
+public class KickTournamentParticipantRequestDto
+{
+    /// <summary>Lý do kick (bắt buộc, dùng để audit).</summary>
+    public string Reason { get; set; } = string.Empty;
 }

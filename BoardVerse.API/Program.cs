@@ -358,15 +358,37 @@ builder.Services.AddSwaggerGen(options =>
     }
 });
 
-// Add CORS if needed
+// Add CORS — whitelist domain từ config (P0-Fix-#2).
+// Trước đây: AllowAnyOrigin + JWT auth → CSRF + bypass.
+// Sau: đọc Cors:AllowedOrigins từ appsettings; nếu rỗng thì chỉ cho localhost (dev) hoặc báo lỗi (prod).
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    ?? Array.Empty<string>();
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", policy =>
+    if (allowedOrigins.Length > 0)
     {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
-    });
+        options.AddPolicy("DefaultWeb", policy =>
+        {
+            policy.WithOrigins(allowedOrigins)
+                  .AllowAnyMethod()
+                  .AllowAnyHeader()
+                  .AllowCredentials(); // cho SignalR
+        });
+    }
+    else
+    {
+        // Fallback dev-only policy: chỉ localhost. Production phải set Cors:AllowedOrigins.
+        options.AddPolicy("DefaultWeb", policy =>
+        {
+            policy.SetIsOriginAllowed(origin =>
+                builder.Environment.IsDevelopment()
+                && (origin.StartsWith("http://localhost", StringComparison.OrdinalIgnoreCase)
+                    || origin.StartsWith("https://localhost", StringComparison.OrdinalIgnoreCase)))
+                .AllowAnyMethod()
+                .AllowAnyHeader()
+                .AllowCredentials();
+        });
+    }
 });
 
 var app = builder.Build();
@@ -424,15 +446,24 @@ if (enableSwagger)
     });
 }
 
-app.UseCors("AllowAll");
+app.UseCors("DefaultWeb");
 
-// Serve static HTML test pages
-app.UseDefaultFiles();
-app.UseStaticFiles(new StaticFileOptions
+// Serve static HTML test pages from a dedicated wwwroot folder.
+// P0-Fix-#1: KHÔNG mount thư mục CHA project (lộ appsettings.json, .git/, source code).
+var wwwrootPath = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+if (Directory.Exists(wwwrootPath))
 {
-    FileProvider = new PhysicalFileProvider(Path.Combine(app.Environment.ContentRootPath, "..")),
-    RequestPath = "/test"
-});
+    app.UseDefaultFiles(new DefaultFilesOptions
+    {
+        FileProvider = new PhysicalFileProvider(wwwrootPath),
+        DefaultFileNames = new List<string> { "index.html" }
+    });
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new PhysicalFileProvider(wwwrootPath),
+        RequestPath = ""
+    });
+}
 
 // Register exception middleware so every response uses the unified shape
 app.UseMiddleware<BoardVerse.API.Middleware.ApiExceptionMiddleware>();

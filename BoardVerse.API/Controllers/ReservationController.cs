@@ -160,7 +160,8 @@ public class ReservationController : BaseApiController
     /// <response code="403">Không phải manager của bất kỳ cafe nào.</response>
     /// <response code="500">Lỗi hệ thống.</response>
     [HttpGet("pending-cafe-approval")]
-    [Authorize(Roles = "Manager,Staff")]
+    // P0-Fix-#5: "Staff" không tồn tại trong UserRole enum → dùng "CafeStaff" theo BoardVerse.Core/Enum/UserRole.cs.
+    [Authorize(Roles = "Manager,CafeStaff")]
     public async Task<IActionResult> GetPendingCafeApprovals([FromQuery] LobbyPendingApprovalRequestDto request)
     {
         var userId = GetUserIdFromClaims();
@@ -178,7 +179,8 @@ public class ReservationController : BaseApiController
     /// <response code="404">Không tìm thấy reservation hoặc reservation không ở trạng thái PendingCafeApproval.</response>
     /// <response code="500">Lỗi hệ thống.</response>
     [HttpGet("{reservationId:guid}/cafe-approval")]
-    [Authorize(Roles = "Manager,Staff")]
+    // P0-Fix-#5: "Staff" không tồn tại trong UserRole enum → dùng "CafeStaff".
+    [Authorize(Roles = "Manager,CafeStaff")]
     public async Task<IActionResult> GetPendingCafeApprovalDetail(Guid reservationId)
     {
         var userId = GetUserIdFromClaims();
@@ -238,7 +240,8 @@ public class ReservationController : BaseApiController
     /// <response code="404">Không tìm thấy reservation.</response>
     /// <response code="500">Lỗi hệ thống.</response>
     [HttpPost("{reservationId:guid}/cafe-approval")]
-    [Authorize(Roles = "Manager,Staff")]
+    // P0-Fix-#5: "Staff" không tồn tại trong UserRole enum → dùng "CafeStaff".
+    [Authorize(Roles = "Manager,CafeStaff")]
     public async Task<IActionResult> CafeApproval(
         Guid reservationId,
         [FromBody] CafeApprovalRequestDto request)

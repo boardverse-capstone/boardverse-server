@@ -120,3 +120,26 @@ public class SetEnvironmentRequestDto
 {
     public string Environment { get; set; } = null!;
 }
+
+/// <summary>
+/// Admin lookup: Tra cứu BookingDeposit theo SePayTransactionId.
+/// Bao gồm thông tin deposit + booking + cafe + status để debug webhook mismatch.
+/// </summary>
+public class SePayTransactionLookupDto
+{
+    public Guid DepositId { get; set; }
+    public string OrderId { get; set; } = string.Empty;
+    public Guid? BookingId { get; set; }
+    public Guid? ActiveSessionId { get; set; }
+    public Guid CafeId { get; set; }
+    public string? CafeName { get; set; }
+    public Guid UserId { get; set; }
+    public decimal Amount { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public string? SePayTransactionId { get; set; }
+    public string? SePayTransferId { get; set; }
+    public DateTime? PaidAt { get; set; }
+    public DateTime? RefundedAt { get; set; }
+    public DateTime? ForfeitedAt { get; set; }
+    public DateTime CreatedAt { get; set; }
+}

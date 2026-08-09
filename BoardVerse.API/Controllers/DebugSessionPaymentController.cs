@@ -180,11 +180,16 @@ public class DebugSessionPaymentController : ControllerBase
         }
         catch (Exception ex)
         {
+            // P0-Fix-#7: KHÔNG lộ internal details (exception type + inner exception message)
+            // có thể chứa DB/provider/implementation details. Log đầy đủ phía server,
+            // trả về generic message cho client.
+            _logger.LogError(ex,
+                "[DebugSessionPayment] Create session payment failed. SessionId={SessionId}",
+                request.SessionId);
             return StatusCode(500, new
             {
-                error = ex.GetType().Name,
-                message = ex.Message,
-                inner = ex.InnerException?.Message
+                error = "InternalError",
+                message = "Không thể tạo thanh toán phiên chơi. Vui lòng kiểm tra log server."
             });
         }
     }
@@ -264,13 +269,16 @@ public class DebugSessionPaymentController : ControllerBase
 
     /// <summary>
     /// Health check: endpoint có khả dụng không.
+    /// P0-Fix-#7: gate cả Ping endpoint — trước đây không có gate nên lộ env name ở Production.
     /// </summary>
     [HttpGet("ping")]
     public IActionResult Ping()
     {
+        if (!IsDebugEnabled()) return NotFound();
+
         return Ok(new
         {
-            enabled = IsDebugEnabled(),
+            enabled = true,
             env = _env.EnvironmentName,
             timestamp = DateTime.UtcNow
         });

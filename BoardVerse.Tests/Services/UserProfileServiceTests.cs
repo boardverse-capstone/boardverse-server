@@ -325,6 +325,8 @@ public class UserProfileServiceTests
         var userId = Guid.NewGuid();
         var user = new User { Id = userId, Username = "alice", Email = "a@b.test", Role = UserRole.Player };
         _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId)).ReturnsAsync(user);
+        _profileRepo.Setup(r => r.GetKarmaLogsAsync(userId, It.IsAny<int>()))
+            .ReturnsAsync(new List<KarmaLog>());
 
         var svc = CreateService();
 

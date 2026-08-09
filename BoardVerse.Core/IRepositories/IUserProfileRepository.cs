@@ -28,14 +28,20 @@ namespace BoardVerse.Core.IRepositories
 
         Task<long> CountActiveEloUsersAsync();
 
-        /// <summary>Compute the rank of a single user for either karma or elo.</summary>
+        // === K-06: Level leaderboard (BR-K-06 level) ===
+        Task<IReadOnlyList<LeaderboardRankRow>> GetLevelLeaderboardAsync(int offset, int limit);
+
+        Task<long> CountActiveLevelUsersAsync();
+
+        /// <summary>Compute the rank of a single user for karma, elo, or level.</summary>
         Task<LeaderboardRankRow?> GetUserRankAsync(Guid userId, LeaderboardMetric metric);
     }
 
     public enum LeaderboardMetric
     {
         Karma = 0,
-        Elo = 1
+        Elo = 1,
+        Level = 2
     }
 
     /// <summary>Shared shape returned by both karma/elo leaderboard queries.</summary>

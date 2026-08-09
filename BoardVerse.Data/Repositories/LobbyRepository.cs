@@ -27,6 +27,30 @@ namespace BoardVerse.Data.Repositories
                 .FirstOrDefaultAsync(l => l.Id == lobbyId);
         }
 
+        /// <summary>
+        /// H4: Lấy lobby + khóa row (SELECT ... FOR UPDATE) — dùng trong transaction JoinLobby
+        /// để chống race condition khi nhiều request join đồng thời vượt MaxMembers (BR-07).
+        /// Caller phải đang trong một transaction (BeginTransactionAsync đã được gọi).
+        /// </summary>
+        public async Task<Lobby?> GetByIdForUpdateAsync(Guid lobbyId)
+        {
+            return await _db.Lobbies
+                .FromSqlRaw("SELECT * FROM \"Lobbies\" WHERE \"Id\" = {0} FOR UPDATE", lobbyId)
+                .Include(l => l.Members)
+                .AsSplitQuery()
+                .FirstOrDefaultAsync();
+        }
+
+        /// <summary>
+        /// H4: Bắt đầu transaction cho JoinLobby atomic guard.
+        /// Pattern copy từ IActiveSessionRepository / ActiveSessionRepository.
+        /// </summary>
+        public async Task<IDatabaseTransactionContext> BeginTransactionAsync(CancellationToken cancellationToken = default)
+        {
+            var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
+            return new EfTransactionContextAdapter(tx);
+        }
+
         public async Task<Lobby?> GetByActiveSessionIdAsync(Guid activeSessionId)
         {
             return await _db.Lobbies

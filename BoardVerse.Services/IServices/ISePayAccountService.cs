@@ -38,5 +38,12 @@ namespace BoardVerse.Services.IServices
 
         Task<SePayAccountDto> UpdateByManagerCafeAsync(UpdateSePayAccountRequestDto request);
         Task<SePayAccountDto> SetEnvironmentByManagerCafeAsync(string environment);
+
+        /// <summary>
+        /// Admin: Tra cứu BookingDeposit theo SePayTransactionId (mã giao dịch ngân hàng).
+        /// Trả về thông tin deposit + booking + cafe liên kết. Dùng khi support khách hàng
+        /// hoặc debug webhook mismatch. Trả null nếu không tìm thấy.
+        /// </summary>
+        Task<SePayTransactionLookupDto?> LookupBySePayTransactionIdAsync(string sePayTransactionId);
     }
 }

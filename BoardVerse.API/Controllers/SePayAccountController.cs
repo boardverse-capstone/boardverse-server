@@ -348,4 +348,32 @@ public class SePayAccountController : BaseApiController
     }
 
     #endregion
+
+    /// <summary>
+    /// Admin tra cứu SePay transaction theo mã giao dịch ngân hàng (SePayTransactionId).
+    /// Dùng khi support khách hàng hoặc debug webhook không match. [Role: Admin]
+    /// </summary>
+    /// <param name="sePayTransactionId">Mã giao dịch SePay (thường do SePay gửi về trong webhook).</param>
+    /// <response code="200">Tìm thấy BookingDeposit khớp.</response>
+    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+    /// <response code="403">Tài khoản không có quyền Admin.</response>
+    /// <response code="404">Không tìm thấy BookingDeposit với transactionId này.</response>
+    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+    [HttpGet("lookup/transaction/{sePayTransactionId}")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> LookupBySePayTransactionId(string sePayTransactionId)
+    {
+        if (string.IsNullOrWhiteSpace(sePayTransactionId))
+        {
+            throw new BadRequestException("sePayTransactionId là bắt buộc.");
+        }
+
+        var lookup = await _sePayAccountService.LookupBySePayTransactionIdAsync(sePayTransactionId);
+        if (lookup == null)
+        {
+            throw new NotFoundException(
+                $"Không tìm thấy BookingDeposit với SePayTransactionId='{sePayTransactionId}'.");
+        }
+        return this.NewResponse(200, "Tra cứu SePay transaction thành công.", lookup);
+    }
 }

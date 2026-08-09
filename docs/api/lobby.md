@@ -149,6 +149,13 @@ Tham gia phòng chờ. Hệ thống kiểm tra:
 - `409` — Phòng đã đầy / đã tham gia / không đủ Karma
 - `500` — Lỗi hệ thống
 
+**Concurrency (H4 — fix 2026-08-09):**
+- Endpoint wrap transaction và lock row lobby qua `SELECT ... FOR UPDATE` (PostgreSQL).
+- Đảm bảo 2 request `join` đồng thời không thể cùng vượt `MaxMembers` (BR-07).
+- Trước fix: read không lock → race condition → lobby có thể vượt `MaxMembers`.
+- Pattern copy từ `ActiveSessionService.PaySessionAsync` (null-safe cho unit test mock).
+- Helper: `LobbyRepository.GetByIdForUpdateAsync(lobbyId)` + `BeginTransactionAsync()`.
+
 **Side effect:**
 - Broadcast SignalR `MemberJoined` cho cả lobby
 - Nếu vừa đủ → broadcast `LobbyFull`

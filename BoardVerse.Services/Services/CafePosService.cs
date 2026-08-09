@@ -1210,6 +1210,34 @@ namespace BoardVerse.Services.Services
                     $"Kết quả kiểm tra chứa component ID trùng lặp: {string.Join(", ", duplicateIds)}");
             }
 
+            // H8 Fix: Bắt buộc staff nhập ActualQuantity cho TẤT CẢ components của game.
+            // Trước đây: component thiếu entry trong request.Results → mặc định actualQty=0
+            // → trigger penalty mất (0 < expectedQty) → phạt nhầm khi staff lỡ quên nhập.
+            var missingComponentIds = components
+                .Select(c => c.Id)
+                .Where(id => !request.Results.Any(r => r.ComponentId == id))
+                .ToList();
+            if (missingComponentIds.Count > 0)
+            {
+                var missingNames = components
+                    .Where(c => missingComponentIds.Contains(c.Id))
+                    .Select(c => c.ComponentName)
+                    .ToList();
+                throw new BadRequestException(
+                    $"Thiếu kết quả kiểm tra cho {missingComponentIds.Count} linh kiện: {string.Join(", ", missingNames)}. Vui lòng nhập đầy đủ ActualQuantity cho mọi linh kiện.");
+            }
+
+            // H8 Fix: cấm ActualQuantity âm (sai validation từ client).
+            var negativeQtyIds = request.Results
+                .Where(r => r.ActualQuantity < 0)
+                .Select(r => r.ComponentId)
+                .ToList();
+            if (negativeQtyIds.Count > 0)
+            {
+                throw new BadRequestException(
+                    $"ActualQuantity phải >= 0 cho mọi linh kiện. Các ID vi phạm: {string.Join(", ", negativeQtyIds)}");
+            }
+
             decimal totalPenalty = 0;
             var resultLookup = request.Results.ToDictionary(r => r.ComponentId, r => r.ActualQuantity);
 

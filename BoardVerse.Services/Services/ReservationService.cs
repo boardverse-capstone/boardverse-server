@@ -51,6 +51,7 @@ public class ReservationService : IReservationService
     private readonly IScheduleResolver _scheduleResolver;
     private readonly ILogger<ReservationService> _logger;
     private readonly TimeProvider _timeProvider;
+    private readonly IBookingRatingService _bookingRatingService;
 
     public ReservationService(
         BoardVerseDbContext db,
@@ -71,7 +72,8 @@ public class ReservationService : IReservationService
         EligibilityValidator eligibilityValidator,
         IScheduleResolver scheduleResolver,
         ILogger<ReservationService> logger,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IBookingRatingService bookingRatingService)
     {
         _db = db;
         _walletService = walletService;
@@ -92,6 +94,7 @@ public class ReservationService : IReservationService
         _scheduleResolver = scheduleResolver;
         _logger = logger;
         _timeProvider = timeProvider;
+        _bookingRatingService = bookingRatingService;
     }
 
     // ===== 21A.2 QUOTE =====
@@ -926,9 +929,12 @@ public class ReservationService : IReservationService
             await ReleaseInventoriesAsync(reservation, now);
 
             // Tính refund policy (BR-REFUND-02/03).
+            // H7 Fix: hasMembers phải check "có member khác host đã tham gia" chứ không phải tổng số row.
+            // Trước đây `members.Count > 1` đếm cả host → sai khi host có 2 bản ghi hoặc soft-delete không đúng.
+            // BR-REFUND-03 áp dụng khi CHƯA có thành viên nào tham gia = non-host & IsActive.
             var members = await _lobbyRepository.GetMembersAsync(lobby.Id);
             var minutesSinceCreated = (now - reservation.CreatedAt).TotalMinutes;
-            var hasMembers = members.Count > 1;
+            var hasMembers = members.Any(m => !m.IsHost && m.IsActive);
 
             var refundPolicy = ComputeRefundPolicy(
                 reservation.ScheduledTime,
@@ -1984,6 +1990,13 @@ public class ReservationService : IReservationService
             try
             {
                 await ExecuteCompleteAndCaptureTransactionAsync(reservation, activeSessionId, now, ct);
+
+                // GAP-KARMA-AGGREGATE fix: Sau khi capture BVC thành công → tự động aggregate
+                // cross-rating + no-show Karma (theo docs/api/booking.md §Aggregate Karma).
+                // BookingService.CheckOutAsync đã deprecated; aggregate phải chạy ở đây.
+                // Wrap try/catch riêng — aggregate fail KHÔNG block capture (đã commit).
+                await TriggerKarmaAggregationAsync(lobbyId, activeSessionId, ct);
+
                 return;
             }
             catch (DbUpdateException dbx) when (IsSerializationFailure(dbx) && attempt < maxRetries)
@@ -2001,6 +2014,64 @@ public class ReservationService : IReservationService
 
         throw new InternalServerErrorException(
             $"Không thể capture BVC cho lobby '{lobbyId}' sau {maxRetries} lần thử.");
+    }
+
+    /// <summary>
+    /// GAP-KARMA-AGGREGATE: Sau khi capture BVC thành công → trigger
+    /// <see cref="IBookingRatingService.AggregateBookingOutcomesAsync"/> để:
+    /// 1. Cross-rating Karma delta (attitude/sportsmanship/punctuality).
+    /// 2. No-show confirmed penalty + forfeit deposit.
+    /// 3. Idempotent — chỉ xử lý rows chưa aggregate (IsAggregated = false).
+    ///
+    /// Lookup chain: LobbyId → Lobby.BookingId (= BookingDeposit.Id) → BookingDeposit.BookingId (= Booking.Id).
+    /// Skip nếu booking không tồn tại (walk-in, chưa link với Booking entity).
+    /// Aggregate fail KHÔNG throw — chỉ log warning. Capture BVC là critical, aggregate là nice-to-have.
+    /// </summary>
+    private async Task TriggerKarmaAggregationAsync(Guid lobbyId, Guid activeSessionId, CancellationToken ct)
+    {
+        try
+        {
+            var bookingDeposit = await _db.BookingDeposits
+                .AsNoTracking()
+                .FirstOrDefaultAsync(bd => bd.Id == _db.Lobbies
+                    .Where(l => l.Id == lobbyId)
+                    .Select(l => l.BookingId)
+                    .FirstOrDefault(), ct);
+
+            if (bookingDeposit == null)
+            {
+                _logger.LogInformation(
+                    "TriggerKarmaAggregationAsync: LobbyId={LobbyId} không liên kết BookingDeposit → skip aggregate.",
+                    lobbyId);
+                return;
+            }
+
+            if (!bookingDeposit.BookingId.HasValue)
+            {
+                _logger.LogInformation(
+                    "TriggerKarmaAggregationAsync: BookingDepositId={DepositId} không liên kết Booking → skip aggregate.",
+                    bookingDeposit.Id);
+                return;
+            }
+
+            var bookingId = bookingDeposit.BookingId.Value;
+            var result = await _bookingRatingService.AggregateBookingOutcomesAsync(bookingId);
+
+            _logger.LogInformation(
+                "TriggerKarmaAggregationAsync: BookingId={BookingId} → processed {Ratings} ratings, " +
+                "{NoShows} no-shows, {Forfeits} deposits forfeited, totalKarmaDelta={Delta}.",
+                bookingId, result.RatingsProcessed, result.NoShowConfirmedMembers.Count,
+                result.ForfeitedDepositIds.Count, result.TotalKarmaDelta);
+        }
+        catch (Exception ex)
+        {
+            // Non-critical: aggregate fail không block check-out flow.
+            // Có thể re-run thủ công qua admin endpoint hoặc chờ scheduler (nếu có).
+            _logger.LogWarning(ex,
+                "TriggerKarmaAggregationAsync failed cho LobbyId={LobbyId}, ActiveSessionId={ActiveSessionId}. " +
+                "Capture BVC vẫn thành công nhưng Karma aggregation bị skip — cần re-run thủ công.",
+                lobbyId, activeSessionId);
+        }
     }
 
     // ===== GET LIST / DETAIL =====

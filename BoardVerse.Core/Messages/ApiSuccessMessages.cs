@@ -104,6 +104,7 @@ public const string SePayQrPreviewGenerated = "Đã tạo QR test cho payment ac
             public const string LobbiesRetrieved = "Lấy danh sách phòng chờ thành công.";
             public const string LobbyClosed = "Đóng phòng chờ thành công.";
             public const string KarmaRatingWindowOpened = "Mở cửa sổ đánh giá karma thành công.";
+            public const string ShareCodeRegenerated = "Tạo mã chia sẻ mới thành công.";
         }
 
         public static class Session

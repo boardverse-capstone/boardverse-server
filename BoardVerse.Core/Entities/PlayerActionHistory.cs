@@ -23,8 +23,11 @@ public class PlayerActionHistory
     /// <summary>Lý do admin ghi (audit).</summary>
     public string Reason { get; set; } = string.Empty;
 
-    /// <summary>JSON snapshot metadata: before/after values, signals, etc.</summary>
-    public JsonDocument? Metadata { get; set; }
+    /// <summary>
+    /// JSON snapshot metadata: before/after values, signals, etc.
+    /// Lưu dưới dạng string để EF Core map sang Postgres JSONB column.
+    /// </summary>
+    public string? Metadata { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

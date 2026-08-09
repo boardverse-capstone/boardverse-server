@@ -417,6 +417,25 @@ namespace BoardVerse.API.Controllers
             var result = await _lobbyMessageService.GetMessagesAsync(lobbyId, beforeCursor, limit);
             return this.NewResponse(200, "Lấy lịch sử tin nhắn.", result);
         }
+
+        /// <summary>
+        /// L-03: Host tạo lại mã chia sẻ (invalidate mã cũ, sinh mã mới unique).
+        /// Dùng khi mã bị leak hoặc muốn reset. Chỉ áp dụng khi lobby đang Open hoặc Full. [Role: Player — chỉ Host]
+        /// </summary>
+        /// <param name="lobbyId">Mã phòng chờ.</param>
+        /// <response code="200">Đã tạo mã chia sẻ mới, trả về thông tin lobby kèm ShareCode mới.</response>
+        /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+        /// <response code="403">Không phải Host.</response>
+        /// <response code="404">Không tìm thấy lobby.</response>
+        /// <response code="409">Lobby không trong trạng thái cho phép (Open/Full).</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpPost("{lobbyId:guid}/share-code/regenerate")]
+        public async Task<IActionResult> RegenerateShareCode(Guid lobbyId)
+        {
+            var userId = GetUserIdFromClaims();
+            var result = await _lobbyService.RegenerateShareCodeAsync(lobbyId, userId);
+            return this.NewResponse(200, ApiSuccessMessages.Lobby.ShareCodeRegenerated, result);
+        }
     }
 
     public class CloseLobbyRequestDto

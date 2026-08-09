@@ -28,6 +28,11 @@ public interface ITournamentService
     // === Player: Register / Withdraw / Check-in ===
     Task<TournamentParticipantResponseDto> RegisterAsync(Guid tournamentId, Guid userId);
     Task<TournamentParticipantResponseDto> WithdrawRegistrationAsync(Guid tournamentId, Guid userId);
+
+    /// <summary>Manager xóa (kick) 1 participant khỏi tournament (BR-MGR-KICK-01).</summary>
+    Task<TournamentParticipantResponseDto> ManagerKickParticipantAsync(
+        Guid managerId, Guid tournamentId, Guid participantId, string reason);
+
     Task<IReadOnlyList<TournamentParticipantResponseDto>> GetParticipantsAsync(Guid tournamentId);
 
     // === Player: Personal data ===

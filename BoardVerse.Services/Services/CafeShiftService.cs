@@ -67,14 +67,46 @@ public class CafeShiftService : ICafeShiftService
         return MapToDto(shift);
     }
 
-    public async Task<CafeShiftResponseDto?> GetCurrentShiftAsync(Guid cafeId)
+    // P0-Fix-#6: validate caller có quyền xem shift của cafe hay không.
+    // Admin có thể xem tất cả. Manager/CafeStaff phải thuộc cafe đó.
+    private async Task EnsureCallerCanReadCafeShiftsAsync(Guid cafeId, Guid callerUserId, bool isAdmin)
     {
+        if (isAdmin) return;
+
+        // Manager: cafe.ManagerId == callerUserId
+        var cafe = await _cafeRepository.GetByIdAsync(cafeId);
+        if (cafe == null)
+        {
+            throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
+        }
+
+        if (cafe.ManagerId == callerUserId)
+        {
+            return;
+        }
+
+        // CafeStaff: có dòng trong CafeStaff với cafeId + staffUserId
+        var isStaff = await _cafeRepository.IsStaffMemberExistsAsync(cafeId, callerUserId);
+        if (isStaff)
+        {
+            return;
+        }
+
+        throw new ForbiddenException(ApiErrorMessages.Cafe.ManagerForbidden(cafeId));
+    }
+
+    public async Task<CafeShiftResponseDto?> GetCurrentShiftAsync(Guid cafeId, Guid callerUserId, bool isAdmin)
+    {
+        await EnsureCallerCanReadCafeShiftsAsync(cafeId, callerUserId, isAdmin);
+
         var shift = await _shiftRepository.GetCurrentOpenShiftAsync(cafeId);
         return shift == null ? null : MapToDto(shift);
     }
 
-    public async Task<CafeShiftHistoryResponseDto> GetShiftHistoryAsync(Guid cafeId, int page, int pageSize)
+    public async Task<CafeShiftHistoryResponseDto> GetShiftHistoryAsync(Guid cafeId, int page, int pageSize, Guid callerUserId, bool isAdmin)
     {
+        await EnsureCallerCanReadCafeShiftsAsync(cafeId, callerUserId, isAdmin);
+
         var shifts = await _shiftRepository.GetHistoryAsync(cafeId, page, pageSize);
         var totalCount = await _shiftRepository.GetHistoryCountAsync(cafeId);
 

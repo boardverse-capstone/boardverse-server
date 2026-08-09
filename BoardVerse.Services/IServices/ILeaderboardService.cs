@@ -25,5 +25,12 @@ namespace BoardVerse.Services.IServices
         /// </summary>
         Task<LeaderboardPagedDto<EloLeaderboardEntryDto>> GetEloLeaderboardPagedAsync(
             int offset, int limit, Guid? viewerUserId);
+
+        /// <summary>
+        /// K-06: Level leaderboard with paging (offset/limit) and optional viewer rank lookup.
+        /// Sắp xếp theo Level DESC, CurrentExp DESC, Username ASC.
+        /// </summary>
+        Task<LeaderboardPagedDto<LeaderboardEntryDto>> GetLevelLeaderboardPagedAsync(
+            int offset, int limit, Guid? viewerUserId);
     }
 }

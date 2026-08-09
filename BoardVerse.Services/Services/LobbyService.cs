@@ -172,42 +172,138 @@ namespace BoardVerse.Services.Services
 
         public async Task<LobbyResponseDto> JoinLobbyAsync(Guid lobbyId, Guid userId)
         {
-            var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
-                ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
-
-            if (lobby.Status != LobbyStatus.Open)
+            // H4: SELECT ... FOR UPDATE để chống race condition khi nhiều request JoinLobby đồng thời.
+            // Trước đây: chỉ check count trên snapshot không lock → có thể vượt MaxMembers (BR-07).
+            // Pattern copy từ ActiveSessionService.PaySessionAsync (null-safe cho unit test mock).
+            await using var dbTx = await TryBeginTransactionAsync();
+            try
             {
-                throw new ConflictException(ApiErrorMessages.Reservation.LobbyNotOpen);
-            }
+                // Lock row lobby (PostgreSQL FOR UPDATE). Caller phải trong transaction.
+                var lobby = await _lobbyRepository.GetByIdForUpdateAsync(lobbyId)
+                    ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
 
-            // Nếu private → kiểm tra invite hoặc membership trước khi cho join
-            if (lobby.IsPrivate)
-            {
-                var isMember = lobby.Members.Any(m => m.UserId == userId && m.IsActive);
-                var acceptedInvite = await _lobbyInviteRepository.GetAcceptedInviteAsync(lobbyId, userId);
-                if (!isMember && acceptedInvite == null)
+                if (lobby.Status != LobbyStatus.Open)
                 {
-                    throw new ForbiddenException(ApiErrorMessages.LobbyInvite.PrivateLobbyRequiresInvite);
+                    throw new ConflictException(ApiErrorMessages.Reservation.LobbyNotOpen);
                 }
-            }
 
-            var now = DateTime.UtcNow;
+                // Nếu private → kiểm tra invite hoặc membership trước khi cho join
+                if (lobby.IsPrivate)
+                {
+                    var isMember = lobby.Members.Any(m => m.UserId == userId && m.IsActive);
+                    var acceptedInvite = await _lobbyInviteRepository.GetAcceptedInviteAsync(lobbyId, userId);
+                    if (!isMember && acceptedInvite == null)
+                    {
+                        throw new ForbiddenException(ApiErrorMessages.LobbyInvite.PrivateLobbyRequiresInvite);
+                    }
+                }
 
-            // L-02: Kiểm tra inactive member TRƯỚC — nếu user đã rời lobby trước đó thì reactivate
-            // thay vì throw duplicate. (Fix: thứ tự đúng là inactive → active)
-            var inactiveMember = lobby.Members.FirstOrDefault(m => m.UserId == userId && !m.IsActive);
-            if (inactiveMember != null)
-            {
-                inactiveMember.IsActive = true;
-                inactiveMember.Status = LobbyMemberStatus.Joined;
-                inactiveMember.JoinedAt = now;
-                inactiveMember.LeftAt = null;
+                var now = DateTime.UtcNow;
+
+                // L-02: Kiểm tra inactive member TRƯỚC — nếu user đã rời lobby trước đó thì reactivate
+                // thay vì throw duplicate. (Fix: thứ tự đúng là inactive → active)
+                var inactiveMember = lobby.Members.FirstOrDefault(m => m.UserId == userId && !m.IsActive);
+                if (inactiveMember != null)
+                {
+                    inactiveMember.IsActive = true;
+                    inactiveMember.Status = LobbyMemberStatus.Joined;
+                    inactiveMember.JoinedAt = now;
+                    inactiveMember.LeftAt = null;
+
+                    lobby.UpdatedAt = now;
+
+                    var filledToMaxActiveMembers = lobby.Members.Count(m => m.IsActive) >= lobby.MaxMembers;
+                    if (filledToMaxActiveMembers)
+                    {
+                        if (lobby.Status != LobbyStatus.Full)
+                        {
+                            lobby.FullAt = DateTime.UtcNow;
+                        }
+                        lobby.Status = LobbyStatus.Full;
+                    }
+
+                    await _lobbyRepository.SaveChangesAsync();
+
+                    await _lobbyMessageService.AddSystemMessageAsync(lobby.Id, $"Thành viên đã quay trở lại phòng.");
+
+                    await _hubService.NotifyMemberJoined(lobby.Id, new LobbyMemberDto
+                    {
+                        Id = inactiveMember.Id,
+                        UserId = userId,
+                        JoinedAt = now,
+                        IsActive = true,
+                        IsHost = inactiveMember.IsHost
+                    });
+
+                    if (filledToMaxActiveMembers)
+                    {
+                        await _hubService.NotifyLobbyFull(lobby.Id);
+                    }
+
+                    if (dbTx != null)
+                    {
+                        await dbTx.CommitAsync();
+                    }
+
+                    return MapLobbyDto(lobby, null);
+                }
+
+                // Chỉ throw duplicate khi user đang là active member (không phải inactive)
+                if (lobby.Members.Any(m => m.UserId == userId && m.IsActive))
+                {
+                    throw new ConflictException(ApiErrorMessages.Lobby.MemberAlreadyInLobby);
+                }
+
+                // BR-LOBBY-01: chặn join sau recruitmentDeadline.
+                if (lobby.RecruitmentDeadline.HasValue && now > lobby.RecruitmentDeadline.Value)
+                {
+                    throw new ConflictException(ApiErrorMessages.Reservation.LobbyExpired);
+                }
+
+                if (lobby.Members.Count(m => m.IsActive) >= lobby.MaxMembers)
+                {
+                    throw new ConflictException(ApiErrorMessages.Reservation.LobbyFull);
+                }
+
+                // BR-07
+                if (lobby.SeatCount.HasValue && lobby.Members.Count(m => m.IsActive) >= lobby.SeatCount.Value)
+                {
+                    throw new ConflictException(ApiErrorMessages.Lobby.SeatInventoryFull);
+                }
+
+                // BR-10: Karma filter — validate Karma của member so với minKarmaScore của lobby.
+                if (lobby.MinKarmaScore.HasValue)
+                {
+                    var userWithProfile = await _userManagementRepository.GetByIdWithProfileAsync(userId);
+                    var memberKarma = userWithProfile?.Profile?.KarmaPoints ?? 0;
+                    if (memberKarma < lobby.MinKarmaScore.Value)
+                    {
+                        throw new ForbiddenException(
+                            ApiErrorMessages.Reservation.KarmaRequirementNotMet(lobby.MinKarmaScore.Value, memberKarma));
+                    }
+                }
+
+                // BR-USER-LIMIT-* + BR-RISK-04: validate member có đủ điều kiện join không.
+                await ValidateMemberEligibilityAsync(userId, lobby, now);
+
+                var newMember = new LobbyMember
+                {
+                    Id = Guid.NewGuid(),
+                    LobbyId = lobby.Id,
+                    UserId = userId,
+                    IsHost = false,
+                    IsActive = true,
+                    Status = LobbyMemberStatus.Joined,
+                    JoinedAt = now
+                };
+                lobby.Members.Add(newMember);
 
                 lobby.UpdatedAt = now;
 
-                var filledToMaxActiveMembers = lobby.Members.Count(m => m.IsActive) >= lobby.MaxMembers;
-                if (filledToMaxActiveMembers)
+                var filledToMax = lobby.Members.Count(m => m.IsActive) >= lobby.MaxMembers;
+                if (filledToMax)
                 {
+                    // BR-LOBBY-READY-03: ghi nhận mốc FullAt khi chuyển sang Full để scheduler biết đếm 20p.
                     if (lobby.Status != LobbyStatus.Full)
                     {
                         lobby.FullAt = DateTime.UtcNow;
@@ -217,112 +313,59 @@ namespace BoardVerse.Services.Services
 
                 await _lobbyRepository.SaveChangesAsync();
 
-                await _lobbyMessageService.AddSystemMessageAsync(lobby.Id, $"Thành viên đã quay trở lại phòng.");
+                // System message
+                await _lobbyMessageService.AddMemberJoinedMessageAsync(lobby.Id, userId);
 
+                // Auto-cancel các invite còn Pending cho user này
+                await _lobbyInviteRepository.CancelPendingForLobbyAndInviteeAsync(lobbyId, userId);
+
+                // Realtime: broadcast MemberJoined + LobbyFull
                 await _hubService.NotifyMemberJoined(lobby.Id, new LobbyMemberDto
                 {
-                    Id = inactiveMember.Id,
+                    Id = newMember.Id,
                     UserId = userId,
                     JoinedAt = now,
                     IsActive = true,
-                    IsHost = inactiveMember.IsHost
+                    IsHost = false
                 });
 
-                if (filledToMaxActiveMembers)
+                if (filledToMax)
                 {
                     await _hubService.NotifyLobbyFull(lobby.Id);
                 }
 
+                if (dbTx != null)
+                {
+                    await dbTx.CommitAsync();
+                }
+
                 return MapLobbyDto(lobby, null);
             }
-
-            // Chỉ throw duplicate khi user đang là active member (không phải inactive)
-            if (lobby.Members.Any(m => m.UserId == userId && m.IsActive))
+            catch
             {
-                throw new ConflictException(ApiErrorMessages.Lobby.MemberAlreadyInLobby);
-            }
-
-            // BR-LOBBY-01: chặn join sau recruitmentDeadline.
-            if (lobby.RecruitmentDeadline.HasValue && now > lobby.RecruitmentDeadline.Value)
-            {
-                throw new ConflictException(ApiErrorMessages.Reservation.LobbyExpired);
-            }
-
-            if (lobby.Members.Count(m => m.IsActive) >= lobby.MaxMembers)
-            {
-                throw new ConflictException(ApiErrorMessages.Reservation.LobbyFull);
-            }
-
-            // BR-07
-            if (lobby.SeatCount.HasValue && lobby.Members.Count(m => m.IsActive) >= lobby.SeatCount.Value)
-            {
-                throw new ConflictException(ApiErrorMessages.Lobby.SeatInventoryFull);
-            }
-
-            // BR-10: Karma filter — validate Karma của member so với minKarmaScore của lobby.
-            if (lobby.MinKarmaScore.HasValue)
-            {
-                var userWithProfile = await _userManagementRepository.GetByIdWithProfileAsync(userId);
-                var memberKarma = userWithProfile?.Profile?.KarmaPoints ?? 0;
-                if (memberKarma < lobby.MinKarmaScore.Value)
+                if (dbTx != null)
                 {
-                    throw new ForbiddenException(
-                        ApiErrorMessages.Reservation.KarmaRequirementNotMet(lobby.MinKarmaScore.Value, memberKarma));
+                    await dbTx.RollbackAsync();
                 }
+                throw;
             }
+        }
 
-            // BR-USER-LIMIT-* + BR-RISK-04: validate member có đủ điều kiện join không.
-            await ValidateMemberEligibilityAsync(userId, lobby, now);
-
-            var newMember = new LobbyMember
+        // H4: null-safe transaction helper, pattern copy từ ActiveSessionService.TryBeginTransactionAsync.
+        private async Task<IDatabaseTransactionContext?> TryBeginTransactionAsync()
+        {
+            try
             {
-                Id = Guid.NewGuid(),
-                LobbyId = lobby.Id,
-                UserId = userId,
-                IsHost = false,
-                IsActive = true,
-                Status = LobbyMemberStatus.Joined,
-                JoinedAt = now
-            };
-            lobby.Members.Add(newMember);
-
-            lobby.UpdatedAt = now;
-
-            var filledToMax = lobby.Members.Count(m => m.IsActive) >= lobby.MaxMembers;
-            if (filledToMax)
-            {
-                // BR-LOBBY-READY-03: ghi nhận mốc FullAt khi chuyển sang Full để scheduler biết đếm 20p.
-                if (lobby.Status != LobbyStatus.Full)
-                {
-                    lobby.FullAt = DateTime.UtcNow;
-                }
-                lobby.Status = LobbyStatus.Full;
+                return await _lobbyRepository.BeginTransactionAsync();
             }
-
-            await _lobbyRepository.SaveChangesAsync();
-
-            // System message
-            await _lobbyMessageService.AddMemberJoinedMessageAsync(lobby.Id, userId);
-
-            // Auto-cancel các invite còn Pending cho user này
-            await _lobbyInviteRepository.CancelPendingForLobbyAndInviteeAsync(lobbyId, userId);
-
-            // Realtime: broadcast MemberJoined + LobbyFull
-            await _hubService.NotifyMemberJoined(lobby.Id, new LobbyMemberDto
+            catch (InvalidOperationException)
             {
-                Id = newMember.Id,
-                UserId = userId,
-                JoinedAt = now,
-                IsActive = true,
-                IsHost = false
-            });
-
-            if (filledToMax)
-            {
-                await _hubService.NotifyLobbyFull(lobby.Id);
+                return null;
             }
-
-            return MapLobbyDto(lobby, null);
+            catch (NotImplementedException)
+            {
+                return null;
+            }
         }
 
         /// <summary>
@@ -1032,7 +1075,7 @@ namespace BoardVerse.Services.Services
 
             if (lobby.Status != LobbyStatus.Open && lobby.Status != LobbyStatus.Full)
             {
-                throw new ConflictException(ApiErrorMessages.Lobby.CannotSwitchHostWhenClosed);
+                throw new ConflictException(ApiErrorMessages.Lobby.CannotRegenerateShareCodeWhenClosed);
             }
 
             var oldCode = lobby.ShareCode;

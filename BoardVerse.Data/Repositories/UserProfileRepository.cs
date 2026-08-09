@@ -159,6 +159,44 @@ namespace BoardVerse.Data.Repositories
                 .LongCountAsync();
         }
 
+        public async Task<IReadOnlyList<LeaderboardRankRow>> GetLevelLeaderboardAsync(int offset, int limit)
+        {
+            if (offset < 0) offset = 0;
+            if (limit <= 0) limit = 1;
+
+            // Primary sort: Level DESC, Exp DESC (người chơi cao level + nhiều exp hơn xếp trước).
+            // Tie-break: Username ASC.
+            var query =
+                from u in _context.Users
+                join p in _context.UserProfiles on u.Id equals p.UserId
+                where u.IsActive && p.IsActive
+                orderby p.Level descending, p.CurrentExp descending, u.Username ascending
+                select new LeaderboardRankRow
+                {
+                    UserId = u.Id,
+                    Username = u.Username,
+                    DisplayName = p.FirstName == null && p.LastName == null
+                        ? null
+                        : $"{p.FirstName} {p.LastName}".Trim(),
+                    AvatarUrl = p.AvatarUrl,
+                    KarmaPoints = p.KarmaPoints,
+                    GlobalElo = p.GlobalElo,
+                    Level = p.Level,
+                    GamerTier = p.GamerTier
+                };
+
+            return await query.Skip(offset).Take(limit).ToListAsync();
+        }
+
+        public async Task<long> CountActiveLevelUsersAsync()
+        {
+            return await _context.Users
+                .Where(u => u.IsActive)
+                .Join(_context.UserProfiles.Where(p => p.IsActive),
+                    u => u.Id, p => p.UserId, (u, p) => new { u, p })
+                .LongCountAsync();
+        }
+
         public async Task<LeaderboardRankRow?> GetUserRankAsync(Guid userId, LeaderboardMetric metric)
         {
             // Base projection reused for both metrics.

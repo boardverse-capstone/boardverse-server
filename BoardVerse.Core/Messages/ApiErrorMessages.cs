@@ -1828,6 +1828,9 @@ $"Direction không hợp lệ. Giá trị hợp lệ: {validValues}";
  public const string CannotSwitchHostWhenClosed =
  "Chỉ chuyển host được khi phòng đang mở hoặc đầy.";
 
+ public const string CannotRegenerateShareCodeWhenClosed =
+ "Chỉ tạo lại mã chia sẻ khi phòng đang mở hoặc đầy.";
+
  public const string NotCurrentHost =
  "Bạn không phải Host hiện tại của phòng này.";
 
@@ -2360,6 +2363,24 @@ public static class Reservation
 
  public static string WalkInClosedAfterRoundOne =>
  "Vòng 1 của giải đã hoàn thành. Không thể thêm khách vãng lai. Hãy đăng ký giải tuần sau hoặc liên hệ nhân viên để biết thêm.";
+
+ public static string CannotKickAfterCheckIn(TournamentParticipantStatus currentStatus)
+ {
+     var message = currentStatus switch
+     {
+         TournamentParticipantStatus.CheckedIn =>
+             "Không thể kick khi participant đã check-in tại quán. Hãy set NoShow thay thế.",
+         TournamentParticipantStatus.Active =>
+             "Không thể kick khi giải đã bắt đầu.",
+         TournamentParticipantStatus.Finished =>
+             "Không thể kick khi giải đã kết thúc.",
+         _ => $"Không thể kick ở trạng thái '{currentStatus}'."
+     };
+     return $"[{currentStatus}] {message}";
+ }
+
+ public static string CannotKickParticipantTerminal(TournamentStatus tournamentStatus) =>
+     $"Không thể kick participant khi giải đang ở trạng thái '{tournamentStatus}'.";
 
  public static string FinalRequiresFourActiveParticipants(int current, int required) =>
  $"Bàn chung kết cần đủ {required} người chơi Active, hiện chỉ có {current}. Hãy thêm người chơi hoặc tăng shortage tolerance.";

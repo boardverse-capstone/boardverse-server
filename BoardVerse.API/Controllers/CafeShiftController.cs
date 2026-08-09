@@ -8,7 +8,9 @@ namespace BoardVerse.API.Controllers;
 
 [ApiController]
 [Route("api/shifts")]
-[Authorize]
+// P0-Fix-#6: thêm role restriction — chỉ Admin/Manager/CafeStaff mới truy cập shift endpoints.
+// Trước đây: chỉ [Authorize] → mọi authenticated user có thể đọc shift data của bất kỳ cafe.
+[Authorize(Roles = "Admin,Manager,CafeStaff")]
 public class CafeShiftController : BaseApiController
 {
     private readonly ICafeShiftService _shiftService;
@@ -68,7 +70,9 @@ public class CafeShiftController : BaseApiController
     [HttpGet("current")]
     public async Task<IActionResult> GetCurrentShift([FromQuery] Guid cafeId)
     {
-        var result = await _shiftService.GetCurrentShiftAsync(cafeId);
+        var userId = GetUserIdFromClaims();
+        var isAdmin = User.IsInRole("Admin");
+        var result = await _shiftService.GetCurrentShiftAsync(cafeId, userId, isAdmin);
         return this.NewResponse(200, ApiSuccessMessages.CafeShift.ShiftOpened, result);
     }
 
@@ -93,7 +97,9 @@ public class CafeShiftController : BaseApiController
         if (pageSize < 1) pageSize = 10;
         if (pageSize > 100) pageSize = 100;
 
-        var result = await _shiftService.GetShiftHistoryAsync(cafeId, page, pageSize);
+        var userId = GetUserIdFromClaims();
+        var isAdmin = User.IsInRole("Admin");
+        var result = await _shiftService.GetShiftHistoryAsync(cafeId, page, pageSize, userId, isAdmin);
         return this.NewResponse(200, ApiSuccessMessages.CafeShift.ShiftHistoryRetrieved, result);
     }
 }

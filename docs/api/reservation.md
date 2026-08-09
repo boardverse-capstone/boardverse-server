@@ -455,11 +455,11 @@ Confirm reservation — atomic transaction. Trừ BVC + giữ seat + giữ game 
 
 Lưu ý: `expectedFinalDeposit` phải khớp với `finalDeposit` từ quote. Server validate lại và reject nếu trong lúc chờ xác nhận giá thay đổi (BR §XVII.2).
 
-### Response 200
+### Response 201
 
 ```json
 {
-  "statusCode": 200,
+  "statusCode": 201,
   "message": "ReservationConfirmed",
   "data": {
     "reservationId": "...",
@@ -471,6 +471,8 @@ Lưu ý: `expectedFinalDeposit` phải khớp với `finalDeposit` từ quote. S
   }
 }
 ```
+
+> Server trả `201 Created` (RFC 7231) vì endpoint tạo mới `Reservation` + `Lobby`. Idempotent retry với cùng params + `IdempotencyKey` cũng trả `201` với cùng payload (xem mục Idempotency bên dưới).
 
 Nếu `requiresCafeApproval: true` (public lobby, playDate > 2 ngày), lobby ở `PendingCafeApproval` cho đến khi cafe duyệt hoặc hết 24h (`expiredByCafe` + refund 100% BVC).
 Nếu `isPrivate: true`, lobby không cần cafe duyệt dù playDate cách xa.
@@ -522,9 +524,9 @@ Confirm endpoint **verify tất cả params** trước khi trả kết quả cũ
 
 | Trường hợp | Hành vi |
 |---|---|
-| Retry với **cùng params** | ✅ 200 — trả kết quả cũ |
+| Retry với **cùng params** | ✅ 201 — trả kết quả cũ |
 | Retry với **params khác** | ❌ 409 — `IdempotencyKeyParamsMismatch` |
-| Lobby cũ đã bị hủy | ✅ 200 — vẫn trả kết quả cũ (client cần dùng key mới) |
+| Lobby cũ đã bị hủy | ✅ 201 — vẫn trả kết quả cũ (client cần dùng key mới) |
 
 **Ví dụ lỗi params mismatch:**
 
@@ -573,6 +575,12 @@ Host hủy reservation. Refund theo BR-REFUND-02/03.
 | ≥ 24 giờ trước giờ chơi | 100% | Không phạt |
 | 6–24 giờ trước giờ chơi | 50% | Giảm nhẹ |
 | < 6 giờ trước giờ chơi | 0% | Giảm đáng kể |
+
+**H7 Fix (BR-REFUND-03 hasMembers, 2026-08-09):**
+- Điều kiện "chưa có member" check `members.Any(m => !m.IsHost && m.IsActive)` thay vì `members.Count > 1`.
+- Trước fix: đếm tổng row → false positive khi host có 2 row hoặc soft-delete không đúng.
+- Logic chính xác: "thành viên tham gia" = non-host & active.
+- File: `ReservationService.cs` dòng ~933.
 
 ### Response 200
 
@@ -786,7 +794,7 @@ Confirm verify **tất cả params** trước khi trả kết quả cũ:
 | Endpoint | Idempotency field | Cùng params | Khác params |
 |---|---|---|---|
 | `POST /quote` | `idempotencyKey` | ✅ 200 (server không cache) | ✅ 200 (quote chỉ tính toán) |
-| `POST /confirm` | `idempotencyKey` | ✅ 200 (trả kết quả cũ) | ❌ 409 (params mismatch) |
+| `POST /confirm` | `idempotencyKey` | ✅ 201 (trả kết quả cũ) | ❌ 409 (params mismatch) |
 | `POST /cancel` | `reservationId` + `updatedAt` | ✅ 200 | ✅ 200 (idempotent by design) |
 | `POST /cafe-approval` | `lobby.status` | ✅ 200 | ✅ 200 (chỉ xử lý 1 lần) |
 

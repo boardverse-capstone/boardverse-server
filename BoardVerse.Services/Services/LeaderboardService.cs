@@ -124,6 +124,37 @@ namespace BoardVerse.Services.Services
             return result;
         }
 
+        /// <summary>K-06: Level leaderboard with paging (top/offset) and optional viewer rank.
+        /// Sắp xếp theo Level DESC, CurrentExp DESC, Username ASC (tie-break).</summary>
+        public async Task<LeaderboardPagedDto<LeaderboardEntryDto>> GetLevelLeaderboardPagedAsync(
+            int offset, int limit, Guid? viewerUserId)
+        {
+            offset = Math.Max(0, offset);
+            limit = NormaliseLimit(limit);
+
+            var cacheKey = $"lb:level:{offset}:{limit}";
+            LeaderboardPagedDto<LeaderboardEntryDto> result;
+
+            if (_cache.TryGetValue(cacheKey, out LeaderboardPagedDto<LeaderboardEntryDto>? cached) && cached is not null)
+            {
+                result = cached;
+            }
+            else
+            {
+                var rows = await _repository.GetLevelLeaderboardAsync(offset, limit);
+                var total = await _repository.CountActiveLevelUsersAsync();
+                result = BuildLevelPaged(rows, offset, limit, total);
+                _cache.Set(cacheKey, result, KarmaCacheTtl);
+            }
+
+            if (viewerUserId.HasValue && result.UserRank is null)
+            {
+                var viewer = await _repository.GetUserRankAsync(viewerUserId.Value, LeaderboardMetric.Level);
+                result.UserRank = await BuildViewerRankAsync(viewer, LeaderboardMetric.Level);
+            }
+            return result;
+        }
+
         private static int NormaliseLimit(int limit)
         {
             if (limit <= 0) return 50;
@@ -177,6 +208,32 @@ namespace BoardVerse.Services.Services
             };
         }
 
+        private static LeaderboardPagedDto<LeaderboardEntryDto> BuildLevelPaged(
+            IReadOnlyList<LeaderboardRankRow> rows, int offset, int limit, long total)
+        {
+            var entries = rows.Select((r, i) => new LeaderboardEntryDto
+            {
+                Rank = offset + i + 1,
+                UserId = r.UserId,
+                Username = r.Username,
+                DisplayName = r.DisplayName,
+                AvatarUrl = r.AvatarUrl,
+                KarmaPoints = r.KarmaPoints,
+                GlobalElo = r.GlobalElo,
+                Level = r.Level,
+                GamerTier = r.GamerTier
+            }).ToList();
+
+            return new LeaderboardPagedDto<LeaderboardEntryDto>
+            {
+                Entries = entries,
+                Offset = offset,
+                Limit = limit,
+                TotalCount = total,
+                GeneratedAt = DateTime.UtcNow
+            };
+        }
+
         /// <summary>
         /// Tính rank 1-based cho <paramref name="viewer"/> bằng cách scan top 1000 user
         /// đầu trên cùng metric (descending). Vì repository chưa có dedicated "count-ahead",
@@ -187,9 +244,16 @@ namespace BoardVerse.Services.Services
             if (viewer is null) return null;
 
             const int CursorLimit = 1000;
-            IReadOnlyList<LeaderboardRankRow> rows = metric == LeaderboardMetric.Karma
-                ? await _repository.GetKarmaLeaderboardAsync(0, CursorLimit) ?? (IReadOnlyList<LeaderboardRankRow>)Array.Empty<LeaderboardRankRow>()
-                : await _repository.GetEloLeaderboardAsync(0, CursorLimit) ?? (IReadOnlyList<LeaderboardRankRow>)Array.Empty<LeaderboardRankRow>();
+            IReadOnlyList<LeaderboardRankRow> rows = metric switch
+            {
+                LeaderboardMetric.Karma => await _repository.GetKarmaLeaderboardAsync(0, CursorLimit)
+                                                ?? (IReadOnlyList<LeaderboardRankRow>)Array.Empty<LeaderboardRankRow>(),
+                LeaderboardMetric.Elo => await _repository.GetEloLeaderboardAsync(0, CursorLimit)
+                                                ?? (IReadOnlyList<LeaderboardRankRow>)Array.Empty<LeaderboardRankRow>(),
+                LeaderboardMetric.Level => await _repository.GetLevelLeaderboardAsync(0, CursorLimit)
+                                                ?? (IReadOnlyList<LeaderboardRankRow>)Array.Empty<LeaderboardRankRow>(),
+                _ => (IReadOnlyList<LeaderboardRankRow>)Array.Empty<LeaderboardRankRow>()
+            };
 
             for (int i = 0; i < rows.Count; i++)
             {

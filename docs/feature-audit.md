@@ -133,6 +133,9 @@
 | L-02 | Member re-join after leaving | ✅ **IMPLEMENTED + FIXED**: `JoinLobbyAsync` check inactive member TRƯỚC duplicate check. Nếu user đã `IsActive=false` (đã rời), reactivate `IsActive=true` thay vì throw duplicate. | `BoardVerse.Services/Services/LobbyService.cs` |
 | L-03 | Share code regeneration | ✅ **IMPLEMENTED**: `RegenerateShareCodeAsync` — host có thể invalidate code cũ và tạo code mới. Validate lobby đang `Open/Full`. | `BoardVerse.Services/Services/LobbyService.cs` |
 | L-04 | Host transfer — new host eligibility | ✅ **IMPLEMENTED**: `TransferHostAsync` validate BR-USER-LIMIT-04/05 cho new host — kiểm tra `GetActiveLobbiesByHostAsync` và `GetActiveLobbiesByMemberAsync` trước khi chuyển. | `BoardVerse.Services/Services/LobbyService.cs` |
+| **H4** | JoinLobby race condition (BR-07 vượt MaxMembers) | ✅ **FIXED (2026-08-09)**: Wrap transaction + `SELECT ... FOR UPDATE` qua `LobbyRepository.GetByIdForUpdateAsync(lobbyId)` + `BeginTransactionAsync()`. Trước fix: read không lock → nhiều request join đồng thời có thể vượt MaxMembers. Null-safe cho unit test mock (pattern copy từ `ActiveSessionService`). | `BoardVerse.Services/Services/LobbyService.cs`, `BoardVerse.Data/Repositories/LobbyRepository.cs`, `BoardVerse.Core/IRepositories/ILobbyRepository.cs` |
+| **H7** | `ComputeRefundPolicy` hasMembers sai (BR-REFUND-03) | ✅ **FIXED (2026-08-09)**: `members.Any(m => !m.IsHost && m.IsActive)` thay vì `members.Count > 1`. Trước fix: đếm tổng row → false positive khi host có 2 row hoặc soft-delete không đúng. | `BoardVerse.Services/Services/ReservationService.cs` |
+| **H8** | SubmitComponentCheck phạt nhầm khi actualQty=0 | ✅ **FIXED (2026-08-09)**: Validate `request.Results` phải cover TẤT CẢ components + `ActualQuantity >= 0`. Trước fix: component thiếu entry → mặc định 0 → trigger penalty mất → phạt nhầm khi staff lỡ quên nhập. | `BoardVerse.Services/Services/CafePosService.cs` |
 
 ---
 
@@ -235,7 +238,162 @@
 
 ---
 
-## 7. Thông tin bổ sung
+## 8. Technical Debt — BookingDeposit Legacy Refactor
+
+**Ngày ghi nhận:** 2026-08-09
+**Mức ưu tiên:** DEFERRED (sau đồ án)
+**Quyết định:** Giữ nguyên `BookingDeposit` — KHÔNG refactor trong sprint hiện tại.
+**Phạm vi ước lượng nếu refactor:** 5–7 ngày (1 sprint) — ảnh hưởng ~70 file.
+
+### 8.1. Bối cảnh
+
+Codebase BoardVerse đã migrate từ từ sang **BVC Reservation flow** (BR-LOBBY-*) nhưng vẫn giữ **BookingDeposit legacy** (BR-05 cũ) làm fallback cho:
+
+- POS scan code `BV{N}` (legacy check-in flow — `ReservationCodeDetector.CodeType.BookingLegacy`)
+- SePay webhook cũ (deposit qua cổng VND master account)
+- Settlement payout fallback (`SettlementService` query `BvcLedgerEntries` trước, fallback về `BookingDeposit.Amount`)
+- Admin debug tools (`AdminJobsController.POST /deposits/process-expired`, `SePayAccountService.LookupBySePayTransactionIdAsync`)
+
+### 8.2. Vấn đề kỹ thuật cần cleanup
+
+| # | Vấn đề | Mức | File | Note |
+|---|---|---|---|---|
+| TD-01 | `Lobby.Booking` navigation **trỏ sai FK** | 🔴 HIGH | `BoardVerse.Core/Entities/Lobby.cs` (line 144) | `Lobby.BookingId` thực ra là FK đến `BookingDeposit.Id`, không phải `Booking.Id`. Đặt tên navigation `Booking` nhưng kiểu là `BookingDeposit?` gây confuse. |
+| TD-02 | `LobbyService.cs` line 106–115 logic mơ hồ | 🔴 HIGH | `BoardVerse.Services/Services/LobbyService.cs` | Biến `booking` thực ra là `BookingDeposit` (đang so sánh `booking.Status != BookingDepositStatus.Paid`). Cần đổi tên `booking` → `deposit` cho rõ ràng. |
+| TD-03 | `LobbyRepository.GetBookingByIdAsync` query `BookingDeposits` | 🟠 MEDIUM | `BoardVerse.Data/Repositories/LobbyRepository.cs` (line 364) | Method tên `GetBookingById` thực ra query `BookingDeposits`. Cần đổi tên `GetDepositByIdAsync`. |
+| TD-04 | `LobbyRepository.IsUserBookingParticipantAsync` dùng `BookingDeposits` | 🟠 MEDIUM | `BoardVerse.Data/Repositories/LobbyRepository.cs` (line 311) | Comment nói "Participant = BookingDeposits.UserId (BR-22 per-member deposit)" — legacy flow. |
+| TD-05 | Hai entity `Booking` (BR-05 mới) và `BookingDeposit` (cũ) cùng tồn tại | 🟡 LOW | `BoardVerse.Core/Entities/Booking.cs`, `BookingDeposit.cs` | Confusion cho dev mới. `Booking` có `BookingDeposit?` navigation nullable để audit. |
+| TD-06 | `PaymentController` 4 endpoint cho legacy flow | 🟡 LOW | `BoardVerse.API/Controllers/PaymentController.cs` | `/api/payments/booking-deposit` (GET/POST/regenerate/refund) — chỉ dùng cho legacy BookingCode "BV{N}". |
+| TD-07 | `ReservationCodeDetector` còn nhận diện legacy code | 🟡 LOW | `BoardVerse.Core/Helpers/ReservationCodeDetector.cs` | `BookingPattern = ^BV\d{8}$` vẫn route legacy. Khi bỏ legacy → xóa pattern. |
+| TD-08 | `DebugSePayController` 8+ chỗ INSERT/DELETE/UPDATE trên `BookingDeposits` | 🟡 LOW | `BoardVerse.API/Controllers/DebugSePayController.cs` | Chỉ dùng trong `Development` env. Legacy VND mock. |
+| TD-09 | `PaymentTestSeed` INSERT/DELETE `BookingDeposits` | 🟡 LOW | `BoardVerse.API/Infrastructure/PaymentTestSeed.cs` | Dev seed cho legacy VND flow. |
+| TD-10 | `IntegrationTestDataBootstrapper.EnsureDemoBookingDepositAsync` | 🟡 LOW | `BoardVerse.Tests/Integration/Infrastructure/IntegrationTestDataBootstrapper.cs` | Test bootstrapper tạo `DemoBookingDepositId` (Pending) cho integration test. |
+
+### 8.3. Phụ thuộc giữa các module (nếu refactor)
+
+| Module | Phụ thuộc `BookingDeposit` qua | Nếu bỏ → phải đổi sang |
+|---|---|---|
+| `BookingDepositService` | Self | ❌ Xóa luôn |
+| `PaymentService` | `ProcessDepositWebhookAsync`, `RefundDepositAsync` | `ReservationService.CaptureDepositAsync` (BVC flow) |
+| `CafePosService` | `StartSessionFromLegacyBookingAsync` | `ReservationService.CheckInAsync` (BVC flow) |
+| `ActiveSessionService` | `IBookingDepositRepository` (lookup deposit per session) | `BvcLedgerEntries` lookup |
+| `ReservationService` | `TriggerKarmaAggregationAsync` (query `_db.BookingDeposits`) | Aggregate trực tiếp từ `Reservation` table |
+| `BookingRatingService` | `ForfeitDepositAsync` cho no-show policy | `WalletService.ForfeitDepositAsync` (BVC) |
+| `BookingService` | `booking.BookingDeposit.UserId` (ownership check) | `booking.Lobby.HostUserId` |
+| `SettlementService` | `GetByActiveSessionIdAsync`, `BvcLedgerEntries.RelatedBookingId` | `BvcLedgerEntries` join `Reservation` |
+| `ManualPaymentService` | `IBookingDepositRepository` (legacy fallback) | `WalletService` (BVC) |
+| `SePayAccountService` | `LookupBySePayTransactionIdAsync` (Fix #8) | Map `SePayTransactionId` → `BvcLedgerEntries` |
+| `LobbyService` | Line 111 check `BookingDepositStatus` | `Reservation.Status == Confirmed` |
+| `LobbyRepository` | `GetBookingByIdAsync` (query `BookingDeposits`) | `GetReservationByIdAsync` |
+| `AdminJobsController` | `POST /deposits/process-expired` | `POST /reservations/process-expired` |
+| `DebugSePayController` | INSERT/DELETE/UPDATE `BookingDeposits` | INSERT/DELETE `BvcTopUpRequests` |
+
+### 8.4. Tests cần xóa / migrate
+
+| File | Tests | Note |
+|---|---|---|
+| `BookingDepositServiceTests.cs` | ~25 | ❌ Xóa toàn bộ |
+| `SettlementServiceTests.cs` | ~30 | 🔄 Refactor sang test BVC ledger |
+| `PaymentServiceTests.cs` | ~40 | 🔄 Refactor sang test BVC wallet service |
+| `ActiveSessionServiceTests.cs` | ~50 | 🔄 Thay mock `IBookingDepositRepository` → `IBvcLedgerEntryRepository` |
+| `BookingRatingServiceAggregationTests.cs` | ~3 | 🔄 Forfeit logic via `WalletService` |
+| `ManualPaymentServiceTests.cs` | ~5 | 🔄 Test BVC wallet |
+| `CafePosCreateCheckInTokenTests.cs` | ~3 | 🔄 Test Reservation flow |
+| `StateMachineTransitionIntegrationTests.cs` | 3 | 🔄 `/api/payments/booking-deposit` → `/api/v1/reservations/confirm` |
+| `BookingMatchmakingPosFlowIntegrationTests.cs` | 1 | 🔄 Test `CreateBookingDepositPayment` → `CreateReservation` |
+| `BookingCheckInIntegrationTests.cs` | 1 | 🔄 Test "BV-PENDING" → test `Reservation PENDING` |
+| `ComprehensiveAllFlowsIntegrationTests.cs` | 1 | 🔄 `PaymentFlow_BookingDeposit` → `PaymentFlow_BvcDeposit` |
+| `PaymentControllerIntegrationTests.cs` | 3 | ❌ Xóa (legacy endpoint) |
+| `AdminControllersIntegrationTests.cs` | 1 | 🔄 `BookingDepositTimeout` config → `ReservationTimeout` |
+| `ExceptionFlowIntegrationTests.cs` | 3 | 🔄 BR06 BR-30 → BR-REFUND-02 |
+| `IntegrationTestDataBootstrapper.cs` | 1 method | 🔄 `EnsureDemoBookingDepositAsync` → `EnsureDemoReservationAsync` |
+| `IntegrationTestFixtures.cs` | 1 constant | 🔄 `DemoBookingDepositId` → `DemoReservationId` |
+
+**Tổng: ~17 file test, ~150+ test case phải refactor hoặc xóa.**
+
+### 8.5. Order of operations (nếu sau này refactor)
+
+Theo thứ tự dependency, từ dưới lên:
+
+1. **Database layer**:
+   - Migration `DropBookingDepositsTable` (cascade FK CafeSettlements.BookingDepositId trước)
+   - Xóa `BookingDepositConfiguration.cs`
+   - Xóa `DbSet<BookingDeposit> BookingDeposits` trong `BoardVerseDbContext`
+   - Xóa `Lobby.Booking` navigation → thêm `Lobby.Reservation` navigation (đã có sẵn)
+   - Refactor `LobbyRepository.GetBookingByIdAsync` → `GetReservationByIdAsync`
+
+2. **Service layer** (xóa theo thứ tự):
+   - `BookingDepositService` (xóa luôn)
+   - `IBookingDepositRepository` + `BookingDepositRepository` (xóa)
+   - `IBookingDepositService` (xóa)
+   - Refactor `SettlementService` sang dùng `BvcLedgerEntries` only
+   - Refactor `PaymentService` — xóa `ProcessDepositWebhookAsync`, `RefundDepositAsync`
+   - Refactor `ActiveSessionService` — bỏ `IBookingDepositRepository` dependency
+   - Refactor `ReservationService.TriggerKarmaAggregationAsync` — query `_db.Reservations` thay vì `_db.BookingDeposits`
+   - Refactor `BookingRatingService` — forfeit qua `WalletService`
+   - Refactor `BookingService` — ownership check qua `Lobby.HostUserId`
+   - Refactor `LobbyService` line 111 — check `Reservation.Status` thay vì `BookingDepositStatus`
+   - Refactor `CafePosService` — xóa `StartSessionFromLegacyBookingAsync`
+   - Refactor `SePayAccountService` — `LookupBySePayTransactionIdAsync` query `BvcLedgerEntries`
+
+3. **Controller layer**:
+   - `PaymentController` — xóa 4 endpoint `/api/payments/booking-deposit*`
+   - `CafePosController` — bỏ legacy check-in code path
+   - `AdminJobsController` — đổi `/deposits/process-expired` → `/reservations/process-expired`
+   - `DebugSePayController` — xóa INSERT/DELETE/UPDATE `BookingDeposits`
+
+4. **DI / Program.cs**:
+   - Xóa `AddScoped<IBookingDepositRepository, BookingDepositRepository>()` (line 184)
+   - Xóa `AddHostedService<BookingDepositExpiryJob>()` (line 250)
+   - Xóa `AddScoped<IBookingDepositService, BookingDepositService>()` (PaymentServiceExtensions line 30)
+
+5. **DTO / Enum / Messages**:
+   - Xóa `BookingDepositResponseDto.cs`
+   - Xóa `RefundDepositResult.cs`
+   - Xóa `BookingDepositStatus.cs` enum
+   - Xóa constant `DemoBookingDepositId` trong `DevSeedConstants.cs`
+   - Xóa messages `BookingDepositNotPaid`, `DepositMissingForSettlement`, `DepositNotPaid`, `DepositMarkAsPaidInvalidStatus`, `DepositRefundInvalidStatus`, `DepositForfeitInvalidStatus`, `DepositForfeitInvalidPolicy` (trong `ApiErrorMessages.cs` lines 379, 607, 748)
+
+6. **Background Jobs**:
+   - Xóa `BookingDepositExpiryJob.cs`
+
+7. **Tests** (theo file ở mục 8.4).
+
+8. **Docs**:
+   - Cập nhật `docs/api/payment.md`, `booking.md`, `cafe-pos.md`, `sepay-webhook.md`, `debug-sepay.md`
+   - Cập nhật `docs/bug-scan-report.md` (W-03, W-04 mention sẽ obsolete)
+   - Cập nhật `boardverse.mdc` (BR-22 BR cũ sẽ được thay bằng BR-22 mới về BVC)
+
+### 8.6. Rủi ro nếu refactor sai thứ tự
+
+- **Xóa entity trước khi sửa service**: 9 service compile fail đồng loạt, không test được từng phần.
+- **Xóa DI trước khi sửa controller**: 4 controller throw `InvalidOperationException` khi resolve service.
+- **Xóa migration table trước khi mọi code đã đổi**: EF migration apply sẽ fail do còn FK references.
+- **Xóa test song song với code change**: không biết bug ở đâu khi test fail hàng loạt.
+
+→ **Khuyến nghị**: refactor theo batch theo từng layer (DB → Service → Controller → Tests), mỗi layer giữ 1 build pass + test pass trước khi qua layer tiếp theo.
+
+### 8.7. Lý do hoãn refactor
+
+1. **Sprint hiện tại** đã tập trung vào 8 fix (Karma aggregation, ShareCode regen, Tournament, Admin jobs, Tournament kick, Level leaderboard, SePay lookup, Admin friend report) — đầy đủ test + docs.
+2. **BR mới (BVC/Reservation)** đã chạy song song với legacy (BR-05 cũ) trong production mà không lỗi — 2 flow không conflict.
+3. **Build hiện tại 0 errors, 0 warnings** — không phải vấn đề cấp bách.
+4. **Phạm vi ước lượng 5–7 ngày** không phù hợp với sprint 3 ngày còn lại.
+5. **Có thể có data thật** trong `BookingDeposits` table trên branch production — cần migration strategy cẩn thận (archive trước khi drop).
+
+### 8.8. Action items cho sprint SAU (khi refactor)
+
+- [ ] Tạo separate Epic: "DEPRECATE-BookingDeposit"
+- [ ] Mở `feature-audit.md` → MD mới `tech-debt-booking-deposit-cleanup.md`
+- [ ] Viết migration `ArchiveLegacyBookingDeposits` (copy data sang `BookingDeposits_Archive_<timestamp>` table)
+- [ ] Trước khi drop: chạy `SELECT COUNT(*)` để verify 0 rows còn `Status = Pending`
+- [ ] Theo thứ tự mục 8.5 từng bước
+- [ ] Sau khi xong: cập nhật `boardverse.mdc` BR-22 (chỉ giữ BVC flow, bỏ BR-05 cũ)
+- [ ] Xóa entries trong `docs/bug-scan-report.md` đã obsolete
+
+---
+
+## 9. Thông tin bổ sung
 
 ### BR documents tham chiếu
 - `lobby-booking-deposit-bvc.mdc` — lobby, reservation, BVC, risk rules

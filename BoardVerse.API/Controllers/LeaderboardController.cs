@@ -57,5 +57,27 @@ namespace BoardVerse.API.Controllers
             var result = await _leaderboardService.GetEloLeaderboardPagedAsync(safeOffset, safeTop, viewer);
             return NewResponse(200, ApiSuccessMessages.Tournament.LeaderboardRetrieved, result);
         }
+
+        /// <summary>
+        /// K-06: Level leaderboard, ordered by Level DESC, CurrentExp DESC (tie-break: Username ASC).
+        /// Cho biết ai là người chơi "lâu năm" nhất trong hệ thống. [Role: Public — ai cũng xem được.]
+        /// Nếu user đã đăng nhập, response sẽ kèm thêm block <c>userRank</c>.
+        /// </summary>
+        /// <param name="top">Số lượng người chơi trả về (mặc định 50, tối đa 100).</param>
+        /// <param name="offset">Bỏ qua N người đầu tiên (mặc định 0).</param>
+        /// <response code="200">Trả về danh sách người chơi xếp hạng theo Level.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpGet("level")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetLevelLeaderboard(
+            [FromQuery] int top = 50,
+            [FromQuery] int offset = 0)
+        {
+            var safeTop = Math.Clamp(top, 1, 100);
+            var safeOffset = Math.Max(0, offset);
+            var viewer = GetOptionalViewerContext().UserId;
+            var result = await _leaderboardService.GetLevelLeaderboardPagedAsync(safeOffset, safeTop, viewer);
+            return NewResponse(200, ApiSuccessMessages.Tournament.LeaderboardRetrieved, result);
+        }
     }
 }

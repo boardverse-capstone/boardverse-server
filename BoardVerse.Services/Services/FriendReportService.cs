@@ -106,4 +106,97 @@ public class FriendReportService : IFriendReportService
             };
         }).ToList();
     }
+
+    private static readonly HashSet<string> AllowedResolveStatuses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Reviewed",
+        "Dismissed"
+    };
+
+    public async Task<(IReadOnlyList<FriendReportDto> Items, int Total)> GetAllForAdminAsync(
+        string? status, int offset, int limit)
+    {
+        // Validate status filter
+        if (!string.IsNullOrWhiteSpace(status)
+            && status != "Pending" && status != "Reviewed" && status != "Dismissed")
+        {
+            throw new BadRequestException(
+                $"Status filter không hợp lệ: '{status}'. Chỉ chấp nhận Pending/Reviewed/Dismissed.");
+        }
+
+        var (reports, total) = await _reportRepository.GetAllForAdminAsync(status, offset, limit);
+        if (reports.Count == 0) return (Array.Empty<FriendReportDto>(), total);
+
+        var allUserIds = reports.SelectMany(r => new[] { r.ReporterId, r.TargetUserId }).Distinct().ToHashSet();
+        var users = await _userRepository.GetByIdsAsync(allUserIds);
+        var userDict = users.Where(u => u != null).ToDictionary(u => u!.Id);
+
+        return (reports.Select(r =>
+        {
+            userDict.TryGetValue(r.TargetUserId, out var target);
+            return new FriendReportDto
+            {
+                ReportId = r.Id,
+                TargetUserId = r.TargetUserId,
+                TargetUsername = target?.Username ?? "(unknown)",
+                Category = r.Category.ToString(),
+                Reason = r.Reason,
+                Status = r.Status,
+                CreatedAt = r.CreatedAt,
+                ReviewedAt = r.ReviewedAt,
+                AdminNote = r.AdminNote
+            };
+        }).ToList(), total);
+    }
+
+    public async Task<FriendReportDto> ResolveAsync(
+        Guid adminUserId,
+        Guid reportId,
+        string newStatus,
+        string? adminNote)
+    {
+        if (!AllowedResolveStatuses.Contains(newStatus))
+        {
+            throw new BadRequestException(
+                $"Trạng thái resolve không hợp lệ: '{newStatus}'. Chỉ chấp nhận Reviewed/Dismissed.");
+        }
+
+        if (string.IsNullOrWhiteSpace(adminNote))
+        {
+            throw new BadRequestException(
+                "Admin note là bắt buộc khi resolve report.");
+        }
+
+        var report = await _reportRepository.GetByIdAsync(reportId)
+            ?? throw new NotFoundException($"Friend report '{reportId}' không tìm thấy.");
+
+        if (report.Status != "Pending")
+        {
+            throw new ConflictException(
+                $"Friend report '{reportId}' đã được xử lý trước đó (status={report.Status}).");
+        }
+
+        report.Status = newStatus;
+        report.ReviewedByAdminId = adminUserId;
+        report.AdminNote = adminNote.Trim();
+        report.ReviewedAt = DateTime.UtcNow;
+
+        _reportRepository.Update(report);
+        await _reportRepository.SaveChangesAsync();
+
+        var target = await _userRepository.GetByIdAsync(report.TargetUserId);
+
+        return new FriendReportDto
+        {
+            ReportId = report.Id,
+            TargetUserId = report.TargetUserId,
+            TargetUsername = target?.Username ?? "(unknown)",
+            Category = report.Category.ToString(),
+            Reason = report.Reason,
+            Status = report.Status,
+            CreatedAt = report.CreatedAt,
+            ReviewedAt = report.ReviewedAt,
+            AdminNote = report.AdminNote
+        };
+    }
 }

@@ -659,10 +659,16 @@ Xác nhận kiểm kê linh kiện và tính phí phạt nếu thiếu. **BR-12:
 | **Chi tiết** | `false` | Bắt buộc (mỗi component trong template = 1 dòng) | Tính `penalty = (ExpectedQuantity − ActualQuantity) × PenaltyFee` cho từng component. Tổng cộng vào `TotalPenaltyAmount`. Lưu `ResponsibleMemberId` nếu client gửi (chỉ áp dụng khi component bị thiếu). Nếu có component thiếu → `CheckStatus = MissingComponents`; nếu đủ hết → `Verified`. |
 
 **Validation:**
-- `results` phải chứa tất cả component trong template. Component nào thiếu → coi như `actualQuantity = 0` (penalty tối đa).
+- `results` phải chứa TẤT CẢ component trong template (mỗi component = 1 dòng). Component nào thiếu → `400 Thiếu kết quả kiểm tra cho N linh kiện: ...` (liệt kê tên các component chưa nhập).
+- `ActualQuantity` phải `>= 0` cho mọi component → `400` nếu có số âm.
 - ComponentId trong `results` phải thuộc template của session game → nếu không → `400 ComponentNotBelongToGame`.
 - Không được trùng `componentId` trong `results` → `400 duplicate component IDs`.
 - Component thiếu mà **không có `CafeGameComponentPenalty` cấu hình** → `PenaltyFee = 0` cho dòng đó + log warning (staff vẫn tiếp tục được, không chặn).
+
+**H8 Fix (2026-08-09):**
+- Trước fix: component thiếu entry trong `results` → mặc định `actualQty = 0` → trigger penalty mất (0 < expectedQty) → phạt nhầm khi staff lỡ quên nhập 1 component.
+- Sau fix: validate `results` phải cover TẤT CẢ components của game. Thiếu → 400 liệt kê cụ thể components bị thiếu + số lượng. Phạt chỉ trigger khi staff **chủ động** nhập ActualQuantity < ExpectedQuantity.
+- File: `CafePosService.SubmitComponentCheckAsync` dòng ~1216.
 
 **Response 200 — `ComponentCheckResultDto`:**
 ```json

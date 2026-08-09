@@ -371,7 +371,7 @@ public class BvcRefundRequestService : IBvcRefundRequestService
                 ActionType = actionType,
                 ActionBy = adminUserId,
                 Reason = request.AdminNote.Trim(),
-                Metadata = JsonDocument.Parse(JsonSerializer.Serialize(metadata)),
+                Metadata = JsonSerializer.Serialize(metadata),
                 CreatedAt = now
             };
 

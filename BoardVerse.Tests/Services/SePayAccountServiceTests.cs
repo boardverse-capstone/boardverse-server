@@ -19,6 +19,7 @@ public class SePayAccountServiceTests
     private readonly Mock<ILogger<SePayAccountService>> _mockLogger;
     private readonly Mock<ICurrentUserService> _mockCurrentUser;
     private readonly Mock<IVietQrClient> _mockVietQr;
+    private readonly Mock<IBookingDepositRepository> _mockBookingDepositRepo;
     private readonly SePayAccountService _service;
 
     private static readonly Guid TestUserId = Guid.NewGuid();
@@ -31,6 +32,7 @@ public class SePayAccountServiceTests
         _mockLogger = new Mock<ILogger<SePayAccountService>>();
         _mockCurrentUser = new Mock<ICurrentUserService>();
         _mockVietQr = new Mock<IVietQrClient>();
+        _mockBookingDepositRepo = new Mock<IBookingDepositRepository>();
 
         _mockCurrentUser.Setup(x => x.GetCurrentUserId()).Returns(TestUserId);
 
@@ -39,7 +41,8 @@ public class SePayAccountServiceTests
             _mockCafeRepo.Object,
             _mockLogger.Object,
             _mockCurrentUser.Object,
-            _mockVietQr.Object);
+            _mockVietQr.Object,
+            _mockBookingDepositRepo.Object);
     }
 
     #region GetByIdAsync
@@ -419,8 +422,11 @@ public class SePayAccountServiceTests
     public async Task CreateByManagerCafeAsync_HappyPath_CreatesCafeAccountWithoutSePayCredentials()
     {
         // Arrange: Manager có cafe, cafe chưa có payment account
+        var cafe = new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test St" };
         _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
-            .ReturnsAsync(new List<Cafe> { new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test St" } });
+            .ReturnsAsync(new List<Cafe> { cafe });
+        _mockCafeRepo.Setup(r => r.GetByIdAsync(TestCafeId)).ReturnsAsync(cafe);
+        _mockCafeRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
         _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId)).ReturnsAsync((SePayAccount?)null);
         _mockRepo.Setup(r => r.AddAsync(It.IsAny<SePayAccount>())).Returns(Task.CompletedTask);
 
@@ -547,8 +553,11 @@ public class SePayAccountServiceTests
     [Fact]
     public async Task CreateByManagerCafeAsync_CustomEnvironment_NormalizedToProduction()
     {
+        var cafe = new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test St" };
         _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
-            .ReturnsAsync(new List<Cafe> { new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test St" } });
+            .ReturnsAsync(new List<Cafe> { cafe });
+        _mockCafeRepo.Setup(r => r.GetByIdAsync(TestCafeId)).ReturnsAsync(cafe);
+        _mockCafeRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
         _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId)).ReturnsAsync((SePayAccount?)null);
         _mockRepo.Setup(r => r.AddAsync(It.IsAny<SePayAccount>())).Returns(Task.CompletedTask);
 

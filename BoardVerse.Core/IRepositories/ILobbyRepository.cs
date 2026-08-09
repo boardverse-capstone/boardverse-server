@@ -116,6 +116,12 @@ public interface ILobbyRepository
 
     Task UpdateAsync(Lobby lobby);
 
+    // H4: SELECT ... FOR UPDATE để chống race condition khi JoinLobby (BR-07: vượt MaxMembers).
+    Task<Lobby?> GetByIdForUpdateAsync(Guid lobbyId);
+
+    // H4: transaction context cho JoinLobby atomic guard.
+    Task<IDatabaseTransactionContext> BeginTransactionAsync(CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Hard-delete lobby và toàn bộ records phụ thuộc (members, messages, invites, reports).
     /// Dùng cho dissolve — chỉ host mới được gọi.

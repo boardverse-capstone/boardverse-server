@@ -4,7 +4,6 @@ using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
-using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services.Payments;
 using Microsoft.Extensions.Logging;
@@ -18,19 +17,22 @@ public class SePayAccountService : ISePayAccountService
     private readonly ILogger<SePayAccountService> _logger;
     private readonly ICurrentUserService _currentUserService;
     private readonly IVietQrClient _vietQrClient;
+    private readonly IBookingDepositRepository _bookingDepositRepository;
 
     public SePayAccountService(
         ISePayAccountRepository repository,
         ICafeRepository cafeRepository,
         ILogger<SePayAccountService> logger,
         ICurrentUserService currentUserService,
-        IVietQrClient vietQrClient)
+        IVietQrClient vietQrClient,
+        IBookingDepositRepository bookingDepositRepository)
     {
         _repository = repository;
         _cafeRepository = cafeRepository;
         _logger = logger;
         _currentUserService = currentUserService;
         _vietQrClient = vietQrClient;
+        _bookingDepositRepository = bookingDepositRepository;
     }
 
     private Guid? GetCurrentUserId() => _currentUserService.GetCurrentUserId();
@@ -409,5 +411,49 @@ throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountE
             return accountNumber;
 
         return new string('*', accountNumber.Length - 4) + accountNumber[^4..];
+    }
+
+    /// <summary>
+    /// Admin: Tra cứu BookingDeposit theo SePayTransactionId. Trả null nếu không tìm thấy.
+    /// </summary>
+    public async Task<SePayTransactionLookupDto?> LookupBySePayTransactionIdAsync(string sePayTransactionId)
+    {
+        if (string.IsNullOrWhiteSpace(sePayTransactionId))
+        {
+            return null;
+        }
+
+        var deposit = await _bookingDepositRepository.GetBySePayTransactionIdAsync(sePayTransactionId);
+        if (deposit == null)
+        {
+            return null;
+        }
+
+        // Lookup cafe name (best-effort, fail silently).
+        string? cafeName = null;
+        if (deposit.CafeId != Guid.Empty)
+        {
+            var cafe = await _cafeRepository.GetByIdAsync(deposit.CafeId);
+            cafeName = cafe?.Name;
+        }
+
+        return new SePayTransactionLookupDto
+        {
+            DepositId = deposit.Id,
+            OrderId = deposit.OrderId ?? string.Empty,
+            BookingId = deposit.BookingId,
+            ActiveSessionId = deposit.ActiveSessionId,
+            CafeId = deposit.CafeId,
+            CafeName = cafeName,
+            UserId = deposit.UserId,
+            Amount = deposit.Amount,
+            Status = deposit.Status.ToString(),
+            SePayTransactionId = deposit.SePayTransactionId,
+            SePayTransferId = deposit.SePayTransferId,
+            PaidAt = deposit.PaidAt,
+            RefundedAt = deposit.RefundedAt,
+            ForfeitedAt = deposit.ForfeitedAt,
+            CreatedAt = deposit.CreatedAt
+        };
     }
 }

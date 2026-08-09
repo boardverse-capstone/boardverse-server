@@ -115,7 +115,7 @@ public class BusinessRuleCoverageTests : IClassFixture<BoardVerseWebApplicationF
             idempotencyKey = $"br-coverage-c-{testSuffix}-{Guid.NewGuid():N}"
         };
         var confirmRes = await _client.PostAsJsonAsync("/api/v1/reservations/confirm", confirmReq);
-        if (confirmRes.StatusCode != HttpStatusCode.OK)
+        if (confirmRes.StatusCode != HttpStatusCode.Created)
         {
             _output.WriteLine($"[BR coverage] Confirm failed: {confirmRes.StatusCode}");
             return (Guid.Empty, Guid.Empty, false);
@@ -293,7 +293,7 @@ public class BusinessRuleCoverageTests : IClassFixture<BoardVerseWebApplicationF
         };
 
         var confirmRes = await _client.PostAsJsonAsync("/api/v1/reservations/confirm", confirmReq);
-        Assert.Equal(HttpStatusCode.OK, confirmRes.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, confirmRes.StatusCode);
 
         var confirmBody = await confirmRes.Content.ReadAsStringAsync();
         var requiresApproval = confirmBody.Contains("\"requiresCafeApproval\":true",
@@ -359,7 +359,7 @@ public class BusinessRuleCoverageTests : IClassFixture<BoardVerseWebApplicationF
         };
 
         var confirmRes = await _client.PostAsJsonAsync("/api/v1/reservations/confirm", confirmReq);
-        Assert.Equal(HttpStatusCode.OK, confirmRes.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, confirmRes.StatusCode);
 
         // Verify seat inventory HeldSeats tăng đúng 4 (maxPlayers).
         var confirmBody = await confirmRes.Content.ReadAsStringAsync();

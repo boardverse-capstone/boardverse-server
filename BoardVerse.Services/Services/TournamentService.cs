@@ -875,6 +875,68 @@ public class TournamentService : ITournamentService
         return MapParticipantDto(participant);
     }
 
+    /// <summary>
+    /// Manager xóa (kick) 1 participant khỏi tournament (ví dụ: gian lận, vi phạm nội quy).
+    /// Set status = Withdrawn, ghi audit reason. Player tự withdraw bằng <see cref="WithdrawRegistrationAsync"/>.
+    /// </summary>
+    public async Task<TournamentParticipantResponseDto> ManagerKickParticipantAsync(
+        Guid managerId,
+        Guid tournamentId,
+        Guid participantId,
+        string reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new BadRequestException("Lý do kick là bắt buộc.");
+        }
+
+        var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
+            ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
+
+        await EnsureManagerOwnsCafeAsync(managerId, tournament.CafeId);
+
+        var participant = await _tournamentRepository.GetParticipantByIdAsync(participantId)
+            ?? throw new NotFoundException(ApiErrorMessages.Tournament.ParticipantNotFound);
+
+        if (participant.TournamentId != tournamentId)
+        {
+            throw new BadRequestException(ApiErrorMessages.Tournament.ParticipantNotInTournament);
+        }
+
+        // Tournament terminal → reject kick
+        if (tournament.Status == TournamentStatus.Cancelled
+            || tournament.Status == TournamentStatus.Completed)
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Tournament.CannotKickParticipantTerminal(tournament.Status));
+        }
+
+        if (participant.Status == TournamentParticipantStatus.Withdrawn)
+        {
+            throw new ConflictException(ApiErrorMessages.Tournament.AlreadyWithdrawn(tournamentId));
+        }
+
+        // Không cho kick khi participant đã check-in/active/finished (BR-MGR-KICK-01).
+        if (participant.Status == TournamentParticipantStatus.CheckedIn
+            || participant.Status == TournamentParticipantStatus.Active
+            || participant.Status == TournamentParticipantStatus.Finished)
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Tournament.CannotKickAfterCheckIn(participant.Status));
+        }
+
+        participant.Status = TournamentParticipantStatus.Withdrawn;
+        participant.UpdatedAt = DateTime.UtcNow;
+
+        await _tournamentRepository.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "Manager {ManagerId} kicked participant {ParticipantId} from tournament {TournamentId}. Reason: {Reason}",
+            managerId, participantId, tournamentId, reason);
+
+        return MapParticipantDto(participant);
+    }
+
     public async Task<IReadOnlyList<TournamentParticipantResponseDto>> GetParticipantsAsync(Guid tournamentId)
     {
         var participants = await _tournamentRepository.GetParticipantsAsync(tournamentId);

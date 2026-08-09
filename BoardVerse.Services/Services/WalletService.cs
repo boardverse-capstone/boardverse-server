@@ -1303,7 +1303,7 @@ public class WalletService : IWalletService
             ActionType = actionType,
             ActionBy = adminUserId,
             Reason = reason,
-            Metadata = JsonDocument.Parse(JsonSerializer.Serialize(metadata)),
+            Metadata = JsonSerializer.Serialize(metadata),
             CreatedAt = DateTime.UtcNow,
             ExpiresAt = expiresAt
         };
