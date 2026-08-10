@@ -112,6 +112,9 @@ namespace BoardVerse.Data.Repositories
                     .ThenInclude(m => m.User)
                 .Include(s => s.GameTemplate)
                 .Include(s => s.Games)
+                    .ThenInclude(g => g.CafeInventoryBox)
+                .Include(s => s.Games)
+                    .ThenInclude(g => g.GameTemplate)
                 .FirstOrDefaultAsync(s => s.Id == sessionId && s.CafeId == cafeId && s.Status != GroupSessionStatus.Paid);
 
             return session;

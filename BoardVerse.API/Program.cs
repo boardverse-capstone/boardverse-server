@@ -358,37 +358,15 @@ builder.Services.AddSwaggerGen(options =>
     }
 });
 
-// Add CORS — whitelist domain từ config (P0-Fix-#2).
-// Trước đây: AllowAnyOrigin + JWT auth → CSRF + bypass.
-// Sau: đọc Cors:AllowedOrigins từ appsettings; nếu rỗng thì chỉ cho localhost (dev) hoặc báo lỗi (prod).
-var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-    ?? Array.Empty<string>();
+// Add CORS
 builder.Services.AddCors(options =>
 {
-    if (allowedOrigins.Length > 0)
+    options.AddPolicy("AllowAll", policy =>
     {
-        options.AddPolicy("DefaultWeb", policy =>
-        {
-            policy.WithOrigins(allowedOrigins)
-                  .AllowAnyMethod()
-                  .AllowAnyHeader()
-                  .AllowCredentials(); // cho SignalR
-        });
-    }
-    else
-    {
-        // Fallback dev-only policy: chỉ localhost. Production phải set Cors:AllowedOrigins.
-        options.AddPolicy("DefaultWeb", policy =>
-        {
-            policy.SetIsOriginAllowed(origin =>
-                builder.Environment.IsDevelopment()
-                && (origin.StartsWith("http://localhost", StringComparison.OrdinalIgnoreCase)
-                    || origin.StartsWith("https://localhost", StringComparison.OrdinalIgnoreCase)))
-                .AllowAnyMethod()
-                .AllowAnyHeader()
-                .AllowCredentials();
-        });
-    }
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
 });
 
 var app = builder.Build();
@@ -446,7 +424,7 @@ if (enableSwagger)
     });
 }
 
-app.UseCors("DefaultWeb");
+app.UseCors("AllowAll");
 
 // Serve static HTML test pages from a dedicated wwwroot folder.
 // P0-Fix-#1: KHÔNG mount thư mục CHA project (lộ appsettings.json, .git/, source code).
