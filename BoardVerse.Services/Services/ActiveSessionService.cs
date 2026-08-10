@@ -718,8 +718,23 @@ namespace BoardVerse.Services.Services
 
             // Tính Subtotal tại Checkout để PaySession/CreateSessionPayment có sẵn
             // Penalty sẽ được cộng tại PaySession nếu có từ component-check
-            var subtotal = CalculateSessionSubtotal(session, session.Cafe);
-            session.Subtotal = subtotal;
+            decimal totalMemberSubtotal = 0;
+
+            foreach (var member in session.Members)
+            {
+                var memberLeftAt = member.LeftAt ?? now;
+                var memberMinutes = Math.Max(0, (int)Math.Floor((memberLeftAt - member.JoinedAt).TotalMinutes));
+                member.TotalMinutesPlayed = memberMinutes;
+
+                decimal memberSubtotal = memberMinutes > 0
+                    ? (session.Cafe?.BillingModel == CafePartnerBillingModel.TimeBased
+                        ? CalculateRealtimeBilling(session.Cafe, memberMinutes)
+                        : session.Cafe?.BasePrice ?? 0m)
+                    : 0m;
+                totalMemberSubtotal += Math.Max(0, memberSubtotal);
+            }
+
+            session.Subtotal = totalMemberSubtotal;
             session.TotalMinutesPlayed = session.EndedAt.HasValue
                 ? Math.Max(0, (int)Math.Floor((session.EndedAt.Value - session.StartedAt).TotalMinutes))
                 : 0;
@@ -729,38 +744,6 @@ namespace BoardVerse.Services.Services
             return MapSessionDto(session);
         }
 
-        private static decimal CalculateSessionSubtotal(ActiveSession session, Cafe? cafe)
-        {
-            if (cafe == null) return 0m;
-
-            var totalMinutes = session.EndedAt.HasValue
-                ? Math.Max(0, (int)Math.Floor((session.EndedAt.Value - session.StartedAt).TotalMinutes))
-                : 0;
-
-            if (totalMinutes <= 0) return 0m;
-
-            // Time-based billing: Giờ đầu + các block tiếp theo
-            if (cafe.BillingModel == CafePartnerBillingModel.TimeBased)
-            {
-                var firstHourMinutes = Math.Min(totalMinutes, 60);
-                var remainingMinutes = totalMinutes - firstHourMinutes;
-
-                decimal subtotal = firstHourMinutes > 0 ? cafe.BasePrice : 0m;
-
-                if (remainingMinutes > 0 && cafe.TieredBlockRate.HasValue && cafe.TieredBlockMinutes > 0)
-                {
-                    var blockMinutes = cafe.TieredBlockMinutes;
-                    var blockPrice = cafe.TieredBlockRate!.Value;
-                    var additionalBlocks = (int)Math.Ceiling((double)remainingMinutes / blockMinutes);
-                    subtotal += additionalBlocks * blockPrice;
-                }
-
-                return subtotal;
-            }
-
-            // Flat entry billing: Chỉ thu phí vào cổng
-            return cafe.BasePrice;
-        }
 
         private static ActiveSessionResponseDto MapSessionDto(ActiveSession session)
         {
