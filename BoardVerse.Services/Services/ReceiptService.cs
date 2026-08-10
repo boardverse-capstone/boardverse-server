@@ -264,9 +264,20 @@ namespace BoardVerse.Services.Services
                 return cafe.BasePrice;
             }
 
+            // DEFENSIVE: TimeBased phải có TieredBlockRate
+            // Nếu null → fallback an toàn: tính như FlatEntry (chỉ giờ đầu)
+            if (!cafe.TieredBlockRate.HasValue || cafe.TieredBlockRate <= 0)
+            {
+                if (cafe.BillingModel == CafePartnerBillingModel.TimeBased)
+                {
+                    return cafe.BasePrice;
+                }
+                return cafe.BasePrice;
+            }
+
             var remainingMinutes = minutes - 60;
             var blockMinutes = cafe.TieredBlockMinutes > 0 ? cafe.TieredBlockMinutes : 15;
-            var blockPrice = cafe.TieredBlockRate ?? 0;
+            var blockPrice = cafe.TieredBlockRate.Value;
 
             var additionalBlocks = (int)Math.Ceiling((double)remainingMinutes / blockMinutes);
             return cafe.BasePrice + (additionalBlocks * blockPrice);
