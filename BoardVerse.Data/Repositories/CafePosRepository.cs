@@ -290,6 +290,41 @@ namespace BoardVerse.Data.Repositories
                 .ToListAsync();
 
         /// <summary>
+        /// FIX Bug "ComponentChecklist luôn trả đầy đủ dù hộp đã bị mất":
+        /// Lấy kết quả kiểm kê MỚI NHẤT (theo ActiveSessionGame.CheckedAt DESC) cho mỗi
+        /// component của 1 box. Trả Dictionary&lt;componentId, ComponentCheckResult&gt;
+        /// để tra nhanh. Dùng cho GetComponentChecklistAsync: lần kiểm kê tiếp theo sẽ
+        /// lấy ActualQuantity gần nhất làm ExpectedQuantity (snapshot baseline mới).
+        /// </summary>
+        public async Task<IReadOnlyDictionary<Guid, ComponentCheckResult>> GetLatestComponentCheckByBoxAsync(Guid boxId)
+        {
+            // Lấy tất cả ActiveSessionGame của box, kèm ComponentCheckResults.
+            // Sắp xếp theo CheckedAt DESC để lấy bản ghi mới nhất cho mỗi component.
+            var games = await _context.ActiveSessionGames
+                .Where(g => g.CafeInventoryBoxId == boxId
+                    && g.CheckStatus != ComponentCheckStatus.NotChecked)
+                .Include(g => g.ComponentCheckResults)
+                .OrderByDescending(g => g.CheckedAt ?? DateTime.MinValue)
+                .ToListAsync();
+
+            // Với mỗi componentId, lấy ComponentCheckResult mới nhất (qua game mới nhất
+            // có chứa component đó — trong cùng 1 session game, mỗi component chỉ có 1 dòng).
+            var latest = new Dictionary<Guid, ComponentCheckResult>();
+            foreach (var game in games)
+            {
+                foreach (var result in game.ComponentCheckResults ?? [])
+                {
+                    if (!latest.ContainsKey(result.GameComponentTemplateId))
+                    {
+                        latest[result.GameComponentTemplateId] = result;
+                    }
+                }
+            }
+
+            return latest;
+        }
+
+        /// <summary>
         /// BR-12: Kiểm tra tất cả game trong session đã được kiểm tra đủ linh kiện.
         /// Returns true only if ALL session games have CheckStatus != NotChecked.
         /// </summary>

@@ -1091,6 +1091,14 @@ namespace BoardVerse.Services.Services
 
             var components = sessionGame.GameTemplate.Components?.ToList() ?? [];
 
+            // FIX Bug "ComponentChecklist luôn trả đầy đủ dù hộp đã bị mất":
+            // Lấy ActualQuantity từ lần kiểm kê GẦN NHẤT của cùng box làm ExpectedQuantity mới.
+            // Ví dụ: Phiên trước box thiếu 1 quân cờ → Actual=14/15.
+            // Lần này staff kiểm kê → ExpectedQuantity=14 (không phải 15),
+            // nếu khách trả còn 14/14 thì đủ, nếu còn 13/14 thì phạt tiếp 1 quân.
+            var latestByComponent = await _posRepository
+                .GetLatestComponentCheckByBoxAsync(sessionGame.CafeInventoryBoxId);
+
             return new ComponentChecklistDto
             {
                 SessionGameId = sessionGame.Id,
@@ -1101,7 +1109,11 @@ namespace BoardVerse.Services.Services
                     ComponentId = c.Id,
                     ComponentName = c.ComponentName,
                     ComponentKind = c.ComponentKind,
-                    ExpectedQuantity = c.DefaultQuantity
+                    // Nếu box từng được check → dùng ActualQuantity gần nhất làm baseline mới.
+                    // Nếu chưa có lần check nào → dùng DefaultQuantity từ template.
+                    ExpectedQuantity = latestByComponent.TryGetValue(c.Id, out var last)
+                        ? last.ActualQuantity
+                        : c.DefaultQuantity
                 }).ToList()
             };
         }
@@ -1141,8 +1153,15 @@ namespace BoardVerse.Services.Services
 
             var components = sessionGame.GameTemplate.Components?.ToList() ?? [];
 
+            // FIX Bug "MarkAllValid dùng DefaultQuantity thay vì baseline":
+            // Lấy ActualQuantity từ lần kiểm kê GẦN NHẤT của cùng box làm baseline mới.
+            // Nếu box đã thiếu linh kiện ở phiên trước → MarkAllValid phải ghi Actual = baseline,
+            // không phải DefaultQuantity từ template (sẽ khôi phục sai).
+            var latestByComponent = await _posRepository
+                .GetLatestComponentCheckByBoxAsync(sessionGame.CafeInventoryBoxId);
+
             // AC 3.2: "Tất cả hợp lệ" → mark Verified ngay. Vẫn insert 1 dòng result cho mỗi component
-            // với ActualQuantity = ExpectedQuantity để admin audit "staff bấm AllValid lúc Y, không đếm chi tiết".
+            // với ActualQuantity = ExpectedQuantity (baseline) để admin audit "staff bấm AllValid lúc Y, không đếm chi tiết".
             if (request.MarkAllValid)
             {
                 var now = DateTime.UtcNow;
@@ -1151,16 +1170,22 @@ namespace BoardVerse.Services.Services
                 sessionGame.CheckedByStaffId = userId;
                 sessionGame.TotalPenaltyAmount = 0;
 
-                var allValidResults = components.Select(c => new ComponentCheckResult
+                var allValidResults = components.Select(c =>
                 {
-                    Id = Guid.NewGuid(),
-                    ActiveSessionGameId = sessionGame.Id,
-                    GameComponentTemplateId = c.Id,
-                    ExpectedQuantity = c.DefaultQuantity,
-                    ActualQuantity = c.DefaultQuantity,
-                    PenaltyFee = 0,
-                    StaffId = userId,
-                    CheckedAt = now
+                    var baseline = latestByComponent.TryGetValue(c.Id, out var last)
+                        ? last.ActualQuantity
+                        : c.DefaultQuantity;
+                    return new ComponentCheckResult
+                    {
+                        Id = Guid.NewGuid(),
+                        ActiveSessionGameId = sessionGame.Id,
+                        GameComponentTemplateId = c.Id,
+                        ExpectedQuantity = baseline,
+                        ActualQuantity = baseline,
+                        PenaltyFee = 0,
+                        StaffId = userId,
+                        CheckedAt = now
+                    };
                 }).ToList();
                 await _posRepository.AddComponentCheckResultsAsync(allValidResults);
                 await _posRepository.SaveChangesAsync();
@@ -1287,7 +1312,13 @@ namespace BoardVerse.Services.Services
             foreach (var component in components)
             {
                 var actualQty = resultLookup.GetValueOrDefault(component.Id, 0);
-                var expectedQty = component.DefaultQuantity;
+                // FIX Bug "SubmitComponentCheck dùng DefaultQuantity thay vì baseline":
+                // Nếu box đã bị mất linh kiện ở phiên trước → ExpectedQuantity = baseline mới
+                // (ActualQuantity của lần kiểm gần nhất), không phải DefaultQuantity từ template.
+                // Nếu chưa có lần check nào → dùng DefaultQuantity.
+                var expectedQty = latestByComponent.TryGetValue(component.Id, out var lastBaseline)
+                    ? lastBaseline.ActualQuantity
+                    : component.DefaultQuantity;
                 var missing = expectedQty - actualQty;
                 decimal penaltyFee = 0;
 

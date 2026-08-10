@@ -27,6 +27,14 @@ namespace BoardVerse.Core.IRepositories
         /// Sắp xếp theo CheckedAt DESC (mới nhất trước).
         /// </summary>
         Task<IReadOnlyList<ActiveSessionGame>> GetMissingComponentIncidentsByBoxAsync(Guid boxId);
+
+        /// <summary>
+        /// FIX Bug: Lấy kết quả kiểm kê MỚI NHẤT cho 1 box (theo ActiveSessionGame.CheckedAt DESC).
+        /// Trả Dictionary&lt;componentId, ComponentCheckResult&gt; để tra nhanh ActualQuantity gần nhất.
+        /// Dùng cho GetComponentChecklistAsync: nếu box từng bị mất linh kiện ở phiên trước → dùng số lượng
+        /// thực tế còn lại làm ExpectedQuantity mới (snapshot baseline mới).
+        /// </summary>
+        Task<IReadOnlyDictionary<Guid, ComponentCheckResult>> GetLatestComponentCheckByBoxAsync(Guid boxId);
         Task<GameTemplate?> GetGameTemplateWithComponentsAsync(Guid gameTemplateId);
         Task<CafeGameComponentPenalty?> GetComponentPenaltyAsync(Guid cafeId, Guid gameTemplateId, Guid componentId);
         Task<IReadOnlyDictionary<Guid, CafeGameComponentPenalty>> GetComponentPenaltiesByCafeGameAsync(
