@@ -834,6 +834,7 @@ namespace BoardVerse.Services.Services
                 Id = Guid.NewGuid(),
                 ActiveSessionId = sessionId,
                 CafeInventoryBoxId = box.Id,
+                GameTemplateId = box.CafeGameInventory.GameTemplateId,
                 AttachedAt = DateTime.UtcNow
             };
 
