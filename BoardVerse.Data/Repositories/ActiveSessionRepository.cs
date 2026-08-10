@@ -28,6 +28,7 @@ namespace BoardVerse.Data.Repositories
                     .ThenInclude(g => g.ComponentCheckResults)
                         .ThenInclude(c => c.GameComponentTemplate)
                 .Include(s => s.CafeTable)
+                .Include(s => s.Cafe)
                 .Include(s => s.CafeInventoryBox)
                 .Include(s => s.GameTemplate)
                 .FirstOrDefaultAsync(s => s.Id == sessionId);
@@ -43,6 +44,7 @@ namespace BoardVerse.Data.Repositories
                 .Include(s => s.Games)
                     .ThenInclude(g => g.GameTemplate)
                 .Include(s => s.CafeTable)
+                .Include(s => s.Cafe)
                 .Include(s => s.CafeInventoryBox)
                 .Include(s => s.GameTemplate)
                 .FirstOrDefaultAsync(s => s.Id == sessionId);

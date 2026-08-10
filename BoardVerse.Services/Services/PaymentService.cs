@@ -270,6 +270,37 @@ public class PaymentService : IPaymentService
         await VerifyCafeOperatorAsync(cafe, actorUserId, actorRole);
 
         var totalAmount = session.TotalAmount;
+
+        // BR-15: Nếu chưa checkout (TotalAmount=0), tính tiền tại đây
+        // (backup khi gọi CreateSessionPayment trước khi PaySessionAsync)
+        if (totalAmount <= 0)
+        {
+            var now = DateTime.UtcNow;
+            decimal totalMemberSubtotal = 0;
+
+            foreach (var member in session.Members)
+            {
+                var memberLeftAt = member.LeftAt ?? now;
+                var memberMinutes = Math.Max(0, (int)Math.Floor((memberLeftAt - member.JoinedAt).TotalMinutes));
+                member.TotalMinutesPlayed = memberMinutes;
+
+                decimal memberSubtotal = memberMinutes > 0
+                    ? (cafe.BillingModel == CafePartnerBillingModel.TimeBased
+                        ? CalculateRealtimeBilling(cafe, memberMinutes)
+                        : cafe.BasePrice)
+                    : 0m;
+                totalMemberSubtotal += Math.Max(0, memberSubtotal);
+            }
+
+            session.Subtotal = totalMemberSubtotal;
+            session.TotalMinutesPlayed = Math.Max(0, (int)Math.Floor((now - session.StartedAt).TotalMinutes));
+            totalAmount = session.Subtotal + session.PenaltyAmount;
+            session.TotalAmount = totalAmount;
+
+            await _activeSessionRepository.UpdateAsync(session);
+            await _activeSessionRepository.SaveChangesAsync();
+        }
+
         if (totalAmount <= 0)
         {
             throw new ConflictException(ApiErrorMessages.Payment.SessionPaymentAmountMustBePositive);
@@ -747,5 +778,20 @@ public class PaymentService : IPaymentService
         }
 
         throw new ForbiddenException(ApiErrorMessages.Payment.NotAuthorizedToViewDeposit);
+    }
+
+    private static decimal CalculateRealtimeBilling(Core.Entities.Cafe cafe, int elapsedMinutes)
+    {
+        if (elapsedMinutes <= 60)
+        {
+            return cafe.BasePrice;
+        }
+
+        var remainingMinutes = elapsedMinutes - 60;
+        var blockMinutes = cafe.TieredBlockMinutes;
+        var blockPrice = cafe.TieredBlockRate ?? 0;
+
+        var additionalBlocks = (int)Math.Ceiling((double)remainingMinutes / blockMinutes);
+        return cafe.BasePrice + (additionalBlocks * blockPrice);
     }
 }
