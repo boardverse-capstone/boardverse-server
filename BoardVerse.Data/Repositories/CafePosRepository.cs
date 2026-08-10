@@ -1,3 +1,4 @@
+using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
@@ -124,6 +125,13 @@ namespace BoardVerse.Data.Repositories
             await _context.ActiveSessions
                 .FirstOrDefaultAsync(s => s.CafeInventoryBoxId == boxId && s.Status != GroupSessionStatus.Paid);
 
+        // Lightweight check: chỉ trả true/false — session có tồn tại VÀ thuộc cafe này không.
+        // Dùng cho cross-cafe guard khi truyền optional sessionId (không load navigation).
+        public async Task<bool> ActiveSessionExistsInCafeAsync(Guid sessionId, Guid cafeId) =>
+            await _context.ActiveSessions
+                .AsNoTracking()
+                .AnyAsync(s => s.Id == sessionId && s.CafeId == cafeId);
+
         public async Task<IReadOnlyList<ActiveSession>> GetActiveSessionsAsync(Guid cafeId, Guid? gameTemplateId)
         {
             var sessionQuery = _context.ActiveSessions
@@ -214,6 +222,242 @@ namespace BoardVerse.Data.Repositories
             }).ToList();
         }
 
+        /// <summary>
+        /// Lấy danh sách phiên chơi đang ở trạng thái UNPAID (chờ thanh toán).
+        /// POS staff dùng để scan "phiên nào chờ tôi thanh toán?".
+        /// Tùy chọn lọc các phiên UNPAID quá X phút (olderThanMinutes) để nag staff quên bấm pay.
+        /// Sắp xếp: lâu nhất lên đầu (cần xử lý gấp nhất).
+        /// </summary>
+        public async Task<IReadOnlyList<ActiveSession>> GetUnpaidSessionsAsync(Guid cafeId, int olderThanMinutes = 0)
+        {
+            // Bug #1 fix: Unpaid chỉ xảy ra SAU End-game (checkout), nên EndedAt LUÔN có value.
+            // Bỏ dead-code filter `!s.EndedAt.HasValue` (trước đó accept cả session ACTIVE lỡ dừng giữa chừng
+            // → staff thấy session đang chơi hiển thị ở tab "chờ thanh toán" → UX confuse).
+            // Nếu data corrupt (Status=Unpaid + EndedAt=null) → KHÔNG trả về, để scheduler detect.
+            var cutoff = DateTime.UtcNow.AddMinutes(-Math.Max(0, olderThanMinutes));
+
+            var sessionQuery = _context.ActiveSessions
+                .Where(s => s.CafeId == cafeId
+                            && s.Status == GroupSessionStatus.Unpaid
+                            && s.EndedAt.HasValue
+                            && s.EndedAt <= cutoff);
+
+            var sessions = await sessionQuery
+                .OrderBy(s => s.EndedAt ?? s.StartedAt)
+                .Select(s => new
+                {
+                    s.Id,
+                    s.CafeId,
+                    s.CafeTableId,
+                    s.GameTemplateId,
+                    s.HostId,
+                    s.LobbyId,
+                    s.Status,
+                    s.StartedAt,
+                    s.EndedAt,
+                    s.CreatedAt,
+                    s.Subtotal,
+                    s.PenaltyAmount,
+                    s.TotalAmount
+                })
+                .AsNoTracking()
+                .ToListAsync();
+
+            if (!sessions.Any())
+            {
+                return [];
+            }
+
+            // Hydrate navigation để service có thể Map.
+            var sessionIds = sessions.Select(s => s.Id).ToList();
+            var tableIds = sessions.Where(s => s.CafeTableId.HasValue).Select(s => s.CafeTableId!.Value).Distinct().ToList();
+            var gameTemplateIds = sessions.Select(s => s.GameTemplateId).Distinct().ToList();
+            var hostIds = sessions.Select(s => s.HostId).Distinct().ToList();
+
+            var tables = await _context.CafeTables
+                .Where(t => tableIds.Contains(t.Id))
+                .AsNoTracking()
+                .ToDictionaryAsync(t => t.Id);
+
+            var games = await _context.GameTemplates
+                .Where(g => gameTemplateIds.Contains(g.Id))
+                .AsNoTracking()
+                .ToDictionaryAsync(g => g.Id);
+
+            var hosts = await _context.Users
+                .Where(u => hostIds.Contains(u.Id))
+                .AsNoTracking()
+                .ToDictionaryAsync(u => u.Id);
+
+            var memberCounts = await _context.ActiveSessionMembers
+                .Where(m => sessionIds.Contains(m.ActiveSessionId))
+                .GroupBy(m => m.ActiveSessionId)
+                .Select(g => new { SessionId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.SessionId, x => x.Count);
+
+            return sessions.Select(s => new ActiveSession
+            {
+                Id = s.Id,
+                CafeId = s.CafeId,
+                CafeTableId = s.CafeTableId,
+                GameTemplateId = s.GameTemplateId,
+                HostId = s.HostId,
+                LobbyId = s.LobbyId,
+                Status = s.Status,
+                StartedAt = s.StartedAt,
+                EndedAt = s.EndedAt,
+                CreatedAt = s.CreatedAt,
+                Subtotal = s.Subtotal,
+                PenaltyAmount = s.PenaltyAmount,
+                TotalAmount = s.TotalAmount,
+                CafeTable = s.CafeTableId.HasValue ? tables.GetValueOrDefault(s.CafeTableId.Value) : null,
+                GameTemplate = games.GetValueOrDefault(s.GameTemplateId) ?? null!,
+                Host = hosts.GetValueOrDefault(s.HostId) ?? null!,
+                Members = [] // Count sẽ lấy từ memberCounts bên service
+            }).ToList();
+        }
+
+        /// <summary>
+        /// Lấy danh sách phiên chơi đã thanh toán (PAID) theo khoảng ngày + phân trang.
+        /// POS manager dùng cho end-of-day report / đối soát SePay / cash reconciliation.
+        /// Sắp xếp: mới nhất trước (PaidAt DESC).
+        /// </summary>
+        public async Task<PaidSessionsPagedResult> GetPaidSessionsPagedAsync(
+            Guid cafeId,
+            DateOnly fromDate,
+            DateOnly toDate,
+            Guid? gameTemplateId,
+            Guid? staffId,
+            int pageNumber,
+            int pageSize)
+        {
+            var fromUtc = fromDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+            // ToDate inclusive: lấy đến cuối ngày (23:59:59.999).
+            var toUtc = toDate.ToDateTime(TimeOnly.MaxValue, DateTimeKind.Utc);
+
+            var query = _context.ActiveSessions
+                .Where(s => s.CafeId == cafeId
+                            && s.Status == GroupSessionStatus.Paid
+                            && s.PaidAt.HasValue
+                            && s.PaidAt.Value >= fromUtc
+                            && s.PaidAt.Value <= toUtc);
+
+            if (gameTemplateId.HasValue)
+            {
+                query = query.Where(s => s.GameTemplateId == gameTemplateId.Value);
+            }
+
+            // staffId chưa được track trên ActiveSession (BR-22 / audit phase 2).
+            // Để forward-compat: nếu cần, sẽ thêm PaidByStaffId column hoặc join BookingPayment audit log.
+
+            var totalCount = await query.CountAsync();
+
+            var sessions = await query
+                .OrderByDescending(s => s.PaidAt)
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .Select(s => new
+                {
+                    s.Id,
+                    s.CafeId,
+                    s.CafeTableId,
+                    s.GameTemplateId,
+                    s.HostId,
+                    s.LobbyId,
+                    s.Status,
+                    s.StartedAt,
+                    s.EndedAt,
+                    s.PaidAt,
+                    s.Subtotal,
+                    s.PenaltyAmount,
+                    s.DepositAppliedAmount,
+                    s.TotalAmount,
+                    s.TotalMinutesPlayed
+                })
+                .AsNoTracking()
+                .ToListAsync();
+
+            if (!sessions.Any())
+            {
+                return new PaidSessionsPagedResult { Items = [], TotalCount = totalCount };
+            }
+
+            var sessionIds = sessions.Select(s => s.Id).ToList();
+            var tableIds = sessions.Where(s => s.CafeTableId.HasValue).Select(s => s.CafeTableId!.Value).Distinct().ToList();
+            var gameTemplateIds = sessions.Select(s => s.GameTemplateId).Distinct().ToList();
+            var hostIds = sessions.Select(s => s.HostId).Distinct().ToList();
+
+            var tables = await _context.CafeTables
+                .Where(t => tableIds.Contains(t.Id))
+                .AsNoTracking()
+                .ToDictionaryAsync(t => t.Id);
+
+            var games = await _context.GameTemplates
+                .Where(g => gameTemplateIds.Contains(g.Id))
+                .AsNoTracking()
+                .ToDictionaryAsync(g => g.Id);
+
+            var hosts = await _context.Users
+                .Where(u => hostIds.Contains(u.Id))
+                .AsNoTracking()
+                .ToDictionaryAsync(u => u.Id);
+
+            var memberCounts = await _context.ActiveSessionMembers
+                .Where(m => sessionIds.Contains(m.ActiveSessionId))
+                .GroupBy(m => m.ActiveSessionId)
+                .Select(g => new { SessionId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.SessionId, x => x.Count);
+
+            var items = sessions.Select(s => new ActiveSession
+            {
+                Id = s.Id,
+                CafeId = s.CafeId,
+                CafeTableId = s.CafeTableId,
+                GameTemplateId = s.GameTemplateId,
+                HostId = s.HostId,
+                LobbyId = s.LobbyId,
+                Status = s.Status,
+                StartedAt = s.StartedAt,
+                EndedAt = s.EndedAt,
+                PaidAt = s.PaidAt,
+                Subtotal = s.Subtotal,
+                PenaltyAmount = s.PenaltyAmount,
+                DepositAppliedAmount = s.DepositAppliedAmount,
+                TotalAmount = s.TotalAmount,
+                TotalMinutesPlayed = s.TotalMinutesPlayed,
+                CafeTable = s.CafeTableId.HasValue ? tables.GetValueOrDefault(s.CafeTableId.Value) : null,
+                GameTemplate = games.GetValueOrDefault(s.GameTemplateId) ?? null!,
+                Host = hosts.GetValueOrDefault(s.HostId) ?? null!,
+                Members = []
+            }).ToList();
+
+            return new PaidSessionsPagedResult
+            {
+                Items = items,
+                TotalCount = totalCount
+            };
+        }
+
+        /// <summary>
+        /// Đếm số thành viên cho nhiều session trong 1 query (tránh N+1).
+        /// Trả Dictionary&lt;SessionId, Count&gt;. Session nào không có member → count = 0.
+        /// </summary>
+        public async Task<IReadOnlyDictionary<Guid, int>> GetActiveSessionMemberCountsAsync(
+            Guid cafeId,
+            IReadOnlyCollection<Guid> sessionIds)
+        {
+            if (sessionIds.Count == 0)
+            {
+                return new Dictionary<Guid, int>();
+            }
+
+            return await _context.ActiveSessionMembers
+                .Where(m => sessionIds.Contains(m.ActiveSessionId))
+                .GroupBy(m => m.ActiveSessionId)
+                .Select(g => new { SessionId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.SessionId, x => x.Count);
+        }
+
         public Task AddSessionAsync(ActiveSession session)
         {
             _context.ActiveSessions.Add(session);
@@ -275,10 +519,14 @@ namespace BoardVerse.Data.Repositories
 
         // Box history #1: query lịch sử thiếu linh kiện của 1 hộp, kèm navigation
         // ComponentCheckResults → GameComponentTemplate, Staff (User), ActiveSession → Members.
-        public async Task<IReadOnlyList<ActiveSessionGame>> GetMissingComponentIncidentsByBoxAsync(Guid boxId) =>
+        // sessionId optional: nếu truyền → chỉ lấy incidents của phiên đó; null → tất cả incidents.
+        public async Task<IReadOnlyList<ActiveSessionGame>> GetMissingComponentIncidentsByBoxAsync(
+            Guid boxId,
+            Guid? sessionId = null) =>
             await _context.ActiveSessionGames
                 .Where(g => g.CafeInventoryBoxId == boxId
-                    && g.CheckStatus == ComponentCheckStatus.MissingComponents)
+                    && g.CheckStatus == ComponentCheckStatus.MissingComponents
+                    && (!sessionId.HasValue || sessionId.Value == Guid.Empty || g.ActiveSessionId == sessionId.Value))
                 .Include(g => g.CafeInventoryBox)
                 .Include(g => g.GameTemplate)
                 .Include(g => g.ComponentCheckResults)

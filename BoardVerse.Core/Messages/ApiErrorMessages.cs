@@ -506,9 +506,19 @@ public static string AccessForbidden(Guid cafeId) =>
  public static string SessionMustBeActiveForEnd(string current) =>
  $"Phiên chơi phải đang hoạt động để kết thúc. Trạng thái hiện tại: '{current}'.";
 
- public static string SessionMustBeActiveForGameAssignment(string current) =>
- $"Chỉ gán game khi phiên đang hoạt động. Trạng thái hiện tại: '{current}'.";
- }
+public static string SessionMustBeActiveForGameAssignment(string current) =>
+    $"Chỉ gán game khi phiên đang hoạt động. Trạng thái hiện tại: '{current}'.";
+
+    /// <summary>
+    /// GAP-26 / Return-Game legacy: Endpoint <c>POST /sessions/{id}/return-game</c>
+    /// đã deprecated từ 2026-08-10. Penalty giờ là single source of truth từ
+    /// <c>ComponentCheckResult.ResponsibleMemberId</c> (submit lúc component-check).
+    /// Endpoint vẫn trả 200 + log warning để back-compat POS client cũ; v2.0 sẽ đổi 410 Gone.
+    /// </summary>
+    public static string ReturnGameDeprecated =>
+        "Endpoint /return-game đã ngừng phát triển và sẽ bị xóa trong v2.0. " +
+        "Vui lòng dùng POST /sessions/component-check để ghi nhận linh kiện mất/hỏng trước khi checkout.";
+}
 
  public static class Wallet
  {

@@ -1,3 +1,4 @@
+using BoardVerse.Core.DTOs.Common;
 using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.DTOs.Reservation;
 using BoardVerse.Core.DTOs.Session;
@@ -281,6 +282,82 @@ namespace BoardVerse.Services.Services
                 .OrderBy(s => s.StartedAt)
                 .Select(s => MapSession(s, utcNow))
                 .ToList();
+        }
+
+        /// <summary>
+        /// Lấy danh sách phiên chơi đang UNPAID (chờ thanh toán).
+        /// POS staff scan để tìm phiên đã end-game nhưng quên thanh toán.
+        /// </summary>
+        public async Task<IReadOnlyList<ActiveSessionDto>> GetUnpaidSessionsAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            int olderThanMinutes = 0)
+        {
+            await EnsurePosAccessAsync(cafeId, userId, userRole);
+
+            if (olderThanMinutes < 0)
+            {
+                throw new BadRequestException(
+                    $"olderThanMinutes không được âm (giá trị: {olderThanMinutes}).");
+            }
+
+            var sessions = await _posRepository.GetUnpaidSessionsAsync(cafeId, olderThanMinutes);
+            var utcNow = DateTime.UtcNow;
+
+            return sessions
+                .OrderBy(s => s.EndedAt ?? s.StartedAt)  // lâu nhất lên đầu
+                .Select(s => MapSession(s, utcNow))
+                .ToList();
+        }
+
+        /// <summary>
+        /// Lấy danh sách phiên chơi đã thanh toán (PAID) theo khoảng ngày + phân trang.
+        /// POS manager dùng cho end-of-day report / đối soát SePay / cash reconciliation.
+        /// </summary>
+        public async Task<PaginatedResult<PaidSessionDto>> GetPaidSessionsPagedAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            GetPaidSessionsQuery query)
+        {
+            await EnsurePosAccessAsync(cafeId, userId, userRole);
+
+            if (query.FromDate > query.ToDate)
+            {
+                throw new BadRequestException(
+                    $"FromDate ({query.FromDate:yyyy-MM-dd}) phải <= ToDate ({query.ToDate:yyyy-MM-dd}).");
+            }
+
+            // Giới hạn range tối đa 90 ngày để tránh query nặng (audit pagination sau).
+            if (query.ToDate.DayNumber - query.FromDate.DayNumber > 90)
+            {
+                throw new BadRequestException(
+                    $"Khoảng ngày thanh toán tối đa 90 ngày. Hiện tại: {query.FromDate:yyyy-MM-dd} → {query.ToDate:yyyy-MM-dd} = {(query.ToDate.DayNumber - query.FromDate.DayNumber)} ngày.");
+            }
+
+            var paged = await _posRepository.GetPaidSessionsPagedAsync(
+                cafeId,
+                query.FromDate,
+                query.ToDate,
+                query.GameTemplateId,
+                query.StaffId,
+                query.PageNumber,
+                query.PageSize);
+
+            var memberCounts = await _posRepository.GetActiveSessionMemberCountsAsync(
+                cafeId,
+                paged.Items.Select(s => s.Id).ToList());
+
+            var items = paged.Items.Select(s => MapPaidSession(s, memberCounts.GetValueOrDefault(s.Id, 0))).ToList();
+
+            return new PaginatedResult<PaidSessionDto>
+            {
+                Items = items,
+                TotalCount = paged.TotalCount,
+                PageNumber = query.PageNumber,
+                PageSize = query.PageSize
+            };
         }
 
         /// <summary>
@@ -1068,6 +1145,35 @@ namespace BoardVerse.Services.Services
             };
         }
 
+        /// <summary>
+        /// Map ActiveSession (PAID) → PaidSessionDto cho end-of-day report.
+        /// BR-REVENUE-01: PaidSession là "doanh thu đã ghi nhận".
+        /// </summary>
+        private static PaidSessionDto MapPaidSession(ActiveSession session, int memberCount)
+        {
+            return new PaidSessionDto
+            {
+                Id = session.Id,
+                CafeId = session.CafeId,
+                HostId = session.HostId,
+                HostName = session.Host?.Username ?? string.Empty,
+                LobbyId = session.LobbyId,
+                CafeTableId = session.CafeTableId,
+                TableName = session.CafeTable?.Name ?? string.Empty,
+                GameTemplateId = session.GameTemplateId,
+                GameName = session.GameTemplate?.Name ?? string.Empty,
+                StartedAt = session.StartedAt,
+                EndedAt = session.EndedAt,
+                PaidAt = session.PaidAt ?? DateTime.UtcNow,
+                TotalMinutesPlayed = session.TotalMinutesPlayed,
+                Subtotal = session.Subtotal,
+                PenaltyAmount = session.PenaltyAmount,
+                DepositAppliedAmount = session.DepositAppliedAmount,
+                TotalAmount = session.TotalAmount,
+                MemberCount = memberCount
+            };
+        }
+
         // BR-12: Component Checklist
         // GET: trả danh sách linh kiện cần kiểm, chưa có số liệu thực tế.
         public async Task<ComponentChecklistDto> GetComponentChecklistAsync(
@@ -1454,6 +1560,14 @@ namespace BoardVerse.Services.Services
             Guid sessionId,
             ReturnGameRequestDto request)
         {
+            // GAP-26 / Return-Game legacy: Endpoint deprecated từ 2026-08-10.
+            // Penalty giờ là single source of truth từ ComponentCheckResult.ResponsibleMemberId
+            // (submit lúc POST /sessions/component-check). Endpoint vẫn trả 200 + set SurchargeFine
+            // để back-compat POS client cũ; v2.0 sẽ đổi thành 410 Gone.
+            _logger.LogWarning(
+                "[DEPRECATED] ReturnGame endpoint bị gọi bởi userId={UserId}, cafeId={CafeId}, sessionId={SessionId}. Penalty tính ở đây KHÔNG được dùng - staff phải nhập qua POST /sessions/component-check.",
+                userId, cafeId, sessionId);
+
             await EnsurePosAccessAsync(cafeId, userId, userRole);
 
             var session = await _activeSessionRepository.GetByIdAsync(sessionId);
@@ -1720,7 +1834,8 @@ namespace BoardVerse.Services.Services
             Guid cafeId,
             Guid userId,
             string userRole,
-            Guid boxId)
+            Guid boxId,
+            Guid? sessionId = null)
         {
             await EnsurePosAccessAsync(cafeId, userId, userRole);
 
@@ -1737,7 +1852,25 @@ namespace BoardVerse.Services.Services
                 throw new ConflictException(ApiErrorMessages.Pos.BoxCafeMismatch(boxId, cafeId));
             }
 
-            var incidents = await _posRepository.GetMissingComponentIncidentsByBoxAsync(boxId);
+            // Optional sessionId: nếu truyền, validate session tồn tại và thuộc cùng cafe.
+            // Guid.Empty cũng coi như null (defensive).
+            Guid? effectiveSessionId = (sessionId.HasValue && sessionId.Value != Guid.Empty)
+                ? sessionId.Value
+                : null;
+
+            if (effectiveSessionId.HasValue)
+            {
+                var sessionExists = await _posRepository.ActiveSessionExistsInCafeAsync(
+                    effectiveSessionId.Value, cafeId);
+                if (!sessionExists)
+                {
+                    throw new NotFoundException(
+                        $"Session '{effectiveSessionId.Value}' không tồn tại trong quán này.");
+                }
+            }
+
+            var incidents = await _posRepository.GetMissingComponentIncidentsByBoxAsync(
+                boxId, effectiveSessionId);
 
             var dto = new BoxComponentHistoryDto
             {

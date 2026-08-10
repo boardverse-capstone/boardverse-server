@@ -18,6 +18,8 @@ namespace BoardVerse.Services.Services
         private readonly IBookingDepositRepository _depositRepository;
         private readonly ISettlementService _settlementService;
         private readonly IReservationService _reservationService;
+        // Fix #J: Inject để validate Lobby còn ACTIVE trước khi capture BVC.
+        private readonly ILobbyRepository _lobbyRepository;
         private readonly ILogger<ActiveSessionService> _logger;
 
         public ActiveSessionService(
@@ -27,6 +29,7 @@ namespace BoardVerse.Services.Services
             IBookingDepositRepository depositRepository,
             ISettlementService settlementService,
             IReservationService reservationService,
+            ILobbyRepository lobbyRepository,
             ILogger<ActiveSessionService> logger)
         {
             _cafeRepository = cafeRepository;
@@ -35,6 +38,7 @@ namespace BoardVerse.Services.Services
             _depositRepository = depositRepository;
             _settlementService = settlementService;
             _reservationService = reservationService;
+            _lobbyRepository = lobbyRepository;
             _logger = logger;
         }
 
@@ -371,38 +375,17 @@ namespace BoardVerse.Services.Services
 
             var now = DateTime.UtcNow;
 
-            // Calculate elapsed minutes for the session (all members play the same duration)
-            var elapsedMinutes = session.EndedAt.HasValue
-                ? (int)Math.Floor((session.EndedAt.Value - session.StartedAt).TotalMinutes)
-                : (int)Math.Floor((now - session.StartedAt).TotalMinutes);
-            elapsedMinutes = Math.Max(0, elapsedMinutes);
-
-            // BR-15: Each member pays based on their own play duration (BR-16).
-            // BR-16: Time-based billing = base price + tiered blocks per member's minutes.
-            // BR-16: Flat-rate = entry fee per member.
-            // Sum of per-member subtotals = total session.Subtotal.
-            decimal totalMemberSubtotal = 0;
-            foreach (var member in session.Members)
+            // ===== BR-15 + BR-16: Subtotal tính DUY NHẤT ở Checkout (CompleteCheckoutAsync) =====
+            // Fix #I: KHÔNG tính lại Subtotal tại Pay để tránh:
+            //   1. Duplicate logic (cùng code ở Checkout và Pay)
+            //   2. Drift nếu cafe.BasePrice đổi giữa 2 lần gọi → Subtotal khác nhau
+            //   3. Per-member TotalMinutesPlayed bị overwrite lần 2 → số phút "nhảy"
+            // Pay chỉ đọc session.Subtotal + session.TotalMinutesPlayed đã persist ở Checkout.
+            if (session.Subtotal < 0)
             {
-                var memberLeftAt = member.LeftAt ?? now;
-                var memberMinutes = (int)Math.Floor((memberLeftAt - member.JoinedAt).TotalMinutes);
-                memberMinutes = Math.Max(0, memberMinutes);
-                member.TotalMinutesPlayed = memberMinutes;
-
-                // Per-member subtotal based on member's own play time, not the full session.
-                // BR-16: Each member pays for their own duration.
-                decimal memberSubtotal = memberMinutes > 0
-                    ? (cafe.BillingModel == CafePartnerBillingModel.TimeBased
-                        ? CalculateRealtimeBilling(cafe, memberMinutes)
-                        : cafe.BasePrice)
-                    : 0m;
-                memberSubtotal = Math.Max(0, memberSubtotal);
-                totalMemberSubtotal += memberSubtotal;
+                throw new ConflictException(
+                    $"Phiên chơi '{sessionId}' có Subtotal âm ({session.Subtotal}). Có thể phiên bị skip Checkout. Vui lòng gọi /checkout trước khi /pay.");
             }
-
-            session.TotalMinutesPlayed = elapsedMinutes;
-            // BR-15: Sum of per-member subtotals = total session.Subtotal.
-            session.Subtotal = totalMemberSubtotal;
 
             // BR-14: Validate penalties before assignment
             if (request.PenaltyItems != null && request.PenaltyItems.Count > 0)
@@ -465,9 +448,12 @@ namespace BoardVerse.Services.Services
             session.PaidAt = now;
 
             // BR-15: BVC capture result — mặc định NotApplicable nếu không liên kết Lobby.
-            string bvcCaptureStatus = session.LobbyId.HasValue
-                ? BvcCaptureStatus.Pending.ToString()
-                : BvcCaptureStatus.NotApplicable.ToString();
+            // Bug #4 fix: dùng enum trực tiếp thay vì string. Trước đây so sánh string
+            // `bvcCaptureStatus == BvcCaptureStatus.Pending.ToString()` dễ sai khi rename enum value
+            // và cuối method phải `Enum.Parse` (throw nếu string invalid).
+            var bvcCaptureStatus = session.LobbyId.HasValue
+                ? BvcCaptureStatus.Pending
+                : BvcCaptureStatus.NotApplicable;
 
             // H8: Wrap billing + status + cleanup + capture trong 1 transaction.
             // Trước đây 3 SaveChangesAsync riêng → nếu cleanup/capture fail, status Paid vẫn commit.
@@ -477,6 +463,45 @@ namespace BoardVerse.Services.Services
 
             try
             {
+                // Fix #K: Re-check Status == UNPAID bên trong transaction.
+                // Trước đây check ở đầu method → nếu race với pay khác (cùng sessionId)
+                // hoặc webhook tự động pay, status có thể đã PAID trước khi commit.
+                if (session.Status != GroupSessionStatus.Unpaid)
+                {
+                    throw new ConflictException(ApiErrorMessages.Pos.SessionMustBeUnpaidForPayment);
+                }
+
+                // Fix #J: Validate Lobby còn ACTIVE trước khi capture BVC.
+                // Edge case: giữa checkout → pay, host có thể hostCancelled Lobby
+                // (timeoutFailed, closed). Nếu Lobby đã terminal → KHÔNG capture vì:
+                //   1. Reservation đã được release/refund (BR-REFUND-01) → capture sẽ double-credit.
+                //   2. LobbyStatus.Closed / TimeoutFailed có nghĩa phiên đã dừng → capture là sai ngữ nghĩa.
+                if (session.LobbyId.HasValue)
+                {
+                    var lobby = await _lobbyRepository.GetByIdAsync(session.LobbyId.Value);
+                    if (lobby == null)
+                    {
+                        throw new NotFoundException(
+                            $"Lobby '{session.LobbyId.Value}' không tồn tại. Không thể capture BVC.");
+                    }
+                    if (lobby.Status is LobbyStatus.Closed
+                        or LobbyStatus.TimeoutFailed
+                        or LobbyStatus.HostCancelled
+                        or LobbyStatus.RejectedByCafe
+                        or LobbyStatus.ExpiredByCafe)
+                    {
+                        _logger.LogWarning(
+                            "PaySession: Lobby {LobbyId} đã terminal ({Status}) → skip capture, vẫn commit payment cho session {SessionId}.",
+                            lobby.Id, lobby.Status, sessionId);
+                        bvcCaptureStatus = BvcCaptureStatus.SkippedLobbyTerminal;
+                    }
+                    else if (lobby.Status != LobbyStatus.InProgress)
+                    {
+                        throw new ConflictException(
+                            $"Lobby '{lobby.Id}' đang ở trạng thái '{lobby.Status}' — chỉ Lobby InProgress mới capture được BVC. Vui lòng refresh POS.");
+                    }
+                }
+
                 // Persist billing + status changes.
                 await _activeSessionRepository.SaveChangesAsync();
 
@@ -486,10 +511,10 @@ namespace BoardVerse.Services.Services
                 // BR §21A.8 + BR-REVENUE-01: capture BVC deposit về doanh thu quán.
                 // Nếu thất bại → KHÔNG commit transaction; status Paid rollback.
                 // Caller sẽ thấy exception + retry; BVC vẫn ở heldBalance cho background retry.
-                if (session.LobbyId.HasValue)
+                if (session.LobbyId.HasValue && bvcCaptureStatus == BvcCaptureStatus.Pending)
                 {
                     await _reservationService.CompleteAndCaptureAsync(session.LobbyId.Value, sessionId);
-                    bvcCaptureStatus = BvcCaptureStatus.Captured.ToString();
+                    bvcCaptureStatus = BvcCaptureStatus.Captured;
                 }
 
                 if (dbTx != null)
@@ -525,7 +550,7 @@ namespace BoardVerse.Services.Services
                 TotalAmount = session.TotalAmount,
                 PaidAt = now,
                 MemberInvoices = memberInvoices,
-                BvcCaptureStatus = Enum.Parse<BvcCaptureStatus>(bvcCaptureStatus),
+                BvcCaptureStatus = bvcCaptureStatus,   // Bug #4 fix: enum trực tiếp, không cần Enum.Parse
                 Session = MapSessionDto(finalSession!)
             };
         }
@@ -547,21 +572,10 @@ namespace BoardVerse.Services.Services
             var invoices = new List<MemberInvoiceDto>();
             var now = DateTime.UtcNow;
 
-            // GAP-12 Fix: Cache original session start times for merged members
-            var originalSessionStarts = new Dictionary<Guid, DateTime>();
-            foreach (var member in session.Members.Where(m => m.OriginalSessionId.HasValue))
-            {
-                if (!originalSessionStarts.ContainsKey(member.OriginalSessionId.Value))
-                {
-                    var originalSession = session.Members
-                        .FirstOrDefault(m => m.ActiveSessionId == member.OriginalSessionId)?
-                        .ActiveSession;
-                    if (originalSession != null)
-                    {
-                        originalSessionStarts[member.OriginalSessionId.Value] = originalSession.StartedAt;
-                    }
-                }
-            }
+            // Bug #1 fix: GAP-12 đã được giải quyết bằng cách persist member.TotalMinutesPlayed tại
+            // CompleteCheckoutAsync (line 739-743). BuildMemberInvoices đọc thẳng từ member.TotalMinutesPlayed
+            // → không cần lookup original session start times nữa.
+            // Dead code (originalSessionStarts) đã được xóa.
 
             // Penalty #1: Aggregate persisted penalty theo member từ ComponentCheckResult
             // (null = penalty chung vào session, không phân bổ).
@@ -586,17 +600,15 @@ namespace BoardVerse.Services.Services
 
             foreach (var member in session.Members)
             {
-                // GAP-12 Fix: For merged members, use the original session start time
-                // to ensure continuous time tracking (A3's total time = time from original session start)
-                var baseStartTime = member.OriginalSessionId.HasValue && originalSessionStarts.TryGetValue(member.OriginalSessionId.Value, out var originalStart)
-                    ? originalStart
-                    : member.JoinedAt;
+                // GAP-12 Fix: TotalMinutesPlayed đã được persist tại CompleteCheckoutAsync
+                // (line 739-743) — bao gồm cả merged members (OriginalSessionId → StartedAt).
+                // BuildMemberInvoices đọc lại từ member.TotalMinutesPlayed để tránh duplicate calc
+                // (Bug #1 fix) và tránh drift khi cafe.BasePrice đổi giữa Checkout → Pay.
 
-                var memberLeftAt = member.LeftAt ?? now;
-                var memberMinutes = (int)Math.Floor((memberLeftAt - baseStartTime).TotalMinutes);
-                memberMinutes = Math.Max(0, memberMinutes);
+                // BR-15 + BR-16: per-member subtotal dựa trên TotalMinutesPlayed đã persist ở Checkout.
+                // KHÔNG tính lại từ (LeftAt - JoinedAt) — sẽ khác nếu LeftAt thay đổi giữa 2 phase.
+                var memberMinutes = member.TotalMinutesPlayed;
 
-                // BR-15 + BR-16: per-member subtotal based on member's own play time.
                 decimal memberSubtotal = memberMinutes > 0
                     ? (cafe.BillingModel == CafePartnerBillingModel.TimeBased
                         ? CalculateRealtimeBilling(cafe, memberMinutes)
@@ -613,11 +625,17 @@ namespace BoardVerse.Services.Services
 
                 var memberPenalty = persistedMemberPenalty + legacyMemberPenalty + member.PenaltyAmount;
 
-                // BR-15: Member total = Subtotal + Penalty - Deposit (BR-09: Deposit không trừ)
-                // BR-09: Deposit là phí giữ chỗ, KHÔNG trừ vào hóa đơn
-                // GAP-10 Fix: Use member-level deposit from schema
-                var memberDeposit = member.DepositAppliedAmount;
-                var memberTotal = memberSubtotal + memberPenalty - memberDeposit;
+                // Bug #3 fix: BR-09 — Deposit là phí giữ chỗ cho BoardVerse, KHÔNG cấn trừ vào hóa đơn.
+                // Tổng session.DepositAppliedAmount = 0 (Host đặt cọc thuộc BoardVerse, không trừ cash invoice).
+                // Trước đây code có `- member.DepositAppliedAmount` nhưng field này luôn = 0 theo BR-09,
+                // nên vô hại. Tuy nhiên nếu BR-22 per-member deposit được activate sau, code sẽ
+                // double-trừ → phải bỏ trừ ở đây để đúng comment BR-09.
+                //
+                // DepositAppliedAmount VẪN được include trong MemberInvoiceDto (line 660) để:
+                //   1. UI hiển thị "Bạn đã đặt cọc X BVC" cho khách biết.
+                //   2. Audit trail per-member deposit đã apply.
+                //   3. Forward-compat khi BR-22 per-member deposit được implement (chỉ hiển thị, không trừ).
+                var memberTotal = memberSubtotal + memberPenalty;
                 memberTotal = Math.Max(0, memberTotal);
 
                 // Penalty #1: Ưu tiên penalty details từ persisted. Back-compat: nếu không có, dùng legacy.

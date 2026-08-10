@@ -1,3 +1,4 @@
+using BoardVerse.Core.DTOs.Common;
 using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.DTOs.Session;
 using BoardVerse.Core.Enum;
@@ -45,6 +46,30 @@ namespace BoardVerse.Services.IServices
             Guid userId,
             string userRole,
             Guid? gameTemplateId);
+
+        /// <summary>
+        /// Lấy danh sách phiên chơi đang ở trạng thái UNPAID (chờ thanh toán).
+        /// POS staff dùng để scan "phiên nào chờ tôi thanh toán?" — đặc biệt sau khi đã end-game.
+        /// </summary>
+        /// <param name="olderThanMinutes">
+        /// Optional — chỉ trả về UNPAID có <c>EndedAt</c> cách đây hơn X phút (POS nag staff quên thanh toán).
+        /// 0 = tất cả UNPAID (mặc định).
+        /// </param>
+        Task<IReadOnlyList<ActiveSessionDto>> GetUnpaidSessionsAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            int olderThanMinutes = 0);
+
+        /// <summary>
+        /// Lấy danh sách phiên chơi đã thanh toán (PAID) theo khoảng ngày + phân trang.
+        /// POS manager dùng cho end-of-day report / đối soát SePay / cash reconciliation.
+        /// </summary>
+        Task<PaginatedResult<PaidSessionDto>> GetPaidSessionsPagedAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            GetPaidSessionsQuery query);
 
         /// <summary>
         /// GAP 1 Fix: Get session by ID for frontend to view session details.
@@ -111,11 +136,16 @@ namespace BoardVerse.Services.IServices
         // Box history #1: trả lịch sử các lần hộp bị ghi nhận MissingComponents
         // qua các phiên trước, kèm linh kiện thiếu + staff + member chịu trách nhiệm.
         // Staff dùng trước khi giao hộp cho khách phiên mới.
+        /// <param name="sessionId">
+        /// Optional: nếu truyền, chỉ trả incidents thuộc phiên chơi này.
+        /// Nếu null/empty Guid, trả tất cả incidents của hộp.
+        /// </param>
         Task<BoxComponentHistoryDto> GetBoxComponentHistoryAsync(
             Guid cafeId,
             Guid userId,
             string userRole,
-            Guid boxId);
+            Guid boxId,
+            Guid? sessionId = null);
 
         // Return Game: tính surcharge_fine
         Task<ReturnGameResponseDto> ReturnGameAsync(

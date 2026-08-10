@@ -18,7 +18,16 @@ API vận hành quầy: bàn, kho hộp game, phiên chơi, kiểm kê, khách v
 | `/boxes` | GET | Danh sách hộp game | `CafePosController` |
 | `/boxes/by-barcode/{barcode}` | GET | Tra cứu hộp sau khi quét POS | `CafePosController` |
 | `/sessions/active` | GET | Phiên đang chơi | `CafePosController` |
+| `/sessions/unpaid` | GET | Phiên chờ thanh toán (POS nag staff) | `CafePosController` |
+| `/sessions/paid` | GET | Phiên đã thanh toán (end-of-day report, paginated) | `CafePosController` |
 | `/sessions/{sessionId}` | GET | Chi tiết 1 phiên chơi (GAP-1) | `CafePosController` |
+
+> **⚠️ Lưu ý timezone cho `GET /sessions/paid`** (Bug #4 fix):
+> - `fromDate`/`toDate` là **UTC date** (theo `DateTime.UtcNow`).
+> - Client phải convert local date → UTC date trước khi gọi.
+> - VD: POS ở VN (UTC+7) lúc 09:00 sáng 11/08 VN → UTC = 02:00 ngày 11/08 → gửi `fromDate=2026-08-11&toDate=2026-08-11`.
+> - Nếu client gửi local date mà không convert → query sai ngày (lệch ±1 ngày tùy timezone).
+> - Khuyến nghị: client dùng `DateTime.UtcNow.ToString("yyyy-MM-dd")` thay vì `DateTime.Now.ToString(...)`.
 | `/bookings/{bookingCode}` | GET | Preview booking trước check-in (AC 1.1) | `CafePosController` |
 | `/sessions` | POST | Giao game cho bàn — bắt đầu phiên chơi (POS scan barcode) | `CafePosController` |
 | `/check-in` | POST | **POS check-in (canonical):** Staff quét QR (ReservationCode \| BookingCode legacy) để kích hoạt phiên chơi cho cả nhóm (BR §21A.7) | `CafePosController` |
@@ -764,6 +773,10 @@ Lấy lịch sử kiểm kê linh kiện của một hộp game (CafeInventoryBo
 **Điều kiện:**
 - `boxId` phải tồn tại.
 - Box phải thuộc `cafeId` trong URL → nếu không → `409 BoxCafeMismatch`.
+- `sessionId` (optional): nếu truyền, session phải thuộc cùng `cafeId` → nếu không → `404 SessionNotInCafe`.
+
+**Query (optional):**
+- `sessionId` (Guid): nếu truyền → chỉ trả incidents của phiên đó. Bỏ qua hoặc `Guid.Empty` → trả tất cả incidents của hộp (audit mode).
 
 **Trả về:**
 - Danh sách các `ActiveSessionGame` của box này có `CheckStatus = MissingComponents`, sắp xếp theo `CheckedAt DESC`.
@@ -810,12 +823,18 @@ Lấy lịch sử kiểm kê linh kiện của một hộp game (CafeInventoryBo
 - `401` thiếu token.
 - `403` không thuộc cafe.
 - `404` `BoxNotFoundById` — không tìm thấy hộp.
+- `404` Session không tồn tại trong quán (khi truyền `sessionId`).
 - `409` `BoxCafeMismatch` — hộp thuộc quán khác.
 - `500` lỗi hệ thống.
 
 **Ví dụ curl:**
 ```bash
+# Lấy tất cả incidents của hộp (audit mode)
 curl -X GET "https://api.boardverse.local/api/cafes/{cafeId}/pos/boxes/{boxId}/component-history" \
+  -H "Authorization: Bearer <staff-jwt>"
+
+# Chỉ lấy incidents của 1 phiên cụ thể (checkout modal)
+curl -X GET "https://api.boardverse.local/api/cafes/{cafeId}/pos/boxes/{boxId}/component-history?sessionId={sessionId}" \
   -H "Authorization: Bearer <staff-jwt>"
 ```
 
@@ -848,7 +867,14 @@ Mỗi session game sau khi verify sẽ có 1 bộ dòng trong bảng `ComponentC
 
 ---
 
-### POST /api/cafes/{cafeId}/pos/sessions/{sessionId}/return-game
+### POST /api/cafes/{cafeId}/pos/sessions/{sessionId}/return-game <a id="return-game-deprecated"></a>
+
+> **⚠️ DEPRECATED từ 2026-08-10 — Sẽ bị xóa trong BoardVerse v2.0.**
+> Endpoint này set `session.SurchargeFine` (dead field) nhưng **không ảnh hưởng hóa đơn**.
+> Staff phải nhập penalty qua `POST /api/cafes/{cafeId}/pos/sessions/component-check` thay thế.
+> Mọi response trả về kèm header:
+> - `Deprecation: true`
+> - `Sunset: Wed, 31 Dec 2026 23:59:59 GMT` (sau ngày này → 410 Gone)
 
 Trả 1 game **trước khi** end session — session vẫn `ACTIVE`.
 
@@ -866,12 +892,16 @@ Trả 1 game **trước khi** end session — session vẫn `ACTIVE`.
 }
 ```
 
-**Hành vi:**
+**Hành vi (legacy — KHÔNG dùng cho flow mới):**
 - Tính `surcharge_fine = sum(missingQuantity × PenaltyFee + damagedQuantity × PenaltyFee)`
-- Set `session.SurchargeFine = totalFine`
+- Set `session.SurchargeFine = totalFine` (chỉ set field này, KHÔNG ghi `ComponentCheckResult`)
 - Nếu có linh kiện hỏng → box → `Maintenance`
 - Nếu không hỏng → box → `Available`
 - **Session KHÔNG end** — vẫn `ACTIVE`
+
+> **Lý do deprecated:** `SurchargeFine` không được đọc bởi `PaySession`. Single source of truth
+> cho penalty giờ là `ComponentCheckResult.ResponsibleMemberId` (submit lúc component-check).
+> Xem thêm: `POST /sessions/component-check` và `POST /sessions/{id}/pay`.
 
 **Response 200:**
 ```json
@@ -1090,6 +1120,29 @@ POST /api/cafes/{cafeId}/pos/sessions/{id}/pay
 # → Status: UNPAID → PAID
 # → Boxes + tables + seats → Available
 ```
+
+> **⚙️ Implementation notes (Fix I + J + K — 2026-08-10):**
+> - **Fix I (single source Subtotal):** Subtotal chỉ tính tại `Checkout` (line 733 `CompleteCheckoutAsync`).
+>   Pay **không** tính lại để tránh drift khi `cafe.BasePrice` đổi giữa 2 phase.
+>   Pay chỉ validate `session.Subtotal >= 0` (nếu âm → throw 409 "skip Checkout").
+> - **Fix J (Lobby terminal guard):** Trước khi `CompleteAndCaptureAsync`, validate Lobby còn `InProgress`.
+>   Nếu Lobby đã `Closed/TimeoutFailed/HostCancelled/RejectedByCafe/ExpiredByCafe` → skip capture
+>   (đã refund ở BR-REFUND-01, capture sẽ double-credit). Payment vẫn commit cho cash invoice;
+>   `PaySessionResponse.BvcCaptureStatus = SkippedLobbyTerminal`.
+> - **Fix K (Status re-check trong transaction):** `Status == UNPAID` được validate **bên trong**
+>   `BeginTransaction` block (race với concurrent pay cùng sessionId hoặc webhook tự pay).
+>
+> **🐛 Bug fixes phát hiện khi review (Bug #1, #3, #4 — 2026-08-10):**
+> - **Bug #1 (member.Subtotal duplicate):** `BuildMemberInvoices` tính lại `memberSubtotal` từ
+>   `LeftAt - JoinedAt` → khác với `session.Subtotal` (persist từ Checkout) nếu `cafe.BasePrice` đổi.
+>   Fix: đọc `member.TotalMinutesPlayed` đã persist tại CompleteCheckoutAsync (line 739-743).
+>   Đồng thời xóa dead code `originalSessionStarts` (GAP-12 đã được giải quyết từ Checkout).
+> - **Bug #3 (BR-09 latent violation):** Code `memberTotal = Subtotal + Penalty - memberDeposit` trái
+>   ngược comment "BR-09: Deposit KHÔNG trừ". Field `member.DepositAppliedAmount` luôn = 0 theo
+>   BR-09 nên vô hại, nhưng nếu BR-22 per-member deposit được activate sẽ trigger double-trừ.
+>   Fix: bỏ `- memberDeposit`, vẫn include `DepositAppliedAmount` trong DTO để UI hiển thị + audit.
+> - **Bug #4 (string compare fragility):** `bvcCaptureStatus` dùng string + `Enum.Parse` cuối method
+>   dễ sai khi rename enum value. Fix: dùng `BvcCaptureStatus` enum trực tiếp, bỏ `Enum.Parse`.
 
 ### Luồng 9: Thanh toán một phần (Exception 4 — nhóm về sớm)
 

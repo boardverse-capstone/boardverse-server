@@ -1,3 +1,4 @@
+using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.Entities;
 
 namespace BoardVerse.Core.IRepositories
@@ -15,7 +16,21 @@ namespace BoardVerse.Core.IRepositories
         Task<IReadOnlyList<CafeInventoryBox>> GetBoxesAsync(Guid cafeId, Guid? gameTemplateId);
         Task<ActiveSession?> GetActiveSessionByIdAsync(Guid cafeId, Guid sessionId);
         Task<ActiveSession?> GetActiveSessionByBoxIdAsync(Guid boxId);
+
+        /// <summary>
+        /// Lightweight check: session có tồn tại và thuộc cafe này không (không load navigation).
+        /// Dùng cho cross-cafe guard khi truyền optional sessionId.
+        /// </summary>
+        Task<bool> ActiveSessionExistsInCafeAsync(Guid sessionId, Guid cafeId);
         Task<IReadOnlyList<ActiveSession>> GetActiveSessionsAsync(Guid cafeId, Guid? gameTemplateId);
+        Task<IReadOnlyList<ActiveSession>> GetUnpaidSessionsAsync(Guid cafeId, int olderThanMinutes = 0);
+        /// <summary>
+        /// Đếm số thành viên cho nhiều session trong 1 query (tránh N+1).
+        /// Trả Dictionary&lt;SessionId, Count&gt;. Session nào không có member → count = 0.
+        /// </summary>
+        Task<IReadOnlyDictionary<Guid, int>> GetActiveSessionMemberCountsAsync(Guid cafeId, IReadOnlyCollection<Guid> sessionIds);
+
+        Task<PaidSessionsPagedResult> GetPaidSessionsPagedAsync(Guid cafeId, DateOnly fromDate, DateOnly toDate, Guid? gameTemplateId, Guid? staffId, int pageNumber, int pageSize);
         Task<ActiveSessionGame?> GetActiveSessionGameByIdAsync(Guid sessionGameId);
         Task<IReadOnlyList<ActiveSessionGame>> GetSessionGamesAsync(Guid sessionId);
         Task<bool> IsSessionFullyCheckedAsync(Guid sessionId);
@@ -26,7 +41,14 @@ namespace BoardVerse.Core.IRepositories
         /// Trả kèm navigation: ComponentCheckResults + GameComponentTemplate + Staff + Members.
         /// Sắp xếp theo CheckedAt DESC (mới nhất trước).
         /// </summary>
-        Task<IReadOnlyList<ActiveSessionGame>> GetMissingComponentIncidentsByBoxAsync(Guid boxId);
+        /// <param name="boxId">Mã hộp game (CafeInventoryBox).</param>
+        /// <param name="sessionId">
+        /// Optional: nếu truyền, chỉ trả incidents thuộc <c>ActiveSessionId</c> này.
+        /// Nếu null/empty Guid, trả tất cả incidents của hộp (audit mode).
+        /// </param>
+        Task<IReadOnlyList<ActiveSessionGame>> GetMissingComponentIncidentsByBoxAsync(
+            Guid boxId,
+            Guid? sessionId = null);
 
         /// <summary>
         /// FIX Bug: Lấy kết quả kiểm kê MỚI NHẤT cho 1 box (theo ActiveSessionGame.CheckedAt DESC).

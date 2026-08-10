@@ -62,6 +62,10 @@ namespace BoardVerse.Core.DTOs.Session
         Pending,
         Captured,
         Failed,
-        NotApplicable
+        NotApplicable,
+        // Fix #J: Lobby đã terminal (Closed/TimeoutFailed/HostCancelled) trước khi PaySession
+        // chạy → KHÔNG capture (đã refund/release ở BR-REFUND-01) nhưng vẫn commit payment
+        // cho ActiveSession (cash vẫn thu được từ khách, chỉ BVC deposit không capture).
+        SkippedLobbyTerminal
     }
 }

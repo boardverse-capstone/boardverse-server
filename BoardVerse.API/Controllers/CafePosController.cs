@@ -199,19 +199,87 @@ namespace BoardVerse.API.Controllers
         /// Liệt kê phiên chơi đang active (phục vụ billing và tính thời gian chờ discovery). [Role: Manager, CafeStaff]
         /// </summary>
         /// <param name="cafeId">Mã định danh quán cafe.</param>
-        /// <param name="gameTemplateId">Tuỳ chọn — lọc theo tựa game.</param>
-        /// <response code="200">Danh sách ActiveSessionDto kèm elapsedMinutes và estimatedRemainingMinutes.</response>
-        /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
-        /// <response code="403">Không đủ quyền vận hành quán.</response>
-        /// <response code="404">Quán không tồn tại hoặc không ACTIVE.</response>
-        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
-        [HttpGet("sessions/active")]
-        public async Task<IActionResult> GetActiveSessions(Guid cafeId, [FromQuery] Guid? gameTemplateId)
-        {
-            var (userId, role) = GetViewerContext();
-            var result = await _posService.GetActiveSessionsAsync(cafeId, userId, role, gameTemplateId);
-            return this.NewResponse(200, ApiSuccessMessages.Pos.SessionsRetrieved, result);
-        }
+/// <param name="gameTemplateId">Tuỳ chọn — lọc theo tựa game.</param>
+/// <response code="200">Danh sách ActiveSessionDto kèm elapsedMinutes và estimatedRemainingMinutes.</response>
+/// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+/// <response code="403">Không đủ quyền vận hành quán.</response>
+/// <response code="404">Quán không tồn tại hoặc không ACTIVE.</response>
+/// <response code="500">Lỗi hệ thống không mong đợi.</response>
+[HttpGet("sessions/active")]
+public async Task<IActionResult> GetActiveSessions(Guid cafeId, [FromQuery] Guid? gameTemplateId)
+{
+    var (userId, role) = GetViewerContext();
+    var result = await _posService.GetActiveSessionsAsync(cafeId, userId, role, gameTemplateId);
+    return this.NewResponse(200, ApiSuccessMessages.Pos.SessionsRetrieved, result);
+}
+
+/// <summary>
+/// Lấy danh sách phiên chơi đang ở trạng thái UNPAID (chờ thanh toán).
+/// POS staff dùng để scan "phiên nào chờ tôi thanh toán?" — đặc biệt sau khi đã end-game.
+/// Sắp xếp: lâu nhất lên đầu (UNPAID > X phút được ưu tiên nag staff).
+/// [Role: Manager, CafeStaff — phải có quyền vận hành quán.]
+/// </summary>
+/// <param name="cafeId">Mã định danh quán cafe.</param>
+/// <param name="olderThanMinutes">
+/// Tuỳ chọn — chỉ trả về UNPAID có <c>EndedAt</c> cách đây hơn X phút (POS nag staff quên thanh toán).
+/// 0 = tất cả UNPAID (mặc định).
+/// </param>
+/// <response code="200">Danh sách ActiveSessionDto ở trạng thái UNPAID, sort by EndedAt ASC.</response>
+/// <response code="400">olderThanMinutes âm.</response>
+/// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+/// <response code="403">Không đủ quyền vận hành quán.</response>
+/// <response code="404">Quán không tồn tại hoặc không ACTIVE.</response>
+/// <response code="500">Lỗi hệ thống không mong đợi.</response>
+[HttpGet("sessions/unpaid")]
+public async Task<IActionResult> GetUnpaidSessions(Guid cafeId, [FromQuery] int olderThanMinutes = 0)
+{
+    var (userId, role) = GetViewerContext();
+    var result = await _posService.GetUnpaidSessionsAsync(cafeId, userId, role, olderThanMinutes);
+    return this.NewResponse(200, ApiSuccessMessages.Pos.UnpaidSessionsRetrieved, result);
+}
+
+/// <summary>
+/// Lấy danh sách phiên chơi đã thanh toán (PAID) theo khoảng ngày + phân trang.
+/// POS manager dùng cho end-of-day report / đối soát SePay / cash reconciliation.
+/// BR-REVENUE-01: PAID session = doanh thu đã ghi nhận.
+/// [Role: Manager, CafeStaff — phải có quyền vận hành quán.]
+/// </summary>
+/// <param name="cafeId">Mã định danh quán cafe.</param>
+/// <param name="fromDate">Từ ngày (yyyy-MM-dd, mặc định = hôm nay UTC).</param>
+/// <param name="toDate">Đến ngày (yyyy-MM-dd, mặc định = hôm nay UTC).</param>
+/// <param name="gameTemplateId">Tuỳ chọn — lọc theo tựa game.</param>
+/// <param name="staffId">Tuỳ chọn — lọc theo staff thực hiện thanh toán (audit phase 2).</param>
+/// <param name="pageNumber">Số trang (1-indexed, mặc định 1).</param>
+/// <param name="pageSize">Số item mỗi trang (1-100, mặc định 20).</param>
+/// <response code="200">PaginatedResult&lt;PaidSessionDto&gt; sort by PaidAt DESC.</response>
+/// <response code="400">fromDate &gt; toDate, hoặc khoảng ngày &gt; 90 ngày.</response>
+/// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+/// <response code="403">Không đủ quyền vận hành quán.</response>
+/// <response code="404">Quán không tồn tại hoặc không ACTIVE.</response>
+/// <response code="500">Lỗi hệ thống không mong đợi.</response>
+[HttpGet("sessions/paid")]
+public async Task<IActionResult> GetPaidSessions(
+    Guid cafeId,
+    [FromQuery] DateOnly fromDate,
+    [FromQuery] DateOnly toDate,
+    [FromQuery] Guid? gameTemplateId,
+    [FromQuery] Guid? staffId,
+    [FromQuery] int pageNumber = 1,
+    [FromQuery] int pageSize = 20)
+{
+    var (userId, role) = GetViewerContext();
+    var query = new GetPaidSessionsQuery
+    {
+        FromDate = fromDate,
+        ToDate = toDate,
+        GameTemplateId = gameTemplateId,
+        StaffId = staffId,
+        PageNumber = pageNumber,
+        PageSize = pageSize
+    };
+    var result = await _posService.GetPaidSessionsPagedAsync(cafeId, userId, role, query);
+    return this.NewResponse(200, ApiSuccessMessages.Pos.PaidSessionsRetrieved, result);
+}
 
         /// <summary>
         /// Lấy chi tiết một phiên chơi theo mã định danh. [Role: Manager, CafeStaff]
@@ -426,17 +494,29 @@ namespace BoardVerse.API.Controllers
         /// </summary>
         /// <param name="cafeId">Mã quán.</param>
         /// <param name="boxId">Mã hộp game (CafeInventoryBox).</param>
+        /// <param name="sessionId">
+        /// Mã phiên chơi cần lọc (optional, query).
+        /// <list type="number">
+        /// <item>Bỏ qua (hoặc truyền <c>Guid.Empty</c>): trả tất cả incidents của hộp (audit mode).</item>
+        /// <item>Truyền Guid hợp lệ: chỉ trả incidents của phiên đó (dùng cho checkout modal).</item>
+        /// </list>
+        /// Session phải thuộc cùng quán — nếu không sẽ trả 404.
+        /// </param>
         /// <response code="200">Lấy lịch sử thành công — có thể là danh sách rỗng nếu hộp chưa từng bị kiểm kê thiếu.</response>
         /// <response code="401">Thiếu token.</response>
         /// <response code="403">Không đủ quyền vận hành quán.</response>
-        /// <response code="404">Không tìm thấy hộp game.</response>
+        /// <response code="404">Không tìm thấy hộp game hoặc session không thuộc quán này.</response>
         /// <response code="409">Hộp game không thuộc quán này.</response>
         /// <response code="500">Lỗi hệ thống.</response>
         [HttpGet("boxes/{boxId:guid}/component-history")]
-        public async Task<IActionResult> GetBoxComponentHistory(Guid cafeId, Guid boxId)
+        public async Task<IActionResult> GetBoxComponentHistory(
+            Guid cafeId,
+            Guid boxId,
+            [FromQuery] Guid? sessionId = null)
         {
             var (userId, role) = GetViewerContext();
-            var result = await _posService.GetBoxComponentHistoryAsync(cafeId, userId, role, boxId);
+            var result = await _posService.GetBoxComponentHistoryAsync(
+                cafeId, userId, role, boxId, sessionId);
             return this.NewResponse(200, "Lấy lịch sử kiểm kê linh kiện của hộp thành công.", result);
         }
 
@@ -505,21 +585,34 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Xử lý trả game: tính surcharge_fine từ linh kiện lỗi, cập nhật box status nếu hỏng.
-        /// POST /api/cafes/{cafeId}/pos/sessions/{sessionId}/return-game
+        /// <para><b>[DEPRECATED]</b> từ 2026-08-10. Sẽ bị xóa trong BoardVerse v2.0.</para>
+        /// Penalty giờ là <i>single source of truth</i> từ <c>ComponentCheckResult.ResponsibleMemberId</c>
+        /// (submit lúc <c>POST /sessions/component-check</c>). Endpoint này vẫn trả 200 + set
+        /// <c>session.SurchargeFine</c> (DEAD FIELD) để back-compat POS client cũ; staff nên
+        /// migrate sang component-check flow để penalty được tính đúng vào hóa đơn.
+        /// <para>Response trả về kèm header:
+        /// <c>Deprecation: true</c>, <c>Sunset: Wed, 31 Dec 2026 23:59:59 GMT</c>,
+        /// <c>Link: &lt;/docs/api/cafe-pos#return-game-deprecated&gt;; rel="deprecation"</c>.</para>
         /// </summary>
         /// <param name="cafeId">Mã quán.</param>
         /// <param name="sessionId">Mã phiên chơi.</param>
         /// <param name="request">Mảng linh kiện lỗi (ID, số lượng mất, số lượng hỏng).</param>
-        /// <response code="200">Xử lý thành công, trả surcharge_fine.</response>
+        /// <response code="200">⚠️ DEPRECATED: Trả surcharge_fine nhưng KHÔNG ảnh hưởng hóa đơn. Dùng /sessions/component-check.</response>
         /// <response code="400">Dữ liệu không hợp lệ.</response>
         /// <response code="401">Thiếu token.</response>
         /// <response code="403">Không đủ quyền.</response>
         /// <response code="404">Không tìm thấy phiên chơi hoặc hộp game.</response>
         /// <response code="500">Lỗi hệ thống.</response>
         [HttpPost("sessions/{sessionId:guid}/return-game")]
+        [Obsolete("Endpoint đã deprecated từ 2026-08-10, sẽ xóa trong v2.0. Dùng POST /sessions/component-check thay thế.")]
         public async Task<IActionResult> ReturnGame(Guid cafeId, Guid sessionId, [FromBody] ReturnGameRequestDto request)
         {
+            // GAP-26 / Return-Game legacy: trả Deprecation header theo RFC 8594.
+            // Sunset date 2026-12-31 — sau ngày này, controller sẽ đổi sang trả 410 Gone.
+            Response.Headers["Deprecation"] = "true";
+            Response.Headers["Sunset"] = "Wed, 31 Dec 2026 23:59:59 GMT";
+            Response.Headers["Link"] = "</docs/api/cafe-pos#return-game-deprecated>; rel=\"deprecation\"";
+
             var (userId, role) = GetViewerContext();
             var result = await _posService.ReturnGameAsync(cafeId, userId, role, sessionId, request);
             return this.NewResponse(200, "Xử lý trả game thành công.", result);
