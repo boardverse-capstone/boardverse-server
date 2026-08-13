@@ -24,7 +24,7 @@ Tuân thủ business rules:
 - **BR-NEW-02**: 1 lobby active / `playDate` / user.
 - **BR-NEW-08**: 1 lobby active / `playDate+timeSlot` / `cafe` / user.
 - **BR-NEW-11**: `playDate ≥ DistantThresholdDays` (mặc định 2) + lobby **public** → lobby ở `PendingCafeApproval`, chờ cafe duyệt 24h. Lobby **private** không cần cafe duyệt.
-- **BR-REFUND-02/03**: Cancel theo mốc 24h/6h + grace 15 phút.
+- **BR-REFUND-02**: Cancel theo grace 15 phút + ≥24h / <24h. **Early checkout** dùng `playedRatio`: <50% → 0%, ≥50% → 30%, ≥90% → 0% (treated as on-time).
 - **BR-RESERVATION-01/02**: Giữ `maxPlayers` ghế + 1 game copy.
 
 ---
@@ -560,7 +560,7 @@ Confirm endpoint **verify tất cả params** trước khi trả kết quả cũ
 
 ## POST /{id}/cancel
 
-Host hủy reservation. Refund theo BR-REFUND-02/03.
+Host hủy reservation. Refund theo BR-REFUND-02.
 
 ### Request
 
@@ -574,14 +574,15 @@ Host hủy reservation. Refund theo BR-REFUND-02/03.
 { "reason": "Hủy vì thay đổi kế hoạch" }
 ```
 
-### Refund policy (BR §X.2)
+### Refund policy (BR-REFUND-02)
 
 | Điều kiện | Hoàn BVC | Karma |
 |---|---|---|
 | Trong grace 15p + chưa có member | 100% | Không phạt |
-| ≥ 24 giờ trước giờ chơi | 100% | Không phạt |
-| 6–24 giờ trước giờ chơi | 50% | Giảm nhẹ |
-| < 6 giờ trước giờ chơi | 0% | Giảm đáng kể |
+| ≥ 24 giờ trước `ScheduledStartTime` | 100% | Không phạt |
+| < 24 giờ trước `ScheduledStartTime` | 0% | Giảm đáng kể |
+
+> **Lưu ý:** Không còn bậc 50% (6-24h) nữa. Chỉ có 100% (grace/≥24h) hoặc 0% (<24h).
 
 **H7 Fix (BR-REFUND-03 hasMembers, 2026-08-09):**
 - Điều kiện "chưa có member" check `members.Any(m => !m.IsHost && m.IsActive)` thay vì `members.Count > 1`.
@@ -804,7 +805,7 @@ POS staff kết thúc phiên chơi (early checkout, on-time, hoặc staff overri
 
 - Update `Reservation.Status = Completed` (hoặc `EarlyCheckout`)
 - Update `Reservation.ActualEndAt`, `PlayedRatio`, `EndReason`
-- Tính refund theo BR-REFUND-05: ≥90% on-time = 0 refund; 50-89% early = 30% refund; <50% short = 0 refund
+- Tính refund theo BR-REFUND-05: ≥90% on-time = 0 refund; ≥50% early = 30% refund; <50% short = 0 refund
 - Nếu `playedRatio < 50%` và `duration >= 30 phút` và `!SkipWalkInWindow` → tạo `WalkInWindow` (EC-09)
 - Nếu `playedRatio < 50%` → ghi `KarmaShortPlayRecord` (-5 karma)
 - Outbox event `SessionEnded`

@@ -50,7 +50,7 @@
 
 | # | Tính năng | Chi tiết | File |
 |---|---|---|---|
-| W-03 | Old refund percentages sai | ✅ **IMPLEMENTED**: `CalculatePartialRefund` dùng **100%/50%/0%** theo BR mới: ≥24h → 100%, 6-24h → 50%, <6h → 0%. Comment doc rõ BR-REFUND-02. | `BoardVerse.Services/Services/BookingDepositService.cs` (lines 340-362) |
+| W-03 | Old refund percentages sai | ✅ **IMPLEMENTED**: `CalculatePartialRefund` dùng **playedRatio-based** cho early checkout: <50% → 0%, ≥50% → 30%, ≥90% → 0% (on-time). Cancel: grace/≥24h → 100%, <24h → 0%. | `BoardVerse.Services/Services/BookingDepositService.cs` |
 | W-04 | Settlement dùng `BookingDeposit` thay vì BVC ledger | ✅ **IMPLEMENTED**: `SettlementService.ReleaseSessionDepositAsync` query `SUM(BvcLedgerEntries WHERE Type=DepositCapture AND RelatedBookingId=deposit.BookingId)` làm payout, fallback về `deposit.Amount` nếu chưa có ledger. | `BoardVerse.Services/Services/SettlementService.cs` (lines 99-119) |
 | W-05 | Balance reconciliation endpoint | ✅ **IMPLEMENTED**: `GET /{userId}/reconcile` endpoint trong `AdminWalletController` — verify `SUM(ledger entries) = wallet.availableBalance`, trả `WalletReconcileResultDto`. | `BoardVerse.API/Controllers/AdminWalletController.cs` |
 | W-06 | Manual settlement override | ✅ **IMPLEMENTED**: `POST /api/v1/admin/settlements/{settlementId}/override` trong `AdminSettlementController.cs:35-50` — `OverrideSettlementAsync` set `Status = Overridden`, ghi `OverrideBy`/`OverrideAt`. Dùng khi settlement fail sau 5 retry để admin force-complete payout cho quán. | `BoardVerse.API/Controllers/AdminSettlementController.cs` |
@@ -329,7 +329,7 @@ Codebase BoardVerse đã migrate từ từ sang **BVC Reservation flow** (BR-LOB
 | `ComprehensiveAllFlowsIntegrationTests.cs` | 1 | 🔄 `PaymentFlow_BookingDeposit` → `PaymentFlow_BvcDeposit` |
 | `PaymentControllerIntegrationTests.cs` | 3 | ❌ Xóa (legacy endpoint) |
 | `AdminControllersIntegrationTests.cs` | 1 | 🔄 `BookingDepositTimeout` config → `ReservationTimeout` |
-| `ExceptionFlowIntegrationTests.cs` | 3 | 🔄 BR06 BR-30 → BR-REFUND-02 |
+| `ExceptionFlowIntegrationTests.cs` | 3 | 🔄 BR06 BR-30 → BR-REFUND-02 (playedRatio-based early checkout refund) |
 | `IntegrationTestDataBootstrapper.cs` | 1 method | 🔄 `EnsureDemoBookingDepositAsync` → `EnsureDemoReservationAsync` |
 | `IntegrationTestFixtures.cs` | 1 constant | 🔄 `DemoBookingDepositId` → `DemoReservationId` |
 
