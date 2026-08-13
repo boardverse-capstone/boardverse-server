@@ -39,11 +39,11 @@ public class BvcLedgerEntryConfiguration : IEntityTypeConfiguration<BvcLedgerEnt
             .HasForeignKey(e => e.UserId)
             .OnDelete(DeleteBehavior.Restrict); // C4: BVC ledger là append-only (BR § III.3); KHÔNG cascade delete.
 
-        // TD-02: Navigation đến Reservation — dùng RelatedReservationId column (nullable cho legacy entries)
-        builder.HasOne(e => e.Reservation)
-            .WithMany()
-            .HasForeignKey(e => e.RelatedReservationId)
-            .OnDelete(DeleteBehavior.SetNull);
+        // TD-02: Scalar RelatedReservationId column (nullable — BVC ledger entries mới dùng Reservation)
+        // KHÔNG map navigation HasOne<Reservation> ở đây — sẽ tạo EF shadow FK `ReservationId`
+        // gây 42703 "column does not exist" khi FromSql query (DB column thực tế là RelatedReservationId).
+        // Nếu cần lookup Reservation từ entry, dùng .RelatedReservationId + manual query.
+        builder.Property(e => e.RelatedReservationId);
 
         // BR § III.3 + § XVII.1 — Idempotency key phải UNIQUE.
         builder.HasIndex(e => e.IdempotencyKey)

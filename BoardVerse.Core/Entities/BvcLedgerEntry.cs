@@ -48,6 +48,5 @@ public class BvcLedgerEntry
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public virtual User User { get; set; } = null!;
-    /// <summary>TD-02: Navigation đến Reservation (nullable cho legacy entries).</summary>
-    public virtual Reservation? Reservation { get; set; }
+    // TD-02: Navigation `Reservation` đã bỏ — EF shadow FK gây 42703. Dùng RelatedReservationId scalar lookup nếu cần.
 }
