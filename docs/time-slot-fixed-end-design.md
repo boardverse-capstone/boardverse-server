@@ -212,25 +212,39 @@ Nhóm A đặt 13:00 - 18:00 (Reservation timeSlot = Afternoon)
 | `BR-END-04` | `playedRatio > 1.0` (trễ hơn scheduled) | Charge thêm theo hourly rate + check slot liền kề | `CafePosController.EndSession` charge extra |
 | `BR-END-05` | Grace period 30 phút sau `ScheduledEndTime` | Không tính extra trong 30 phút đầu | `AutoReleaseExpiredSessionsJob` auto-release (Phase 3) |
 
-### 3.4. BR-REFUND — Refund Rules (BR §X + §XXI)
+### 3.4. BR-REFUND — Refund Rules
 
-> Tất cả 7 rules dưới đây áp dụng cho `Reservation.CompleteAndCaptureAsync` / `ReservationService.CancelAsync`. Currency = **BVC**, không phải VND.
+> Tất cả rules dưới đây áp dụng cho `Reservation.CompleteAndCaptureAsync` / `ReservationService.CancelAsync`. Currency = **BVC**, không phải VND.
 
-| ID | Rule | Hoàn BVC | BVC ghi nhận |
+**Nguyên tắc cốt lõi:** Sử dụng `playedRatio` để xác định refund cho early checkout, KHÔNG dùng milestone thời gian (24h/6h) cho phần này.
+
+`playedRatio = (EndedAt - StartedAt) / (ScheduledEndTime - ScheduledStartTime)`
+
+| ID | Điều kiện | Hoàn BVC | BVC ghi nhận |
 |---|---|---|---|
-| `BR-REFUND-01` | Host cancel ≥ 24h trước `ScheduledStartTime` | **100%** về `Wallet.availableBalance` | Ledger `DEPOSIT_RELEASE` |
-| `BR-REFUND-02` | Host cancel < 24h trước `ScheduledStartTime` | 50% (6-24h) / 0% (<6h), theo bậc thang `BR-REFUND-02 §X.2` | `DEPOSIT_RELEASE` + `DEPOSIT_FORFEIT` |
+| `BR-REFUND-01` | Timeout (lobby fail) | **100%** về `Wallet.availableBalance` | Ledger `DEPOSIT_RELEASE` |
+| `BR-REFUND-02` | Host cancel by player | Xem bảng bên dưới | Tùy thời điểm hủy |
 | `BR-REFUND-03` | No-show (grace 30 phút) | **0%** | `DEPOSIT_FORFEIT` về `Wallet.forfeitTotal` |
 | `BR-REFUND-04` | Early checkout, `playedRatio < 0.5` | **0%** | `DEPOSIT_FORFEIT` |
-| `BR-REFUND-05` | Early checkout, `0.5 ≤ playedRatio < 0.9` | **30%** về `Wallet.availableBalance` | `DEPOSIT_RELEASE` (30%) + `DEPOSIT_FORFEIT` (70%) |
+| `BR-REFUND-05` | Early checkout, `playedRatio ≥ 0.5` | **30%** về `Wallet.availableBalance` | `DEPOSIT_RELEASE` (30%) + `DEPOSIT_FORFEIT` (70%) |
 | `BR-REFUND-06` | Early checkout, `playedRatio ≥ 0.9` (treated as on-time) | **0%** | `DEPOSIT_FORFEIT` |
 | `BR-REFUND-07` | Staff override đặc biệt | Theo `Manager`/`Admin` decision → ghi log + audit `PlayerActionHistory` | Đặc biệt — cần supervisor approve |
+
+**BR-REFUND-02 — Cancel by Player:**
+
+| Thời điểm hủy | Hoàn BVC |
+|----------------|----------|
+| Grace 15 phút đầu + chưa có member | 100% |
+| ≥ 24h trước `ScheduledStartTime` | 100% |
+| < 24h trước `ScheduledStartTime` | 0% |
+
+> **Lưu ý:** BR-REFUND-04/05/06 áp dụng cho **early checkout** (đã check-in rồi về sớm), không áp dụng cho cancel trước khi check-in.
 
 **Ledger mapping:**
 
 ```
 DEPOSIT_HOLD        → heldBalance += amount, availableBalance -= amount
-DEPOSIT_RELEASE     → heldBalance -= amount, availableBalance += amount   (BR-REFUND-01/05)
+DEPOSIT_RELEASE     → heldBalance -= amount, availableBalance += amount   (BR-REFUND-01/02/05)
 DEPOSIT_FORFEIT     → heldBalance -= amount, forfeit += amount           (BR-REFUND-02/03/04/06)
 DEPOSIT_CAPTURE     → heldBalance -= amount, settlement += amount        (khi ActiveSession PAID → BR-REVENUE-01)
 ```

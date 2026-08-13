@@ -122,9 +122,9 @@ Mỗi slot có:
 | COMPLETED | Kết thúc đúng giờ, ActiveSession.PAID | Released | DEPOSIT_CAPTURE → doanh thu quán |
 | EARLY_CHECKOUT | Về sớm, ActiveSession.PAID sớm | Released | DEPOSIT_RELEASE 30% nếu playedRatio ≥ 50% |
 | NO_SHOW | Không check-in sau grace | Released | DEPOSIT_FORFEIT 100% |
-| CANCELLED_BY_PLAYER | Host hủy theo BR-REFUND-02 | Released | DEPOSIT_RELEASE theo milestone |
-| CANCELLED_BY_CAFE | Cafe hủy đặt chỗ | Released | DEPOSIT_RELEASE 100% (BR-REFUND-04) |
-| EXPIRED | Lobby timeoutFailed, hoàn 100% | Released | DEPOSIT_RELEASE 100% (BR-REFUND-01) |
+| CANCELLED_BY_PLAYER | Host hủy theo BR-REFUND-02 | Released | DEPOSIT_RELEASE: 100% (grace/≥24h) hoặc 0% (late) |
+| CANCELLED_BY_CAFE | Cafe hủy đặt chỗ | Released | DEPOSIT_RELEASE 100% |
+| EXPIRED | Lobby timeoutFailed, hoàn 100% | Released | DEPOSIT_RELEASE 100% |
 
 ### 2.3 Walk-in Window
 
@@ -265,15 +265,29 @@ Input: { playDate, timeSlot, preferredStartTime? }
 
 ### 3.4 Refund Rules (BR-REFUND)
 
-| ID | Rule | Mô tả |
-|----|------|-------|
-| BR-REFUND-01 | Cancel > 24h before | Refund 100% deposit |
-| BR-REFUND-02 | Cancel < 24h before | Refund 0% deposit (forfeit) |
-| BR-REFUND-03 | No-show | Refund 0% deposit (forfeit) |
-| BR-REFUND-04 | Early checkout < 50% played | Refund 0% deposit (forfeit) |
-| BR-REFUND-05 | Early checkout ≥ 50% played | Refund 30% deposit |
-| BR-REFUND-06 | Early checkout ≥ 90% played | Refund 0% deposit (treated as on-time) |
-| BR-REFUND-07 | Staff can override | Staff có quyền override refund trong trường hợp đặc biệt |
+**Nguyên tắc cốt lõi:** Sử dụng `playedRatio` để xác định refund, KHÔNG dùng milestone thời gian (24h/6h).
+
+`playedRatio = (ActualEndAt - StartedAt) / (ScheduledEndTime - StartTime)`
+
+| ID | Điều kiện | Refund | Mô tả |
+|----|-----------|--------|-------|
+| BR-REFUND-01 | Timeout (lobby fail) | 100% | Lobby timeoutFailed, hoàn 100% |
+| BR-REFUND-02 | Cancel by player | Xem bảng bên dưới | Host hủy chủ động |
+| BR-REFUND-03 | No-show | 0% | Không check-in sau grace |
+| BR-REFUND-04 | Early checkout, playedRatio < 50% | 0% | Forfeit 100% deposit |
+| BR-REFUND-05 | Early checkout, playedRatio ≥ 50% | 30% | Refund 30% deposit |
+| BR-REFUND-06 | Early checkout, playedRatio ≥ 90% | 0% | Treated as on-time |
+| BR-REFUND-07 | Staff override | Tùy staff | Staff có quyền override refund đặc biệt |
+
+**BR-REFUND-02 - Cancel by Player:**
+
+| Thời điểm hủy | Refund | Lý do |
+|----------------|--------|-------|
+| Grace 15 phút đầu + chưa có member | 100% | Không penalty |
+| ≥ 24h trước scheduledStart | 100% | Cancel sớm |
+| < 24h trước scheduledStart | 0% | Late cancel |
+
+> **Lưu ý:** BR-REFUND-04/05/06 áp dụng cho **early checkout** (đã check-in rồi về sớm), không áp dụng cho cancel trước khi check-in.
 
 ### 3.5 Extension Rules (BR-EXT)
 
@@ -1451,305 +1465,641 @@ COMMIT;
 
 ### 9.1 Reservation Entity
 
-```dart
-class Reservation {
-  // Identifiers (Root entity của Flow A)
-  String id;
-  String userId;            // HostId — người trả cọc
-  String cafeId;
-  // KHÔNG có lobbyId — Reservation tự sinh Lobby (1:1) theo BR-REQUIRED §17.4
+> **Lưu ý quan trọng:** Entity này đã được implement trong code tại `BoardVerse.Core/Entities/Reservation.cs`.
+> Doc này ghi nhận canonical model. Mọi thay đổi phải đồng thời update code + doc.
 
-  // Slot Information (TimeSlot-based — KHÔNG phải free-form start/end)
-  // BR-RES-07: startTime + endTime là bắt buộc, KHÔNG nullable
-  // BR-RES-08: endTime.date == playDate (cùng ngày, không cross midnight)
-  // BR-RES-09: endTime được auto-resolve từ playDate + timeSlot qua CafeSchedule
-  DateOnly playDate;        // BR-NEW-04: chỉ ngày, không giờ
-  TimeSlot timeSlot;        // morning | afternoon | evening | night (BR-NEW-15)
-  TimeOnly? preferredStartTime;  // Optional, trong [timeSlot.startTime, timeSlot.endTime]
-  DateTime startTime;       // = playDate + timeSlot.startTime (+ preferredStartTime nếu có)
-  DateTime endTime;         // = playDate + timeSlot.endTime (auto-resolve, BR-NEW-15a)
-  DateTime recruitmentDeadline;  // = startTime - leadTimeMinutes
-  
-  // Lobby config
-  int minPlayers;
-  int maxPlayers;
-  
-  // TimeSlot tự resolve end time từ CafeSchedule (BR-NEW-15a)
-  // DateTime endTime = playDate + timeSlot.endTime
-  
-  // Seats
-  int seatsHeld;            // = maxPlayers (BR-RESERVATION-01)
-  
-  // Payment (BVC wallet — Flow A, KHÔNG qua SePay)
-  long depositAmount;       // BVC, theo BR-DEPOSIT-02 formula
-  long availableBalance;    // snapshot lúc confirm
-  long heldBalance;         // snapshot lúc confirm
-  String? idempotencyKey;   // BR-REQUIRED §17.1
-  
-  // Deposit snapshot (BR-LOBBY-12 — audit khi cafe đổi config)
-  DepositSnapshot depositConfigSnapshot;
-  decimal riskMultiplier;   // 1.0 - 2.0 (BR-RISK-03)
-  
-  // Lobby link (1:1, sinh ra cùng reservation)
-  String lobbyId;           // Lobby được tạo atomic cùng reservation
-  
-  // Status (Reservation state machine — KHÔNG phải Booking legacy)
-  ReservationStatus status;
-  
-  // Session tracking (khi check-in tạo ActiveSession)
-  DateTime? checkedInAt;        // Actual check-in time
-  DateTime? actualEndAt;        // Actual leave time
-  double? playedRatio;          // Calculated: actual / scheduled
-  SessionEndReason? endReason;
-  
-  // Walk-in Window (nếu tạo từ early checkout)
-  String? walkInWindowId;
-  
-  // Audit
-  DateTime createdAt;
-  DateTime updatedAt;
-  String? cancelledBy;
-  String? cancelReason;
+```csharp
+class Reservation {
+    // === Identifiers ===
+    Guid Id;
+    
+    /// <summary>BR-DEPOSIT-01: host trả toàn bộ cọc. KHÔNG phải userId.</summary>
+    Guid HostId;
+    
+    Guid CafeId;
+    Guid GameId;
+    
+    // === Slot Information (TimeSlot-based) ===
+    /// <summary>BR-NEW-04: chỉ ngày, không giờ.</summary>
+    DateOnly PlayDate;
+    
+    /// <summary>BR-NEW-15: morning | afternoon | evening | night.</summary>
+    TimeSlot TimeSlot;
+    
+    /// <summary>Optional, trong [timeSlot.startTime, timeSlot.endTime].</summary>
+    TimeOnly? PreferredStartTime;
+    
+    /// <summary>Optional, trong [PreferredStartTime, timeSlot.endTime], cùng ngày.</summary>
+    TimeOnly? PreferredEndTime;
+    
+    /// <summary>BR-LOBBY-01: = scheduledTime - leadTimeMinutes (default 20 phút).</summary>
+    DateTime RecruitmentDeadline;
+    
+    /// <summary>BR-RESV-02: = playDate + startTime (resolved từ timeSlot/preferredStartTime).</summary>
+    DateTime ScheduledStartTime;
+    
+    /// <summary>BR-RESV-02: = playDate + endTime (resolved từ timeSlot/preferredEndTime).</summary>
+    DateTime ScheduledEndTime;
+    
+    // === Lobby Config ===
+    int MinPlayers;
+    int MaxPlayers;
+    
+    // === Payment (BVC wallet — Flow A) ===
+    /// <summary>Snapshot cấu hình cọc tại thời điểm tạo.</summary>
+    DepositSnapshot DepositConfigSnapshot;
+    
+    /// <summary>BVC đã hold (≥ MinDepositApplied).</summary>
+    long DepositAmount;
+    
+    /// <summary>minDeposit theo khoảng cách playDate (BR-NEW-01 §8).</summary>
+    long MinDepositApplied;
+    
+    /// <summary>Risk multiplier snapshot (1.0 - 2.0, BR-RISK-03).</summary>
+    decimal RiskMultiplier = 1.0m;
+    
+    /// <summary>BR-REQUIRED §17.1: Idempotency key.</summary>
+    string IdempotencyKey;
+    
+    // === Status & Navigation ===
+    ReservationStatus Status;
+    
+    /// <summary>Mirror số người hiện tại của lobby.</summary>
+    int CurrentPlayers = 1;
+    
+    /// <summary>FK Lobby — nullable, set sau khi insert lobby.</summary>
+    Guid? LobbyId;
+    
+    /// <summary>FK SeatInventory row đã hold.</summary>
+    Guid? SeatInventoryId;
+    
+    /// <summary>FK GameInventory row đã hold.</summary>
+    Guid? GameInventoryId;
+    
+    /// <summary>BR §21A.7: Mã share 8 ký tự alphanumeric uppercase cho POS scan QR.</summary>
+    string ReservationCode;
+    
+    // === Extension (BR-EXT-03) ===
+    /// <summary>Số lần extend đã thực hiện. Max 2.</summary>
+    int ExtensionCount = 0;
+    
+    /// <summary>ScheduledEndTime sau lần extend cuối. Nullable.</summary>
+    DateTime? ExtendedEndTime;
+    
+    // === Session Tracking ===
+    /// <summary>Thời điểm check-in thực tế. Set khi POS scan QR.</summary>
+    DateTime? CheckedInAt;
+    
+    /// <summary>Số bàn được staff gán khi check-in.</summary>
+    int? TableNumber;
+    
+    /// <summary>Thời điểm kết thúc thực tế.</summary>
+    DateTime? ActualEndAt;
+    
+    /// <summary>BR-END-02: (ActualEndAt - CheckedInAt) / (ScheduledEndTime - ScheduledStartTime).</summary>
+    decimal? PlayedRatio;
+    
+    /// <summary>BR-END-01: OnTime/EarlyLeave/Extended/NoShow/Cancelled/StaffEnded/AutoReleased.</summary>
+    SessionEndReason? EndReason;
+    
+    // === Walk-in & Audit ===
+    /// <summary>FK WalkInWindow được tạo khi early checkout / no-show.</summary>
+    Guid? WalkInWindowId;
+    
+    Guid? CancelledBy;
+    string? CancelReason;
+    
+    DateTime CreatedAt;
+    DateTime UpdatedAt;
 }
 
 enum ReservationStatus {
-  AWAITING_DEPOSIT,  // Quote đã tạo, chờ confirm (chưa trừ BVC)
-  HOLDING,           // Đã trừ BVC, lobby đang tuyển (atomic đã commit)
-  CONFIRMED,         // Lobby đạt minPlayers trước deadline (BR-LOBBY-02)
-  CHECKED_IN,        // POS scan QR, đã vào quán
-  IN_PROGRESS,       // Đang chơi (ActiveSession.ACTIVE)
-  COMPLETED,         // Kết thúc đúng giờ (ActiveSession.PAID)
-  EARLY_CHECKOUT,    // Về sớm (ActiveSession.PAID sớm)
-  EXPIRED,           // Lobby timeoutFailed, hoàn 100% BVC
-  CANCELLED_BY_PLAYER,   // Host hủy theo BR-REFUND-02
-  CANCELLED_BY_CAFE,     // Cafe hủy, hoàn 100% BVC (BR-REFUND-04)
-  NO_SHOW,           // Không check-in sau grace (BR-LOBBY-09)
+  AwaitingDeposit = 1,   // Quote đã tạo, chờ confirm (chưa trừ BVC)
+  Holding = 2,            // Đã trừ BVC, lobby đang tuyển (atomic đã commit)
+  Confirmed = 3,          // Lobby đạt minPlayers trước deadline (BR-LOBBY-02)
+  CheckedIn = 4,          // POS scan QR, đã vào quán
+  InProgress = 5,         // Đang chơi (ActiveSession.ACTIVE)
+  Completed = 6,           // Kết thúc đúng giờ, capture deposit về doanh thu quán
+  EarlyCheckout = 7,       // Về sớm, refund 30% nếu playedRatio ≥ 50%
+  Expired = 8,            // Lobby timeoutFailed, hoàn 100% BVC
+  CancelledByPlayer = 9,  // Host hủy theo BR-REFUND-02
+  CancelledByCafe = 10,    // Cafe hủy, hoàn 100% BVC
+  NoShow = 11             // Không check-in sau grace (BR §21A.9)
 }
 
-// Error codes riêng cho validation startTime/endTime (BR-RES-07, BR-RES-08, BR-RES-09)
-// Throw từ ReservationService.QuoteAsync / ConfirmAsync
-enum ReservationValidationError {
-  RESERVATION_REQUIRES_START_AND_END,    // BR-RES-07
-  RESERVATION_END_TIME_DIFFERENT_DAY,    // BR-RES-08
-  RESERVATION_INVALID_TIMESLOT,          // BR-RES-09
-  RESERVATION_BUFFER_TOO_SHORT,          // BR-LOBBY-01a (cảnh báo)
-  RESERVATION_BUFFER_TOO_SMALL,          // BR-LOBBY-01b (từ chối < 60 phút)
+enum RefundReason {
+  CancelBefore24h,       // Hủy ≥ 24 giờ trước giờ chơi
+  CancelAfter24h,        // Hủy < 24 giờ trước giờ chơi
+  CancelGracePeriod,      // Hủy trong grace 15 phút + chưa có member
+  EarlyCheckout,          // Về sớm (playedRatio < 90%)
+  NoShow,               // Không check-in sau grace 30 phút
+  TechnicalIssue,       // Lỗi kỹ thuật
+  Emergency,            // Khẩn cấp
+  StaffOverride,        // Staff override
+  Other,
+  OnTime               // Kết thúc đúng giờ (không refund)
 }
 
 enum RefundStatus {
-  NONE,
-  PENDING,
-  PROCESSING,
-  COMPLETED,
-  REJECTED,
+  None = 0,
+  Pending = 1,
+  Processing = 2,
+  Completed = 3,
+  Rejected = 4,
+  Failed = 5
 }
 
 enum SessionEndReason {
-  ON_TIME,        // Kết thúc đúng giờ
-  EARLY_LEAVE,    // Về sớm
-  EXTENDED,       // Extend quá giờ (qua ReservationExtensionService)
-  NO_SHOW,        // Không check-in
-  CANCELLED,      // Hủy
-  STAFF_ENDED,    // Staff end session
-  AUTO_RELEASED,  // System auto release
+  OnTime = 0,           // Kết thúc đúng giờ (playedRatio ≥ 90%)
+  EarlyLeave = 1,       // Về sớm (playedRatio < 90%)
+  Extended = 2,          // Extend qua slot kế
+  NoShow = 3,           // Không check-in sau grace 30 phút
+  Cancelled = 4,        // Host hủy
+  StaffEnded = 5,        // Staff bấm end
+  AutoReleased = 6       // Auto-release sau grace (AutoReleaseExpiredSessionsJob)
 }
 
 enum TimeSlot {
-  MORNING,    // 09:00 - 13:00 (BR-NEW-15)
-  AFTERNOON,  // 13:00 - 18:00
-  EVENING,    // 18:00 - 23:00
-  NIGHT,      // 19:00 - 24:00
+  Morning = 0,    // 09:00 - 13:00 (BR-NEW-15)
+  Afternoon = 1, // 13:00 - 18:00
+  Evening = 2,    // 18:00 - 23:00
+  Night = 3      // 19:00 - 24:00 (cùng playDate)
 }
 ```
 
 ### 9.2 Walk-in Window Entity
 
-```dart
+> **Lưu ý:** Entity này đã được implement trong code tại `BoardVerse.Core/Entities/WalkInWindow.cs`.
+
+```csharp
 class WalkInWindow {
-  // Identifiers
-  String id;
-  String? sourceReservationId;  // Reservation nào tạo ra window này
-  String cafeId;
-  
-  // Window Information
-  DateTime windowStart;
-  DateTime windowEnd;
-  int totalSeats;
-  int availableSeats;
-  
-  // Version for optimistic concurrency
-  int version;
-  
-  // Status
-  WalkInWindowStatus status;
-  
-  // Audit
-  DateTime createdAt;
-  DateTime expiresAt;  // Khi nào window hết hiệu lực
+    Guid Id;
+    
+    /// <summary>FK đến Reservation tạo ra window (nullable — có thể tạo thủ công từ POS).</summary>
+    Guid? SourceReservationId;
+    
+    Guid CafeId;
+    
+    /// <summary>Thời điểm bắt đầu window — thường là early checkout / no-show.</summary>
+    DateTime WindowStart;
+    
+    /// <summary>Thời điểm kết thúc window = Reservation.ScheduledEndTime.</summary>
+    DateTime WindowEnd;
+    
+    int TotalSeats;
+    int AvailableSeats;
+    int HeldSeats;
+    int InUseSeats;
+    
+    /// <summary>OCC version — chống race condition khi nhiều POS cùng tạo walk-in (EC-05).</summary>
+    uint Version;
+    
+    WalkInWindowStatus Status;
+    DateTime CreatedAt;
+    
+    /// <summary>Hết hạn nếu không ai đặt trong khoảng thời gian này.</summary>
+    DateTime ExpiresAt;
 }
 
 enum WalkInWindowStatus {
-  ACTIVE,    // Có thể nhận walk-in
-  PARTIAL,   // Đã có walk-in, còn chỗ
-  FULL,      // Đã full
-  EXPIRED,   // Hết hiệu lực
-  CLOSED,    // Đã đóng
+    Available = 0,  // Window có ghế trống, đang nhận đặt walk-in
+    Partial = 1,     // Một số ghế đã được giữ nhưng chưa đầy
+    Full = 2,       // Tất cả ghế trong window đã được giữ cho walk-in booking
+    Expired = 3,    // Window đã hết hạn nhưng chưa được đóng sạch
+    Closed = 4       // Window đã được đóng sạch
 }
 ```
 
 ### 9.3 Walk-in Booking Entity
 
-```dart
+> **Lưu ý:** Entity này đã được implement trong code tại `BoardVerse.Core/Entities/WalkInBooking.cs`.
+
+```csharp
 class WalkInBooking {
-  // Identifiers
-  String id;
-  String walkInWindowId;
-  String cafeId;
-  
-  // Guest Information (không cần account)
-  String guestName;
-  String? guestPhone;
-  
-  // Time
-  DateTime startTime;
-  DateTime endTime;
-  
-  // Seats
-  int seats;
-  
-  // Payment
-  double hourlyRate;
-  double totalAmount;
-  PaymentStatus paymentStatus;
-  
-  // POS
-  String? posStaffId;
-  
-  // Status
-  WalkInBookingStatus status;
-  
-  // Audit
-  DateTime createdAt;
-  DateTime? cancelledAt;
-  String? cancelReason;
+    Guid Id;
+    
+    /// <summary>FK đến WalkInWindow mà walk-in này đặt vào.</summary>
+    Guid WalkInWindowId;
+    
+    Guid CafeId;
+    
+    /// <summary>Tên khách walk-in (bắt buộc).</summary>
+    string GuestName;
+    
+    /// <summary>Số điện thoại khách (optional).</summary>
+    string? GuestPhone;
+    
+    DateTime StartTime;
+    DateTime EndTime;
+    
+    int Seats;
+    
+    /// <summary>Giá giờ được áp dụng (lấy từ CafeSchedule tại thời điểm tạo).</summary>
+    decimal HourlyRate;
+    
+    decimal TotalAmount;
+    
+    /// <summary>Trạng thái thanh toán: UNPAID → PAID.</summary>
+    WalkInPaymentStatus PaymentStatus;
+    
+    /// <summary>Staff POS tạo walk-in này.</summary>
+    Guid? PosStaffId;
+    
+    /// <summary>ActiveSession được tạo sau khi check-in.</summary>
+    Guid? ActiveSessionId;
+    
+    WalkInBookingStatus Status;
+    DateTime CreatedAt;
 }
 
 enum WalkInBookingStatus {
-  PENDING,
-  CONFIRMED,
-  IN_PROGRESS,
-  COMPLETED,
-  CANCELLED,
-  NO_SHOW,
+    Pending = 0,    // POS đã tạo booking, chờ khách đến
+    Confirmed = 1,   // Walk-in đã confirm, đã sẵn sàng cho POS
+    InProgress = 2,   // Walk-in đang hoạt động (đã check-in, đang chơi)
+    Completed = 3,    // Walk-in đã hoàn thành (thanh toán xong)
+    Cancelled = 4,   // Walk-in đã bị hủy
+    NoShow = 5       // Walk-in không đến sau grace 30 phút
+}
+
+enum WalkInPaymentStatus {
+    Unpaid = 0,
+    Paid = 1
 }
 ```
 
 ### 9.4 Refund Transaction Entity
 
-```dart
+> **Lưu ý:** Entity này đã được implement trong code tại `BoardVerse.Core/Entities/RefundTransaction.cs`.
+
+```csharp
 class RefundTransaction {
-  // Identifiers
-  String id;
-  String reservationId;   // FK tới Reservation (Flow A) — KHÔNG phải Booking legacy
-  String userId;
-  
-  // Amounts
-  long originalDeposit;     // BVC
-  long refundAmount;        // BVC, trả về availableBalance của host
-  long forfeitedAmount;     // BVC, theo BR-REFUND-02
-  
-  // Calculation
-  double playedRatio;
-  int playedMinutes;
-  int scheduledMinutes;
-  
-  // Reason
-  RefundReason reason;
-  String? staffNotes;
-  
-  // Override
-  bool isOverridden;
-  String? overrideBy;       // Staff ID
-  String? overrideReason;
-  
-  // Status
-  RefundTransactionStatus status;
-  
-  // Audit
-  DateTime createdAt;
-  DateTime processedAt;
-}
-
-enum RefundReason {
-  CANCEL_BEFORE_24H,     // Hủy trước 24h
-  CANCEL_AFTER_24H,     // Hủy sau 24h
-  EARLY_CHECKOUT,       // Về sớm
-  NO_SHOW,              // Không check-in
-  TECHNICAL_ISSUE,      // Lỗi kỹ thuật
-  EMERGENCY,            // Khẩn cấp
-  STAFF_OVERRIDE,       // Staff override
-  OTHER,                // Khác
-}
-
-enum RefundTransactionStatus {
-  PENDING,
-  PROCESSING,
-  COMPLETED,
-  FAILED,
-  CANCELLED,
+    Guid Id;
+    
+    /// <summary>FK Reservation.</summary>
+    Guid ReservationId;
+    
+    /// <summary>Snapshot DepositAmount tại thời điểm tạo reservation.</summary>
+    long OriginalDeposit;
+    
+    /// <summary>Số BVC thực sự refund về host availableBalance.</summary>
+    long RefundAmount;
+    
+    /// <summary>Số BVC forfeit (capture về doanh thu quán).</summary>
+    long ForfeitAmount;
+    
+    /// <summary>PlayedRatio tại thời điểm end session (0.0-1.0).</summary>
+    decimal? PlayedRatio;
+    
+    /// <summary>BR-REFUND-01..07: lý do refund.</summary>
+    RefundReason Reason;
+    
+    /// <summary>BR-REFUND-04: true nếu admin override.</summary>
+    bool IsOverridden;
+    
+    /// <summary>UserId staff/admin override (nullable nếu auto).</summary>
+    Guid? OverriddenBy;
+    
+    /// <summary>BR-REFUND-04: lý do override.</summary>
+    string? OverrideReason;
+    
+    /// <summary>Trạng thái refund: Pending → Processing → Completed/Failed.</summary>
+    RefundStatus Status;
+    
+    /// <summary>BR-REQUIRED §17.1: Idempotency key cho refund transaction.</summary>
+    string IdempotencyKey;
+    
+    DateTime CreatedAt;
+    DateTime? CompletedAt;
 }
 ```
 
-### 9.5 Karma Record Entity
+### 9.5 Karma Record Entity (KarmaShortPlayRecord)
 
-```dart
-class KarmaRecord {
-  // Identifiers
-  String id;
-  String userId;
-  String reservationId;   // FK tới Reservation — KHÔNG phải Booking legacy
-  
-  // Violation Details
-  DateTime violationDate;
-  int scheduledMinutes;
-  int playedMinutes;
-  double playedRatio;
-  
-  // Karma Impact
-  int karmaPointsAdded;
-  int totalKarmaScore;
-  
-  // Status
-  KarmaStatus status;
-  
-  // Warning/Restriction
-  bool warningSent;
-  DateTime? warningSentAt;
-  bool restrictionApplied;
-  DateTime? restrictionAppliedAt;
-  
-  // Appeal
-  bool appealRequested;
-  String? appealReason;
-  DateTime? appealReviewedAt;
-  String? appealReviewedBy;
-  bool? appealApproved;
+> **Lưu ý:** Entity này đã được implement trong code tại `BoardVerse.Core/Entities/KarmaShortPlayRecord.cs`.
+
+```csharp
+class KarmaShortPlayRecord {
+    Guid Id;
+    
+    /// <summary>Reservation mà record này áp dụng.</summary>
+    Guid ReservationId;
+    
+    /// <summary>User bị ghi nhận short-play.</summary>
+    Guid UserId;
+    
+    /// <summary>Số phút thực tế đã chơi.</summary>
+    int PlayedMinutes;
+    
+    /// <summary>Số phút dự kiến (ScheduledEndTime - ScheduledStartTime).</summary>
+    int ScheduledMinutes;
+    
+    /// <summary>PlayedRatio = PlayedMinutes / ScheduledMinutes. Nếu < 0.5 → short-play.</summary>
+    decimal PlayedRatio;
+    
+    /// <summary>Điểm Karma bị trừ. Default -5 cho ratio < 0.5.</summary>
+    int KarmaDelta;
+    
+    /// <summary>Điểm Karma cộng vào ví.</summary>
+    decimal KarmaPointsAdded;
+    
+    /// <summary>Tổng điểm Karma sau khi record được tạo.</summary>
+    int TotalKarmaScore;
+    
+    /// <summary>Trạng thái: ACTIVE = đang có hiệu lực; EXPIRED = hết hạn; CLEARED = đã được xóa bởi admin.</summary>
+    KarmaRecordStatus Status;
+    
+    DateTime CreatedAt;
+    
+    // === Appeal fields (BR-KARMA-05) ===
+    bool AppealRequested;
+    string? AppealReason;
+    DateTime? AppealReviewedAt;
+    Guid? AppealReviewedBy;
+    bool? AppealApproved;
 }
 
-enum KarmaStatus {
-  ACTIVE,      // Đang active
-  EXPIRED,     // Đã hết 30 ngày, không có violation mới
-  CLEARED,     // Đã cleared sau appeal
+enum KarmaRecordStatus {
+    Active = 0,   // Record đang có hiệu lực
+    Expired = 1,  // Record đã hết hạn (sau 30 ngày không vi phạm)
+    Cleared = 2  // Record đã được xóa bởi admin (appeal upheld)
 }
 
 enum KarmaLevel {
-  NORMAL,      // 0-2 violations
-  WARNING,     // 3-4 violations
-  RESTRICTED,  // 5+ violations
+    Excellent = 0,  // Karma >= 90
+    Good = 1,       // Karma 70-89
+    Average = 2,     // Karma 50-69
+    Low = 3,         // Karma 30-49
+    Poor = 4,        // Karma 10-29
+    Critical = 5    // Karma 0-9
 }
 ```
 
-### 9.6 Database Schema Changes
+### 9.6 Player Risk Score Entity
+
+> **Lưu ý:** Entity này đã được implement trong code tại `BoardVerse.Core/Entities/PlayerRiskScore.cs`.
+
+```csharp
+/// <summary>
+/// BR-RISK-01: Snapshot hiện tại của riskScore user.
+/// Mỗi user chỉ có 1 row (PK = UserId).
+/// Được recompute mỗi giờ bởi risk_score_recompute job.
+/// </summary>
+class PlayerRiskScore {
+    /// <summary>PK = UserId để đảm bảo 1 user chỉ có 1 snapshot.</summary>
+    Guid UserId;
+    
+    /// <summary>0-100.</summary>
+    int RiskScore;
+    
+    RiskLevel RiskLevel;
+    
+    /// <summary>JSON dictionary signal key → int value. VD: {"SIG-01": 3, "SIG-08": 12}.</summary>
+    string? Signals;
+    
+    DateTime LastUpdated;
+    
+    /// <summary>Ghi chú nội bộ của admin.</summary>
+    string? AdminNote;
+    
+    Guid? AdminActionBy;
+    DateTime? AdminActionAt;
+    
+    DateTime CreatedAt;
+}
+
+enum RiskLevel {
+    Low = 0,      // 0-29 — bình thường
+    Medium = 1,    // 30-49 — cảnh báo UI nhẹ
+    High = 2,     // 50-74 — cọc ×1.5, ghi audit
+    Critical = 3  // 75-100 — cọc ×2, hạn chế tạo lobby, yêu cầu admin review
+}
+```
+
+### 9.7 Player Alert Entity
+
+> **Lưu ý:** Entity này đã được implement trong code tại `BoardVerse.Core/Entities/PlayerAlert.cs`.
+
+```csharp
+/// <summary>
+/// R-01 (BR-RISK-02): Alert khi user vượt ngưỡng riskScore 30/50/75
+/// HOẶC multi-account detected.
+/// Admin phải review trong 24h cho Critical alert.
+/// </summary>
+class PlayerAlert {
+    Guid Id;
+    
+    /// <summary>User bị phát hiện có tín hiệu rủi ro.</summary>
+    Guid UserId;
+    
+    PlayerAlertType AlertType;
+    PlayerAlertSeverity Severity;
+    
+    /// <summary>Danh sách signal IDs (SIG-01..SIG-10) trigger alert, lưu JSON.</summary>
+    string? Signals;
+    
+    /// <summary>RiskScore tại thời điểm tạo alert (snapshot).</summary>
+    int RiskScoreSnapshot;
+    
+    DateTime CreatedAt;
+    
+    /// <summary>Admin userId đã acknowledge.</summary>
+    Guid? AcknowledgedBy;
+    DateTime? AcknowledgedAt;
+    
+    PlayerAlertStatus Status;
+    
+    /// <summary>Ghi chú resolve/dismiss.</summary>
+    string? ResolutionNote;
+}
+
+enum PlayerAlertType {
+    AutoThresholdCrossed = 0,  // Tự động khi riskScore vượt ngưỡng 30/50/75
+    MultiAccountDetected = 1, // Phát hiện multi-account (BR-RISK-08)
+    ManualReport = 2,          // User khác report
+    AdminFlagged = 3           // Admin flag trực tiếp
+}
+
+enum PlayerAlertSeverity {
+    Info = 0,      // Thông tin, không cần review ngay
+    Warning = 1,   // Cần chú ý theo dõi
+    Critical = 2  // Cần admin review trong 24h
+}
+
+enum PlayerAlertStatus {
+    Open = 0,           // Mới phát hiện, chờ admin xem
+    Acknowledged = 1,    // Admin đã xem
+    Resolved = 2,      // Admin đã xử lý (warn/suspend/ban/dismiss)
+    Dismissed = 3       // Đóng do false positive (alert_expiry_cleanup job)
+}
+```
+
+### 9.8 Player Action History Entity (Audit Log)
+
+> **Lưu ý:** Entity này đã được implement trong code tại `BoardVerse.Core/Entities/PlayerActionHistory.cs`.
+
+```csharp
+/// <summary>
+/// Audit log cho admin actions — theo BR-RISK-05.
+/// Append-only, không bao giờ sửa/xóa.
+/// </summary>
+class PlayerActionHistory {
+    Guid Id;
+    
+    /// <summary>User bị tác động.</summary>
+    Guid UserId;
+    
+    /// <summary>Loại action: AdminCredit, AdminDebit, AccountStatusChange, RiskScoreReset, Warning, Suspend, Ban, MultiAccountConfirmed.</summary>
+    AdminActionType ActionType;
+    
+    /// <summary>Admin userId thực hiện, hoặc "system".</summary>
+    Guid ActionBy;
+    
+    /// <summary>Lý do admin ghi (audit).</summary>
+    string Reason;
+    
+    /// <summary>JSON snapshot metadata: before/after values, signals, etc.</summary>
+    string? Metadata;
+    
+    DateTime CreatedAt;
+    
+    /// <summary>Nullable — dùng khi Status = Suspended.</summary>
+    DateTime? ExpiresAt;
+}
+
+enum AdminActionType {
+    Warn = 0,                    // Gửi cảnh báo
+    Suspend7Days = 1,            // Tạm khóa 7 ngày
+    Suspend30Days = 2,           // Tạm khóa 30 ngày
+    Ban = 3,                     // Khóa vĩnh viễn
+    ResetScore = 4,              // Reset risk score
+    VerifyRequired = 5,         // Yêu cầu xác minh danh tính
+    MultiAccountConfirmed = 6,   // Xác nhận multi-account
+    AccountStatusChange = 7     // Thay đổi trạng thái tài khoản
+}
+```
+
+### 9.9 Outbox Event Entity (Transactional Outbox)
+
+> **Lưu ý:** Entity này đã được implement trong code tại `BoardVerse.Core/Entities/OutboxEvent.cs`.
+
+```csharp
+/// <summary>
+/// Transactional Outbox (BR-REQUIRED §17.5).
+/// Event được ghi vào table này trong CÙNG transaction với domain mutation,
+/// background worker sẽ poll và publish ra ngoài (SignalR/push/notification).
+///
+/// Đảm bảo:
+/// - DB đã commit → event chắc chắn sẽ được publish (at-least-once).
+/// - Nếu publish fail → retry; idempotency phía consumer xử lý trùng.
+/// - Không bao giờ mất event dù SignalR/push fail giữa commit và publish.
+/// </summary>
+class OutboxEvent {
+    Guid Id;
+    
+    /// <summary>Loại event (xem OutboxEventType).</summary>
+    OutboxEventType EventType;
+    
+    /// <summary>JSON payload (chi tiết event). Deserialize ở publisher.</summary>
+    string Payload = "{}";
+    
+    /// <summary>Idempotency key (unique). Trùng key → skip publish.</summary>
+    string IdempotencyKey;
+    
+    /// <summary>FK optional — reservation id (nếu liên quan).</summary>
+    Guid? ReservationId;
+    
+    /// <summary>FK optional — lobby id (nếu liên quan).</summary>
+    Guid? LobbyId;
+    
+    /// <summary>FK optional — user id (host/member nhận notification).</summary>
+    Guid? UserId;
+    
+    DateTime CreatedAt;
+    
+    /// <summary>Đã publish thành công hay chưa.</summary>
+    bool Processed;
+    DateTime? ProcessedAt;
+    
+    /// <summary>Số lần retry fail. Sau N lần → move sang DLQ.</summary>
+    int RetryCount;
+    string? LastError;
+}
+
+enum OutboxEventType {
+    LobbyActivated = 0,
+    ReservationHeld = 1,
+    DepositHeld = 2,
+    LobbyConfirmed = 3,
+    LobbyTimeout = 4,
+    LobbyRejectedByCafe = 5,
+    LobbyExpiredByCafe = 6,
+    LobbyCancelledByHost = 7,
+    LobbyCancelledByCafe = 8,
+    LobbyNoShow = 9,
+    LobbyCheckedIn = 10,
+    SessionCompleted = 11,
+    DepositReleased = 12,
+    DepositCaptured = 13,
+    ReservationNoShow = 14
+}
+```
+
+### 9.10 Bvc Ledger Entry Entity
+
+```csharp
+/// <summary>
+/// Sổ cái BVC — append-only ledger.
+/// BR § III.2 — Vòng đời BVC.
+/// </summary>
+class BvcLedgerEntry {
+    Guid Id;
+    Guid UserId;
+    
+    /// <summary>Loại entry: TopUp, DepositHold, DepositRelease, DepositCapture, DepositForfeit, Adjustment, AdminCredit, AdminDebit.</summary>
+    LedgerEntryType Type;
+    
+    /// <summary>Số BVC (luôn dương).</summary>
+    long Amount;
+    
+    Guid? RelatedReservationId;
+    Guid? RelatedLobbyId;
+    string? RelatedPaymentRef;
+    
+    string IdempotencyKey;
+    
+    /// <summary>Số dư availableBalance sau giao dịch này.</summary>
+    long BalanceSnapshot;
+    
+    DateTime CreatedAt;
+}
+
+enum LedgerEntryType {
+    TopUp = 0,           // Top-up tiền thật → BVC
+    DepositHold = 1,     // Đặt cọc giữ chỗ
+    DepositRelease = 2,  // Hoàn cọc (timeout / hủy lobby trước hạn)
+    DepositCapture = 3,   // Capture cọc về doanh thu quán
+    DepositForfeit = 4,  // Tịch thu cọc (no-show)
+    Adjustment = 5,      // Sửa sai
+    AdminCredit = 6,     // Admin tặng BVC thủ công
+    AdminDebit = 7      // Admin trừ BVC thủ công
+}
+```
+
+### 9.11 Account Status (Wallet)
+
+> **Lưu ý:** Trạng thái tài khoản được lưu trên `Wallet` entity.
+
+```csharp
+enum AccountStatus {
+    Active = 0,      // Hoạt động bình thường
+    Warning = 1,      // Cảnh báo nhẹ (cọc ×2)
+    Restricted = 2,  // Không tạo lobby, vẫn join / top-up được
+    Suspended = 3,   // Tạm khóa 7-30 ngày
+    Banned = 4       // Khóa vĩnh viễn
+}
+```
+
+### 9.12 Database Schema Changes
 
 ```sql
 -- New Tables
@@ -1959,7 +2309,7 @@ Response: {
 }
 
 // POST /api/v1/reservations/{id}/cancel
-// Host hủy theo BR-REFUND-02 (24h/6h milestone) hoặc BR-REFUND-03 (grace 15 phút)
+// Host hủy: grace 15ph (100%) | ≥24h trước (100%) | <24h (0%)
 Response: {
   "reservationId": "res_789",
   "status": "CANCELLED_BY_PLAYER",
