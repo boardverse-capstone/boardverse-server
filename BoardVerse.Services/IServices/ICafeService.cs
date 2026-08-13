@@ -19,12 +19,14 @@ namespace BoardVerse.Services.IServices
             double longitude,
             double radiusKm,
             Guid gameTemplateId,
+            string? name,
             PaginationParams paginationParams);
 
         Task<NearbyCafeSearchResultDto> GetNearbyCafesForCurrentUserAsync(
             Guid userId,
             double radiusKm,
             Guid gameTemplateId,
+            string? name,
             PaginationParams paginationParams);
 
         Task<AdminCafeOperationalStatusResultDto> SetOperationalStatusByAdminAsync(

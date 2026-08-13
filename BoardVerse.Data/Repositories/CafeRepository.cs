@@ -172,6 +172,7 @@ namespace BoardVerse.Data.Repositories
             double longitude,
             double radiusKm,
             Guid? gameTemplateId,
+            string? name,
             PaginationParams paginationParams)
         {
             var origin = GeoLocationHelper.ToPoint(latitude, longitude);
@@ -195,6 +196,13 @@ namespace BoardVerse.Data.Repositories
                         && b.CafeGameInventory.GameTemplateId == gameId
                         && (b.Status == CafeGameInventoryStatus.Available
                             || b.Status == CafeGameInventoryStatus.InUse)));
+            }
+
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                var term = name.Trim().ToLower();
+                baseQuery = baseQuery.Where(c =>
+                    c.Name.ToLower().Contains(term));
             }
 
             var projected = baseQuery.Select(c => new NearbyCafeDto

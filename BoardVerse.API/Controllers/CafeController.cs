@@ -26,6 +26,7 @@ namespace BoardVerse.API.Controllers
         /// <param name="longitude">Kinh độ player (WGS84, -180 đến 180).</param>
         /// <param name="radiusKm">Bán kính tìm kiếm km (mặc định 15; cho phép 0.1–50).</param>
         /// <param name="gameTemplateId">Bắt buộc — chỉ quán có hộp game Available hoặc InUse của tựa này (AC 2.1).</param>
+        /// <param name="name">Tìm kiếm theo tên quán (case-insensitive, partial match).</param>
         /// <param name="pageNumber">Số trang (mặc định 1).</param>
         /// <param name="pageSize">Kích thước trang (mặc định 20).</param>
         /// <response code="200">Danh sách quán phân trang; khi rỗng kèm emptyResultMessage và alternativeSuggestions (AC 5.1, 5.2).</response>
@@ -38,6 +39,7 @@ namespace BoardVerse.API.Controllers
             [FromQuery] double longitude,
             [FromQuery] Guid gameTemplateId,
             [FromQuery] double radiusKm = GeoLocationHelper.DefaultNearbyRadiusKm,
+            [FromQuery] string? name = null,
             [FromQuery] int pageNumber = 1,
             [FromQuery] int pageSize = 20)
         {
@@ -47,6 +49,7 @@ namespace BoardVerse.API.Controllers
                 longitude,
                 radiusKm,
                 gameTemplateId,
+                name,
                 pagination);
             return this.NewResponse(200, ApiSuccessMessages.Cafe.NearbyRetrieved, result);
         }
@@ -56,6 +59,7 @@ namespace BoardVerse.API.Controllers
         /// </summary>
         /// <param name="gameTemplateId">Bắt buộc — tựa game player đã chọn (AC 2.1).</param>
         /// <param name="radiusKm">Bán kính tìm kiếm km (mặc định 15; cho phép 0.1–50).</param>
+        /// <param name="name">Tìm kiếm theo tên quán (case-insensitive, partial match).</param>
         /// <param name="pageNumber">Số trang (mặc định 1).</param>
         /// <param name="pageSize">Kích thước trang (mặc định 20).</param>
         /// <response code="200">Cùng shape như GET /nearby; dùng tọa độ từ profile thay vì query lat/lng.</response>
@@ -67,6 +71,7 @@ namespace BoardVerse.API.Controllers
         public async Task<IActionResult> GetNearbyCafesForCurrentUser(
             [FromQuery] Guid gameTemplateId,
             [FromQuery] double radiusKm = GeoLocationHelper.DefaultNearbyRadiusKm,
+            [FromQuery] string? name = null,
             [FromQuery] int pageNumber = 1,
             [FromQuery] int pageSize = 20)
         {
@@ -76,6 +81,7 @@ namespace BoardVerse.API.Controllers
                 userId,
                 radiusKm,
                 gameTemplateId,
+                name,
                 pagination);
             return this.NewResponse(200, ApiSuccessMessages.Cafe.NearbyRetrieved, result);
         }

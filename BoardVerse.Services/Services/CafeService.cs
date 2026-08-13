@@ -263,6 +263,7 @@ namespace BoardVerse.Services.Services
             double longitude,
             double radiusKm,
             Guid gameTemplateId,
+            string? name,
             PaginationParams paginationParams)
         {
             if (gameTemplateId == Guid.Empty)
@@ -298,6 +299,7 @@ namespace BoardVerse.Services.Services
                 longitude,
                 radiusKm,
                 gameTemplateId,
+                name,
                 paginationParams);
 
             var cafes = result.Data.ToList();
@@ -342,6 +344,7 @@ namespace BoardVerse.Services.Services
             Guid userId,
             double radiusKm,
             Guid gameTemplateId,
+            string? name,
             PaginationParams paginationParams)
         {
             var profile = await _userProfileRepository.GetProfileByUserIdAsync(userId);
@@ -356,6 +359,7 @@ namespace BoardVerse.Services.Services
                 longitude,
                 radiusKm,
                 gameTemplateId,
+                name,
                 paginationParams);
         }
 

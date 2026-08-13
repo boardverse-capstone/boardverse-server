@@ -27,6 +27,7 @@ namespace BoardVerse.Core.IRepositories
             double longitude,
             double radiusKm,
             Guid? gameTemplateId,
+            string? name,
             PaginationParams paginationParams);
         Task<List<Cafe>> GetNearbyCafesAsync(Guid excludeCafeId, double radiusKm);
         Task EnrichNearbyWithGameWaitAsync(IList<NearbyCafeDto> cafes, Guid gameTemplateId);
