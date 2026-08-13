@@ -226,11 +226,11 @@ public class SettlementService : ISettlementService
     public async Task<CafeSettlement> OverrideSettlementAsync(Guid settlementId, Guid adminUserId)
     {
         var settlement = await _settlementRepository.GetByIdAsync(settlementId)
-            ?? throw new NotFoundException($"Không tìm thấy settlement '{settlementId}'.");
+            ?? throw new NotFoundException(ApiErrorMessages.Settlement.NotFound(settlementId));
 
         if (settlement.Status == CafeSettlementStatus.Overridden)
         {
-            throw new ConflictException("Settlement này đã được override trước đó.");
+            throw new ConflictException(ApiErrorMessages.Settlement.AlreadyOverridden);
         }
 
         settlement.Status = CafeSettlementStatus.Overridden;

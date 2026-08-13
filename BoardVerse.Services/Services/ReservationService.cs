@@ -4,6 +4,7 @@ using BoardVerse.Core.DTOs.Wallet;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
 using BoardVerse.Data;
@@ -52,6 +53,9 @@ public class ReservationService : IReservationService
     private readonly ILogger<ReservationService> _logger;
     private readonly TimeProvider _timeProvider;
     private readonly IBookingRatingService _bookingRatingService;
+    private readonly RefundCalculationService _refundCalc;
+    private readonly IWalkInService _walkInService;
+    private readonly IPlayerKarmaService _karmaService;
 
     public ReservationService(
         BoardVerseDbContext db,
@@ -73,7 +77,10 @@ public class ReservationService : IReservationService
         IScheduleResolver scheduleResolver,
         ILogger<ReservationService> logger,
         TimeProvider timeProvider,
-        IBookingRatingService bookingRatingService)
+        IBookingRatingService bookingRatingService,
+        RefundCalculationService refundCalc,
+        IWalkInService walkInService,
+        IPlayerKarmaService karmaService)
     {
         _db = db;
         _walletService = walletService;
@@ -95,6 +102,9 @@ public class ReservationService : IReservationService
         _logger = logger;
         _timeProvider = timeProvider;
         _bookingRatingService = bookingRatingService;
+        _refundCalc = refundCalc;
+        _walkInService = walkInService;
+        _karmaService = karmaService;
     }
 
     // ===== 21A.2 QUOTE =====
@@ -108,10 +118,12 @@ public class ReservationService : IReservationService
         // Validate cafe + game tồn tại, dùng cho BR-RESERVATION-02.
         await ValidateCafeAndGameAsync(request);
 
-        // Validate preferredStartTime nằm trong timeSlot window.
-        if (!CafeSchedule.IsPreferredStartTimeValid(request.TimeSlot, request.PreferredStartTime))
+        // Validate preferredStartTime + preferredEndTime nằm trong timeSlot window.
+        var (timeValid, timeError) = CafeSchedule.ValidatePreferredTimeRange(
+            request.TimeSlot, request.PreferredStartTime, request.PreferredEndTime);
+        if (!timeValid)
         {
-            throw new BadRequestException(ApiErrorMessages.Reservation.PreferredStartTimeOutOfRange);
+            throw new BadRequestException(timeError!);
         }
 
         // Load cafe config (BR-NEW-12).
@@ -175,10 +187,22 @@ public class ReservationService : IReservationService
 
         _eligibilityValidator.ValidateHostCanCreate(eligibilityContext);
 
+        // BR-RESV-02: build ScheduledStart/End từ user-chosen preferred times.
+        var (scheduledStartTime, scheduledEndTime) = CafeSchedule.BuildScheduledStartEndFromPreferred(
+            request.PlayDate, request.TimeSlot, request.PreferredStartTime, request.PreferredEndTime);
+
+        // Validate cafe mở cửa slot này.
         var resolvedSchedule = await _scheduleResolver.ResolveAsync(
             request.CafeId, request.PlayDate, request.TimeSlot);
-        var scheduledTime = request.PlayDate.ToDateTime(resolvedSchedule.StartTime);
-        var recruitmentDeadline = scheduledTime.AddMinutes(-20); // default leadTimeMinutes
+        if (resolvedSchedule.IsClosed)
+        {
+            throw new BadRequestException(ApiErrorMessages.Reservation.CafeScheduleSlotClosed(request.TimeSlot.ToString(), request.CafeId));
+        }
+
+        // BR-RES-07/08/09: validate reservation có startTime+endTime, cùng ngày, TimeSlot hợp lệ.
+        ValidateReservationTimeWindow(scheduledStartTime, scheduledEndTime, request.TimeSlot);
+
+        var recruitmentDeadline = scheduledStartTime.AddMinutes(-20); // default leadTimeMinutes
 
         var warnings = new List<string>();
         if (quote.BufferWarning)
@@ -194,7 +218,9 @@ public class ReservationService : IReservationService
             PlayDate = request.PlayDate,
             TimeSlot = request.TimeSlot,
             PreferredStartTime = request.PreferredStartTime,
-            ScheduledTime = scheduledTime,
+            PreferredEndTime = request.PreferredEndTime,
+            ScheduledStartTime = scheduledStartTime,
+            ScheduledEndTime = scheduledEndTime,
             RecruitmentDeadline = recruitmentDeadline,
             MinPlayers = request.MinPlayers,
             MaxPlayers = quote.MaxPlayersApplied,
@@ -322,9 +348,12 @@ public class ReservationService : IReservationService
         ValidatePlayDate(request.PlayDate, now);
         ValidateTimeSlotWindowRaw(request.MinPlayers, request.MaxPlayers);
 
-        if (!CafeSchedule.IsPreferredStartTimeValid(request.TimeSlot, request.PreferredStartTime))
+        // Validate preferredStartTime + preferredEndTime nằm trong timeSlot window.
+        var (timeValid, timeError) = CafeSchedule.ValidatePreferredTimeRange(
+            request.TimeSlot, request.PreferredStartTime, request.PreferredEndTime);
+        if (!timeValid)
         {
-            throw new BadRequestException(ApiErrorMessages.Reservation.PreferredStartTimeOutOfRange);
+            throw new BadRequestException(timeError!);
         }
 
         var quoteRequest = new ReservationQuoteRequestDto
@@ -334,6 +363,7 @@ public class ReservationService : IReservationService
             PlayDate = request.PlayDate,
             TimeSlot = request.TimeSlot,
             PreferredStartTime = request.PreferredStartTime,
+            PreferredEndTime = request.PreferredEndTime,
             MinPlayers = request.MinPlayers,
             MaxPlayers = request.MaxPlayers,
             IsPrivate = request.IsPrivate,
@@ -406,10 +436,22 @@ public class ReservationService : IReservationService
                 wallet.AvailableBalance, quote.FinalDeposit));
         }
 
+        // Validate cafe mở cửa slot này.
         var resolvedSchedule = await _scheduleResolver.ResolveAsync(
             request.CafeId, quoteRequest.PlayDate, quoteRequest.TimeSlot);
-        var scheduledTime = quoteRequest.PlayDate.ToDateTime(resolvedSchedule.StartTime);
-        var recruitmentDeadline = scheduledTime.AddMinutes(-20); // BR-LOBBY-01 default leadTimeMinutes = 20
+        if (resolvedSchedule.IsClosed)
+        {
+            throw new BadRequestException(ApiErrorMessages.Reservation.CafeScheduleSlotClosed(quoteRequest.TimeSlot.ToString(), quoteRequest.CafeId));
+        }
+
+        // BR-RESV-02: build ScheduledStart/End từ user-chosen preferred times.
+        var (scheduledStartTime, scheduledEndTime) = CafeSchedule.BuildScheduledStartEndFromPreferred(
+            quoteRequest.PlayDate, quoteRequest.TimeSlot, quoteRequest.PreferredStartTime, quoteRequest.PreferredEndTime);
+
+        // BR-RES-07/08/09: validate reservation có startTime+endTime, cùng ngày, TimeSlot hợp lệ.
+        ValidateReservationTimeWindow(scheduledStartTime, scheduledEndTime, quoteRequest.TimeSlot);
+
+        var recruitmentDeadline = scheduledStartTime.AddMinutes(-20); // BR-LOBBY-01 default leadTimeMinutes = 20
 
         // ===== Atomic transaction (BR-REQUIRED §17.4) =====
         // Dùng Serializable Isolation để chống race condition overbooking (BR §17.3).
@@ -420,7 +462,7 @@ public class ReservationService : IReservationService
             try
             {
                 return await ExecuteConfirmTransactionAsync(
-                    hostId, request, quoteRequest, cafeConfig, wallet, quote, scheduledTime, recruitmentDeadline, now);
+                    hostId, request, quoteRequest, cafeConfig, wallet, quote, scheduledStartTime, scheduledEndTime, recruitmentDeadline, now);
             }
             catch (DbUpdateException dbx) when (IsSerializationFailure(dbx) && attempt < maxRetries)
             {
@@ -495,7 +537,8 @@ public class ReservationService : IReservationService
         CafeConfig cafeConfig,
         Wallet wallet,
         DepositQuoteResult quote,
-        DateTime scheduledTime,
+        DateTime scheduledStartTime,
+        DateTime scheduledEndTime,
         DateTime recruitmentDeadline,
         DateTime now)
     {
@@ -513,18 +556,25 @@ public class ReservationService : IReservationService
 
             if (seatInventory.AvailableSeats < quote.MaxPlayersApplied)
             {
+                // AvailableSeats là computed property (TotalSeats - HeldSeats - InUseSeats) — column không tồn tại
+                // trong DB, nên EF set = 0 sau raw SELECT *. Tính lại từ 3 cột để tránh race-condition LEAK.
+                var seatsAvail = seatInventory.TotalSeats - seatInventory.HeldSeats - seatInventory.InUseSeats;
                 throw new ConflictException(
-                    ApiErrorMessages.Reservation.SeatsNotAvailable(seatInventory.AvailableSeats, quote.MaxPlayersApplied));
+                    ApiErrorMessages.Reservation.SeatsNotAvailable(seatsAvail, quote.MaxPlayersApplied));
             }
 
             var gameInventory = await _gameInventoryRepository.GetForUpdateAsync(
                 request.CafeId, request.GameId, request.PlayDate, request.TimeSlot);
-            if (gameInventory == null || gameInventory.AvailableCopies < 1)
+            // AvailableCopies cũng là computed property — column không tồn tại trong DB, EF set = 0 sau raw SELECT.
+            var copiesAvail = gameInventory == null
+                ? 0
+                : gameInventory.TotalCopies - gameInventory.HeldCopies - gameInventory.InUseCopies;
+            if (gameInventory == null || copiesAvail < 1)
             {
                 throw new ConflictException(
                     gameInventory == null
                         ? ApiErrorMessages.Reservation.GameInventoryNotFound
-                        : ApiErrorMessages.Reservation.GameCopyNotAvailable(gameInventory.AvailableCopies));
+                        : ApiErrorMessages.Reservation.GameCopyNotAvailable(copiesAvail));
             }
 
             // 11. Snapshot cấu hình cọc (BR-NEW-12 + 21F.9).
@@ -551,8 +601,10 @@ public class ReservationService : IReservationService
                 PlayDate = request.PlayDate,
                 TimeSlot = request.TimeSlot,
                 PreferredStartTime = request.PreferredStartTime,
+                PreferredEndTime = request.PreferredEndTime,
                 RecruitmentDeadline = recruitmentDeadline,
-                ScheduledTime = scheduledTime, // Lưu thời gian thực từ resolved schedule
+                ScheduledStartTime = scheduledStartTime,
+                ScheduledEndTime = scheduledEndTime,
                 MinPlayers = request.MinPlayers,
                 MaxPlayers = quote.MaxPlayersApplied,
                 DepositConfigSnapshot = depositSnapshot,
@@ -584,8 +636,9 @@ public class ReservationService : IReservationService
                 PlayDate = request.PlayDate,
                 TimeSlot = request.TimeSlot,
                 PreferredStartTime = request.PreferredStartTime,
+                PreferredEndTime = request.PreferredEndTime,
                 RecruitmentDeadline = recruitmentDeadline,
-                ScheduledStartTime = scheduledTime,
+                ScheduledStartTime = scheduledStartTime,
                 MaxMembers = quote.MaxPlayersApplied,
                 MinPlayers = request.MinPlayers,
                 MinDeposit = quote.FinalDeposit,
@@ -936,8 +989,11 @@ public class ReservationService : IReservationService
             var minutesSinceCreated = (now - reservation.CreatedAt).TotalMinutes;
             var hasMembers = members.Any(m => !m.IsHost && m.IsActive);
 
+            var scheduledStart = reservation.ScheduledStartTime;
+            if (scheduledStart == default)
+                throw new InvalidOperationException($"Cannot cancel: ScheduledStartTime is null for Reservation {reservation.Id}");
             var refundPolicy = ComputeRefundPolicy(
-                reservation.ScheduledTime,
+                scheduledStart,
                 now,
                 hasMembers,
                 minutesSinceCreated);
@@ -1000,6 +1056,247 @@ public class ReservationService : IReservationService
         catch
         {
             await tx.RollbackAsync();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// BR-REFUND-08 (walk-in-override-design §2.3):
+    /// Host hủy reservation SAU khi đã check-in tại quán (late cancel).
+    ///
+    /// Workflow:
+    /// <list type="number">
+    ///   <item><description>Validate Reservation.Status == CheckedIn (đã check-in mới cho cancel).</description></item>
+    ///   <item><description>Validate user == Reservation.HostId (chỉ host).</description></item>
+    ///   <item><description>Query ActiveSession (link qua Lobby) để lấy StartedAt.</description></item>
+    ///   <item><description>Tính playedRatio = (now - StartedAt) / (ScheduledEndTime - ScheduledStartTime).</description></item>
+    ///   <item><description>Áp dụng soft-release refund 30% nếu playedRatio ≥ 0.5, ngược lại forfeit 100%.</description></item>
+    ///   <item><description>Update Reservation.Status CheckedIn → CancelledByPlayer + Lobby status.</description></item>
+    ///   <item><description>Lưu audit log vào PlayerActionHistory.</description></item>
+    /// </list>
+    /// </summary>
+    public async Task<CancelAfterCheckinResponseDto> CancelAfterCheckinAsync(
+        Guid hostId,
+        CancelAfterCheckinRequestDto request)
+    {
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+
+        // Load Reservation (kèm Lobby) để check ownership + status.
+        var reservation = await _reservationRepository.GetByIdAsync(request.ReservationId, includeRelations: true)
+            ?? throw new NotFoundException(ApiErrorMessages.Reservation.NotFound(request.ReservationId));
+
+        // Authorization: chỉ host mới được cancel-after-checkin.
+        if (reservation.HostId != hostId)
+        {
+            throw new ForbiddenException(ApiErrorMessages.Reservation.OnlyHostCanLateCancelAfterCheckin);
+        }
+
+        // Status guard: chỉ cancel khi đã check-in.
+        // Cancel từ Holding/Confirmed (chưa check-in) → dùng CancelAsync (BR-REFUND-02/03).
+        if (reservation.Status != ReservationStatus.CheckedIn)
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Reservation.MustBeCheckedInToLateCancel(reservation.Id, reservation.Status));
+        }
+
+        var lobby = reservation.Lobby
+            ?? throw new InternalServerErrorException(ApiErrorMessages.Reservation.ReservationMissingLobby(reservation.Id));
+
+        // Scheduled times — Required cho BR-REFUND-08 (BR-RESV-02 §6).
+        var scheduledStart = reservation.ScheduledStartTime;
+        var scheduledEnd = reservation.ExtendedEndTime ?? reservation.ScheduledEndTime;
+
+        // Query ActiveSession qua Lobby để có StartedAt (BR-05 scan QR timestamp).
+        // ActiveSession không có FK trực tiếp → query qua LobbyId.
+        var session = await _activeSessionRepository.GetByLobbyIdWithMembersAsync(lobby.Id);
+        if (session == null)
+        {
+            // Đã check-in nhưng chưa start session → coi như played = 0 → forfeit 100%.
+            // Edge case này xảy ra nếu reservation.Status bị update thủ công hoặc workflow bug.
+            // Vẫn cho cancel nhưng refund = 0 (đúng BR-REFUND-08 fair semantics).
+            var zeroRefund = 0L;
+            var zeroForfeit = reservation.DepositAmount;
+
+            return await ExecuteCancelAfterCheckinAsync(
+                reservation, lobby, session,
+                scheduledStart, scheduledEnd,
+                now,
+                playedMinutes: 0,
+                scheduledDurationMinutes: (int)(scheduledEnd - scheduledStart).TotalMinutes,
+                refundAmount: zeroRefund,
+                forfeitAmount: zeroForfeit,
+                policyName: "BR-REFUND-08 < 0.5 (no session)",
+                reason: request.Reason,
+                ct: default).ConfigureAwait(false);
+        }
+
+        var playedMinutes = (int)Math.Max(0, (now - session.StartedAt).TotalMinutes);
+        var scheduledDurationMinutes = (int)Math.Max(1, (scheduledEnd - scheduledStart).TotalMinutes);
+
+        // BR-REFUND-08: playedRatio ≥ 0.5 → refund 30%, ngược lại forfeit 100%.
+        var calcResult = LateCancelRefundCalculator.Compute(
+            reservation.DepositAmount,
+            playedMinutes,
+            scheduledDurationMinutes);
+        var playedRatio = calcResult.PlayedRatio;
+        var refundAmount = calcResult.RefundBvc;
+        var forfeitAmount = calcResult.ForfeitBvc;
+        var policyName = calcResult.PolicyName;
+
+        return await ExecuteCancelAfterCheckinAsync(
+            reservation, lobby, session,
+            scheduledStart, scheduledEnd,
+            now,
+            playedMinutes,
+            scheduledDurationMinutes,
+            refundAmount,
+            forfeitAmount,
+            policyName,
+            request.Reason,
+            ct: default).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Helper cho <see cref="CancelAfterCheckinAsync"/>: thực thi transactional logic.
+    /// Tách riêng để giữ method chính dễ đọc + dễ unit test.
+    /// </summary>
+    private async Task<CancelAfterCheckinResponseDto> ExecuteCancelAfterCheckinAsync(
+        Reservation reservation,
+        Lobby lobby,
+        ActiveSession? session,
+        DateTime scheduledStart,
+        DateTime scheduledEnd,
+        DateTime now,
+        int playedMinutes,
+        int scheduledDurationMinutes,
+        long refundAmount,
+        long forfeitAmount,
+        string policyName,
+        string? reason,
+        CancellationToken ct)
+    {
+        const int MaxRetries = 3;
+        for (var attempt = 1; attempt <= MaxRetries; attempt++)
+        {
+            try
+            {
+                return await ExecuteCancelAfterCheckinTransactionAsync(
+                    reservation, lobby, session,
+                    scheduledStart, scheduledEnd, now,
+                    playedMinutes, scheduledDurationMinutes,
+                    refundAmount, forfeitAmount, policyName, reason, ct).ConfigureAwait(false);
+            }
+            catch (DbUpdateException ex) when (IsSerializationFailure(ex) && attempt < MaxRetries)
+            {
+                _logger.LogWarning(
+                    "CancelAfterCheckinAsync serialization failure on attempt {Attempt}/{Max}. ReservationId={ReservationId}. Retrying...",
+                    attempt, MaxRetries, reservation.Id);
+                await Task.Delay(TimeSpan.FromMilliseconds(50 * attempt), ct).ConfigureAwait(false);
+            }
+        }
+
+        throw new InternalServerErrorException(
+            $"Không thể hoàn tất cancel-after-checkin reservation '{reservation.Id}' sau {MaxRetries} lần thử.");
+    }
+
+    private async Task<CancelAfterCheckinResponseDto> ExecuteCancelAfterCheckinTransactionAsync(
+        Reservation reservation,
+        Lobby lobby,
+        ActiveSession? session,
+        DateTime scheduledStart,
+        DateTime scheduledEnd,
+        DateTime now,
+        int playedMinutes,
+        int scheduledDurationMinutes,
+        long refundAmount,
+        long forfeitAmount,
+        string policyName,
+        string? reason,
+        CancellationToken ct)
+    {
+        await using var tx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+
+        try
+        {
+            // Idempotency key dựa trên reservationId — stable qua retry.
+            var refundIdempotencyKey = $"latecancel-refund-{reservation.Id:N}";
+            var forfeitIdempotencyKey = $"latecancel-forfeit-{reservation.Id:N}";
+
+            // Refund BVC về host (nếu có).
+            if (refundAmount > 0)
+            {
+                await _walletService.ReleaseDepositAsync(
+                    reservation.HostId,
+                    refundAmount,
+                    lobby.Id,
+                    reservation.Id,
+                    refundIdempotencyKey).ConfigureAwait(false);
+
+                _logger.LogInformation(
+                    "CancelAfterCheckin: Refund {Refund} BVC to host {HostId} for ReservationId={ReservationId} (policy={Policy})",
+                    refundAmount, reservation.HostId, reservation.Id, policyName);
+            }
+
+            // Forfeit BVC về doanh thu quán (nếu có).
+            if (forfeitAmount > 0)
+            {
+                await _walletService.ForfeitDepositAsync(
+                    reservation.HostId,
+                    forfeitAmount,
+                    lobby.Id,
+                    reservation.Id,
+                    forfeitIdempotencyKey).ConfigureAwait(false);
+
+                _logger.LogInformation(
+                    "CancelAfterCheckin: Forfeit {Forfeit} BVC from host {HostId} for ReservationId={ReservationId} (policy={Policy})",
+                    forfeitAmount, reservation.HostId, reservation.Id, policyName);
+            }
+
+            // Update Reservation + Lobby status.
+            reservation.Status = ReservationStatus.CancelledByPlayer;
+            reservation.UpdatedAt = now;
+            await _reservationRepository.UpdateAsync(reservation).ConfigureAwait(false);
+
+            lobby.Status = LobbyStatus.HostCancelled;
+            lobby.ClosedAt = now;
+            lobby.ClosedReason = reason ?? $"Host hủy sau check-in - {policyName}";
+            lobby.UpdatedAt = now;
+            await _lobbyRepository.UpdateAsync(lobby).ConfigureAwait(false);
+
+            // Đóng ActiveSession (nếu có) — set Paid + EndedAt.
+            if (session != null && session.Status != GroupSessionStatus.Paid)
+            {
+                session.Status = GroupSessionStatus.Paid;
+                session.EndedAt = now;
+                session.PaidAt = now;
+                session.UpdatedAt = now;
+                await _activeSessionRepository.UpdateAsync(session).ConfigureAwait(false);
+            }
+
+            await _reservationRepository.SaveChangesAsync().ConfigureAwait(false);
+            await tx.CommitAsync(ct).ConfigureAwait(false);
+
+            var playedRatio = scheduledDurationMinutes > 0
+                ? Math.Round((decimal)playedMinutes / scheduledDurationMinutes, 2)
+                : 0m;
+
+            return new CancelAfterCheckinResponseDto
+            {
+                ReservationId = reservation.Id,
+                LobbyId = lobby.Id,
+                ActiveSessionId = session?.Id,
+                PlayedMinutes = playedMinutes,
+                ScheduledDurationMinutes = scheduledDurationMinutes,
+                PlayedRatio = playedRatio,
+                RefundBvc = refundAmount,
+                ForfeitBvc = forfeitAmount,
+                RefundPolicyApplied = policyName,
+                CancelledAt = now
+            };
+        }
+        catch
+        {
+            await tx.RollbackAsync(ct).ConfigureAwait(false);
             throw;
         }
     }
@@ -1253,7 +1550,7 @@ public class ReservationService : IReservationService
                     reservation.Status = ReservationStatus.Expired;
                     lobby.Status = LobbyStatus.TimeoutFailed;
                     lobby.ClosedAt = now;
-                    lobby.ClosedReason = "Đến recruitmentDeadline mà chưa đạt minPlayers.";
+                    lobby.ClosedReason = "Phòng không đủ thành viên tối thiểu trước thời hạn tuyển người. Tiền cọc đã hoàn về ví của bạn.";
                     lobby.UpdatedAt = now;
 
                     await _reservationRepository.UpdateAsync(reservation);
@@ -1550,7 +1847,8 @@ public class ReservationService : IReservationService
                 ReservationStatus = reservation.Status.ToString(),
                 LobbyStatus = existingLobby?.Status.ToString() ?? LobbyStatus.InProgress.ToString(),
                 CheckedInAt = existingLobby?.UpdatedAt ?? now,
-                HeldBvc = reservation.DepositAmount
+                HeldBvc = reservation.DepositAmount,
+                TableNumber = reservation.TableNumber
             };
         }
 
@@ -1638,6 +1936,7 @@ public class ReservationService : IReservationService
 
             // 9. Update reservation.
             reservation.Status = ReservationStatus.CheckedIn;
+            reservation.TableNumber = request.TableNumber;
             reservation.UpdatedAt = now;
             await _reservationRepository.UpdateAsync(reservation);
 
@@ -1694,7 +1993,8 @@ public class ReservationService : IReservationService
                 ReservationStatus = reservation.Status.ToString(),
                 LobbyStatus = lobby.Status.ToString(),
                 CheckedInAt = now,
-                HeldBvc = reservation.DepositAmount
+                HeldBvc = reservation.DepositAmount,
+                TableNumber = request.TableNumber
             };
         }
         catch
@@ -1708,36 +2008,37 @@ public class ReservationService : IReservationService
     /// GAP #2 fix: BR §21A.7 step 3 — "Thời gian nằm trong khung giờ cho phép".
     ///
     /// Time window:
-    /// - Early grace: scheduledTime - 30 phút (cho phép khách đến sớm, staff chuẩn bị).
-    /// - Late grace: timeSlot.endTime + 30 phút (cho phép khách đến muộn sau giờ chơi).
+    /// - Early grace: scheduledTime - 15 phút (BR-CHECKIN-01: cho phép khách đến sớm).
+    /// - Late grace: scheduledEndTime + 30 phút (BR-END-05: grace period, không tính extra).
     ///
     /// Trả 400 Bad Request qua ApiExceptionMiddleware nếu ngoài window.
     /// </summary>
     private async Task ValidateCheckInTimeWindowAsync(Reservation reservation, DateTime now)
     {
-        const int EarlyGraceMinutes = 30;
+        // BR-CHECKIN-01: Check-in trong [-15 min, +30 min] quanh [ScheduledStartTime, ScheduledEndTime].
+        const int EarlyGraceMinutes = 15;
         const int LateGraceMinutes = 30;
 
-        var scheduledTime = reservation.ScheduledTime;
+        var scheduledStart = reservation.ScheduledStartTime;
+        var scheduledEnd = reservation.ScheduledEndTime;
         var resolvedSchedule = await _scheduleResolver.ResolveAsync(
             reservation.CafeId, reservation.PlayDate, reservation.TimeSlot);
-        var slotEndTime = reservation.PlayDate.ToDateTime(resolvedSchedule.EndTime);
 
-        var windowStart = scheduledTime.AddMinutes(-EarlyGraceMinutes);
-        var windowEnd = slotEndTime.AddMinutes(LateGraceMinutes);
+        var windowStart = scheduledStart.AddMinutes(-EarlyGraceMinutes);
+        var windowEnd = scheduledEnd.AddMinutes(LateGraceMinutes);
 
         if (now < windowStart)
         {
             throw new ConflictException(
                 ApiErrorMessages.Reservation.CheckInTimeWindowInvalid(
-                    reservation.Id, scheduledTime, windowStart, windowEnd));
+                    reservation.Id, scheduledStart, windowStart, windowEnd));
         }
 
         if (now > windowEnd)
         {
             throw new ConflictException(
                 ApiErrorMessages.Reservation.CheckInTimeWindowLate(
-                    reservation.Id, slotEndTime, windowEnd));
+                    reservation.Id, scheduledEnd, windowEnd));
         }
     }
 
@@ -1763,10 +2064,9 @@ public class ReservationService : IReservationService
 
         var hostCreateOrCancelCount = await _reservationRepository.CountHostActionsForPlayDateAsync(hostId, request.PlayDate);
 
-        var resolvedSchedule = await _scheduleResolver.ResolveAsync(
-            request.CafeId, request.PlayDate, request.TimeSlot);
-        var scheduledTime = request.PlayDate.ToDateTime(resolvedSchedule.StartTime);
-        var recruitmentDeadline = scheduledTime.AddMinutes(-20);
+        var (scheduledStartTime, scheduledEndTime) = CafeSchedule.BuildScheduledStartEndFromPreferred(
+            request.PlayDate, request.TimeSlot, request.PreferredStartTime, request.PreferredEndTime);
+        var recruitmentDeadline = scheduledStartTime.AddMinutes(-20);
 
         return new HostReservationContext
         {
@@ -1776,6 +2076,8 @@ public class ReservationService : IReservationService
             TimeSlot = request.TimeSlot,
             RecruitmentDeadline = recruitmentDeadline,
             Now = now,
+            PreferredScheduledStart = scheduledStartTime,
+            PreferredScheduledEnd = scheduledEndTime,
             IsVip = false,
             IsRiskMultiplierHigh = wallet.RiskMultiplier >= 1.25m,
             IsCoolingOff = wallet.IsCoolingOff,
@@ -1997,6 +2299,10 @@ public class ReservationService : IReservationService
                 // Wrap try/catch riêng — aggregate fail KHÔNG block capture (đã commit).
                 await TriggerKarmaAggregationAsync(lobbyId, activeSessionId, ct);
 
+                // BR-KARMA-01: Track short-play nếu playedRatio < 0.5 và scheduled >= 4h.
+                // Wrap try/catch riêng — track fail KHÔNG block capture (đã commit).
+                await TriggerShortPlayTrackingAsync(reservation, activeSessionId, ct);
+
                 return;
             }
             catch (DbUpdateException dbx) when (IsSerializationFailure(dbx) && attempt < maxRetries)
@@ -2074,6 +2380,126 @@ public class ReservationService : IReservationService
         }
     }
 
+    /// <summary>
+    /// BR-KARMA-01: Track short-play violation cho Reservation flow.
+    /// Được gọi sau khi <see cref="CompleteAndCaptureAsync"/> commit thành công.
+    ///
+    /// Nếu lịch chơi (Reservation) >= 4h và playedRatio &lt; 50% → ghi nhận vi phạm Karma.
+    /// Wrap try/catch đơn lẻ — track fail KHÔNG block capture (đã commit).
+    /// </summary>
+    private async Task TriggerShortPlayTrackingAsync(
+        Reservation reservation, Guid activeSessionId, CancellationToken ct)
+    {
+        try
+        {
+            // Lấy actual end time từ ActiveSession
+            var session = await _db.ActiveSessions
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Id == activeSessionId, ct);
+
+            if (session == null)
+            {
+                _logger.LogInformation(
+                    "TriggerShortPlayTrackingAsync: ActiveSession {ActiveSessionId} not found → skip.",
+                    activeSessionId);
+                return;
+            }
+
+            // Tính playedRatio
+            var scheduledEnd = reservation.ExtendedEndTime ?? reservation.ScheduledEndTime;
+            var scheduledStart = reservation.ScheduledStartTime;
+            var scheduledMinutes = (int)(scheduledEnd - scheduledStart).TotalMinutes;
+
+            // BR-KARMA-01: Chỉ track nếu scheduled >= 4h (240 phút)
+            if (scheduledMinutes < 240)
+            {
+                _logger.LogInformation(
+                    "TriggerShortPlayTrackingAsync: ReservationId={Id}, scheduledMinutes={Min} < 240 → skip.",
+                    reservation.Id, scheduledMinutes);
+                return;
+            }
+
+            // Tính playedMinutes từ session members
+            var sessionMembers = await _db.ActiveSessionMembers
+                .AsNoTracking()
+                .Where(m => m.ActiveSessionId == activeSessionId)
+                .ToListAsync(ct);
+
+            if (sessionMembers.Count == 0)
+            {
+                _logger.LogInformation(
+                    "TriggerShortPlayTrackingAsync: No session members for ActiveSession {ActiveSessionId} → skip.",
+                    activeSessionId);
+                return;
+            }
+
+            // Track short-play cho từng member (chỉ user có tài khoản, không track guest slot)
+            foreach (var member in sessionMembers)
+            {
+                // BR-13: Guest slot không có UserId, bỏ qua
+                if (!member.UserId.HasValue || member.TotalMinutesPlayed == 0) continue;
+
+                var userId = member.UserId.Value;
+                var playedMinutes = member.TotalMinutesPlayed;
+                var playedRatio = (decimal)playedMinutes / scheduledMinutes;
+
+                // BR-KARMA-01: Chỉ ghi nhận nếu playedRatio < 0.5
+                if (playedRatio >= 0.5m) continue;
+
+                // Kiểm tra đã có record chưa (idempotent)
+                var existingRecord = await _db.KarmaShortPlayRecords
+                    .AnyAsync(r => r.ReservationId == reservation.Id
+                                   && r.UserId == userId, ct);
+
+                if (existingRecord)
+                {
+                    _logger.LogInformation(
+                        "TriggerShortPlayTrackingAsync: KarmaShortPlayRecord already exists for ReservationId={ResId}, UserId={UserId} → skip.",
+                        reservation.Id, userId);
+                    continue;
+                }
+
+                // Lấy tổng karma hiện tại của user từ UserProfile
+                var userProfile = await _db.UserProfiles
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(p => p.UserId == userId, ct);
+
+                var totalKarma = userProfile?.KarmaPoints ?? 100;
+                var karmaDelta = -5; // BR-KARMA-01: default -5 cho ratio < 0.5
+                var karmaPointsAdded = karmaDelta; // Trong short-play, điểm bị trừ
+
+                var record = new KarmaShortPlayRecord
+                {
+                    Id = Guid.NewGuid(),
+                    ReservationId = reservation.Id,
+                    UserId = userId,
+                    PlayedMinutes = playedMinutes,
+                    ScheduledMinutes = scheduledMinutes,
+                    PlayedRatio = playedRatio,
+                    KarmaDelta = karmaDelta,
+                    KarmaPointsAdded = karmaPointsAdded,
+                    TotalKarmaScore = totalKarma + karmaDelta,
+                    Status = KarmaRecordStatus.Active,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                _db.KarmaShortPlayRecords.Add(record);
+
+                _logger.LogInformation(
+                    "BR-KARMA-01: Created KarmaShortPlayRecord. ReservationId={ResId}, UserId={UserId}, " +
+                    "PlayedMinutes={Played}/{Scheduled}, Ratio={Ratio:P1}, KarmaDelta={Delta}",
+                    reservation.Id, userId, playedMinutes, scheduledMinutes, playedRatio, karmaDelta);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "TriggerShortPlayTrackingAsync failed for ReservationId={ResId}, ActiveSessionId={ActiveSessionId}. " +
+                "Capture BVC vẫn thành công nhưng Karma short-play tracking bị skip.",
+                reservation.Id, activeSessionId);
+        }
+    }
+
     // ===== GET LIST / DETAIL =====
 
     public async Task<ReservationDetailDto?> GetByIdAsync(Guid userId, Guid reservationId)
@@ -2111,7 +2537,8 @@ public class ReservationService : IReservationService
             PlayDate = reservation.PlayDate,
             TimeSlot = reservation.TimeSlot,
             PreferredStartTime = reservation.PreferredStartTime,
-            ScheduledTime = reservation.ScheduledTime,
+            ScheduledStartTime = reservation.ScheduledStartTime,
+            ScheduledEndTime = reservation.ScheduledEndTime,
             RecruitmentDeadline = reservation.RecruitmentDeadline,
             MinPlayers = reservation.MinPlayers,
             MaxPlayers = reservation.MaxPlayers,
@@ -2128,7 +2555,15 @@ public class ReservationService : IReservationService
             CreatedAt = reservation.CreatedAt,
             UpdatedAt = reservation.UpdatedAt,
             IsHost = isHost,
-            CanCancel = canCancel
+            CanCancel = canCancel,
+            CheckedInAt = reservation.CheckedInAt,
+            ActualEndAt = reservation.ActualEndAt,
+            PlayedRatio = reservation.PlayedRatio,
+            EndReason = reservation.EndReason?.ToString(),
+            WalkInWindowId = reservation.WalkInWindowId,
+            CancelledBy = reservation.CancelledBy,
+            CancelReason = reservation.CancelReason,
+            TableNumber = reservation.TableNumber
         };
     }
 
@@ -2163,9 +2598,12 @@ public class ReservationService : IReservationService
             LobbyId = r.LobbyId,
             LobbyStatus = r.Lobby?.Status.ToString(),
             ReservationCode = r.ReservationCode,
+            ScheduledStartTime = r.ScheduledStartTime,
+            ScheduledEndTime = r.ScheduledEndTime,
             RecruitmentDeadline = r.RecruitmentDeadline,
             CreatedAt = r.CreatedAt,
-            IsHost = r.HostId == userId
+            IsHost = r.HostId == userId,
+            TableNumber = r.TableNumber
         }).ToList();
 
         return new ReservationListResponseDto
@@ -2223,7 +2661,8 @@ public class ReservationService : IReservationService
             MaxPlayers = reservation.MaxPlayers,
             CurrentPlayers = reservation.CurrentPlayers,
             DepositAmount = reservation.DepositAmount,
-            ScheduledTime = reservation.ScheduledTime,
+            ScheduledStartTime = reservation.ScheduledStartTime,
+            ScheduledEndTime = reservation.ScheduledEndTime,
             CafeApprovalDeadline = reservation.Lobby?.CafeApprovalDeadline ?? DateTime.MinValue,
             RemainingApprovalHours = reservation.Lobby?.CafeApprovalDeadline.HasValue == true
                 ? (int)Math.Max(0, (reservation.Lobby.CafeApprovalDeadline.Value - now).TotalHours)
@@ -2281,7 +2720,8 @@ public class ReservationService : IReservationService
             MaxPlayers = r.MaxPlayers,
             CurrentPlayers = r.CurrentPlayers,
             DepositAmount = r.DepositAmount,
-            ScheduledTime = r.ScheduledTime,
+            ScheduledStartTime = r.ScheduledStartTime,
+            ScheduledEndTime = r.ScheduledEndTime,
             CafeApprovalDeadline = r.Lobby?.CafeApprovalDeadline ?? DateTime.MinValue,
             RemainingApprovalHours = r.Lobby?.CafeApprovalDeadline.HasValue == true
                 ? (int)Math.Max(0, (r.Lobby.CafeApprovalDeadline.Value - now).TotalHours)
@@ -2381,18 +2821,75 @@ public class ReservationService : IReservationService
                 await _lobbyRepository.UpdateAsync(lobby);
             }
 
-            // 7. Capture BVC (BR-REVENUE-01: deposit 100% về quán).
+            // 7. Tính playedRatio để xác định capture amount (BR-REFUND-04/05/06).
+            // BR-REFUND-04: playedRatio < 0.5 → forfeit 100%
+            // BR-REFUND-05: 0.5 ≤ playedRatio < 0.9 → forfeit 70%, refund 30%
+            // BR-REFUND-06: playedRatio ≥ 0.9 → forfeit 100% (on-time)
+            var session = await _activeSessionRepository.GetByIdAsync(activeSessionId);
+            var scheduledEnd = reservation.ExtendedEndTime ?? reservation.ScheduledEndTime;
+            var scheduledStart = reservation.ScheduledStartTime;
+            var scheduledMinutes = (int)(scheduledEnd - scheduledStart).TotalMinutes;
+            long captureAmount = reservation.DepositAmount;
+            long refundAmount = 0;
+
+            if (session != null && scheduledMinutes > 0)
+            {
+                var playedMinutes = (session.EndedAt.HasValue)
+                    ? (decimal)(session.EndedAt.Value - session.StartedAt).TotalMinutes
+                    : 0;
+                var playedRatio = playedMinutes / scheduledMinutes;
+
+                if (playedRatio < 0.5m)
+                {
+                    // BR-REFUND-04: Forfeit 100%
+                    captureAmount = reservation.DepositAmount;
+                }
+                else if (playedRatio < 0.9m)
+                {
+                    // BR-REFUND-05: Forfeit 70%, refund 30%
+                    captureAmount = (long)Math.Round(reservation.DepositAmount * 0.7m);
+                    refundAmount = reservation.DepositAmount - captureAmount;
+                }
+                else
+                {
+                    // BR-REFUND-06: Forfeit 100% (on-time)
+                    captureAmount = reservation.DepositAmount;
+                }
+
+                _logger.LogInformation(
+                    "CompleteAndCapture: ReservationId={ReservationId}, PlayedRatio={PlayedRatio:P1}, " +
+                    "CaptureAmount={Capture}, RefundAmount={Refund}",
+                    reservation.Id, playedRatio, captureAmount, refundAmount);
+            }
+
+            // 7a. Capture BVC (BR-REVENUE-01: phần quy định về quán).
             //    Idempotency key gắn với reservationId + UpdatedAt để tránh double capture
             //    nếu có 2 scheduler/host race condition.
             var captureIdempotencyKey = $"capture-{reservation.Id:N}-{reservation.UpdatedAt.Ticks:x}";
 
             await _walletService.CaptureDepositAsync(
                 reservation.HostId,
-                reservation.DepositAmount,
+                captureAmount,
                 lobby?.Id,
                 reservation.Id,
                 captureIdempotencyKey,
                 ct);
+
+            // 7b. Refund 30% cho BR-REFUND-05 (0.5 ≤ playedRatio < 0.9).
+            if (refundAmount > 0)
+            {
+                var refundIdempotencyKey = $"capture-refund-{reservation.Id:N}-{reservation.UpdatedAt.Ticks:x}";
+                await _walletService.ReleaseDepositAsync(
+                    reservation.HostId,
+                    refundAmount,
+                    lobby?.Id,
+                    reservation.Id,
+                    refundIdempotencyKey);
+
+                _logger.LogInformation(
+                    "CompleteAndCapture: Refund {Refund} BVC to host {HostId} for ReservationId={ReservationId}",
+                    refundAmount, reservation.HostId, reservation.Id);
+            }
 
             // 8. Outbox event SessionCompleted (BR-REQUIRED §17.5).
             var payload = System.Text.Json.JsonSerializer.Serialize(new
@@ -2402,7 +2899,8 @@ public class ReservationService : IReservationService
                 activeSessionId,
                 hostId = reservation.HostId,
                 cafeId = reservation.CafeId,
-                capturedBvc = reservation.DepositAmount,
+                capturedBvc = captureAmount,
+                refundedBvc = refundAmount,
                 completedAt = now
             });
 
@@ -2432,6 +2930,96 @@ public class ReservationService : IReservationService
         }
     }
 
+    /// <summary>
+    /// BR-REFUND-07: Admin override refund amount cho reservation đã completed.
+    /// Cho phép refund một phần hoặc toàn bộ số BVC đã capture.
+    /// Ghi AdminCredit ledger entry + PlayerActionHistory audit.
+    /// </summary>
+    public async Task<AdminOverrideRefundResultDto> AdminOverrideRefundAsync(
+        Guid adminUserId,
+        Guid reservationId,
+        AdminOverrideRefundRequestDto request,
+        string idempotencyKey)
+    {
+        // 1. Idempotency check — nếu đã xử lý rồi thì trả kết quả cũ.
+        var existingEntry = await _db.BvcLedgerEntries
+            .FirstOrDefaultAsync(e =>
+                e.IdempotencyKey == idempotencyKey &&
+                e.Type == LedgerEntryType.AdminCredit &&
+                e.RelatedReservationId == reservationId);
+
+        if (existingEntry != null)
+        {
+            _logger.LogInformation(
+                "AdminOverrideRefund: Idempotent replay for ReservationId={ReservationId}, IdempotencyKey={Key}",
+                reservationId, idempotencyKey);
+
+            return new AdminOverrideRefundResultDto
+            {
+                ReservationId = reservationId,
+                UserId = existingEntry.UserId,
+                OriginalDepositAmount = 0, // Not available from idempotent replay
+                PreviouslyCapturedAmount = 0,
+                PreviouslyRefundedAmount = 0,
+                NewRefundAmount = request.RefundAmountBvc,
+                ActualRefundAmount = existingEntry.Amount,
+                AdminUserId = adminUserId,
+                ProcessedAt = existingEntry.CreatedAt
+            };
+        }
+
+        // 2. Validate reservation tồn tại và đã completed.
+        var reservation = await _reservationRepository.GetByIdAsync(reservationId);
+        if (reservation == null)
+        {
+            throw new NotFoundException(ApiErrorMessages.Reservation.NotFound(reservationId));
+        }
+
+        if (reservation.Status != ReservationStatus.Completed)
+        {
+            throw new ConflictException(
+                $"Chỉ có reservation đã Completed mới có thể override refund. Current status: {reservation.Status}");
+        }
+
+        // 3. Validate refund amount không vượt quá deposit.
+        if (request.RefundAmountBvc > reservation.DepositAmount)
+        {
+            throw new BadRequestException(
+                $"Refund amount ({request.RefundAmountBvc} BVC) không được vượt quá deposit amount ({reservation.DepositAmount} BVC).");
+        }
+
+        // 4. Thực hiện refund (AdminCredit).
+        var now = DateTime.UtcNow;
+        var result = await _walletService.AdminAdjustBalanceAsync(
+            targetUserId: reservation.HostId,
+            amountBvc: request.RefundAmountBvc,
+            isCredit: true,
+            adminUserId: adminUserId,
+            reason: $"[BR-REFUND-07] Admin override refund for Reservation {reservationId}: {request.Reason}",
+            idempotencyKey: idempotencyKey);
+
+        // 5. Ghi PlayerActionHistory audit (BR-RISK-05).
+        // TODO: Add PlayerActionHistory logging if not already in AdminAdjustBalanceAsync.
+
+        _logger.LogInformation(
+            "AdminOverrideRefund: ReservationId={ReservationId}, AdminUserId={AdminId}, " +
+            "RefundAmount={RefundBvc} BVC, IdempotencyKey={Key}",
+            reservationId, adminUserId, request.RefundAmountBvc, idempotencyKey);
+
+        return new AdminOverrideRefundResultDto
+        {
+            ReservationId = reservationId,
+            UserId = reservation.HostId,
+            OriginalDepositAmount = reservation.DepositAmount,
+            PreviouslyCapturedAmount = reservation.DepositAmount, // Simplified — actual may differ
+            PreviouslyRefundedAmount = 0,
+            NewRefundAmount = request.RefundAmountBvc,
+            ActualRefundAmount = request.RefundAmountBvc,
+            AdminUserId = adminUserId,
+            ProcessedAt = now
+        };
+    }
+
     private static string GetDisplayName(User? user, UserProfile? profile)
     {
         if (user == null) return string.Empty;
@@ -2445,6 +3033,192 @@ public class ReservationService : IReservationService
         }
 
         return string.IsNullOrWhiteSpace(displayName) ? user.Username : displayName;
+    }
+
+    /// <summary>
+    /// Tính scheduledStartTime + scheduledEndTime từ <paramref name="playDate"/> và resolved schedule.
+    /// BR-RES-07/08/09: endTime bắt buộc (không open-ended), cùng ngày startTime (không cross midnight),
+    /// auto-resolve từ TimeSlot. Night slot 19:00-24:00 → endTime vẫn trong playDate (encode 23:59:59.9999999).
+    /// Lưu vào DB (<see cref="Reservation.ScheduledStartTime"/>, <see cref="Reservation.ScheduledEndTime"/>)
+    /// để WalkInWindowCleanupJob (§4.4), playedRatio (§4.3), extension flow (Phase 3)
+    /// không phải derive runtime từ TimeSlot.
+    /// </summary>
+    internal static (DateTime ScheduledStartTime, DateTime ScheduledEndTime) BuildScheduledStartEnd(
+        DateOnly playDate,
+        TimeOnly startTime,
+        TimeOnly endTime)
+    {
+        var startDateTime = playDate.ToDateTime(startTime);
+
+        // BR-RES-08: endTime.date phải bằng startTime.date. KHÔNG cộng thêm 1 ngày.
+        // Nếu CafeSchedule trả endTime đã encode 24:00 (Night) → DateOnly.ToDateTime vẫn
+        // giữ nguyên playDate vì TimeOnly đã là 23:59:59.9999999 < 24:00.
+        var endDateTime = playDate.ToDateTime(endTime);
+
+        // Sanity check BR-RES-08: nếu endDateTime.Date khác startDateTime.Date → lỗi cấu hình.
+        if (endDateTime.Date != startDateTime.Date)
+        {
+            throw new InvalidOperationException(
+                $"BuildScheduledStartEnd: endTime ({endDateTime:O}) khác ngày startTime ({startDateTime:O}) — vi phạm BR-RES-08.");
+        }
+
+        return (startDateTime, endDateTime);
+    }
+
+    /// <summary>
+    /// BR-RES-07/08/09: validate rằng reservation có đầy đủ startTime + endTime,
+    /// cùng ngày, và TimeSlot thuộc BR-NEW-15 enum.
+    /// Throw BadRequestException với message tiếng Việt từ <see cref="ApiErrorMessages.Reservation"/>.
+    /// </summary>
+    internal static void ValidateReservationTimeWindow(DateTime scheduledStartTime, DateTime scheduledEndTime, TimeSlot timeSlot)
+    {
+        if (scheduledStartTime == default || scheduledEndTime == default)
+        {
+            throw new BadRequestException(ApiErrorMessages.Reservation.ReservationRequiresStartAndEnd);
+        }
+
+        if (scheduledEndTime.Date != scheduledStartTime.Date)
+        {
+            throw new BadRequestException(ApiErrorMessages.Reservation.ReservationEndTimeDifferentDay);
+        }
+
+        if (!Enum.IsDefined(typeof(TimeSlot), timeSlot))
+        {
+            throw new BadRequestException(ApiErrorMessages.Reservation.ReservationInvalidTimeSlot(timeSlot));
+        }
+    }
+
+    /// <summary>
+    /// BR-END-01..05 (docs/time-slot-fixed-end-design (1).md §3.4 + §21A.8):
+    /// POS end session + settle deposit + have thể tạo WalkInWindow + ghi Karma violation.
+    /// </summary>
+    public async Task<EndReservationResponseDto> EndAndSettleAsync(
+        Guid staffUserId,
+        EndReservationRequestDto request)
+    {
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var actualEnd = request.ActualEndAt ?? now;
+
+        var reservation = await _reservationRepository.GetByIdAsync(request.ReservationId, includeRelations: true);
+        if (reservation == null)
+        {
+            throw new NotFoundException(ApiErrorMessages.Reservation.NotFound(request.ReservationId));
+        }
+
+        // Idempotent: nếu đã Completed/EarlyCheckout → trả kết quả rỗng.
+        if (reservation.Status is ReservationStatus.Completed or ReservationStatus.EarlyCheckout)
+        {
+            _logger.LogInformation(
+                "EndAndSettleAsync: Reservation {ReservationId} đã terminal (status={Status}) → idempotent skip.",
+                reservation.Id, reservation.Status);
+            return BuildEndResponse(reservation, actualEnd);
+        }
+
+        if (reservation.Status != ReservationStatus.CheckedIn
+            && reservation.Status != ReservationStatus.InProgress)
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Reservation.CompleteCaptureInvalidStatus(reservation.Id, reservation.Status));
+        }
+
+        if (!reservation.CheckedInAt.HasValue)
+        {
+            throw new ConflictException(
+                $"Reservation '{reservation.Id}' chưa có CheckedInAt — không thể tính playedRatio.");
+        }
+
+        // Validate BR-RES-08 (sanity check).
+        ValidateReservationTimeWindow(
+            reservation.ScheduledStartTime,
+            reservation.ScheduledEndTime,
+            reservation.TimeSlot);
+
+        // Tính playedRatio.
+        var playedMinutes = (actualEnd - reservation.CheckedInAt.Value).TotalMinutes;
+        var scheduledMinutes = (reservation.ScheduledEndTime - reservation.ScheduledStartTime).TotalMinutes;
+        var rawRatio = scheduledMinutes > 0 ? playedMinutes / scheduledMinutes : 0d;
+        var playedRatio = (decimal)Math.Max(0d, Math.Min(1d, rawRatio));
+
+        // BR-END-03/04: refund policy.
+        var calc = _refundCalc.Calculate(reservation.DepositAmount, playedRatio);
+        var deltaEnd = actualEnd - reservation.CheckedInAt.Value;
+
+        // Reservation update.
+        reservation.ActualEndAt = actualEnd;
+        reservation.PlayedRatio = playedRatio;
+        reservation.Status = calc.RefundAmount > 0
+            ? ReservationStatus.EarlyCheckout
+            : ReservationStatus.Completed;
+        reservation.EndReason = playedRatio >= 0.90m
+            ? SessionEndReason.OnTime
+            : SessionEndReason.EarlyLeave;
+
+        // EC-09: nếu playedRatio < 50% → tạo WalkInWindow cho phần thời gian còn lại.
+        if (playedRatio < 0.50m && !request.SkipWalkInWindow)
+        {
+            var window = await _walkInService.CreateWindowFromReservationAsync(
+                reservation,
+                reservation.MaxPlayers,
+                actualEnd);
+            if (window != null)
+            {
+                reservation.WalkInWindowId = window.Id;
+            }
+        }
+
+        await _reservationRepository.UpdateAsync(reservation);
+
+        // BR-KARMA-01 §4.3: ghi short-play violation nếu playedRatio < 50%.
+        bool karmaRecorded = false;
+        if (playedRatio < 0.5m)
+        {
+            try
+            {
+                karmaRecorded = await _karmaService.RecordShortPlayAsync(
+                    reservation.Id,
+                    reservation.HostId,
+                    (int)playedMinutes,
+                    (int)scheduledMinutes);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "EndAndSettleAsync: Failed to record short-play karma for reservation {ReservationId}",
+                    reservation.Id);
+            }
+        }
+
+        _logger.LogInformation(
+            "EndAndSettleAsync: Reservation {ReservationId} ended. playedRatio={Ratio:F4}, refund={Refund}, forfeit={Forfeit}, endReason={Reason}",
+            reservation.Id, playedRatio, calc.RefundAmount, calc.ForfeitAmount, reservation.EndReason);
+
+        return BuildEndResponse(reservation, actualEnd, calc.RefundAmount, calc.ForfeitAmount, calc.Reason, karmaRecorded);
+    }
+
+    private static EndReservationResponseDto BuildEndResponse(
+        Reservation reservation,
+        DateTime actualEnd,
+        long? refundBvc = null,
+        long? forfeitBvc = null,
+        RefundReason? reason = null,
+        bool karmaRecorded = false)
+    {
+        return new EndReservationResponseDto
+        {
+            ReservationId = reservation.Id,
+            EndReason = reservation.EndReason ?? SessionEndReason.OnTime,
+            PlayedRatio = reservation.PlayedRatio ?? 0m,
+            OriginalDeposit = reservation.DepositAmount,
+            RefundBvc = refundBvc ?? 0,
+            ForfeitBvc = forfeitBvc ?? reservation.DepositAmount,
+            RefundReason = reason ?? RefundReason.OnTime,
+            CheckedInAt = reservation.CheckedInAt ?? DateTime.MinValue,
+            ActualEndAt = actualEnd,
+            ScheduledStartTime = reservation.ScheduledStartTime,
+            ScheduledEndTime = reservation.ScheduledEndTime,
+            WalkInWindowId = reservation.WalkInWindowId,
+            KarmaRecorded = karmaRecorded
+        };
     }
 }
 

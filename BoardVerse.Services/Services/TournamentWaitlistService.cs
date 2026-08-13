@@ -36,19 +36,19 @@ public class TournamentWaitlistService : ITournamentWaitlistService
         if (tournament.Status != TournamentStatus.RegistrationOpen
             && tournament.Status != TournamentStatus.RegistrationClosed)
         {
-            throw new ConflictException("Chỉ có thể tham gia waitlist khi tournament đang mở đăng ký.");
+            throw new ConflictException(ApiErrorMessages.Tournament.Waitlist.OnlyJoinWhenRegistrationOpen);
         }
 
         if (tournament.RegistrationDeadline < DateTime.UtcNow)
         {
-            throw new ConflictException("Đã hết hạn đăng ký tournament.");
+            throw new ConflictException(ApiErrorMessages.Tournament.Waitlist.RegistrationDeadlinePassed);
         }
 
         // Check if user is already a participant
         var existingParticipant = await _tournamentRepository.GetParticipantAsync(tournamentId, userId);
         if (existingParticipant != null)
         {
-            throw new ConflictException("Bạn đã đăng ký tham gia tournament này.");
+            throw new ConflictException(ApiErrorMessages.Tournament.Waitlist.AlreadyRegistered);
         }
 
         // Check if already in waitlist
@@ -95,7 +95,7 @@ public class TournamentWaitlistService : ITournamentWaitlistService
     public async Task CancelWaitlistAsync(Guid userId, Guid tournamentId)
     {
         var entry = await _waitlistRepository.GetPendingByUserAsync(tournamentId, userId)
-            ?? throw new NotFoundException("Bạn không có trong waitlist của tournament này.");
+            ?? throw new NotFoundException(ApiErrorMessages.Tournament.Waitlist.NotInWaitlist);
 
         entry.Status = TournamentWaitlistStatus.Cancelled;
         await _waitlistRepository.UpdateAsync(entry);
@@ -109,11 +109,11 @@ public class TournamentWaitlistService : ITournamentWaitlistService
     public async Task<TournamentWaitlistEntryDto> ConfirmFromWaitlistAsync(Guid userId, Guid tournamentId)
     {
         var entry = await _waitlistRepository.GetPendingByUserAsync(tournamentId, userId)
-            ?? throw new NotFoundException("Bạn không có trong waitlist của tournament này.");
+            ?? throw new NotFoundException(ApiErrorMessages.Tournament.Waitlist.NotInWaitlist);
 
         if (entry.Status != TournamentWaitlistStatus.Offered)
         {
-            throw new ConflictException("Bạn chưa nhận được offer từ waitlist.");
+            throw new ConflictException(ApiErrorMessages.Tournament.Waitlist.NoOfferReceived);
         }
 
         if (entry.OfferExpiresAt.HasValue && entry.OfferExpiresAt.Value < DateTime.UtcNow)
@@ -121,7 +121,7 @@ public class TournamentWaitlistService : ITournamentWaitlistService
             entry.Status = TournamentWaitlistStatus.Expired;
             await _waitlistRepository.UpdateAsync(entry);
             await _waitlistRepository.SaveChangesAsync();
-            throw new ConflictException("Offer đã hết hạn.");
+            throw new ConflictException(ApiErrorMessages.Tournament.Waitlist.OfferExpired);
         }
 
         // Register user as participant (simplified - in real impl would call TournamentService)
@@ -140,11 +140,11 @@ public class TournamentWaitlistService : ITournamentWaitlistService
     public async Task<TournamentWaitlistEntryDto> DeclineOfferAsync(Guid userId, Guid tournamentId)
     {
         var entry = await _waitlistRepository.GetPendingByUserAsync(tournamentId, userId)
-            ?? throw new NotFoundException("Bạn không có trong waitlist của tournament này.");
+            ?? throw new NotFoundException(ApiErrorMessages.Tournament.Waitlist.NotInWaitlist);
 
         if (entry.Status != TournamentWaitlistStatus.Offered)
         {
-            throw new ConflictException("Bạn không có offer nào để từ chối.");
+            throw new ConflictException(ApiErrorMessages.Tournament.Waitlist.NoOfferToDecline);
         }
 
         entry.Status = TournamentWaitlistStatus.Cancelled;

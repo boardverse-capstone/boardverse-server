@@ -64,7 +64,7 @@ public class LobbyHub : Hub
     {
         if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180 || radiusKm <= 0 || radiusKm > 500)
         {
-            throw new HubException("Invalid coordinates or radius.");
+            throw new HubException(ApiErrorMessages.Validation.InvalidCoordinatesOrRadius);
         }
 
         var userId = GetUserId();

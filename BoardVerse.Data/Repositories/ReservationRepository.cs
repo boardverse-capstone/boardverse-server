@@ -133,24 +133,20 @@ public class ReservationRepository : IReservationRepository
     }
 
     /// <summary>
-    /// BR-21A.9: No-show khi scheduledTime + 30 phút grace ≤ cutoff mà reservation
-    /// vẫn Confirmed (chưa check-in). scheduledTime = PlayDate + TimeSlot.startTime.
-    /// Dùng LINQ để tính ScheduledTime ngay trong C# tránh hard-code SQL cho enum.
+    /// BR-21A.9: No-show khi scheduledStartTime + 30 phút grace ≤ cutoff mà reservation
+    /// vẫn Confirmed (chưa check-in). scheduledStartTime lưu sẵn ở Reservation.ScheduledStartTime.
+    /// Dùng LINQ để filter trong C# tránh hard-code SQL cho enum.
     /// </summary>
     public async Task<IReadOnlyList<Reservation>> GetDueForNoShowAsync(DateTime cutoff, int limit = 100)
     {
         var graceCutoff = cutoff.AddMinutes(-30);
 
-        // PlayDate + TimeSlot.startTime tính ra scheduledTime
-        var all = await _db.Reservations
-            .Where(r => r.Status == ReservationStatus.Confirmed)
-            .ToListAsync();
-
-        return all
-            .Where(r => r.ScheduledTime <= graceCutoff)
-            .OrderBy(r => r.ScheduledTime)
+        return await _db.Reservations
+            .Where(r => r.Status == ReservationStatus.Confirmed
+                && r.ScheduledStartTime <= graceCutoff)
+            .OrderBy(r => r.ScheduledStartTime)
             .Take(limit)
-            .ToList();
+            .ToListAsync();
     }
 
     public async Task<int> CountHostActionsForPlayDateAsync(Guid hostId, DateOnly playDate)
@@ -158,6 +154,15 @@ public class ReservationRepository : IReservationRepository
         return await _db.Reservations
             .Where(r => r.HostId == hostId && r.PlayDate == playDate)
             .CountAsync();
+    }
+
+    public async Task<IReadOnlyList<Reservation>> GetNoShowCandidatesAsync(DateTime cutoff, CancellationToken ct = default)
+    {
+        // BR-CHECKIN-02: ScheduledStartTime < cutoff AND Status = Confirmed
+        return await _db.Reservations
+            .Where(r => r.ScheduledStartTime < cutoff
+                && r.Status == ReservationStatus.Confirmed)
+            .ToListAsync(ct);
     }
 
     public async Task<(IReadOnlyList<Reservation> Items, int TotalCount)> GetListAsync(

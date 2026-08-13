@@ -409,7 +409,8 @@ public class PaymentServiceTests
         await _service.HandleSePayWebhookAsync(webhook);
 
         _mockSessionRepo.Verify(r => r.TryUpdateStatusAsync(sessionId, GroupSessionStatus.Unpaid, GroupSessionStatus.Paid), Times.Once);
-        _mockSessionRepo.Verify(r => r.CompleteSessionPaymentCleanupAsync(sessionId), Times.Once);
+        _mockSessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(sessionId), Times.Once);
+        _mockSessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(sessionId), Times.Once);
     }
 
     [Fact]
@@ -443,7 +444,8 @@ public class PaymentServiceTests
         await _service.HandleSePayWebhookAsync(webhook);
 
         _mockSessionRepo.Verify(r => r.TryUpdateStatusAsync(It.IsAny<Guid>(), It.IsAny<GroupSessionStatus>(), It.IsAny<GroupSessionStatus>()), Times.Never);
-        _mockSessionRepo.Verify(r => r.CompleteSessionPaymentCleanupAsync(It.IsAny<Guid>()), Times.Never);
+        _mockSessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(It.IsAny<Guid>()), Times.Never);
+        _mockSessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(It.IsAny<Guid>()), Times.Never);
     }
 
     [Fact]
@@ -478,7 +480,8 @@ public class PaymentServiceTests
 
         await _service.HandleSePayWebhookAsync(webhook);
 
-        _mockSessionRepo.Verify(r => r.CompleteSessionPaymentCleanupAsync(It.IsAny<Guid>()), Times.Never);
+        _mockSessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(It.IsAny<Guid>()), Times.Never);
+        _mockSessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(It.IsAny<Guid>()), Times.Never);
     }
 
     [Fact]
@@ -500,7 +503,8 @@ public class PaymentServiceTests
 
         await _service.HandleSePayWebhookAsync(webhook);
 
-        _mockSessionRepo.Verify(r => r.CompleteSessionPaymentCleanupAsync(It.IsAny<Guid>()), Times.Never);
+        _mockSessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(It.IsAny<Guid>()), Times.Never);
+        _mockSessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(It.IsAny<Guid>()), Times.Never);
     }
 
     #endregion

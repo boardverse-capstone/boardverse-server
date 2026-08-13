@@ -49,5 +49,8 @@ public enum OutboxEventType
     DepositReleased = 12,
 
     /// <summary>Deposit đã được capture về doanh thu quán (check-in hoặc settlement).</summary>
-    DepositCaptured = 13
+    DepositCaptured = 13,
+
+    /// <summary>Reservation no-show (BR-CHECKIN-02): quá 30 phút sau ScheduledStartTime mà chưa check-in → forfeit BVC.</summary>
+    ReservationNoShow = 14
 }

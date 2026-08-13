@@ -171,6 +171,7 @@ namespace BoardVerse.Data.Repositories
             var gameTemplateIds = sessions.Select(s => s.GameTemplateId).Distinct().ToList();
             var hostIds = sessions.Select(s => s.HostId).Distinct().ToList();
             var sessionIds = sessions.Select(s => s.Id).ToList();
+            var lobbyIds = sessions.Where(s => s.LobbyId.HasValue).Select(s => s.LobbyId!.Value).Distinct().ToList();
 
             var tables = await _context.CafeTables
                 .Where(t => tableIds.Contains(t.Id))
@@ -201,6 +202,15 @@ namespace BoardVerse.Data.Repositories
             var membersBySession = members.GroupBy(m => m.ActiveSessionId)
                 .ToDictionary(g => g.Key, g => g.ToList());
 
+            // Phase 4 / EC-10: load Lobby + Reservation để tính time-overrun warning.
+            var lobbyById = lobbyIds.Count == 0
+                ? new Dictionary<Guid, Lobby>()
+                : await _context.Lobbies
+                    .Include(l => l.Reservation)
+                    .Where(l => lobbyIds.Contains(l.Id))
+                    .AsNoTracking()
+                    .ToDictionaryAsync(l => l.Id);
+
             return sessions.Select(s => new ActiveSession
             {
                 Id = s.Id,
@@ -218,6 +228,7 @@ namespace BoardVerse.Data.Repositories
                 CafeInventoryBox = s.CafeInventoryBoxId.HasValue ? boxes.GetValueOrDefault(s.CafeInventoryBoxId.Value) : null,
                 GameTemplate = gameTemplates.GetValueOrDefault(s.GameTemplateId) ?? null!,
                 Host = hosts.GetValueOrDefault(s.HostId) ?? null!,
+                Lobby = s.LobbyId.HasValue ? lobbyById.GetValueOrDefault(s.LobbyId.Value) : null,
                 Members = membersBySession.GetValueOrDefault(s.Id) ?? []
             }).ToList();
         }
@@ -226,21 +237,36 @@ namespace BoardVerse.Data.Repositories
         /// Lấy danh sách phiên chơi đang ở trạng thái UNPAID (chờ thanh toán).
         /// POS staff dùng để scan "phiên nào chờ tôi thanh toán?".
         /// Tùy chọn lọc các phiên UNPAID quá X phút (olderThanMinutes) để nag staff quên bấm pay.
-        /// Sắp xếp: lâu nhất lên đầu (cần xử lý gấp nhất).
+        /// <summary>
+        /// Lấy danh sách phiên UNPAID của quán.
+        /// - Nếu sessionId != null → trả về session cụ thể đó (nếu đang UNPAID).
+        /// - Nếu sessionId == null → trả về tất cả UNPAID, sắp xếp lâu nhất lên đầu.
         /// </summary>
-        public async Task<IReadOnlyList<ActiveSession>> GetUnpaidSessionsAsync(Guid cafeId, int olderThanMinutes = 0)
+        public async Task<IReadOnlyList<ActiveSession>> GetUnpaidSessionsAsync(Guid cafeId, Guid? sessionId = null)
         {
             // Bug #1 fix: Unpaid chỉ xảy ra SAU End-game (checkout), nên EndedAt LUÔN có value.
             // Bỏ dead-code filter `!s.EndedAt.HasValue` (trước đó accept cả session ACTIVE lỡ dừng giữa chừng
             // → staff thấy session đang chơi hiển thị ở tab "chờ thanh toán" → UX confuse).
             // Nếu data corrupt (Status=Unpaid + EndedAt=null) → KHÔNG trả về, để scheduler detect.
-            var cutoff = DateTime.UtcNow.AddMinutes(-Math.Max(0, olderThanMinutes));
 
-            var sessionQuery = _context.ActiveSessions
-                .Where(s => s.CafeId == cafeId
-                            && s.Status == GroupSessionStatus.Unpaid
-                            && s.EndedAt.HasValue
-                            && s.EndedAt <= cutoff);
+            IQueryable<ActiveSession> sessionQuery;
+
+            if (sessionId.HasValue)
+            {
+                // Lấy session cụ thể nếu đang UNPAID
+                sessionQuery = _context.ActiveSessions
+                    .Where(s => s.Id == sessionId.Value
+                                && s.CafeId == cafeId
+                                && s.Status == GroupSessionStatus.Unpaid);
+            }
+            else
+            {
+                // Lấy tất cả UNPAID, sắp xếp lâu nhất lên đầu (cần xử lý gấp nhất)
+                sessionQuery = _context.ActiveSessions
+                    .Where(s => s.CafeId == cafeId
+                                && s.Status == GroupSessionStatus.Unpaid
+                                && s.EndedAt.HasValue);
+            }
 
             var sessions = await sessionQuery
                 .OrderBy(s => s.EndedAt ?? s.StartedAt)

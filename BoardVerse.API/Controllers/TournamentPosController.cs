@@ -258,6 +258,23 @@ public class TournamentPosController : BaseApiController
     // === Check-in endpoints ===
 
     /// <summary>
+    /// Lấy danh sách participants của giải để POS hiển thị danh sách check-in. [Role: Manager]
+    /// </summary>
+    /// <param name="tournamentId">Mã giải đấu.</param>
+    /// <response code="200">Danh sách participants (UserId, Username, CheckInStatus, RegistrationSource).</response>
+    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+    /// <response code="403">Không phải Manager của cafe.</response>
+    /// <response code="404">Không tìm thấy giải.</response>
+    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+    [HttpGet("{tournamentId:guid}/participants")]
+    public async Task<IActionResult> GetParticipants(Guid tournamentId)
+    {
+        var managerId = GetUserIdFromClaims();
+        var result = await _tournamentService.GetParticipantsForPosAsync(managerId, tournamentId);
+        return this.NewResponse(200, ApiSuccessMessages.Tournament.ParticipantsRetrieved, result);
+    }
+
+    /// <summary>
     /// Check-in người chơi tại quán khi giải bắt đầu. [Role: Manager]
     /// </summary>
     /// <param name="tournamentId">Mã giải đấu.</param>

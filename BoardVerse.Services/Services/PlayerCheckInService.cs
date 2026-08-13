@@ -123,14 +123,18 @@ public class PlayerCheckInService : IPlayerCheckInService
         // Validate trong check-in window (BR-06: grace 30 phút sau scheduledTime).
         var now = DateTime.UtcNow;
         // windowStart = 1 giờ trước để player có thể scan sớm (linh hoạt).
-        // windowEnd = 30 phút sau scheduledTime (grace period BR-06).
-        var windowStart = reservation.ScheduledTime.AddHours(-1);
-        var windowEnd = reservation.ScheduledTime.AddMinutes(30);
+        // windowEnd = 30 phút sau scheduledEndTime (grace period BR-06).
+        var scheduledStart = reservation.ScheduledStartTime;
+        if (scheduledStart == default) throw new InvalidOperationException("ScheduledStartTime is null");
+        var scheduledEnd = reservation.ScheduledEndTime;
+        if (scheduledEnd == default) throw new InvalidOperationException("ScheduledEndTime is null");
+        var windowStart = scheduledStart.AddHours(-1);
+        var windowEnd = scheduledEnd.AddMinutes(30);
         if (now < windowStart || now > windowEnd)
         {
             throw new ConflictException(
                 ApiErrorMessages.Reservation.CheckInTimeWindowInvalid(
-                    reservation.Id, reservation.ScheduledTime, windowStart, windowEnd));
+                    reservation.Id, scheduledStart, windowStart, windowEnd));
         }
 
         // Auto-resolve bàn available + box available cho reservation.GameId

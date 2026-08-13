@@ -69,6 +69,13 @@ public interface IReservationRepository
     Task<int> CountHostActionsForPlayDateAsync(Guid hostId, DateOnly playDate);
 
     /// <summary>
+    /// BR-CHECKIN-02: Lấy danh sách Reservation Confirmed nhưng đã quá 30 phút
+    /// sau ScheduledStartTime mà chưa check-in → candidate cho NoShow.
+    /// Dùng index IX_Reservations_ScheduledStartTime_Status.
+    /// </summary>
+    Task<IReadOnlyList<Reservation>> GetNoShowCandidatesAsync(DateTime cutoff, CancellationToken ct = default);
+
+    /// <summary>
     /// Lấy danh sách reservation với filter + phân trang.
     /// BR-USER-LIMIT-01: user chỉ thấy reservation mình host hoặc có tham gia.
     /// </summary>

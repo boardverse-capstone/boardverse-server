@@ -50,6 +50,9 @@ public class BookingPreviewDto
     /// Lý do không thể check-in (nếu có).
     /// </summary>
     public string? CannotCheckInReason { get; set; }
+
+    /// <summary>Số bàn được staff gán khi check-in. Null nếu chưa gán.</summary>
+    public int? TableNumber { get; set; }
 }
 
 /// <summary>

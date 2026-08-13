@@ -471,6 +471,61 @@ namespace BoardVerse.Data.Repositories
             return await query.CountAsync();
         }
 
+        /// <summary>
+        /// BR-NEW-10 §XI.1 — Per-host failure count for cooling-off signal detection.
+        /// </summary>
+        public async Task<int> CountFailuresByTypeForHostAsync(
+            Guid hostUserId,
+            DateTime? fromUtc, DateTime? toUtc,
+            LobbyStatus? failureType)
+        {
+            var query = _db.Lobbies
+                .Where(l => l.HostUserId == hostUserId);
+
+            if (fromUtc.HasValue)
+            {
+                query = query.Where(l => l.UpdatedAt >= fromUtc.Value);
+            }
+
+            if (toUtc.HasValue)
+            {
+                query = query.Where(l => l.UpdatedAt <= toUtc.Value);
+            }
+
+            if (failureType.HasValue)
+            {
+                query = query.Where(l => l.Status == failureType.Value);
+            }
+
+            return await query.CountAsync();
+        }
+
+        public async Task<int> CountQuickCreateCancelAsync(
+            Guid hostUserId,
+            DateTime fromUtc,
+            TimeSpan maxGap)
+        {
+            // BR-RISK-01 (SIG-08): Host cancel trong khoảng (UpdatedAt - CreatedAt) < maxGap.
+            // Lobby.Status is stored as varchar (string), not int — use string literals.
+            // HostCancelled=3, RejectedByCafe=12, ExpiredByCafe=13
+            var statusList = string.Join(",", new[] { "HostCancelled", "RejectedByCafe", "ExpiredByCafe" }
+                .Select(s => $"'{s}'"));
+            var intervalMinutes = maxGap.TotalMinutes;
+
+            var sql = $@"
+                SELECT count(*)::int
+                FROM ""Lobbies"" AS l
+                WHERE l.""HostUserId"" = '{hostUserId}'
+                  AND l.""CreatedAt"" >= '{fromUtc:O}'
+                  AND l.""Status"" IN ({statusList})
+                  AND l.""UpdatedAt"" < l.""CreatedAt"" + interval '{intervalMinutes} minutes'";
+
+            var result = await _db.Database
+                .SqlQueryRaw<int>(sql)
+                .ToListAsync();
+            return result.FirstOrDefault();
+        }
+
         public async Task<(IReadOnlyList<Lobby> Items, int TotalCount)> GetAdminLobbyFailuresAsync(
             int page, int pageSize,
             DateTime? fromUtc, DateTime? toUtc,

@@ -31,10 +31,19 @@ public class BvcLedgerEntryConfiguration : IEntityTypeConfiguration<BvcLedgerEnt
         builder.Property(e => e.CreatedAt)
             .HasDefaultValueSql("now() at time zone 'utc'");
 
+        // TD-02: RelatedReservationId column (nullable — BVC ledger entries mới dùng Reservation)
+        builder.Property(e => e.RelatedReservationId);
+
         builder.HasOne(e => e.User)
             .WithMany()
             .HasForeignKey(e => e.UserId)
             .OnDelete(DeleteBehavior.Restrict); // C4: BVC ledger là append-only (BR § III.3); KHÔNG cascade delete.
+
+        // TD-02: Navigation đến Reservation — dùng RelatedReservationId column (nullable cho legacy entries)
+        builder.HasOne(e => e.Reservation)
+            .WithMany()
+            .HasForeignKey(e => e.RelatedReservationId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         // BR § III.3 + § XVII.1 — Idempotency key phải UNIQUE.
         builder.HasIndex(e => e.IdempotencyKey)
@@ -50,5 +59,9 @@ public class BvcLedgerEntryConfiguration : IEntityTypeConfiguration<BvcLedgerEnt
 
         builder.HasIndex(e => e.RelatedBookingId)
             .HasDatabaseName("IX_BvcLedgerEntries_RelatedBookingId");
+
+        // TD-02: Index cho query ledger theo ReservationId
+        builder.HasIndex(e => e.RelatedReservationId)
+            .HasDatabaseName("IX_BvcLedgerEntries_RelatedReservationId");
     }
 }

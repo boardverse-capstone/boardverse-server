@@ -1,20 +1,118 @@
-# Booking API
+# Booking API (DEPRECATED)
 
-**Controller:** `BookingController.cs` (`/api/bookings`), `BookingRatingController.cs` (`/api/bookings/{bookingId}/...`)
-
-Domain phụ trách: tạo booking, check-in/out, theo dõi trạng thái session, no-show vote, cross-rating.
-
-| Flow liên quan | Doc |
-|---|---|
-| Payment + SePay deposit | [payment.md](./payment.md) |
-| POS session payment + settlement | [cafe-pos.md](./cafe-pos.md) (canonical), [settlement.md](./settlement.md) |
-| Webhook SePay xử lý deposit | [sepay-webhook.md](./sepay-webhook.md) |
-| Lobby flow | [lobby.md](./lobby.md) |
-| SignalR realtime events | §SignalR realtime events bên dưới |
+> **⚠️ DEPRECATION NOTICE — Phase 1 (2026-08-12)**
+>
+> **`BookingController.cs` đang trong quá trình deprecate.**
+> - **Flow A (MỚI — recommended):** Dùng [reservation.md](./reservation.md) với `/api/v1/reservations/*`
+> - **Flow B (CŨ — booking.md này):** `/api/bookings/*` sẽ bị xóa ở Phase 4 khi FE xác nhận không còn sử dụng
+> - Migration guide: [time-slot-fixed-end-design.md](../time-slot-fixed-end-design.md) §13.1
+>
+> **Controllers:**
+> - `BookingController.cs` (`/api/bookings`) — **Flow B CŨ**, đang deprecated ✅ (Phase 1)
+> - `BookingRatingController.cs` — Karma cross-rating (vẫn dùng cho cả 2 flows)
+> - **Reservation flow (Flow A MỚI):** xem [reservation.md](./reservation.md)
+>
+> **Domain phụ trách:** Tạo booking (legacy), check-in/out, theo dõi trạng thái session, no-show vote, cross-rating.
+>
+> | Flow liên quan | Doc |
+> |---|---|
+> | Payment + SePay deposit | [payment.md](./payment.md) |
+> | POS session payment + settlement | [cafe-pos.md](./cafe-pos.md) |
+> | Webhook SePay xử lý deposit | [sepay-webhook.md](./sepay-webhook.md) |
+> | Lobby flow | [lobby.md](./lobby.md) |
+> | **Reservation flow (MỚI — recommended)** | [reservation.md](./reservation.md) |
+> | **Time-slot fixed-end design (FE-facing v2.5)** | [../time-slot-fixed-end-design.md](../time-slot-fixed-end-design.md) |
 
 ---
 
-## REST Endpoints — `BookingController`
+## Quick FE Reference — Booking → Reservation mapping (2026-08-12)
+
+> **Nếu bạn đang integrate FE mới (mobile app, web admin) — hãy dùng flow `Reservation` (MỚI) thay vì `Booking` cũ.**
+
+| Tên trong flow Booking cũ | Tên thực tế (Entity/Field) | URL mới (Reservation flow) |
+|---|---|---|
+| `bookingId` (Guid) | `Reservation.Id` (Guid) | `GET /api/v1/reservations/{id}` |
+| `bookingCode` / `verificationQRCode` | `Reservation.ReservationCode` (8-char alphanumeric uppercase) | Lookup trong POS qua `POST /api/cafes/{cafeId}/pos/check-in` với `code` |
+| `startTime` (user nhập) | `playDate` (DateOnly) + `timeSlot` (enum Morning/Afternoon/Evening/Night) + `preferredStartTime?` (TimeOnly) | Trong body của `POST /api/v1/reservations/quote` |
+| `endTime` / `scheduleEndTime` (user nhập) | **KHÔNG CÓ field** — auto-resolve: `playDate + TimeSlot.startTime..endTime` (qua `CafeSchedule.GetEndTime(timeSlot)`) | — |
+| `Booking.status` enum (PENDING/CONFIRMED/CHECKED_IN/COMPLETED/...) | `ReservationStatus` enum (Holding/Confirmed/CheckedIn/Completed/Cancelled/NoShow) + `LobbyStatus` enum + `ActiveSessionStatus` enum | Trả về trong `ReservationResponseDto` |
+| Deposit (VND qua SePay) | `Reservation.DepositAmount` (BVC) + `Wallet.HeldBalance` + Ledger entry `DEPOSIT_HOLD` | Trả trong `ReservationResponseDto` |
+| `WalkInBooking` qua `POST /api/pos/walk-in-bookings` | `WalkInBooking` entity (giữ nguyên) | `POST /api/v1/reservations/walkin` |
+| `WalkInWindow` qua `GET /api/pos/walk-in-windows` | `WalkInWindow` entity (giữ nguyên) | `GET /api/v1/reservations/walkin/windows` |
+| `BookingExtension` qua `POST /api/bookings/{id}/extend` | ✅ Đã migrate: `POST /api/v1/reservations/{id}/extend` (Phase 3) |
+| `Booking.Cancel` qua `DELETE /api/bookings/{id}` | `Reservation.CancelAsync` | `POST /api/v1/reservations/{id}/cancel` |
+
+**Nguyên tắc:**
+- Mọi flow online (player app tạo lobby, đặt cọc, cancel, extend) → gọi `/api/v1/reservations/...`.
+- Mọi POS check-in / end session → gọi `/api/cafes/{cafeId}/pos/...`.
+- `Booking` cũ chỉ còn cho backward-compat (SePay per-member deposit BR-22) và walk-in legacy.
+
+Xem chi tiết FE-facing flow + state machine + edge cases tại:
+[`../time-slot-fixed-end-design.md`](../time-slot-fixed-end-design.md) (Section 0.1, 1.3, 2.1, 10, 11).
+
+---
+
+## Kiến trúc 2-flow song song
+
+Hệ thống BoardVerse hiện có **2 cách đặt chỗ** chạy song song, dùng **2 entities khác nhau làm root**. Cả hai đều link về cùng `Lobby` và `ActiveSession` ở downstream.
+
+### So sánh nhanh
+
+| Khía cạnh | Flow A — **Reservation (MỚI)** | Flow B — **Booking (CŨ)** |
+|---|---|---|
+| Entry point | `POST /api/v1/reservations/confirm` | `POST /api/bookings` |
+| Root entity | `Reservation` | `Booking` |
+| Tiền cọc | **BVC wallet** (Ledger-based) | **SePay gateway** (BookingDeposit) |
+| Per-member deposit | Không (Host trả toàn bộ) | Có (`BookingGroupCode` per-member) |
+| Matchmaking | Lobby tuyển đến `minPlayers`, tạo atomic với Reservation | **KHÔNG qua Lobby.** Walk-in (`LobbyId = null`) hoặc legacy lobby cũ |
+| End time | Auto-resolve từ `TimeSlot` enum | User nhập `scheduleEndTime` |
+| Used by | Mobile app qua Lobby → Reservation | SePay webhook flow + Walk-in |
+| State | `ReservationService` (atomic BVC) | `BookingService` + `BookingDepositService` (SePay) |
+| Customer điển hình | Player đặt qua app online | Walk-in player + time-slot model |
+
+### Diagram tổng quan
+
+```
+                     ┌───────────────────────┐
+                     │        Lobby          │
+                     │                       │
+                     │  .ReservationId ──────┼──────► Reservation  (Flow A — MỚI, BVC)
+                     │  .BookingId      ──────┼──────► Booking      (Flow B — CŨ, SePay)
+                     └─────────────┬─────────┘
+                                   │
+                                   ▼
+                          ActiveSession
+                                   │
+                                   ▼
+                         CafePosService.Pay
+                                   │
+                  ┌────────────────┼────────────────┐
+                  ▼                                 ▼
+        Flow A: ReservationService          Flow B: RefundController +
+            .CompleteAndCaptureAsync             CafePosService.Settle
+        (BVC → settlement)                   (refund SePay / cash)
+```
+
+### Khi nào dùng flow nào?
+
+| Tình huống | Dùng flow nào | Lý do |
+|---|---|---|
+| Player tạo lobby qua app + chờ đủ người | **Flow A — Reservation** | Chuẩn của MVP, dùng BVC |
+| Player qua app walk-in đến quán (không qua lobby) | **Flow B — WalkInBooking** | `Booking.WalkInWindowId` FK |
+| Lobby legacy tạo trước khi deploy Reservation | **Flow B — Booking** | Backward compat |
+| SePay per-member deposit (BR-22) | **Flow B — Booking** + `BookingDeposit` | Spec gốc của SePay flow |
+| Time-slot fixed-end (`scheduleEndTime` user nhập) | **Flow B — TimeSlotBooking** | Doc mới §10.1 chưa migrate sang Reservation |
+| POS extend session | **Flow B — BookingExtension** | Service đang query `Booking` entity |
+
+### Lưu ý quan trọng khi code
+
+1. **KHÔNG gọi `IBookingRepository` từ Reservation flow** — `ReservationService.cs` chỉ dùng `IReservationRepository`. Ngược lại, `BookingService.cs` không gọi `ReservationService`.
+2. **Cả 2 flow cùng dùng `Lobby` và `ActiveSession`**: POS scan QR nhận diện cả 2 loại code (`ReservationCode` hoặc `BookingCode`).
+3. **Khi migrate booking → reservation** (tương lai): cần ETL qua DB. Hiện tại cả 2 đều live.
+
+---
+
+## REST Endpoints — `BookingController` (Flow B — CŨ)
 
 | Method | Path | Role | Mô tả |
 |---|---|---|---|
@@ -28,6 +126,36 @@ Domain phụ trách: tạo booking, check-in/out, theo dõi trạng thái sessio
 | `POST` | `/api/bookings/{bookingId}/check-in` | Manager, CafeStaff | ~~Removed~~ — dùng `POST /api/cafes/{cafeId}/pos/check-in` (BR §21A.7) |
 | `POST` | `/api/cafes/{cafeId}/pos/check-in` | Manager, CafeStaff | Check-in tại quán theo `code` (ReservationCode / BookingCode) |
 | `POST` | `/api/bookings/{bookingId}/check-out` | Manager, CafeStaff | ~~Removed~~ — `ReservationService.CompleteAndCaptureAsync` khi ActiveSession PAID (BR-REVENUE-01) |
+
+> ⚠️ **Technical debt**: `ReservationService` (Flow A) **không hoàn toàn độc lập** với `Booking` (Flow B). Ở cuối `CompleteAndCaptureAsync`, `TriggerKarmaAggregationAsync` được gọi — query `BookingDeposits` table trực tiếp và gọi `IBookingRatingService.AggregateBookingOutcomesAsync(bookingId)`. Điều này do 3 entity `BookingRating` / `BookingNoShowVote` / `KarmaShortPlayRecord` hiện chỉ có `BookingId` FK, chưa có `ReservationId`. Reservation-only lobby (không bao giờ tạo Booking) sẽ **skip Karma aggregation**. Xem chi tiết tại [`.cursor/rules/booking-vs-reservation.mdc` §II-A](../../.cursor/rules/booking-vs-reservation.mdc) — đang DEFER.
+
+
+## REST Endpoints — `TimeSlotBookingController`
+
+> **⚠️ DEPRECATION NOTICE — 2026-08-12:**
+>
+> `TimeSlotBookingController` (3 endpoints: `availability` / `check-in` / `end`) thuộc flow Booking cũ với user-tự-nhập `scheduleEndTime`. Đã migrate sang flow Reservation mới (auto end time từ `TimeSlot` enum).
+>
+> **FE mới tuyệt đối KHÔNG gọi các endpoint dưới.** Thay bằng:
+>
+> | Tính năng | Endpoint cũ (DEPRECATED) | Endpoint mới (USE THIS) |
+> |---|---|---|
+> | Check availability | `GET /api/bookings/availability` | `POST /api/v1/reservations/quote` |
+> | Check-in | `POST /api/bookings/{id}/check-in` | `POST /api/cafes/{cafeId}/pos/check-in` |
+> | End session | `POST /api/bookings/{id}/end` | `POST /api/cafes/{cafeId}/pos/sessions/{sessionId}/end` |
+>
+> Xem chi tiết FE-facing migration tại [`../time-slot-fixed-end-design.md`](../time-slot-fixed-end-design.md) (Section 10.1 + 11).
+
+**Controller:** `TimeSlotBookingController.cs` (`/api/bookings`)
+**Domain:** Time-slot booking với Fixed End Time (legacy).
+
+|| Method | Path | Role | Mô tả |
+||---|---|---|---|
+|| `GET` | `/api/bookings/availability` | Player | Check availability cho slot |
+|| `POST` | `/api/bookings/{bookingId}/check-in` | Manager, CafeStaff | Check-in booking |
+|| `POST` | `/api/bookings/{bookingId}/end` | Manager, CafeStaff | Kết thúc session + refund + WalkInWindow |
+
+Xem chi tiết tại [time-slot-fixed-end-design.md](../time-slot-fixed-end-design.md).
 
 ## REST Endpoints — `BookingRatingController`
 

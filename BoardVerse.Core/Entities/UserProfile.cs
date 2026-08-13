@@ -25,6 +25,12 @@ namespace BoardVerse.Core.Entities
         public int KarmaPoints { get; set; } = 100;
         public GamerTier GamerTier { get; set; } = GamerTier.Bronze;
 
+        // BR-KARMA-02: Last warning sent timestamp (for throttling).
+        public DateTime? LastWarningAt { get; set; }
+
+        // BR-KARMA-03: User restricted from short slots (< 4h) until this timestamp.
+        public DateTime? KarmaRestrictedUntil { get; set; }
+
         public int GlobalElo { get; set; } = 1200;
 
         public int Level { get; set; } = 1;

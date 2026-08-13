@@ -3,6 +3,7 @@ using BoardVerse.Core.DTOs.Session;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
@@ -20,6 +21,9 @@ namespace BoardVerse.Services.Services
         private readonly IReservationService _reservationService;
         // Fix #J: Inject để validate Lobby còn ACTIVE trước khi capture BVC.
         private readonly ILobbyRepository _lobbyRepository;
+        private readonly IReservationRepository _reservationRepository;
+        // Early checkout: inject để tạo WalkInWindow khi session kết thúc sớm (§4.4).
+        private readonly IWalkInService _walkInService;
         private readonly ILogger<ActiveSessionService> _logger;
 
         public ActiveSessionService(
@@ -30,6 +34,8 @@ namespace BoardVerse.Services.Services
             ISettlementService settlementService,
             IReservationService reservationService,
             ILobbyRepository lobbyRepository,
+            IReservationRepository reservationRepository,
+            IWalkInService walkInService,
             ILogger<ActiveSessionService> logger)
         {
             _cafeRepository = cafeRepository;
@@ -39,10 +45,12 @@ namespace BoardVerse.Services.Services
             _settlementService = settlementService;
             _reservationService = reservationService;
             _lobbyRepository = lobbyRepository;
+            _reservationRepository = reservationRepository;
+            _walkInService = walkInService;
             _logger = logger;
         }
 
-        public async Task<ActiveSessionResponseDto> StartSessionAsync(Guid cafeId, Guid hostUserId, StartSessionRequestDto request)
+        public async Task<ActiveSessionResponseDto> StartSessionAsync(Guid cafeId, Guid hostUserId, StartSessionRequestDto request, CancellationToken ct = default)
         {
             var cafe = await _cafeRepository.GetActiveByIdAsync(cafeId)
                 ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
@@ -112,7 +120,7 @@ namespace BoardVerse.Services.Services
             return MapSessionDto(session);
         }
 
-        public async Task<ActiveSessionResponseDto> CheckoutAsync(Guid cafeId, Guid sessionId, CheckoutRequestDto request)
+        public async Task<ActiveSessionResponseDto> CheckoutAsync(Guid cafeId, Guid sessionId, CheckoutRequestDto request, CancellationToken ct = default)
         {
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
@@ -145,7 +153,7 @@ namespace BoardVerse.Services.Services
             return await CompleteCheckoutAsync(session, request.Components);
         }
 
-        public async Task<ActiveSessionResponseDto> AddGuestSlotAsync(Guid cafeId, Guid sessionId, AddGuestSlotRequestDto request)
+        public async Task<ActiveSessionResponseDto> AddGuestSlotAsync(Guid cafeId, Guid sessionId, AddGuestSlotRequestDto request, CancellationToken ct = default)
         {
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
@@ -172,7 +180,7 @@ namespace BoardVerse.Services.Services
             return MapSessionDto(session);
         }
 
-        public async Task<ActiveSessionResponseDto> PartialCheckoutAsync(Guid cafeId, Guid sessionId, PartialCheckoutRequestDto request)
+        public async Task<ActiveSessionResponseDto> PartialCheckoutAsync(Guid cafeId, Guid sessionId, PartialCheckoutRequestDto request, CancellationToken ct = default)
         {
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
@@ -230,7 +238,7 @@ namespace BoardVerse.Services.Services
         /// Trả game toàn bộ - chuyển session sang CHECKING để kiểm kê linh kiện.
         /// Đây là bước bắt buộc trước khi checkout (BR-12).
         /// </summary>
-        public async Task<ActiveSessionResponseDto> EndGameAsync(Guid cafeId, Guid sessionId)
+        public async Task<ActiveSessionResponseDto> EndGameAsync(Guid cafeId, Guid sessionId, CancellationToken ct = default)
         {
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
@@ -265,7 +273,7 @@ namespace BoardVerse.Services.Services
             return MapSessionDto(session);
         }
 
-        public async Task<ActiveSessionResponseDto> GetSessionAsync(Guid cafeId, Guid sessionId)
+        public async Task<ActiveSessionResponseDto> GetSessionAsync(Guid cafeId, Guid sessionId, CancellationToken ct = default)
         {
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
@@ -280,7 +288,7 @@ namespace BoardVerse.Services.Services
         /// - Nhân viên quét mã A3 → ghép vào nhóm B
         /// - A3 không mất thời gian, tổng thời gian tính liên tục từ lúc ban đầu
         /// </summary>
-        public async Task<MergeSessionResponseDto> MergeSessionAsync(Guid cafeId, Guid sourceSessionId, MergeSessionRequestDto request)
+        public async Task<MergeSessionResponseDto> MergeSessionAsync(Guid cafeId, Guid sourceSessionId, MergeSessionRequestDto request, CancellationToken ct = default)
         {
             var sourceSession = await _activeSessionRepository.GetByIdAsync(sourceSessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sourceSessionId));
@@ -354,7 +362,7 @@ namespace BoardVerse.Services.Services
         /// BR-16: Tính phí theo mô hình quán (thời gian thực hoặc vào cổng trọn gói)
         /// Per-member billing: Mỗi thành viên chịu phí dựa trên thời gian tham gia thực tế.
         /// </summary>
-        public async Task<PaySessionResponseDto> PaySessionAsync(Guid cafeId, Guid sessionId, PaySessionRequestDto request)
+        public async Task<PaySessionResponseDto> PaySessionAsync(Guid cafeId, Guid sessionId, PaySessionRequestDto request, CancellationToken ct = default)
         {
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
@@ -374,6 +382,9 @@ namespace BoardVerse.Services.Services
                 ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
 
             var now = DateTime.UtcNow;
+
+            // §4.4: Declare createdWindow outside try block to capture early checkout WalkInWindow
+            BoardVerse.Core.Entities.WalkInWindow? createdWindow = null;
 
             // ===== BR-15 + BR-16: Subtotal tính DUY NHẤT ở Checkout (CompleteCheckoutAsync) =====
             // Fix #I: KHÔNG tính lại Subtotal tại Pay để tránh:
@@ -444,8 +455,10 @@ namespace BoardVerse.Services.Services
             // BR-15: TotalAmount = Subtotal + PenaltyAmount (KHÔNG trừ deposit)
             // Deposit chỉ dùng để giữ chỗ, không cấn trừ vào hóa đơn
             session.TotalAmount = session.Subtotal + session.PenaltyAmount;
-            session.Status = GroupSessionStatus.Paid;
-            session.PaidAt = now;
+            // LƯU Ý: KHÔNG set session.Status = Paid ở đây.
+            // Set status sau khi pass tất cả guard checks bên trong transaction.
+            // (Bug fix: trước đây set Paid trước khi check Status != Unpaid trong transaction
+            //  → check luôn fail → throw 409 SessionMustBeUnpaidForPayment.)
 
             // BR-15: BVC capture result — mặc định NotApplicable nếu không liên kết Lobby.
             // Bug #4 fix: dùng enum trực tiếp thay vì string. Trước đây so sánh string
@@ -502,11 +515,17 @@ namespace BoardVerse.Services.Services
                     }
                 }
 
+                // Sau khi pass tất cả guard checks, đánh dấu session đã thanh toán.
+                // LƯU Ý: phải set ở đây, SAU guard check — nếu set trước, transaction
+                // re-check `Status != Unpaid` sẽ fail và throw 409 SessionMustBeUnpaidForPayment.
+                session.Status = GroupSessionStatus.Paid;
+                session.PaidAt = now;
+
                 // Persist billing + status changes.
                 await _activeSessionRepository.SaveChangesAsync();
 
-                // Lifecycle cleanup: mark members checked out, release box + table, close lobby.
-                await _activeSessionRepository.CompleteSessionPaymentCleanupAsync(sessionId);
+                // Lifecycle cleanup: close lobby (called at checkout).
+                await _activeSessionRepository.ReleaseMembersAndCloseLobbyAsync(sessionId);
 
                 // BR §21A.8 + BR-REVENUE-01: capture BVC deposit về doanh thu quán.
                 // Nếu thất bại → KHÔNG commit transaction; status Paid rollback.
@@ -521,6 +540,14 @@ namespace BoardVerse.Services.Services
                 {
                     await dbTx.CommitAsync();
                 }
+
+                // FIX: Release table/box AFTER payment commit (not at checkout).
+                // This ensures table/box stays InUse while awaiting payment.
+                await _activeSessionRepository.ReleaseSessionTableAndBoxAsync(sessionId);
+
+                // §4.4: Early checkout — tạo WalkInWindow nếu session kết thúc sớm hơn ScheduledEndTime.
+                // Không block payment nếu tạo WalkInWindow fail (chỉ log warning).
+                createdWindow = await TryCreateWalkInWindowAsync(session, now);
             }
             catch
             {
@@ -541,6 +568,20 @@ namespace BoardVerse.Services.Services
 
             var memberInvoices = BuildMemberInvoices(session, cafe, allComponentCheckResults, request.PenaltyItems);
 
+            // §4.4: Map WalkInWindow nếu có (early checkout case)
+            BoardVerse.Core.DTOs.WalkIn.WalkInWindowDto? walkInWindowDto = null;
+            if (createdWindow != null)
+            {
+                walkInWindowDto = new BoardVerse.Core.DTOs.WalkIn.WalkInWindowDto
+                {
+                    Id = createdWindow.Id,
+                    WindowStart = createdWindow.WindowStart,
+                    WindowEnd = createdWindow.WindowEnd,
+                    AvailableSeats = createdWindow.AvailableSeats,
+                    Status = createdWindow.Status.ToString()
+                };
+            }
+
             return new PaySessionResponseDto
             {
                 SessionId = sessionId,
@@ -551,6 +592,7 @@ namespace BoardVerse.Services.Services
                 PaidAt = now,
                 MemberInvoices = memberInvoices,
                 BvcCaptureStatus = bvcCaptureStatus,   // Bug #4 fix: enum trực tiếp, không cần Enum.Parse
+                WalkInWindow = walkInWindowDto,        // §4.4: early checkout WalkInWindow
                 Session = MapSessionDto(finalSession!)
             };
         }
@@ -702,30 +744,8 @@ namespace BoardVerse.Services.Services
 
         private static decimal CalculateRealtimeBilling(Core.Entities.Cafe cafe, int elapsedMinutes)
         {
-            if (elapsedMinutes <= 60)
-            {
-                return cafe.BasePrice;
-            }
-
-            // DEFENSIVE: TimeBased phải có TieredBlockRate
-            // Nếu null → fallback an toàn: tính như FlatEntry (chỉ giờ đầu)
-            if (!cafe.TieredBlockRate.HasValue || cafe.TieredBlockRate <= 0)
-            {
-                if (cafe.BillingModel == CafePartnerBillingModel.TimeBased)
-                {
-                    // Log warning nhưng không throw để không block checkout
-                    // Quay về tính như FlatEntry
-                    return cafe.BasePrice;
-                }
-                return cafe.BasePrice;
-            }
-
-            var remainingMinutes = elapsedMinutes - 60;
-            var blockMinutes = cafe.TieredBlockMinutes;
-            var blockPrice = cafe.TieredBlockRate.Value;
-
-            var additionalBlocks = (int)Math.Ceiling((double)remainingMinutes / blockMinutes);
-            return cafe.BasePrice + (additionalBlocks * blockPrice);
+            // Phase 5 / EC-11: chuyển sang pure helper để share với CafePosService.OverridePlayedTimeAsync.
+            return ActiveSessionBillingCalculator.CalculateRealtimeBilling(cafe, elapsedMinutes);
         }
 
         private async Task<ActiveSessionResponseDto> CompleteCheckoutAsync(ActiveSession session, List<ComponentCheckoutItemDto>? components)
@@ -776,12 +796,22 @@ namespace BoardVerse.Services.Services
         }
 
 
-        private static ActiveSessionResponseDto MapSessionDto(ActiveSession session)
+        private ActiveSessionResponseDto MapSessionDto(ActiveSession session)
         {
             var now = DateTime.UtcNow;
             var elapsed = session.EndedAt.HasValue
                 ? (int)Math.Floor((session.EndedAt.Value - session.StartedAt).TotalMinutes)
                 : (int)Math.Floor((now - session.StartedAt).TotalMinutes);
+
+            // Phase 4 / EC-10: time-overrun warning cho POS UI.
+            // Reservation.ScheduledEndTime là SoT cho end time (BR-RESV-02).
+            // ActiveSession không có FK Reservation trực tiếp → query qua Lobby.Reservation.
+            var scheduledEnd = session.Lobby?.Reservation?.ScheduledEndTime;
+            var estimatedRemaining = Math.Max(0, (session.GameTemplate?.PlayTime ?? 0) - elapsed);
+            var (overrunWarning, timeSlotRemaining) = ReservationTimeOverrunHelper.Compute(
+                scheduledEnd,
+                estimatedRemaining,
+                now);
 
             return new ActiveSessionResponseDto
             {
@@ -797,7 +827,9 @@ namespace BoardVerse.Services.Services
                 DefaultPlayTimeMinutes = session.GameTemplate?.PlayTime ?? 0,
                 StartedAt = session.StartedAt,
                 ElapsedMinutes = Math.Max(0, elapsed),
-                EstimatedRemainingMinutes = Math.Max(0, (session.GameTemplate?.PlayTime ?? 0) - elapsed),
+                EstimatedRemainingMinutes = estimatedRemaining,
+                TimeOverrunWarning = overrunWarning,
+                TimeSlotRemainingMinutes = timeSlotRemaining,
                 Status = session.Status,
                 Subtotal = session.Subtotal,
                 DepositAppliedAmount = session.DepositAppliedAmount,
@@ -839,12 +871,78 @@ namespace BoardVerse.Services.Services
         }
 
         /// <summary>
+        /// §4.4: Tạo WalkInWindow khi early checkout (session kết thúc sớm hơn ScheduledEndTime).
+        /// Non-blocking: log warning nếu fail, không ảnh hưởng payment flow.
+        /// 
+        /// BR-REFUND-04/05/06: playedRatio đã được xử lý trong CompleteAndCaptureAsync.
+        /// WalkInWindow chỉ tạo khi có LobbyId (Reservation flow) và endedAt sớm hơn ScheduledEndTime.
+        /// </summary>
+        /// <returns>Tạo WalkInWindow entity nếu thành công, null nếu skip hoặc fail.</returns>
+        private async Task<WalkInWindow?> TryCreateWalkInWindowAsync(ActiveSession session, DateTime endedAt)
+        {
+            if (!session.LobbyId.HasValue)
+            {
+                return null; // Walk-in/legacy session, không tạo WalkInWindow
+            }
+
+            try
+            {
+                var reservation = await _reservationRepository.GetByLobbyIdAsync(session.LobbyId.Value);
+                if (reservation == null)
+                {
+                    _logger.LogDebug(
+                        "TryCreateWalkInWindowAsync: Lobby {LobbyId} không liên kết Reservation → skip",
+                        session.LobbyId.Value);
+                    return null;
+                }
+
+                // Chỉ tạo WalkInWindow nếu endedAt sớm hơn ScheduledEndTime
+                if (endedAt >= reservation.ScheduledEndTime)
+                {
+                    _logger.LogDebug(
+                        "TryCreateWalkInWindowAsync: Session ended at {EndedAt} >= ScheduledEndTime {EndTime} → skip",
+                        endedAt, reservation.ScheduledEndTime);
+                    return null;
+                }
+
+                // Số ghế được giải phóng = số member trong session
+                var releasedSeats = session.Members?.Count ?? 0;
+                if (releasedSeats <= 0)
+                {
+                    _logger.LogDebug(
+                        "TryCreateWalkInWindowAsync: No members in session {SessionId} → skip",
+                        session.Id);
+                    return null;
+                }
+
+                var window = await _walkInService.CreateWindowFromReservationAsync(
+                    reservation,
+                    releasedSeats,
+                    endedAt);
+
+                _logger.LogInformation(
+                    "Early checkout: Created WalkInWindow {WindowId} for seats {Seats} from {WindowStart} to {WindowEnd}",
+                    window?.Id, releasedSeats, endedAt, reservation.ScheduledEndTime);
+
+                return window;
+            }
+            catch (Exception ex)
+            {
+                // Non-blocking: chỉ log warning, không block payment
+                _logger.LogWarning(ex,
+                    "TryCreateWalkInWindowAsync failed for session {SessionId}. WalkInWindow not created.",
+                    session.Id);
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Gán thêm game vào phiên chơi.
         /// Exception 6: Nhóm tự ý lấy thêm game mà không báo nhân viên.
         /// GAP-13 Fix: Validate session status is Active before attaching game.
         /// GAP-14 Fix: Ensure Games navigation is loaded before accessing.
         /// </summary>
-        public async Task<ActiveSessionResponseDto> AttachGameAsync(Guid cafeId, Guid sessionId, AttachGameRequestDto request)
+        public async Task<ActiveSessionResponseDto> AttachGameAsync(Guid cafeId, Guid sessionId, AttachGameRequestDto request, CancellationToken ct = default)
         {
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
@@ -907,7 +1005,7 @@ namespace BoardVerse.Services.Services
         /// Thêm thành viên đến muộn vào phiên chơi.
         /// Exception 8: Thêm 2 người bạn đến muộn vào nhóm đang chơi.
         /// </summary>
-        public async Task<ActiveSessionResponseDto> AddLateMemberAsync(Guid cafeId, Guid sessionId, AddLateMemberRequestDto request)
+        public async Task<ActiveSessionResponseDto> AddLateMemberAsync(Guid cafeId, Guid sessionId, AddLateMemberRequestDto request, CancellationToken ct = default)
         {
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
@@ -960,7 +1058,7 @@ namespace BoardVerse.Services.Services
         /// - Ghi nhận vào ComponentLossReport để hệ thống chặn không tính phí cho nhóm khách mới.
         /// - Ghi log KarmaLog để truy ngược theo mã nhân viên.
         /// </summary>
-        public async Task RecordInventoryLossAsync(Guid cafeId, Guid userId, Guid sessionId, RecordInventoryLossRequestDto request)
+        public async Task RecordInventoryLossAsync(Guid cafeId, Guid userId, Guid sessionId, RecordInventoryLossRequestDto request, CancellationToken ct = default)
         {
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
@@ -1004,7 +1102,7 @@ namespace BoardVerse.Services.Services
         /// Exception 1: Phòng đầy nhưng quán hết chỗ.
         /// BR-05: AvailableSeats = TotalSeats - (active member count)
         /// </summary>
-public async Task<AlternativeCafesResponseDto> GetAlternativeCafesAsync(Guid excludeCafeId, Guid gameTemplateId, int memberCount, DateTime scheduledTime)
+        public async Task<AlternativeCafesResponseDto> GetAlternativeCafesAsync(Guid excludeCafeId, Guid gameTemplateId, int memberCount, DateTime scheduledTime, CancellationToken ct = default)
     {
         var cafes = await _cafeRepository.GetNearbyCafesAsync(excludeCafeId, 10);
 
@@ -1058,7 +1156,7 @@ public async Task<AlternativeCafesResponseDto> GetAlternativeCafesAsync(Guid exc
         /// <see cref="ComponentCheckStatus.MissingComponents"/>. Đủ linh kiện thì đánh dấu
         /// <see cref="ComponentCheckStatus.Verified"/>.
         /// </summary>
-        public async Task<ActiveSessionResponseDto> SubmitComponentCheckAsync(Guid cafeId, Guid sessionId, SubmitComponentCheckRequestDto request)
+        public async Task<ActiveSessionResponseDto> SubmitComponentCheckAsync(Guid cafeId, Guid sessionId, SubmitComponentCheckRequestDto request, CancellationToken ct = default)
         {
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
@@ -1130,7 +1228,7 @@ public async Task<AlternativeCafesResponseDto> GetAlternativeCafesAsync(Guid exc
         /// GAP-1 Fix: Cho phép revert từ CHECKING về ACTIVE nếu nhân viên bấm nhầm.
         /// Chỉ cho phép khi chưa có thành viên nào được checkout (chưa có member trong trạng thái FINISHED).
         /// </summary>
-        public async Task<ActiveSessionResponseDto> ResumeSessionAsync(Guid cafeId, Guid sessionId)
+        public async Task<ActiveSessionResponseDto> ResumeSessionAsync(Guid cafeId, Guid sessionId, CancellationToken ct = default)
         {
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
@@ -1186,7 +1284,7 @@ public async Task<AlternativeCafesResponseDto> GetAlternativeCafesAsync(Guid exc
         /// L-05: Tạm dừng phiên chơi — timer không đếm.
         /// Chỉ áp dụng khi phiên đang ACTIVE và chưa bị tạm dừng.
         /// </summary>
-        public async Task<ActiveSessionResponseDto> PauseSessionAsync(Guid cafeId, Guid sessionId)
+        public async Task<ActiveSessionResponseDto> PauseSessionAsync(Guid cafeId, Guid sessionId, CancellationToken ct = default)
         {
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
@@ -1203,7 +1301,7 @@ public async Task<AlternativeCafesResponseDto> GetAlternativeCafesAsync(Guid exc
 
             if (session.IsPaused)
             {
-                throw new ConflictException("Phiên chơi đã bị tạm dừng trước đó.");
+                throw new ConflictException(ApiErrorMessages.Pos.SessionAlreadySuspended);
             }
 
             session.IsPaused = true;
@@ -1223,7 +1321,7 @@ public async Task<AlternativeCafesResponseDto> GetAlternativeCafesAsync(Guid exc
         /// L-05: Tiếp tục phiên đang bị tạm dừng — timer tiếp tục đếm.
         /// Chỉ hoạt động khi phiên đang ACTIVE và IsPaused = true.
         /// </summary>
-        public async Task<ActiveSessionResponseDto> ResumeFromPauseAsync(Guid cafeId, Guid sessionId)
+        public async Task<ActiveSessionResponseDto> ResumeFromPauseAsync(Guid cafeId, Guid sessionId, CancellationToken ct = default)
         {
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));

@@ -51,15 +51,15 @@ namespace BoardVerse.Services.IServices
         /// Lấy danh sách phiên chơi đang ở trạng thái UNPAID (chờ thanh toán).
         /// POS staff dùng để scan "phiên nào chờ tôi thanh toán?" — đặc biệt sau khi đã end-game.
         /// </summary>
-        /// <param name="olderThanMinutes">
-        /// Optional — chỉ trả về UNPAID có <c>EndedAt</c> cách đây hơn X phút (POS nag staff quên thanh toán).
-        /// 0 = tất cả UNPAID (mặc định).
+        /// <param name="sessionId">
+        /// Optional — nếu truyền, trả về session cụ thể đó (nếu đang UNPAID).
+        /// Dùng khi nhân viên muốn lấy lại hóa đơn của một phiên cụ thể.
         /// </param>
         Task<IReadOnlyList<ActiveSessionDto>> GetUnpaidSessionsAsync(
             Guid cafeId,
             Guid userId,
             string userRole,
-            int olderThanMinutes = 0);
+            Guid? sessionId = null);
 
         /// <summary>
         /// Lấy danh sách phiên chơi đã thanh toán (PAID) theo khoảng ngày + phân trang.
@@ -238,5 +238,33 @@ namespace BoardVerse.Services.IServices
             string userRole,
             Guid sourceSessionId,
             MergeSessionRequestDto request);
+
+        // Phase 4 / EC-11: ghi audit log khi player khiếu nại giờ chơi.
+        // BR §XX evidence: POS logs (StartedAt scan QR + EndedAt POS button) là definitive.
+        // Endpoint này chỉ audit — KHÔNG tự ý sửa hóa đơn. Manager review/override sau.
+        Task<DisputePlayedTimeResponseDto> DisputePlayedTimeAsync(
+            Guid cafeId,
+            Guid staffUserId,
+            string staffRole,
+            DisputePlayedTimeRequestDto request);
+
+        /// <summary>
+        /// Phase 5 / EC-11 — Manager override played time (BR-REFUND-07).
+        /// Manager review dispute evidence, set <c>NewTotalMinutesPlayed</c> mới.
+        /// Service recalc <c>Subtotal</c> + <c>TotalAmount</c> và ghi audit log với
+        /// <c>ActionType=PlayedTimeOverridden (=41)</c>.
+        ///
+        /// Quyền: <b>Manager only</b>.
+        /// Điều kiện tiên quyết:
+        /// <list type="bullet">
+        ///   <item><description>Phải có ít nhất 1 dispute audit (PlayedTimeDisputed) cho session trước đó.</description></item>
+        ///   <item><description>Session chưa ở trạng thái Paid.</description></item>
+        /// </list>
+        /// </summary>
+        Task<OverridePlayedTimeResponseDto> OverridePlayedTimeAsync(
+            Guid cafeId,
+            Guid managerUserId,
+            string managerRole,
+            OverridePlayedTimeRequestDto request);
     }
 }

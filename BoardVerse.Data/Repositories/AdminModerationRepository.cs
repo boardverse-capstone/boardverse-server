@@ -167,5 +167,60 @@ namespace BoardVerse.Data.Repositories
 
         public Task<Wallet?> GetWalletForUpdateAsync(Guid userId) =>
             _context.Wallets.FirstOrDefaultAsync(w => w.UserId == userId);
+
+        public async Task<PaginatedResponse<PlayerActionHistoryDto>> GetPlayerActionHistoryAsync(PlayerActionHistoryQuery q)
+        {
+            var query = _context.PlayerActionHistories.AsNoTracking().AsQueryable();
+
+            if (q.UserId.HasValue)
+            {
+                query = query.Where(h => h.UserId == q.UserId.Value);
+            }
+
+            if (q.ActionType.HasValue)
+            {
+                query = query.Where(h => h.ActionType == q.ActionType.Value);
+            }
+
+            if (q.FromUtc.HasValue)
+            {
+                query = query.Where(h => h.CreatedAt >= q.FromUtc.Value);
+            }
+
+            if (q.ToUtc.HasValue)
+            {
+                query = query.Where(h => h.CreatedAt <= q.ToUtc.Value);
+            }
+
+            var total = await query.CountAsync();
+            var items = await query
+                .OrderByDescending(h => h.CreatedAt)
+                .Skip((q.PageNumber - 1) * q.PageSize)
+                .Take(q.PageSize)
+                .Select(h => new PlayerActionHistoryDto
+                {
+                    Id = h.Id,
+                    UserId = h.UserId,
+                    ActionType = h.ActionType,
+                    ActionBy = h.ActionBy,
+                    Reason = h.Reason,
+                    Metadata = h.Metadata,
+                    CreatedAt = h.CreatedAt,
+                    ExpiresAt = h.ExpiresAt
+                })
+                .ToListAsync();
+
+            return new PaginatedResponse<PlayerActionHistoryDto>
+            {
+                Data = items,
+                Meta = new PaginationMeta
+                {
+                    CurrentPage = q.PageNumber,
+                    PageSize = q.PageSize,
+                    TotalItems = total,
+                    TotalPages = total == 0 ? 0 : (int)Math.Ceiling(total / (double)q.PageSize)
+                }
+            };
+        }
     }
 }

@@ -9,77 +9,77 @@ namespace BoardVerse.Core.Messages
  ? $"{action} bị từ chối. Tài khoản của bạn đã bị khóa. Liên hệ hỗ trợ."
  : $"{action} bị từ chối. Tài khoản của bạn đã bị khóa. Lý do: {reason}";
 
-public static class Auth
+ public static class Auth
     {
     public const string RegisterDuplicate =
-    "Tên đăng nhập hoặc email đã được sử dụng.";
+    "Tài khoản hoặc email đã được sử dụng. Bạn thử đăng nhập hoặc dùng email khác nhé!";
 
     /// <summary>BR-11: minimum age 13 to register.</summary>
     public const string RegisterUnderage =
-    "Bạn phải đủ 13 tuổi trở lên để đăng ký tài khoản (BR-11).";
+    "Bạn phải đủ 13 tuổi trở lên để đăng ký tài khoản nhé!";
 
     public const string LoginTooManyAttempts =
- "Sai mật khẩu quá nhiều lần. Thử lại sau 15 phút.";
+    "Bạn nhập sai mật khẩu nhiều lần rồi. Thử lại sau 15 phút nhé!";
 
  public const string LoginInvalidCredentials =
- "Tên đăng nhập/email hoặc mật khẩu không đúng.";
+ "Tên đăng nhập/email hoặc mật khẩu không đúng. Bạn kiểm tra lại nhé!";
 
  public const string GoogleTokenMissingEmail =
- "Token Google không chứa địa chỉ email.";
+ "Không thể đăng nhập Google. Token không chứa email. Thử đăng nhập theo cách khác nhé!";
 
  public const string GoogleTokenValidationFailed =
- "Không thể xác thực token Google.";
+ "Đăng nhập Google thất bại. Bạn thử lại hoặc dùng cách khác nhé!";
 
  public const string RefreshTokenInvalidOrExpired =
- "Refresh token không hợp lệ hoặc đã hết hạn. Đăng nhập lại.";
+ "Phiên đăng nhập đã hết hạn. Bạn đăng nhập lại nhé!";
 
  public const string RefreshTokenUserMissing =
- "Refresh token hợp lệ nhưng tài khoản liên kết không còn tồn tại.";
+ "Không tìm thấy tài khoản liên kết. Bạn đăng nhập lại nhé!";
 
  public const string SendVerificationUserNotFound =
- "Không thể gửi email xác minh. Không tìm thấy tài khoản với email này.";
+ "Không tìm thấy tài khoản với email này. Bạn kiểm tra lại email nhé!";
 
  public const string VerifyEmailInvalidToken =
- "Xác minh email thất bại. Mã xác minh không hợp lệ.";
+ "Mã xác minh không hợp lệ. Bạn thử lại hoặc yêu cầu mã mới nhé!";
 
  public const string VerifyEmailTokenExpired =
- "Mã xác minh đã hết hạn. Yêu cầu mã mới.";
+ "Mã xác minh đã hết hạn. Bạn yêu cầu mã mới nhé!";
 
  public const string RequestPasswordResetUserNotFound =
- "Không thể đặt lại mật khẩu. Không tìm thấy tài khoản với email này.";
+ "Không tìm thấy tài khoản với email này. Bạn kiểm tra lại email nhé!";
 
  public const string RequestPasswordResetEmailNotVerified =
- "Không thể đặt lại mật khẩu cho đến khi email đã được xác minh.";
+ "Email chưa được xác minh nên không thể đặt lại mật khẩu. Bạn xác minh email trước nhé!";
 
  public const string ResetPasswordInvalidToken =
- "Đặt lại mật khẩu thất bại. Mã đặt lại không hợp lệ.";
+ "Mã đặt lại mật khẩu không hợp lệ. Bạn thử lại hoặc yêu cầu mã mới nhé!";
 
  public const string ResetPasswordTokenExpired =
- "Mã đặt lại mật khẩu đã hết hạn. Yêu cầu mã mới.";
+ "Mã đặt lại mật khẩu đã hết hạn. Bạn yêu cầu mã mới nhé!";
 
  public const string ChangePasswordUserNotFound =
- "Không tìm thấy tài khoản đang đăng nhập.";
+ "Không tìm thấy tài khoản đang đăng nhập. Bạn đăng nhập lại nhé!";
 
  public const string ChangePasswordNoLocalPassword =
- "Tài khoản này chỉ đăng nhập bằng Google và không có mật khẩu cục bộ để đổi.";
+ "Tài khoản này chỉ đăng nhập bằng Google nên không có mật khẩu để đổi.";
 
  public const string ChangePasswordCurrentIncorrect =
- "Mật khẩu hiện tại không đúng.";
+ "Mật khẩu hiện tại không đúng. Bạn kiểm tra lại nhé!";
 
  public const string ChangePasswordSameAsCurrent =
- "Mật khẩu mới phải khác mật khẩu hiện tại.";
+ "Mật khẩu mới phải khác mật khẩu hiện tại nhé!";
 
  public const string LinkGoogleAccountNotFound =
- "Không thể liên kết Google. Không tìm thấy tài khoản cục bộ tương ứng.";
+ "Không tìm thấy tài khoản để liên kết Google. Bạn đăng nhập bằng tài khoản đã đăng ký trước nhé!";
 
  public const string ChangePasswordInvalidToken =
- "Không thể đổi mật khẩu. Access token thiếu mã định danh người dùng hợp lệ.";
+ "Không xác định được tài khoản. Bạn đăng nhập lại nhé!";
 
  public const string LogoutInvalidToken =
- "Refresh token không hợp lệ.";
+ "Phiên đăng nhập không hợp lệ.";
 
- public const string VerificationEmailSent = "Đã gửi email xác minh.";
- public const string PasswordResetEmailSent = "Đã gửi email đặt lại mật khẩu.";
+ public const string VerificationEmailSent = "Đã gửi email xác minh. Bạn kiểm tra hộp thư nhé!";
+ public const string PasswordResetEmailSent = "Đã gửi email đặt lại mật khẩu. Bạn kiểm tra hộp thư nhé!";
  }
 
  public static class Profile
@@ -134,6 +134,9 @@ public static class Auth
 
  public static string AcceptFriendRequestsFromInvalid(string allowedList) =>
  $"AcceptFriendRequestsFrom chỉ nhận 1 trong các giá trị: {allowedList}.";
+
+ public const string ExpMustBePositive =
+ "Exp phải lớn hơn 0.";
  }
 
  public static class AdminUsers
@@ -246,6 +249,21 @@ public static class Auth
  public const string PartialTiersDuplicateMinHours =
  "Các bậc hoàn không được trùng mốc giờ.";
 
+ public const string NameRequired =
+ "Tên cafe không được để trống.";
+
+ public const string AddressRequired =
+ "Địa chỉ cafe không được để trống.";
+
+ public const string ManagerIdInvalid =
+ "ManagerId không hợp lệ.";
+
+ public static string ManagerNotFound(Guid managerId) =>
+ $"Manager '{managerId}' không tìm thấy.";
+
+ public const string CoordinatesInvalid =
+ "Tọa độ không hợp lệ.";
+
     public const string PricingLockedWhileOpen =
         "Quán đang trong khung giờ hoạt động. Bạn chỉ có thể chỉnh biểu phí khi quán đóng cửa.";
     }
@@ -308,6 +326,19 @@ public static string AccessForbidden(Guid cafeId) =>
 
  public const string BarcodeRequired =
  "Mã vạch không được để trống.";
+
+        // ===== Phase 5 / EC-11 — Manager override played time (BR-REFUND-07 §time-slot-fixed-end v3.0) =====
+        public const string OnlyManagerCanOverride =
+            "Chỉ Manager mới có thể override giờ chơi. Staff chỉ được mở dispute.";
+
+        public static string NoDisputeBeforeOverride(Guid sessionId) =>
+            $"Phiên chơi '{sessionId}' chưa có dispute audit (PlayedTimeDisputed). Manager cần review dispute trước khi override.";
+
+        public static string CannotOverridePaidSession(Guid sessionId) =>
+            $"Phiên chơi '{sessionId}' đã thanh toán, không thể override. Hãy refund và reopen session nếu cần chỉnh sửa.";
+
+        public static string OverrideMinutesExceedsPolicy(int requested, int maxAllowed) =>
+            $"Số phút chỉnh sửa ({requested}) vượt quá giới hạn cho phép ({maxAllowed} phút = 24 giờ).";
 
  public static string BoxNotFound(Guid cafeId, string barcode) =>
  $"Không tìm thấy hộp game với mã vạch '{barcode}' trong quán '{cafeId}'.";
@@ -506,6 +537,9 @@ public static string AccessForbidden(Guid cafeId) =>
  public static string SessionMustBeActiveForEnd(string current) =>
  $"Phiên chơi phải đang hoạt động để kết thúc. Trạng thái hiện tại: '{current}'.";
 
+ public const string SessionAlreadySuspended =
+ "Phiên chơi đã bị tạm dừng trước đó.";
+
 public static string SessionMustBeActiveForGameAssignment(string current) =>
     $"Chỉ gán game khi phiên đang hoạt động. Trạng thái hiện tại: '{current}'.";
 
@@ -658,86 +692,95 @@ public static string SessionMustBeActiveForGameAssignment(string current) =>
 
  public static class Payment
  {
- public const string SePayMasterAccountNotFound =
- "Chưa cấu hình tài khoản SePay Master. Liên hệ admin.";
+public const string SePayMasterAccountNotFound =
+    "Chưa cấu hình tài khoản SePay Master. Liên hệ admin.";
+
+    public const string SePayMasterAccountInactive =
+    "Tài khoản SePay Master đang tạm ngưng. Liên hệ admin để kích hoạt.";
 
  public const string SePayMerchantIdMissing =
  "Tài khoản SePay Master chưa có MerchantId. Cập nhật cấu hình.";
 
 public const string SePayWebhookTokenMissing =
-"Dịch vụ thanh toán chưa được cấu hình. Hãy đặt SePay:WebhookToken.";
+"Cấu hình thanh toán chưa hoàn tất. Vui lòng thử lại sau nhé.";
 
 public const string SePayReturnSuccess =
-"Thanh toán thành công! Vui lòng quay lại ứng dụng.";
+"Thanh toán thành công! Bạn quay lại ứng dụng nhé.";
 
 public const string SePayReturnFailed =
-"Thanh toán thất bại hoặc bị hủy.";
+"Thanh toán thất bại hoặc bị hủy. Bạn thử lại nhé!";
 
 public const string SePayMockEndpointBlocked =
-"Mock endpoint chỉ khả dụng trong môi trường Development.";
+"Tính năng này chỉ dùng được trong môi trường phát triển.";
 
 public const string SePayWebhookProcessingFailed =
-"Đã xảy ra lỗi khi xử lý webhook SePay.";
+"Có lỗi khi xử lý thanh toán. Bạn thử lại sau một chút nhé!";
 
 public const string SePayMockWebhookProcessingFailed =
-"Đã xảy ra lỗi khi xử lý mock webhook.";
+"Có lỗi khi xử lý thanh toán thử nghiệm. Bạn thử lại nhé!";
 
 public const string SePayMasterAccountNotCreated =
 "Master account SePay chưa được tạo.";
 
 public const string SePayCafeNotConfigured =
-"Cafe của bạn chưa được cấu hình SePay.";
+"Quán của bạn chưa được cấu hình thanh toán. Liên hệ quản lý quán nhé!";
 
 public const string SePayOrderIdRequired =
-"orderId là bắt buộc.";
+"Thiếu mã đơn hàng. Bạn thử lại nhé!";
 
 public const string SePayCafeIdRequired =
-"CafeId là bắt buộc cho loại tài khoản Cafe.";
+"Thiếu thông tin quán. Bạn thử lại nhé!";
 
 public static string SePayCafeAccountExists(Guid cafeId) =>
-$"Cafe '{cafeId}' đã có tài khoản SePay.";
+$"Quán này đã có tài khoản thanh toán rồi.";
 
 public const string SePayMasterAccountExists =
-"Tài khoản Master SePay đã tồn tại.";
+"Tài khoản thanh toán đã tồn tại.";
 
 public static string SePayInvalidEnvironment(string environment) =>
-$"Môi trường SePay không hợp lệ '{environment}'. Chỉ chấp nhận 'Test' hoặc 'Production'.";
+$"Môi trường thanh toán không hợp lệ: '{environment}'. Bạn thử lại nhé!";
 
 public static string SePayAccountNotFound(Guid id) =>
-$"Không tìm thấy SePay account '{id}'.";
+$"Không tìm thấy tài khoản thanh toán này.";
 
 public static string DebugSePayCafeNotFound(Guid cafeId) =>
-$"Không tìm thấy cafe '{cafeId}'. Chạy seeder trước.";
+$"Quán này chưa có trong hệ thống. Bạn kiểm tra lại nhé!";
 
 public static string DebugSePayCafeNotFoundShort(Guid cafeId) =>
-$"Không tìm thấy cafe '{cafeId}'.";
+$"Không tìm thấy quán này.";
 
 public const string SePayResponseInvalid =
-"SePay trả về dữ liệu thanh toán không hợp lệ.";
+"Phản hồi từ cổng thanh toán không hợp lệ. Bạn thử lại nhé!";
 
 public static string SePayCreatePaymentFailed(int statusCode, string details) =>
-$"Tạo link thanh toán SePay thất bại ({statusCode}). {details}";
+$"Không tạo được link thanh toán ({statusCode}). {details}. Bạn thử lại sau nhé!";
 
 public static string SePayTransferFailed(int statusCode, string details) =>
-$"Chuyển khoản SePay thất bại ({statusCode}). {details}";
+$"Chuyển khoản thất bại ({statusCode}). {details}. Bạn thử lại sau nhé!";
 
 public static string SePayTransferFailed(string code, string details) =>
-$"Chuyển khoản SePay thất bại ({code}). {details}";
+$"Chuyển khoản thất bại ({code}). {details}. Bạn thử lại sau nhé!";
+
+public const string SePayTransactionIdRequired =
+"sePayTransactionId là bắt buộc.";
+
+public static string SePayTransactionNotFound(string sePayTransactionId) =>
+$"Không tìm thấy BookingDeposit với SePayTransactionId='{sePayTransactionId}'.";
 
 public const string GatewayCannotCreatePayment =
-"Thử lại sau.";
+"Không tạo được thanh toán. Bạn thử lại sau một chút nhé!";
 
 public static string GatewayCannotCreatePaymentWithError(string errorMessage) =>
-$"Không thể tạo thanh toán: {errorMessage}";
+$"Không tạo được thanh toán: {errorMessage}. Bạn thử lại nhé!";
 
 public const string GatewayQrUrlMissing =
-"Không nhận được QR URL từ gateway.";
+"Không nhận được mã thanh toán. Bạn thử lại nhé!";
 
 public static string QrRegenerateInvalidState(string currentStatus) =>
-$"Chỉ tạo lại QR cho đơn cọc đang chờ thanh toán. Trạng thái hiện tại: '{currentStatus}'.";
+$"Chỉ tạo lại mã thanh toán khi đang chờ. Trạng thái hiện tại: '{currentStatus}'.";
 
 public static string QrRegenerateRateLimited(int secondsRemaining) =>
-$"QR vừa tạo lại. Chờ {secondsRemaining} giây rồi thử lại.";
+$"Bạn tạo lại mã hơi nhanh. Chờ {secondsRemaining} giây rồi thử lại nhé!";
 
 // ===== C1/C3/C4/C5/C6/C7: Cross-tenant IDOR guard =====
 // Tái sử dụng message này cho các guard deposit/booking/operator ownership
@@ -769,65 +812,65 @@ public static string DepositForfeitInvalidPolicy(string current) =>
 $"Chỉ tịch thu cọc khi chính sách hoàn tiền là 'không hoàn'. Chính sách hiện tại: '{current}'.";
 
 public static string DepositNotFound(Guid id) =>
-$"Không tìm thấy đơn cọc '{id}'.";
+$"Không tìm thấy đơn cọc này.";
 
 public static string ActiveSessionNotFound(Guid id) =>
-$"Không tìm thấy phiên chơi '{id}'.";
+$"Không tìm thấy phiên chơi này.";
 
 // ===== ManualPaymentService specific =====
 public static string InvalidPaymentType(string input) =>
-$"PaymentType không hợp lệ '{input}'. Chỉ chấp nhận Deposit hoặc Session.";
+$"Loại thanh toán không hợp lệ: '{input}'. Chỉ chấp nhận Cọc hoặc Phiên chơi.";
 
 public static string InvalidPaymentMethod(string input) =>
-$"PaymentMethod không hợp lệ '{input}'.";
+$"Phương thức thanh toán không hợp lệ: '{input}'.";
 
 public static string DepositNotPending(string current) =>
-$"Đơn cọc không ở trạng thái chờ. Trạng thái hiện tại: '{current}'.";
+$"Đơn cọc đang ở trạng thái '{current}', không phải đang chờ.";
 
 public static string SessionNotUnpaid(string current) =>
-    $"Phiên chơi không ở trạng thái chờ thanh toán. Trạng thái hiện tại: '{current}'.";
+$"Phiên chơi đang ở trạng thái '{current}', cần ở trạng thái chờ thanh toán.";
 
-    // ===== ManualPaymentService authorization (C3) =====
-    public static string ManualConfirmNotAuthorizedForCafe(Guid cafeId) =>
-    $"Bạn không có quyền xác nhận thanh toán cho quán '{cafeId}'.";
+// ===== ManualPaymentService authorization (C3) =====
+public static string ManualConfirmNotAuthorizedForCafe(Guid cafeId) =>
+$"Bạn không có quyền xác nhận thanh toán cho quán này.";
 
-    // ===== ManualPaymentService amount validation (H5) =====
-    public static string ManualConfirmAmountMismatch(decimal expected, decimal received) =>
-    $"Số tiền xác nhận ({received:N0} VND) không khớp với đơn hàng ({expected:N0} VND).";
+// ===== ManualPaymentService amount validation (H5) =====
+public static string ManualConfirmAmountMismatch(decimal expected, decimal received) =>
+$"Số tiền xác nhận ({received:N0} VNĐ) không khớp với đơn hàng ({expected:N0} VNĐ). Bạn kiểm tra lại nhé!";
 
-    public const string SessionPaymentAmountMustBePositive =
-    "Số tiền thanh toán phải lớn hơn 0.";
+public const string SessionPaymentAmountMustBePositive =
+"Số tiền thanh toán phải lớn hơn 0.";
 
- public static string PaymentCafeNotConfiguredSePay(string cafeName) =>
- $"Cafe '{cafeName}' chưa được cấu hình SePay account.";
+public static string PaymentCafeNotConfiguredSePay(string cafeName) =>
+$"Quán '{cafeName}' chưa cấu hình thanh toán. Liên hệ quản lý quán nhé!";
 
- public static string RefundInvalidDepositStatus(string currentStatus) =>
- $"Không thể hoàn cọc. Trạng thái hiện tại: '{currentStatus}', yêu cầu: Paid.";
+public static string RefundInvalidDepositStatus(string currentStatus) =>
+$"Không thể hoàn cọc. Trạng thái đơn: '{currentStatus}', cần: Đã thanh toán.";
 
- public const string RefundReasonRequired =
- "Lý do hoàn cọc là bắt buộc để phục vụ audit.";
+public const string RefundReasonRequired =
+"Bạn cần nhập lý do hoàn cọc để admin xem xét.";
 
- // ===== SePayAccountService specific =====
- public const string ManagerHasNoCafe =
- "Bạn không quản lý cafe nào.";
+// ===== SePayAccountService specific =====
+public const string ManagerHasNoCafe =
+"Bạn chưa quản lý quán nào.";
 
- public const string CafeSePayAccountNotConfigured =
- "Cafe của bạn chưa được cấu hình SePay.";
+public const string CafeSePayAccountNotConfigured =
+"Quán của bạn chưa cấu hình thanh toán.";
 
- public static string CafePaymentAccountBankCodeRequired =>
- "Cấu hình payment account cho cafe thiếu 'bankCode'.";
+public static string CafePaymentAccountBankCodeRequired =>
+"Cấu hình thanh toán thiếu thông tin ngân hàng (bankCode).";
 
- public static string CafePaymentAccountAccountNumberRequired =>
- "Cấu hình payment account cho cafe thiếu 'accountNumber'.";
+public static string CafePaymentAccountAccountNumberRequired =>
+"Cấu hình thanh toán thiếu số tài khoản (accountNumber).";
 
- public static string CafePaymentAccountAccountHolderRequired =>
- "Cấu hình payment account cho cafe thiếu 'accountHolder'.";
+public static string CafePaymentAccountAccountHolderRequired =>
+"Cấu hình thanh toán thiếu tên chủ tài khoản (accountHolder).";
 
- public static string CafePaymentAccountAlreadyExists(Guid cafeId) =>
- $"Cafe '{cafeId}' đã có payment account. Dùng PUT /api/sepay-accounts/my-cafe để cập nhật.";
+public static string CafePaymentAccountAlreadyExists(Guid cafeId) =>
+$"Quán đã có cấu hình thanh toán. Dùng chức năng cập nhật để sửa nhé!";
 
- public const string SePayBankInfoIncomplete =
- "Payment account của cafe thiếu thông tin ngân hàng (bankCode/accountNumber/accountHolder). Cập nhật lại trước khi test.";
+public const string SePayBankInfoIncomplete =
+"Cấu hình thanh toán của quán chưa đầy đủ (thiếu thông tin ngân hàng). Bạn cập nhật lại nhé!";
  }
 
  public static class BoardGame
@@ -870,90 +913,90 @@ public static string SessionNotUnpaid(string current) =>
  }
 
  public static class Booking
- {
+{
  public const string InvalidTimeRange =
- "Khoảng thời gian không hợp lệ. Thời gian kết thúc phải sau thời gian bắt đầu.";
+ "Thời gian kết thúc phải sau thời gian bắt đầu. Bạn kiểm tra lại nhé!";
 
  public const string SeatCountMustBePositive =
- "Số lượng ghế yêu cầu phải lớn hơn hoặc bằng 1.";
+ "Số lượng ghế phải từ 1 trở lên.";
 
  public const string NotCheckedInYet =
- "Booking phải ở trạng thái CheckedIn mới có thể vote vắng mặt.";
+ "Bạn cần check-in trước khi vote vắng mặt thành viên nhé!";
 
  public const string AlreadyCheckedOut =
- "Booking đã kết thúc — không thể vote vắng mặt sau khi check-out.";
+ "Phiên đã kết thúc rồi. Không thể vote vắng mặt sau khi thanh toán.";
 
  public const string VoteWindowClosed =
- "Đã quá thời hạn vote vắng mặt (chỉ được vote trong 24h sau check-in).";
+ "Đã hết thời gian vote vắng mặt. Bạn chỉ vote được trong 24 giờ sau khi check-in thôi nhé!";
 
  public const string VoterNotCheckedInMember =
- "Chỉ thành viên đã check-in mới có thể vote vắng mặt.";
+ "Chỉ thành viên đã check-in mới vote được.";
 
  public const string CannotVoteSelfAbsent =
- "Bạn không thể vote chính mình vắng mặt.";
+ "Bạn không thể vote vắng mặt cho chính mình nhé!";
 
  public const string RatingWindowClosed =
- "Đã quá thời hạn chấm điểm (chỉ được chấm trong 24h sau check-out).";
+ "Đã hết thời gian đánh giá. Bạn chỉ đánh giá được trong 24 giờ sau khi check-out thôi nhé!";
 
  public const string CannotRateSelf =
- "Bạn không thể tự chấm điểm cho mình.";
+ "Bạn không thể đánh giá chính mình nhé!";
 
  public const string DuplicateRatedUser =
- "Danh sách chấm điểm chứa thành viên bị trùng lặp.";
+ "Danh sách đánh giá bị trùng. Bạn kiểm tra lại nhé!";
 
  public const string AlreadySubmittedRatings =
- "Bạn đã gửi lượt chấm điểm cho booking này rồi.";
+ "Bạn đã gửi đánh giá rồi!";
 
  public static string LobbyNotFoundForBooking(Guid lobbyId) =>
- $"Không tìm thấy phòng chờ '{lobbyId}'.";
+ $"Không tìm thấy phòng này.";
 
  public const string OnlyLobbyHostCanCreateBooking =
- "Chỉ Host của phòng chờ mới có thể tạo booking.";
+ "Chỉ chủ phòng mới tạo được đặt chỗ.";
 
  public const string LobbyMustBeFullToCreateBooking =
- "Phòng chờ phải ở trạng thái Full (đã khóa) mới có thể tạo booking.";
+ "Phòng phải đầy người mới tạo được đặt chỗ.";
 
  public const string LobbyAlreadyHasBooking =
- "Phòng chờ này đã có booking được tạo trước đó.";
+ "Phòng này đã có đặt chỗ rồi!";
 
  public static string CafeNotFound(Guid cafeId) =>
- $"Không tìm thấy quán cafe '{cafeId}'.";
+ $"Không tìm thấy quán này.";
 
  public static string TableNotFound(Guid tableId) =>
- $"Không tìm thấy bàn '{tableId}'.";
+ $"Không tìm thấy bàn này.";
 
  public const string TableNotInCafe =
  "Bàn không thuộc quán đã chọn.";
 
  public const string StartTimeInPast =
- "Thời gian bắt đầu không được là thời điểm trong quá khứ.";
+ "Thời gian bắt đầu phải ở tương lai. Bạn kiểm tra lại nhé!";
 
  public const string TableAlreadyBookedInTimeRange =
- "Bàn đã có booking khác trong khoảng thời gian này.";
+ "Bàn này đã có người đặt trong khoảng thời gian này rồi!";
 
  public static string NotFound(Guid bookingId) =>
- $"Không tìm thấy booking '{bookingId}'.";
+ $"Không tìm thấy đặt chỗ này.";
 
  public const string NotBookingOwner =
- "Bạn không có quyền cập nhật booking này.";
+ "Bạn không phải là người đặt chỗ này.";
 
  public const string CannotUpdateBookingInCurrentState =
- "Không thể cập nhật booking ở trạng thái này.";
+ "Không thể cập nhật đặt chỗ ở trạng thái này.";
 
  public const string TableNotInBookingCafe =
- "Bàn không thuộc quán của booking này.";
+ "Bàn không thuộc quán của đặt chỗ này.";
 
  public const string CannotCancelCheckedInBooking =
- "Không thể hủy booking đã check-in.";
+ "Đặt chỗ đã check-in rồi nên không thể hủy.";
 
  public static string OnlyPendingDepositCanConfirm(BookingStatus status) =>
- $"Chỉ booking ở trạng thái PendingDeposit mới có thể xác nhận (hiện tại: {status}).";
+ $"Chỉ đặt chỗ đang chờ cọc mới xác nhận được (trạng thái hiện tại: {status}).";
 
  public const string OnlyConfirmedOrPendingDepositCanNoShow =
- "Chỉ booking ở trạng thái Confirmed hoặc PendingDeposit mới có thể NoShow.";
+ "Chỉ đặt chỗ đã xác nhận hoặc đang chờ cọc mới đánh dấu vắng mặt được.";
 
  public const string NotMemberOfBooking =
- "Bạn không phải thành viên của booking này.";
+ "Bạn không phải thành viên của đặt chỗ này.";
 
  // ===== BookingRatingService specific =====
  public static string BookingIdMismatch =>
@@ -1165,45 +1208,45 @@ public static string SessionNotUnpaid(string current) =>
  }
 
  public static class Rating
- {
+{
  public static string CrossRatingTagsReason(IEnumerable<KarmaRatingTag> tags) =>
- $"Thẻ đánh giá chéo trong phòng: {string.Join(", ", tags)}";
+ $"Thẻ đánh giá trong phòng: {string.Join(", ", tags)}";
 
  public static string LobbyNotFound(Guid lobbyId) =>
- $"Đánh giá karma thất bại. Không tìm thấy phòng '{lobbyId}'.";
+ $"Oops! Không tìm thấy phòng '{lobbyId}'. Phòng có thể đã bị hủy hoặc không tồn tại.";
 
  public static string NotLobbyMember(Guid lobbyId, Guid userId) =>
- $"Đánh giá karma thất bại. Người dùng '{userId}' không phải thành viên đang hoạt động của phòng '{lobbyId}'.";
+ $"Bạn không phải thành viên của phòng này nên không thể đánh giá.";
 
  public static string LobbyNotOpenForRating(Guid lobbyId) =>
- $"Đánh giá karma thất bại. Phòng '{lobbyId}' chưa mở đánh giá chéo (có thể chưa hoàn tất thanh toán).";
+ $"Phòng này chưa mở đánh giá. Có thể phiên chơi chưa kết thúc hoặc chưa thanh toán.";
 
  public static string CannotRateSelf(Guid lobbyId) =>
- $"Đánh giá karma thất bại. Bạn không thể tự đánh giá mình trong phòng '{lobbyId}'.";
+ $"Bạn không thể tự đánh giá mình trong phòng nhé!";
 
  public static string TargetNotLobbyMember(Guid lobbyId, Guid targetUserId) =>
- $"Đánh giá karma thất bại. Người được đánh giá '{targetUserId}' không phải thành viên phòng '{lobbyId}'.";
+ $"Người bạn muốn đánh giá không có trong phòng này.";
 
  public static string DuplicateTargetInRequest(Guid targetUserId) =>
- $"Đánh giá karma thất bại. Người được đánh giá '{targetUserId}' xuất hiện nhiều lần trong yêu cầu.";
+ $"Bạn đánh giá người này nhiều lần trong một yêu cầu. Bạn kiểm tra lại nhé!";
 
  public static string AlreadyRated(Guid lobbyId, Guid targetUserId) =>
- $"Đánh giá karma thất bại. Bạn đã đánh giá người dùng '{targetUserId}' trong phòng '{lobbyId}'.";
+ $"Bạn đã đánh giá người này rồi. Mỗi người chỉ được đánh giá một lần thôi nhé!";
 
  public const string EmptyTagsForEntry =
- "Đánh giá karma thất bại. Mỗi mục đánh giá phải có ít nhất một thẻ.";
+ "Bạn cần chọn ít nhất một thẻ đánh giá cho mỗi người nhé.";
 
  public const string InvalidTagValue =
- "Đánh giá karma thất bại. Một hoặc nhiều thẻ đánh giá không được nhận diện.";
+ "Một số thẻ đánh giá không hợp lệ. Bạn kiểm tra lại nhé!";
 
  public static string TargetProfileMissing(Guid targetUserId) =>
- $"Đánh giá karma thất bại. Người được đánh giá '{targetUserId}' chưa có hồ sơ để nhận cập nhật karma.";
+ $"Người được đánh giá chưa có hồ sơ đầy đủ nên chưa thể nhận đánh giá.";
 
  public static string LobbyAlreadyOpenForRating(Guid lobbyId) =>
- $"Cửa sổ đánh giá karma của phòng '{lobbyId}' đã được mở trước đó.";
+ $"Cửa sổ đánh giá của phòng này đã được mở trước đó rồi.";
 
  public static string LobbyCannotOpenRating(Guid lobbyId) =>
- $"Phiên chưa đủ điều kiện mở cửa sổ đánh giá.";
+ $"Phòng chưa đủ điều kiện để mở đánh giá. Phiên chơi cần hoàn tất trước nhé!";
  }
 
  public static class Match
@@ -1233,6 +1276,28 @@ public static string SessionNotUnpaid(string current) =>
  "Gửi kết quả trận đấu thất bại. Kết quả phải là Win, Loss hoặc Draw.";
  }
 
+    public static class WalkIn
+    {
+        public static string WalkInWindowNotFound(Guid windowId) =>
+            $"Không tìm thấy khung giờ này.";
+
+        public static string WalkInWindowNotAvailable(Guid windowId, string status) =>
+            $"Khung giờ này đang không khả dụng (trạng thái: '{status}'). " +
+            $"Bạn thử chọn khung giờ khác nhé!";
+
+        public static string NotEnoughSeats(int requested, int available) =>
+            $"Không đủ chỗ trống. Bạn cần {requested} ghế nhưng chỉ còn {available} ghế. Thử đặt ít người hơn hoặc chọn khung giờ khác nhé!";
+
+        public const string ConcurrentBooking =
+            "Khung giờ này đang được đặt bởi nhân viên khác. Bạn thử lại sau một chút nhé!";
+
+        public static string WalkInBookingNotFound(Guid bookingId) =>
+            $"Không tìm thấy đặt chỗ này.";
+
+        public const string WindowTooShort =
+            "Khung giờ walk-in cần tối thiểu 30 phút. Khung giờ quá ngắn không thể tạo.";
+    }
+
     public static class AdminModeration
     {
         public const string InvalidPunishmentAction =
@@ -1253,14 +1318,57 @@ public static string SessionNotUnpaid(string current) =>
         public const string UserNotInCoolingOff =
         "Người dùng này không đang trong trạng thái cooling-off.";
 
+        // ===== BR-NEW-10 §XI.2 — Cooling-off từ chối tạo lobby future =====
+        public static string InCoolingOffCannotCreateFutureLobby(DateTime? expiresAt) =>
+            $"Bạn đang trong thời gian cooling-off{(expiresAt.HasValue ? $" đến {expiresAt.Value:yyyy-MM-dd HH:mm}" : "")}. " +
+            "Trong thời gian này bạn chỉ có thể tạo lobby có playDate trong ngày hôm nay.";
+
         public static string WalletNotFound(Guid userId) =>
         $"Không tìm thấy ví của người dùng '{userId}'.";
 
-        public static string ProfileNotFound(Guid userId) =>
-        $"Người dùng '{userId}' chưa có hồ sơ.";
+public static string ProfileNotFound(Guid userId) =>
+            $"Người dùng '{userId}' chưa có hồ sơ.";
+
+        // ===== BR-KARMA-02/03/05 — Karma system errors =====
+        public const string AlreadyRestricted =
+            "Tài khoản đang trong thời gian giới hạn (chỉ cho đặt slot >= 4 giờ). " +
+            "Vui lòng liên hệ hỗ trợ nếu cần xem xét lại.";
+
+        public const string AppealAlreadySubmitted =
+            "Bạn đã gửi khiếu nại cho violation này rồi. Vui lòng đợi admin phản hồi.";
+
+        public const string AppealReasonRequired =
+            "Vui lòng nhập lý do khiếu nại (tối thiểu 10 ký tự).";
+
+        public const string KarmaRestrictionSlotTooShort =
+            "Tài khoản đang bị giới hạn do vi phạm karma. " +
+            "Bạn chỉ có thể đặt slot có thời lượng từ 4 giờ trở lên. " +
+            "Vui lòng liên hệ hỗ trợ nếu cần xem xét lại.";
+
+        // ===== R-01 (BR-RISK-02) — PlayerAlert errors =====
+        public static string AlertNotFound(Guid alertId) =>
+            $"Không tìm thấy cảnh báo '{alertId}'.";
+
+        public static string AlertAlreadyProcessed(PlayerAlertStatus status) =>
+            $"Cảnh báo đã được xử lý (trạng thái: {status}).";
+
+        public const string AlertAlreadyResolved =
+            "Cảnh báo này đã được resolve. Không thể xử lý lại.";
+
+        public const string SystemSuspensionExpiredReason =
+            "Tài khoản được tự động mở khóa sau khi hết hạn suspension.";
+
+        public const string AlertStaleDismissedReason =
+            "Cảnh báo tự đóng do quá 30 ngày không được admin xử lý.";
 
         public const string InvalidViolationCategoryFilter =
         "Giá trị lọc loại vi phạm không hợp lệ.";
+
+        public static string ExtendAdditionalDaysRange(int maxDays) =>
+        $"Số ngày gia hạn phải nằm trong khoảng 1 đến {maxDays}.";
+
+        public const string ExtendReasonMinLength =
+        "Lý do gia hạn phải có ít nhất 10 ký tự. Bạn bổ sung thêm nhé!";
     }
 
  public static class AdminCatalog
@@ -1296,35 +1404,35 @@ public static string SessionNotUnpaid(string current) =>
  public static class Jwt
  {
  public const string MissingUserIdentifier =
- "Access token thiếu mã định danh người dùng hợp lệ. Đăng nhập lại.";
+ "Không xác định được tài khoản đang đăng nhập. Bạn vui lòng đăng nhập lại nhé.";
 
  public const string UserNoLongerExists =
- "Tài khoản không còn tồn tại. Đăng nhập lại.";
+ "Tài khoản không còn tồn tại. Bạn vui lòng đăng nhập lại nhé.";
 
  public const string TokenExpired =
- "Access token đã hết hạn. Dùng POST /api/auth/refresh-token hoặc đăng nhập lại.";
+ "Phiên đăng nhập đã hết hạn. Bạn vui lòng đăng nhập lại để tiếp tục nhé.";
 
  public const string TokenInvalidSignature =
- "Chữ ký access token không hợp lệ. Đăng nhập lại.";
+ "Không thể xác thực tài khoản. Bạn vui lòng đăng nhập lại nhé.";
 
  public const string TokenInvalid =
- "Access token không hợp lệ hoặc sai định dạng. Đăng nhập lại.";
+ "Phiên đăng nhập không hợp lệ. Bạn vui lòng đăng nhập lại nhé.";
 
  public const string AuthenticationFailed =
- "Xác thực thất bại. Đăng nhập lại.";
+ "Đăng nhập thất bại. Bạn kiểm tra lại thông tin đăng nhập nhé.";
 
  public const string AuthorizationHeaderMissing =
- "Thiếu header Authorization. Hãy cung cấp Bearer access token.";
+ "Bạn cần đăng nhập để thực hiện thao tác này. Vui lòng đăng nhập trước nhé.";
 
  public const string AccessDenied =
- "Từ chối truy cập. Tài khoản không có vai trò hoặc quyền cần thiết cho endpoint này.";
+ "Bạn không có quyền thực hiện thao tác này. Liên hệ hỗ trợ nếu cần.";
  }
 
  public static class AccountAccess
  {
  public const string ActionSignIn = "Đăng nhập";
  public const string ActionGoogleSignIn = "Đăng nhập Google";
- public const string ActionTokenRefresh = "Làm mới token";
+ public const string ActionTokenRefresh = "Làm mới phiên";
  public const string ActionSendVerificationEmail = "Gửi email xác minh";
  public const string ActionEmailVerification = "Xác minh email";
  public const string ActionPasswordResetRequest = "Yêu cầu đặt lại mật khẩu";
@@ -1333,51 +1441,51 @@ public static string SessionNotUnpaid(string current) =>
  public const string ActionGoogleAccountLinking = "Liên kết tài khoản Google";
 
  public const string BannedPermanent =
- "Tài khoản của bạn đã bị cấm vĩnh viễn.";
+ "Tài khoản của bạn đã bị cấm vĩnh viễn. Nếu bạn nghĩ đây là nhầm lẫn, hãy liên hệ hỗ trợ nhé.";
 
  public const string AccountInactive =
- "Tài khoản của bạn đã bị vô hiệu hóa. Liên hệ hỗ trợ để kích hoạt lại.";
+ "Tài khoản của bạn đã bị tạm khóa. Liên hệ hỗ trợ để được kích hoạt lại nha.";
 
  public static string BannedPermanentWithReason(string reason) =>
- $"Tài khoản của bạn đã bị cấm vĩnh viễn. Lý do: {reason}";
+ $"Tài khoản của bạn đã bị cấm vĩnh viễn. Lý do: {reason}. Nếu bạn nghĩ đây là nhầm lẫn, hãy liên hệ hỗ trợ nhé.";
 
  public static string SuspendedUntil(DateTime lockoutEnd) =>
- $"Tài khoản của bạn bị đình chỉ đến {lockoutEnd:O}.";
+ $"Tài khoản của bạn đang bị tạm khóa đến {lockoutEnd:dd/MM/yyyy HH:mm}. Bạn thử lại sau nhé!";
 
  public static string SuspendedUntilWithReason(DateTime lockoutEnd, string reason) =>
- $"Tài khoản của bạn bị đình chỉ đến {lockoutEnd:O}. Lý do: {reason}";
+ $"Tài khoản của bạn đang bị tạm khóa đến {lockoutEnd:dd/MM/yyyy HH:mm}. Lý do: {reason}. Bạn thử lại sau nhé!";
 
  public const string SuspendedIndefinite =
- "Tài khoản của bạn đang bị đình chỉ.";
+ "Tài khoản của bạn đang bị tạm khóa. Liên hệ hỗ trợ để được giải quyết nhé.";
 
  public static string SuspendedIndefiniteWithReason(string reason) =>
- $"Tài khoản của bạn đang bị đình chỉ. Lý do: {reason}";
+ $"Tài khoản của bạn đang bị tạm khóa. Lý do: {reason}. Liên hệ hỗ trợ để được giải quyết nhé.";
 
  public static string Restricted(string message) => message;
 
  public static string LoginDeniedBanned(string? reason = null) =>
  string.IsNullOrWhiteSpace(reason)
- ? "Từ chối đăng nhập. Tài khoản của bạn đã bị cấm vĩnh viễn."
- : $"Từ chối đăng nhập. Tài khoản của bạn đã bị cấm vĩnh viễn. Lý do: {reason}";
+ ? "Tài khoản của bạn đã bị cấm vĩnh viễn. Nếu bạn nghĩ đây là nhầm lẫn, hãy liên hệ hỗ trợ nhé."
+ : $"Tài khoản của bạn đã bị cấm vĩnh viễn. Lý do: {reason}. Nếu bạn nghĩ đây là nhầm lẫn, hãy liên hệ hỗ trợ nhé.";
 
  public static string LoginDeniedSuspended(DateTime lockoutEnd, string? reason = null) =>
  string.IsNullOrWhiteSpace(reason)
- ? $"Từ chối đăng nhập. Tài khoản bị đình chỉ đến {lockoutEnd:O}."
- : $"Từ chối đăng nhập. Tài khoản bị đình chỉ đến {lockoutEnd:O}. Lý do: {reason}";
+ ? $"Tài khoản của bạn đang bị tạm khóa đến {lockoutEnd:dd/MM/yyyy HH:mm}. Bạn thử lại sau nhé!"
+ : $"Tài khoản của bạn đang bị tạm khóa đến {lockoutEnd:dd/MM/yyyy HH:mm}. Lý do: {reason}. Bạn thử lại sau nhé!";
  }
 
  public static class Http
  {
  public static string Fallback(int statusCode, string path) => statusCode switch
  {
- 400 => $"Yêu cầu tới '{path}' không hợp lệ. Kiểm tra tham số query/body.",
- 401 => $"Cần xác thực để truy cập '{path}'.",
- 403 => $"Bạn không có quyền truy cập '{path}'.",
- 404 => $"Không tìm thấy route hoặc tài nguyên API khớp '{path}'.",
- 409 => $"Yêu cầu tới '{path}' xung đột với dữ liệu hiện có.",
- 429 => $"Quá nhiều yêu cầu tới '{path}'. Hãy chậm lại và thử lại sau.",
- 500 => $"Đã xảy ra lỗi máy chủ không mong đợi khi xử lý '{path}'.",
- _ => $"Yêu cầu tới '{path}' thất bại với mã trạng thái {statusCode}."
+ 400 => $"Dữ liệu gửi lên không hợp lệ. Vui lòng kiểm tra lại thông tin và thử lại nha.",
+ 401 => $"Phiên đăng nhập đã hết hạn. Bạn vui lòng đăng nhập lại để tiếp tục nhé.",
+ 403 => $"Bạn không có quyền thực hiện thao tác này. Liên hệ hỗ trợ nếu cần.",
+ 404 => $"Không tìm thấy thông tin bạn yêu cầu. Vui lòng kiểm tra lại đường dẫn.",
+ 409 => $"Thao tác bị xung đột với dữ liệu hiện tại. Bạn thử làm mới trang rồi thử lại nha.",
+ 429 => $"Bạn thao tác hơi nhanh đấy! Hãy chờ một chút rồi thử lại nhé.",
+ 500 => $"Hệ thống đang bận chút xíu. Bạn thử lại sau vài phút nha!",
+ _ => $"Đã xảy ra lỗi không mong đợi. Bạn thử lại sau nhé."
  };
  }
 
@@ -1395,233 +1503,236 @@ public static string SessionNotUnpaid(string current) =>
 
  public static class Validation
  {
- public const string RequestFailed = "Xác thực dữ liệu yêu cầu thất bại cho '{0}': {1}";
- public const string FieldRequired = "Trường {0} là bắt buộc.";
- public const string EmailRequired = "Email là bắt buộc.";
- public const string EmailInvalid = "Email không hợp lệ.";
- public const string EmailMaxLength = "Email không được vượt quá 256 ký tự.";
- public const string PasswordRequired = "Mật khẩu là bắt buộc.";
+ public const string RequestFailed = "Dữ liệu gửi lên không hợp lệ cho '{0}': {1}";
+ public const string FieldRequired = "Trường '{0}' là bắt buộc. Bạn vui lòng điền đầy đủ thông tin nhé.";
+ public const string EmailRequired = "Email là bắt buộc. Bạn nhập email để tiếp tục nhé.";
+ public const string EmailInvalid = "Email không đúng định dạng. Bạn kiểm tra lại email nhé.";
+ public const string EmailMaxLength = "Email không được dài quá 256 ký tự.";
+ public const string PasswordRequired = "Bạn chưa nhập mật khẩu. Nhập mật khẩu để tiếp tục nhé.";
  public const string PasswordLength8To100 = "Mật khẩu phải từ 8 đến 100 ký tự.";
  public const string PasswordLength6To100 = "Mật khẩu phải từ 6 đến 100 ký tự.";
  public const string PasswordMin8 = "Mật khẩu phải có ít nhất 8 ký tự.";
- public const string UsernameRequired = "Tên đăng nhập là bắt buộc.";
+ public const string UsernameRequired = "Tên đăng nhập là bắt buộc. Bạn nhập tên đăng nhập nhé.";
  public const string UsernameLength3To100 = "Tên đăng nhập phải từ 3 đến 100 ký tự.";
- public const string UsernameMax100 = "Tên đăng nhập không được vượt quá 100 ký tự.";
- public const string UsernameOrEmailRequired = "Tên đăng nhập hoặc email là bắt buộc.";
+ public const string UsernameMax100 = "Tên đăng nhập không được dài quá 100 ký tự.";
+ public const string UsernameOrEmailRequired = "Bạn nhập tên đăng nhập hoặc email để tiếp tục nhé.";
  public const string UsernameOrEmailLength3To256 = "Tên đăng nhập hoặc email phải từ 3 đến 256 ký tự.";
- public const string PhoneInvalid = "Số điện thoại không hợp lệ.";
- public const string PhoneMax50 = "Số điện thoại không được vượt quá 50 ký tự.";
+ public const string PhoneInvalid = "Số điện thoại không đúng định dạng. Bạn kiểm tra lại số điện thoại nhé.";
+ public const string PhoneMax50 = "Số điện thoại không được dài quá 50 ký tự.";
  public const string RoleRequired = "Vai trò là bắt buộc.";
- public const string RoleMax32 = "Vai trò không được vượt quá 32 ký tự.";
- public const string AccountStatusMax32 = "AccountStatus không được vượt quá 32 ký tự.";
- public const string SearchMax100 = "Từ khóa tìm kiếm không được vượt quá 100 ký tự.";
- public const string PageRange1To100 = "Trang phải từ 1 đến 100.";
- public const string PageSizeRange1To100 = "PageSize phải từ 1 đến 100.";
- public const string BioMax1000 = "Tiểu sử không được vượt quá 1000 ký tự.";
- public const string GlobalEloMinZero = "GlobalElo phải lớn hơn hoặc bằng 0.";
+ public const string RoleMax32 = "Tên vai trò không được dài quá 32 ký tự.";
+ public const string AccountStatusMax32 = "Trạng thái tài khoản không được dài quá 32 ký tự.";
+ public const string SearchMax100 = "Từ khóa tìm kiếm không được dài quá 100 ký tự.";
+ public const string PageRange1To100 = "Số trang phải từ 1 đến 100.";
+ public const string PageSizeRange1To100 = "Số mục mỗi trang phải từ 1 đến 100.";
+ public const string BioMax1000 = "Tiểu sử không được dài quá 1000 ký tự.";
+ public const string GlobalEloMinZero = "Điểm Elo không được âm.";
  public const string LevelMin1 = "Cấp độ phải ít nhất là 1.";
- public const string FirstNameMax100 = "Tên không được vượt quá 100 ký tự.";
- public const string LastNameMax100 = "Họ không được vượt quá 100 ký tự.";
- public const string AvatarUrlRequired = "URL avatar là bắt buộc.";
- public const string AvatarUrlInvalid = "URL avatar không hợp lệ.";
- public const string BlockReasonRequired = "Lý do khóa là bắt buộc.";
- public const string BlockReasonMax500 = "Lý do khóa không được vượt quá 500 ký tự.";
- public const string RejectionReasonRequired = "Lý do từ chối là bắt buộc.";
- public const string RejectionReasonMax1000 = "Lý do từ chối không được vượt quá 1000 ký tự.";
- public const string CafeNameMax200 = "Tên quán không được vượt quá 200 ký tự.";
- public const string AddressMax500 = "Địa chỉ không được vượt quá 500 ký tự.";
- public const string PhoneNumberMax50 = "Số điện thoại không được vượt quá 50 ký tự.";
- public const string DescriptionMax2000 = "Mô tả không được vượt quá 2000 ký tự.";
+ public const string FirstNameMax100 = "Tên không được dài quá 100 ký tự.";
+ public const string LastNameMax100 = "Họ không được dài quá 100 ký tự.";
+ public const string AvatarUrlRequired = "Bạn chưa chọn ảnh đại diện. Vui lòng chọn ảnh nhé.";
+ public const string AvatarUrlInvalid = "Link ảnh đại diện không hợp lệ. Bạn chọn ảnh khác nhé.";
+ public const string BlockReasonRequired = "Bạn cần nhập lý do khóa tài khoản.";
+ public const string BlockReasonMax500 = "Lý do khóa không được dài quá 500 ký tự.";
+ public const string RejectionReasonRequired = "Bạn cần nhập lý do từ chối.";
+ public const string RejectionReasonMax1000 = "Lý do từ chối không được dài quá 1000 ký tự.";
+ public const string CafeNameMax200 = "Tên quán không được dài quá 200 ký tự.";
+ public const string AddressMax500 = "Địa chỉ không được dài quá 500 ký tự.";
+ public const string PhoneNumberMax50 = "Số điện thoại không được dài quá 50 ký tự.";
+ public const string DescriptionMax2000 = "Mô tả không được dài quá 2000 ký tự.";
  public const string LatitudeRange = "Vĩ độ phải từ -90 đến 90.";
- public const string LongitudeRange = "Kinh độ phải từ -180 đến 180.";
- public const string GoogleIdTokenRequired = "Google idToken là bắt buộc.";
- public const string GoogleIdTokenLength = "Google idToken phải từ 10 đến 4000 ký tự.";
- public const string RefreshTokenRequired = "Refresh token là bắt buộc.";
- public const string RefreshTokenLength = "Refresh token phải từ 20 đến 500 ký tự.";
- public const string VerificationTokenRequired = "Mã xác minh là bắt buộc.";
+    public const string LongitudeRange = "Kinh độ phải từ -180 đến 180.";
+    public const string RadiusRange = "Bán kính tìm kiếm phải từ 0 đến 500 km.";
+    public const string InvalidCoordinatesOrRadius =
+    "Tọa độ hoặc bán kính không hợp lệ. Vĩ độ: -90 đến 90, Kinh độ: -180 đến 180, Bán kính: 0 đến 500 km.";
+    public const string GoogleIdTokenRequired = "Bạn cần đăng nhập Google để tiếp tục.";
+ public const string GoogleIdTokenLength = "Token Google không hợp lệ. Bạn đăng nhập lại nhé.";
+ public const string RefreshTokenRequired = "Bạn cần đăng nhập lại để tiếp tục.";
+ public const string RefreshTokenLength = "Token đăng nhập không hợp lệ.";
+ public const string VerificationTokenRequired = "Bạn cần nhập mã xác minh.";
  public const string VerificationTokenLength = "Mã xác minh phải từ 6 đến 10 ký tự.";
- public const string ResetTokenRequired = "Mã đặt lại mật khẩu là bắt buộc.";
+ public const string ResetTokenRequired = "Bạn cần nhập mã đặt lại mật khẩu.";
  public const string ResetTokenLength = "Mã đặt lại mật khẩu phải từ 6 đến 10 ký tự.";
- public const string NewPasswordRequired = "Mật khẩu mới là bắt buộc.";
- public const string CurrentPasswordRequired = "Mật khẩu hiện tại là bắt buộc.";
- public const string ConfirmPasswordRequired = "Xác nhận mật khẩu mới là bắt buộc.";
- public const string ConfirmPasswordMismatch = "Xác nhận mật khẩu mới phải trùng mật khẩu mới.";
- public const string NameRequired = "Tên là bắt buộc.";
- public const string NameMax100 = "Tên không được vượt quá 100 ký tự.";
- public const string DateOfBirthFormat = "dateOfBirth phải là chuỗi ngày (yyyy-MM-dd).";
- public const string GameTemplateIdRequired = "GameTemplateId là bắt buộc.";
- public const string LobbyIdRequired = "LobbyId là bắt buộc.";
- public const string OutcomeRequired = "Kết quả trận đấu là bắt buộc.";
- public const string RatingsRequired = "Danh sách đánh giá là bắt buộc.";
- public const string TargetUserIdRequired = "TargetUserId là bắt buộc.";
- public const string TagsRequired = "Thẻ đánh giá là bắt buộc.";
- public const string BarcodeRequired = "Mã vạch là bắt buộc.";
+ public const string NewPasswordRequired = "Bạn cần nhập mật khẩu mới.";
+ public const string CurrentPasswordRequired = "Bạn cần nhập mật khẩu hiện tại.";
+ public const string ConfirmPasswordRequired = "Bạn cần xác nhận mật khẩu mới.";
+ public const string ConfirmPasswordMismatch = "Mật khẩu xác nhận không khớp. Bạn nhập lại cho đúng nhé.";
+ public const string NameRequired = "Bạn cần nhập tên.";
+ public const string NameMax100 = "Tên không được dài quá 100 ký tự.";
+ public const string DateOfBirthFormat = "Ngày sinh phải theo định dạng yyyy-MM-dd. Ví dụ: 2000-01-15";
+ public const string GameTemplateIdRequired = "Bạn cần chọn một game.";
+ public const string LobbyIdRequired = "Bạn cần chọn một phòng chờ.";
+ public const string OutcomeRequired = "Bạn cần chọn kết quả trận đấu.";
+ public const string RatingsRequired = "Bạn cần chọn đánh giá.";
+ public const string TargetUserIdRequired = "Bạn cần chọn người dùng.";
+ public const string TagsRequired = "Bạn cần chọn ít nhất một thẻ đánh giá.";
+ public const string BarcodeRequired = "Bạn cần quét hoặc nhập mã vạch.";
  public const string BarcodeLength = "Mã vạch phải từ 3 đến 50 ký tự.";
- public const string TableIdRequired = "CafeTableId là bắt buộc.";
+ public const string TableIdRequired = "Bạn cần chọn một bàn.";
  public const string BoxQuantityRange = "Số hộp phải từ 1 đến 1000.";
- public const string ComponentIdRequired = "ComponentId là bắt buộc.";
- public const string PenaltyFeeRange = "Phí phạt phải từ 0 đến 999999999.";
- public const string CategoryNameRequired = "Tên thể loại là bắt buộc.";
+ public const string ComponentIdRequired = "Bạn cần chọn một linh kiện.";
+ public const string PenaltyFeeRange = "Phí phạt phải từ 0 đến 999.999.999 VNĐ.";
+ public const string CategoryNameRequired = "Bạn cần nhập tên thể loại.";
  public const string CategoryNameLength = "Tên thể loại phải từ 2 đến 100 ký tự.";
  public const string CategorySlugLength = "Slug thể loại phải từ 2 đến 100 ký tự.";
- public const string CategoryDescriptionMax500 = "Mô tả thể loại không được vượt quá 500 ký tự.";
+ public const string CategoryDescriptionMax500 = "Mô tả thể loại không được dài quá 500 ký tự.";
  public const string SortOrderRange = "Thứ tự sắp xếp phải từ 0 đến 9999.";
- public const string ComponentNameRequired = "Tên linh kiện là bắt buộc.";
+ public const string ComponentNameRequired = "Bạn cần nhập tên linh kiện.";
  public const string ComponentNameLength = "Tên linh kiện phải từ 1 đến 200 ký tự.";
  public const string DefaultQuantityRange = "Số lượng mặc định phải từ 1 đến 9999.";
- public const string ComponentKindRequired = "Loại linh kiện là bắt buộc.";
- public const string ConfigKeyRequired = "ConfigKey là bắt buộc.";
- public const string ConfigKeyLength = "ConfigKey phải từ 2 đến 100 ký tự.";
- public const string ConfigValueRequired = "ConfigValue là bắt buộc.";
- public const string ConfigValueMax500 = "ConfigValue không được vượt quá 500 ký tự.";
- public const string PunishmentActionRequired = "Hành động xử phạt là bắt buộc.";
+ public const string ComponentKindRequired = "Bạn cần chọn loại linh kiện.";
+ public const string ConfigKeyRequired = "Bạn cần nhập khóa cấu hình.";
+ public const string ConfigKeyLength = "Khóa cấu hình phải từ 2 đến 100 ký tự.";
+ public const string ConfigValueRequired = "Bạn cần nhập giá trị cấu hình.";
+ public const string ConfigValueMax500 = "Giá trị cấu hình không được dài quá 500 ký tự.";
+ public const string PunishmentActionRequired = "Bạn cần chọn hành động xử phạt.";
  public const string SuspendDurationRange = "Thời gian đình chỉ phải từ 1 đến 365 ngày.";
- public const string ReasonRequired = "Lý do là bắt buộc.";
+ public const string ReasonRequired = "Bạn cần nhập lý do.";
  public const string ReasonLength5To1000 = "Lý do phải từ 5 đến 1000 ký tự.";
  public const string KarmaAdjustmentRange = "Điểm karma phải từ -100 đến 100.";
- public const string OperationalStatusRequired = "Trạng thái vận hành là bắt buộc.";
- public const string OperationalStatusMax32 = "Trạng thái vận hành không được vượt quá 32 ký tự.";
- public const string OperationalStatusReasonMax500 = "Lý do trạng thái không được vượt quá 500 ký tự.";
- public const string CafePartnerCafeNameRequired = "Tên quán là bắt buộc.";
+ public const string OperationalStatusRequired = "Bạn cần chọn trạng thái vận hành.";
+ public const string OperationalStatusMax32 = "Trạng thái vận hành không được dài quá 32 ký tự.";
+ public const string OperationalStatusReasonMax500 = "Lý do trạng thái không được dài quá 500 ký tự.";
+ public const string CafePartnerCafeNameRequired = "Bạn cần nhập tên quán.";
  public const string CafePartnerCafeNameLength = "Tên quán phải từ 5 đến 100 ký tự.";
- public const string CafePartnerAddressRequired = "Địa chỉ là bắt buộc.";
+ public const string CafePartnerAddressRequired = "Bạn cần nhập địa chỉ quán.";
  public const string CafePartnerAddressLength = "Địa chỉ phải từ 10 đến 500 ký tự.";
- public const string CafePartnerPhoneNumberRequired = "Số điện thoại là bắt buộc.";
- public const string CafePartnerPhoneNumberLength = "Số điện thoại phải từ 10 đến 11 ký tự.";
- public const string CafePartnerRepresentativeEmailRequired = "Email đại diện là bắt buộc.";
- public const string CafePartnerBusinessLicenseRequired = "Giấy phép kinh doanh là bắt buộc.";
- public const string CafePartnerBusinessLicenseLength = "Giấy phép kinh doanh phải từ 5 đến 50 ký tự.";
- public const string CafePartnerBusinessLicenseImageRequired = "Ảnh giấy phép kinh doanh là bắt buộc.";
- public const string WorkingHoursRequired = "Giờ làm việc là bắt buộc.";
- public const string PopularGamesListRequired = "Danh sách game phổ biến là bắt buộc.";
+ public const string CafePartnerPhoneNumberRequired = "Bạn cần nhập số điện thoại quán.";
+ public const string CafePartnerPhoneNumberLength = "Số điện thoại phải từ 10 đến 11 số.";
+ public const string CafePartnerRepresentativeEmailRequired = "Bạn cần nhập email đại diện.";
+ public const string CafePartnerBusinessLicenseRequired = "Bạn cần nhập số giấy phép kinh doanh.";
+ public const string CafePartnerBusinessLicenseLength = "Số giấy phép kinh doanh phải từ 5 đến 50 ký tự.";
+ public const string CafePartnerBusinessLicenseImageRequired = "Bạn cần tải lên ảnh giấy phép kinh doanh.";
+ public const string WorkingHoursRequired = "Bạn cần cấu hình giờ mở cửa.";
+ public const string PopularGamesListRequired = "Bạn cần chọn ít nhất một game phổ biến.";
  public const string PopularGamesListLength = "Danh sách game phổ biến phải từ 3 đến 2000 ký tự.";
  public const string TableCountRange = "Số bàn phải từ 1 đến 10000.";
  public const string PrivateRoomCountRange = "Số phòng riêng phải từ 0 đến 1000.";
  public const string GamesOwnedRange = "Số game sở hữu phải từ 1 đến 100000.";
- public const string BasePriceRange = "Giá cơ bản phải từ 0 đến 10000000.";
+ public const string BasePriceRange = "Giá cơ bản phải từ 0 đến 10.000.000 VNĐ.";
  public const string TieredBlockMinutesRange = "Thời gian block tính tiền phải từ 1 đến 1440 phút.";
- public const string TieredBlockRateRequired = "Với mô hình TIME_BASED, giá block lũy tiến là bắt buộc.";
- public const string DepositPercentageRange = "Phần trăm cọc không được vượt quá 50%.";
+ public const string TieredBlockRateRequired = "Với mô hình tính theo giờ, bạn cần nhập giá block lũy tiến.";
+ public const string DepositPercentageRange = "Phần trăm cọc không được vượt quá 50% giá vé.";
  public const string SeatsPerTableRange = "Số ghế mỗi bàn phải từ 1 đến 50.";
  public const string TableNameLength = "Tên bàn phải từ 1 đến 100 ký tự.";
- public const string TableNoFieldsToUpdate = "Cần gửi ít nhất một trường để cập nhật (Name, SeatCount hoặc SortOrder).";
+ public const string TableNoFieldsToUpdate = "Bạn cần gửi ít nhất một trường để cập nhật (Tên bàn, Số ghế, hoặc Thứ tự).";
 
- public const string LobbySearchLimitRange = "Limit phải nằm trong khoảng 1 đến 100.";
- public const string LobbySearchGeoRequired = "latitude, longitude, radiusKm phải truyền đồng thời nếu muốn filter theo khu vực.";
- public const string LobbySearchRadiusRange = "radiusKm phải nằm trong khoảng (0, 500] km.";
+ public const string LobbySearchLimitRange = "Số kết quả mỗi trang phải từ 1 đến 100.";
+ public const string LobbySearchGeoRequired = "Bạn cần nhập đầy đủ thông tin vị trí (vĩ độ, kinh độ, bán kính) để tìm quán gần bạn.";
+ public const string LobbySearchRadiusRange = "Bán kính tìm kiếm phải từ 0 đến 500 km.";
 
-public const string FriendSearchMinLength = "Từ khóa tìm kiếm phải có ít nhất 2 ký tự.";
+ public const string FriendSearchMinLength = "Từ khóa tìm kiếm phải có ít nhất 2 ký tự.";
 
-public static string FriendInvalidDirection(string validValues) =>
-$"Direction không hợp lệ. Giá trị hợp lệ: {validValues}";
-}
+ public static string FriendInvalidDirection(string validValues) =>
+ $"Giá trị bạn chọn không hợp lệ. Chỉ chấp nhận: {validValues}.";
+ }
 
  public static class Friend
  {
  public static string UserNotFound(Guid userId) =>
- $"Không tìm thấy người dùng '{userId}'.";
+ $"Không tìm thấy người dùng này.";
 
  public const string CannotSendToSelf =
- "Không thể gửi lời mời kết bạn cho chính mình.";
+ "Bạn không thể gửi lời mời kết bạn cho chính mình nhé!";
 
  public const string PendingRequestAlreadyExists =
- "Đã có lời mời kết bạn đang chờ với người dùng này.";
+ "Bạn đã gửi lời mời kết bạn với người này rồi. Hãy đợi họ phản hồi nhé!";
 
  public const string AlreadyFriends =
- "Bạn và người dùng này đã là bạn bè.";
+ "Hai bạn đã là bạn bè rồi!";
 
  public const string NotFriendRequestRecipient =
- "Bạn không phải người nhận của lời mời kết bạn này.";
+ "Bạn không phải người nhận lời mời kết bạn này.";
 
  public const string FriendRequestNotPending =
- "Lời mời kết bạn này không ở trạng thái chờ phản hồi.";
+ "Lời mời kết bạn này đã được xử lý trước đó.";
 
  public static string FriendshipNotFound(Guid id) =>
- $"Không tìm thấy quan hệ bạn bè '{id}'.";
+ $"Không tìm thấy lời mời hoặc quan hệ bạn bè này.";
 
  public const string CannotRemoveAcceptedByOther =
- "Chỉ có thể xóa quan hệ bạn bè khi nó đang ở trạng thái Accepted.";
+ "Chỉ xóa được quan hệ bạn bè đang hoạt động.";
 
  public const string CannotCancelRequestNotRequester =
- "Chỉ người gửi lời mời mới có thể hủy lời mời kết bạn này.";
+ "Chỉ người gửi mới có thể hủy lời mời kết bạn nhé!";
 
  public const string CannotCancelNonPendingRequest =
- "Chỉ có thể hủy lời mời kết bạn đang ở trạng thái chờ phản hồi (Pending).";
+ "Chỉ hủy được lời mời đang chờ phản hồi.";
 
  public const string CannotViewRequestNotMember =
- "Bạn không có quyền xem lời mời kết bạn này vì bạn không phải một bên của quan hệ.";
+ "Bạn không có quyền xem lời mời này.";
 
  public const string CannotViewBlockedRequest =
- "Không thể xem chi tiết quan hệ đang bị chặn bởi người dùng khác.";
+ "Bạn không thể xem vì đã bị chặn bởi người này.";
 
  public const string BlockedByOtherParty =
- "Bạn đã bị người dùng này chặn.";
+ "Bạn đã bị người này chặn. Không thể gửi lời mời kết bạn.";
 
  public const string AlreadyBlockedOtherParty =
- "Bạn đã chặn người dùng này. Hãy bỏ chặn trước khi gửi lời mời.";
+ "Bạn đã chặn người này trước rồi. Hãy bỏ chặn trước nhé!";
 
  public const string RequesterNotActive =
- "Tài khoản người gửi không còn hoạt động.";
+ "Tài khoản người gửi lời mời không còn hoạt động.";
 
  public const string AddresseeNotActive =
- "Tài khoản của bạn không ở trạng thái hoạt động.";
+ "Tài khoản của bạn đang không hoạt động.";
 
  public const string RateLimitExceeded =
- "Bạn đã gửi quá nhiều lời mời kết bạn. Chờ vài phút rồi thử lại.";
+ "Bạn gửi lời mời hơi nhanh đấy! Hãy chờ một chút rồi thử lại nhé.";
 
  public const string FriendListPrivate =
- "Người dùng này đã ẩn danh sách bạn bè.";
+ "Người này đã ẩn danh sách bạn bè.";
 
  public const string CannotBlockAdmin =
- "Không thể chặn tài khoản quản trị viên.";
+ "Không thể chặn tài khoản quản trị viên nhé!";
 
  public const string CannotBlockSelf =
- "Không thể chặn chính mình.";
+ "Bạn không thể tự chặn chính mình nhé!";
 
  public const string CannotReportSelf =
- "Không thể báo cáo chính mình.";
+ "Bạn không thể tự báo cáo chính mình nhé!";
 
  public const string CannotReportAdmin =
- "Không thể báo cáo tài khoản quản trị viên.";
+ "Không thể báo cáo tài khoản quản trị viên nhé!";
 
  public const string CannotReportNotFriend =
- "Chỉ có thể báo cáo người dùng đang là bạn bè hoặc đã từng kết bạn.";
+ "Bạn chỉ có thể báo cáo người đang là bạn bè hoặc đã từng kết bạn.";
 
  public static string ReportReasonRequired =>
- "Lý do báo cáo là bắt buộc và phải từ 5 đến 1000 ký tự.";
+ "Bạn cần nhập lý do báo cáo (từ 5 đến 1000 ký tự) để admin xem xét nhé.";
 
  public static string ReportAlreadyExists(Guid targetUserId) =>
- $"Bạn đã gửi báo cáo cho người dùng '{targetUserId}' và đang được xử lý.";
+ $"Bạn đã gửi báo cáo cho người này rồi. Admin đang xử lý, bạn đợi nhé!";
 
  public static string ReportNotFound(Guid id) =>
- $"Không tìm thấy báo cáo '{id}'.";
+ $"Không tìm thấy báo cáo này.";
 
  public const string CannotSuggestToSelf =
- "Không thể lấy gợi ý kết bạn cho chính mình.";
+ "Bạn không thể tự gợi ý kết bạn cho chính mình nhé!";
 
  public const string NoSuggestionsAvailable =
- "Hiện chưa có gợi ý kết bạn phù hợp với bạn.";
+ "Hiện chưa có gợi ý kết bạn nào phù hợp với bạn. Thử cập nhật thêm thông tin hoặc mời bạn bè nhé!";
 
  public const string CannotViewOwnFriendList =
- "Không thể truy vấn chính mình qua endpoint này. Hãy dùng GET /api/v1/friends.";
+ "Bạn không thể tự xem danh sách bạn bè qua endpoint này. Hãy vào trang cá nhân của mình nhé!";
 
  public const string CannotViewOwnProfile =
- "Không thể truy vấn profile của chính mình qua endpoint này. Hãy dùng GET /api/v1/players/me.";
+ "Bạn không thể xem hồ sơ của chính mình qua endpoint này. Hãy dùng trang cá nhân nhé!";
 
  public const string CannotNoteSelf =
- "Không thể tạo ghi chú cho chính mình.";
+ "Bạn không thể tự tạo ghi chú cho chính mình nhé!";
 
  public static string NoteNotFound(Guid noteId) =>
- $"Không tìm thấy ghi chú '{noteId}'.";
+ $"Không tìm thấy ghi chú này.";
 
  public static string NoteNotOwner(Guid noteId) =>
- $"Bạn không phải chủ sở hữu của ghi chú '{noteId}'.";
+ $"Bạn không phải là người tạo ghi chú này.";
 
  public const string PrivacyRequestNotAccepting =
- "Người dùng này đã tắt nhận lời mời kết bạn từ người lạ.";
+ "Người này đã tắt nhận lời mời kết bạn từ người lạ.";
 
  public const string CannotSendRequestToInactive =
- "Tài khoản người nhận không hoạt động nên không thể gửi lời mời.";
+ "Tài khoản người nhận đang không hoạt động nên không thể gửi lời mời.";
 
  public const string CannotRemoveFriendshipNotMember =
  "Bạn không có quyền xóa quan hệ bạn bè này.";
@@ -1630,129 +1741,129 @@ $"Direction không hợp lệ. Giá trị hợp lệ: {validValues}";
  "Không thể chặn tài khoản không hoạt động.";
 
  public const string UnblockNotFound =
- "Không có quan hệ chặn nào giữa bạn và người dùng này để bỏ chặn.";
+ "Không có ai đang bị bạn chặn cả.";
 
  public const string CannotUnblockNotBlocker =
- "Bạn không phải người đã chặn người dùng này.";
+ "Bạn không phải là người đã chặn người này.";
 
  public const string ProfileNotYetCreated =
- "Hồ sơ người dùng chưa được tạo. Hoàn tất hồ sơ trước khi sử dụng tính năng này.";
+ "Bạn cần hoàn tất hồ sơ trước khi sử dụng tính năng này nhé!";
 
  public const string BlockedCannotViewProfile =
- "Phía bên kia đã chặn bạn nên không thể xem hồ sơ.";
+ "Người này đã chặn bạn nên không thể xem hồ sơ.";
  }
 
  public static class LobbyInvite
  {
  public static string InviteNotFound(Guid id) =>
- $"Không tìm thấy lời mời '{id}'.";
+ $"Không tìm thấy lời mời này.";
 
  public const string CannotInviteSelf =
- "Không thể mời chính mình vào phòng chờ.";
+ "Bạn không thể mời chính mình vào phòng nhé!";
 
  public const string InviteeAlreadyMember =
- "Người được mời đã là thành viên của phòng chờ.";
+ "Người này đã là thành viên của phòng rồi!";
 
  public const string PendingInviteAlreadyExists =
- "Đã có lời mời đang chờ với người dùng này cho lobby này.";
+ "Bạn đã gửi lời mời cho người này rồi. Hãy đợi họ phản hồi nhé!";
 
  public const string InviterNotMember =
- "Chỉ thành viên của phòng chờ mới có thể gửi lời mời.";
+ "Bạn không phải thành viên của phòng này nên không thể mời người khác.";
 
  public const string InviteNotPending =
- "Lời mời này không ở trạng thái chờ phản hồi.";
+ "Lời mời này đã được xử lý trước đó.";
 
  public const string NotInviteRecipient =
- "Bạn không phải người nhận của lời mời này.";
+ "Bạn không phải người nhận lời mời này.";
 
  public const string InviteExpired =
- "Lời mời đã hết hạn hoặc lobby không còn khả dụng.";
+ "Lời mời đã hết hạn hoặc phòng không còn hoạt động.";
 
  public const string PrivateLobbyRequiresInvite =
- "Phòng chờ riêng tư chỉ có thể tham gia qua lời mời hoặc share code.";
+ "Phòng riêng tư chỉ có thể tham gia qua lời mời hoặc mã chia sẻ.";
 
  public const string PrivateLobbyShareCodeRequiresFriendship =
- "Phòng chờ riêng tư chỉ cho phép người có quan hệ bạn bè với thành viên tham gia bằng share code.";
+ "Phòng riêng tư chỉ cho phép người là bạn với thành viên tham gia qua mã chia sẻ.";
 
  public static string ShareCodeInvalid =>
- "Mã chia sẻ không hợp lệ hoặc không tồn tại.";
+ "Mã chia sẻ không hợp lệ. Bạn kiểm tra lại mã nhé!";
 
     public const string InviteRateLimitExceeded =
-    "Bạn đã gửi/nhận quá nhiều lời mời trong ngày. Thử lại sau.";
+    "Bạn gửi/nhận lời mời hơi nhiều rồi! Hãy nghỉ một chút rồi thử lại nhé.";
 
     // L-01: Share code brute-force protection
     public const string ShareCodeRateLimitExceeded =
-    "Bạn đã thử quá nhiều mã chia sẻ. Vui lòng chờ 15 phút rồi thử lại.";
+    "Bạn thử mã chia sẻ hơi nhiều lần rồi! Vui lòng chờ 15 phút rồi thử lại nhé.";
 
- // ===== LobbyInviteService specific =====
- public const string LobbyClosedOrUnavailable =
- "Phòng chờ đã đóng hoặc không còn khả dụng.";
+    // ===== LobbyInviteService specific =====
+    public const string LobbyClosedOrUnavailable =
+    "Phòng đã đóng hoặc không còn hoạt động.";
 
- public const string PrivateLobbyInviterMustBeFriend =
- "Phòng chờ riêng tư chỉ cho phép mời bạn bè đã chấp nhận.";
+    public const string PrivateLobbyInviterMustBeFriend =
+    "Phòng riêng tư chỉ cho phép mời bạn bè đã chấp nhận lời mời.";
 
- public const string LobbyDisappeared =
- "Phòng chờ không còn tồn tại.";
+    public const string LobbyDisappeared =
+    "Phòng không còn tồn tại.";
 
- public const string LobbyFullCannotAcceptInvite =
- "Phòng chờ đã đủ người. Không thể chấp nhận lời mời này.";
+    public const string LobbyFullCannotAcceptInvite =
+    "Phòng đã đầy người rồi! Bạn thử tìm phòng khác nhé.";
 
- public const string PrivateLobbyRequiresActiveFriendship =
- "Phòng chờ riêng tư yêu cầu quan hệ bạn bè đang hoạt động.";
+    public const string PrivateLobbyRequiresActiveFriendship =
+    "Phòng riêng tư yêu cầu quan hệ bạn bè đang hoạt động.";
 
- public const string OnlyInviterCanCancel =
- "Chỉ người gửi lời mời mới có thể hủy lời mời.";
+    public const string OnlyInviterCanCancel =
+    "Chỉ người gửi lời mời mới có thể hủy lời mời nhé!";
 
- public const string OnlyLobbyMemberCanViewShareCode =
- "Chỉ thành viên phòng chờ mới có thể xem mã chia sẻ.";
+    public const string OnlyLobbyMemberCanViewShareCode =
+    "Chỉ thành viên của phòng mới xem được mã chia sẻ.";
 
- public static string InviteInvalidStatus(string status) =>
- $"Trạng thái lời mời không hợp lệ: '{status}'.";
+    public static string InviteInvalidStatus(string status) =>
+    $"Lời mời đang ở trạng thái không hợp lệ: '{status}'.";
  }
 
  public static class Lobby
  {
  public static string NotFound(Guid lobbyId) =>
- $"Không tìm thấy phòng chờ '{lobbyId}'.";
+ $"Oops! Không tìm thấy phòng này. Phòng có thể đã bị hủy hoặc không tồn tại.";
 
  public const string LobbyNotFoundById =
- "Không tìm thấy phòng chờ yêu cầu.";
+ "Không tìm thấy phòng này.";
 
  public const string AlreadyMember =
- "Bạn đã là thành viên của phòng này.";
+ "Bạn đã là thành viên của phòng này rồi!";
 
  public const string NotMember =
- "Bạn không phải là thành viên của phòng này.";
+ "Bạn không phải thành viên của phòng này.";
 
  public const string NotOpen =
- "Phòng chờ này không còn mở.";
+ "Phòng này không còn mở tuyển người nữa.";
 
  public const string AlreadyClosed =
- "Phòng chờ đã đóng.";
+ "Phòng đã đóng rồi.";
 
  public const string SeatCountExceeded =
  "Số thành viên đã vượt quá số ghế cho phép.";
 
  public static string MaxMembersOutOfRange(int min, int max, int requested) =>
- $"Số người tối đa ({requested}) phải nằm trong khoảng [{min}, {max}].";
+ $"Số người tối đa ({requested}) phải từ {min} đến {max}.";
 
  public static string MinPlayersInvalid(int currentCount, int minPlayers) =>
- $"Phòng chờ cần ít nhất {minPlayers} người để khóa (hiện có {currentCount}).";
+ $"Phòng cần ít nhất {minPlayers} người để khóa (hiện có {currentCount} người).";
 
  public const string HostCannotKickSelf =
- "Host không thể tự kick mình. Hãy dùng Leave thay thế.";
+ "Bạn không thể tự kick mình khỏi phòng. Hãy dùng chức năng rời phòng thay thế nhé!";
 
  public const string NotHost =
- "Chỉ Host mới có thể thực hiện thao tác này.";
+ "Chỉ chủ phòng mới thực hiện được thao tác này.";
 
  public const string AlreadyHost =
- "Bạn đã là Host rồi.";
+ "Bạn đã là chủ phòng rồi!";
 
  public const string CannotReportOwnLobby =
- "Bạn không thể báo cáo phòng chờ mà bạn là Host.";
+ "Bạn không thể báo cáo phòng mà mình là chủ phòng nhé!";
 
  public static string NotActiveMember(Guid lobbyId) =>
- $"Bạn không phải thành viên đang hoạt động của phòng '{lobbyId}'.";
+ $"Bạn không phải thành viên đang hoạt động của phòng này.";
 
  // ===== LobbyMessage domain =====
  public static class Message
@@ -1892,41 +2003,72 @@ $"Direction không hợp lệ. Giá trị hợp lệ: {validValues}";
  public const string SeatInventoryFull =
  "Số thành viên đã vượt quá số ghế cho phép.";
 
- public static string DissolveInvalidState(object currentStatus) =>
- $"Không thể giải tán lobby ở trạng thái '{currentStatus}'. Phòng đã đóng hoặc đang trong phiên chơi.";
- }
+            public static string DissolveInvalidState(object currentStatus) =>
+$"Không thể giải tán lobby ở trạng thái '{currentStatus}'. Phòng đã đóng hoặc đang trong phiên chơi.";
+
+// ===== BR-NEW-14: 4 proposals cho lobby at-risk =====
+
+public const string TimeSlotSameAsCurrent =
+"Khung giờ bạn chọn trùng với khung giờ hiện tại. Hãy chọn khung giờ khác.";
+
+public static string BufferTooShortForTimeSlotChange(int bufferMinutes) =>
+$"Khung giờ mới chỉ còn {bufferMinutes} phút buffer (cần ít nhất 60 phút). Hãy chọn khung giờ khác xa hơn.";
+
+public const string LobbyBoostCooldown =
+"Bạn chỉ có thể boost 1 lần mỗi 6 giờ. Vui lòng đợi một chút nhé!";
+
+public const string LobbyBoostOnlyWhenOpen =
+"Chỉ có thể boost khi phòng đang mở tuyển người.";
+}
 
  // ===== BR-NEW-* § XXI-G Phase 2/3 =====
-public static class Reservation
+ public static class Reservation
     {
+    public static string NotFound(Guid reservationId) =>
+        $"Không tìm thấy đặt chỗ này. Có thể đã bị hủy hoặc không tồn tại.";
+
     // ===== POS QR check-in (BR §21A.7 — 2 chiều) =====
     public const string PosTokenExpired =
-        "Mã QR mời quét đã hết hạn. Yêu cầu nhân viên tạo mã mới.";
+        "Mã QR đã hết hạn. Bạn nhờ nhân viên tạo mã mới nhé!";
 
     public const string PosTokenAlreadyUsed =
-        "Mã QR mời quét đã được sử dụng. Yêu cầu nhân viên tạo mã mới.";
+        "Mã QR đã được quét rồi. Bạn nhờ nhân viên tạo mã mới nhé!";
 
     public const string PosTokenRevoked =
-        "Mã QR mời quét đã bị thu hồi. Yêu cầu nhân viên tạo mã mới.";
+        "Mã QR đã bị thu hồi. Bạn nhờ nhân viên tạo mã mới nhé!";
+
+    // ===== BR-RES-07: Reservation bắt buộc có startTime + endTime =====
+    public const string ReservationRequiresStartAndEnd =
+        "Đặt chỗ bắt buộc phải có thời gian bắt đầu và thời gian kết thúc. " +
+        "Vui lòng chọn khung giờ (morning/afternoon/evening/night) để hệ thống tự tính giờ kết thúc.";
+
+    // ===== BR-RES-08: endTime cùng ngày startTime =====
+    public const string ReservationEndTimeDifferentDay =
+        "Thời gian kết thúc phải cùng ngày với thời gian bắt đầu. " +
+        "Đặt chỗ qua đêm không được hỗ trợ — vui lòng chọn 2 đặt chỗ riêng (tối nay và ngày mai).";
+
+    // ===== BR-RES-09: TimeSlot không hợp lệ =====
+    public static string ReservationInvalidTimeSlot(TimeSlot slot) =>
+        $"Khung giờ không hợp lệ ({(int)slot}). Chỉ chấp nhận: morning (09:00-13:00), afternoon (13:00-18:00), evening (18:00-23:00), night (19:00-24:00).";
 
     public static string PosTokenNotFound(string token) =>
-        $"Không tìm thấy mã QR mời quét '{token}'.";
+        $"Không tìm thấy mã QR này.";
 
     public static string PosTokenNotInCheckInWindow(Guid reservationId) =>
-        $"Reservation '{reservationId}' không nằm trong khung giờ cho phép check-in. Vui lòng đến đúng giờ hoặc liên hệ nhân viên.";
+        $"Đặt chỗ của bạn chưa đến giờ check-in. Bạn đến đúng giờ hoặc nhờ nhân viên hỗ trợ nhé!";
 
     public static string NotReservationMember(Guid reservationId, Guid userId) =>
-        $"Người dùng '{userId}' không phải thành viên của reservation '{reservationId}'. Không thể check-in.";
+        $"Bạn không phải thành viên của đặt chỗ này nên không thể check-in.";
 
     public static string PosTokenReservationMissing =>
-        "Mã QR POS này không liên kết với reservation nào. Liên hệ nhân viên để tạo lại.";
+        "Mã QR này không liên kết với đặt chỗ nào. Bạn nhờ nhân viên tạo lại nhé!";
 
     public static string InvalidStatusForCheckIn(Guid reservationId, string currentStatus, string expectedStatus) =>
-        $"Reservation '{reservationId}' không thể check-in. Trạng thái hiện tại: '{currentStatus}', yêu cầu: '{expectedStatus}'.";
+        $"Đặt chỗ của bạn chưa thể check-in (trạng thái: '{currentStatus}', cần: '{expectedStatus}').";
 
     // ===== Buffer validation (BR-LOBBY-01a/b/c) =====
- public static string BufferTooShort(int bufferMinutes, int minRequired) =>
- $"Thời gian đệm đến hạn tuyển người quá ngắn ({bufferMinutes} phút). Cần tối thiểu {minRequired} phút — vui lòng chọn khung giờ khác.";
+    public static string BufferTooShort(int bufferMinutes, int minRequired) =>
+ $"Oops! Thời gian để tuyển người chỉ còn {bufferMinutes} phút, cần ít nhất {minRequired} phút. Bạn chọn khung giờ khác xa hơn một chút nhé!";
 
  // ===== Play date range (BR § VIII: max 7 ngày trong tương lai) =====
  public static string PlayDateOutOfRange(int maxDaysAhead) =>
@@ -1951,17 +2093,17 @@ public static class Reservation
 
     // ===== BR-USER-LIMIT-01: 1 host lobby + 1 member lobby =====
     public const string ActiveLobbyHostLimitReached =
-        "Bạn đang là chủ phòng của 1 lobby khác. Hãy hủy lobby đó hoặc đợi nó kết thúc rồi hãy tạo phòng mới.";
+        "Bạn đang là chủ phòng của một phòng khác rồi. Hãy hủy phòng đó hoặc đợi nó kết thúc rồi hãy tạo phòng mới nhé!";
 
     public const string ActiveLobbyMemberLimitReached =
-        "Bạn đang là thành viên của 1 lobby khác. Hãy rời lobby đó trước khi tạo phòng mới làm chủ phòng.";
+        "Bạn đang tham gia một phòng khác rồi. Hãy rời phòng đó trước khi tạo phòng mới làm chủ phòng nhé!";
 
     // ===== BR-USER-LIMIT-04/05: cross-role =====
     public const string MemberCannotCreateLobby =
-        "Bạn đang là thành viên của 1 lobby đang tuyển người, nên chưa thể tạo lobby mới làm chủ phòng. Hãy rời lobby hiện tại trước.";
+        "Bạn đang tham gia một phòng khác nên chưa thể tạo phòng mới. Hãy rời phòng hiện tại trước nhé!";
 
     public const string HostCannotJoinLobby =
-        "Bạn đang là chủ phòng của 1 lobby khác, nên chưa thể tham gia lobby người khác làm thành viên. Hãy hủy lobby của bạn trước.";
+        "Bạn đang là chủ phòng của một phòng khác nên chưa thể tham gia phòng khác. Hãy hủy phòng của bạn trước nhé!";
 
  // ===== BR-NEW-08: 1 lobby / cafe / playDate+timeSlot / user =====
  public static string SameCafeSlotLobbyAlreadyActive =>
@@ -2005,7 +2147,7 @@ public static class Reservation
 
  // ===== BVC hold =====
  public static string InsufficientAvailableBalance(long available, long required) =>
- $"Số dư BVC khả dụng ({available}) không đủ để giữ cọc ({required}).";
+ $"Số dư BVC khả dụng của bạn ({available} BVC) không đủ. Bạn cần {required} BVC để đặt cọc. Nhấn 'Nạp BVC' để nạp thêm nhé!";
 
  // ===== Reservation lifecycle =====
  public static string ReservationNotFound(Guid id) =>
@@ -2031,22 +2173,22 @@ public static class Reservation
 
  // ===== Cancel =====
  public static string CancelOnlyByHost =
- "Chỉ host mới có thể hủy lobby.";
+ "Chỉ chủ phòng mới có thể hủy phòng.";
 
  public static string CancelWithinGraceFullRefund(string graceMinutes) =>
- $"Hủy trong vòng {graceMinutes} phút đầu chưa có thành viên — hoàn 100% BVC.";
+ $"Hủy trong vòng {graceMinutes} phút đầu (chưa có ai tham gia) — hoàn 100% BVC cho bạn!";
 
  public static string CancelRefundMatrix(double hoursToStart, long percent) =>
- $"Hủy cách giờ chơi {hoursToStart:F1} giờ — hoàn {percent}% BVC.";
+ $"Hủy cách giờ chơi {hoursToStart:F1} giờ — bạn được hoàn {percent}% BVC.";
 
  public const string CancelAfter24hFullRefund =
- "Hủy trước giờ chơi từ 24 giờ trở lên — hoàn 100% BVC.";
+ "Hủy trước giờ chơi từ 24 giờ trở lên — hoàn 100% BVC!";
 
  public const string Cancel6To24hHalfRefund =
- "Hủy trong khoảng 6–24 giờ trước giờ chơi — hoàn 50% BVC.";
+ "Hủy trong khoảng 6–24 giờ trước giờ chơi — bạn được hoàn 50% BVC.";
 
  public const string CancelUnder6hNoRefund =
- "Hủy dưới 6 giờ trước giờ chơi — không hoàn BVC.";
+ "Hủy dưới 6 giờ trước giờ chơi — rất tiếc bạn sẽ không được hoàn BVC.";
 
  // ===== BR-NEW-11 cafe approval =====
  public const string ApproveOnlyByCafeOwner =
@@ -2075,6 +2217,17 @@ public static class Reservation
  // ===== Validation message chuẩn cho Reservation flow =====
  public const string OnlyHostCanCancel =
  "Chỉ host mới có thể hủy reservation.";
+
+    // ===== BR-REFUND-08 (walk-in-override-design §2.3): late cancel sau check-in =====
+    public const string OnlyHostCanLateCancelAfterCheckin =
+        "Chỉ host mới có thể hủy reservation sau khi đã check-in.";
+
+    public static string MustBeCheckedInToLateCancel(Guid reservationId, object currentStatus) =>
+        $"Reservation '{reservationId}' chưa thể hủy sau check-in vì chưa đến trạng thái CheckedIn (hiện tại: {currentStatus}). Hãy hoàn tất check-in tại quán trước.";
+
+    public static string NotEnoughPlayedForLateCancelRefund(decimal playedRatio) =>
+        $"Bạn đã chơi {playedRatio:P0} khung giờ (dưới 50%) nên không đủ điều kiện hoàn cọc theo BR-REFUND-08. " +
+        "Khoản cọc sẽ thuộc về quán.";
 
  public const string CafeNotActive =
  "Cafe này hiện không hoạt động.";
@@ -2146,9 +2299,13 @@ public static class Reservation
  $"Số tiền cọc đã thay đổi (server: {serverAmount} BVC, client: {clientAmount} BVC). " +
  "Tạo lại quote và thử lại.";
 
- public static string CompleteCaptureInvalidStatus(Guid reservationId, object status) =>
- $"Reservation '{reservationId}' status = {status} (mong đợi CheckedIn). " +
- "Không thể capture BVC cho reservation chưa check-in thành công.";
+    public static string CompleteCaptureInvalidStatus(Guid reservationId, object status) =>
+        $"Reservation '{reservationId}' status = {status} (mong đợi CheckedIn). " +
+        "Không thể capture BVC cho reservation chưa check-in thành công.";
+
+    public const string CheckInOutsideAllowedWindow =
+        "Chỉ được check-in trong khoảng 30 phút trước đến 30 phút sau giờ hẹn. " +
+        "Vui lòng liên hệ nhân viên nếu cần hỗ trợ đặc biệt.";
 
  public static string SeatInventoryStateInvalid(int held, int required) =>
  $"Số ghế đang giữ ({held}) nhỏ hơn số người tối đa của đặt chỗ ({required}).";
@@ -2215,6 +2372,39 @@ public static class Reservation
 
  public const string OnlyOnGoingCompletable =
  "Chỉ có thể hoàn thành giải đang diễn ra.";
+
+ public const string AlreadyInWaitlist =
+ "Bạn đã có trong waitlist của giải này.";
+
+ public const string KickReasonRequired =
+ "Lý do kick là bắt buộc.";
+
+ public static string GameTemplateNotFound(Guid gameTemplateId) =>
+ $"Game template '{gameTemplateId}' không tìm thấy.";
+
+ public static string CafeNotFound(Guid cafeId) =>
+ $"Cafe '{cafeId}' không tìm thấy.";
+
+ public const string OnlyDeleteInSpecificStatus =
+ "Chỉ xóa được tournament ở trạng thái Draft, Cancelled hoặc Completed.";
+
+ public const string OnlyOpenRegistrationDraft =
+ "Chỉ mở đăng ký cho tournament ở trạng thái Draft.";
+
+ public const string RegistrationDeadlineMustBeFuture =
+ "Thời hạn đăng ký phải trong tương lai.";
+
+ public const string OnlyCloseRegistrationOpen =
+ "Chỉ đóng đăng ký cho tournament đang mở đăng ký.";
+
+ public const string OnlyStartRegistrationClosed =
+ "Chỉ bắt đầu tournament ở trạng thái RegistrationClosed.";
+
+ public static string NotEnoughParticipants(int required, int current) =>
+ $"Không đủ người tham gia. Cần tối thiểu {required}, hiện có {current}.";
+
+ public const string AlreadyEndedOrCancelled =
+ "Tournament đã kết thúc hoặc bị hủy trước đó.";
 
  public const string FinalMatchNotCompleted =
  "Bàn chung kết chưa hoàn thành. Hãy ghi nhận kết quả Final trước.";
@@ -2413,7 +2603,43 @@ public static class Reservation
 
  public static string RegistrationExtended(string tournamentTitle, DateTime newDeadline, int minutes) =>
  $"Giải đấu '{tournamentTitle}' đã được gia hạn thêm {minutes} phút. Hạn chót mới: {newDeadline:HH:mm}.";
+
+ public static class Waitlist
+ {
+ public const string OnlyJoinWhenRegistrationOpen =
+ "Chỉ có thể tham gia waitlist khi tournament đang mở đăng ký.";
+
+ public const string RegistrationDeadlinePassed =
+ "Đã hết hạn đăng ký tournament.";
+
+ public const string AlreadyRegistered =
+ "Bạn đã đăng ký tham gia tournament này.";
+
+ public const string NotInWaitlist =
+ "Bạn không có trong waitlist của tournament này.";
+
+ public const string NoOfferReceived =
+ "Bạn chưa nhận được offer từ waitlist.";
+
+ public const string OfferExpired =
+ "Offer đã hết hạn.";
+
+ public const string NoOfferToDecline =
+ "Bạn không có offer nào để từ chối.";
  }
+
+ public static class Spectator
+ {
+ public const string CannotSpectateUnpublished =
+ "Không thể spectate tournament chưa được công bố.";
+
+ public const string CannotSpectateAsParticipant =
+ "Bạn là người chơi trong tournament này, không cần spectate.";
+
+ public const string NotSpectating =
+ "Bạn không spectate tournament này.";
+ }
+}
 
  public static class Entity
  {
@@ -2429,10 +2655,67 @@ public static class Reservation
  public static class Notification
  {
  public const string DeviceTokenRequired = "Device token FCM là bắt buộc.";
- public const string DeviceTokenTooLong = "Device token FCM không được vượt quá 512 ký tự.";
+ public const string DeviceTokenTooTooLong = "Device token FCM không được vượt quá 512 ký tự.";
  public const string DeviceTokenNotFound = "Không tìm thấy device token để xóa.";
  public const string DeviceTokenNotOwner = "Bạn không có quyền xóa device token này.";
  public const string PlatformInvalid = "Giá trị platform không hợp lệ. Chỉ chấp nhận 'android', 'ios' hoặc 'web'.";
  }
- }
+
+public static class Settlement
+    {
+        public static string NotFound(Guid settlementId) =>
+        $"Không tìm thấy settlement '{settlementId}'.";
+
+        public const string AlreadyOverridden =
+        "Settlement này đã được override trước đó.";
+    }
+
+    public static class ReservationExtension
+    {
+        public const string OnlyHostCanExtend =
+        "Chỉ host của reservation mới có thể gia hạn thêm thời gian.";
+
+        public static string OnlyConfirmedStatus(string currentStatus) =>
+        $"Chỉ có thể gia hạn reservation ở trạng thái Confirmed. Trạng thái hiện tại: {currentStatus}.";
+
+        public static string MaxExtensionCountReached(int maxCount) =>
+        $"Đã gia hạn tối đa {maxCount} lần. Không thể gia hạn thêm nữa.";
+
+        public static string RemainingMinutesInsufficient(int remainingMinutes, int requestedMinutes) =>
+        $"Chỉ còn {remainingMinutes} phút có thể gia hạn. Bạn yêu cầu {requestedMinutes} phút.";
+
+        public const string CannotExtendPastMidnight =
+        "Không thể gia hạn qua ngày. Bạn tạo reservation mới cho ngày mai nhé!";
+
+        public const string WalkInWindowOverlap =
+        "Đang có khung giờ walk-in hoạt động trong thời gian bạn muốn gia hạn. Bạn chọn khung giờ khác nhé!";
+
+        public static string CheckInMissingScheduledTime(Guid reservationId) =>
+        $"Không thể check-in reservation '{reservationId}' vì thiếu thời gian dự kiến. Liên hệ hỗ trợ.";
+
+        public static string CheckInMissingScheduledEndTime(Guid reservationId) =>
+        $"Không thể check-in reservation '{reservationId}' vì thiếu thời gian kết thúc. Liên hệ hỗ trợ.";
+    }
+
+    public static class Receipt
+    {
+        public static string OnlyForPaidSession(string currentStatus) =>
+        $"Receipt chỉ có thể tạo cho phiên đã thanh toán. Trạng thái hiện tại: {currentStatus}.";
+    }
+
+    public static class FriendReport
+    {
+        public const string AdminNoteRequired =
+        "Bạn cần nhập ghi chú admin khi xử lý report.";
+
+        public const string InvalidResolveStatus =
+        "Trạng thái xử lý không hợp lệ. Chỉ chấp nhận Reviewed hoặc Dismissed.";
+
+        public static string NotFound(Guid reportId) =>
+        $"Không tìm thấy báo cáo '{reportId}'.";
+
+        public static string AlreadyProcessed(Guid reportId, string currentStatus) =>
+        $"Báo cáo '{reportId}' đã được xử lý trước đó (trạng thái: {currentStatus}).";
+    }
+    }
 }

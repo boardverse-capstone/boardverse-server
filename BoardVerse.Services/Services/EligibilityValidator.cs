@@ -204,6 +204,10 @@ public class HostReservationContext
     public DateTime RecruitmentDeadline { get; set; }
     public DateTime Now { get; set; }
 
+    // BR-RESV-02: Preferred times dùng cho overlap check chính xác hơn slot window.
+    public DateTime PreferredScheduledStart { get; set; }
+    public DateTime PreferredScheduledEnd { get; set; }
+
     public bool IsVip { get; set; }
     public bool IsRiskMultiplierHigh { get; set; }
     public bool IsCoolingOff { get; set; }

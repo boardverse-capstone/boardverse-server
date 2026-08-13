@@ -130,6 +130,8 @@ public class BookingService : IBookingService
             };
 
             // 8. Update Lobby.BookingId (chỉ khi có lobby)
+            // TD-01 FIX: Gán thành booking.Id — Lobby.BookingId là FK đến Booking (bảng đặt chỗ),
+            // không phải BookingDeposit (bảng cọc). Navigation Lobby.Booking → Booking là đúng.
             if (lobby != null)
             {
                 lobby.BookingId = booking.Id;
@@ -466,6 +468,7 @@ public class BookingService : IBookingService
             SessionStatus = "NotStarted",
             StartedAt = null,
             CurrentDurationMinutes = 0,
+            TableNumber = booking.TableNumber,
             Members = new List<BookingSessionMemberStatusDto>(),
             EstimatedFinalBill = null
         };

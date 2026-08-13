@@ -19,6 +19,9 @@ public class BookingSessionStatusResponseDto
 
     public int CurrentDurationMinutes { get; set; }
 
+    /// <summary>Số bàn được staff gán khi check-in. Null nếu chưa check-in.</summary>
+    public int? TableNumber { get; set; }
+
     public List<BookingSessionMemberStatusDto> Members { get; set; } = new();
 
     public BookingSessionEstimatedBillDto? EstimatedFinalBill { get; set; }

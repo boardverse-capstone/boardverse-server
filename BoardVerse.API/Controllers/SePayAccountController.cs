@@ -365,14 +365,14 @@ public class SePayAccountController : BaseApiController
     {
         if (string.IsNullOrWhiteSpace(sePayTransactionId))
         {
-            throw new BadRequestException("sePayTransactionId là bắt buộc.");
+            throw new BadRequestException(ApiErrorMessages.Payment.SePayTransactionIdRequired);
         }
 
         var lookup = await _sePayAccountService.LookupBySePayTransactionIdAsync(sePayTransactionId);
         if (lookup == null)
         {
             throw new NotFoundException(
-                $"Không tìm thấy BookingDeposit với SePayTransactionId='{sePayTransactionId}'.");
+                ApiErrorMessages.Payment.SePayTransactionNotFound(sePayTransactionId));
         }
         return this.NewResponse(200, "Tra cứu SePay transaction thành công.", lookup);
     }

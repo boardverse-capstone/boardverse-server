@@ -35,4 +35,5 @@ public interface IBookingRepository
     /// Đếm tổng bookings.
     /// </summary>
     Task<int> CountAllAsync(DateTime? fromUtc, DateTime? toUtc);
+
 }

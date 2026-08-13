@@ -15,9 +15,11 @@ namespace BoardVerse.Data.Configurations
             entity.HasKey(p => p.Id);
             entity.Property(p => p.Id).ValueGeneratedNever();
 
+            // DB schema hiện tại lưu ActionType dưới dạng integer (theo DB thật trên testing branch).
+            // Code giữ enum, nhưng EF Core map sang int để khớp column đã migrate trước đó.
+            // Lưu ý: nếu sau này muốn đổi sang string, phải tạo migration ALTER COLUMN ActionType TYPE varchar(50) trước.
             entity.Property(p => p.ActionType)
-                .HasConversion<string>()
-                .HasMaxLength(50)
+                .HasConversion<int>()
                 .IsRequired();
 
             entity.Property(p => p.ActionBy).IsRequired();

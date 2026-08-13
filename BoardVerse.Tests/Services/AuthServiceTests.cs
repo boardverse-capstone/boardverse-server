@@ -7,6 +7,7 @@ using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Moq;
 
 namespace BoardVerse.Tests.Services;
@@ -16,11 +17,12 @@ public class AuthServiceTests
     private readonly Mock<IAuthRepository> _userRepo = new();
     private readonly Mock<IDistributedCache> _cache = new();
     private readonly Mock<IEmailService> _emailService = new();
+    private readonly Mock<ILogger<AuthService>> _logger = new();
 
     private AuthService CreateService(IConfiguration? config = null)
     {
         config ??= BuildConfig();
-        return new AuthService(_userRepo.Object, config, _cache.Object, _emailService.Object);
+        return new AuthService(_userRepo.Object, config, _cache.Object, _emailService.Object, _logger.Object);
     }
 
     private static IConfiguration BuildConfig()
@@ -112,7 +114,7 @@ public class AuthServiceTests
         {
             _userRepo.Setup(r => r.GetByUsernameOrEmailAsync("alice")).ReturnsAsync((User?)null);
 
-            var svc = new AuthService(_userRepo.Object, config, _cache.Object, _emailService.Object);
+            var svc = new AuthService(_userRepo.Object, config, _cache.Object, _emailService.Object, _logger.Object);
 
             await Assert.ThrowsAsync<InvalidCredentialsException>(() => svc.LoginAsync(new LoginRequestDto
             {

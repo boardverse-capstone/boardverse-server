@@ -5,6 +5,7 @@ using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.Services;
+using BoardVerse.Tests.Helpers;
 using Moq;
 
 namespace BoardVerse.Tests.Services;
@@ -21,7 +22,7 @@ public class AdminModerationServiceTests
         var user = BuildTargetUser(karma: 85);
         repo.Setup(r => r.GetUserWithProfileForUpdateAsync(TargetId)).ReturnsAsync(user);
 
-        var service = new AdminModerationService(repo.Object);
+        var service = new AdminModerationService(repo.Object, new FakeDbContext());
         var result = await service.PunishUserAsync(AdminId, TargetId, new AdminPunishUserRequestDto
         {
             ActionType = AdminPunishmentActionType.Warning,
@@ -44,7 +45,7 @@ public class AdminModerationServiceTests
         repo.Setup(r => r.GetUserWithProfileForUpdateAsync(TargetId))
             .ReturnsAsync(BuildTargetUser());
 
-        var service = new AdminModerationService(repo.Object);
+        var service = new AdminModerationService(repo.Object, new FakeDbContext());
 
         await Assert.ThrowsAsync<BadRequestException>(() =>
             service.PunishUserAsync(AdminId, TargetId, new AdminPunishUserRequestDto
@@ -61,7 +62,7 @@ public class AdminModerationServiceTests
         var user = BuildTargetUser();
         repo.Setup(r => r.GetUserWithProfileForUpdateAsync(TargetId)).ReturnsAsync(user);
 
-        var service = new AdminModerationService(repo.Object);
+        var service = new AdminModerationService(repo.Object, new FakeDbContext());
         var result = await service.PunishUserAsync(AdminId, TargetId, new AdminPunishUserRequestDto
         {
             ActionType = AdminPunishmentActionType.Suspend,
@@ -81,7 +82,7 @@ public class AdminModerationServiceTests
         repo.Setup(r => r.GetUserWithProfileForUpdateAsync(TargetId))
             .ReturnsAsync(new User { Id = TargetId, Email = "admin@test.dev", Username = "admin", Role = UserRole.Admin });
 
-        var service = new AdminModerationService(repo.Object);
+        var service = new AdminModerationService(repo.Object, new FakeDbContext());
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
             service.PunishUserAsync(AdminId, TargetId, new AdminPunishUserRequestDto
@@ -98,7 +99,7 @@ public class AdminModerationServiceTests
         var profile = new UserProfile { UserId = TargetId, KarmaPoints = 100, GamerTier = GamerTier.Gold };
         repo.Setup(r => r.GetProfileForUpdateAsync(TargetId)).ReturnsAsync(profile);
 
-        var service = new AdminModerationService(repo.Object);
+        var service = new AdminModerationService(repo.Object, new FakeDbContext());
         var result = await service.AdjustKarmaAsync(AdminId, TargetId, new AdminAdjustKarmaRequestDto
         {
             Amount = -5,
@@ -115,7 +116,7 @@ public class AdminModerationServiceTests
     [Fact]
     public async Task AdjustKarmaAsync_ZeroAmount_ThrowsBadRequest()
     {
-        var service = new AdminModerationService(new Mock<IAdminModerationRepository>().Object);
+        var service = new AdminModerationService(new Mock<IAdminModerationRepository>().Object, new FakeDbContext());
 
         await Assert.ThrowsAsync<BadRequestException>(() =>
             service.AdjustKarmaAsync(AdminId, TargetId, new AdminAdjustKarmaRequestDto

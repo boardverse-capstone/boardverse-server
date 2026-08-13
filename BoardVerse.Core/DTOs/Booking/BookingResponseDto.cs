@@ -27,6 +27,10 @@ public class BookingResponseDto
     public DateTime ScheduledStartTime { get; set; }
     public DateTime ScheduleEndTime { get; set; }
 
+    // === Table ===
+    /// <summary>Số bàn được staff gán khi check-in. Null nếu chưa gán.</summary>
+    public int? TableNumber { get; set; }
+
     // === Status ===
     public BookingStatus Status { get; set; }
     public string StatusText => Status.ToString();
@@ -66,6 +70,7 @@ public class BookingResponseDto
         CafeName = entity.Cafe?.Name,
         CafeTableId = entity.CafeTableId,
         CafeTableName = entity.CafeTable?.Name,
+        TableNumber = entity.TableNumber,
         ScheduledStartTime = entity.ScheduledStartTime,
         ScheduleEndTime = entity.ScheduleEndTime,
         Status = entity.Status,

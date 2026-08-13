@@ -39,7 +39,7 @@ namespace BoardVerse.Services.Services
 
             if (session.Status != GroupSessionStatus.Paid)
             {
-                throw new ConflictException($"Receipt chỉ có thể tạo cho phiên đã thanh toán. Trạng thái hiện tại: {session.Status}");
+                throw new ConflictException(ApiErrorMessages.Receipt.OnlyForPaidSession(session.Status.ToString()));
             }
 
             var memberItems = session.Members.Select(m => new MemberReceiptItemDto

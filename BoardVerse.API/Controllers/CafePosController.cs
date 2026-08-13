@@ -216,25 +216,24 @@ public async Task<IActionResult> GetActiveSessions(Guid cafeId, [FromQuery] Guid
 /// <summary>
 /// Lấy danh sách phiên chơi đang ở trạng thái UNPAID (chờ thanh toán).
 /// POS staff dùng để scan "phiên nào chờ tôi thanh toán?" — đặc biệt sau khi đã end-game.
-/// Sắp xếp: lâu nhất lên đầu (UNPAID > X phút được ưu tiên nag staff).
+/// Nếu truyền sessionId → trả về session cụ thể đó (nếu đang UNPAID).
 /// [Role: Manager, CafeStaff — phải có quyền vận hành quán.]
 /// </summary>
 /// <param name="cafeId">Mã định danh quán cafe.</param>
-/// <param name="olderThanMinutes">
-/// Tuỳ chọn — chỉ trả về UNPAID có <c>EndedAt</c> cách đây hơn X phút (POS nag staff quên thanh toán).
-/// 0 = tất cả UNPAID (mặc định).
+/// <param name="sessionId">
+/// Tuỳ chọn — nếu truyền, trả về session cụ thể đó (nếu đang UNPAID).
+/// Dùng khi nhân viên muốn lấy lại hóa đơn của một phiên cụ thể.
 /// </param>
 /// <response code="200">Danh sách ActiveSessionDto ở trạng thái UNPAID, sort by EndedAt ASC.</response>
-/// <response code="400">olderThanMinutes âm.</response>
 /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
 /// <response code="403">Không đủ quyền vận hành quán.</response>
 /// <response code="404">Quán không tồn tại hoặc không ACTIVE.</response>
 /// <response code="500">Lỗi hệ thống không mong đợi.</response>
 [HttpGet("sessions/unpaid")]
-public async Task<IActionResult> GetUnpaidSessions(Guid cafeId, [FromQuery] int olderThanMinutes = 0)
+public async Task<IActionResult> GetUnpaidSessions(Guid cafeId, [FromQuery] Guid? sessionId = null)
 {
     var (userId, role) = GetViewerContext();
-    var result = await _posService.GetUnpaidSessionsAsync(cafeId, userId, role, olderThanMinutes);
+    var result = await _posService.GetUnpaidSessionsAsync(cafeId, userId, role, sessionId);
     return this.NewResponse(200, ApiSuccessMessages.Pos.UnpaidSessionsRetrieved, result);
 }
 
@@ -817,6 +816,74 @@ public async Task<IActionResult> GetPaidSessions(
             var (userId, role) = GetViewerContext();
             var result = await _posService.MergeSessionAsync(cafeId, userId, role, sourceSessionId, request);
             return this.NewResponse(200, "Đã ghép thành viên vào nhóm mới.", result);
+        }
+
+        /// <summary>
+        /// Phase 4 / EC-11 (§7.2 doc <c>time-slot-fixed-end-design.md</c>):
+        /// Staff ghi audit log khi player khiếu nại về giờ chơi (StartedAt/EndedAt).
+        /// POS logs là evidence definitive — endpoint này CHỈ audit, không tự ý sửa hóa đơn.
+        /// Manager review sau để override (BR-REFUND-07).
+        /// [Role: Manager, CafeStaff]
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="request">Mã session, loại khiếu nại, lý do từ player.</param>
+        /// <response code="201">Đã mở audit ticket, trả auditId + timestamps POS đã ghi.</response>
+        /// <response code="400">Dữ liệu không hợp lệ (playerClaim quá ngắn/dài).</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền vận hành quán.</response>
+        /// <response code="404">Session không tồn tại hoặc không thuộc quán này.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPost("sessions/dispute-played-time")]
+        public async Task<IActionResult> DisputePlayedTime(
+            Guid cafeId,
+            [FromBody] DisputePlayedTimeRequestDto request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return this.NewResponse(400, "Dữ liệu không hợp lệ.", null);
+            }
+
+            var (userId, role) = GetViewerContext();
+            var result = await _posService.DisputePlayedTimeAsync(cafeId, userId, role, request);
+            return this.NewResponse(201, "Đã mở audit ticket cho khiếu nại giờ chơi.", result);
+        }
+
+        /// <summary>
+        /// Phase 5 / EC-11 (§7.2 doc <c>time-slot-fixed-end-design.md</c>):
+        /// Manager override played time cho phiên chơi sau khi review dispute audit.
+        /// Recalculate <c>Subtotal</c> + <c>TotalAmount</c> dựa trên <c>NewTotalMinutesPlayed</c>.
+        /// Ghi audit log với <c>ActionType=PlayedTimeOverridden (=41)</c>.
+        ///
+        /// Quyền: Manager only (Staff chỉ được mở dispute, không override).
+        /// Điều kiện:
+        /// <list type="bullet">
+        ///   <item><description>Session chưa ở trạng thái Paid/Closed.</description></item>
+        ///   <item><description>Phải có ít nhất 1 dispute audit (PlayedTimeDisputed) cho session trước đó.</description></item>
+        /// </list>
+        /// [Role: Manager]
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="request">SessionId, NewTotalMinutesPlayed (0..1440), OverrideReason (≥ 20 ký tự).</param>
+        /// <response code="200">Override thành công, trả OverridePlayedTimeResponseDto với subtotal delta + audit IDs.</response>
+        /// <response code="400">Dữ liệu không hợp lệ (NewTotalMinutesPlayed ngoài khoảng, OverrideReason quá ngắn).</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không phải Manager hoặc không thuộc quán.</response>
+        /// <response code="404">Session không tồn tại hoặc không thuộc quán.</response>
+        /// <response code="409">Session đã thanh toán hoặc chưa có dispute audit.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPost("sessions/override-played-time")]
+        public async Task<IActionResult> OverridePlayedTime(
+            Guid cafeId,
+            [FromBody] OverridePlayedTimeRequestDto request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return this.NewResponse(400, "Dữ liệu không hợp lệ.", null);
+            }
+
+            var (userId, role) = GetViewerContext();
+            var result = await _posService.OverridePlayedTimeAsync(cafeId, userId, role, request);
+            return this.NewResponse(200, "Manager override played time thành công.", result);
         }
 
         private (Guid UserId, string Role) GetViewerContext()

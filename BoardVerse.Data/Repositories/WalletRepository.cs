@@ -94,4 +94,31 @@ public class WalletRepository : IWalletRepository
             .Include(w => w.User)
             .FirstOrDefaultAsync(w => w.UserId == userId);
     }
+
+    /// <summary>
+    /// BR-NEW-10 §XI.2 — Lấy wallet đang trong cooling-off (cho background job expire).
+    /// Chỉ load những wallet đã quá hạn deactivation (CoolingOffExpiresAt &lt; now).
+    /// </summary>
+    public async Task<IReadOnlyList<Wallet>> GetActiveCoolingOffWalletsPagedAsync(int batchSize)
+    {
+        var now = DateTime.UtcNow;
+        return await _db.Wallets
+            .Where(w => w.IsCoolingOff && w.CoolingOffExpiresAt != null && w.CoolingOffExpiresAt <= now)
+            .OrderBy(w => w.CoolingOffExpiresAt)
+            .Take(batchSize)
+            .ToListAsync();
+    }
+
+    /// <summary>
+    /// BR-NEW-10 §XI.1 — Lấy wallet còn active (AccountStatus = Active, không bị suspended/banned)
+    /// để background job quét detect signals.
+    /// </summary>
+    public async Task<IReadOnlyList<Wallet>> GetActiveWalletsPagedAsync(int batchSize)
+    {
+        return await _db.Wallets
+            .Where(w => w.AccountStatus == AccountStatus.Active || w.AccountStatus == AccountStatus.Warning)
+            .OrderBy(w => w.UpdatedAt)
+            .Take(batchSize)
+            .ToListAsync();
+    }
 }

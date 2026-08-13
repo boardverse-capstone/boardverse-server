@@ -121,13 +121,17 @@ public class ManualPaymentService : IManualPaymentService
             await _sessionRepository.UpdateAsync(session);
             await _sessionRepository.SaveChangesAsync();
 
-            // Lifecycle cleanup — cùng transaction với status update.
-            await _sessionRepository.CompleteSessionPaymentCleanupAsync(request.OrderId);
+            // Lifecycle cleanup: close lobby (in transaction with status update).
+            await _sessionRepository.ReleaseMembersAndCloseLobbyAsync(request.OrderId);
 
             if (dbTx != null)
             {
                 await dbTx.CommitAsync(cancellationToken);
             }
+
+            // FIX: Release table/box AFTER payment commit (not at checkout).
+            // This ensures table/box stays InUse while awaiting payment.
+            await _sessionRepository.ReleaseSessionTableAndBoxAsync(request.OrderId);
 
             _logger.LogInformation(
                 "Manual session payment confirmed. SessionId={SessionId}, Amount={Amount}, Method={Method}, StaffId={StaffId}, Role={Role}",

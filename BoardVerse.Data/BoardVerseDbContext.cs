@@ -54,18 +54,29 @@ namespace BoardVerse.Data
         public DbSet<LobbyReport> LobbyReports => Set<LobbyReport>();
         public DbSet<BookingNoShowVote> BookingNoShowVotes => Set<BookingNoShowVote>();
         public DbSet<BookingRating> BookingRatings => Set<BookingRating>();
+        public DbSet<KarmaShortPlayRecord> KarmaShortPlayRecords => Set<KarmaShortPlayRecord>();
         public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
         public DbSet<Wallet> Wallets => Set<Wallet>();
         public DbSet<BvcLedgerEntry> BvcLedgerEntries => Set<BvcLedgerEntry>();
         public DbSet<BvcTopUpRequest> BvcTopUpRequests => Set<BvcTopUpRequest>();
         public DbSet<BvcRefundRequest> BvcRefundRequests => Set<BvcRefundRequest>();
         public DbSet<PlayerActionHistory> PlayerActionHistories => Set<PlayerActionHistory>();
+        public DbSet<PlayerAlert> PlayerAlerts => Set<PlayerAlert>();
+        public DbSet<PlayerRiskScore> PlayerRiskScores => Set<PlayerRiskScore>();
+        public DbSet<RiskScoreHistory> RiskScoreHistories => Set<RiskScoreHistory>();
+
+        // BR-REFUND-01..07 (docs/time-slot-fixed-end-design (1).md §9.4)
+        public DbSet<RefundTransaction> RefundTransactions => Set<RefundTransaction>();
 
         // ===== BR-NEW-* §19: Reservation flow =====
         public DbSet<Reservation> Reservations => Set<Reservation>();
         public DbSet<SeatInventory> SeatInventories => Set<SeatInventory>();
         public DbSet<GameInventory> GameInventories => Set<GameInventory>();
         public DbSet<CafeConfig> CafeConfigs => Set<CafeConfig>();
+
+        // §9.3 + §9.4: Walk-in Window + WalkInBooking (Phase 2)
+        public DbSet<WalkInWindow> WalkInWindows => Set<WalkInWindow>();
+        public DbSet<WalkInBooking> WalkInBookings => Set<WalkInBooking>();
 
         // BR-NEW-15: Cafe override lịch mặc định của TimeSlot (đóng slot, đổi giờ).
         public DbSet<CafeScheduleOverride> CafeScheduleOverrides => Set<CafeScheduleOverride>();
@@ -91,7 +102,7 @@ namespace BoardVerse.Data
         // P-03: Shift management
         public DbSet<CafeShift> CafeShifts => Set<CafeShift>();
 
-    public BoardVerseDbContext(DbContextOptions<BoardVerseDbContext> options) : base(options)
+        public BoardVerseDbContext(DbContextOptions<BoardVerseDbContext> options) : base(options)
     {
     }
 

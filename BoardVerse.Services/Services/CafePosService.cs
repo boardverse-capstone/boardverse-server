@@ -287,22 +287,18 @@ namespace BoardVerse.Services.Services
         /// <summary>
         /// Lấy danh sách phiên chơi đang UNPAID (chờ thanh toán).
         /// POS staff scan để tìm phiên đã end-game nhưng quên thanh toán.
+        /// - Nếu sessionId != null → trả về session cụ thể (nếu đang UNPAID).
+        /// - Nếu sessionId == null → trả về tất cả UNPAID.
         /// </summary>
         public async Task<IReadOnlyList<ActiveSessionDto>> GetUnpaidSessionsAsync(
             Guid cafeId,
             Guid userId,
             string userRole,
-            int olderThanMinutes = 0)
+            Guid? sessionId = null)
         {
             await EnsurePosAccessAsync(cafeId, userId, userRole);
 
-            if (olderThanMinutes < 0)
-            {
-                throw new BadRequestException(
-                    $"olderThanMinutes không được âm (giá trị: {olderThanMinutes}).");
-            }
-
-            var sessions = await _posRepository.GetUnpaidSessionsAsync(cafeId, olderThanMinutes);
+            var sessions = await _posRepository.GetUnpaidSessionsAsync(cafeId, sessionId);
             var utcNow = DateTime.UtcNow;
 
             return sessions
@@ -1102,13 +1098,21 @@ namespace BoardVerse.Services.Services
 
         private static ActiveSessionDto MapSession(ActiveSession session, DateTime utcNow)
         {
-            var playTime = session.Games?.FirstOrDefault()?.GameTemplate?.PlayTime 
-                ?? session.GameTemplate?.PlayTime 
+            var playTime = session.Games?.FirstOrDefault()?.GameTemplate?.PlayTime
+                ?? session.GameTemplate?.PlayTime
                 ?? 0;
             var elapsedMinutes = (int)Math.Floor((utcNow - session.StartedAt).TotalMinutes);
             var remaining = playTime > 0
                 ? (int)Math.Max(0, Math.Ceiling((double)playTime - elapsedMinutes))
                 : 0;
+
+            // Phase 4 / EC-10: cảnh báo TimeSlot sắp hết trước khi game xong.
+            // Reservation.ScheduledEndTime là SoT (BR-RESV-02). Lobby.Reservation navigation
+            // được load qua include ở GetActiveSessionsAsync.
+            var (overrunWarning, timeSlotRemaining) = ReservationTimeOverrunHelper.Compute(
+                session.Lobby?.Reservation?.ScheduledEndTime,
+                remaining,
+                utcNow);
 
             return new ActiveSessionDto
             {
@@ -1122,6 +1126,18 @@ namespace BoardVerse.Services.Services
                 StartedAt = session.StartedAt,
                 ElapsedMinutes = Math.Max(0, elapsedMinutes),
                 EstimatedRemainingMinutes = remaining,
+                TimeOverrunWarning = overrunWarning,
+                TimeSlotRemainingMinutes = timeSlotRemaining,
+                Status = session.Status,
+                Subtotal = session.Subtotal,
+                DepositAppliedAmount = session.DepositAppliedAmount,
+                TotalAmount = session.TotalAmount,
+                IsCheckingInventory = session.IsCheckingInventory,
+                HasMissingComponents = session.HasMissingComponents,
+                IsPaused = session.IsPaused,
+                PausedAt = session.PausedAt,
+                EndedAt = session.EndedAt,
+                PaidAt = session.PaidAt,
                 Members = session.Members?.Where(m => m.Status != IndividualSessionStatus.Finished).Select(m => new ActiveSessionMemberDto
                 {
                     Id = m.Id,
@@ -1923,6 +1939,290 @@ namespace BoardVerse.Services.Services
             }
 
             return dto;
+        }
+
+        // ============ Phase 4 / EC-11: Player dispute played time ============
+
+        /// <summary>
+        /// Ghi audit log khi player khiếu nại về giờ chơi (BR §XX §POS evidence, §7.2 doc).
+        /// POS logs (StartedAt scan QR timestamp + EndedAt POS button timestamp) là evidence
+        /// definitive — endpoint này CHỈ audit, KHÔNG tự ý sửa hóa đơn.
+        ///
+        /// Manager review sau qua <c>POST /api/admin/sessions/{id}/played-time/override</c>
+        /// (sẽ implement ở sprint sau) — ghi thêm <c>ActionType=PlayedTimeOverridden</c>.
+        /// </summary>
+        public async Task<DisputePlayedTimeResponseDto> DisputePlayedTimeAsync(
+            Guid cafeId,
+            Guid staffUserId,
+            string staffRole,
+            DisputePlayedTimeRequestDto request)
+        {
+            // EnsurePosAccessAsync throw nếu user không thuộc cafe này.
+            await EnsurePosAccessAsync(cafeId, staffUserId, staffRole);
+
+            var session = await _activeSessionRepository.GetByIdAsync(request.SessionId);
+            if (session == null)
+            {
+                throw new NotFoundException(
+                    $"Session '{request.SessionId}' không tồn tại.");
+            }
+
+            if (session.CafeId != cafeId)
+            {
+                throw new NotFoundException(
+                    $"Session '{request.SessionId}' không thuộc quán này.");
+            }
+
+            // Phase 4 / §7.2 evidence: trả về timestamps + total minutes để staff thấy rõ
+            // POS logs đã ghi. Manager review dựa trên dữ liệu này.
+            var totalMinutes = session.EndedAt.HasValue
+                ? Math.Max(0, (int)Math.Floor((session.EndedAt.Value - session.StartedAt).TotalMinutes))
+                : session.TotalMinutesPlayed;
+
+            // Build audit metadata — append-only (BR-RISK-05 §17.6).
+            var metadata = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                cafeId,
+                sessionId = session.Id,
+                hostId = session.HostId,
+                reservationId = session.Lobby?.Reservation?.Id,
+                lobbyId = session.LobbyId,
+                startedAt = session.StartedAt,
+                endedAt = session.EndedAt,
+                totalMinutesPlayed = totalMinutes,
+                disputeType = request.DisputeType,
+                playerClaim = request.PlayerClaim,
+                proposedResolution = request.ProposedResolution,
+                status = "Open"
+            });
+
+            var audit = new PlayerActionHistory
+            {
+                Id = Guid.NewGuid(),
+                // BR-RISK-05 / EC-11: target user = Host (người chịu trách nhiệm billing).
+                UserId = session.HostId,
+                ActionType = AdminActionType.PlayedTimeDisputed,
+                ActionBy = staffUserId,
+                Reason = $"Player dispute played time: {request.DisputeType}",
+                Metadata = metadata,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _db.PlayerActionHistories.Add(audit);
+            await _db.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "[EC-11] Dispute played time opened by staff {StaffId} for session {SessionId} at cafe {CafeId}",
+                staffUserId, session.Id, cafeId);
+
+            return new DisputePlayedTimeResponseDto
+            {
+                AuditId = audit.Id,
+                SessionId = session.Id,
+                SessionStartedAt = session.StartedAt,
+                SessionEndedAt = session.EndedAt,
+                SessionTotalMinutes = totalMinutes,
+                DisputeType = request.DisputeType,
+                Status = "Open",
+                CreatedAt = audit.CreatedAt
+            };
+        }
+
+        // ============================================================
+        // Phase 5 / EC-11 — Manager override played time (BR-REFUND-07)
+        // ============================================================
+
+        public async Task<OverridePlayedTimeResponseDto> OverridePlayedTimeAsync(
+            Guid cafeId,
+            Guid managerUserId,
+            string managerRole,
+            OverridePlayedTimeRequestDto request)
+        {
+            // BR-RISK-07 / §XXI.7: Manager-only action.
+            if (!string.Equals(managerRole, UserRole.Manager.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ForbiddenException(ApiErrorMessages.Pos.OnlyManagerCanOverride);
+            }
+
+            // Manager vẫn phải thuộc cafe (cùng gate EnsurePosAccessAsync).
+            await EnsurePosAccessAsync(cafeId, managerUserId, managerRole);
+
+            var session = await _activeSessionRepository.GetByIdAsync(request.SessionId);
+            if (session == null)
+            {
+                throw new NotFoundException(
+                    $"Session '{request.SessionId}' không tồn tại.");
+            }
+
+            if (session.CafeId != cafeId)
+            {
+                throw new NotFoundException(
+                    $"Session '{request.SessionId}' không thuộc quán này.");
+            }
+
+            // EC-11 §7.2: Manager chỉ được override khi session CHƯA thanh toán.
+            if (session.Status == GroupSessionStatus.Paid
+                || session.Status == GroupSessionStatus.Closed)
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.CannotOverridePaidSession(session.Id));
+            }
+
+            // Điều kiện tiên quyết: phải có ít nhất 1 dispute audit trước đó.
+            // Lookup trong PlayerActionHistories với ActionType=PlayedTimeDisputed, target = session.HostId,
+            // metadata chứa sessionId = session.Id, status = "Open".
+            // NOTE: Metadata là jsonb — không thể dùng `.Contains` (EF generate `jsonb ~~ unknown`).
+            // Fetch candidate theo các column indexed trước, sau đó filter JSON ở client.
+            var candidates = await _db.PlayerActionHistories
+                .Where(p => p.ActionType == AdminActionType.PlayedTimeDisputed
+                            && p.UserId == session.HostId
+                            && p.Metadata != null)
+                .OrderByDescending(p => p.CreatedAt)
+                .Take(20)
+                .ToListAsync();
+
+            var sessionIdMarker = $"\"sessionId\":\"{session.Id}\"";
+            var disputeAudit = candidates.FirstOrDefault(p =>
+                p.Metadata != null && p.Metadata.Contains(sessionIdMarker, StringComparison.OrdinalIgnoreCase));
+
+            if (disputeAudit == null)
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.NoDisputeBeforeOverride(session.Id));
+            }
+
+            var now = DateTime.UtcNow;
+
+            // ===== Recalculate Subtotal theo NewTotalMinutesPlayed =====
+            // BR-15 + BR-16: Subtotal tính DUY NHẤT ở Checkout, nhưng Manager override cần
+            // recalc tại thời điểm override. Quy tắc:
+            // - Per-member Subtotal = realtime billing(memberMinutes) nếu TimeBased, hoặc BasePrice nếu Flat.
+            // - Override set tất cả members dùng cùng NewTotalMinutesPlayed (đơn giản hóa).
+            // - Nếu session đã có member-level TotalMinutesPlayed phân bổ → giữ member.TotalMinutesPlayed
+            //   theo tỉ lệ cũ, scale bằng NewTotalMinutesPlayed / PreviousTotal.
+            var previousSubtotal = session.Subtotal;
+            var previousTotalMinutes = session.TotalMinutesPlayed;
+
+            var cafe = await _cafeRepository.GetActiveByIdAsync(cafeId);
+            if (cafe == null)
+            {
+                throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
+            }
+
+            // Đếm members có TotalMinutesPlayed > 0 (đã chơi) để tính lại.
+            // Members có TotalMinutesPlayed = 0 là walk-in không tính giờ.
+            var payingMembers = session.Members?
+                .Where(m => (m.JoinedAt != default && (m.LeftAt ?? now) > m.JoinedAt))
+                .ToList() ?? new List<ActiveSessionMember>();
+
+            // Override total minutes chia đều cho members theo tỉ lệ thời gian join.
+            // Nếu không có member nào tham gia, fallback = NewTotalMinutes x BasePrice.
+            if (payingMembers.Count == 0)
+            {
+                // Edge case: không có member nào trong session (chỉ có Host). Vẫn recalc.
+                var fallbackSubtotal = cafe.BillingModel == CafePartnerBillingModel.TimeBased
+                    ? ActiveSessionBillingCalculator.CalculateRealtimeBilling(cafe, request.NewTotalMinutesPlayed)
+                    : cafe.BasePrice;
+                session.Subtotal = Math.Max(0, fallbackSubtotal);
+            }
+            else
+            {
+                decimal newTotalSubtotal = 0;
+                if (previousTotalMinutes > 0)
+                {
+                    // Scale tỉ lệ: member.NewMinutes = member.PreviousMinutes * (NewTotal / PreviousTotal)
+                    foreach (var member in payingMembers)
+                    {
+                        var memberPreviousMinutes = Math.Max(0, member.TotalMinutesPlayed);
+                        var scaledMinutes = (int)Math.Floor(
+                            memberPreviousMinutes * (decimal)request.NewTotalMinutesPlayed / previousTotalMinutes);
+
+                        member.TotalMinutesPlayed = scaledMinutes;
+
+                        decimal memberSubtotal = scaledMinutes > 0
+                            ? (cafe.BillingModel == CafePartnerBillingModel.TimeBased
+                                ? ActiveSessionBillingCalculator.CalculateRealtimeBilling(cafe, scaledMinutes)
+                                : cafe.BasePrice)
+                            : 0m;
+                        newTotalSubtotal += Math.Max(0, memberSubtotal);
+                    }
+                }
+                else
+                {
+                    // PreviousTotal = 0 (edge case). Chia đều NewTotalMinutes cho tất cả members.
+                    var perMemberMinutes = (int)Math.Floor((decimal)request.NewTotalMinutesPlayed / payingMembers.Count);
+                    foreach (var member in payingMembers)
+                    {
+                        member.TotalMinutesPlayed = perMemberMinutes;
+                        decimal memberSubtotal = perMemberMinutes > 0
+                            ? (cafe.BillingModel == CafePartnerBillingModel.TimeBased
+                                ? ActiveSessionBillingCalculator.CalculateRealtimeBilling(cafe, perMemberMinutes)
+                                : cafe.BasePrice)
+                            : 0m;
+                        newTotalSubtotal += Math.Max(0, memberSubtotal);
+                    }
+                }
+
+                session.Subtotal = Math.Max(0, newTotalSubtotal);
+            }
+
+            // TotalAmount = Subtotal + Penalty. Penalty giữ nguyên (Manager override chỉ sửa minutes).
+            session.TotalAmount = session.Subtotal + session.PenaltyAmount;
+            session.TotalMinutesPlayed = request.NewTotalMinutesPlayed;
+
+            // Ghi audit override — append-only (BR-RISK-05 §17.6).
+            var metadata = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                cafeId,
+                sessionId = session.Id,
+                hostId = session.HostId,
+                reservationId = session.Lobby?.Reservation?.Id,
+                lobbyId = session.LobbyId,
+                startedAt = session.StartedAt,
+                endedAt = session.EndedAt,
+                previousTotalMinutes,
+                newTotalMinutes = request.NewTotalMinutesPlayed,
+                previousSubtotal,
+                newSubtotal = session.Subtotal,
+                subtotalDelta = session.Subtotal - previousSubtotal,
+                newTotalAmount = session.TotalAmount,
+                overrideReason = request.OverrideReason,
+                linkedDisputeAuditId = disputeAudit.Id,
+                status = "Overridden"
+            });
+
+            var overrideAudit = new PlayerActionHistory
+            {
+                Id = Guid.NewGuid(),
+                UserId = session.HostId,
+                ActionType = AdminActionType.PlayedTimeOverridden,
+                ActionBy = managerUserId,
+                Reason = $"Manager override played time: {request.OverrideReason}",
+                Metadata = metadata,
+                CreatedAt = now
+            };
+
+            _db.PlayerActionHistories.Add(overrideAudit);
+            await _activeSessionRepository.UpdateAsync(session);
+            await _activeSessionRepository.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "[EC-11] Manager {ManagerId} overrode session {SessionId} at cafe {CafeId}: {PreviousMinutes}min → {NewMinutes}min (subtotal {PreviousSubtotal} → {NewSubtotal})",
+                managerUserId, session.Id, cafeId, previousTotalMinutes, request.NewTotalMinutesPlayed, previousSubtotal, session.Subtotal);
+
+            return new OverridePlayedTimeResponseDto
+            {
+                OverrideAuditId = overrideAudit.Id,
+                SessionId = session.Id,
+                DisputeAuditId = disputeAudit.Id,
+                PreviousTotalMinutes = previousTotalMinutes,
+                NewTotalMinutes = request.NewTotalMinutesPlayed,
+                PreviousSubtotal = previousSubtotal,
+                NewSubtotal = session.Subtotal,
+                SubtotalDelta = session.Subtotal - previousSubtotal,
+                NewTotalAmount = session.TotalAmount,
+                PolicyApplied = "BR-REFUND-07 ManagerOverride",
+                Status = "Overridden",
+                OverriddenAt = overrideAudit.CreatedAt
+            };
         }
     }
 }

@@ -139,6 +139,7 @@ public class TournamentRepository : ITournamentRepository
     {
         return await _db.TournamentParticipants
             .Include(p => p.User)
+                .ThenInclude(u => u.Profile)
             .FirstOrDefaultAsync(p => p.TournamentId == tournamentId && p.UserId == userId);
     }
 
@@ -146,6 +147,7 @@ public class TournamentRepository : ITournamentRepository
     {
         return await _db.TournamentParticipants
             .Include(p => p.User)
+                .ThenInclude(u => u.Profile)
             .FirstOrDefaultAsync(p => p.Id == participantId);
     }
 
@@ -153,6 +155,7 @@ public class TournamentRepository : ITournamentRepository
     {
         return await _db.TournamentParticipants
             .Include(p => p.User)
+                .ThenInclude(u => u.Profile)
             .Where(p => p.TournamentId == tournamentId)
             .OrderBy(p => p.RegisteredAt)
             .ToListAsync();
@@ -162,6 +165,7 @@ public class TournamentRepository : ITournamentRepository
     {
         return await _db.TournamentParticipants
             .Include(p => p.User)
+                .ThenInclude(u => u.Profile)
             .Where(p => p.TournamentId == tournamentId
                 && p.Status != TournamentParticipantStatus.Registered)
             .OrderBy(p => p.CheckedInAt)
@@ -266,6 +270,8 @@ public class TournamentRepository : ITournamentRepository
     public async Task<IReadOnlyList<TournamentParticipant>> GetParticipantsByUserAsync(Guid userId)
     {
         return await _db.TournamentParticipants
+            .Include(p => p.User)
+                .ThenInclude(u => u!.Profile)
             .Include(p => p.Tournament)
                 .ThenInclude(t => t!.GameTemplate)
             .Include(p => p.Tournament)

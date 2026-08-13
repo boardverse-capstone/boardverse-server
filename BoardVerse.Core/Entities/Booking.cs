@@ -40,6 +40,13 @@ public class Booking
     /// <summary>UserId của Staff đã thực hiện check-in.</summary>
     public Guid? CheckedInByUserId { get; set; }
 
+    /// <summary>
+    /// Số bàn được staff gán khi check-in.
+    /// Null nếu chưa check-in.
+    /// App hiển thị "Bàn số X" trong InGameSessionPage để player biết mình ngồi ở đâu.
+    /// </summary>
+    public int? TableNumber { get; set; }
+
     // === Audit ===
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
@@ -53,4 +60,7 @@ public class Booking
     public virtual BookingDeposit? BookingDeposit { get; set; }
     /// <summary>Staff đã thực hiện check-in. Null nếu chưa check-in hoặc staff đã bị xoá.</summary>
     public virtual User? CheckedInByUser { get; set; }
+    // TD-02: Navigation cho Rating/NoShowVote (reverse side — FK defined in child config)
+    public virtual ICollection<BookingRating> Ratings { get; set; } = [];
+    public virtual ICollection<BookingNoShowVote> NoShowVotes { get; set; } = [];
 }

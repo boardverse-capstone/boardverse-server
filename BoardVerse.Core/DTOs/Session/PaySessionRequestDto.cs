@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
+using BoardVerse.Core.DTOs.WalkIn;
 
 namespace BoardVerse.Core.DTOs.Session
 {
@@ -49,6 +50,7 @@ public class ComponentPenaltyItemDto
     /// BR-15: TotalAmount = Subtotal + PenaltyAmount - DepositAppliedAmount
     /// GAP-33 Fix: Thêm danh sách hóa đơn per-member
     /// GAP-34 Fix: Thêm thông tin BVC capture status
+    /// §4.4: Thêm WalkInWindow nếu early checkout
     /// </summary>
     public class PaySessionResponseDto
     {
@@ -65,6 +67,12 @@ public class ComponentPenaltyItemDto
         /// <summary>Trạng thái capture BVC của toàn phiên.</summary>
         [JsonConverter(typeof(JsonStringEnumConverter))]
         public BvcCaptureStatus BvcCaptureStatus { get; set; }
+
+        /// <summary>
+        /// §4.4: WalkInWindow được tạo nếu early checkout (về sớm trước ScheduledEndTime).
+        /// POS staff dùng thông tin này để hướng dẫn walk-in.
+        /// </summary>
+        public BoardVerse.Core.DTOs.WalkIn.WalkInWindowDto? WalkInWindow { get; set; }
 
         public ActiveSessionResponseDto Session { get; set; } = null!;
     }

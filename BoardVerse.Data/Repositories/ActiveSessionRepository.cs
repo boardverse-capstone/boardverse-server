@@ -31,6 +31,8 @@ namespace BoardVerse.Data.Repositories
                 .Include(s => s.Cafe)
                 .Include(s => s.CafeInventoryBox)
                 .Include(s => s.GameTemplate)
+                .Include(s => s.Lobby)
+                    .ThenInclude(l => l!.Reservation) // Phase 4 / EC-10: Reservation.ScheduledEndTime cho time-overrun warning.
                 .FirstOrDefaultAsync(s => s.Id == sessionId);
         }
 
@@ -220,16 +222,12 @@ namespace BoardVerse.Data.Repositories
         }
 
         /// <summary>
-        /// P0 Fix #2 follow-up: Completes post-payment lifecycle cleanup for a paid session.
-        /// Performs all cleanup in a single SaveChangesAsync call (one DB transaction).
-        /// Steps:
-        ///   1. Mark all members as checked out (BR-12).
-        ///   2. Release board game box (Status = Available).
-        ///   3. Release cafe table (Status = Available, BR-17).
-        ///   4. Close any linked lobby (Status = Closed).
-        /// Idempotent: re-running on already-cleaned state is a no-op.
+        /// Marks all members as checked out and closes any linked lobby.
+        /// Called at checkout time (when session becomes UNPAID).
+        /// Table/box release is handled separately in ReleaseSessionTableAndBoxAsync.
+        /// Idempotent: safe to call multiple times.
         /// </summary>
-        public async Task CompleteSessionPaymentCleanupAsync(Guid sessionId)
+        public async Task ReleaseMembersAndCloseLobbyAsync(Guid sessionId)
         {
             var now = DateTime.UtcNow;
 
@@ -252,7 +250,38 @@ namespace BoardVerse.Data.Repositories
                 }
             }
 
-            // 2. Release the board game box (if attached and still in use).
+            // 2. Close any linked lobby
+            var lobby = await _db.Lobbies
+                .FirstOrDefaultAsync(l => l.ActiveSessionId == sessionId);
+            if (lobby != null && lobby.Status != LobbyStatus.Closed)
+            {
+                lobby.Status = LobbyStatus.Closed;
+                lobby.ClosedAt = now;
+                lobby.UpdatedAt = now;
+            }
+
+            // Persist all changes in a single transaction.
+            await _db.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Releases the board game box and cafe table back to Available.
+        /// Called at payment time (when session becomes PAID) and by auto-release job.
+        /// Idempotent: safe to call multiple times.
+        /// </summary>
+        public async Task ReleaseSessionTableAndBoxAsync(Guid sessionId)
+        {
+            var now = DateTime.UtcNow;
+
+            var session = await _db.ActiveSessions
+                .FirstOrDefaultAsync(s => s.Id == sessionId);
+
+            if (session == null)
+            {
+                return;
+            }
+
+            // Release the board game box (if attached and still in use).
             // Only flip status when box is currently InUse for this session.
             // Preserve Lost/Maintenance/Retired/etc. — those are operational
             // signals, not session lifecycle states.
@@ -267,7 +296,7 @@ namespace BoardVerse.Data.Repositories
                 }
             }
 
-            // 3. Release the cafe table (if attached and still in use)
+            // Release the cafe table (if attached and still in use)
             if (session.CafeTableId.HasValue)
             {
                 var table = await _db.CafeTables
@@ -279,17 +308,6 @@ namespace BoardVerse.Data.Repositories
                 }
             }
 
-            // 4. Close any linked lobby
-            var lobby = await _db.Lobbies
-                .FirstOrDefaultAsync(l => l.ActiveSessionId == sessionId);
-            if (lobby != null && lobby.Status != LobbyStatus.Closed)
-            {
-                lobby.Status = LobbyStatus.Closed;
-                lobby.ClosedAt = now;
-                lobby.UpdatedAt = now;
-            }
-
-            // Persist all changes in a single transaction.
             await _db.SaveChangesAsync();
         }
 
@@ -318,6 +336,16 @@ namespace BoardVerse.Data.Repositories
                 .AnyAsync(s => s.HostId == userId
                     || _db.ActiveSessionMembers.Any(m => m.ActiveSessionId == sessionId && m.UserId == userId)
                     || _db.Bookings.Any(b => b.LobbyId == s.LobbyId && b.CheckedInByUserId == userId));
+        }
+
+        public async Task<IReadOnlyList<ActiveSession>> GetExpiredAsync(DateTime cutoff, CancellationToken ct = default)
+        {
+            // Lấy session Active (chưa Paid) mà ExtendedEndTime/ScheduledEndTime + 30p grace đã qua
+            // Không dùng ScheduledEndTime từ ActiveSession vì Reservation lưu ExtendedEndTime
+            // Join Reservation để lấy ExtendedEndTime
+            return await _db.ActiveSessions
+                .Where(s => s.Status == GroupSessionStatus.Active)
+                .ToListAsync(ct);
         }
     }
 }

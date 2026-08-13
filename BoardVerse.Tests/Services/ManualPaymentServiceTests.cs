@@ -297,7 +297,8 @@ public class ManualPaymentServiceTests
         Assert.NotNull(session.PaidAt);
 
         // Cleanup delegated to repository
-        _sessionRepo.Verify(r => r.CompleteSessionPaymentCleanupAsync(sessionId), Times.Once);
+        _sessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(sessionId), Times.Once);
+        _sessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(sessionId), Times.Once);
         _sessionRepo.Verify(r => r.SaveChangesAsync(), Times.AtLeastOnce);
     }
 
@@ -338,6 +339,7 @@ public class ManualPaymentServiceTests
             "Manager");
 
         Assert.Equal(GroupSessionStatus.Paid, session.Status);
-        _sessionRepo.Verify(r => r.CompleteSessionPaymentCleanupAsync(sessionId), Times.Once);
+        _sessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(sessionId), Times.Once);
+        _sessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(sessionId), Times.Once);
     }
 }

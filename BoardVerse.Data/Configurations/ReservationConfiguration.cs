@@ -17,6 +17,19 @@ public class ReservationConfiguration : IEntityTypeConfiguration<Reservation>
         builder.Property(r => r.PlayDate).HasColumnType("date").IsRequired();
         builder.Property(r => r.TimeSlot).HasConversion<int>().IsRequired();
         builder.Property(r => r.PreferredStartTime).HasColumnType("time");
+        builder.Property(r => r.PreferredEndTime).HasColumnType("time");
+
+        // BR-RESV-02: ScheduledStartTime + ScheduledEndTime = playDate + user-chosen start/end time.
+        // Lưu DB để query nhanh (playedRatio, WalkInWindow cleanup, extension flow).
+        builder.Property(r => r.ScheduledStartTime).HasColumnType("timestamp with time zone");
+        builder.Property(r => r.ScheduledEndTime).HasColumnType("timestamp with time zone");
+
+        // BR-RESV-02: index cho WalkInWindowCleanupJob + NoShowDetectionJob
+        // (BackgroundServices chạy theo cutoff).
+        builder.HasIndex(r => new { r.ScheduledEndTime, r.Status })
+            .HasDatabaseName("IX_Reservations_ScheduledEndTime_Status");
+        builder.HasIndex(r => new { r.ScheduledStartTime, r.Status })
+            .HasDatabaseName("IX_Reservations_ScheduledStartTime_Status");
 
         builder.Property(r => r.MinPlayers).IsRequired();
         builder.Property(r => r.MaxPlayers).IsRequired();
@@ -27,6 +40,10 @@ public class ReservationConfiguration : IEntityTypeConfiguration<Reservation>
 
         builder.Property(r => r.Status).HasConversion<int>().IsRequired();
         builder.Property(r => r.CurrentPlayers).HasDefaultValue(1);
+
+        // BR-EXT-03 §3.5: Extension tracking
+        builder.Property(r => r.ExtensionCount).IsRequired().HasDefaultValue(0);
+        builder.Property(r => r.ExtendedEndTime).HasColumnType("timestamp with time zone");
 
         builder.Property(r => r.IdempotencyKey).HasMaxLength(128).IsRequired();
 
@@ -89,6 +106,25 @@ public class ReservationConfiguration : IEntityTypeConfiguration<Reservation>
             .WithMany()
             .HasForeignKey(r => r.GameInventoryId)
             .OnDelete(DeleteBehavior.SetNull);
+
+        // ===== docs/time-slot-fixed-end-design (1).md §9.1 — session tracking =====
+
+        builder.Property(r => r.CheckedInAt).HasColumnType("timestamp with time zone");
+        builder.Property(r => r.ActualEndAt).HasColumnType("timestamp with time zone");
+        builder.Property(r => r.PlayedRatio).HasColumnType("numeric(5,4)");
+        builder.Property(r => r.EndReason).HasConversion<int>();
+        builder.Property(r => r.CancelledBy);
+        builder.Property(r => r.CancelReason).HasMaxLength(500);
+
+        builder.HasOne(r => r.WalkInWindow)
+            .WithMany()
+            .HasForeignKey(r => r.WalkInWindowId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasIndex(r => r.WalkInWindowId)
+            .HasDatabaseName("IX_Reservations_WalkInWindowId");
+        builder.HasIndex(r => new { r.Status, r.CheckedInAt })
+            .HasDatabaseName("IX_Reservations_Status_CheckedInAt");
     }
 }
 

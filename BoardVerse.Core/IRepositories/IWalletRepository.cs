@@ -28,4 +28,14 @@ public interface IWalletRepository
     /// Lấy chi tiết wallet + thông tin user.
     /// </summary>
     Task<Wallet?> GetWalletWithUserAsync(Guid userId);
+
+    /// <summary>
+    /// BR-NEW-10 §XI.2 — Lấy tất cả wallet đang trong cooling-off (cho background job expire).
+    /// </summary>
+    Task<IReadOnlyList<Wallet>> GetActiveCoolingOffWalletsPagedAsync(int batchSize);
+
+    /// <summary>
+    /// BR-NEW-10 §XI.1 — Lấy tất cả wallet có RiskScore &gt; 0 (cho detect signals batch).
+    /// </summary>
+    Task<IReadOnlyList<Wallet>> GetActiveWalletsPagedAsync(int batchSize);
 }

@@ -657,8 +657,12 @@ public class PaymentService : IPaymentService
                 return;
             }
 
-            // Lifecycle cleanup: mark members checked out, release box + table, close lobby.
-            await _activeSessionRepository.CompleteSessionPaymentCleanupAsync(session.Id);
+            // Lifecycle cleanup: close lobby (called at checkout).
+            await _activeSessionRepository.ReleaseMembersAndCloseLobbyAsync(session.Id);
+
+            // FIX: Release table/box AFTER payment commit (not at checkout).
+            // This ensures table/box stays InUse while awaiting payment.
+            await _activeSessionRepository.ReleaseSessionTableAndBoxAsync(session.Id);
 
             _logger.LogInformation(
                 "Session payment completed via SePay. SessionId={SessionId}, Amount={Amount}. Table, board game box and lobby released.",

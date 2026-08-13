@@ -35,6 +35,9 @@ public interface ITournamentService
 
     Task<IReadOnlyList<TournamentParticipantResponseDto>> GetParticipantsAsync(Guid tournamentId);
 
+    /// <summary>Manager/POS: Lấy danh sách participants cho check-in (validate tournament ownership).</summary>
+    Task<IReadOnlyList<TournamentParticipantResponseDto>> GetParticipantsForPosAsync(Guid managerId, Guid tournamentId);
+
     // === Player: Personal data ===
     /// <summary>
     /// Lấy danh sách tournament user đang/đã đăng ký (status filter optional).

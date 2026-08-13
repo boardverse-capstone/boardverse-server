@@ -8,8 +8,14 @@ namespace BoardVerse.Core.IRepositories
         Task<ActiveSession?> GetByIdAsync(Guid sessionId);
         Task<ActiveSession?> GetByIdWithMembersAsync(Guid sessionId);
         Task<ActiveSession?> GetByLobbyIdWithMembersAsync(Guid lobbyId);
-        Task<ActiveSession?> GetByOrderIdAsync(string orderId);
-        Task<IReadOnlyList<ActiveSession>> GetActiveSessionsAsync(Guid cafeId, Guid? gameTemplateId);
+    Task<ActiveSession?> GetByOrderIdAsync(string orderId);
+    Task<IReadOnlyList<ActiveSession>> GetActiveSessionsAsync(Guid cafeId, Guid? gameTemplateId);
+
+    /// <summary>
+    /// BR-END-05: Lấy session Active mà ExtendedEndTime (hoặc ScheduledEndTime) + grace 30 phút đã qua.
+    /// Dùng cho AutoReleaseExpiredSessionsJob.
+    /// </summary>
+    Task<IReadOnlyList<ActiveSession>> GetExpiredAsync(DateTime cutoff, CancellationToken ct = default);
         /// <summary>Returns all non-Paid sessions for seat calculation.</summary>
         Task<int> CountActiveSessionMembersAsync(Guid cafeId);
 
@@ -39,11 +45,19 @@ namespace BoardVerse.Core.IRepositories
 
         // === Post-payment lifecycle cleanup ===
         /// <summary>
-        /// Completes the post-payment lifecycle cleanup for a paid session.
-        /// Marks all members as checked out, releases the board game box and cafe table,
-        /// and closes any linked lobby. Idempotent: safe to call multiple times.
+        /// Marks all members as checked out and closes any linked lobby.
+        /// Called at checkout time (when session becomes UNPAID).
+        /// Table/box release is handled separately in ReleaseSessionTableAndBoxAsync.
+        /// Idempotent: safe to call multiple times.
         /// </summary>
-        Task CompleteSessionPaymentCleanupAsync(Guid sessionId);
+        Task ReleaseMembersAndCloseLobbyAsync(Guid sessionId);
+
+        /// <summary>
+        /// Releases the board game box and cafe table back to Available.
+        /// Called at payment time (when session becomes PAID) and by auto-release job.
+        /// Idempotent: safe to call multiple times.
+        /// </summary>
+        Task ReleaseSessionTableAndBoxAsync(Guid sessionId);
 
         // === BVC Capture Retry (GAP-9) ===
         /// <summary>

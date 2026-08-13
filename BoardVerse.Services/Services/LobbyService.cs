@@ -1099,6 +1099,215 @@ namespace BoardVerse.Services.Services
             return MapLobbyDto(lobby, null);
         }
 
+        /// <summary>
+        /// BR-NEW-14 (b): Host đổi timeSlot và/hoặc preferred times của lobby.
+        /// Chỉ áp dụng khi lobby chưa check-in (status = Open/Viable/Full).
+        /// Update cả Reservation + Lobby (mirror) + recalculate RecruitmentDeadline.
+        /// BR-LOBBY-01a/b/c: Validate buffer mới >= 120 phút.
+        /// BR-RES-07/08/09: preferredStartTime/EndTime phải nằm trong slot range.
+        /// </summary>
+        public async Task<LobbyResponseDto> ChangeTimeSlotAsync(
+            Guid lobbyId,
+            Guid hostUserId,
+            Core.DTOs.Lobby.ChangeTimeSlotRequestDto request)
+        {
+            var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
+                ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
+
+            var host = lobby.Members.FirstOrDefault(m => m.UserId == hostUserId && m.IsHost && m.IsActive);
+            if (host == null)
+            {
+                throw new ForbiddenException(ApiErrorMessages.Lobby.OnlyHostCanUpdate);
+            }
+
+            // Chỉ cho phép khi lobby chưa terminal
+            var changeableStatuses = new[]
+            {
+                LobbyStatus.Open,
+                LobbyStatus.Viable,
+                LobbyStatus.Full,
+                LobbyStatus.PendingCafeApproval
+            };
+            if (!changeableStatuses.Contains(lobby.Status))
+            {
+                throw new ConflictException(
+                    ApiErrorMessages.Lobby.LobbyUpdateNotAllowedWhenClosed);
+            }
+
+            var now = DateTime.UtcNow;
+            var playDate = lobby.PlayDate ?? DateOnly.FromDateTime(now);
+
+            // Xác định effective timeSlot (mới hoặc giữ nguyên)
+            var effectiveTimeSlot = request.NewTimeSlot ?? lobby.TimeSlot ?? Core.Enum.TimeSlot.Morning;
+            var oldTimeSlot = lobby.TimeSlot ?? Core.Enum.TimeSlot.Morning;
+
+            // Validate preferred times nếu có
+            if (request.PreferredStartTime.HasValue || request.PreferredEndTime.HasValue)
+            {
+                var validation = Core.Constants.CafeSchedule.ValidatePreferredTimeRange(
+                    effectiveTimeSlot,
+                    request.PreferredStartTime,
+                    request.PreferredEndTime);
+
+                if (!validation.isValid)
+                {
+                    throw new BadRequestException(validation.error!);
+                }
+            }
+
+            // Tính ScheduledStartTime/EndTime mới
+            var (scheduledStartTime, scheduledEndTime) = Core.Constants.CafeSchedule.BuildScheduledStartEndFromPreferred(
+                playDate,
+                effectiveTimeSlot,
+                request.PreferredStartTime ?? lobby.PreferredStartTime,
+                request.PreferredEndTime ?? lobby.PreferredEndTime);
+
+            // Tính RecruitmentDeadline mới
+            // BR-LOBBY-01: deadline = scheduledStartTime - leadTimeMinutes
+            var leadTimeMinutes = lobby.CancellationLeadTimeMinutes > 0 ? lobby.CancellationLeadTimeMinutes : 20;
+            var newDeadline = scheduledStartTime.AddMinutes(-leadTimeMinutes);
+
+            // BR-LOBBY-01b: Buffer phải >= 60 phút
+            var bufferMinutes = (newDeadline - now).TotalMinutes;
+            if (bufferMinutes < 60)
+            {
+                throw new BadRequestException(
+                    ApiErrorMessages.Lobby.BufferTooShortForTimeSlotChange((int)bufferMinutes));
+            }
+
+            // Build change summary cho notification
+            var changes = new List<string>();
+            if (request.NewTimeSlot.HasValue && request.NewTimeSlot != oldTimeSlot)
+            {
+                changes.Add($"khung giờ từ {GetTimeSlotDisplayName(oldTimeSlot)} sang {GetTimeSlotDisplayName(effectiveTimeSlot)}");
+            }
+            if (request.PreferredStartTime.HasValue)
+            {
+                changes.Add($"giờ bắt đầu: {request.PreferredStartTime:HH:mm}");
+            }
+            if (request.PreferredEndTime.HasValue)
+            {
+                changes.Add($"giờ kết thúc: {request.PreferredEndTime:HH:mm}");
+            }
+
+            // Update Lobby (mirror fields)
+            if (request.NewTimeSlot.HasValue)
+            {
+                lobby.TimeSlot = effectiveTimeSlot;
+            }
+            lobby.PreferredStartTime = request.PreferredStartTime ?? lobby.PreferredStartTime;
+            lobby.PreferredEndTime = request.PreferredEndTime ?? lobby.PreferredEndTime;
+            lobby.RecruitmentDeadline = newDeadline;
+            lobby.ScheduledStartTime = scheduledStartTime;
+            lobby.UpdatedAt = now;
+
+            // Update Reservation nếu có
+            if (lobby.ReservationId.HasValue)
+            {
+                var reservation = await _reservationRepository.GetByIdAsync(lobby.ReservationId.Value);
+                if (reservation != null)
+                {
+                    if (request.NewTimeSlot.HasValue)
+                    {
+                        reservation.TimeSlot = effectiveTimeSlot;
+                    }
+                    reservation.PreferredStartTime = request.PreferredStartTime ?? reservation.PreferredStartTime;
+                    reservation.PreferredEndTime = request.PreferredEndTime ?? reservation.PreferredEndTime;
+                    reservation.RecruitmentDeadline = newDeadline;
+                    reservation.ScheduledStartTime = scheduledStartTime;
+                    reservation.ScheduledEndTime = scheduledEndTime;
+                    reservation.UpdatedAt = now;
+                    await _reservationRepository.UpdateAsync(reservation);
+                }
+            }
+
+            await _lobbyRepository.SaveChangesAsync();
+
+            var changeSummary = changes.Count > 0
+                ? string.Join(", ", changes)
+                : "thời gian ưu tiên";
+            await _lobbyMessageService.AddSystemMessageAsync(
+                lobby.Id,
+                $"Host đã cập nhật {changeSummary}. Deadline mới: {newDeadline:HH:mm dd/MM}.");
+
+            await _hubService.NotifyLobbyUpdated(lobbyId);
+
+            return MapLobbyDto(lobby, null);
+        }
+
+        /// <summary>
+        /// BR-NEW-14 (d): Boost lobby — tăng visibility trong search/discovery.
+        /// Chỉ áp dụng khi lobby đang Open và chưa được boost trong 6 giờ gần nhất.
+        /// Action: bump CreatedAt để lobby hiện lên đầu search results.
+        /// </summary>
+        public async Task<LobbyResponseDto> BoostLobbyAsync(Guid lobbyId, Guid hostUserId)
+        {
+            var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
+                ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
+
+            var host = lobby.Members.FirstOrDefault(m => m.UserId == hostUserId && m.IsHost && m.IsActive);
+            if (host == null)
+            {
+                throw new ForbiddenException(ApiErrorMessages.Lobby.OnlyHostCanUpdate);
+            }
+
+            if (lobby.Status != LobbyStatus.Open)
+            {
+                throw new ConflictException(
+                    "Chỉ có thể boost khi lobby đang mở tuyển người.");
+            }
+
+            // Check cooldown: không boost quá 1 lần trong 6 giờ
+            var cooldownHours = 6;
+            var minBoostInterval = TimeSpan.FromHours(cooldownHours);
+            if (lobby.UpdatedAt.Add(minBoostInterval) > DateTime.UtcNow)
+            {
+                var remainingMinutes = (int)(minBoostInterval - (DateTime.UtcNow - lobby.UpdatedAt)).TotalMinutes;
+                throw new ConflictException(
+                    $"Bạn chỉ có thể boost 1 lần mỗi {cooldownHours} giờ. Vui lòng đợi {remainingMinutes} phút nữa.");
+            }
+
+            // Boost: cập nhật CreatedAt để lobby hiện lên đầu trong search/discovery
+            // (OrderByDescending(CreatedAt) sẽ đưa lobby mới nhất lên đầu)
+            lobby.CreatedAt = DateTime.UtcNow;
+            lobby.UpdatedAt = DateTime.UtcNow;
+
+            await _lobbyRepository.SaveChangesAsync();
+
+            await _lobbyMessageService.AddSystemMessageAsync(
+                lobby.Id,
+                $"Host đã boost phòng chờ để tăng visibility! Phòng của bạn giờ sẽ xuất hiện ở vị trí cao hơn trong kết quả tìm kiếm.");
+
+            await _hubService.NotifyLobbyUpdated(lobbyId);
+
+            return MapLobbyDto(lobby, null);
+        }
+
+        private static string GetTimeSlotDisplayName(TimeSlot? timeSlot)
+        {
+            return timeSlot switch
+            {
+                TimeSlot.Morning => "Sáng (09:00-13:00)",
+                TimeSlot.Afternoon => "Chiều (13:00-18:00)",
+                TimeSlot.Evening => "Tối (18:00-23:00)",
+                TimeSlot.Night => "Khuya (19:00-24:00)",
+                _ => timeSlot?.ToString() ?? "Không xác định"
+            };
+        }
+
+        private static DateTime GetScheduledTimeFromTimeSlot(DateOnly playDate, TimeSlot timeSlot)
+        {
+            var timeOnly = timeSlot switch
+            {
+                TimeSlot.Morning => new TimeOnly(9, 0),
+                TimeSlot.Afternoon => new TimeOnly(13, 0),
+                TimeSlot.Evening => new TimeOnly(18, 0),
+                TimeSlot.Night => new TimeOnly(19, 0),
+                _ => new TimeOnly(9, 0)
+            };
+            return playDate.ToDateTime(timeOnly);
+        }
+
         public async Task<LobbyResponseDto> KickMemberAsync(Guid lobbyId, Guid hostUserId, Guid targetUserId, string? reason)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)

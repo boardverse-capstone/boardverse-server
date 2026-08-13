@@ -35,6 +35,7 @@ namespace BoardVerse.Data.Configurations
             builder.Property(l => l.PlayDate).HasColumnType("date");
             builder.Property(l => l.TimeSlot).HasConversion<int>();
             builder.Property(l => l.PreferredStartTime).HasColumnType("time");
+            builder.Property(l => l.PreferredEndTime).HasColumnType("time");
             builder.Property(l => l.MinDeposit);
             builder.Property(l => l.DepositSnapshot)
                 .HasColumnType("jsonb")

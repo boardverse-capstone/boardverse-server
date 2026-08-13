@@ -674,15 +674,54 @@ namespace BoardVerse.Services.Services
     public async Task<AdminCafeListResponseDto> GetAdminCafesAsync(
         int page, int pageSize, string? searchTerm, string? status, Guid? managerId)
     {
+        // Map query status string → enum + IsActive filter
+        // status values: DATA_BLANK | ACTIVE | INACTIVE | BANNED
         bool? isActive = null;
+        CafePartnerOperationalStatus? partnerStatus = null;
         if (!string.IsNullOrWhiteSpace(status))
         {
-            isActive = status.Equals("active", StringComparison.OrdinalIgnoreCase) ||
-                       status.Equals("true", StringComparison.OrdinalIgnoreCase);
+            var normalized = status.Trim();
+            if (Enum.TryParse<CafePartnerOperationalStatus>(normalized, ignoreCase: true, out var parsed))
+            {
+                partnerStatus = parsed;
+                // Derive IsActive for the IsActive filter (Banned/Inactive/DataBlank all imply !IsActive,
+                // Active implies IsActive=true).
+                isActive = parsed == CafePartnerOperationalStatus.Active;
+            }
+            else if (normalized.Equals("true", StringComparison.OrdinalIgnoreCase))
+            {
+                isActive = true;
+            }
+            else if (normalized.Equals("false", StringComparison.OrdinalIgnoreCase))
+            {
+                isActive = false;
+            }
+            // Unknown status → return empty (consistent với việc filter invalid input)
+            else
+            {
+                return new AdminCafeListResponseDto
+                {
+                    Items = [],
+                    TotalCount = 0,
+                    PageNumber = page,
+                    PageSize = pageSize,
+                    TotalPages = 0,
+                    HasPreviousPage = false,
+                    HasNextPage = false
+                };
+            }
         }
 
         var (items, totalCount) = await _cafeRepository.GetAdminListAsync(
             page, pageSize, searchTerm, isActive, managerId);
+
+        // Nếu filter theo PartnerOperationalStatus, lọc tiếp trong memory
+        // (PostgreSQL enum filter có thể không ánh xạ 1-1 với string query)
+        if (partnerStatus.HasValue)
+        {
+            items = items.Where(c => c.PartnerOperationalStatus == partnerStatus.Value).ToList();
+            totalCount = items.Count;
+        }
 
         var totalPages = (int)Math.Ceiling((double)totalCount / pageSize);
 
@@ -698,11 +737,21 @@ namespace BoardVerse.Services.Services
                 DepositPercentage = c.DepositPercentage,
                 HasSePayConfigured = !string.IsNullOrWhiteSpace(c.SePayMerchantId),
                 ManagerId = c.ManagerId,
-                ManagerName = c.Manager?.Username ?? "N/A",
+                ManagerName = !string.IsNullOrWhiteSpace(c.Manager?.Username)
+                    ? c.Manager!.Username
+                    : !string.IsNullOrWhiteSpace(c.Manager?.Email)
+                        ? c.Manager!.Email
+                        : !string.IsNullOrWhiteSpace(c.Manager?.PhoneNumber)
+                            ? c.Manager!.PhoneNumber
+                            : "N/A",
                 NumberOfTables = c.NumberOfTables,
                 NumberOfGamesOwned = c.NumberOfGamesOwned,
                 StaffCount = c.StaffMembers?.Count ?? 0,
-                CreatedAt = c.CreatedAt
+                CreatedAt = c.CreatedAt,
+                // PartnerOperationalStatus.ToString(): DataBlank/Active/Inactive/Banned
+                // Nếu null (DB legacy) → fallback theo IsActive để UI không hiển thị rỗng.
+                Status = c.PartnerOperationalStatus?.ToString()
+                    ?? (c.IsActive ? "ACTIVE" : "INACTIVE")
             }).ToList(),
             TotalCount = totalCount,
             PageNumber = page,
@@ -751,23 +800,23 @@ namespace BoardVerse.Services.Services
     {
         if (string.IsNullOrWhiteSpace(request.Name))
         {
-            throw new BadRequestException("Tên cafe không được để trống.");
+            throw new BadRequestException(ApiErrorMessages.Cafe.NameRequired);
         }
 
         if (string.IsNullOrWhiteSpace(request.Address))
         {
-            throw new BadRequestException("Địa chỉ cafe không được để trống.");
+            throw new BadRequestException(ApiErrorMessages.Cafe.AddressRequired);
         }
 
         if (request.ManagerId == Guid.Empty)
         {
-            throw new BadRequestException("ManagerId không hợp lệ.");
+            throw new BadRequestException(ApiErrorMessages.Cafe.ManagerIdInvalid);
         }
 
         var manager = await _userProfileRepository.GetByIdWithProfileAsync(request.ManagerId);
         if (manager == null)
         {
-            throw new NotFoundException($"Manager {request.ManagerId} không tìm thấy.");
+            throw new NotFoundException(ApiErrorMessages.Cafe.ManagerNotFound(request.ManagerId));
         }
 
         var cafe = new Cafe
@@ -837,7 +886,7 @@ namespace BoardVerse.Services.Services
             }
             catch (ArgumentOutOfRangeException)
             {
-                throw new BadRequestException("Tọa độ không hợp lệ.");
+                throw new BadRequestException(ApiErrorMessages.Cafe.CoordinatesInvalid);
             }
         }
 

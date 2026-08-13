@@ -18,32 +18,53 @@ public class Lobby
     public Guid GameTemplateId { get; set; }
 
     // === Optional links ===
-    /// <summary>Mã cafe mục tiêu (nếu lobby cho 1 cafe cụ thể). Nullable.</summary>
+    /// <summary>Mã cafe mục tiêu (nếu lobby cho 1 cafe cụ thể). Nullable.
+    /// §9.7: MIRROR — source of truth là <c>Reservation.CafeId</c>. Giữ cho backward compat
+    /// (legacy lobby không có Reservation) và index query nhanh (IX_Lobbies_PlayDate).
+    /// [Obsolete("§9.7: Query từ Reservation.CafeId thay vì Lobby.CafeId — sẽ drop ở Phase 4.")]
     public Guid? CafeId { get; set; }
 
-    /// <summary>Mã booking khi đã thanh toán cọc BR-05. Nullable.</summary>
+    /// <summary>Mã booking khi đã thanh toán cọc BR-05. Nullable.
+    /// §9.7: Legacy FK — không dùng cho Reservation flow mới (dùng <c>ReservationId</c>).
+    /// [Obsolete("§9.7: Legacy Booking flow không dùng cho Reservation. Sẽ drop ở Phase 4.")]
     public Guid? BookingId { get; set; }
 
     // ===== BR-NEW-* §19.1: Bổ sung cho Reservation flow =====
     /// <summary>FK Reservation — bắt buộc với lobby mới. Nullable để tương thích lobby cũ.</summary>
     public Guid? ReservationId { get; set; }
 
-    /// <summary>BR-NEW-04: ngày dự kiến chơi (chỉ ngày, không giờ).</summary>
+    /// <summary>BR-NEW-04: ngày dự kiến chơi (chỉ ngày, không giờ).
+    /// §9.7: MIRROR từ <c>Reservation.PlayDate</c>. Giữ cho index IX_Lobbies_PlayDate.
+    /// [Obsolete("§9.7: Query từ Reservation.PlayDate thay vì Lobby.PlayDate.")]
     public DateOnly? PlayDate { get; set; }
 
-    /// <summary>BR-NEW-15: khung giờ cố định.</summary>
+    /// <summary>BR-NEW-15: khung giờ cố định.
+    /// §9.7: MIRROR từ <c>Reservation.TimeSlot</c>. Sẽ drop ở Phase 2+ khi không còn legacy lobby.
+    /// [Obsolete("§9.7: Derive từ Reservation.TimeSlot — sẽ drop ở Phase 2+.")]
     public TimeSlot? TimeSlot { get; set; }
 
-    /// <summary>BR-NEW-15b: optional, nằm trong [timeSlot.startTime, timeSlot.endTime].</summary>
+    /// <summary>BR-NEW-15b: optional, nằm trong [timeSlot.startTime, timeSlot.endTime].
+    /// §9.7: MIRROR từ <c>Reservation.PreferredStartTime</c>. Sẽ drop ở Phase 2+.
+    /// [Obsolete("§9.7: Derive từ Reservation.PreferredStartTime — sẽ drop ở Phase 2+.")]
     public TimeOnly? PreferredStartTime { get; set; }
 
-    /// <summary>BR-LOBBY-01: scheduledTime - leadTimeMinutes.</summary>
+    /// <summary>§9.7: MIRROR từ <c>Reservation.PreferredEndTime</c>. Sẽ drop ở Phase 2+.
+    /// [Obsolete("§9.7: Derive từ Reservation.PreferredEndTime — sẽ drop ở Phase 2+.")]
+    public TimeOnly? PreferredEndTime { get; set; }
+
+    /// <summary>BR-LOBBY-01: scheduledTime - leadTimeMinutes.
+    /// §9.7: MIRROR từ <c>Reservation.RecruitmentDeadline</c>. Giữ cho index IX_Lobbies_RecruitmentDeadline.
+    /// [Obsolete("§9.7: Query từ Reservation.RecruitmentDeadline thay vì Lobby.RecruitmentDeadline.")]
     public DateTime? RecruitmentDeadline { get; set; }
 
-    /// <summary>BVC minDeposit theo khoảng cách playDate (BR-NEW-01 §8).</summary>
+    /// <summary>BVC minDeposit theo khoảng cách playDate (BR-NEW-01 §8).
+    /// §9.7: MIRROR từ <c>Reservation.DepositAmount</c>. Sẽ drop ở Phase 2+.
+    /// [Obsolete("§9.7: Derive từ Reservation.DepositAmount — sẽ drop ở Phase 2+.")]
     public long? MinDeposit { get; set; }
 
-    /// <summary>Snapshot cấu hình cọc tại thời điểm tạo (§19.1 + 21F.9).</summary>
+    /// <summary>Snapshot cấu hình cọc tại thời điểm tạo (§19.1 + 21F.9).
+    /// §9.7: MIRROR từ <c>Reservation.DepositConfigSnapshot</c>. Sẽ drop ở Phase 2+.
+    /// [Obsolete("§9.7: Derive từ Reservation.DepositConfigSnapshot — sẽ drop ở Phase 2+.")]
     public DepositSnapshot? DepositSnapshot { get; set; }
 
     // ===== BR-NEW-11 §XII: cafe approval workflow =====
@@ -53,7 +74,10 @@ public class Lobby
     public string? CafeRejectionReason { get; set; }
 
     // === Scheduling (BR-08) ===
-    /// <summary>Thời điểm dự kiến bắt đầu chơi tại quán.</summary>
+    /// <summary>Thời điểm dự kiến bắt đầu chơi tại quán.
+    /// §9.7: MIRROR từ <c>Reservation.ScheduledStartTime</c>. Giữ cho index IX_Lobbies_ScheduledStartTime.
+    /// Query trực tiếp từ <c>Reservation.ScheduledStartTime</c> khi cần độ chính xác cao.
+    /// </summary>
     public DateTime? ScheduledStartTime { get; set; }
 
     /// <summary>Latitude của quán mục tiêu (từ Cafe) - dùng để tìm phòng chờ gần user.</summary>

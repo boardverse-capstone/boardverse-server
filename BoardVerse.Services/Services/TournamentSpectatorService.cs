@@ -32,14 +32,14 @@ public class TournamentSpectatorService : ITournamentSpectatorService
 
         if (tournament.Status == TournamentStatus.Draft)
         {
-            throw new ConflictException("Không thể spectate tournament chưa được công bố.");
+            throw new ConflictException(ApiErrorMessages.Tournament.Spectator.CannotSpectateUnpublished);
         }
 
         // Check if user is already a participant
         var existingParticipant = await _tournamentRepository.GetParticipantAsync(tournamentId, userId);
         if (existingParticipant != null)
         {
-            throw new ConflictException("Bạn là người chơi trong tournament này, không cần spectate.");
+            throw new ConflictException(ApiErrorMessages.Tournament.Spectator.CannotSpectateAsParticipant);
         }
 
         // Check if already spectating
@@ -70,7 +70,7 @@ public class TournamentSpectatorService : ITournamentSpectatorService
     public async Task LeaveSpectateAsync(Guid userId, Guid tournamentId)
     {
         var spectator = await _spectatorRepository.GetByUserAsync(tournamentId, userId)
-            ?? throw new NotFoundException("Bạn không spectate tournament này.");
+            ?? throw new NotFoundException(ApiErrorMessages.Tournament.Spectator.NotSpectating);
 
         spectator.LeftAt = DateTime.UtcNow;
         await _spectatorRepository.UpdateAsync(spectator);

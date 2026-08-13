@@ -540,7 +540,7 @@ namespace BoardVerse.Services.Services
         {
             if (expToAdd <= 0)
             {
-                throw new BadRequestException("Exp phải lớn hơn 0.");
+                throw new BadRequestException(ApiErrorMessages.Profile.ExpMustBePositive);
             }
 
             var user = await _userRepository.GetByIdWithProfileAsync(userId);

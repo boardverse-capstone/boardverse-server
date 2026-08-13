@@ -566,6 +566,7 @@ namespace BoardVerse.Data.Repositories
             var totalCount = await query.CountAsync();
 
             var items = await query
+                .Include(c => c.Manager)
                 .Include(c => c.StaffMembers)
                 .OrderByDescending(c => c.CreatedAt)
                 .Skip((page - 1) * pageSize)

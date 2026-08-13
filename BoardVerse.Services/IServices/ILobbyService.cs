@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Lobby;
+using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Services.IServices
 {
@@ -67,6 +68,20 @@ namespace BoardVerse.Services.IServices
 
         /// <summary>L-03: Host tạo mã chia sẻ mới, invalidate mã cũ.</summary>
         Task<LobbyResponseDto> RegenerateShareCodeAsync(Guid lobbyId, Guid hostUserId);
+
+        /// <summary>
+        /// BR-NEW-14 (b): Host đổi timeSlot và/hoặc preferred times của lobby.
+        /// Chỉ áp dụng khi lobby chưa check-in (status = Open/Viable/Full/PendingCafeApproval).
+        /// Update cả Reservation.TimeSlot + Lobby.TimeSlot (mirror) + recalculate RecruitmentDeadline.
+        /// BR-RES-07/08/09: preferredStartTime/EndTime phải nằm trong slot range.
+        /// </summary>
+        Task<LobbyResponseDto> ChangeTimeSlotAsync(Guid lobbyId, Guid hostUserId, Core.DTOs.Lobby.ChangeTimeSlotRequestDto request);
+
+        /// <summary>
+        /// BR-NEW-14 (d): Boost lobby — tăng visibility trong search/discovery.
+        /// Chỉ áp dụng khi lobby đang Open và chưa được boost trong 6 giờ gần nhất.
+        /// </summary>
+        Task<LobbyResponseDto> BoostLobbyAsync(Guid lobbyId, Guid hostUserId);
 
         /// <summary>Host kick thành viên khác khỏi lobby.</summary>
         Task<LobbyResponseDto> KickMemberAsync(Guid lobbyId, Guid hostUserId, Guid targetUserId, string? reason = null);

@@ -18,8 +18,14 @@ public class BvcLedgerEntry
     /// <summary>Số BVC. Luôn dương — direction quyết định bởi <see cref="Type"/>.</summary>
     public long Amount { get; set; }
 
-    /// <summary>Mã booking liên kết (nếu có). Nullable với TopUp / Adjustment.</summary>
+    /// <summary>Mã booking liên kết (nếu có). Nullable với TopUp / Adjustment.
+    /// TD-02: Legacy — preference là <c>RelatedReservationId</c>. Giữ để backward compat.
+    /// [Obsolete("§9.7: Prefer RelatedReservationId — sẽ chuyển sang khi migrate Booking→Reservation.")]
     public Guid? RelatedBookingId { get; set; }
+
+    /// <summary>TD-02: Mã Reservation liên kết — nguồn chính cho BVC ledger entries mới.
+    /// Phase 1 thêm nullable này để BVC ledger hoạt động với Reservation flow mới.</summary>
+    public Guid? RelatedReservationId { get; set; }
 
     /// <summary>Mã lobby liên kết (nếu có). Nullable với TopUp / Adjustment.</summary>
     public Guid? RelatedLobbyId { get; set; }
@@ -42,4 +48,6 @@ public class BvcLedgerEntry
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public virtual User User { get; set; } = null!;
+    /// <summary>TD-02: Navigation đến Reservation (nullable cho legacy entries).</summary>
+    public virtual Reservation? Reservation { get; set; }
 }

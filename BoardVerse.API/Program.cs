@@ -158,6 +158,14 @@ builder.Services.AddSingleton<IOutboxEventPublisher, RealOutboxPublisher>();
 builder.Services.AddScoped<DepositCalculator>();
 builder.Services.AddScoped<EligibilityValidator>();
 builder.Services.AddScoped<IReservationService, ReservationService>();
+builder.Services.AddScoped<IReservationExtensionService, ReservationExtensionService>();
+builder.Services.AddScoped<IWalkInWindowRepository, WalkInWindowRepository>();
+builder.Services.AddScoped<IWalkInBookingRepository, WalkInBookingRepository>();
+builder.Services.AddScoped<IWalkInService, WalkInService>();
+builder.Services.AddScoped<RefundCalculationService>();
+builder.Services.AddScoped<IKarmaShortPlayRecordRepository, KarmaShortPlayRecordRepository>();
+builder.Services.AddScoped<IPlayerKarmaService, PlayerKarmaService>();
+builder.Services.AddScoped<IKarmaService, KarmaService>();
 builder.Services.AddScoped<ICafeScheduleOverrideRepository, CafeScheduleOverrideRepository>();
 builder.Services.AddScoped<IScheduleResolver, CafeScheduleResolver>();
 builder.Services.AddScoped<ICafeScheduleService, CafeScheduleService>();
@@ -179,6 +187,8 @@ builder.Services.AddScoped<IActiveSessionRepository, ActiveSessionRepository>();
 builder.Services.AddScoped<IKarmaRatingRepository, KarmaRatingRepository>();
 builder.Services.AddScoped<IMatchResultRepository, MatchResultRepository>();
 builder.Services.AddScoped<IAdminModerationRepository, AdminModerationRepository>();
+builder.Services.AddScoped<IPlayerAlertRepository, PlayerAlertRepository>(); // R-01
+builder.Services.AddScoped<IPlayerRiskScoreRepository, PlayerRiskScoreRepository>(); // BR-RISK-01
 builder.Services.AddScoped<ISystemConfigurationRepository, SystemConfigurationRepository>();
 builder.Services.AddScoped<ICafePartnerApplicationRepository, CafePartnerApplicationRepository>();
 builder.Services.AddScoped<IBookingDepositRepository, BookingDepositRepository>();
@@ -193,6 +203,9 @@ builder.Services.AddScoped<IBookingRatingRepository, BookingRatingRepository>();
 builder.Services.AddScoped<ICafeBookingService, CafeBookingService>();
 builder.Services.AddScoped<IBookingRatingService, BookingRatingService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
+
+// Background Jobs
+
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserProfileService, UserProfileService>();
 builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
@@ -214,6 +227,10 @@ builder.Services.AddScoped<SystemConfigurationService>();
 builder.Services.AddScoped<ISystemConfigurationProvider>(sp => sp.GetRequiredService<SystemConfigurationService>());
 builder.Services.AddScoped<IAdminSystemConfigurationService>(sp => sp.GetRequiredService<SystemConfigurationService>());
 builder.Services.AddScoped<IKarmaConfigurationService, KarmaConfigurationService>();
+builder.Services.AddScoped<ICoolingOffService, CoolingOffService>(); // BR-NEW-10: cooling-off detect/expire/escalate
+builder.Services.AddScoped<IPlayerRiskQueryService, PlayerRiskQueryService>(); // BR-RISK-09: admin risk detail view
+builder.Services.AddScoped<IPlayerRiskScoreService, PlayerRiskScoreService>(); // BR-RISK-01: hourly risk recompute
+builder.Services.AddScoped<IPlayerAlertService, PlayerAlertService>(); // R-01: admin alert management
 builder.Services.AddScoped<ILevelingService, LevelingService>();
 builder.Services.AddScoped<ICafePartnerApplicationService, CafePartnerApplicationService>();
 builder.Services.AddScoped<ISePayAccountRepository, SePayAccountRepository>();
@@ -259,6 +276,13 @@ if (!builder.Environment.IsEnvironment("Testing"))
     builder.Services.AddHostedService<LobbyInviteExpiryJob>(); // BR-LOBBY-INVITE-08: expire invite 24h
     builder.Services.AddHostedService<LobbyNotificationJob>(); // N-01: BR-NEW-13 milestone notifications
     builder.Services.AddHostedService<LobbyAtRiskWarningJob>(); // N-02: BR-NEW-14 at-risk warning
+    builder.Services.AddHostedService<ReservationNoShowDetectionJob>(); // BR-CHECKIN-02: auto NoShow 30 phút grace
+    builder.Services.AddHostedService<AutoReleaseExpiredSessionsJob>(); // BR-END-05: auto-release session khi staff quên end
+    builder.Services.AddHostedService<WalkInWindowCleanupJob>(); // §4.4: auto-close expired WalkInWindows
+    builder.Services.AddHostedService<CoolingOffJob>(); // BR-NEW-10: detect signals + expire cooling-off
+    builder.Services.AddHostedService<RiskScoreRecomputeJob>(); // BR-RISK-01: hourly risk score recompute
+    builder.Services.AddHostedService<SuspensionExpiryCheckJob>(); // BR-RISK-06: auto-unlock expired suspensions
+    builder.Services.AddHostedService<AlertExpiryCleanupJob>(); // R-01: dismiss stale alerts after 30 days
 
     // BR §XXI-H.8: Reservation scheduler jobs (recruitmentDeadline, cafe approval 24h, no-show grace).
     builder.Services.AddReservationSchedulers();

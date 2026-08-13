@@ -39,6 +39,9 @@ Tuân thủ business rules:
 - [POST /confirm](#post-confirm)
 - [POST /{id}/cancel](#post-idcancel)
 - [POST /{id}/cafe-approval](#post-idcafe-approval)
+- [POST /{id}/check-in](#post-idcheck-in)
+- [POST /{id}/end](#post-idend)
+- [POST /{id}/extend](#post-idextend)
 - [Luồng tích hợp](#luồng-tích-hợp)
 - [State machine](#state-machine)
 
@@ -71,7 +74,8 @@ Lấy chi tiết một reservation.
     "playDate": "2026-08-04",
     "timeSlot": "evening",
     "preferredStartTime": "19:30:00",
-    "scheduledTime": "2026-08-04T18:00:00Z",
+    "scheduledStartTime": "2026-08-04T18:00:00Z",
+    "scheduledEndTime": "2026-08-04T23:00:00Z",
     "recruitmentDeadline": "2026-08-04T17:40:00Z",
     "minPlayers": 4,
     "maxPlayers": 6,
@@ -233,7 +237,8 @@ Lấy danh sách lobby đang chờ cafe duyệt (BR-NEW-11). Dùng cho dashboard
         "maxPlayers": 6,
         "currentPlayers": 1,
         "depositAmount": 120000,
-        "scheduledTime": "2026-08-07T18:00:00Z",
+        "scheduledStartTime": "2026-08-07T18:00:00Z",
+        "scheduledEndTime": "2026-08-07T23:00:00Z",
         "cafeApprovalDeadline": "2026-08-05T18:00:00Z",
         "remainingApprovalHours": 24,
         "createdAt": "2026-08-04T10:00:00Z"
@@ -288,7 +293,8 @@ Lấy chi tiết một reservation đang chờ cafe duyệt (BR-NEW-11). Dùng �
     "maxPlayers": 6,
     "currentPlayers": 1,
     "depositAmount": 120000,
-    "scheduledTime": "2026-08-07T18:00:00Z",
+    "scheduledStartTime": "2026-08-07T18:00:00Z",
+    "scheduledEndTime": "2026-08-07T23:00:00Z",
     "cafeApprovalDeadline": "2026-08-05T18:00:00Z",
     "remainingApprovalHours": 24,
     "createdAt": "2026-08-04T10:00:00Z"
@@ -357,7 +363,8 @@ Tạo quote cho reservation. **KHÔNG tạo row DB** — chỉ validate + tính 
     "playDate": "2026-08-04",
     "timeSlot": "evening",
     "preferredStartTime": "19:30:00",
-    "scheduledTime": "2026-08-04T18:00:00Z",
+    "scheduledStartTime": "2026-08-04T18:00:00Z",
+    "scheduledEndTime": "2026-08-04T23:00:00Z",
     "recruitmentDeadline": "2026-08-04T17:40:00Z",
     "minPlayers": 4,
     "maxPlayers": 6,
@@ -683,6 +690,171 @@ Cafe **chấp nhận** (`approve: true`) hoặc **từ chối** (`approve: false
 | `401` | Thiếu token |
 | `403` | Không phải manager của cafe |
 | `404` | Reservation không tồn tại |
+
+---
+
+## POST /{id}/check-in
+
+POS staff xác nhận khách đã đến quán, scan mã ReservationCode để bắt đầu phiên chơi (BR-CHECKIN-01).
+
+### Request
+
+- Method: `POST`
+- Path: `/api/v1/reservations/{reservationId}/check-in`
+- Auth: Manager hoặc CafeStaff.
+
+### Body
+
+```json
+{
+  "cafeId": "guid",
+  "reservationCode": "8-char-code",
+  "activeSessionId": "guid",
+  "idempotencyKey": "pos-checkin-..."
+}
+```
+
+| Field | Required | Description |
+|---|---|---|
+| cafeId | Yes | CafeId của POS staff đang quét — validate ownership |
+| reservationCode | Yes | Mã 8-char alphanumeric từ app |
+| activeSessionId | Yes | POS session ID |
+| idempotencyKey | Yes | 8-128 chars; retry trả cùng response |
+
+### Response — 200 OK
+
+```json
+{
+  "reservationId": "guid",
+  "lobbyId": "guid",
+  "activeSessionId": "guid",
+  "reservationStatus": "CheckedIn",
+  "lobbyStatus": "InProgress",
+  "checkedInAt": "2026-08-15T10:30:00Z",
+  "heldBvc": 120
+}
+```
+
+### Errors
+
+| Code | Description |
+|---|---|
+| 400 | Mã reservation không hợp lệ hoặc đã check-in (idempotent) |
+| 404 | Không tìm thấy reservation |
+| 409 | Status không cho phép check-in (ví dụ: đã `Completed` / `Cancelled`) |
+
+---
+
+## POST /{id}/end
+
+POS staff kết thúc phiên chơi (early checkout, on-time, hoặc staff override). BR-END-01..05 + BR-REFUND-05 + EC-09.
+
+### Request
+
+- Method: `POST`
+- Path: `/api/v1/reservations/{reservationId}/end`
+- Auth: Manager hoặc CafeStaff.
+
+### Body
+
+```json
+{
+  "reservationId": "guid",
+  "actualEndAt": "2026-08-15T13:30:00Z",
+  "reason": "staff_manual_close",
+  "skipWalkInWindow": false
+}
+```
+
+| Field | Required | Description |
+|---|---|---|
+| reservationId | Yes | Reservation cần end |
+| actualEndAt | No | Default = UTC now |
+| reason | No | "early_checkout" / "on_time" / "staff_override" |
+| skipWalkInWindow | No | Skip tạo WalkInWindow khi early checkout |
+
+### Response — 200 OK
+
+```json
+{
+  "reservationId": "guid",
+  "endReason": "EarlyLeave",
+  "playedRatio": 0.43,
+  "originalDeposit": 120,
+  "refundBvc": 0,
+  "forfeitBvc": 120,
+  "refundReason": "EarlyCheckout",
+  "checkedInAt": "2026-08-15T10:00:00Z",
+  "actualEndAt": "2026-08-15T11:30:00Z",
+  "scheduledStartTime": "2026-08-15T10:00:00Z",
+  "scheduledEndTime": "2026-08-15T13:00:00Z",
+  "walkInWindowId": null,
+  "karmaRecorded": true
+}
+```
+
+### Errors
+
+| Code | Description |
+|---|---|
+| 404 | Không tìm thấy reservation |
+| 409 | Status không cho phép end (chưa check-in) |
+
+### Side effects
+
+- Update `Reservation.Status = Completed` (hoặc `EarlyCheckout`)
+- Update `Reservation.ActualEndAt`, `PlayedRatio`, `EndReason`
+- Tính refund theo BR-REFUND-05: ≥90% on-time = 0 refund; 50-89% early = 30% refund; <50% short = 0 refund
+- Nếu `playedRatio < 50%` và `duration >= 30 phút` và `!SkipWalkInWindow` → tạo `WalkInWindow` (EC-09)
+- Nếu `playedRatio < 50%` → ghi `KarmaShortPlayRecord` (-5 karma)
+- Outbox event `SessionEnded`
+
+---
+
+## POST /{id}/extend
+
+Host mở rộng thời gian reservation (BR-EXT-01..05 + EC-05 + EC-08).
+
+### Request
+
+- Method: `POST`
+- Path: `/api/v1/reservations/{reservationId}/extend`
+- Auth: Host.
+
+### Body
+
+```json
+{
+  "extensionMinutes": 30,
+  "idempotencyKey": "extend-..."
+}
+```
+
+| Field | Required | Description |
+|---|---|---|
+| extensionMinutes | Yes | 1-120 phút (max 2 lần extend) |
+| idempotencyKey | Yes | 8-128 chars |
+
+### Response — 200 OK
+
+```json
+{
+  "reservationId": "guid",
+  "newScheduledEndTime": "2026-08-15T15:30:00Z",
+  "previousEndTime": "2026-08-15T13:00:00Z",
+  "extensionCount": 1,
+  "extensionMinutes": 30,
+  "remainingExtensionMinutes": 90
+}
+```
+
+### Errors
+
+| Code | Description |
+|---|---|
+| 403 | Không phải host |
+| 404 | Không tìm thấy reservation |
+| 409 | Status không phải Confirmed / quá max extension / overlap với WalkInWindow |
 
 ---
 

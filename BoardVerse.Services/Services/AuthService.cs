@@ -11,6 +11,7 @@ using BoardVerse.Services.IServices;
 using Google.Apis.Auth;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -24,6 +25,7 @@ namespace BoardVerse.Services.Services
         private readonly IAuthRepository _userRepository;
         private readonly IDistributedCache _distributedCache;
         private readonly IEmailService _emailService;
+        private readonly ILogger<AuthService> _logger;
         private readonly string _jwtSecurityKey;
         private readonly string _jwtValidIssuer;
         private readonly string _jwtValidAudience;
@@ -32,11 +34,17 @@ namespace BoardVerse.Services.Services
         private readonly string _googleClientId;
         private readonly bool _disableLoginThrottle;
 
-        public AuthService(IAuthRepository userRepository, IConfiguration configuration, IDistributedCache distributedCache, IEmailService emailService)
+        public AuthService(
+            IAuthRepository userRepository,
+            IConfiguration configuration,
+            IDistributedCache distributedCache,
+            IEmailService emailService,
+            ILogger<AuthService> logger)
         {
             _userRepository = userRepository;
             _distributedCache = distributedCache;
             _emailService = emailService;
+            _logger = logger;
 
             var jwtSettings = configuration.GetSection("JwtSettings");
             _jwtSecurityKey = jwtSettings["SecurityKey"] ?? throw new ConfigurationMissingException("JwtSettings:SecurityKey not configured");
@@ -165,13 +173,49 @@ namespace BoardVerse.Services.Services
 
         public async Task<LoginResponseDto> GoogleLoginAsync(GoogleAuthRequestDto request)
         {
+            GoogleJsonWebSignature.Payload payload;
             try
             {
-                var payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken, new GoogleJsonWebSignature.ValidationSettings
+                payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken, new GoogleJsonWebSignature.ValidationSettings
                 {
                     Audience = new[] { _googleClientId }
                 });
+            }
+            catch (InvalidJwtException jwtEx)
+            {
+                // Thư viện Google.Apis.Auth ném 1 loại InvalidJwtException cho mọi lỗi JWT:
+                // signature sai, expired, malformed, audience không khớp, clock skew, issuer không đúng...
+                // Message trong exception thường có dạng "JWT audience invalid: ...", "Signature is invalid.", "Token expired."
+                _logger.LogWarning(jwtEx,
+                    "Google login rejected by GoogleJsonWebSignature.ValidateAsync. ExpectedAudience={ExpectedAudience}. JwtMessage={JwtMessage}",
+                    _googleClientId,
+                    jwtEx.Message);
+                throw new GoogleTokenValidationException(ApiErrorMessages.Auth.GoogleTokenValidationFailed, jwtEx);
+            }
+            catch (HttpRequestException httpEx)
+            {
+                // Gọi network tới https://www.googleapis.com/oauth2/v3/certs để lấy cert.
+                // Thường do firewall/proxy local chặn, hoặc API host bị block.
+                _logger.LogError(httpEx,
+                    "Google login failed — không gọi được Google cert endpoint. Kiểm tra firewall/proxy. Message={Message}",
+                    httpEx.Message);
+                throw new GoogleTokenValidationException(ApiErrorMessages.Auth.GoogleTokenValidationFailed, httpEx);
+            }
+            catch (InvalidOperationException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Google login thất bại — ngoại lệ không xác định. InnerType={InnerType}. Message={Message}",
+                    ex.GetType().FullName,
+                    ex.Message);
+                throw new GoogleTokenValidationException(ApiErrorMessages.Auth.GoogleTokenValidationFailed, ex);
+            }
 
+            try
+            {
                 if (string.IsNullOrWhiteSpace(payload.Email))
                 {
                     throw new InvalidTokenException(ApiErrorMessages.Auth.GoogleTokenMissingEmail);
@@ -229,9 +273,13 @@ namespace BoardVerse.Services.Services
             {
                 throw;
             }
-            catch (Exception ex)
+            catch (InvalidTokenException)
             {
-                throw new GoogleTokenValidationException(ApiErrorMessages.Auth.GoogleTokenValidationFailed, ex);
+                throw;
+            }
+            catch (UserBlockedException)
+            {
+                throw;
             }
         }
 
@@ -379,13 +427,44 @@ namespace BoardVerse.Services.Services
 
         public async Task<LoginResponseDto> LinkGoogleAccountAsync(LinkGoogleRequestDto request)
         {
+            GoogleJsonWebSignature.Payload payload;
             try
             {
-                var payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken, new GoogleJsonWebSignature.ValidationSettings
+                payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken, new GoogleJsonWebSignature.ValidationSettings
                 {
                     Audience = new[] { _googleClientId }
                 });
+            }
+            catch (InvalidJwtException jwtEx)
+            {
+                _logger.LogWarning(jwtEx,
+                    "LinkGoogle: GoogleJsonWebSignature từ chối token. ExpectedAudience={ExpectedAudience}. JwtMessage={JwtMessage}",
+                    _googleClientId,
+                    jwtEx.Message);
+                throw new GoogleTokenValidationException(ApiErrorMessages.Auth.GoogleTokenValidationFailed, jwtEx);
+            }
+            catch (HttpRequestException httpEx)
+            {
+                _logger.LogError(httpEx,
+                    "LinkGoogle: lỗi mạng khi verify JWT. Message={Message}",
+                    httpEx.Message);
+                throw new GoogleTokenValidationException(ApiErrorMessages.Auth.GoogleTokenValidationFailed, httpEx);
+            }
+            catch (InvalidOperationException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "LinkGoogle: thất bại — ngoại lệ không xác định. InnerType={InnerType}. Message={Message}",
+                    ex.GetType().FullName,
+                    ex.Message);
+                throw new GoogleTokenValidationException(ApiErrorMessages.Auth.GoogleTokenValidationFailed, ex);
+            }
 
+            try
+            {
                 if (string.IsNullOrWhiteSpace(payload.Email))
                 {
                     throw new InvalidTokenException(ApiErrorMessages.Auth.GoogleTokenMissingEmail);
@@ -408,9 +487,17 @@ namespace BoardVerse.Services.Services
             {
                 throw;
             }
-            catch (Exception ex)
+            catch (InvalidTokenException)
             {
-                throw new GoogleTokenValidationException(ApiErrorMessages.Auth.GoogleTokenValidationFailed, ex);
+                throw;
+            }
+            catch (UserNotFoundException)
+            {
+                throw;
+            }
+            catch (UserBlockedException)
+            {
+                throw;
             }
         }
 

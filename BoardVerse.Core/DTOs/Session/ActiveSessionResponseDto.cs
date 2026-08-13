@@ -10,6 +10,10 @@ namespace BoardVerse.Core.DTOs.Session
         public Guid HostId { get; set; }
         public Guid? CafeTableId { get; set; }
         public string TableName { get; set; } = string.Empty;
+
+        /// <summary>Số bàn được staff gán khi check-in. Null nếu chưa gán.</summary>
+        public int? TableNumber { get; set; }
+
         public Guid? CafeInventoryBoxId { get; set; }
         public string BoxBarcode { get; set; } = string.Empty;
         public Guid GameTemplateId { get; set; }
@@ -18,6 +22,13 @@ namespace BoardVerse.Core.DTOs.Session
         public DateTime StartedAt { get; set; }
         public int ElapsedMinutes { get; set; }
         public int EstimatedRemainingMinutes { get; set; }
+
+        /// <summary>Phase 4 / EC-10: True khi game có thể không kết thúc trước khi TimeSlot hết.</summary>
+        public bool TimeOverrunWarning { get; set; }
+
+        /// <summary>Phase 4 / EC-10: Số phút TimeSlot còn lại (0 nếu không thuộc Reservation).</summary>
+        public int TimeSlotRemainingMinutes { get; set; }
+
         public GroupSessionStatus Status { get; set; }
         public decimal Subtotal { get; set; }
         public decimal DepositAppliedAmount { get; set; }

@@ -37,6 +37,22 @@ public interface IReservationService
     Task<CancelReservationResponseDto> CancelAsync(Guid hostId, CancelReservationRequestDto request);
 
     /// <summary>
+    /// BR-REFUND-08 (walk-in-override-design §2.3):
+    /// Host hủy reservation SAU khi đã check-in tại quán.
+    /// Áp dụng soft-release refund 30% nếu playedRatio ≥ 50% slot, forfeit toàn bộ nếu &lt; 50%.
+    /// Transition: Reservation.Status CheckedIn → CancelledByPlayer.
+    /// </summary>
+    /// <param name="hostId">UserId của host (chỉ host mới được hủy).</param>
+    /// <param name="request">Chứa ReservationId + Reason.</param>
+    /// <returns>Refund/Forfeit breakdown theo playedRatio.</returns>
+    /// <exception cref="NotFoundException">Reservation không tồn tại.</exception>
+    /// <exception cref="ForbiddenException">User không phải host.</exception>
+    /// <exception cref="ConflictException">Reservation chưa check-in (status ≠ CheckedIn).</exception>
+    Task<CancelAfterCheckinResponseDto> CancelAfterCheckinAsync(
+        Guid hostId,
+        CancelAfterCheckinRequestDto request);
+
+    /// <summary>
     /// Cafe duyệt/từ chối lobby pending (BR-NEW-11 §XII).
     /// </summary>
     Task<CafeApprovalResponseDto> HandleCafeApprovalAsync(
@@ -90,6 +106,18 @@ public interface IReservationService
     Task CompleteAndCaptureAsync(Guid lobbyId, Guid activeSessionId, CancellationToken ct = default);
 
     /// <summary>
+    /// BR-END-01..05 (docs/time-slot-fixed-end-design (1).md §3.4 + §21A.8):
+    /// POS end session + settle deposit + có thể tạo WalkInWindow + ghi Karma violation.
+    /// </summary>
+    /// <param name="staffUserId">UserId của staff (CafeStaff/Manager).</param>
+    /// <param name="request">ReservationId + ActualEndAt optional + Reason optional.</param>
+    /// <returns>RefundBvc, ForfeitBvc, PlayedRatio, WalkInWindowId, KarmaRecorded.</returns>
+    /// <exception cref="NotFoundException">Reservation không tồn tại.</exception>
+    /// <exception cref="ForbiddenException">User không phải staff của cafe.</exception>
+    /// <exception cref="ConflictException">Reservation chưa check-in (status ≠ CheckedIn).</exception>
+    Task<EndReservationResponseDto> EndAndSettleAsync(Guid staffUserId, EndReservationRequestDto request);
+
+    /// <summary>
     /// Lấy chi tiết 1 reservation.
     /// Validate: user phải là host hoặc member của lobby.
     /// </summary>
@@ -114,4 +142,15 @@ public interface IReservationService
     Task<LobbyPendingApprovalListResponseDto> GetPendingCafeApprovalAsync(
         Guid managerUserId,
         LobbyPendingApprovalRequestDto request);
+
+    /// <summary>
+    /// BR-REFUND-07: Admin override refund amount cho reservation đã completed.
+    /// Cho phép refund một phần hoặc toàn bộ số BVC đã capture.
+    /// Ghi AdminCredit ledger entry + PlayerActionHistory audit.
+    /// </summary>
+    Task<AdminOverrideRefundResultDto> AdminOverrideRefundAsync(
+        Guid adminUserId,
+        Guid reservationId,
+        AdminOverrideRefundRequestDto request,
+        string idempotencyKey);
 }

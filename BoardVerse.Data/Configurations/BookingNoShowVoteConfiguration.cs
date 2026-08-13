@@ -31,14 +31,24 @@ public class BookingNoShowVoteConfiguration : IEntityTypeConfiguration<BookingNo
             .HasForeignKey(v => v.BookingId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        // TD-02: Navigation đến Reservation (nullable cho legacy rows)
+        builder.HasOne(v => v.Reservation)
+            .WithMany()
+            .HasForeignKey(v => v.ReservationId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasOne(v => v.Voter)
             .WithMany()
             .HasForeignKey(v => v.VoterUserId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        // BR-22: mỗi voter chỉ vote 1 lần cho 1 booking
+        // BR-22: mỗi voter chỉ vote 1 lần cho 1 booking hoặc reservation
+        builder.HasIndex(v => new { v.ReservationId, v.VoterUserId })
+            .IsUnique()
+            .HasFilter("\"ReservationId\" IS NOT NULL");
         builder.HasIndex(v => new { v.BookingId, v.VoterUserId }).IsUnique();
         builder.HasIndex(v => v.BookingId);
+        builder.HasIndex(v => v.ReservationId);
     }
 }
 
@@ -70,14 +80,24 @@ public class BookingRatingConfiguration : IEntityTypeConfiguration<BookingRating
             .HasForeignKey(r => r.BookingId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        // TD-02: Navigation đến Reservation (nullable cho legacy rows)
+        builder.HasOne(r => r.Reservation)
+            .WithMany()
+            .HasForeignKey(r => r.ReservationId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasOne(r => r.Voter)
             .WithMany()
             .HasForeignKey(r => r.VoterUserId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        // Idempotent qua (BookingId, VoterUserId)
+        // Idempotent: mỗi voter chỉ submit 1 lần cho 1 booking hoặc reservation
+        builder.HasIndex(r => new { r.ReservationId, r.VoterUserId })
+            .IsUnique()
+            .HasFilter("\"ReservationId\" IS NOT NULL");
         builder.HasIndex(r => new { r.BookingId, r.VoterUserId }).IsUnique();
         builder.HasIndex(r => r.BookingId);
+        builder.HasIndex(r => r.ReservationId);
         builder.HasIndex(r => r.IsAggregated);
     }
 }

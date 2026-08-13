@@ -736,7 +736,7 @@ public class TournamentService : ITournamentService
             var existingWaitlist = await _waitlistRepository.GetPendingByUserAsync(tournamentId, userId);
             if (existingWaitlist != null)
             {
-                throw new ConflictException("Bạn đã có trong waitlist của giải này.");
+                throw new ConflictException(ApiErrorMessages.Tournament.AlreadyInWaitlist);
             }
 
             var position = await _waitlistRepository.GetNextPositionAsync(tournamentId);
@@ -887,7 +887,7 @@ public class TournamentService : ITournamentService
     {
         if (string.IsNullOrWhiteSpace(reason))
         {
-            throw new BadRequestException("Lý do kick là bắt buộc.");
+            throw new BadRequestException(ApiErrorMessages.Tournament.KickReasonRequired);
         }
 
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
@@ -939,6 +939,17 @@ public class TournamentService : ITournamentService
 
     public async Task<IReadOnlyList<TournamentParticipantResponseDto>> GetParticipantsAsync(Guid tournamentId)
     {
+        var participants = await _tournamentRepository.GetParticipantsAsync(tournamentId);
+        return participants.Select(MapParticipantDto).ToList();
+    }
+
+    public async Task<IReadOnlyList<TournamentParticipantResponseDto>> GetParticipantsForPosAsync(Guid managerId, Guid tournamentId)
+    {
+        var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
+            ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
+
+        await EnsureManagerOwnsCafeAsync(managerId, tournament.CafeId);
+
         var participants = await _tournamentRepository.GetParticipantsAsync(tournamentId);
         return participants.Select(MapParticipantDto).ToList();
     }
@@ -3184,14 +3195,14 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
         if (request.StartTime <= DateTime.UtcNow)
         {
-            throw new BadRequestException("Thời gian bắt đầu phải trong tương lai.");
+            throw new BadRequestException(ApiErrorMessages.Tournament.StartTimeMustBeFuture);
         }
 
         var gameTemplate = await _gameTemplateRepository.GetByIdAsync(request.GameTemplateId)
-            ?? throw new NotFoundException($"Game template {request.GameTemplateId} không tìm thấy.");
+            ?? throw new NotFoundException(ApiErrorMessages.Tournament.GameTemplateNotFound(request.GameTemplateId));
 
         var cafe = await _cafeRepository.GetByIdAsync(request.CafeId)
-            ?? throw new NotFoundException($"Cafe {request.CafeId} không tìm thấy.");
+            ?? throw new NotFoundException(ApiErrorMessages.Tournament.CafeNotFound(request.CafeId));
 
         var minParticipants = request.MinParticipants > 0 ? request.MinParticipants : gameTemplate.TournamentMinPlayersPerTable;
         var deadline = request.RegistrationDeadline != default ? request.RegistrationDeadline : request.StartTime.AddHours(-24);
@@ -3301,7 +3312,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
             tournament.Status != TournamentStatus.Cancelled &&
             tournament.Status != TournamentStatus.Completed)
         {
-            throw new ConflictException("Chỉ có thể xóa tournament ở trạng thái Draft, Cancelled hoặc Completed.");
+            throw new ConflictException(ApiErrorMessages.Tournament.OnlyDeleteInSpecificStatus);
         }
 
         await _tournamentRepository.UpdateAsync(tournament);
@@ -3355,12 +3366,12 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
         if (tournament.Status != TournamentStatus.Draft)
         {
-            throw new ConflictException("Chỉ có thể mở đăng ký cho tournament ở trạng thái Draft.");
+            throw new ConflictException(ApiErrorMessages.Tournament.OnlyOpenRegistrationDraft);
         }
 
         if (tournament.RegistrationDeadline <= DateTime.UtcNow)
         {
-            throw new BadRequestException("Thời hạn đăng ký phải trong tương lai.");
+            throw new BadRequestException(ApiErrorMessages.Tournament.RegistrationDeadlineMustBeFuture);
         }
 
         tournament.Status = TournamentStatus.RegistrationOpen;
@@ -3377,7 +3388,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
         if (tournament.Status != TournamentStatus.RegistrationOpen)
         {
-            throw new ConflictException("Chỉ có thể đóng đăng ký cho tournament đang mở đăng ký.");
+            throw new ConflictException(ApiErrorMessages.Tournament.OnlyCloseRegistrationOpen);
         }
 
         tournament.Status = TournamentStatus.RegistrationClosed;
@@ -3394,7 +3405,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
         if (tournament.Status != TournamentStatus.RegistrationClosed)
         {
-            throw new ConflictException("Chỉ có thể bắt đầu tournament đang ở trạng thái RegistrationClosed.");
+            throw new ConflictException(ApiErrorMessages.Tournament.OnlyStartRegistrationClosed);
         }
 
         var activeCount = tournament.Participants?.Count(p =>
@@ -3403,7 +3414,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
         if (activeCount < tournament.MinParticipants)
         {
-            throw new ConflictException($"Không đủ người tham gia. Cần tối thiểu {tournament.MinParticipants}, hiện có {activeCount}.");
+            throw new ConflictException(ApiErrorMessages.Tournament.NotEnoughParticipants(tournament.MinParticipants, activeCount));
         }
 
         tournament.Status = TournamentStatus.OnGoing;
@@ -3421,7 +3432,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
         if (tournament.Status != TournamentStatus.OnGoing)
         {
-            throw new ConflictException("Chỉ có thể hoàn thành tournament đang diễn ra.");
+            throw new ConflictException(ApiErrorMessages.Tournament.OnlyOnGoingCompletable);
         }
 
         tournament.Status = TournamentStatus.Completed;
@@ -3438,7 +3449,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
         if (tournament.Status == TournamentStatus.Completed || tournament.Status == TournamentStatus.Cancelled)
         {
-            throw new ConflictException("Tournament đã kết thúc hoặc bị hủy trước đó.");
+            throw new ConflictException(ApiErrorMessages.Tournament.AlreadyEndedOrCancelled);
         }
 
         tournament.Status = TournamentStatus.Cancelled;

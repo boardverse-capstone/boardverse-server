@@ -21,5 +21,11 @@ public enum AdminActionType
 
     // Multi-account
     MultiAccountConfirmed = 30,
-    MultiAccountDismissed = 31
+    MultiAccountDismissed = 31,
+
+    // Phase 4 / EC-11 — Played time dispute audit (BR §XX §POS evidence).
+    // Khi player cho rằng POS ghi nhầm giờ chơi (StartedAt/EndedAt).
+    // Staff mở dispute → lưu evidence. Manager review/override → lưu lại.
+    PlayedTimeDisputed = 40,    // Staff mở ticket: player yêu cầu xem lại giờ chơi.
+    PlayedTimeOverridden = 41,  // Manager adjust Subtotal/TotalMinutes dựa trên evidence.
 }

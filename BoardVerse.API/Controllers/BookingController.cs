@@ -1,3 +1,4 @@
+using BoardVerse.API.Filters;
 using BoardVerse.Core.DTOs.Booking;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.Messages;
@@ -9,15 +10,32 @@ namespace BoardVerse.API.Controllers;
 
 /// <summary>
 /// Controller cho Booking (đặt chỗ).
-/// Tách riêng khỏi PaymentController để clear về mặt domain.
+/// **FLOW B — BOOKING (CŨ, SePay per-member deposit + walk-in + time-slot + extension).**
+/// KHÔNG dùng IReservationRepository.
 /// Flow: Lobby (Full) -> Booking (PendingDeposit) -> BookingDeposit -> SePay -> Confirmed -> CheckedIn -> NoShow/Cancelled.
+///
+/// ## Deprecation notice (Phase 1 + Phase 4 — RFC 8594)
+///
+/// **Booking flow (Flow B) đang được migrate sang Reservation flow (Flow A).**
+/// - **POST /api/bookings** — chỉ dùng cho legacy flow (BR-22, SePay per-member deposit). **Khuyến nghị dùng `/api/v1/reservations/confirm`** thay thế.
+/// - **GET /api/bookings/{id}** — có thể dùng cho admin/audit. Reservation đã confirmed có `ReservationCode` 8-char — tương đương với `Booking.VerificationCode`.
+/// - **DELETE /api/bookings/{id}** — legacy cancellation. **Dùng `/api/v1/reservations/{id}/cancel`** thay thế.
+/// - Các endpoint khác — ít dùng, kiểm tra FE trước khi xóa.
+///
+/// Sunset date 2026-12-31 — sau ngày này, controller sẽ đổi sang trả 410 Gone.
 /// </summary>
 [ApiController]
 [Route("api/bookings")]
 [Authorize]
 [Produces("application/json")]
 [Tags("Booking")]
+[DeprecationHeaders(
+    Sunset = "Wed, 31 Dec 2026 23:59:59 GMT",
+    DocsLink = "/docs/api/booking#deprecation")]
+#pragma warning disable CS0618 // §13.1 Phase 1: Controller deprecated — removed in Phase 4
+[Obsolete("§13.1 Phase 1: BookingController đang bị deprecate. Dùng /api/v1/reservations/* thay thế. Xóa ở Phase 4 khi FE xác nhận không còn sử dụng.")]
 public class BookingController : BaseApiController
+#pragma warning restore CS0618
 {
     private readonly IBookingService _bookingService;
 

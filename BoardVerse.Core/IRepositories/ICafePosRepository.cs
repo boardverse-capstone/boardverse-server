@@ -23,7 +23,7 @@ namespace BoardVerse.Core.IRepositories
         /// </summary>
         Task<bool> ActiveSessionExistsInCafeAsync(Guid sessionId, Guid cafeId);
         Task<IReadOnlyList<ActiveSession>> GetActiveSessionsAsync(Guid cafeId, Guid? gameTemplateId);
-        Task<IReadOnlyList<ActiveSession>> GetUnpaidSessionsAsync(Guid cafeId, int olderThanMinutes = 0);
+        Task<IReadOnlyList<ActiveSession>> GetUnpaidSessionsAsync(Guid cafeId, Guid? sessionId = null);
         /// <summary>
         /// Đếm số thành viên cho nhiều session trong 1 query (tránh N+1).
         /// Trả Dictionary&lt;SessionId, Count&gt;. Session nào không có member → count = 0.

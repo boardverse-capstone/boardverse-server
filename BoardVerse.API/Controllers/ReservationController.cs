@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Reservation;
+using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
@@ -7,6 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace BoardVerse.API.Controllers;
 
 /// <summary>
+/// **FLOW A — RESERVATION (MỚI, BVC wallet)**. KHÔNG dùng IBookingRepository.
 /// API Reservation flow mới — Phase 2/3 (BR §21A.2..21A.6, §XXI-B.1).
 /// Theo rule `lobby-booking-deposit-bvc.mdc`:
 /// - POST /quote            : validate eligibility + tính cọc (idempotent, KHÔNG tạo row).
@@ -23,10 +25,14 @@ namespace BoardVerse.API.Controllers;
 public class ReservationController : BaseApiController
 {
     private readonly IReservationService _reservationService;
+    private readonly IReservationExtensionService _extensionService;
 
-    public ReservationController(IReservationService reservationService)
+    public ReservationController(
+        IReservationService reservationService,
+        IReservationExtensionService extensionService)
     {
         _reservationService = reservationService;
+        _extensionService = extensionService;
     }
 
     /// <summary>
@@ -227,6 +233,33 @@ public class ReservationController : BaseApiController
     }
 
     /// <summary>
+    /// BR-REFUND-08 (walk-in-override-design §2.3):
+    /// Host hủy reservation SAU khi đã check-in tại quán (late cancel).
+    /// Áp dụng soft-release refund 30% nếu playedRatio ≥ 50% slot, forfeit toàn bộ nếu &lt; 50%.
+    /// Khác <see cref="Cancel"/>: chỉ áp dụng cho Reservation đã check-in (status = CheckedIn).
+    /// Cancel trước check-in → dùng <c>POST /api/v1/reservations/{id}/cancel</c> (BR-REFUND-02/03).
+    /// [Role: Player (host của reservation)]
+    /// </summary>
+    /// <param name="reservationId">Id reservation đã check-in.</param>
+    /// <param name="request">Optional reason.</param>
+    /// <response code="200">Trả CancelAfterCheckinResponseDto với refund/forfeit breakdown.</response>
+    /// <response code="400">Reservation chưa check-in (status ≠ CheckedIn).</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải host của reservation.</response>
+    /// <response code="404">Không tìm thấy reservation.</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpPost("{reservationId:guid}/cancel-after-checkin")]
+    public async Task<IActionResult> CancelAfterCheckin(
+        Guid reservationId,
+        [FromBody] CancelAfterCheckinRequestDto request)
+    {
+        request.ReservationId = reservationId;
+        var userId = GetUserIdFromClaims();
+        var result = await _reservationService.CancelAfterCheckinAsync(userId, request);
+        return this.NewResponse(200, "CancelAfterCheckinSuccess", result);
+    }
+
+    /// <summary>
     /// Cafe duyệt hoặc từ chối lobby đang chờ (BR-NEW-11). [Role: Cafe Manager]
     /// Sau khi approve → lobby chuyển sang Open, public cho members join.
     /// Sau khi reject → lobby chuyển RejectedByCafe, refund 100% BVC cho host.
@@ -254,6 +287,153 @@ public class ReservationController : BaseApiController
             return this.NewResponse(200,
                 request.Approve ? "ReservationCafeApproved" : "ReservationCafeRejected",
                 result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            var statusCode = GetStatusCodeForError(ex.Message);
+            return this.NewResponse(statusCode, ex.Message, null);
+        }
+    }
+
+    /// <summary>
+    /// Kiểm tra xem có thể extend reservation không (BR-EXT). [Role: Host]
+    /// </summary>
+    /// <param name="reservationId">Id reservation cần extend.</param>
+    /// <param name="extensionMinutes">Số phút muốn extend.</param>
+    /// <response code="200">Trả thông tin availability.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="404">Không tìm thấy reservation.</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpGet("{reservationId:guid}/extend/availability")]
+    public async Task<IActionResult> CheckExtendAvailability(
+        Guid reservationId,
+        [FromQuery] int extensionMinutes)
+    {
+        try
+        {
+            var result = await _extensionService.CheckAvailabilityAsync(reservationId, extensionMinutes);
+            return this.NewResponse(200, "ExtendAvailability", result);
+        }
+        catch (NotFoundException ex)
+        {
+            return this.NewResponse(404, ex.Message, null);
+        }
+    }
+
+    /// <summary>
+    /// Extend thời gian reservation (BR-EXT). [Role: Host]
+    ///
+    /// BR-EXT-01: Chỉ extend khi Status = Confirmed.
+    /// BR-EXT-02: Không extend qua midnight.
+    /// BR-EXT-03: Max 2 lần (tổng max 120 phút).
+    /// BR-EXT-05: Partial extension OK.
+    /// </summary>
+    /// <param name="reservationId">Id reservation cần extend.</param>
+    /// <param name="request">Thông tin extend (số phút).</param>
+    /// <response code="200">Extend thành công.</response>
+    /// <response code="400">Dữ liệu không hợp lệ.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải host của reservation.</response>
+    /// <response code="404">Không tìm thấy reservation.</response>
+    /// <response code="409">Conflict: đã extend tối đa, overlap, hoặc status không cho phép.</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpPost("{reservationId:guid}/extend")]
+    public async Task<IActionResult> Extend(
+        Guid reservationId,
+        [FromBody] ExtendReservationRequestDto request)
+    {
+        try
+        {
+            request.ReservationId = reservationId;
+            var userId = GetUserIdFromClaims();
+            var result = await _extensionService.ExtendAsync(request, userId);
+            return this.NewResponse(200, "ReservationExtended", result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            var statusCode = GetStatusCodeForError(ex.Message);
+            return this.NewResponse(statusCode, ex.Message, null);
+        }
+        catch (NotFoundException ex)
+        {
+            return this.NewResponse(404, ex.Message, null);
+        }
+    }
+
+    /// <summary>
+    /// BR §21A.7: POS scan QR check-in reservation. [Role: Cafe Staff]
+    /// Atomic transition Reservation.Status = Confirmed → CheckedIn, Lobby.Status = InProgress.
+    /// Idempotent theo ReservationCode (gọi 2 lần cùng code → trả kết quả cũ).
+    /// Ghi Reservation.CheckedInAt để Phase 7 karma system tính playedRatio.
+    /// </summary>
+    /// <param name="reservationId">Id reservation.</param>
+    /// <param name="request">ReservationCode (8-char alphanumeric), optional note.</param>
+    /// <response code="200">Check-in thành công.</response>
+    /// <response code="400">ReservationCode không khớp hoặc status không cho phép.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải staff của cafe.</response>
+    /// <response code="404">Không tìm thấy reservation.</response>
+    /// <response code="409">Reservation chưa được confirm / đã check-in rồi.</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpPost("{reservationId:guid}/check-in")]
+    [Authorize(Roles = "Manager,CafeStaff")]
+    public async Task<IActionResult> CheckIn(
+        Guid reservationId,
+        [FromBody] ReservationCheckInRequestDto request)
+    {
+        try
+        {
+            // Reservation.id lấy từ route, không từ body.
+            request.CafeId = request.CafeId; // giữ nguyên
+            var userId = GetUserIdFromClaims();
+            var result = await _reservationService.CheckInAsync(userId, new ReservationCheckInRequestDto
+            {
+                CafeId = request.CafeId,
+                ReservationCode = request.ReservationCode,
+                ActiveSessionId = request.ActiveSessionId,
+                IdempotencyKey = request.IdempotencyKey
+            });
+            return this.NewResponse(200, "ReservationCheckedIn", result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            var statusCode = GetStatusCodeForError(ex.Message);
+            return this.NewResponse(statusCode, ex.Message, null);
+        }
+    }
+
+    /// <summary>
+    /// BR-END-01..05 (§21A.8, §3.4): POS kết thúc session + settle deposit. [Role: Cafe Staff]
+    ///
+    /// Tính playedRatio = (ActualEndAt - CheckedInAt) / (ScheduledEndTime - ScheduledStartTime).
+    /// Áp dụng refund policy:
+    /// - playedRatio ≥ 90% → OnTime, capture 100% BVC về doanh thu quán (no refund).
+    /// - playedRatio 50-90% → EarlyCheckout, refund 30% BVC cho host, forfeit 70%.
+    /// - playedRatio &lt; 50% → EarlyCheckout, forfeit 100% BVC.
+    ///
+    /// Transition: Reservation.Status CheckedIn → Completed/EarlyCheckout.
+    /// Nếu playedRatio &lt; 50% tạo WalkInWindow cho phần thời gian còn lại (EC-09).
+    /// </summary>
+    /// <param name="reservationId">Id reservation.</param>
+    /// <param name="request">ActualEndAt (optional, default = now), Reason (optional).</param>
+    /// <response code="200">Trả RefundBvc, ForfeitBvc, EndReason, PlayedRatio, WalkInWindowId.</response>
+    /// <response code="400">Reservation chưa check-in hoặc session invalid.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải staff của cafe.</response>
+    /// <response code="404">Không tìm thấy reservation.</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpPost("{reservationId:guid}/end")]
+    [Authorize(Roles = "Manager,CafeStaff")]
+    public async Task<IActionResult> End(
+        Guid reservationId,
+        [FromBody] EndReservationRequestDto request)
+    {
+        try
+        {
+            request.ReservationId = reservationId;
+            var userId = GetUserIdFromClaims();
+            var result = await _reservationService.EndAndSettleAsync(userId, request);
+            return this.NewResponse(200, "ReservationEnded", result);
         }
         catch (InvalidOperationException ex)
         {

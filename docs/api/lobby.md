@@ -7,6 +7,12 @@
 
 API phòng chờ trực tuyến: tạo phòng, tham gia, rời phòng, tìm phòng theo game, đóng phòng, khóa phòng để bắt đầu ghép đội và mở cửa sổ đánh giá Karma sau khi POS thanh toán xong.
 
+> **🔗 Related docs:**
+> - [reservation.md](./reservation.md) — API tạo lobby atomic qua `POST /api/v1/reservations/confirm`
+> - [../time-slot-fixed-end-design.md](../time-slot-fixed-end-design.md) — Time-slot + fixed-end design (FE-facing v2.0)
+> - [lobby-invite.md](./lobby-invite.md) — Invite + share code
+> - [friend.md](./friend.md) — Friend system (cho invite private lobby)
+
 > **⚠️ DEPRECATION NOTICE — Phase 2 (BR §XXI-B.1)**
 >
 > - `POST /api/v1/lobbies` (CreateLobby) **đã deprecated** trả về `410 Gone`.
@@ -100,8 +106,8 @@ Xem chi tiết API:
 | `/{lobbyId}/kick` | POST | Host kick thành viên khỏi lobby | Host |
 | `/{lobbyId}/ready` | POST | Member bấm Ready/Unready (cho phép ở Open/Full/Viable; auto InProgress khi tất cả Ready; timeout 20p không Ready sau khi Full) | Player |
 | `/{lobbyId}/report` | POST | Báo cáo lobby vi phạm | Player |
-| `/{lobbyId}/messages` | POST | Gửi tin nhắn chat trong lobby | Active member |
-| `/{lobbyId}/messages` | GET | Lấy lịch sử chat (cursor pagination) | Active member |
+| `/{lobbyId}/messages` | POST | Gửi tin nhắn chat trong lobby | Host hoặc active member |
+| `/{lobbyId}/messages` | GET | Lấy lịch sử chat (cursor pagination) | Host hoặc active member |
 
 > **Auth:** Tất cả endpoints yêu cầu `Authorization: Bearer <jwt>`. Token lấy từ `/api/v1/auth/login`.
 
@@ -730,7 +736,7 @@ Member báo cáo lobby vi phạm.
 
 Gửi tin nhắn chat trong lobby.
 
-**Role:** Player — chỉ member ACTIVE
+**Role:** Player — Host hoặc active member
 
 **Body mẫu:**
 ```json
@@ -746,7 +752,7 @@ Gửi tin nhắn chat trong lobby.
 - `201` — Gửi thành công
 - `400` — Nội dung không hợp lệ
 - `401` — Thiếu token
-- `403` — Không phải member
+- `403` — Không phải host hoặc active member
 - `404` — Không tìm thấy lobby
 - `500` — Lỗi hệ thống
 
@@ -756,7 +762,7 @@ Gửi tin nhắn chat trong lobby.
 
 Lấy lịch sử chat (cursor pagination).
 
-**Role:** Player — chỉ member ACTIVE
+**Role:** Player — Host hoặc active member
 
 **Query params:**
 
@@ -770,7 +776,7 @@ Lấy lịch sử chat (cursor pagination).
 **Response codes:**
 - `200` — Trả danh sách (có thể rỗng)
 - `401` — Thiếu token
-- `403` — Không phải member
+- `403` — Không phải host hoặc active member
 - `404` — Không tìm thấy lobby
 - `500` — Lỗi hệ thống
 

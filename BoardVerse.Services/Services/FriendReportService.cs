@@ -157,23 +157,21 @@ public class FriendReportService : IFriendReportService
     {
         if (!AllowedResolveStatuses.Contains(newStatus))
         {
-            throw new BadRequestException(
-                $"Trạng thái resolve không hợp lệ: '{newStatus}'. Chỉ chấp nhận Reviewed/Dismissed.");
+            throw new BadRequestException(ApiErrorMessages.FriendReport.InvalidResolveStatus);
         }
 
         if (string.IsNullOrWhiteSpace(adminNote))
         {
-            throw new BadRequestException(
-                "Admin note là bắt buộc khi resolve report.");
+            throw new BadRequestException(ApiErrorMessages.FriendReport.AdminNoteRequired);
         }
 
         var report = await _reportRepository.GetByIdAsync(reportId)
-            ?? throw new NotFoundException($"Friend report '{reportId}' không tìm thấy.");
+            ?? throw new NotFoundException(ApiErrorMessages.FriendReport.NotFound(reportId));
 
         if (report.Status != "Pending")
         {
             throw new ConflictException(
-                $"Friend report '{reportId}' đã được xử lý trước đó (status={report.Status}).");
+                ApiErrorMessages.FriendReport.AlreadyProcessed(reportId, report.Status));
         }
 
         report.Status = newStatus;

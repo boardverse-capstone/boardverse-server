@@ -138,6 +138,22 @@ public interface ILobbyRepository
         DateTime? fromUtc, DateTime? toUtc,
         LobbyStatus? failureType);
     /// <summary>
+    /// BR-NEW-10 §XI.1 — Đếm lobby failures của 1 host cụ thể trong khoảng thời gian.
+    /// Dùng cho cooling-off signal detection.
+    /// </summary>
+    Task<int> CountFailuresByTypeForHostAsync(
+        Guid hostUserId,
+        DateTime? fromUtc, DateTime? toUtc,
+        LobbyStatus? failureType);
+    /// <summary>
+    /// BR-RISK-01 (SIG-08): Count lobby của host có create+cancel trong &lt; 5 phút trong khoảng thời gian.
+    /// </summary>
+    Task<int> CountQuickCreateCancelAsync(
+        Guid hostUserId,
+        DateTime fromUtc,
+        TimeSpan maxGap);
+
+    /// <summary>
     /// Lấy danh sách lobby failures có phân trang.
     /// </summary>
     Task<(IReadOnlyList<Lobby> Items, int TotalCount)> GetAdminLobbyFailuresAsync(
