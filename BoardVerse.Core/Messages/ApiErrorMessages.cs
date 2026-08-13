@@ -1324,9 +1324,9 @@ public const string SePayBankInfoIncomplete =
             "Trong thời gian này bạn chỉ có thể tạo lobby có playDate trong ngày hôm nay.";
 
         public static string WalletNotFound(Guid userId) =>
-        $"Không tìm thấy ví của người dùng '{userId}'.";
+            $"Không tìm thấy ví của người dùng '{userId}'.";
 
-public static string ProfileNotFound(Guid userId) =>
+        public static string ProfileNotFound(Guid userId) =>
             $"Người dùng '{userId}' chưa có hồ sơ.";
 
         // ===== BR-KARMA-02/03/05 — Karma system errors =====

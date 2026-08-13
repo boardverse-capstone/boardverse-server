@@ -26,8 +26,16 @@ public class BvcLedgerEntryRepository : IBvcLedgerEntryRepository
     /// </summary>
     public Task<BvcLedgerEntry?> GetByIdempotencyKeyForUpdateAsync(string idempotencyKey)
     {
+        // TD-02: Liệt kê cột tường minh để tránh EF generate alias `b."ReservationId"` (entity dùng RelatedReservationId).
         return _db.BvcLedgerEntries
-            .FromSqlInterpolated($"SELECT * FROM \"BvcLedgerEntries\" WHERE \"IdempotencyKey\" = {idempotencyKey} FOR UPDATE")
+            .FromSqlInterpolated($@"
+                SELECT ""Id"", ""UserId"", ""Type"", ""Amount"",
+                       ""RelatedBookingId"", ""RelatedLobbyId"", ""RelatedPaymentRef"",
+                       ""RelatedReservationId"", ""IdempotencyKey"", ""BalanceSnapshot"",
+                       ""Note"", ""CreatedAt""
+                FROM ""BvcLedgerEntries""
+                WHERE ""IdempotencyKey"" = {idempotencyKey}
+                FOR UPDATE")
             .FirstOrDefaultAsync();
     }
 
