@@ -16,7 +16,10 @@ public class BvcTransactionDto
     public long Amount { get; set; }
 
     public Guid? RelatedLobbyId { get; set; }
+    /// <summary>Legacy Booking FK (Booking flow cũ — vẫn giữ backward compat).</summary>
     public Guid? RelatedBookingId { get; set; }
+    /// <summary>TD-02: Reservation FK (Reservation flow mới — primary).</summary>
+    public Guid? RelatedReservationId { get; set; }
     public string? RelatedPaymentRef { get; set; }
 
     /// <summary><see cref="Wallet.AvailableBalance"/> sau giao dịch.</summary>

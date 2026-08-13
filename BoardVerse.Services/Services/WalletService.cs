@@ -530,7 +530,8 @@ public class WalletService : IWalletService
             var ledgerEntry = await _db.BvcLedgerEntries
                 .Where(e => e.UserId == userId
                     && e.Type == LedgerEntryType.DepositHold
-                    && e.RelatedBookingId == relatedReservationId)
+                    // TD-02 fix: đổi từ RelatedBookingId (legacy) sang RelatedReservationId (Reservation flow).
+                    && e.RelatedReservationId == relatedReservationId)
                 .OrderByDescending(e => e.CreatedAt)
                 .FirstOrDefaultAsync(cancellationToken);
 
@@ -985,7 +986,9 @@ public class WalletService : IWalletService
                 Type = ledgerType,
                 Amount = amountBvc,
                 RelatedLobbyId = relatedLobbyId,
-                RelatedBookingId = relatedReservationId,
+                // TD-02 fix: gán vào RelatedReservationId (column DB), không phải RelatedBookingId (legacy).
+                // Trước đây gán nhầm RelatedBookingId khiến RelatedReservationId NULL mãi mãi → ledger không link được reservation.
+                RelatedReservationId = relatedReservationId,
                 RelatedPaymentRef = null,
                 IdempotencyKey = idempotencyKey,
                 BalanceSnapshot = wallet.AvailableBalance,
@@ -1123,6 +1126,8 @@ public class WalletService : IWalletService
             Amount = entry.Amount,
             RelatedLobbyId = entry.RelatedLobbyId,
             RelatedBookingId = entry.RelatedBookingId,
+            // TD-02 fix: project RelatedReservationId để mobile nhận được FK reservation.
+            RelatedReservationId = entry.RelatedReservationId,
             RelatedPaymentRef = entry.RelatedPaymentRef,
             BalanceSnapshot = entry.BalanceSnapshot,
             Note = entry.Note,
