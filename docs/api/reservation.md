@@ -343,7 +343,7 @@ Tạo quote cho reservation. **KHÔNG tạo row DB** — chỉ validate + tính 
 | `cafeId` | guid | Yes | Cafe còn hoạt động. |
 | `gameId` | guid | Yes | Game có trong `CafeGameInventory`. |
 | `playDate` | date | Yes | Trong khoảng `[today, today+7]`. |
-| `timeSlot` | enum | Yes | `morning` / `afternoon` / `evening` / `night`. |
+| `timeSlot` | enum | Yes | `morning` / `afternoon` / `evening` / `lateNight`. |
 | `preferredStartTime` | time | No | Phải nằm trong `[timeSlot.startTime, timeSlot.endTime]`. |
 | `minPlayers` | int | Yes | ≥ 2. |
 | `maxPlayers` | int | Yes | `minPlayers ≤ maxPlayers`. |

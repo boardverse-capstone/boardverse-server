@@ -13,7 +13,7 @@
 
 ### Vấn đề hiện tại
 
-Theo **BR-NEW-15** và **BR-RESERVATION-01/02**, hệ thống giữ `maxPlayers` ghế cho cả 1 `TimeSlot` (morning/afternoon/evening/night — 4 slot cố định, mỗi slot 4-5 tiếng). Hệ quả khi player end session sớm:
+Theo **BR-NEW-15** và **BR-RESERVATION-01/02**, hệ thống giữ `maxPlayers` ghế cho cả 1 `TimeSlot` (morning/afternoon/evening/lateNight — 4 slot cố định, mỗi slot 5-7 tiếng). Hệ quả khi player end session sớm:
 
 | Tình huống | Hệ quả |
 |---|---|

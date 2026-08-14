@@ -65,7 +65,7 @@ FE không cần biết chi tiết `Booking` cũ. Mọi flow online (player app t
 | `Booking ID` | `Reservation.Id` (Guid) + `ReservationCode` (8-char alphanumeric uppercase) | `Reservation.Id`, `Reservation.ReservationCode` |
 | `bookingId` trong URL | `reservationId` | Truyền vào `ReservationController` |
 | `Start time` (user nhập) | `ScheduledStartTime` (DateTime, lưu DB) | `Reservation.ScheduledStartTime` (= `playDate + TimeSlot.startTime`) |
-| `End time` (user nhập) | `ScheduledEndTime` (DateTime, lưu DB — qua đêm với `Night` slot) | `Reservation.ScheduledEndTime` (= `playDate + TimeSlot.endTime`) |
+| `End time` (user nhập) | `ScheduledEndTime` (DateTime, lưu DB — qua đêm với `LateNight` slot) | `Reservation.ScheduledEndTime` (= `playDate + TimeSlot.endTime`) |
 | `scheduledTime` (raw DateTime) | `Reservation.ScheduledStartTime` (BR-RESV-02 đã rename từ `ScheduledTime`) | `Reservation.ScheduledStartTime` |
 | `Booking lobby` | `Lobby` luôn bound 1-1 với `Reservation` (Phase 1+). Legacy lobby có thể tồn tại với `ReservationId = null`. | `Lobby.ReservationId` (nullable cho legacy, required cho lobby mới) |
 | `Booking lobby ID` | `Lobby.Id` (Guid) | `BoardVerse.Core/Entities/Lobby.cs` |
@@ -96,10 +96,10 @@ FE không cần biết chi tiết `Booking` cũ. Mọi flow online (player app t
 
 | `TimeSlot` | `StartTime` | `EndTime` | Mô tả |
 |---|---|---|---|
-| `Morning` | 08:00 | 13:00 | Phiên sáng |
-| `Afternoon` | 13:00 | 18:00 | Phiên chiều |
-| `Evening` | 18:00 | 24:00 (= 00:00 ngày hôm sau) | Phiên tối |
-| `Night` | 00:00 | 08:00 (qua đêm) | Phiên khuya |
+| `Morning` | 06:00 | 12:00 | Phiên sáng |
+| `Afternoon` | 12:00 | 17:00 | Phiên chiều |
+| `Evening` | 17:00 | 23:00 | Phiên tối |
+| `LateNight` | 23:00 | 06:00 (qua đêm, endTime = ngày hôm sau) | Phiên khuya qua đêm |
 
 **State machine `Reservation` (link `Lobby` + `ActiveSession`):**
 
@@ -190,9 +190,9 @@ Nhóm A đặt 13:00 - 18:00 (Reservation timeSlot = Afternoon)
 | `BR-RESV-06` | `ConfirmAsync` atomic transaction | Validate quote + seat + game copy + user eligibility trong 1 transaction | `ReservationService.ConfirmAsync` |
 | `BR-RESV-07` | RecuitmentDeadline = `ScheduledStartTime - leadTimeMinutes` (mặc định 20 phút) | BR-LOBBY-01 | `Reservation.RecruitmentDeadline` |
 
-> **Note BR-RESV-02:** `ScheduledStartTime` và `ScheduledEndTime` được resolve 1 lần khi `ReservationService.CreateQuoteAsync` chạy (xem helper `BuildScheduledStartEnd` xử lý slot `Night` qua đêm), sau đó **lưu DB**. Mọi query/calc (background jobs, playedRatio, refund policy, WalkInWindow) đọc từ DB — không derive runtime từ TimeSlot. DBTIMESTAMP `timestamp with time zone`.
+> **Note BR-RESV-02:** `ScheduledStartTime` và `ScheduledEndTime` được resolve 1 lần khi `ReservationService.CreateQuoteAsync` chạy (xem helper `BuildScheduledStartEnd` xử lý slot `LateNight` qua đêm), sau đó **lưu DB**. Mọi query/calc (background jobs, playedRatio, refund policy, WalkInWindow) đọc từ DB — không derive runtime từ TimeSlot. DBTIMESTAMP `timestamp with time zone`.
 
-> **LƯU Ý:** Doc 1.0 có `BR-BOOK-05` (max 2 active bookings/user) — đã **BỎ** vì áp BR-USER-LIMIT-01 trong `lobby-booking-deposit-bvc.mdc §IX.1`. Doc 1.0 có `BR-BOOK-02` (end time ≤ start + 6h) — đã **BỎ** vì end time derive tự động từ `TimeSlot` (max ~13 tiếng cho `Night`).
+> **LƯU Ý:** Doc 1.0 có `BR-BOOK-05` (max 2 active bookings/user) — đã **BỎ** vì áp BR-USER-LIMIT-01 trong `lobby-booking-deposit-bvc.mdc §IX.1`. Doc 1.0 có `BR-BOOK-02` (end time ≤ start + 6h) — đã **BỎ** vì end time derive tự động từ `TimeSlot` (max ~7 tiếng cho `LateNight`).
 
 ### 3.2. BR-CHECKIN — Check-in Rules
 
@@ -704,7 +704,7 @@ Player (App)
 | 5 | Extension thay đổi `ScheduledEndTime` interplay | Reject extend nếu overlap WalkInWindow | `ReservationExtensionService` + `WalkInWindowRepository` |
 | 6 | Race condition (2 POS tạo walk-in) | OCC trên `WalkInWindow.Version` | `WalkInWindowRepository` |
 | 7 | Cancel after check-in | `playedRatio < 0.5` → forfeit 100% (BR-REFUND-04) | `ReservationService` |
-| 8 | Extension qua midnight | Chỉ cho extend trong cùng `playDate` | `ReservationExtensionService` reject |
+| 8 | Extension qua midnight (non-LateNight) | Chỉ cho extend trong cùng `playDate` | `ReservationExtensionService` reject |
 | 9 | Staff forgot to end | Auto-release sau grace 30p (`AutoReleaseExpiredSessionsJob`) | Background job |
 | 10 | Game longer than TimeSlot | Suggest extension / early checkout | POS hiển thị warning |
 | 11 | Player disputes played time | Staff judgment + audit log | POS staff |
@@ -838,7 +838,7 @@ WHERE "Id" = @windowId
 
 #### EC-08: Extension qua Midnight
 
-**Mô tả:** Reservation Night (00:00-08:00) muốn extend sang ngày mai.
+**Mô tả:** Reservation LateNight (23:00-06:00) muốn extend sang ngày mai (sau 06:00).
 
 **Xử lý:** `ReservationExtensionService` từ chối (cross-day extension không hỗ trợ MVP+1). Response: "Không thể extend qua ngày. Vui lòng tạo Reservation mới cho ngày mai."
 
@@ -987,7 +987,7 @@ public class Reservation
     public TimeOnly? PreferredStartTime { get; set; }  // optional, BR-NEW-15b — SoT cho Lobby.PreferredStartTime
 
     // BR-RESV-02: scheduledStartTime + scheduledEndTime lưu DB lúc ConfirmAsync.
-    // = playDate + TimeSlot.startTime / endTime (qua đêm với slot Night).
+    // = playDate + TimeSlot.startTime / endTime (qua đêm với slot LateNight).
     // WalkInWindowCleanupJob (§4.4), playedRatio (§4.3), extension flow (Phase 3)
     // query trực tiếp từ DB, không cần derive runtime.
     // CHỈ CÓ Ở RESERVATION — Lobby KHÔNG có ScheduledEndTime.
@@ -1022,7 +1022,7 @@ public class Reservation
 - `IX_Reservations_ScheduledEndTime_Status` (`ScheduledEndTime`, `Status`) — dùng cho `WalkInWindowCleanupJob` (`§4.4`) + auto-release job.
 - `IX_Reservations_ScheduledStartTime_Status` (`ScheduledStartTime`, `Status`) — dùng cho `NoShowDetectionJob` (`§4.7`).
 
-**Migration note (P0):** EF migration tự sinh `AddColumn ScheduledStartTime/ScheduledEndTime + AddIndex` (xem `BoardVerse.Data/Migrations/`). Nếu có data cũ thiếu 2 field → script backfill: `ScheduledStartTime = PlayDate + TimeSlot.startTime; ScheduledEndTime = PlayDate + TimeSlot.endTime (+ 1 day nếu Night qua đêm)`.
+**Migration note (P0):** EF migration tự sinh `AddColumn ScheduledStartTime/ScheduledEndTime + AddIndex` (xem `BoardVerse.Data/Migrations/`). Nếu có data cũ thiếu 2 field → script backfill: `ScheduledStartTime = PlayDate + TimeSlot.startTime; ScheduledEndTime = PlayDate + TimeSlot.endTime (+ 1 day nếu LateNight qua đêm)`.
 
 ### 9.2. `Lobby` (MIRROR entity — chỉ giữ field time cho index/query nhanh)
 
@@ -1306,7 +1306,7 @@ POST /api/v1/reservations/quote
     { expiresAt, depositRatePerPerson, baseDeposit, riskMultiplier,
       finalDeposit (BVC), minDeposit (BVC), currentBalance (BVC),
       missingAmount, bufferMinutes,
-      scheduledStartTime (UTC), scheduledEndTime (UTC, qua đêm với Night),
+      scheduledStartTime (UTC), scheduledEndTime (UTC, qua đêm với LateNight),
       recruitmentDeadline }
 
 POST /api/v1/reservations/confirm
@@ -1664,8 +1664,8 @@ GET /api/bookings/{id}/session-status        # realtime session (Task #8)
 │  Khung giờ:                              │
 │   ● Morning (08:00-13:00)                │
 │   ● Afternoon (13:00-18:00) ← chọn       │
-│   ○ Evening (18:00-24:00)                │
-│   ○ Night (00:00-08:00)                  │
+│   ○ Evening (17:00-23:00)                │
+│   ○ LateNight (23:00-06:00, qua đêm)    │
 │                                         │
 │  ⏰ Giờ bắt đầu mong muốn:               │
 │  [14:00 ▼] (optional, trong khung)      │
@@ -1866,7 +1866,7 @@ GET /api/bookings/{id}/session-status        # realtime session (Task #8)
 
 | Phase | Tuần | Scope | Status |
 |---|---|---|---|
-| 0 | W0 | **DB-stored time fields:** thêm `ScheduledStartTime`/`ScheduledEndTime` vào `Reservation` (lưu DB), thêm 2 index, fix `BuildScheduledStartEnd` helper (xử lý `Night` qua đêm). | ✅ Done (2026-08-12) |
+| 0 | W0 | **DB-stored time fields:** thêm `ScheduledStartTime`/`ScheduledEndTime` vào `Reservation` (lưu DB), thêm 2 index, fix `BuildScheduledStartEnd` helper (xử lý `LateNight` qua đêm). | ✅ Done (2026-08-12) |
 | 1 | W1-2 | **Reservation core + Migrate `Booking` → `Reservation`:**<br>• Verify atomic confirm + Lobby flow end-to-end<br>• TD-01: Fix `BookingService.cs` `Lobby.BookingId` bug<br>• TD-02: Add `ReservationId?` FK to `KarmaShortPlayRecord`/`BookingRating`/`BookingNoShowVote`, migrate aggregation<br>• Deprecate `TimeSlotBookingController` (tag `[Obsolete]`, redirect → `/api/v1/reservations`)<br>• Audit `BookingController`, mark endpoints legacy | ✅ Done (2026-08-12) |
 | 2 | W3-4 | Walk-in Window + WalkInBooking + POS flow:<br>• `WalkInWindow` entity + `WalkInBooking` entity<br>• `WalkInWindowStatus` + `WalkInBookingStatus` enums<br>• `WalkInController` + `WalkInService` + `IWalkInService`<br>• `GET /api/v1/reservations/walkin/windows` + `POST /api/v1/reservations/walkin/windows/{id}/close`<br>• `POST /api/v1/reservations/walkin` (IdempotencyKey support)<br>• `POST /api/v1/reservations/walkin/{id}/cancel` (trả ghế về WalkInWindow)<br>• OCC via PostgreSQL `xmin` cho `WalkInWindow.TryHoldSeatsAsync`<br>• `WalkInWindowCleanupJob` (background service) | ✅ Done (2026-08-12) |
 | 3 | W5-6 | Extension flow + Karma tracking + Override + Auto-release + No-show detection + Early checkout WalkInWindow:<br>• `ExtendReservationRequestDto` + `ExtendAvailabilityDto` + `ExtendReservationResponseDto`<br>• `ReservationExtensionService.CheckAvailabilityAsync` + `ExtendAsync`<br>• `GET /api/v1/reservations/{id}/extend/availability` + `POST /api/v1/reservations/{id}/extend`<br>• `Reservation.ExtensionCount` + `ExtendedEndTime`<br>• `KarmaShortPlayRecord.KarmaDelta` + `KarmaPointsAdded` + `TotalKarmaScore` + `Status`<br>• `ReservationService.TriggerShortPlayTrackingAsync` (gọi trong `CompleteAndCaptureAsync`)<br>• `ReservationNoShowDetectionJob` + `AutoReleaseExpiredSessionsJob` (background services)<br>• `KarmaRecordStatus` enum + `GroupSessionStatus.Closed`<br>• Early checkout WalkInWindow (§4.4): `ActiveSessionService.TryCreateWalkInWindowAsync` trong `PaySessionAsync`<br>• §4.7 NoShow tạo WalkInWindow (ReservationNoShowDetectionJob)<br>• EC-09 Auto-release tạo WalkInWindow (AutoReleaseExpiredSessionsJob) | ✅ Done (2026-08-12) |
@@ -1972,11 +1972,11 @@ Nếu có issue với Reservation flow mới:
 |------|------------|
 | **Reservation** | Bản ghi giữ chỗ ngồi + game copy + BVC hold. Root entity của flow mới. |
 | **ReservationCode** | Mã 8 ký tự alphanumeric uppercase dùng cho POS scan QR check-in. |
-| **TimeSlot** | Enum cố định 4 giá trị: `Morning` / `Afternoon` / `Evening` / `Night`. |
+| **TimeSlot** | Enum cố định 4 giá trị: `Morning` / `Afternoon` / `Evening` / `LateNight`. |
 | **playDate** | `DateOnly` — ngày dự kiến chơi. |
 | **preferredStartTime** | `TimeOnly?` — giờ bắt đầu mong muốn (optional, trong `TimeSlot`). |
 | **ScheduledStartTime** | `DateTime = playDate + TimeSlot.startTime`. Lưu DB tại `Reservation.ScheduledStartTime` (BR-RESV-02). |
-| **ScheduledEndTime** | `DateTime = playDate + TimeSlot.endTime` (cộng 1 ngày nếu `TimeSlot.Night` qua đêm). Lưu DB tại `Reservation.ScheduledEndTime`. |
+| **ScheduledEndTime** | `DateTime = playDate + TimeSlot.endTime` (cộng 1 ngày nếu `TimeSlot.LateNight` qua đêm). Lưu DB tại `Reservation.ScheduledEndTime`. |
 | **ScheduledDurationMinutes** | `(ScheduledEndTime - ScheduledStartTime).TotalMinutes` — tính runtime, dùng cho `playedRatio` (§4.3) và extension flow (Phase 3). |
 | **RecruitmentDeadline** | `ScheduledStartTime - leadTimeMinutes` (mặc định 20 phút). |
 | **BVC** | BoardVerse Coin. 1 BVC = 1.000 VND. |

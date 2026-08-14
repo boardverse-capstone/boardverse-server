@@ -44,11 +44,11 @@ public class VietQrClient : IVietQrClient
         bool showInfo = true)
     {
         if (string.IsNullOrWhiteSpace(bankCode))
-            throw new ArgumentException("Bank code is required", nameof(bankCode));
+            throw new ArgumentException("Mã ngân hàng là bắt buộc.", nameof(bankCode));
         if (string.IsNullOrWhiteSpace(accountNumber))
-            throw new ArgumentException("Account number is required", nameof(accountNumber));
+            throw new ArgumentException("Số tài khoản là bắt buộc.", nameof(accountNumber));
         if (amount <= 0)
-            throw new ArgumentException("Amount must be greater than 0", nameof(amount));
+            throw new ArgumentException("Số tiền phải lớn hơn 0.", nameof(amount));
 
         // Normalize: trim trailing/leading whitespace from bank/account/holder.
         // BUGFIX: previously trailing space in BankCode (e.g. "970436 ") was

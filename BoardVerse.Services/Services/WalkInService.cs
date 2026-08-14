@@ -200,7 +200,8 @@ public class WalkInService : IWalkInService
         var expiresAt = windowStart.AddMinutes(30);
         var windowEnd = reservation.ScheduledEndTime;
         if (windowEnd == default)
-            throw new InvalidOperationException($"Cannot create WalkInWindow: ScheduledEndTime is null for Reservation {reservation.Id}");
+            throw new InternalServerErrorException(
+                ApiErrorMessages.WalkIn.ReservationMissingScheduledEndTime);
 
         var window = new WalkInWindow
         {

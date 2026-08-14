@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Xml.Linq;
+using BoardVerse.Core.Messages;
 using BoardVerse.Core.Settings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -77,7 +78,7 @@ namespace BoardVerse.Services.Services.Bgg
         {
             var doc = XDocument.Parse(xml);
             var item = doc.Root?.Elements("item").FirstOrDefault()
-                ?? throw new InvalidOperationException("BGG thing response did not contain an item.");
+                ?? throw new InvalidOperationException(ApiErrorMessages.System.BggInvalidResponse);
 
             var id = ParseInt(item.Attribute("id")?.Value) ?? 0;
             var name = item.Elements("name")

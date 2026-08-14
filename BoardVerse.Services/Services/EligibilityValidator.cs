@@ -1,5 +1,6 @@
 using BoardVerse.Core.DTOs.Reservation;
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.Messages;
 
 namespace BoardVerse.Services.Services;
@@ -42,7 +43,7 @@ public class EligibilityValidator
             var daysInFuture = DepositCalculator.GetDaysInFuture(context.PlayDate, context.Now);
             if (daysInFuture > 1)
             {
-                throw new InvalidOperationException(ApiErrorMessages.Reservation.CoolingOffCannotCreateDistantLobby(
+                throw new ForbiddenException(ApiErrorMessages.Reservation.CoolingOffCannotCreateDistantLobby(
                     context.CoolingOffExpiresAt ?? context.Now.AddDays(30)));
             }
         }
@@ -57,45 +58,45 @@ public class EligibilityValidator
             // Đã đạt tối đa 2 lobby → phải ưu tiên thông báo cross-role cho user hiểu.
             if (context.HasActiveMemberLobby)
             {
-                throw new InvalidOperationException(ApiErrorMessages.Reservation.MemberCannotCreateLobby);
+                throw new ForbiddenException(ApiErrorMessages.Reservation.MemberCannotCreateLobby);
             }
-            throw new InvalidOperationException(ApiErrorMessages.Reservation.ActiveLobbyHostLimitReached);
+            throw new ForbiddenException(ApiErrorMessages.Reservation.ActiveLobbyHostLimitReached);
         }
 
         // BR-USER-LIMIT-04: member → không được host lobby khác.
         if (context.HasActiveMemberLobby)
         {
-            throw new InvalidOperationException(ApiErrorMessages.Reservation.MemberCannotCreateLobby);
+            throw new ForbiddenException(ApiErrorMessages.Reservation.MemberCannotCreateLobby);
         }
 
         // BR-USER-LIMIT-01: host đã có 1 lobby → không host thêm.
         if (context.HasActiveHostLobby)
         {
-            throw new InvalidOperationException(ApiErrorMessages.Reservation.ActiveLobbyHostLimitReached);
+            throw new ForbiddenException(ApiErrorMessages.Reservation.ActiveLobbyHostLimitReached);
         }
 
         if (context.HasOverlapHostLobby)
         {
             var overlapDeadline = context.OverlapOtherDeadline ?? context.RecruitmentDeadline;
             var overlapStart = context.OverlapOtherStart ?? context.Now;
-            throw new InvalidOperationException(ApiErrorMessages.Reservation.OverlappingLobbyExists(
+            throw new ConflictException(ApiErrorMessages.Reservation.OverlappingLobbyExists(
                 overlapDeadline, overlapStart));
         }
 
         if (context.HasActiveLobbyOnPlayDate)
         {
-            throw new InvalidOperationException(ApiErrorMessages.Reservation.OverlappingLobbyExists(
+            throw new ConflictException(ApiErrorMessages.Reservation.OverlappingLobbyExists(
                 context.Now, context.Now));
         }
 
         if (context.HasActiveLobbyOnCafeSlot)
         {
-            throw new InvalidOperationException(ApiErrorMessages.Reservation.SameCafeSlotLobbyAlreadyActive);
+            throw new ConflictException(ApiErrorMessages.Reservation.SameCafeSlotLobbyAlreadyActive);
         }
 
         if (context.HostCreateOrCancelCount >= MaxCreateOrCancelPerPlayDate)
         {
-            throw new InvalidOperationException(ApiErrorMessages.Reservation.HostCreatesCancelsLimitReached(MaxCreateOrCancelPerPlayDate));
+            throw new ConflictException(ApiErrorMessages.Reservation.HostCreatesCancelsLimitReached(MaxCreateOrCancelPerPlayDate));
         }
 
         var cap = ResolveTotalDepositCap(context);
@@ -103,7 +104,7 @@ public class EligibilityValidator
         if (projected > cap)
         {
             var userType = context.IsVip ? "VIP" : (context.IsRiskMultiplierHigh ? "risk cao" : "thường");
-            throw new InvalidOperationException(ApiErrorMessages.Reservation.HeldDepositCapExceeded(
+            throw new ConflictException(ApiErrorMessages.Reservation.HeldDepositCapExceeded(
                 context.WalletHeldBalance, cap, userType));
         }
     }
@@ -116,11 +117,11 @@ public class EligibilityValidator
         // BR-RISK-04: Banned → chặn vĩnh viễn. Suspended → chặn tạm thời.
         if (context.IsAccountBanned)
         {
-            throw new InvalidOperationException(ApiErrorMessages.Reservation.BannedCannotCreateLobby);
+            throw new ForbiddenException(ApiErrorMessages.Reservation.BannedCannotCreateLobby);
         }
         if (context.IsAccountSuspended)
         {
-            throw new InvalidOperationException(ApiErrorMessages.Reservation.SuspendedCannotCreateLobby);
+            throw new ForbiddenException(ApiErrorMessages.Reservation.SuspendedCannotCreateLobby);
         }
 
         // BR-USER-LIMIT-01: tổng active = host + member ≤ 2.
@@ -131,32 +132,32 @@ public class EligibilityValidator
             // Đã đạt tối đa 2 lobby → báo tổng quá (ưu tiên thông báo cross-role).
             if (context.HasActiveHostLobby)
             {
-                throw new InvalidOperationException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
+                throw new ForbiddenException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
             }
-            throw new InvalidOperationException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);
+            throw new ForbiddenException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);
         }
 
         // BR-USER-LIMIT-05: host → không được join lobby khác.
         if (context.HasActiveHostLobby)
         {
-            throw new InvalidOperationException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
+            throw new ForbiddenException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
         }
 
         // BR-USER-LIMIT-01: member → không join thêm (đã đếm 1 ở trên).
         if (context.ActiveMemberLobbyCount >= 1)
         {
-            throw new InvalidOperationException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);
+            throw new ForbiddenException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);
         }
 
         if (context.HasOverlapMemberLobby)
         {
-            throw new InvalidOperationException(ApiErrorMessages.Reservation.OverlappingLobbyExists(
+            throw new ConflictException(ApiErrorMessages.Reservation.OverlappingLobbyExists(
                 context.Now, context.Now));
         }
 
         if (context.ActiveMemberLobbyOnPlayDateCount >= 1)
         {
-            throw new InvalidOperationException(ApiErrorMessages.Reservation.OverlappingLobbyExists(
+            throw new ConflictException(ApiErrorMessages.Reservation.OverlappingLobbyExists(
                 context.Now, context.Now));
         }
     }
@@ -167,11 +168,11 @@ public class EligibilityValidator
         // Phải tách rõ để user không nhận nhầm thông báo "cấm vĩnh viễn" khi chỉ bị tạm khóa.
         if (banned)
         {
-            throw new InvalidOperationException(ApiErrorMessages.Reservation.BannedCannotCreateLobby);
+            throw new ForbiddenException(ApiErrorMessages.Reservation.BannedCannotCreateLobby);
         }
         if (suspended)
         {
-            throw new InvalidOperationException(ApiErrorMessages.Reservation.SuspendedCannotCreateLobby);
+            throw new ForbiddenException(ApiErrorMessages.Reservation.SuspendedCannotCreateLobby);
         }
     }
 

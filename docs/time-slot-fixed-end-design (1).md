@@ -47,7 +47,7 @@ Time-slot reservation với end time cố định là mô hình đặt chỗ mà
 |---|---|
 | **Bắt buộc có start + end** | Mỗi reservation phải có cả `startTime` và `endTime`. **Không có open-ended reservation** (chỉ có start time). |
 | **End time cùng ngày start time** | `endTime.date` phải bằng `startTime.date` (cùng `playDate`). **Không cho phép reservation cross midnight** (vd: 22:00 → 02:00 ngày hôm sau). |
-| **End time tự động** | User **không nhập free-form end time**. Backend tự resolve từ `playDate + timeSlot` qua `CafeSchedule.GetEndTime(timeSlot)`. TimeSlot enum cố định 4 giá trị (morning/afternoon/evening/night). |
+| **End time tự động** | User **không nhập free-form end time**. Backend tự resolve từ `playDate + timeSlot` qua `CafeSchedule.GetEndTime(timeSlot)`. TimeSlot enum cố định 4 giá trị (morning/afternoon/evening/lateNight). Ngoại lệ: `lateNight` (23:00–06:00) là overnight, `endTime.date = playDate.date + 1`. |
 
 Xem chi tiết + error messages + ví dụ ở [Section 3.1 — BR-RES-07..09](#31-reservation-rules-br-res).
 
@@ -169,7 +169,7 @@ Nhóm A đặt 13:00 - 18:00 (5 tiếng)
 | BR-RES-06 | Atomic check before confirm | Luôn kiểm tra BVC balance + seat inventory + game copy availability trong transaction trước khi xác nhận |
 | **BR-RES-07** | **Start time + End time bắt buộc** | **Mọi reservation phải có cả `startTime` và `endTime`. Không cho phép tạo reservation chỉ có `startTime` (open-ended).** |
 | **BR-RES-08** | **End time cùng ngày với Start time** | **`endTime` phải cùng `playDate` với `startTime`. Không cho phép reservation cross midnight (vd: 22:00 → 02:00 ngày hôm sau).** |
-| **BR-RES-09** | **TimeSlot auto-resolve endTime** | **End time KHÔNG do user nhập free-form. Backend tự resolve từ `playDate + timeSlot` qua `CafeSchedule.GetEndTime(timeSlot)` theo BR-NEW-15a. TimeSlot enum cố định 4 giá trị (morning/afternoon/evening/night) — đảm bảo end time cùng ngày và hợp lệ.** |
+| **BR-RES-09** | **TimeSlot auto-resolve endTime** | **End time KHÔNG do user nhập free-form. Backend tự resolve từ `playDate + timeSlot` qua `CafeSchedule.GetEndTime(timeSlot)` theo BR-NEW-15a. TimeSlot enum cố định 4 giá trị (morning/afternoon/evening/lateNight) — đảm bảo end time hợp lệ.** |
 
 **Validation chain cho quote (POST /api/v1/reservations/quote):**
 
@@ -191,7 +191,7 @@ Input: { playDate, timeSlot, preferredStartTime? }
    │
    ▼
 5. Validate BR-RES-02: endTime ≤ startTime + 6 hours
-   │ → TimeSlot đã cap rồi (max slot = 5 tiếng, night 19:00-24:00)
+   │ → TimeSlot đã cap rồi (max slot = 7 tiếng, lateNight 23:00-06:00 cross-midnight)
    │
    ▼
 6. Trả quote với startTime + endTime đã resolve
@@ -201,16 +201,16 @@ Input: { playDate, timeSlot, preferredStartTime? }
 
 | BR | Code | Message |
 |---|---|---|
-| BR-RES-07 | `RESERVATION_REQUIRES_START_AND_END` | "Đặt chỗ bắt buộc phải có thời gian bắt đầu và thời gian kết thúc. Vui lòng chọn khung giờ (morning/afternoon/evening/night) để hệ thống tự tính giờ kết thúc." |
-| BR-RES-08 | `RESERVATION_END_TIME_DIFFERENT_DAY` | "Thời gian kết thúc phải cùng ngày với thời gian bắt đầu. Đặt chỗ qua đêm không được hỗ trợ — vui lòng chọn 2 reservation riêng (tối nay và ngày mai)." |
-| BR-RES-09 | `RESERVATION_INVALID_TIMESLOT` | "Khung giờ không hợp lệ. Chỉ chấp nhận: morning (09:00-13:00), afternoon (13:00-18:00), evening (18:00-23:00), night (19:00-24:00)." |
+| BR-RES-07 | `RESERVATION_REQUIRES_START_AND_END` | "Đặt chỗ bắt buộc phải có thời gian bắt đầu và thời gian kết thúc. Vui lòng chọn khung giờ (morning/afternoon/evening/lateNight) để hệ thống tự tính giờ kết thúc." |
+| BR-RES-08 | `RESERVATION_END_TIME_DIFFERENT_DAY` | "Thời gian kết thúc phải cùng ngày với thời gian bắt đầu. Đặt chỗ qua đêm không được hỗ trợ (ngoại lệ: slot lateNight 23:00–06:00 là overnight, endTime thuộc ngày hôm sau — vẫn hợp lệ)." |
+| BR-RES-09 | `RESERVATION_INVALID_TIMESLOT` | "Khung giờ không hợp lệ. Chỉ chấp nhận: morning (06:00-12:00), afternoon (12:00-17:00), evening (17:00-23:00), lateNight (23:00-06:00, qua đêm)." |
 
 **Lý do BR-RES-08 (end time cùng ngày):**
 
 | Lý do | Chi tiết |
 |---|---|
 | **BR-15 (boardverse.mdc)** | Hóa đơn cá nhân tính theo phiên chơi liên tục — cross-day phá vỡ công thức `time × hourlyRate` |
-| **Giờ hoạt động quán** | Giờ hoạt động chuẩn 07:00-22:00, riêng night slot 19:00-24:00 — đảm bảo end time ≤ 24:00 cùng ngày |
+| **Giờ hoạt động quán** | Giờ hoạt động chuẩn 06:00-23:00, lateNight slot 23:00-06:00 (overnight, endTime thuộc ngày hôm sau — ngoại lệ hợp lệ duy nhất) |
 | **Walk-in Window** | Release ghế tạo Walk-in Window cùng ngày — cross-day phức tạp hóa release logic |
 | **ActiveSession billing** | `playedMinutes` đơn giản = `endTime - startTime` — cross-day nhân thêm 1 ngày, dễ bug |
 | **BR-DEPOSIT-02** | `finalDeposit` tính theo maxPlayers × timeSlot duration — không có cơ chế cross-day pricing |
@@ -225,10 +225,11 @@ Input: { playDate, timeSlot, preferredStartTime? }
   → endTime   = 2026-08-15 18:00 (cùng ngày ✅)
   → duration  = 5 tiếng
 
-✅ Hợp lệ (night slot):
-  { playDate: "2026-08-15", timeSlot: "NIGHT" }
-  → startTime = 2026-08-15 19:00
-  → endTime   = 2026-08-15 24:00 (cùng ngày ✅, 5 tiếng)
+✅ Hợp lệ (lateNight slot, overnight):
+  { playDate: "2026-08-15", timeSlot: "LATENIGHT" }
+  → startTime = 2026-08-15 23:00
+  → endTime   = 2026-08-16 06:00 (cross midnight ✅, ngoại lệ hợp lệ cho lateNight)
+  → duration  = 7 tiếng
   → duration  = 5 tiếng
 
 ❌ Không hợp lệ (BR-RES-08 cross-day):
@@ -333,8 +334,8 @@ Input: { playDate, timeSlot, preferredStartTime? }
 
 Host (Player)                                     System                          Cafe/Staff
   │                                                 │                              │
-  │  1. Chọn ngày, timeSlot (morning/afternoon/     │                              │
-  │     evening/night), maxPlayers, minPlayers      │                              │
+│  1. Chọn ngày, timeSlot (morning/afternoon/     │                              │
+│     evening/lateNight), maxPlayers, minPlayers  │                              │
   │  ─────────────────────────────────────────────▶ │                              │
   │                                                 │                              │
   │  2. Trả quote: depositAmount (BVC),             │                              │
@@ -1483,7 +1484,7 @@ class Reservation {
     /// <summary>BR-NEW-04: chỉ ngày, không giờ.</summary>
     DateOnly PlayDate;
     
-    /// <summary>BR-NEW-15: morning | afternoon | evening | night.</summary>
+    /// <summary>BR-NEW-15: morning | afternoon | evening | lateNight.</summary>
     TimeSlot TimeSlot;
     
     /// <summary>Optional, trong [timeSlot.startTime, timeSlot.endTime].</summary>
@@ -1620,10 +1621,10 @@ enum SessionEndReason {
 }
 
 enum TimeSlot {
-  Morning = 0,    // 09:00 - 13:00 (BR-NEW-15)
-  Afternoon = 1, // 13:00 - 18:00
-  Evening = 2,    // 18:00 - 23:00
-  Night = 3      // 19:00 - 24:00 (cùng playDate)
+  Morning = 0,    // 06:00 - 12:00 (BR-NEW-15)
+  Afternoon = 1,  // 12:00 - 17:00
+  Evening = 2,    // 17:00 - 23:00
+  LateNight = 3   // 23:00 - 06:00 (overnight, endTime = ngày hôm sau)
 }
 ```
 
@@ -2867,7 +2868,7 @@ Unit Tests:
   - **BR-RES-07 validation**: quote không có endTime / null endTime → throw RESERVATION_REQUIRES_START_AND_END
   - **BR-RES-08 validation**: endTime.date != startTime.date → throw RESERVATION_END_TIME_DIFFERENT_DAY
   - **BR-RES-09 validation**: timeSlot không thuộc BR-NEW-15 enum → throw RESERVATION_INVALID_TIMESLOT
-  - **edge case**: night slot 19:00-24:00 vẫn cùng ngày (endTime = 24:00 = ngày hôm sau 00:00?) — phải explicit ASSERT endTime.date == playDate
+  - **edge case**: lateNight slot 23:00-06:00 cross midnight (endTime.date = playDate.date + 1, ngoại lệ hợp lệ duy nhất) — phải explicit ASSERT endTime.date == playDate.date HOẶC (timeSlot == LateNight && endTime.date == playDate.date + 1)
 ```
 
 Integration Tests:
@@ -2941,7 +2942,7 @@ Database:
 |------|------------|
 | **Time-slot** | Khoảng thời gian cố định mà player đặt để chơi |
 | **playDate** | Ngày dự kiến chơi (DateOnly — BR-NEW-04) |
-| **timeSlot** | Enum cố định 4 giá trị: morning (09-13), afternoon (13-18), evening (18-23), night (19-24) — BR-NEW-15 |
+| **timeSlot** | Enum cố định 4 giá trị: morning (06-12), afternoon (12-17), evening (17-23), lateNight (23-06, qua đêm) — BR-NEW-15 |
 | **startTime** | Thời điểm bắt đầu = `playDate + timeSlot.startTime` (auto-resolve) — BR-RES-07 |
 | **endTime** | Thời điểm kết thúc = `playDate + timeSlot.endTime` (auto-resolve, cùng ngày startTime) — BR-RES-07, BR-RES-08 |
 | **preferredStartTime** | Optional, tham chiếu trong khoảng [timeSlot.startTime, timeSlot.endTime] — BR-NEW-15b |

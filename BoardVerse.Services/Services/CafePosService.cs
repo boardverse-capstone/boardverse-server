@@ -618,7 +618,8 @@ namespace BoardVerse.Services.Services
                 attempts++;
                 if (attempts > 5)
                 {
-                    throw new InvalidOperationException("Không thể sinh PosCheckInToken unique sau 5 lần thử.");
+                    throw new InternalServerErrorException(
+                        ApiErrorMessages.System.PosCheckInTokenGenerationFailed);
                 }
             } while (await _tokenRepository.TokenExistsAsync(token));
 
@@ -1071,7 +1072,7 @@ namespace BoardVerse.Services.Services
             // GAP-7 Fix: Reject Guid.Empty as a valid user (security)
             if (userId == Guid.Empty)
             {
-                throw new UnauthorizedAccessException("Invalid user context.");
+                throw new UnauthorizedException(ApiErrorMessages.System.InvalidUserContext);
             }
 
             var cafe = await _cafeRepository.GetActiveByIdAsync(cafeId);

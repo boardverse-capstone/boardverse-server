@@ -4,7 +4,7 @@
 **Controller:** `CafeScheduleController.cs`
 **Role:** Cafe Manager (chỉ chủ quán của cafe tương ứng)
 
-API cho phép cafe manager tùy chỉnh **khung giờ mở cửa** cho 4 `TimeSlot` cố định (Morning / Afternoon / Evening / Night), hoặc **đóng** hẳn một khung giờ. Dùng để hỗ trợ cafe mở khuya, cafe 24/24, hoặc cafe chỉ hoạt động ban ngày.
+API cho phép cafe manager tùy chỉnh **khung giờ mở cửa** cho 4 `TimeSlot` cố định (Morning / Afternoon / Evening / LateNight), hoặc **đóng** hẳn một khung giờ. Dùng để hỗ trợ cafe mở khuya, cafe 24/24, hoặc cafe chỉ hoạt động ban ngày.
 
 > **Liên quan:**
 > - [lobby-booking-deposit-bvc.mdc](../.cursor/rules/lobby-booking-deposit-bvc.mdc) §7.1 (BR-NEW-15) — định nghĩa 4 slot cố định.
@@ -14,7 +14,7 @@ API cho phép cafe manager tùy chỉnh **khung giờ mở cửa** cho 4 `TimeSl
 
 ## Nguyên tắc
 
-1. **`TimeSlot` enum là cố định** — 4 giá trị `Morning` (08-13), `Afternoon` (13-18), `Evening` (18-24), `Night` (00-08, qua đêm). JSON serialize vẫn giữ `"morning" / "afternoon" / "evening" / "night"`, không đổi API contract.
+1. **`TimeSlot` enum là cố định** — 4 giá trị `Morning` (06-12), `Afternoon` (12-17), `Evening` (17-23), `LateNight` (23-06, qua đêm, endTime = ngày hôm sau). JSON serialize vẫn giữ `"morning" / "afternoon" / "evening" / "lateNight"`, không đổi API contract.
 2. **Default schedule** dùng `CafeSchedule.GetStartTime / GetEndTime` — không cần override nếu cafe mở đúng khung giờ chuẩn.
 3. **`CafeScheduleOverride`** cho phép cafe tùy chỉnh **từng slot**:
    - Set `startTime` / `endTime` riêng.
@@ -71,7 +71,7 @@ Trả về lịch tổng hợp của cafe: 4 slot, mỗi slot có `startTime` / 
       "hasOverride": true
     },
     {
-      "timeSlot": "night",
+      "timeSlot": "lateNight",
       "startTime": "22:00:00",
       "endTime": "06:00:00",
       "isClosed": false,
@@ -111,7 +111,7 @@ Tạo mới hoặc cập nhật override cho **một** `TimeSlot`. Mỗi `(cafeI
 
 | Field | Type | Required | Mô tả |
 |-------|------|----------|-------|
-| `timeSlot` | enum | Yes | `Morning` / `Afternoon` / `Evening` / `Night` |
+| `timeSlot` | enum | Yes | `Morning` / `Afternoon` / `Evening` / `LateNight` |
 | `startTime` | `TimeOnly?` | No | Null = giữ default |
 | `endTime` | `TimeOnly?` | No | Null = giữ default |
 | `isClosed` | bool | No, default `false` | Đóng slot, không cho player tạo lobby |
@@ -157,7 +157,7 @@ Tạo mới hoặc cập nhật override cho **một** `TimeSlot`. Mỗi `(cafeI
 
 Xóa override cho slot, cafe quay về dùng default schedule.
 
-**Path param:** `timeSlot` ∈ `Morning` / `Afternoon` / `Evening` / `Night` (URL: `morning`, `afternoon`, `evening`, `night`).
+**Path param:** `timeSlot` ∈ `Morning` / `Afternoon` / `Evening` / `LateNight` (URL: `morning`, `afternoon`, `evening`, `lateNight`).
 
 **Response 200:**
 
@@ -197,21 +197,21 @@ Không cần gọi API. Default 4 slot đã cover 00:00 → 24:00 liên tục.
 ### Cafe mở từ 10:00 → 02:00 sáng hôm sau
 
 ```
-Morning (08-13) → đóng → POST { isClosed: true }
-Afternoon (13-18) → giữ default
-Evening (18-24) → custom 18-02 → POST { startTime: "18:00", endTime: "02:00" }
-Night (00-08) → custom 00-02 → POST { startTime: "00:00", endTime: "02:00" }
+Morning (06-12) → đóng → POST { isClosed: true }
+Afternoon (12-17) → giữ default
+Evening (17-23) → custom 18-02 → POST { startTime: "18:00", endTime: "02:00" }
+LateNight (23-06) → custom 00-02 → POST { startTime: "00:00", endTime: "02:00" }
 ```
 
 > **Lưu ý:** `endTime = 02:00` cho slot Evening có nghĩa là đóng cửa lúc 02:00 **ngày hôm sau**. Logic nghiệp vụ (`ReservationService`, `LobbyService`) sẽ tự hiểu là overnight.
 
-### Cafe chỉ mở ban ngày (đóng Night)
+### Cafe chỉ mở ban ngày (đóng LateNight)
 
 ```
-Night → POST { isClosed: true }
+LateNight → POST { isClosed: true }
 ```
 
-Player cố tạo lobby với `timeSlot = "night"` → API trả `400`.
+Player cố tạo lobby với `timeSlot = "lateNight"` → API trả `400`.
 
 ---
 

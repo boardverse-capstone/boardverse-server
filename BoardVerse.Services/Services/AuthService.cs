@@ -47,9 +47,12 @@ namespace BoardVerse.Services.Services
             _logger = logger;
 
             var jwtSettings = configuration.GetSection("JwtSettings");
-            _jwtSecurityKey = jwtSettings["SecurityKey"] ?? throw new ConfigurationMissingException("JwtSettings:SecurityKey not configured");
-            _jwtValidIssuer = jwtSettings["ValidIssuer"] ?? throw new ConfigurationMissingException("JwtSettings:ValidIssuer not configured");
-            _jwtValidAudience = jwtSettings["ValidAudience"] ?? throw new ConfigurationMissingException("JwtSettings:ValidAudience not configured");
+            _jwtSecurityKey = jwtSettings["SecurityKey"] ?? throw new ConfigurationMissingException(
+                ApiErrorMessages.System.ConfigurationKeyMissing("JwtSettings:SecurityKey"));
+            _jwtValidIssuer = jwtSettings["ValidIssuer"] ?? throw new ConfigurationMissingException(
+                ApiErrorMessages.System.ConfigurationKeyMissing("JwtSettings:ValidIssuer"));
+            _jwtValidAudience = jwtSettings["ValidAudience"] ?? throw new ConfigurationMissingException(
+                ApiErrorMessages.System.ConfigurationKeyMissing("JwtSettings:ValidAudience"));
             _jwtExpiryInMinutes = int.TryParse(jwtSettings["ExpiryInMinutes"], out var expiry) ? expiry : 1440;
             _disableLoginThrottle = string.Equals(
                 configuration["ASPNETCORE_ENVIRONMENT"]
@@ -58,7 +61,8 @@ namespace BoardVerse.Services.Services
                 StringComparison.OrdinalIgnoreCase);
 
             var googleAuth = configuration.GetSection("Authentication:Google");
-            _googleClientId = googleAuth["ClientId"] ?? throw new ConfigurationMissingException("Authentication:Google:ClientId not configured");
+            _googleClientId = googleAuth["ClientId"] ?? throw new ConfigurationMissingException(
+                ApiErrorMessages.System.ConfigurationKeyMissing("Authentication:Google:ClientId"));
         }
 
         // Rate limiting helper

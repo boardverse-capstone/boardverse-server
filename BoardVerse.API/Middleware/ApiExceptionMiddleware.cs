@@ -75,21 +75,26 @@ namespace BoardVerse.API.Middleware
             }
             catch (InvalidOperationException ex)
             {
-                // Business rule validation errors thrown as InvalidOperationException
-                // Determine status code based on message pattern
-                var statusCode = GetStatusCodeForBusinessError(ex.Message);
-                context.Response.ContentType = "application/json";
-                context.Response.StatusCode = statusCode;
+                // InvalidOperationException is treated as an internal error because business
+                // validation errors MUST be expressed via AppException subclasses (NotFoundException,
+                // ConflictException, ForbiddenException, BadRequestException, InternalServerErrorException).
+                // Any code still throwing InvalidOperationException is a bug and should be logged so it can
+                // be migrated; do NOT leak message content or regex-match it for a status code.
+                _logger.LogError(ex,
+                    "Unexpected InvalidOperationException (should be AppException). Path: {Path}",
+                    context.Request.Path);
 
                 var response = new ApiResponse
                 {
-                    StatusCode = statusCode,
-                    Message = ex.Message,
+                    StatusCode = (int)HttpStatusCode.InternalServerError,
+                    Message = ApiErrorMessages.System.ConfigurationMissing,
                     Data = null,
                     Timestamp = DateTime.UtcNow,
                     Path = context.Request.Path.Value ?? string.Empty
                 };
 
+                context.Response.ContentType = "application/json";
+                context.Response.StatusCode = response.StatusCode;
                 var payload = JsonSerializer.Serialize(response, jsonOptions);
                 await context.Response.WriteAsync(payload);
             }
@@ -114,60 +119,6 @@ namespace BoardVerse.API.Middleware
                 var payload = JsonSerializer.Serialize(response, jsonOptions);
                 await context.Response.WriteAsync(payload);
             }
-        }
-
-        /// <summary>
-        /// Determines appropriate HTTP status code based on business error message pattern.
-        /// </summary>
-        private static int GetStatusCodeForBusinessError(string message)
-        {
-            // 403 Forbidden: account status, cooling-off, cross-role violations
-            var forbiddenPatterns = new[]
-            {
-                "suspended",
-                "banned",
-                "bị giới hạn",
-                "cooling-off",
-                "thành viên của.*lobby",
-                "host của.*lobby"
-            };
-
-            foreach (var pattern in forbiddenPatterns)
-            {
-                if (System.Text.RegularExpressions.Regex.IsMatch(message, pattern,
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-                {
-                    return 403;
-                }
-            }
-
-            // 409 Conflict: overlap, already exists, limit exceeded, not available
-            var conflictPatterns = new[]
-            {
-                "overlap",
-                "đã có",
-                "đã tồn tại",
-                "already exists",
-                "already has",
-                "limit",
-                "cap",
-                "hết chỗ",
-                "hết ghế",
-                "không đủ",
-                "chưa đủ"
-            };
-
-            foreach (var pattern in conflictPatterns)
-            {
-                if (System.Text.RegularExpressions.Regex.IsMatch(message, pattern,
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-                {
-                    return 409;
-                }
-            }
-
-            // Default to 400 Bad Request for other business validation errors
-            return 400;
         }
     }
 }

@@ -33,7 +33,7 @@
 |---|---|---|
 | `bookingId` (Guid) | `Reservation.Id` (Guid) | `GET /api/v1/reservations/{id}` |
 | `bookingCode` / `verificationQRCode` | `Reservation.ReservationCode` (8-char alphanumeric uppercase) | Lookup trong POS qua `POST /api/cafes/{cafeId}/pos/check-in` với `code` |
-| `startTime` (user nhập) | `playDate` (DateOnly) + `timeSlot` (enum Morning/Afternoon/Evening/Night) + `preferredStartTime?` (TimeOnly) | Trong body của `POST /api/v1/reservations/quote` |
+| `startTime` (user nhập) | `playDate` (DateOnly) + `timeSlot` (enum Morning/Afternoon/Evening/LateNight) + `preferredStartTime?` (TimeOnly) | Trong body của `POST /api/v1/reservations/quote` |
 | `endTime` / `scheduleEndTime` (user nhập) | **KHÔNG CÓ field** — auto-resolve: `playDate + TimeSlot.startTime..endTime` (qua `CafeSchedule.GetEndTime(timeSlot)`) | — |
 | `Booking.status` enum (PENDING/CONFIRMED/CHECKED_IN/COMPLETED/...) | `ReservationStatus` enum (Holding/Confirmed/CheckedIn/Completed/Cancelled/NoShow) + `LobbyStatus` enum + `ActiveSessionStatus` enum | Trả về trong `ReservationResponseDto` |
 | Deposit (VND qua SePay) | `Reservation.DepositAmount` (BVC) + `Wallet.HeldBalance` + Ledger entry `DEPOSIT_HOLD` | Trả trong `ReservationResponseDto` |

@@ -609,7 +609,7 @@ Nếu lobby không có `preferredStartTime`: bỏ qua các mốc 2 giờ và 30 
 | `morning` | 09:00 | 13:00 | Phiên sáng |
 | `afternoon` | 13:00 | 18:00 | Phiên chiều |
 | `evening` | 18:00 | 23:00 | Phiên tối |
-| `night` | 19:00 | 24:00 | Phiên khuya |
+| `lateNight` | 23:00 | 06:00 | Phiên khuya qua đêm (endTime = 06:00 ngày hôm sau) |
 
 **BR-NEW-15a (Công thức tính deadline)**:
 
@@ -1240,7 +1240,7 @@ lib/features/reservation/
 | BR-NEW-12 | Cafe cấu hình hạn mức riêng | `cafe_config` table |
 | BR-NEW-13 | Notification 4 mốc (48h/24h/2h/30p) | Scheduled job |
 | BR-NEW-14 | Cảnh báo lobby có nguy cơ fail | Check 50% thời gian tuyển |
-| BR-NEW-15 | Định nghĩa `timeSlot` (morning/afternoon/evening/night) | Enum + lookup table |
+| BR-NEW-15 | Định nghĩa `timeSlot` (morning/afternoon/evening/lateNight) | Enum + lookup table |
 | BR-NEW-15a | Công thức tính deadline từ playDate + timeSlot | Backend logic |
 | BR-NEW-15b | `preferredStartTime` tham chiếu trong timeSlot | Optional field |
 | BR-RISK-01 | Tính `riskScore` (0-100) từ 10 signals | Scheduled job `risk_score_recompute` |
@@ -1684,7 +1684,7 @@ Các API phục vụ workflow cafe duyệt lobby trước khi publish (áp dụn
 + approvedByCafeManagerId (FK, nullable)
 ```
 + playDate (required, DateOnly)        // ngày dự kiến chơi, BR-NEW-04
-+ timeSlot (required, enum)            // morning | afternoon | evening | night, BR-NEW-15
++ timeSlot (required, enum)            // morning | afternoon | evening | lateNight, BR-NEW-15
 + preferredStartTime (optional, TimeOfDay)  // giờ dự kiến trong timeSlot, BR-NEW-15b
 + recruitmentDeadline (computed, DateTime)  // = (playDate + timeSlot.startTime) - leadTime
 + status (enum)                        // bổ sung: pendingCafeApproval, rejectedByCafe, expiredByCafe
@@ -1701,7 +1701,7 @@ hostId
 cafeId
 gameId
 playDate (DateOnly)
-timeSlot (enum: morning | afternoon | evening | night)
+timeSlot (enum: morning | afternoon | evening | lateNight)
 preferredStartTime (TimeOfDay, optional)
 recruitmentDeadline (DateTime, computed)
 minPlayers, maxPlayers
@@ -1941,9 +1941,9 @@ Partition:
 | 12 | Quán hủy? | Hoàn 100%, không bồi thường |
 | 13 | Nạp nhưng reservation fail? | BVC giữ trong ví |
 | 14 | Cách tính cọc? | ratePerPerson × maxPlayers × riskMultiplier |
-| 15 | Dùng `playDate` riêng hay `scheduledTime` chính xác? | Dùng `playDate` (chỉ ngày) + `timeSlot` (morning/afternoon/evening/night) |
+| 15 | Dùng `playDate` riêng hay `scheduledTime` chính xác? | Dùng `playDate` (chỉ ngày) + `timeSlot` (morning/afternoon/evening/lateNight) |
 | 16 | `preferredStartTime` có bắt buộc? | Optional, tham chiếu trong khoảng `[timeSlot.startTime, timeSlot.endTime]` |
-| 17 | `timeSlot` được định nghĩa thế nào? | 4 khung giờ cố định: morning (09-13), afternoon (13-18), evening (18-23), night (19-24) |
+| 17 | `timeSlot` được định nghĩa thế nào? | 4 khung giờ cố định: morning (06-12), afternoon (12-17), evening (17-23), lateNight (23-06, qua đêm) |
 | 18 | Buffer tối thiểu từ tạo đến deadline? | 120 phút. < 60 phút → từ chối. 60-120 phút → cảnh báo. |
 | 19 | `playDate` tối đa bao xa? | 7 ngày trong tương lai |
 | 20 | Phân biệt hạn mức theo khoảng cách playDate? | Có. maxPlayers và minDeposit thay đổi theo khoảng cách (BR-NEW-01). |
@@ -1984,7 +1984,7 @@ Partition:
 | Outbox | Bảng tạm lưu event để đảm bảo phát event sau khi commit DB. |
 | Idempotency key | Mã duy nhất để chống xử lý trùng yêu cầu. |
 | playDate | Ngày dự kiến chơi (chỉ ngày, không có giờ). |
-| timeSlot | Khung giờ cố định trong ngày: morning / afternoon / evening / night. |
+| timeSlot | Khung giờ cố định trong ngày: morning / afternoon / evening / lateNight. |
 | preferredStartTime | Giờ dự kiến bắt đầu (optional, tham chiếu trong timeSlot). |
 | scheduledTime | Thời điểm chính xác = `playDate + timeSlot.startTime`. |
 | leadTimeMinutes | Số phút chuẩn bị trước scheduledTime (mặc định 20 phút). |
@@ -2079,7 +2079,7 @@ Trong đó:
 | `morning` | 09:00 | 13:00 |
 | `afternoon` | 13:00 | 18:00 |
 | `evening` | 18:00 | 23:00 |
-| `night` | 19:00 | 24:00 |
+| `lateNight` | 23:00 | 06:00 |
 
 - `leadTimeMinutes`: mặc định **20 phút** (lấy từ deposit config của cafe).
 

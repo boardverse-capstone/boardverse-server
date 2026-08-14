@@ -74,7 +74,7 @@ public class ReservationQuoteDto
 
     /// <summary>
     /// BR-RESV-02: ScheduledStartTime + ScheduledEndTime luu DB luc <c>ConfirmAsync</c>.
-    /// FE d?ng ?? hi?n th? th?i gian ??u-cu?i phi?n (?? qua ??m v?i slot <c>Night</c>).
+    /// FE d?ng ?? hi?n th? th?i gian ??u-cu?i phi?n (?? qua ??m v?i slot <c>LateNight</c>).
     /// </summary>
     public DateTime ScheduledStartTime { get; set; }
     public DateTime ScheduledEndTime { get; set; }

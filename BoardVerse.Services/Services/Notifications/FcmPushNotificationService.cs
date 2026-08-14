@@ -1,4 +1,5 @@
 using BoardVerse.Core.IRepositories;
+using BoardVerse.Core.Messages;
 using BoardVerse.Core.Settings;
 using BoardVerse.Services.IServices;
 using FirebaseAdmin;
@@ -137,7 +138,7 @@ public class FcmPushNotificationService : IPushNotificationService, IDisposable
             if (string.IsNullOrWhiteSpace(_settings.CredentialsJson))
             {
                 throw new InvalidOperationException(
-                    "Firebase:CredentialsJson chưa được config. Set trong appsettings.json hoặc env FIREBASE_CREDENTIALS_JSON.");
+                    ApiErrorMessages.System.FirebaseCredentialsMissing);
             }
             var app = FirebaseApp.Create(new AppOptions
             {

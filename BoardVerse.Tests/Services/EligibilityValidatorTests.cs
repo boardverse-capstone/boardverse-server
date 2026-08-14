@@ -1,5 +1,6 @@
 using BoardVerse.Core.DTOs.Reservation;
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.Services;
 
@@ -65,7 +66,7 @@ public class EligibilityValidatorTests
         var ctx = BuildHostContext(isBanned: true);
 
         // Act + Assert
-        var ex = Assert.Throws<InvalidOperationException>(() => _validator.ValidateHostCanCreate(ctx));
+        var ex = Assert.Throws<ForbiddenException>(() => _validator.ValidateHostCanCreate(ctx));
         Assert.Equal(ApiErrorMessages.Reservation.BannedCannotCreateLobby, ex.Message);
         Assert.Contains("cấm vĩnh viễn", ex.Message);
     }
@@ -77,7 +78,7 @@ public class EligibilityValidatorTests
         var ctx = BuildHostContext(isSuspended: true);
 
         // Act + Assert
-        var ex = Assert.Throws<InvalidOperationException>(() => _validator.ValidateHostCanCreate(ctx));
+        var ex = Assert.Throws<ForbiddenException>(() => _validator.ValidateHostCanCreate(ctx));
         Assert.Equal(ApiErrorMessages.Reservation.SuspendedCannotCreateLobby, ex.Message);
         Assert.DoesNotContain("cấm vĩnh viễn", ex.Message);
         Assert.Contains("tạm khóa", ex.Message);
@@ -90,7 +91,7 @@ public class EligibilityValidatorTests
         var ctx = BuildMemberContext(isSuspended: true);
 
         // Act + Assert
-        var ex = Assert.Throws<InvalidOperationException>(() => _validator.ValidateMemberCanJoin(ctx));
+        var ex = Assert.Throws<ForbiddenException>(() => _validator.ValidateMemberCanJoin(ctx));
         Assert.Equal(ApiErrorMessages.Reservation.SuspendedCannotCreateLobby, ex.Message);
         Assert.DoesNotContain("cấm vĩnh viễn", ex.Message);
     }
@@ -102,7 +103,7 @@ public class EligibilityValidatorTests
         var ctx = BuildMemberContext(isBanned: true);
 
         // Act + Assert
-        var ex = Assert.Throws<InvalidOperationException>(() => _validator.ValidateMemberCanJoin(ctx));
+        var ex = Assert.Throws<ForbiddenException>(() => _validator.ValidateMemberCanJoin(ctx));
         Assert.Equal(ApiErrorMessages.Reservation.BannedCannotCreateLobby, ex.Message);
     }
 
@@ -116,7 +117,7 @@ public class EligibilityValidatorTests
         var ctx = BuildHostContext(hasActiveHostLobby: true, hasActiveMemberLobby: true);
 
         // Act + Assert
-        var ex = Assert.Throws<InvalidOperationException>(() => _validator.ValidateHostCanCreate(ctx));
+        var ex = Assert.Throws<ForbiddenException>(() => _validator.ValidateHostCanCreate(ctx));
         // Ưu tiên member message vì user đã chủ động tham gia lobby khác trước.
         Assert.Equal(ApiErrorMessages.Reservation.MemberCannotCreateLobby, ex.Message);
     }
@@ -128,7 +129,7 @@ public class EligibilityValidatorTests
         var ctx = BuildHostContext(hasActiveHostLobby: true, hasActiveMemberLobby: false);
 
         // Act + Assert
-        var ex = Assert.Throws<InvalidOperationException>(() => _validator.ValidateHostCanCreate(ctx));
+        var ex = Assert.Throws<ForbiddenException>(() => _validator.ValidateHostCanCreate(ctx));
         Assert.Equal(ApiErrorMessages.Reservation.ActiveLobbyHostLimitReached, ex.Message);
     }
 
@@ -139,7 +140,7 @@ public class EligibilityValidatorTests
         var ctx = BuildHostContext(hasActiveHostLobby: false, hasActiveMemberLobby: true);
 
         // Act + Assert
-        var ex = Assert.Throws<InvalidOperationException>(() => _validator.ValidateHostCanCreate(ctx));
+        var ex = Assert.Throws<ForbiddenException>(() => _validator.ValidateHostCanCreate(ctx));
         Assert.Equal(ApiErrorMessages.Reservation.MemberCannotCreateLobby, ex.Message);
     }
 
@@ -163,7 +164,7 @@ public class EligibilityValidatorTests
         var ctx = BuildMemberContext(hasActiveHostLobby: true, activeMemberLobbyCount: 1);
 
         // Act + Assert
-        var ex = Assert.Throws<InvalidOperationException>(() => _validator.ValidateMemberCanJoin(ctx));
+        var ex = Assert.Throws<ForbiddenException>(() => _validator.ValidateMemberCanJoin(ctx));
         Assert.Equal(ApiErrorMessages.Reservation.HostCannotJoinLobby, ex.Message);
     }
 
@@ -174,7 +175,7 @@ public class EligibilityValidatorTests
         var ctx = BuildMemberContext(hasActiveHostLobby: true, activeMemberLobbyCount: 0);
 
         // Act + Assert
-        var ex = Assert.Throws<InvalidOperationException>(() => _validator.ValidateMemberCanJoin(ctx));
+        var ex = Assert.Throws<ForbiddenException>(() => _validator.ValidateMemberCanJoin(ctx));
         Assert.Equal(ApiErrorMessages.Reservation.HostCannotJoinLobby, ex.Message);
     }
 
@@ -185,7 +186,7 @@ public class EligibilityValidatorTests
         var ctx = BuildMemberContext(hasActiveHostLobby: false, activeMemberLobbyCount: 1);
 
         // Act + Assert
-        var ex = Assert.Throws<InvalidOperationException>(() => _validator.ValidateMemberCanJoin(ctx));
+        var ex = Assert.Throws<ForbiddenException>(() => _validator.ValidateMemberCanJoin(ctx));
         Assert.Equal(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached, ex.Message);
     }
 

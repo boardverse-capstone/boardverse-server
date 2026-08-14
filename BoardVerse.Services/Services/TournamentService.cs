@@ -3298,7 +3298,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
         var result = await GetAdminTournamentDetailAsync(tournamentId);
         if (result == null)
-            throw new Exception("Failed to retrieve updated tournament.");
+            throw new InternalServerErrorException(ApiErrorMessages.System.TournamentRetrieveFailed(tournamentId));
         var updated = await _tournamentRepository.GetByIdAsync(tournamentId);
         return await BuildResponseAsync(updated!, null);
     }

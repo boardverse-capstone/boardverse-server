@@ -63,7 +63,8 @@ public class ReservationExtensionService : IReservationExtensionService
 
         var currentEndTime = reservation.ExtendedEndTime ?? reservation.ScheduledEndTime;
         if (currentEndTime == default)
-            throw new InvalidOperationException($"Cannot extend reservation {reservationId}: both ExtendedEndTime and ScheduledEndTime are null");
+            throw new InternalServerErrorException(
+                ApiErrorMessages.ReservationExtension.ExtendMissingScheduledEndTime(reservationId));
         var remainingMinutes = MaxTotalExtensionMinutes - (reservation.ExtensionCount * MaxExtensionMinutesPerExtension);
         var proposedEndTime = currentEndTime.AddMinutes(extensionMinutes);
 
@@ -150,11 +151,13 @@ public class ReservationExtensionService : IReservationExtensionService
 
         var currentEndTime = reservation.ExtendedEndTime ?? reservation.ScheduledEndTime;
         if (currentEndTime == default)
-            throw new InvalidOperationException($"Cannot extend reservation {request.ReservationId}: both ExtendedEndTime and ScheduledEndTime are null");
+            throw new InternalServerErrorException(
+                ApiErrorMessages.ReservationExtension.ExtendMissingScheduledEndTime(request.ReservationId));
         var proposedEndTime = currentEndTime.AddMinutes(request.ExtensionMinutes);
         var previousEndTime = reservation.ExtendedEndTime ?? reservation.ScheduledEndTime;
         if (previousEndTime == default)
-            throw new InvalidOperationException($"Cannot extend reservation {request.ReservationId}: both ExtendedEndTime and ScheduledEndTime are null");
+            throw new InternalServerErrorException(
+                ApiErrorMessages.ReservationExtension.ExtendMissingScheduledEndTime(request.ReservationId));
 
         // BR-EXT-01: Chỉ extend khi Confirmed
         if (reservation.Status != ReservationStatus.Confirmed)

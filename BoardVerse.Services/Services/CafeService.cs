@@ -1163,7 +1163,7 @@ namespace BoardVerse.Services.Services
 
         var result = await GetAdminCafeDetailAsync(cafe.Id);
         if (result == null)
-            throw new Exception("Failed to retrieve created cafe.");
+            throw new InternalServerErrorException(ApiErrorMessages.System.CafeRetrieveFailed(cafe.Id));
         return result;
     }
 
@@ -1244,7 +1244,7 @@ namespace BoardVerse.Services.Services
 
         var result = await GetAdminCafeDetailAsync(cafeId);
         if (result == null)
-            throw new Exception("Failed to retrieve updated cafe.");
+            throw new InternalServerErrorException(ApiErrorMessages.System.CafeRetrieveFailed(cafeId));
         return result;
     }
 

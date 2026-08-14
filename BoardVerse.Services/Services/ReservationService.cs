@@ -991,7 +991,8 @@ public class ReservationService : IReservationService
 
             var scheduledStart = reservation.ScheduledStartTime;
             if (scheduledStart == default)
-                throw new InvalidOperationException($"Cannot cancel: ScheduledStartTime is null for Reservation {reservation.Id}");
+                throw new InternalServerErrorException(
+                    ApiErrorMessages.Reservation.CancelMissingScheduledStartTime);
             var refundPolicy = ComputeRefundPolicy(
                 scheduledStart,
                 now,
@@ -3102,7 +3103,7 @@ public class ReservationService : IReservationService
             if (endDateTime.Date != startDateTime.Date)
             {
                 throw new InvalidOperationException(
-                    $"BuildScheduledStartEnd: endTime ({endDateTime:O}) khác ngày startTime ({startDateTime:O}) — vi phạm BR-RES-08.");
+                    ApiErrorMessages.Reservation.ReservationEndTimeDifferentDay);
             }
         }
 

@@ -1299,6 +1299,9 @@ public const string SePayBankInfoIncomplete =
 
         public const string WindowTooShort =
             "Khung giờ walk-in cần tối thiểu 30 phút. Khung giờ quá ngắn không thể tạo.";
+
+        public const string ReservationMissingScheduledEndTime =
+            "Reservation thiếu thời gian kết thúc (ScheduledEndTime) nên không thể tạo khung giờ walk-in. Lỗi dữ liệu — liên hệ admin.";
     }
 
     public static class AdminModeration
@@ -2193,6 +2196,9 @@ public const string LobbyBoostOnlyWhenOpen =
  public const string CancelUnder6hNoRefund =
  "Hủy dưới 6 giờ trước giờ chơi — rất tiếc bạn sẽ không được hoàn BVC.";
 
+ public const string CancelMissingScheduledStartTime =
+ "Không thể hủy reservation vì thiếu thời gian bắt đầu (ScheduledStartTime). Lỗi dữ liệu — liên hệ admin.";
+
  // ===== BR-NEW-11 cafe approval =====
  public const string ApproveOnlyByCafeOwner =
  "Chỉ quản lý quán mới có thể duyệt lobby.";
@@ -2698,6 +2704,9 @@ public static class Settlement
 
         public static string CheckInMissingScheduledEndTime(Guid reservationId) =>
         $"Không thể check-in reservation '{reservationId}' vì thiếu thời gian kết thúc. Liên hệ hỗ trợ.";
+
+        public static string ExtendMissingScheduledEndTime(Guid reservationId) =>
+        $"Không thể gia hạn reservation '{reservationId}' vì thiếu thời gian kết thúc. Liên hệ hỗ trợ.";
     }
 
     public static class Receipt
@@ -2719,6 +2728,52 @@ public static class Settlement
 
         public static string AlreadyProcessed(Guid reportId, string currentStatus) =>
         $"Báo cáo '{reportId}' đã được xử lý trước đó (trạng thái: {currentStatus}).";
+    }
+
+    // ===== Infrastructure / dev-facing errors (NOT user-visible; dùng cho cấu hình & SDK nội bộ) =====
+    public static class System
+    {
+        public const string ConfigurationMissing =
+        "Thiếu cấu hình bắt buộc của hệ thống. Liên hệ admin.";
+
+        public static string ConfigurationKeyMissing(string key) =>
+        $"Thiếu cấu hình '{key}'. Liên hệ admin.";
+
+        public const string FirebaseCredentialsMissing =
+        "Firebase:CredentialsJson chưa được cấu hình. Set trong appsettings.json hoặc env FIREBASE_CREDENTIALS_JSON.";
+
+        public const string BggInvalidResponse =
+        "Phản hồi t� BGG không hợp lệ. Bạn thử lại sau nhé!";
+
+        public const string SessionGamesNotLoaded =
+        "Dữ liệu games của phiên chơi chưa được nạp. Lỗi nội bộ — liên hệ admin.";
+
+        public const string PosCheckInTokenGenerationFailed =
+        "Không thể tạo mã QR check-in do xung đột ngẫu nhiên. Bạn thử lại nhé!";
+
+        public static string NoAvailableTablesForAutoCheckIn(string cafeName) =>
+        $"Quán '{cafeName}' hiện không còn bàn trống để check-in tự động. Bạn liên hệ nhân viên nhé!";
+
+        public const string ReservationScheduledStartTimeMissing =
+        "Reservation thiếu thời gian bắt đầu (ScheduledStartTime). Lỗi dữ liệu — liên hệ admin.";
+
+        public const string ReservationScheduledEndTimeMissing =
+        "Reservation thiếu thời gian kết thúc (ScheduledEndTime). Lỗi dữ liệu — liên hệ admin.";
+
+        public static string SevereDataDuplication =>
+        "Mã số thuế hoặc Địa chỉ này đã được đăng ký trên hệ thống. Vui lòng kiểm tra lại.";
+
+        public const string InvalidUserContext =
+        "Không xác định được người dùng. Bạn đăng nhập lại nhé!";
+
+        public static string CafeRetrieveFailed(Guid cafeId) =>
+        $"Không thể lấy thông tin quán '{cafeId}' sau khi lưu. Lỗi nội bộ.";
+
+        public static string TournamentRetrieveFailed(Guid tournamentId) =>
+        $"Không thể lấy thông tin giải đấu '{tournamentId}' sau khi lưu. Lỗi nội bộ.";
+
+        public static string IPv4ResolutionFailed(string host) =>
+        $"Không phân giải được địa chỉ IPv4 cho '{host}'.";
     }
     }
 }

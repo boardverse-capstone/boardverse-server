@@ -963,7 +963,8 @@ namespace BoardVerse.Services.Services
             // GAP-14 Fix: Ensure Games is loaded
             if (session.Games == null)
             {
-                throw new InvalidOperationException("Session Games collection not loaded. Ensure navigation is included in query.");
+                throw new InternalServerErrorException(
+                    ApiErrorMessages.System.SessionGamesNotLoaded);
             }
 
             var box = await _posRepository.GetBoxByBarcodeAsync(cafeId, request.GameBarcode);

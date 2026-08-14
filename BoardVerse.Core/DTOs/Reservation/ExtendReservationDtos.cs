@@ -6,7 +6,7 @@ namespace BoardVerse.Core.DTOs.Reservation;
 /// Request extend thời gian reservation (BR-EXT).
 ///
 /// BR-EXT-01: Chỉ extend khi Status = Confirmed.
-/// BR-EXT-02: Không extend qua midnight.
+/// BR-EXT-02: Không extend qua midnight (NGOẠI LỆ: slot <c>LateNight</c> đã là overnight, extension vẫn giữ trong cùng ngày kết thúc).
 /// BR-EXT-03: Max 2 lần extend.
 /// BR-EXT-05: Partial extension OK.
 /// </summary>

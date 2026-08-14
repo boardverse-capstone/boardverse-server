@@ -389,20 +389,20 @@ namespace BoardVerse.Services.Services
                 // Ưu tiên message host trước (cross-role nghiêm trọng hơn).
                 if (activeHostLobbies.Count > 0)
                 {
-                    throw new InvalidOperationException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
+                    throw new ForbiddenException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
                 }
-                throw new InvalidOperationException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);
+                throw new ForbiddenException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);
             }
 
             if (activeHostLobbies.Count > 0)
             {
-                throw new InvalidOperationException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
+                throw new ForbiddenException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
             }
 
             // BR-USER-LIMIT-01: Member đã có 1 lobby member active → không join thêm.
             if (activeMemberLobbies.Count >= 1)
             {
-                throw new InvalidOperationException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);
+                throw new ForbiddenException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);
             }
 
             // BR-RISK-04: Account bị suspended/banned → chặn.
@@ -433,7 +433,7 @@ namespace BoardVerse.Services.Services
                 if (overlapList.Any())
                 {
                     var firstOverlap = overlapList.First(); // Any() check bảo đảm có ít nhất 1 item
-                    throw new InvalidOperationException(ApiErrorMessages.Reservation.OverlappingLobbyExists(
+                    throw new ConflictException(ApiErrorMessages.Reservation.OverlappingLobbyExists(
                         firstOverlap.RecruitmentDeadline ?? now,
                         firstOverlap.ScheduledStartTime ?? now));
                 }

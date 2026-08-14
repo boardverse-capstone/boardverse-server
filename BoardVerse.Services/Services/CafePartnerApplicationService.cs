@@ -67,7 +67,7 @@ namespace BoardVerse.Services.Services
 
             if (await _applicationRepository.HasSevereDuplicateAsync(request.BusinessLicense, request.Address.Trim()))
             {
-                throw new SevereDataDuplicationException();
+                throw new SevereDataDuplicationException(ApiErrorMessages.System.SevereDataDuplication);
             }
 
             var resolvedSubmitterId = await ResolveSubmittedByUserIdAsync(submittedByUserId, email);
