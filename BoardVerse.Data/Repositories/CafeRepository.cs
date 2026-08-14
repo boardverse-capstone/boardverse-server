@@ -271,6 +271,89 @@ namespace BoardVerse.Data.Repositories
             };
         }
 
+        public async Task<PaginatedResponse<NearbyCafeDto>> SearchCafesAsync(
+            string name,
+            double? latitude,
+            double? longitude,
+            double? radiusKm,
+            PaginationParams paginationParams)
+        {
+            var query = _context.Cafes
+                .AsNoTracking()
+                .Where(c => c.IsActive
+                    && c.PartnerOperationalStatus == CafePartnerOperationalStatus.Active);
+
+            var term = name.Trim().ToLower();
+            query = query.Where(c => c.Name.ToLower().Contains(term));
+
+            if (latitude.HasValue && longitude.HasValue && radiusKm.HasValue)
+            {
+                var origin = GeoLocationHelper.ToPoint(latitude.Value, longitude.Value);
+                var radiusMeters = radiusKm.Value * 1000;
+                query = query.Where(c => c.Location != null && c.Location.IsWithinDistance(origin, radiusMeters));
+            }
+
+            var projected = query.Select(c => new NearbyCafeDto
+            {
+                Id = c.Id,
+                Name = c.Name,
+                Address = c.Address,
+                Latitude = c.Latitude,
+                Longitude = c.Longitude,
+                PhoneNumber = c.PhoneNumber,
+                Description = c.Description,
+                CreatedAt = c.CreatedAt,
+                DistanceMeters = latitude.HasValue && longitude.HasValue && c.Location != null
+                    ? c.Location.Distance(GeoLocationHelper.ToPoint(latitude.Value, longitude.Value))
+                    : 0,
+                AvailableGameCount = _context.CafeInventoryBoxes.Count(b =>
+                    b.CafeGameInventory.CafeId == c.Id
+                    && b.IsActive
+                    && b.Status == CafeGameInventoryStatus.Available),
+                TotalGameBoxCount = _context.CafeInventoryBoxes.Count(b =>
+                    b.CafeGameInventory.CafeId == c.Id
+                    && b.IsActive),
+                AvailableTableCount = _context.CafeTables.Count(t =>
+                    t.CafeId == c.Id
+                    && t.IsActive
+                    && t.Status == CafeTableStatus.Available),
+                TotalTableCount = _context.CafeTables.Count(t =>
+                    t.CafeId == c.Id
+                    && t.IsActive)
+            });
+
+            if (latitude.HasValue && longitude.HasValue)
+            {
+                projected = projected.OrderBy(c => c.DistanceMeters);
+            }
+            else
+            {
+                projected = projected.OrderBy(c => c.Name);
+            }
+
+            var totalItems = await projected.CountAsync();
+            var items = await projected
+                .Skip((paginationParams.PageNumber - 1) * paginationParams.PageSize)
+                .Take(paginationParams.PageSize)
+                .ToListAsync();
+
+            var totalPages = totalItems == 0
+                ? 0
+                : (int)Math.Ceiling(totalItems / (double)paginationParams.PageSize);
+
+            return new PaginatedResponse<NearbyCafeDto>
+            {
+                Data = items,
+                Meta = new PaginationMeta
+                {
+                    CurrentPage = paginationParams.PageNumber,
+                    PageSize = paginationParams.PageSize,
+                    TotalItems = totalItems,
+                    TotalPages = totalPages
+                }
+            };
+        }
+
         public async Task EnrichNearbyWithGameWaitAsync(IList<NearbyCafeDto> cafes, Guid gameTemplateId)
         {
             if (cafes.Count == 0)

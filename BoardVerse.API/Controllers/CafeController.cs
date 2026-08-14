@@ -102,6 +102,34 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
+        /// Tìm kiếm quán cafe theo tên (không cần gameTemplateId). [Role: Public]
+        /// Dùng khi player đã biết quán, muốn tìm nhanh để đặt chỗ.
+        /// </summary>
+        /// <param name="name">Tên quán cần tìm (bắt buộc, case-insensitive, partial match).</param>
+        /// <param name="latitude">Vĩ độ player (tùy chọn, để tính khoảng cách).</param>
+        /// <param name="longitude">Kinh độ player (tùy chọn, để tính khoảng cách).</param>
+        /// <param name="radiusKm">Bán kính tìm kiếm km (mặc định 15; cho phép 0.1–50, chỉ áp dụng khi có lat/lng).</param>
+        /// <param name="pageNumber">Số trang (mặc định 1).</param>
+        /// <param name="pageSize">Kích thước trang (mặc định 20).</param>
+        /// <response code="200">Danh sách quán phân trang, sắp xếp theo khoảng cách (nếu có lat/lng) hoặc theo tên.</response>
+        /// <response code="400">Tên tìm kiếm trống, hoặc tọa độ/bán kính không hợp lệ.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpGet("search")]
+        [AllowAnonymous]
+        public async Task<IActionResult> SearchCafes(
+            [FromQuery] string name,
+            [FromQuery] double? latitude = null,
+            [FromQuery] double? longitude = null,
+            [FromQuery] double radiusKm = GeoLocationHelper.DefaultNearbyRadiusKm,
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            var pagination = new PaginationParams { PageNumber = pageNumber, PageSize = pageSize };
+            var result = await _cafeService.SearchCafesAsync(name, latitude, longitude, radiusKm, pagination);
+            return this.NewResponse(200, ApiSuccessMessages.Cafe.NearbyRetrieved, result);
+        }
+
+        /// <summary>
         /// Cập nhật thông tin quán. [Role: Manager — phải là chủ quán (ManagerId của cafe).]
         /// </summary>
         /// <param name="id">Mã định danh quán cafe.</param>

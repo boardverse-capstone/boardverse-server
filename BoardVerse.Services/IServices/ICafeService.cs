@@ -29,6 +29,13 @@ namespace BoardVerse.Services.IServices
             string? name,
             PaginationParams paginationParams);
 
+        Task<PaginatedResponse<NearbyCafeDto>> SearchCafesAsync(
+            string name,
+            double? latitude,
+            double? longitude,
+            double? radiusKm,
+            PaginationParams paginationParams);
+
         Task<AdminCafeOperationalStatusResultDto> SetOperationalStatusByAdminAsync(
             Guid cafeId,
             AdminSetCafeOperationalStatusRequestDto request);

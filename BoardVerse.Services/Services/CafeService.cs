@@ -363,6 +363,47 @@ namespace BoardVerse.Services.Services
                 paginationParams);
         }
 
+        public async Task<PaginatedResponse<NearbyCafeDto>> SearchCafesAsync(
+            string name,
+            double? latitude,
+            double? longitude,
+            double? radiusKm,
+            PaginationParams paginationParams)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                throw new BadRequestException(ApiErrorMessages.Cafe.SearchNameRequired);
+            }
+
+            var radius = radiusKm ?? GeoLocationHelper.DefaultNearbyRadiusKm;
+
+            if (radius is < GeoLocationHelper.MinNearbyRadiusKm or > GeoLocationHelper.MaxNearbyRadiusKm)
+            {
+                throw new BadRequestException(ApiErrorMessages.Cafe.InvalidNearbySearchRadius(
+                    GeoLocationHelper.MinNearbyRadiusKm,
+                    GeoLocationHelper.MaxNearbyRadiusKm));
+            }
+
+            if (latitude.HasValue && longitude.HasValue)
+            {
+                try
+                {
+                    GeoLocationHelper.ValidateCoordinates(latitude.Value, longitude.Value);
+                }
+                catch (ArgumentOutOfRangeException ex)
+                {
+                    throw new BadRequestException(ex.ParamName switch
+                    {
+                        "latitude" => ApiErrorMessages.Cafe.InvalidLatitudeForNearbySearch,
+                        "longitude" => ApiErrorMessages.Cafe.InvalidLongitudeForNearbySearch,
+                        _ => ApiErrorMessages.Cafe.InvalidLatitudeForNearbySearch
+                    });
+                }
+            }
+
+            return await _cafeRepository.SearchCafesAsync(name, latitude, longitude, radius, paginationParams);
+        }
+
         public async Task<AdminCafeOperationalStatusResultDto> SetOperationalStatusByAdminAsync(
             Guid cafeId,
             AdminSetCafeOperationalStatusRequestDto request)

@@ -213,8 +213,11 @@ namespace BoardVerse.Core.Messages
  public const string InvalidLongitudeForCafeUpdate =
  "Cập nhật vị trí quán thất bại. Kinh độ phải nằm trong khoảng -180 đến 180.";
 
- public const string GameTemplateIdRequiredForNearbySearch =
- "Tìm quán gần bạn theo game yêu cầu gameTemplateId.";
+public const string GameTemplateIdRequiredForNearbySearch =
+"Tìm quán gần bạn theo game yêu cầu gameTemplateId.";
+
+public const string SearchNameRequired =
+"Tìm kiếm quán cần có tên. Vui lòng nhập tên quán muốn tìm.";
 
  public const string SavedLocationRequiredForNearbySearch =
  "Tìm quán gần bạn từ hồ sơ thất bại vì chưa lưu vị trí. Hãy cập nhật vị trí qua PUT /api/userprofile/me/location trước.";
