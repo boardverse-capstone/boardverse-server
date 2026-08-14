@@ -139,7 +139,7 @@ internal static class IntegrationTestDataBootstrapper
         // reservation test can target any timeSlot without manual setup.
         // TotalSeats=30 = Capacity; HeldSeats/InUseSeats reset to 0 on each run.
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var timeSlots = new[] { TimeSlot.Morning, TimeSlot.Afternoon, TimeSlot.Evening, TimeSlot.Night };
+        var timeSlots = new[] { TimeSlot.Morning, TimeSlot.Afternoon, TimeSlot.Evening, TimeSlot.LateNight };
 
         foreach (var slot in timeSlots)
         {
@@ -198,7 +198,7 @@ internal static class IntegrationTestDataBootstrapper
         }
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var timeSlots = new[] { TimeSlot.Morning, TimeSlot.Afternoon, TimeSlot.Evening, TimeSlot.Night };
+        var timeSlots = new[] { TimeSlot.Morning, TimeSlot.Afternoon, TimeSlot.Evening, TimeSlot.LateNight };
 
         foreach (var slot in timeSlots)
         {

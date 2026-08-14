@@ -8,7 +8,7 @@ namespace BoardVerse.Core.DTOs.Lobby;
 public class ChangeTimeSlotRequestDto
 {
     /// <summary>
-    /// Khung giờ mới: morning, afternoon, evening, night.
+    /// Khung giờ mới: morning, afternoon, evening, lateNight.
     /// Nếu null → giữ nguyên TimeSlot hiện tại.
     /// </summary>
     public TimeSlot? NewTimeSlot { get; set; }

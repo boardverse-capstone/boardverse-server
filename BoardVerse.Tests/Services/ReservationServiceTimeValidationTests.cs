@@ -59,18 +59,16 @@ public class ReservationServiceTimeValidationTests : IDisposable
     // ===== BR-RES-08: Same day only =====
 
     [Fact]
-    public void BuildScheduledStartEnd_Should_Throw_WhenEndTimeDifferentDay()
+    public void ValidateReservationTimeWindow_Should_Throw_WhenEndTimeDifferentDay()
     {
-        // BR-RES-08: endTime phải cùng ngày với startTime.
-        // Test by passing endTime that overflows to next day via endTime.Date > playDate
-        // (since BuildScheduledStartEnd uses playDate for both, the only way to test this is
-        // to call ValidateReservationTimeWindow which validates based on dates)
+        // BR-RES-07/08/09: endTime phải cùng ngày (trừ LateNight là overnight).
+        // Test Evening slot với endTime sang ngày khác → phải throw.
         var playDate = new DateOnly(2026, 8, 15);
-        var startTime = new DateTime(2026, 8, 15, 19, 0, 0); // 19:00 playDate
+        var startTime = new DateTime(2026, 8, 15, 18, 0, 0); // 18:00 playDate
         var endTime = new DateTime(2026, 8, 16, 0, 0, 0); // next day 00:00
 
         var ex = Assert.Throws<BadRequestException>(() =>
-            ReservationService.ValidateReservationTimeWindow(startTime, endTime, TimeSlot.Night));
+            ReservationService.ValidateReservationTimeWindow(startTime, endTime, TimeSlot.Evening));
 
         Assert.Contains("cùng ngày", ex.Message);
     }
@@ -79,13 +77,13 @@ public class ReservationServiceTimeValidationTests : IDisposable
     public void BuildScheduledStartEnd_Should_Succeed_WhenSameDay()
     {
         var playDate = new DateOnly(2026, 8, 15);
-        var startTime = new TimeOnly(19, 0);
-        var endTime = new TimeOnly(23, 59, 59);
+        var startTime = new TimeOnly(18, 0);
+        var endTime = new TimeOnly(23, 0);
 
-        var (start, end) = ReservationService.BuildScheduledStartEnd(playDate, startTime, endTime);
+        var (start, end) = ReservationService.BuildScheduledStartEnd(playDate, startTime, endTime, TimeSlot.Evening);
 
         Assert.Equal(start.Date, end.Date);
-        Assert.Equal(playDate.ToDateTime(TimeOnly.MinValue).Date, start.Date);
+        Assert.Equal(playDate, DateOnly.FromDateTime(start.Date));
     }
 
     [Fact]
@@ -104,11 +102,10 @@ public class ReservationServiceTimeValidationTests : IDisposable
     // ===== BR-RES-09: TimeSlot enum validation =====
 
     [Theory]
-    [InlineData(TimeSlot.Morning)] // 09:00 - 13:00
-    [InlineData(TimeSlot.Afternoon)] // 13:00 - 18:00
-    [InlineData(TimeSlot.Evening)] // 18:00 - 23:00
-    [InlineData(TimeSlot.Night)] // 19:00 - 23:59:59
-    public void CafeSchedule_Should_ReturnValidRange_For_AllTimeSlots(TimeSlot slot)
+    [InlineData(TimeSlot.Morning)] // 06:00 - 12:00
+    [InlineData(TimeSlot.Afternoon)] // 12:00 - 17:00
+    [InlineData(TimeSlot.Evening)] // 17:00 - 23:00
+    public void CafeSchedule_Should_ReturnValidRange_ForSameDaySlots(TimeSlot slot)
     {
         var start = CafeSchedule.GetStartTime(slot);
         var end = CafeSchedule.GetEndTime(slot);
@@ -117,28 +114,29 @@ public class ReservationServiceTimeValidationTests : IDisposable
     }
 
     [Fact]
-    public void CafeSchedule_NightSlot_Should_BeSameDay()
+    public void CafeSchedule_LateNight_Should_BeOvernight()
     {
-        // BR-RES-08: Night slot phải cùng ngày
+        // LateNight là overnight: start (23:00) > end (06:00) khi so sánh TimeOnly
+        // Nhưng khi convert sang DateTime với BuildScheduledStartEnd thì phải ra next day
         var playDate = new DateOnly(2026, 8, 15);
-        var start = playDate.ToDateTime(CafeSchedule.GetStartTime(TimeSlot.Night));
-        var end = playDate.ToDateTime(CafeSchedule.GetEndTime(TimeSlot.Night));
+        var (start, end) = CafeSchedule.BuildScheduledStartEnd(playDate, TimeSlot.LateNight);
 
-        Assert.Equal(start.Date, end.Date);
+        Assert.True(start < end, $"LateNight start phải trước end khi convert với BuildScheduledStartEnd");
+        Assert.Equal(playDate.AddDays(1), DateOnly.FromDateTime(end.Date));
     }
 
     [Fact]
-    public void CafeSchedule_MorningSlot_Should_StartAt9AM()
+    public void CafeSchedule_MorningSlot_Should_StartAt6AM()
     {
         var start = CafeSchedule.GetStartTime(TimeSlot.Morning);
-        Assert.Equal(new TimeOnly(9, 0), start);
+        Assert.Equal(new TimeOnly(6, 0), start);
     }
 
     [Fact]
-    public void CafeSchedule_AfternoonSlot_Should_StartAt1PM()
+    public void CafeSchedule_AfternoonSlot_Should_StartAt12PM()
     {
         var start = CafeSchedule.GetStartTime(TimeSlot.Afternoon);
-        Assert.Equal(new TimeOnly(13, 0), start);
+        Assert.Equal(new TimeOnly(12, 0), start);
     }
 
     [Fact]
@@ -149,11 +147,11 @@ public class ReservationServiceTimeValidationTests : IDisposable
     }
 
     [Fact]
-    public void CafeSchedule_NightSlot_Should_StartAt7PM_EndAtMidnight()
+    public void CafeSchedule_LateNightSlot_Should_StartAt11PM_EndAt6AM()
     {
-        var start = CafeSchedule.GetStartTime(TimeSlot.Night);
-        var end = CafeSchedule.GetEndTime(TimeSlot.Night);
-        Assert.Equal(new TimeOnly(19, 0), start);
-        Assert.Equal(new TimeOnly(23, 59, 59), end);
+        var start = CafeSchedule.GetStartTime(TimeSlot.LateNight);
+        var end = CafeSchedule.GetEndTime(TimeSlot.LateNight);
+        Assert.Equal(new TimeOnly(23, 0), start);
+        Assert.Equal(new TimeOnly(6, 0), end);
     }
 }

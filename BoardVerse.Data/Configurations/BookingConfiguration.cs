@@ -61,6 +61,20 @@ public class BookingConfiguration : IEntityTypeConfiguration<Booking>
             // C15: keep historical booking records even if table is removed.
             .OnDelete(DeleteBehavior.Restrict);
 
+        // TD-02 fix: Explicitly map reverse navigation collections so EF Core
+        // does not create shadow FKs (BookingId1/ReservationId1) when two FKs
+        // in the child entity (BookingRating, BookingNoShowVote) both share the
+        // same CLR type (Guid / Guid?) and target different principals.
+        builder.HasMany(b => b.Ratings)
+            .WithOne(r => r.Booking)
+            .HasForeignKey(r => r.BookingId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasMany(b => b.NoShowVotes)
+            .WithOne(v => v.Booking)
+            .HasForeignKey(v => v.BookingId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         // === Indexes ===
         builder.HasIndex(b => b.LobbyId)
             .HasFilter("\"LobbyId\" IS NOT NULL");

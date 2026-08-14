@@ -7,23 +7,23 @@ namespace BoardVerse.Core.Enum;
 /// <remarks>
 /// Mapping (boardverse.mdc + docs/time-slot-fixed-end-design (1).md):
 /// <list type="bullet">
-/// <item><description><c>Morning</c> (09:00 – 13:00): Phiên sáng. 4 tiếng.</description></item>
-/// <item><description><c>Afternoon</c> (13:00 – 18:00): Phiên chiều. 5 tiếng.</description></item>
-/// <item><description><c>Evening</c> (18:00 – 23:00): Phiên tối. 5 tiếng.</description></item>
-/// <item><description><c>Night</c> (19:00 – 24:00): Phiên khuya, endTime = 24:00 cùng ngày (BR-RES-08).</description></item>
+/// <item><description><c>Morning</c> (06:00 – 12:00): Phiên sáng. 6 tiếng.</description></item>
+/// <item><description><c>Afternoon</c> (12:00 – 17:00): Phiên chiều. 5 tiếng.</description></item>
+/// <item><description><c>Evening</c> (17:00 – 23:00): Phiên tối. 6 tiếng.</description></item>
+/// <item><description><c>LateNight</c> (23:00 – 06:00): Phiên khuya qua đêm, cover 24/7.</description></item>
 /// </list>
 /// </remarks>
 public enum TimeSlot
 {
-    /// <summary>09:00 – 13:00 (Phiên sáng).</summary>
+    /// <summary>06:00 – 12:00 (Phiên sáng).</summary>
     Morning = 0,
 
-    /// <summary>13:00 – 18:00 (Phiên chiều).</summary>
+    /// <summary>12:00 – 17:00 (Phiên chiều).</summary>
     Afternoon = 1,
 
-    /// <summary>18:00 – 23:00 (Phiên tối).</summary>
+    /// <summary>17:00 – 23:00 (Phiên tối).</summary>
     Evening = 2,
 
-    /// <summary>19:00 – 24:00 (Phiên khuya, endTime cùng ngày — BR-RES-08).</summary>
-    Night = 3
+    /// <summary>23:00 – 06:00 (Phiên khuya qua đêm, endTime = 06:00 ngày hôm sau).</summary>
+    LateNight = 3
 }

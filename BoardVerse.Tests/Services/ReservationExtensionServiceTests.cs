@@ -190,6 +190,52 @@ public class ReservationExtensionServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ExtendAsync_Should_Succeed_ForLateNightOvernight_WhenExtensionStaysNextDay()
+    {
+        // Arrange - BR-EXT-02 LateNight: extension vượt qua playDate.Date là OK
+        // vì ScheduledEndTime vốn đã là ngày hôm sau (overnight).
+        var playDate = DateOnly.FromDateTime(DateTime.Today.AddDays(1));
+        var reservation = new Reservation
+        {
+            Id = Guid.NewGuid(),
+            HostId = Guid.NewGuid(),
+            CafeId = Guid.NewGuid(),
+            GameId = Guid.NewGuid(),
+            PlayDate = playDate,
+            TimeSlot = TimeSlot.LateNight,
+            ScheduledStartTime = playDate.ToDateTime(new TimeOnly(23, 0)),
+            ScheduledEndTime = playDate.AddDays(1).ToDateTime(new TimeOnly(6, 0)),
+            Status = ReservationStatus.Confirmed,
+            DepositAmount = 100,
+            CurrentPlayers = 4,
+            ExtensionCount = 0
+        };
+        var userId = reservation.HostId;
+
+        _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true))
+            .ReturnsAsync(reservation);
+        _windowRepoMock.Setup(r => r.GetOverlappingAsync(
+            reservation.CafeId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), default))
+            .ReturnsAsync(new List<WalkInWindow>());
+        _resRepoMock.Setup(r => r.UpdateAsync(It.IsAny<Reservation>()))
+            .Returns(Task.CompletedTask);
+
+        var request = new ExtendReservationRequestDto
+        {
+            ReservationId = reservation.Id,
+            ExtensionMinutes = 30
+        };
+
+        // Act - extension sẽ push end từ 06:00 next day → 06:30 next day (vẫn next day)
+        var result = await _service.ExtendAsync(request, userId);
+
+        // Assert
+        Assert.Equal(reservation.Id, result.ReservationId);
+        Assert.Equal(1, result.ExtensionCount);
+        Assert.Equal(30, result.ExtensionMinutes);
+    }
+
+    [Fact]
     public async Task ExtendAsync_Should_ThrowForbidden_WhenUserNotHost()
     {
         // Arrange
@@ -337,8 +383,8 @@ public class ReservationExtensionServiceTests : IDisposable
             GameId = Guid.NewGuid(),
             PlayDate = playDate,
             TimeSlot = TimeSlot.Afternoon,
-            ScheduledStartTime = playDate.ToDateTime(new TimeOnly(13, 0)),
-            ScheduledEndTime = playDate.ToDateTime(new TimeOnly(18, 0)),
+            ScheduledStartTime = playDate.ToDateTime(new TimeOnly(12, 0)),
+            ScheduledEndTime = playDate.ToDateTime(new TimeOnly(17, 0)),
             Status = ReservationStatus.Confirmed,
             DepositAmount = 100,
             CurrentPlayers = 4,

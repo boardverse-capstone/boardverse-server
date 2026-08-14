@@ -5,6 +5,7 @@
 
 | Endpoint | Method | Role |
 |----------|--------|------|
+| `/` | GET | Player (lấy tất cả quán ACTIVE) |
 | `/nearby` | GET | Public (Player discovery — GPS query params) |
 | `/nearby/me` | GET | Player (dùng vị trí đã lưu trên profile) |
 | `/{id}` | GET | Public |
@@ -19,10 +20,31 @@
 
 ---
 
+## GET /api/cafes
+
+Lấy danh sách tất cả quán cafe đang hoạt động cho player (`IsActive=true` AND `PartnerOperationalStatus=Active`).
+**Yêu cầu đăng nhập** (`[Authorize]`). Không filter theo vị trí, không yêu cầu `gameTemplateId`.
+Sắp xếp theo `Name` A→Z. Trả về shape `NearbyCafeDto` (giống `/nearby`) để player thấy được
+`AvailableGameCount`, `TotalGameBoxCount`, `AvailableTableCount`, `TotalTableCount`.
+`distanceMeters` luôn là `0` vì không tính khoảng cách.
+
+**Query:**
+
+| Param | Mô tả | Mặc định |
+|-------|--------|----------|
+| `pageNumber` | Trang | `1` |
+| `pageSize` | Kích thước trang | `20` |
+
+**Response 200:** `PaginatedResponse<NearbyCafeDto>` — `data` chứa danh sách quán, `meta` chứa `currentPage`/`pageSize`/`totalItems`/`totalPages`.
+
+**Lỗi:** `401` thiếu token; `500` lỗi hệ thống.
+
+---
+
 ## GET /api/cafes/nearby
 
 Tìm quán đối tác **ACTIVE** gần vị trí player (PostGIS `geography` + GiST index). **Không cần token.**  
-Dùng cho luồng **Khám phá game**: `gameTemplateId` **bắt buộc** — chỉ quán có ít nhất một hộp game (`CafeInventoryBoxes`) thuộc tựa đó, trạng thái `Available` hoặc `InUse` (AC 2.1, 3.1).
+`gameTemplateId` là **tùy chọn** — khi truyền sẽ lọc theo tựa game (luồng **Khám phá game**: chỉ quán có ít nhất một hộp game `Available` hoặc `InUse` thuộc tựa đó, AC 2.1, 3.1). Bỏ trống → trả tất cả quán ACTIVE trong bán kính.
 
 **Query:**
 
@@ -30,7 +52,7 @@ Dùng cho luồng **Khám phá game**: `gameTemplateId` **bắt buộc** — ch�
 |-------|--------|----------|
 | `latitude` | Vĩ độ player (WGS84) | bắt buộc |
 | `longitude` | Kinh độ player | bắt buộc |
-| `gameTemplateId` | Tựa game player đã chọn | **bắt buộc** |
+| `gameTemplateId` | Tựa game player đã chọn (tùy chọn) | — |
 | `radiusKm` | Bán kính tìm kiếm (km) | `15` (0.1–50) |
 | `pageNumber` | Trang | `1` |
 | `pageSize` | Kích thước trang | `20` |
@@ -41,7 +63,7 @@ Dùng cho luồng **Khám phá game**: `gameTemplateId` **bắt buộc** — ch�
 |-------|--------|
 | `cafes` | Phân trang `NearbyCafeDto` (shape cũ nằm trong `cafes.data` + `cafes.meta`) |
 | `emptyResultMessage` | Thông điệp UI khi **không có quán nào** (AC 5.1); `null` khi có kết quả |
-| `alternativeSuggestions` | Game cùng thể loại còn hàng `Available` gần player (AC 5.2); `[]` khi có quán |
+| `alternativeSuggestions` | Game cùng thể loại còn hàng `Available` gần player (AC 5.2); `[]` khi không truyền `gameTemplateId` hoặc có kết quả |
 
 Mỗi phần tử `alternativeSuggestions`:
 
@@ -99,13 +121,13 @@ Logic gợi ý: lấy `category_id` của game gốc → tìm game **khác** cù
 
 POS tạo/kết thúc session qua [CafePosController](./cafe-pos.md).
 
-**Lỗi:** `400` tọa độ, bán kính, hoặc thiếu/không hợp lệ `gameTemplateId`.
+**Lỗi:** `400` tọa độ hoặc bán kính không hợp lệ.
 
 ---
 
 ## GET /api/cafes/nearby/me
 
-Cùng logic và response như `GET /nearby`, nhưng dùng **tọa độ đã lưu** trên profile (`LastKnownLatitude` / `LastKnownLongitude`) thay vì query `latitude`/`longitude`. **Yêu cầu đăng nhập.**
+Cùng logic và response như `GET /nearby`, nhưng dùng **tọa độ đã lưu** trên profile (`LastKnownLatitude` / `LastKnownLongitude`) thay vì query `latitude`/`longitude`. **Yêu cầu đăng nhập.** `gameTemplateId` tùy chọn — bỏ trống trả tất cả quán ACTIVE trong bán kính.
 
 **Luồng gợi ý (mobile):**
 
@@ -115,13 +137,13 @@ Cùng logic và response như `GET /nearby`, nhưng dùng **tọa độ đã lư
 3. GET /api/cafes/nearby/me?gameTemplateId=...   → không cần gửi lại lat/lng
 ```
 
-Hoặc gọi thẳng `GET /nearby?latitude=...&longitude=...&gameTemplateId=...` (public, không cần token).
+Hoặc gọi thẳng `GET /nearby?latitude=...&longitude=...` (public, không cần token).
 
 **Query:**
 
 | Param | Mô tả | Mặc định |
 |-------|--------|----------|
-| `gameTemplateId` | Tựa game đã chọn | **bắt buộc** |
+| `gameTemplateId` | Tựa game đã chọn (tùy chọn) | — |
 | `radiusKm` | Bán kính (km) | `15` |
 | `pageNumber` | Trang | `1` |
 | `pageSize` | Kích thước trang | `20` |
@@ -132,9 +154,102 @@ Hoặc gọi thẳng `GET /nearby?latitude=...&longitude=...&gameTemplateId=...`
 
 ## GET /api/cafes/{id}
 
-Xem thông tin quán — **không cần token**.
+Xem thông tin **chi tiết** quán cafe — **không cần token**. Bao gồm pricing, refund policy, seat availability, schedule overrides.
 
-**Response 200:** `CafeDto` (id, name, address, latitude, longitude, phoneNumber, description, createdAt)
+**Query (optional):**
+
+| Param | Mô tả |
+|-------|--------|
+| `latitude` | Vĩ độ player (để tính khoảng cách) |
+| `longitude` | Kinh độ player (để tính khoảng cách) |
+
+**Response 200:** `CafeDetailDto`
+
+```json
+{
+  "statusCode": 200,
+  "message": "Lấy thông tin quán thành công.",
+  "data": {
+    "id": "uuid",
+    "name": "Boss cafe",
+    "address": "22 Lê Tấn Bê, An Lạc, Hồ Chí Minh",
+    "latitude": 10.7249011,
+    "longitude": 106.6046094,
+    "phoneNumber": "0974993949",
+    "description": null,
+    "createdAt": "2026-08-01T05:23:53Z",
+    "totalSeats": 30,
+    "billingModel": "TIME_BASED",
+    "basePrice": 80000,
+    "tieredBlockRate": 25000,
+    "tieredBlockMinutes": 15,
+    "depositPercentage": 0.5,
+    "isPricingLocked": false,
+    "hasSePayConfigured": false,
+
+    "operationalStatus": "ACTIVE",
+    "operationalStatusReason": null,
+    "isCurrentlyOpen": true,
+
+    "refundPolicy": "Partial",
+    "refundTiers": [
+      { "minHoursBeforeScheduled": 24, "refundPercent": 50 },
+      { "minHoursBeforeScheduled": 12, "refundPercent": 25 },
+      { "minHoursBeforeScheduled": 0, "refundPercent": 0 }
+    ],
+
+    "depositRatePerPerson": 10,
+
+    "cafeConfig": {
+      "capacity": 30,
+      "maxLobbiesPerUserPerDay": 1,
+      "maxPlayersPerLobbySameDay": 30,
+      "maxPlayersPerLobby1Day": 20,
+      "maxPlayersPerLobby2Days": 15,
+      "maxPlayersPerLobby3To4Days": 10,
+      "maxPlayersPerLobby5To7Days": 6,
+      "requireApprovalForDistant": true,
+      "distantThresholdDays": 2,
+      "approvalTimeoutHours": 24,
+      "maxTotalDepositPerUser": 500000,
+      "recruitmentDeadlineBufferMinutes": 120,
+      "cancellationGraceMinutes": 15
+    },
+
+    "availableSeats": 25,
+    "heldSeats": 3,
+    "inUseSeats": 2,
+    "availableSeatsByTimeSlot": {
+      "Morning": 30,
+      "Afternoon": 28,
+      "Evening": 25,
+      "LateNight": 30
+    },
+
+    "scheduleOverrides": [],
+
+    "numberOfTables": 10,
+    "numberOfPrivateRooms": 0,
+    "numberOfGamesOwned": 25,
+    "hasGameMaster": false,
+    "distanceKm": 1.5
+  }
+}
+```
+
+**CafeDetailDto fields:**
+
+| Field | Mô tả |
+|-------|--------|
+| **Basic Info** | `id`, `name`, `address`, `latitude`, `longitude`, `phoneNumber`, `description`, `createdAt` |
+| **Pricing** | `totalSeats`, `billingModel`, `basePrice`, `tieredBlockRate`, `tieredBlockMinutes`, `depositPercentage`, `isPricingLocked`, `hasSePayConfigured` |
+| **Operational** | `operationalStatus` (DataBlank/Active/Inactive/Banned), `operationalStatusReason`, `isCurrentlyOpen` |
+| **Refund Policy (BR-18)** | `refundPolicy` (Full/Partial/None), `refundTiers` (khi Partial) |
+| **Deposit Config** | `depositRatePerPerson` (BVC/người), `cafeConfig` (hạn mức riêng của cafe) |
+| **Seat Availability** | `availableSeats`, `heldSeats`, `inUseSeats`, `availableSeatsByTimeSlot` |
+| **Cafe Config (BR-NEW-12)** | `cafeConfig` (maxPlayers, minDeposit, approval settings) |
+| **Schedule** | `scheduleOverrides` (ngày lễ, giờ mở đặc biệt) |
+| **Additional** | `numberOfTables`, `numberOfPrivateRooms`, `numberOfGamesOwned`, `hasGameMaster`, `distanceKm` (nếu truyền lat/lng) |
 
 **Lỗi:** `404` cafe không tồn tại hoặc inactive.
 

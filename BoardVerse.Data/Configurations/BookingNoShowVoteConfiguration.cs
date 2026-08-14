@@ -26,14 +26,19 @@ public class BookingNoShowVoteConfiguration : IEntityTypeConfiguration<BookingNo
         builder.Property(v => v.VotedAt).IsRequired();
 
         // M10: Votes là community moderation signals (BR § IV Exception 2), không cascade với Booking.
+        // TD-02 fix: Use `.WithMany(b => b.NoShowVotes)` so EF Core matches this FK
+        // to the Booking.Ratings/NoShowVotes collection navigation. Without the
+        // explicit principal-side navigation, EF Core creates shadow FK
+        // "BookingId1" because both BookingId (Guid) and ReservationId (Guid?)
+        // share the same simple column name pattern and EF can't auto-disambiguate.
         builder.HasOne(v => v.Booking)
-            .WithMany()
+            .WithMany(b => b.NoShowVotes)
             .HasForeignKey(v => v.BookingId)
             .OnDelete(DeleteBehavior.Restrict);
 
         // TD-02: Navigation đến Reservation (nullable cho legacy rows)
         builder.HasOne(v => v.Reservation)
-            .WithMany()
+            .WithMany(r => r.NoShowVotes)
             .HasForeignKey(v => v.ReservationId)
             .OnDelete(DeleteBehavior.Restrict);
 
@@ -75,14 +80,19 @@ public class BookingRatingConfiguration : IEntityTypeConfiguration<BookingRating
         builder.Property(r => r.IsAggregated).IsRequired().HasDefaultValue(false);
 
         // M10: Ratings là community moderation signals, không cascade với Booking.
+        // TD-02 fix: Use `.WithMany(b => b.Ratings)` so EF Core matches this FK
+        // to the Booking.Ratings collection navigation. Without the explicit
+        // principal-side navigation, EF Core creates shadow FK "BookingId1"
+        // because both BookingId (Guid) and ReservationId (Guid?) share the same
+        // simple column name pattern and EF can't auto-disambiguate.
         builder.HasOne(r => r.Booking)
-            .WithMany()
+            .WithMany(b => b.Ratings)
             .HasForeignKey(r => r.BookingId)
             .OnDelete(DeleteBehavior.Restrict);
 
         // TD-02: Navigation đến Reservation (nullable cho legacy rows)
         builder.HasOne(r => r.Reservation)
-            .WithMany()
+            .WithMany(res => res.Ratings)
             .HasForeignKey(r => r.ReservationId)
             .OnDelete(DeleteBehavior.Restrict);
 

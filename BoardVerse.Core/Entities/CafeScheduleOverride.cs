@@ -9,12 +9,12 @@ namespace BoardVerse.Core.Entities;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Mapping (BR-NEW-15, cập nhật cover 24h):
+/// Mapping (BR-NEW-15, cover 24/7):
 /// <list type="bullet">
-/// <item><description><c>Morning</c>:    mặc định 08:00 – 13:00.</description></item>
-/// <item><description><c>Afternoon</c>: mặc định 13:00 – 18:00.</description></item>
-/// <item><description><c>Evening</c>:   mặc định 18:00 – 24:00.</description></item>
-/// <item><description><c>Night</c>:     mặc định 00:00 – 08:00 (qua đêm).</description></item>
+/// <item><description><c>Morning</c>:    mặc định 06:00 – 12:00.</description></item>
+/// <item><description><c>Afternoon</c>: mặc định 12:00 – 17:00.</description></item>
+/// <item><description><c>Evening</c>:   mặc định 17:00 – 23:00.</description></item>
+/// <item><description><c>LateNight</c>: mặc định 23:00 – 06:00 (qua đêm).</description></item>
 /// </list>
 /// </para>
 /// <para>

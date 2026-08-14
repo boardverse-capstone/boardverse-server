@@ -1034,6 +1034,8 @@ public class ReservationService : IReservationService
             lobby.ClosedReason = request.Reason ?? $"Host hủy - {refundPolicy.PolicyName}";
             lobby.UpdatedAt = now;
 
+            MarkLobbyMembersInactive(lobby, now);
+
             await _reservationRepository.UpdateAsync(reservation);
             await _lobbyRepository.UpdateAsync(lobby);
 
@@ -1261,6 +1263,7 @@ public class ReservationService : IReservationService
             lobby.ClosedAt = now;
             lobby.ClosedReason = reason ?? $"Host hủy sau check-in - {policyName}";
             lobby.UpdatedAt = now;
+            MarkLobbyMembersInactive(lobby, now);
             await _lobbyRepository.UpdateAsync(lobby).ConfigureAwait(false);
 
             // Đóng ActiveSession (nếu có) — set Paid + EndedAt.
@@ -1413,6 +1416,7 @@ public class ReservationService : IReservationService
             lobby.CafeRejectionReason = request.Reason ?? "Cafe từ chối duyệt lobby.";
             lobby.ClosedAt = now;
             lobby.UpdatedAt = now;
+            MarkLobbyMembersInactive(lobby, now);
 
             reservation.Status = ReservationStatus.CancelledByCafe;
             reservation.UpdatedAt = now;
@@ -1552,6 +1556,7 @@ public class ReservationService : IReservationService
                     lobby.ClosedAt = now;
                     lobby.ClosedReason = "Phòng không đủ thành viên tối thiểu trước thời hạn tuyển người. Tiền cọc đã hoàn về ví của bạn.";
                     lobby.UpdatedAt = now;
+                    MarkLobbyMembersInactive(lobby, now);
 
                     await _reservationRepository.UpdateAsync(reservation);
                     await _lobbyRepository.UpdateAsync(lobby);
@@ -1645,6 +1650,7 @@ public class ReservationService : IReservationService
                 lobby.ClosedAt = now;
                 lobby.ClosedReason = "Cafe không duyệt lobby trong 24 giờ.";
                 lobby.UpdatedAt = now;
+                MarkLobbyMembersInactive(lobby, now);
 
                 await _reservationRepository.UpdateAsync(reservation);
                 await _lobbyRepository.UpdateAsync(lobby);
@@ -1736,6 +1742,7 @@ public class ReservationService : IReservationService
                 lobby.ClosedAt = now;
                 lobby.ClosedReason = "No-show (không check-in sau grace period).";
                 lobby.UpdatedAt = now;
+                MarkLobbyMembersInactive(lobby, now);
 
                 await _reservationRepository.UpdateAsync(reservation);
                 await _lobbyRepository.UpdateAsync(lobby);
@@ -2241,6 +2248,36 @@ public class ReservationService : IReservationService
                 gameInv.UpdatedAt = now;
                 await _gameInventoryRepository.UpdateAsync(gameInv);
             }
+        }
+    }
+
+    /// <summary>
+    /// Cleanup tất cả LobbyMembers khi lobby chuyển sang terminal status
+    /// (TimeoutFailed / HostCancelled / RejectedByCafe / ExpiredByCafe / Closed).
+    /// Mục đích: tránh member bị "kẹt" trong lobby đã đóng và làm sai
+    /// BR-USER-LIMIT-01/02 + BR-NEW-02/08 eligibility check.
+    ///
+    /// Lưu �: Query backend (GetActiveLobbiesByMemberAsync, GetOverlappingLobbiesAsync…)
+    /// đều filter theo Lobby.Status nên không thật sự block user tạo/join lobby mới.
+    /// Nhưng LobbyMember.IsActive=true trên lobby terminal gây:
+    /// - FE tab "Lobby của tôi" hiển thị lobby đã đóng như còn active.
+    /// - KarmaRatingService / MatchResultService.IsLobbyMember() trả về true sai.
+    /// - Audit trail không rõ member đã "out" lúc nào.
+    ///
+    /// Phải gọi TRƯỚC khi SaveChangesAsync để EF track change.
+    /// </summary>
+    private static void MarkLobbyMembersInactive(Lobby lobby, DateTime now)
+    {
+        if (lobby.Members == null || lobby.Members.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var member in lobby.Members.Where(m => m.IsActive))
+        {
+            member.IsActive = false;
+            member.Status = LobbyMemberStatus.LobbyTerminated;
+            member.LeftAt ??= now;
         }
     }
 
@@ -2818,6 +2855,7 @@ public class ReservationService : IReservationService
                 lobby.Status = LobbyStatus.Closed;
                 lobby.ClosedAt = now;
                 lobby.UpdatedAt = now;
+                MarkLobbyMembersInactive(lobby, now);
                 await _lobbyRepository.UpdateAsync(lobby);
             }
 
@@ -3037,8 +3075,8 @@ public class ReservationService : IReservationService
 
     /// <summary>
     /// Tính scheduledStartTime + scheduledEndTime từ <paramref name="playDate"/> và resolved schedule.
-    /// BR-RES-07/08/09: endTime bắt buộc (không open-ended), cùng ngày startTime (không cross midnight),
-    /// auto-resolve từ TimeSlot. Night slot 19:00-24:00 → endTime vẫn trong playDate (encode 23:59:59.9999999).
+    /// BR-RES-07/08/09: endTime bắt buộc (không open-ended), auto-resolve từ TimeSlot.
+    /// LateNight (23:00-06:00) là overnight: endDate = playDate + 1 ngày.
     /// Lưu vào DB (<see cref="Reservation.ScheduledStartTime"/>, <see cref="Reservation.ScheduledEndTime"/>)
     /// để WalkInWindowCleanupJob (§4.4), playedRatio (§4.3), extension flow (Phase 3)
     /// không phải derive runtime từ TimeSlot.
@@ -3046,20 +3084,26 @@ public class ReservationService : IReservationService
     internal static (DateTime ScheduledStartTime, DateTime ScheduledEndTime) BuildScheduledStartEnd(
         DateOnly playDate,
         TimeOnly startTime,
-        TimeOnly endTime)
+        TimeOnly endTime,
+        TimeSlot slot)
     {
         var startDateTime = playDate.ToDateTime(startTime);
 
-        // BR-RES-08: endTime.date phải bằng startTime.date. KHÔNG cộng thêm 1 ngày.
-        // Nếu CafeSchedule trả endTime đã encode 24:00 (Night) → DateOnly.ToDateTime vẫn
-        // giữ nguyên playDate vì TimeOnly đã là 23:59:59.9999999 < 24:00.
-        var endDateTime = playDate.ToDateTime(endTime);
-
-        // Sanity check BR-RES-08: nếu endDateTime.Date khác startDateTime.Date → lỗi cấu hình.
-        if (endDateTime.Date != startDateTime.Date)
+        DateTime endDateTime;
+        // LateNight là overnight: endDate = playDate + 1 ngày
+        if (slot == TimeSlot.LateNight)
         {
-            throw new InvalidOperationException(
-                $"BuildScheduledStartEnd: endTime ({endDateTime:O}) khác ngày startTime ({startDateTime:O}) — vi phạm BR-RES-08.");
+            endDateTime = playDate.AddDays(1).ToDateTime(endTime);
+        }
+        else
+        {
+            endDateTime = playDate.ToDateTime(endTime);
+            // Sanity check: các slot khác phải cùng ngày
+            if (endDateTime.Date != startDateTime.Date)
+            {
+                throw new InvalidOperationException(
+                    $"BuildScheduledStartEnd: endTime ({endDateTime:O}) khác ngày startTime ({startDateTime:O}) — vi phạm BR-RES-08.");
+            }
         }
 
         return (startDateTime, endDateTime);
@@ -3067,7 +3111,8 @@ public class ReservationService : IReservationService
 
     /// <summary>
     /// BR-RES-07/08/09: validate rằng reservation có đầy đủ startTime + endTime,
-    /// cùng ngày, và TimeSlot thuộc BR-NEW-15 enum.
+    /// cùng ngày (hoặc LateNight overnight), và TimeSlot thuộc BR-NEW-15 enum.
+    /// LateNight (23:00-06:00) cho phép endDate = startDate + 1 ngày.
     /// Throw BadRequestException với message tiếng Việt từ <see cref="ApiErrorMessages.Reservation"/>.
     /// </summary>
     internal static void ValidateReservationTimeWindow(DateTime scheduledStartTime, DateTime scheduledEndTime, TimeSlot timeSlot)
@@ -3077,9 +3122,22 @@ public class ReservationService : IReservationService
             throw new BadRequestException(ApiErrorMessages.Reservation.ReservationRequiresStartAndEnd);
         }
 
-        if (scheduledEndTime.Date != scheduledStartTime.Date)
+        // LateNight là overnight slot: endDate = startDate + 1 ngày
+        if (timeSlot == TimeSlot.LateNight)
         {
-            throw new BadRequestException(ApiErrorMessages.Reservation.ReservationEndTimeDifferentDay);
+            if (scheduledEndTime.Date != scheduledStartTime.Date.AddDays(1))
+            {
+                throw new BadRequestException(
+                    $"Khung giờ LateNight (23:00-06:00) phải kết thúc vào ngày hôm sau.");
+            }
+        }
+        else
+        {
+            // Các slot khác: cùng ngày
+            if (scheduledEndTime.Date != scheduledStartTime.Date)
+            {
+                throw new BadRequestException(ApiErrorMessages.Reservation.ReservationEndTimeDifferentDay);
+            }
         }
 
         if (!Enum.IsDefined(typeof(TimeSlot), timeSlot))

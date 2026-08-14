@@ -125,6 +125,25 @@ public class ReservationConfiguration : IEntityTypeConfiguration<Reservation>
             .HasDatabaseName("IX_Reservations_WalkInWindowId");
         builder.HasIndex(r => new { r.Status, r.CheckedInAt })
             .HasDatabaseName("IX_Reservations_Status_CheckedInAt");
+
+        // TD-02 fix: Explicitly map reverse navigation collections so EF Core
+        // does not create shadow FKs (BookingId1/ReservationId1) when two FKs
+        // in the child entity (BookingRating, BookingNoShowVote) both share the
+        // same CLR type (Guid / Guid?) and target different principals.
+        builder.HasMany(r => r.Ratings)
+            .WithOne(rating => rating.Reservation)
+            .HasForeignKey(rating => rating.ReservationId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasMany(r => r.NoShowVotes)
+            .WithOne(vote => vote.Reservation)
+            .HasForeignKey(vote => vote.ReservationId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasMany(r => r.ShortPlayRecords)
+            .WithOne(record => record.Reservation)
+            .HasForeignKey(record => record.ReservationId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }
 

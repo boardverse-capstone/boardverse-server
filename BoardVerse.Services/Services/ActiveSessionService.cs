@@ -928,8 +928,10 @@ namespace BoardVerse.Services.Services
             }
             catch (Exception ex)
             {
-                // Non-blocking: chỉ log warning, không block payment
-                _logger.LogWarning(ex,
+                // Non-blocking: chỉ log, không block payment
+                // Expected exceptions (business logic) → Warning; Unexpected (system) → Error
+                var logLevel = ex is InvalidOperationException ? LogLevel.Warning : LogLevel.Error;
+                _logger.Log(logLevel, ex,
                     "TryCreateWalkInWindowAsync failed for session {SessionId}. WalkInWindow not created.",
                     session.Id);
                 return null;

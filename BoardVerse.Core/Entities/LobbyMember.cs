@@ -17,7 +17,15 @@ public enum LobbyMemberStatus
     Kicked = 2,
 
     /// <summary>Member tự rời lobby.</summary>
-    Left = 3
+    Left = 3,
+
+    /// <summary>
+    /// Lobby đã chuyển sang terminal status (TimeoutFailed / HostCancelled /
+    /// RejectedByCafe / ExpiredByCafe / Closed) — hệ thống tự đánh dấu member
+    /// không còn active để không bị kẹt trong các BR-USER-LIMIT-* / BR-NEW-*
+    /// eligibility check khi user muốn tạo/join lobby khác.
+    /// </summary>
+    LobbyTerminated = 4
 }
 
 public class LobbyMember

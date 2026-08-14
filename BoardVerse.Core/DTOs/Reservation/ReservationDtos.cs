@@ -549,10 +549,10 @@ public class LobbyPendingApprovalItemDto
     public TimeSlot TimeSlot { get; set; }
     public string TimeSlotDisplay => TimeSlot switch
     {
-        TimeSlot.Morning => "S?ng (09:00 - 13:00)",
-        TimeSlot.Afternoon => "Chi?u (13:00 - 18:00)",
-        TimeSlot.Evening => "T?i (18:00 - 23:00)",
-        TimeSlot.Night => "Khuya (19:00 - 24:00)",
+        TimeSlot.Morning => "Sáng (06:00 - 12:00)",
+        TimeSlot.Afternoon => "Chiều (12:00 - 17:00)",
+        TimeSlot.Evening => "Tối (17:00 - 23:00)",
+        TimeSlot.LateNight => "Khuya (23:00 - 06:00)",
         _ => TimeSlot.ToString()
     };
 

@@ -2,6 +2,7 @@ using BoardVerse.Core.DTOs.Lobby;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Constants;
 using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
@@ -431,7 +432,7 @@ namespace BoardVerse.Services.Services
 
                 if (overlapList.Any())
                 {
-                    var firstOverlap = overlapList.First();
+                    var firstOverlap = overlapList.First(); // Any() check bảo đảm có ít nhất 1 item
                     throw new InvalidOperationException(ApiErrorMessages.Reservation.OverlappingLobbyExists(
                         firstOverlap.RecruitmentDeadline ?? now,
                         firstOverlap.ScheduledStartTime ?? now));
@@ -478,12 +479,12 @@ namespace BoardVerse.Services.Services
                 }
                 else
                 {
-                    var newHost = otherActiveMembers.First();
+                    var newHost = otherActiveMembers.First(); // Filter đảm bảo có ít nhất 1
                     newHost.IsHost = true;
                     newHostUserId = newHost.UserId;
                     await _lobbyMessageService.AddSystemMessageAsync(
                         lobby.Id,
-                        $"Host đã rời phòng. {newHost.User?.Username ?? "Thành viên"} trở thành Host mới.");
+                        $"Host đã rời phòng. {newHost.User?.Username ?? "Một thành viên"} trở thành Host mới.");
 
                     // Nếu lobby đang FULL nhưng không còn đủ MaxMembers → chuyển về OPEN
                     var activeAfter = lobby.Members.Count(m => m.IsActive) - 1; // trừ host hiện tại
@@ -726,14 +727,8 @@ namespace BoardVerse.Services.Services
         /// </summary>
         private static DateTime GetScheduledTime(DateOnly playDate, TimeSlot timeSlot)
         {
-            var timeOnly = timeSlot switch
-            {
-                TimeSlot.Morning => new TimeOnly(8, 0),
-                TimeSlot.Afternoon => new TimeOnly(13, 0),
-                TimeSlot.Evening => new TimeOnly(18, 0),
-                TimeSlot.Night => new TimeOnly(0, 0),
-                _ => new TimeOnly(8, 0)
-            };
+            // Delegate to CafeSchedule để đảm bảo consistency với schedule chính.
+            var timeOnly = CafeSchedule.GetStartTime(timeSlot);
             return playDate.ToDateTime(timeOnly);
         }
 
@@ -1287,24 +1282,18 @@ namespace BoardVerse.Services.Services
         {
             return timeSlot switch
             {
-                TimeSlot.Morning => "Sáng (09:00-13:00)",
-                TimeSlot.Afternoon => "Chiều (13:00-18:00)",
-                TimeSlot.Evening => "Tối (18:00-23:00)",
-                TimeSlot.Night => "Khuya (19:00-24:00)",
+                TimeSlot.Morning => "Sáng (06:00-12:00)",
+                TimeSlot.Afternoon => "Chiều (12:00-17:00)",
+                TimeSlot.Evening => "Tối (17:00-23:00)",
+                TimeSlot.LateNight => "Khuya (23:00-06:00)",
                 _ => timeSlot?.ToString() ?? "Không xác định"
             };
         }
 
         private static DateTime GetScheduledTimeFromTimeSlot(DateOnly playDate, TimeSlot timeSlot)
         {
-            var timeOnly = timeSlot switch
-            {
-                TimeSlot.Morning => new TimeOnly(9, 0),
-                TimeSlot.Afternoon => new TimeOnly(13, 0),
-                TimeSlot.Evening => new TimeOnly(18, 0),
-                TimeSlot.Night => new TimeOnly(19, 0),
-                _ => new TimeOnly(9, 0)
-            };
+            // Delegate to CafeSchedule để đảm bảo consistency với schedule chính.
+            var timeOnly = CafeSchedule.GetStartTime(timeSlot);
             return playDate.ToDateTime(timeOnly);
         }
 

@@ -2043,16 +2043,16 @@ public const string LobbyBoostOnlyWhenOpen =
     // ===== BR-RES-07: Reservation bắt buộc có startTime + endTime =====
     public const string ReservationRequiresStartAndEnd =
         "Đặt chỗ bắt buộc phải có thời gian bắt đầu và thời gian kết thúc. " +
-        "Vui lòng chọn khung giờ (morning/afternoon/evening/night) để hệ thống tự tính giờ kết thúc.";
+        "Vui lòng chọn khung giờ (morning/afternoon/evening/lateNight) để hệ thống tự tính giờ kết thúc.";
 
-    // ===== BR-RES-08: endTime cùng ngày startTime =====
+    // ===== BR-RES-08: endTime cùng ngày startTime (trừ LateNight) =====
     public const string ReservationEndTimeDifferentDay =
         "Thời gian kết thúc phải cùng ngày với thời gian bắt đầu. " +
-        "Đặt chỗ qua đêm không được hỗ trợ — vui lòng chọn 2 đặt chỗ riêng (tối nay và ngày mai).";
+        "Vui lòng chọn khung giờ LateNight nếu bạn muốn chơi qua đêm.";
 
     // ===== BR-RES-09: TimeSlot không hợp lệ =====
     public static string ReservationInvalidTimeSlot(TimeSlot slot) =>
-        $"Khung giờ không hợp lệ ({(int)slot}). Chỉ chấp nhận: morning (09:00-13:00), afternoon (13:00-18:00), evening (18:00-23:00), night (19:00-24:00).";
+        $"Khung giờ không hợp lệ ({(int)slot}). Chỉ chấp nhận: morning (06:00-12:00), afternoon (12:00-17:00), evening (17:00-23:00), lateNight (23:00-06:00).";
 
     public static string PosTokenNotFound(string token) =>
         $"Không tìm thấy mã QR này.";

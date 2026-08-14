@@ -32,13 +32,13 @@ namespace BoardVerse.Core.Messages
         public static class Cafe
         {
             public const string NearbyRetrieved = "Lấy danh sách quán gần bạn thành công.";
+            public const string ListRetrieved = "Lấy danh sách quán đang hoạt động thành công.";
             public const string Retrieved = "Lấy thông tin quán thành công.";
             public const string Updated = "Cập nhật quán thành công.";
             public const string StaffAdded = "Thêm nhân viên thành công.";
             public const string StaffPromoted = "Thăng cấp nhân viên quán thành công.";
             public const string StaffListRetrieved = "Lấy danh sách nhân viên thành công.";
             public const string StaffRemoved = "Xóa nhân viên thành công.";
-            public const string ListRetrieved = "Lấy danh sách quán thành công.";
             public const string OperationalStatusUpdated = "Cập nhật trạng thái vận hành quán thành công.";
             public const string RevenueReportRetrieved = "Lấy báo cáo doanh thu thành công."; // P-02
         }

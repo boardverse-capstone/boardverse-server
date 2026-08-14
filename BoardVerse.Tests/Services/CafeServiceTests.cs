@@ -22,7 +22,7 @@ public class CafeServiceTests
         var service = BuildService();
 
         await Assert.ThrowsAsync<BadRequestException>(() =>
-            service.GetNearbyCafesAsync(10.0, 106.0, 15, Guid.Empty, new PaginationParams()));
+            service.GetNearbyCafesAsync(10.0, 106.0, 15, Guid.Empty, null, new PaginationParams()));
     }
 
     [Theory]
@@ -33,7 +33,7 @@ public class CafeServiceTests
         var service = BuildService();
 
         await Assert.ThrowsAsync<BadRequestException>(() =>
-            service.GetNearbyCafesAsync(lat, lng, 15, GameTemplateId, new PaginationParams()));
+            service.GetNearbyCafesAsync(lat, lng, 15, GameTemplateId, null, new PaginationParams()));
     }
 
     [Theory]
@@ -44,7 +44,7 @@ public class CafeServiceTests
         var service = BuildService();
 
         await Assert.ThrowsAsync<BadRequestException>(() =>
-            service.GetNearbyCafesAsync(10.0, 106.0, radiusKm, GameTemplateId, new PaginationParams()));
+            service.GetNearbyCafesAsync(10.0, 106.0, radiusKm, GameTemplateId, null, new PaginationParams()));
     }
 
     [Fact]
@@ -62,12 +62,13 @@ public class CafeServiceTests
                 It.IsAny<double>(),
                 It.IsAny<double>(),
                 GameTemplateId,
+                It.IsAny<string?>(),
                 It.IsAny<PaginationParams>()))
             .ReturnsAsync(nearby);
 
         var service = BuildService(cafeRepo: cafeRepo);
 
-        var result = await service.GetNearbyCafesAsync(10.776889, 106.700806, 15, GameTemplateId, new PaginationParams());
+        var result = await service.GetNearbyCafesAsync(10.776889, 106.700806, 15, GameTemplateId, null, new PaginationParams());
 
         Assert.Null(result.EmptyResultMessage);
         Assert.Empty(result.AlternativeSuggestions);
@@ -93,6 +94,7 @@ public class CafeServiceTests
                 It.IsAny<double>(),
                 It.IsAny<double>(),
                 GameTemplateId,
+                It.IsAny<string?>(),
                 It.IsAny<PaginationParams>()))
             .ReturnsAsync(empty);
         cafeRepo.Setup(r => r.GetAlternativeGameSuggestionsAsync(
@@ -105,7 +107,7 @@ public class CafeServiceTests
 
         var service = BuildService(cafeRepo: cafeRepo);
 
-        var result = await service.GetNearbyCafesAsync(10.776889, 106.700806, 15, GameTemplateId, new PaginationParams());
+        var result = await service.GetNearbyCafesAsync(10.776889, 106.700806, 15, GameTemplateId, null, new PaginationParams());
 
         Assert.NotNull(result.EmptyResultMessage);
         Assert.Single(result.AlternativeSuggestions);
@@ -121,7 +123,7 @@ public class CafeServiceTests
         var service = BuildService(profileRepo: profileRepo);
 
         await Assert.ThrowsAsync<BadRequestException>(() =>
-            service.GetNearbyCafesForCurrentUserAsync(Guid.NewGuid(), 15, GameTemplateId, new PaginationParams()));
+            service.GetNearbyCafesForCurrentUserAsync(Guid.NewGuid(), 15, GameTemplateId, null, new PaginationParams()));
     }
 
     [Fact]
@@ -143,6 +145,7 @@ public class CafeServiceTests
                 106.700806,
                 It.IsAny<double>(),
                 GameTemplateId,
+                It.IsAny<string?>(),
                 It.IsAny<PaginationParams>()))
             .ReturnsAsync(new PaginatedResponse<NearbyCafeDto> { Data = [], Meta = new PaginationMeta() });
         cafeRepo.Setup(r => r.GetAlternativeGameSuggestionsAsync(
@@ -155,13 +158,14 @@ public class CafeServiceTests
 
         var service = BuildService(cafeRepo: cafeRepo, profileRepo: profileRepo);
 
-        await service.GetNearbyCafesForCurrentUserAsync(userId, 15, GameTemplateId, new PaginationParams());
+        await service.GetNearbyCafesForCurrentUserAsync(userId, 15, GameTemplateId, null, new PaginationParams());
 
         cafeRepo.Verify(r => r.GetNearbyAsync(
             10.776889,
             106.700806,
             It.IsAny<double>(),
             GameTemplateId,
+            It.IsAny<string?>(),
             It.IsAny<PaginationParams>()), Times.Once);
     }
 
@@ -178,6 +182,29 @@ public class CafeServiceTests
 
         await Assert.ThrowsAsync<BadRequestException>(() =>
             service.UpdateCafeAsync(cafeId, managerId, new UpdateCafeRequestDto { Latitude = 10.0 }));
+    }
+
+    [Fact]
+    public async Task GetAllActiveCafesAsync_DelegatesToRepository()
+    {
+        var pagination = new PaginationParams { PageNumber = 2, PageSize = 5 };
+        var expected = new PaginatedResponse<NearbyCafeDto>
+        {
+            Data = [new NearbyCafeDto { Id = Guid.NewGuid(), Name = "Cafe A" }],
+            Meta = new PaginationMeta { CurrentPage = 2, PageSize = 5, TotalItems = 6, TotalPages = 2 }
+        };
+
+        var cafeRepo = new Mock<ICafeRepository>();
+        cafeRepo.Setup(r => r.GetAllActiveCafesAsync(pagination))
+            .ReturnsAsync(expected)
+            .Verifiable();
+
+        var service = BuildService(cafeRepo: cafeRepo);
+
+        var result = await service.GetAllActiveCafesAsync(pagination);
+
+        Assert.Same(expected, result);
+        cafeRepo.Verify(r => r.GetAllActiveCafesAsync(pagination), Times.Once);
     }
 
     private static Mock<IPushNotificationService>? pushNotificationService;

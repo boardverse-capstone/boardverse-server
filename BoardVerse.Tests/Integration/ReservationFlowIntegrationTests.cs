@@ -374,7 +374,7 @@ public class ReservationFlowIntegrationTests
             CafeId = IntegrationTestFixtures.DemoCafeId,
             GameId = IntegrationTestFixtures.DemoCatanGameTemplateId,
             PlayDate = playDate,
-            TimeSlot = TimeSlot.Night,
+            TimeSlot = TimeSlot.LateNight,
             MinPlayers = 2,
             MaxPlayers = 4,
             IdempotencyKey = idempotencyKey + "-quote"
@@ -393,7 +393,7 @@ public class ReservationFlowIntegrationTests
             CafeId = IntegrationTestFixtures.DemoCafeId,
             GameId = IntegrationTestFixtures.DemoCatanGameTemplateId,
             PlayDate = playDate,
-            TimeSlot = TimeSlot.Night,
+            TimeSlot = TimeSlot.LateNight,
             MinPlayers = 2,
             MaxPlayers = 4,
             ExpectedFinalDeposit = quoteBody.FinalDeposit,

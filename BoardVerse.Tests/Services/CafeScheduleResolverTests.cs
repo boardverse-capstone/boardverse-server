@@ -24,45 +24,44 @@ public class CafeScheduleResolverTests
 
         var schedule = sut.GetDefault(TimeSlot.Morning);
 
-        Assert.Equal(new TimeOnly(8, 0), schedule.StartTime);
-        Assert.Equal(new TimeOnly(13, 0), schedule.EndTime);
+        Assert.Equal(new TimeOnly(6, 0), schedule.StartTime);
+        Assert.Equal(new TimeOnly(12, 0), schedule.EndTime);
         Assert.False(schedule.IsClosed);
         Assert.False(schedule.HasOverride);
     }
 
     [Fact]
-    public void GetDefault_Night_ReturnsOvernightRange()
+    public void GetDefault_LateNight_Returns23To6Overnight()
     {
         var sut = new CafeScheduleResolver(new NullOverrideRepository());
 
-        var schedule = sut.GetDefault(TimeSlot.Night);
+        var schedule = sut.GetDefault(TimeSlot.LateNight);
 
-        Assert.Equal(new TimeOnly(0, 0), schedule.StartTime);
-        Assert.Equal(new TimeOnly(8, 0), schedule.EndTime);
+        Assert.Equal(new TimeOnly(23, 0), schedule.StartTime);
+        Assert.Equal(new TimeOnly(6, 0), schedule.EndTime);
         Assert.False(schedule.IsClosed);
     }
 
     [Fact]
-    public void GetDefault_Evening_Returns18ToMidnight()
+    public void GetDefault_Evening_Returns17To23()
     {
         var sut = new CafeScheduleResolver(new NullOverrideRepository());
 
         var schedule = sut.GetDefault(TimeSlot.Evening);
 
-        Assert.Equal(new TimeOnly(18, 0), schedule.StartTime);
-        // 24:00 được encode thành 00:00 của ngày hôm sau
-        Assert.Equal(new TimeOnly(0, 0), schedule.EndTime);
+        Assert.Equal(new TimeOnly(17, 0), schedule.StartTime);
+        Assert.Equal(new TimeOnly(23, 0), schedule.EndTime);
     }
 
     [Fact]
-    public void GetDefault_Afternoon_Returns13To18()
+    public void GetDefault_Afternoon_Returns12To17()
     {
         var sut = new CafeScheduleResolver(new NullOverrideRepository());
 
         var schedule = sut.GetDefault(TimeSlot.Afternoon);
 
-        Assert.Equal(new TimeOnly(13, 0), schedule.StartTime);
-        Assert.Equal(new TimeOnly(18, 0), schedule.EndTime);
+        Assert.Equal(new TimeOnly(12, 0), schedule.StartTime);
+        Assert.Equal(new TimeOnly(17, 0), schedule.EndTime);
     }
 
     [Fact]
@@ -74,7 +73,7 @@ public class CafeScheduleResolverTests
 
         Assert.False(schedule.HasOverride);
         Assert.False(schedule.IsClosed);
-        Assert.Equal(new TimeOnly(8, 0), schedule.StartTime);
+        Assert.Equal(new TimeOnly(6, 0), schedule.StartTime);
     }
 
     [Fact]
@@ -84,12 +83,12 @@ public class CafeScheduleResolverTests
         {
             Id = Guid.NewGuid(),
             CafeId = Guid.NewGuid(),
-            TimeSlot = TimeSlot.Night,
+            TimeSlot = TimeSlot.LateNight,
             IsClosed = true
         };
         var sut = new CafeScheduleResolver(new FixedOverrideRepository(ovr));
 
-        var schedule = await sut.ResolveAsync(ovr.CafeId, Today, TimeSlot.Night);
+        var schedule = await sut.ResolveAsync(ovr.CafeId, Today, TimeSlot.LateNight);
 
         Assert.True(schedule.HasOverride);
         Assert.True(schedule.IsClosed);
@@ -135,7 +134,7 @@ public class CafeScheduleResolverTests
         var schedule = await sut.ResolveAsync(ovr.CafeId, Today, TimeSlot.Morning);
 
         Assert.False(schedule.HasOverride);
-        Assert.Equal(new TimeOnly(8, 0), schedule.StartTime);
+        Assert.Equal(new TimeOnly(6, 0), schedule.StartTime);
     }
 
     [Fact]

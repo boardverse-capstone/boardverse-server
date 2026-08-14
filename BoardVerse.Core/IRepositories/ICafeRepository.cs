@@ -2,6 +2,7 @@ using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.Cafe;
 using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.Entities;
+using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Core.IRepositories
 {
@@ -36,6 +37,14 @@ namespace BoardVerse.Core.IRepositories
             double? longitude,
             double? radiusKm,
             PaginationParams paginationParams);
+
+        /// <summary>
+        /// Lấy tất cả quán đang ACTIVE (IsActive=true, PartnerOperationalStatus=Active), không filter Location.
+        /// Sắp xếp theo Name A→Z. Trả về shape <see cref="NearbyCafeDto"/> (giống /nearby) để player thấy
+        /// được AvailableGameCount/TotalGameBoxCount/AvailableTableCount/TotalTableCount.
+        /// </summary>
+        Task<PaginatedResponse<NearbyCafeDto>> GetAllActiveCafesAsync(
+            PaginationParams paginationParams);
         Task<List<Cafe>> GetNearbyCafesAsync(Guid excludeCafeId, double radiusKm);
         Task EnrichNearbyWithGameWaitAsync(IList<NearbyCafeDto> cafes, Guid gameTemplateId);
         Task<IReadOnlyList<NearbyAlternativeGameSuggestionDto>> GetAlternativeGameSuggestionsAsync(
@@ -60,5 +69,32 @@ namespace BoardVerse.Core.IRepositories
         Task<Cafe?> GetAdminDetailAsync(Guid cafeId);
         Task<int> CountAllAsync();
         Task<int> CountActiveAsync();
+
+        // === Cafe Detail (extended public info) ===
+        /// <summary>
+        /// Lấy cafe với đầy đủ thông tin cho player: seat availability, refund policy, schedule overrides.
+        /// Không yêu cầu auth.
+        /// </summary>
+        Task<Cafe?> GetCafeDetailAsync(Guid id);
+
+        /// <summary>
+        /// Lấy seat inventory cho cafe + date + timeSlots.
+        /// </summary>
+        Task<Dictionary<TimeSlot, int>> GetAvailableSeatsByTimeSlotAsync(Guid cafeId, DateOnly playDate);
+
+        /// <summary>
+        /// Lấy danh sách schedule overrides cho cafe.
+        /// </summary>
+        Task<List<CafeScheduleOverride>> GetScheduleOverridesAsync(Guid cafeId, DateOnly? fromDate = null, DateOnly? toDate = null);
+
+        /// <summary>
+        /// Đếm tổng held seats (reservations đang active) cho cafe trong ngày.
+        /// </summary>
+        Task<int> CountHeldSeatsAsync(Guid cafeId, DateOnly playDate);
+
+        /// <summary>
+        /// Đếm tổng in-use seats (active sessions) cho cafe trong ngày.
+        /// </summary>
+        Task<int> CountInUseSeatsAsync(Guid cafeId, DateOnly playDate);
     }
 }

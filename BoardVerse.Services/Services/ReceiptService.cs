@@ -217,7 +217,7 @@ namespace BoardVerse.Services.Services
                 .Select(g => new RevenueGameBreakdownDto
                 {
                     GameTemplateId = g.Key,
-                    GameName = g.First().GameTemplate?.Name ?? "Unknown",
+                    GameName = g.FirstOrDefault()?.GameTemplate?.Name ?? "Unknown",
                     SessionCount = g.Count(),
                     Revenue = g.Sum(s => s.TotalAmount)
                 })

@@ -61,11 +61,17 @@ public static class TableSizeOptimizer
         };
 
         // Pick candidate với quality score cao nhất.
-        return candidates
+        var scored = candidates
             .Select(c => new { Tables = c, Score = EvaluateQuality(c, playerCount) })
             .OrderByDescending(x => x.Score)
-            .First()
-            .Tables;
+            .ToList();
+
+        if (scored.Count == 0)
+        {
+            throw new InvalidOperationException($"No valid table configuration for {playerCount} players.");
+        }
+
+        return scored.First().Tables;
     }
 
     /// <summary>

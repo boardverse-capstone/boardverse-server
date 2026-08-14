@@ -22,8 +22,17 @@ API phòng chờ trực tuyến: tạo phòng, tham gia, rời phòng, tìm phò
 
 Tuân thủ business rules:
 - **BR-07:** `MaxMembers <= SeatCount` của booking liên kết
-- **BR-08:** Lobby timeout nếu trước giờ hẹn mà chưa đủ `MinPlayers`
+- **BR-08:** Lobby timeout nếu trước gi� hẹn mà chưa đủ `MinPlayers`
 - **BR-10:** Member filter theo Karma (không theo Elo)
+- **BR-MEMBER-CLEANUP-01 (mới, 2026-08-14):** Khi lobby chuyển sang terminal status
+  (`TimeoutFailed` / `HostCancelled` / `RejectedByCafe` / `ExpiredByCafe` / `Closed`),
+  backend tự động đánh dấu **mọi `LobbyMember.IsActive = true`** thành `IsActive = false`
+  + `Status = LobbyTerminated` + `LeftAt = now`. Mục đích:
+  - Tránh FE tab "Lobby của tôi" hiển thị lobby đã đóng như còn active.
+  - Đảm bảo audit trail rõ ràng (member "out" lúc nào).
+  - Giảm false-positive trong `KarmaRatingService.IsLobbyMember` / `MatchResultService.IsLobbyMember`.
+  - Backend query (`GetActiveLobbiesByMemberAsync`, `GetOverlappingLobbiesAsync`…) vốn đã filter theo
+    `Lobby.Status` nên user v�n có thể tạo/join lobby mới sau khi terminal.
 
 ## Mục lục
 
