@@ -383,6 +383,18 @@ namespace BoardVerse.Services.Services
         /// </summary>
         public async Task<PaySessionResponseDto> PaySessionAsync(Guid cafeId, Guid sessionId, PaySessionRequestDto request, CancellationToken ct = default)
         {
+            return await PaySessionCoreAsync(cafeId, sessionId, request, PayTrigger.Manual, ct);
+        }
+
+        /// <summary>
+        /// Single source of truth cho session payment.
+        /// Được gọi từ cả POS (Manual) lẫn SePay webhook (SePayWebhook).
+        /// Webhook delegate qua đây để đảm bảo đầy đủ side-effects: capture BVC,
+        /// release table/box, close lobby, WalkInWindow, member invoices.
+        /// Idempotent: re-check Status == Unpaid bên trong transaction (Fix #K).
+        /// </summary>
+        public async Task<PaySessionResponseDto> PaySessionCoreAsync(Guid cafeId, Guid sessionId, PaySessionRequestDto request, PayTrigger trigger, CancellationToken ct = default)
+        {
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
 
@@ -600,6 +612,10 @@ namespace BoardVerse.Services.Services
                     Status = createdWindow.Status.ToString()
                 };
             }
+
+            _logger.LogInformation(
+                "PaySessionCore completed. SessionId={SessionId}, Trigger={Trigger}, TotalAmount={TotalAmount}, BvcCaptureStatus={BvcStatus}, HasWalkInWindow={HasWindow}",
+                sessionId, trigger, session.TotalAmount, bvcCaptureStatus, createdWindow != null);
 
             return new PaySessionResponseDto
             {

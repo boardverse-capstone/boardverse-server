@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Payment;
+using BoardVerse.Core.DTOs.Session;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
@@ -20,6 +21,7 @@ public class PaymentService : IPaymentService
     private readonly ISePayClient _sePayClient;
     private readonly ISePayAccountService _sePayAccountService;
     private readonly IWalletService _walletService; // BVC top-up webhook
+    private readonly IActiveSessionService _activeSessionService; // Webhook delegate PaySessionCore
     private readonly ILogger<PaymentService> _logger;
 
     public PaymentService(
@@ -31,6 +33,7 @@ public class PaymentService : IPaymentService
         ISePayClient sePayClient,
         ISePayAccountService sePayAccountService,
         IWalletService walletService,
+        IActiveSessionService activeSessionService,
         ILogger<PaymentService> logger)
     {
         _depositService = depositService;
@@ -41,6 +44,7 @@ public class PaymentService : IPaymentService
         _sePayClient = sePayClient;
         _sePayAccountService = sePayAccountService;
         _walletService = walletService;
+        _activeSessionService = activeSessionService;
         _logger = logger;
     }
 
@@ -663,7 +667,7 @@ public class PaymentService : IPaymentService
 
         if (normalizedStatus is "success" or "paid")
         {
-            // Validate amount BEFORE any state change so we never half-commit.
+            // Validate amount BEFORE delegate để không half-commit.
             if (webhook.Amount != session.TotalAmount)
             {
                 _logger.LogWarning(
@@ -672,34 +676,40 @@ public class PaymentService : IPaymentService
                 return;
             }
 
-            // P0 Fix #2: Use atomic status update to prevent race condition (double-payment).
-            var updated = await _activeSessionRepository.TryUpdateStatusAsync(
-                session.Id,
-                GroupSessionStatus.Unpaid,
-                GroupSessionStatus.Paid);
-
-            if (!updated)
+            // DELEGATE: Gọi PaySessionCoreAsync để đảm bảo đầy đủ side-effects
+            // (capture BVC, release table/box, close lobby, WalkInWindow, member invoices).
+            // Trước đây webhook tự xử lý 3 việc → thiếu capture BVC + WalkInWindow + invoices.
+            // Idempotent: PaySessionCore re-check Status == Unpaid trong transaction (Fix #K)
+            // → nếu webhook trùng (status đã Paid) sẽ throw SessionMustBeUnpaidForPayment,
+            //   caller catch + log warning + return (không double-pay).
+            try
             {
-                _logger.LogWarning(
-                    "SePay webhook session status update failed (race condition or already paid). SessionId={SessionId}",
-                    session.Id);
-                return;
+                await _activeSessionService.PaySessionCoreAsync(
+                    cafeId: session.CafeId,
+                    sessionId: session.Id,
+                    request: new PaySessionRequestDto(),
+                    trigger: PayTrigger.SePayWebhook,
+                    ct: default);
+            }
+            catch (ConflictException ex) when (ex.Message.Contains(ApiErrorMessages.Pos.SessionMustBeUnpaidForPayment))
+            {
+                // Đã pay trước đó (manual hoặc webhook khác) → idempotent, log + return.
+                _logger.LogInformation(
+                    "SePay webhook session already paid (idempotent skip). SessionId={SessionId}, OrderId={OrderId}",
+                    session.Id, webhook.OrderId);
             }
 
-            // Lifecycle cleanup: close lobby (called at checkout).
-            await _activeSessionRepository.ReleaseMembersAndCloseLobbyAsync(session.Id);
-
-            // FIX: Release table/box AFTER payment commit (not at checkout).
-            // This ensures table/box stays InUse while awaiting payment.
-            await _activeSessionRepository.ReleaseSessionTableAndBoxAsync(session.Id);
-
-            _logger.LogInformation(
-                "Session payment completed via SePay. SessionId={SessionId}, Amount={Amount}. Table, board game box and lobby released.",
-                session.Id, session.TotalAmount);
+            return;
         }
-        else if (normalizedStatus is "failed" or "canceled" or "cancelled")
+
+        if (normalizedStatus is "failed" or "canceled" or "cancelled")
         {
-            _logger.LogInformation("Session payment failed/cancelled. SessionId={SessionId}, Status={Status}", session.Id, normalizedStatus);
+            // Webhook "failed" / "cancelled" cho session payment: không gọi PaySessionCore
+            // (vì không có amount mismatch valid). Chỉ log để audit.
+            // Staff sẽ xử lý thủ công trên POS (giữ session Unpaid, xử lý payment riêng).
+            _logger.LogInformation(
+                "Session payment webhook failed/cancelled (no auto-handler). SessionId={SessionId}, Status={Status}",
+                session.Id, normalizedStatus);
         }
     }
 

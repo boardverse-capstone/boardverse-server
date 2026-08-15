@@ -1,6 +1,7 @@
 using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.DTOs.Session;
 using BoardVerse.Core.Entities;
+using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Services.IServices
 {
@@ -14,6 +15,16 @@ namespace BoardVerse.Services.IServices
         Task<ActiveSessionResponseDto> GetSessionAsync(Guid cafeId, Guid sessionId, CancellationToken ct = default);
         Task<MergeSessionResponseDto> MergeSessionAsync(Guid cafeId, Guid sourceSessionId, MergeSessionRequestDto request, CancellationToken ct = default);
         Task<PaySessionResponseDto> PaySessionAsync(Guid cafeId, Guid sessionId, PaySessionRequestDto request, CancellationToken ct = default);
+
+        /// <summary>
+        /// Single source of truth cho việc đóng phiên chơi.
+        /// Được gọi từ cả POS (staff bấm tay) lẫn webhook (SePay ping khi nhận tiền QR).
+        /// Webhook dùng trigger = SePayWebhook; POS dùng Manual.
+        /// Side-effects đầy đủ: capture BVC, release table/box, close lobby,
+        /// tạo WalkInWindow (early checkout), build member invoices.
+        /// Idempotent: re-check Status == Unpaid trong transaction.
+        /// </summary>
+        Task<PaySessionResponseDto> PaySessionCoreAsync(Guid cafeId, Guid sessionId, PaySessionRequestDto request, PayTrigger trigger, CancellationToken ct = default);
         Task<ActiveSessionResponseDto> AttachGameAsync(Guid cafeId, Guid sessionId, AttachGameRequestDto request, CancellationToken ct = default);
         Task<ActiveSessionResponseDto> AddLateMemberAsync(Guid cafeId, Guid sessionId, AddLateMemberRequestDto request, CancellationToken ct = default);
         Task RecordInventoryLossAsync(Guid cafeId, Guid userId, Guid sessionId, RecordInventoryLossRequestDto request, CancellationToken ct = default);

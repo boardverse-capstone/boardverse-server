@@ -10,6 +10,7 @@ Tài liệu tổng hợp cho hệ thống BoardVerse — board game center manag
 
 - [Business context & rules](../.cursor/rules/boardverse-business-context.mdc) — Business rules (BR-01..BR-18), state machines
 - [BoardVerse consolidated](../.cursor/rules/boardverse.mdc) — Phiên bản hợp nhất: kiến trúc + BR + happy/exception path + state machine
+- [Backend package diagram](./backend-package-diagram.md) — Package diagram cho BoardVerse backend (Clean Architecture 4-tier + sub-system mapping)
 - [API error messages](../.cursor/rules/api-error-messages.mdc) — Quy ước thông điệp lỗi
 - [Project structure](../.cursor/rules/project-structure.mdc) — Coding conventions
 - [Neon migration guide](../.cursor/rules/neon-migration-guide.mdc) — Quy trình migration Neon DB

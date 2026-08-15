@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Payment;
+using BoardVerse.Core.DTOs.Session;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
@@ -21,6 +22,7 @@ public class PaymentServiceTests
     private readonly Mock<ISePayClient> _mockSePayClient;
     private readonly Mock<ISePayAccountService> _mockSePayAccountService;
     private readonly Mock<IWalletService> _mockWalletService;
+    private readonly Mock<IActiveSessionService> _mockActiveSessionService;
     private readonly Mock<ILogger<PaymentService>> _mockLogger;
     private readonly PaymentService _service;
 
@@ -35,6 +37,7 @@ public class PaymentServiceTests
         _mockSePayClient = new Mock<ISePayClient>();
         _mockSePayAccountService = new Mock<ISePayAccountService>();
         _mockWalletService = new Mock<IWalletService>();
+        _mockActiveSessionService = new Mock<IActiveSessionService>();
         _mockLogger = new Mock<ILogger<PaymentService>>();
 
         // Setup mock Master Account từ DB
@@ -68,6 +71,7 @@ public class PaymentServiceTests
             _mockSePayClient.Object,
             _mockSePayAccountService.Object,
             _mockWalletService.Object,
+            _mockActiveSessionService.Object,
             _mockLogger.Object);
     }
 
@@ -380,11 +384,19 @@ public class PaymentServiceTests
     [Fact]
     public async Task HandleSePayWebhook_SessionSuccess_RunsLifecycleCleanup()
     {
+        // Regression: webhook phải delegate PaySessionCoreAsync thay vì tự xử lý.
+        // Trước refactor: webhook gọi TryUpdateStatusAsync + ReleaseMembersAndCloseLobbyAsync +
+        // ReleaseSessionTableAndBoxAsync trực tiếp (THIẾU capture BVC + WalkInWindow + invoices).
+        // Sau refactor: webhook delegate sang ActiveSessionService.PaySessionCoreAsync →
+        //   side-effects đầy đủ (capture BVC, WalkInWindow, member invoices, release table/box,
+        //   close lobby) đều chạy bên trong Core.
+
         var sessionId = Guid.NewGuid();
+        var cafeId = Guid.NewGuid();
         var session = new ActiveSession
         {
             Id = sessionId,
-            CafeId = Guid.NewGuid(),
+            CafeId = cafeId,
             Status = GroupSessionStatus.Unpaid,
             TotalAmount = 85_000m,
             OrderId = "BV00000999"
@@ -395,8 +407,6 @@ public class PaymentServiceTests
         _mockDepositService.Setup(s => s.GetByOrderIdAsync(It.IsAny<string>()))
             .ReturnsAsync((BookingDeposit?)null);
         _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
-        _mockSessionRepo.Setup(r => r.TryUpdateStatusAsync(sessionId, GroupSessionStatus.Unpaid, GroupSessionStatus.Paid))
-            .ReturnsAsync(true);
 
         var webhook = new SePayWebhookDto
         {
@@ -408,9 +418,27 @@ public class PaymentServiceTests
 
         await _service.HandleSePayWebhookAsync(webhook);
 
-        _mockSessionRepo.Verify(r => r.TryUpdateStatusAsync(sessionId, GroupSessionStatus.Unpaid, GroupSessionStatus.Paid), Times.Once);
-        _mockSessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(sessionId), Times.Once);
-        _mockSessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(sessionId), Times.Once);
+        // Verify webhook delegate PaySessionCoreAsync với trigger = SePayWebhook.
+        // Lifecycle cleanup (close lobby, release table/box) giờ chạy bên trong Core —
+        // không verify trực tiếp trên _mockSessionRepo nữa.
+        _mockActiveSessionService.Verify(
+            s => s.PaySessionCoreAsync(
+                cafeId, sessionId,
+                It.IsAny<PaySessionRequestDto>(),
+                PayTrigger.SePayWebhook,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        // Verify webhook KHÔNG tự gọi lifecycle cleanup (đã delegate).
+        _mockSessionRepo.Verify(
+            r => r.TryUpdateStatusAsync(It.IsAny<Guid>(), It.IsAny<GroupSessionStatus>(), It.IsAny<GroupSessionStatus>()),
+            Times.Never);
+        _mockSessionRepo.Verify(
+            r => r.ReleaseMembersAndCloseLobbyAsync(It.IsAny<Guid>()),
+            Times.Never);
+        _mockSessionRepo.Verify(
+            r => r.ReleaseSessionTableAndBoxAsync(It.IsAny<Guid>()),
+            Times.Never);
     }
 
     [Fact]
@@ -451,13 +479,16 @@ public class PaymentServiceTests
     [Fact]
     public async Task HandleSePayWebhook_SessionAlreadyPaid_DoesNotDoubleCleanup()
     {
-        // Race condition: another webhook already paid the session. Skip.
+        // Race condition: another webhook already paid the session.
+        // Sau refactor: PaySessionCoreAsync throw ConflictException(SessionMustBeUnpaidForPayment)
+        // → webhook swallow exception, KHÔNG double-cleanup.
         var sessionId = Guid.NewGuid();
+        var cafeId = Guid.NewGuid();
         var session = new ActiveSession
         {
             Id = sessionId,
-            CafeId = Guid.NewGuid(),
-            Status = GroupSessionStatus.Paid,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Paid, // đã Paid bởi webhook khác
             TotalAmount = 85_000m,
             OrderId = "BV00000997"
         };
@@ -467,8 +498,16 @@ public class PaymentServiceTests
         _mockDepositService.Setup(s => s.GetByOrderIdAsync(It.IsAny<string>()))
             .ReturnsAsync((BookingDeposit?)null);
         _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
-        _mockSessionRepo.Setup(r => r.TryUpdateStatusAsync(sessionId, GroupSessionStatus.Unpaid, GroupSessionStatus.Paid))
-            .ReturnsAsync(false); // race — already updated by another webhook
+
+        // Mock PaySessionCoreAsync throw ConflictException (đã pay từ webhook trước).
+        _mockActiveSessionService
+            .Setup(s => s.PaySessionCoreAsync(
+                cafeId, sessionId,
+                It.IsAny<PaySessionRequestDto>(),
+                PayTrigger.SePayWebhook,
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ConflictException(
+                "Phiên chơi phải ở trạng thái chờ thanh toán (UNPAID) để thanh toán."));
 
         var webhook = new SePayWebhookDto
         {
@@ -478,8 +517,10 @@ public class PaymentServiceTests
             Amount = session.TotalAmount
         };
 
+        // KHÔNG throw ra ngoài (idempotent skip).
         await _service.HandleSePayWebhookAsync(webhook);
 
+        // Verify KHÔNG trực tiếp cleanup (delegate đã throw, webhook swallow).
         _mockSessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(It.IsAny<Guid>()), Times.Never);
         _mockSessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(It.IsAny<Guid>()), Times.Never);
     }
@@ -712,12 +753,14 @@ public class PaymentServiceTests
     }
 
     [Fact]
-    public async Task HandleSePayWebhook_SessionMatchedByOrderId_UpdatesStatus()
+    public async Task HandleSePayWebhook_SessionMatchedByOrderId_DelegatesToPaySessionCore()
     {
         // End-to-end: CreateSessionPayment tạo ra OrderId "BV-XXXXXXXXXXXXXXXX", sau đó
         // SePay webhook BankAPINotify gửi về content "BV-XXXXXXXXXXXXXXXX ..." → ExtractOrderId
         // parse ra OrderId "BVXXXXXXXXXXXXXXXX" → match với session.OrderId (case-insensitive
-        // trong DB index). Phải update session.Status = Paid.
+        // trong DB index). Phải delegate sang PaySessionCoreAsync (PayTrigger=SePayWebhook).
+        // Trước đây test này verify TryUpdateStatusAsync; sau refactor, verify delegate
+        // thay vì tự xử lý status update.
 
         var sessionId = Guid.NewGuid();
         var cafeId = Guid.NewGuid();
@@ -738,8 +781,6 @@ public class PaymentServiceTests
             .ReturnsAsync((BookingDeposit?)null);
         _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
         _mockSessionRepo.Setup(r => r.GetByOrderIdAsync(It.IsAny<string>())).ReturnsAsync(session);
-        _mockSessionRepo.Setup(r => r.TryUpdateStatusAsync(sessionId, GroupSessionStatus.Unpaid, GroupSessionStatus.Paid))
-            .ReturnsAsync(true);
 
         // Webhook BankAPINotify: content chứa TransferContent (case-insensitive — bank có thể uppercase).
         // Controller gọi Normalize() trước khi pass vào service; unit test phải gọi thủ công.
@@ -757,8 +798,170 @@ public class PaymentServiceTests
         // Verify webhook đã parse ra OrderId đúng format.
         Assert.Equal(orderId.ToUpperInvariant(), webhook.OrderId, ignoreCase: true);
 
-        _mockSessionRepo.Verify(r => r.TryUpdateStatusAsync(sessionId, GroupSessionStatus.Unpaid, GroupSessionStatus.Paid), Times.Once);
-        _mockSessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(sessionId), Times.Once);
+        // Verify PaySessionCoreAsync được gọi với trigger = SePayWebhook.
+        _mockActiveSessionService.Verify(
+            s => s.PaySessionCoreAsync(
+                cafeId,
+                sessionId,
+                It.IsAny<PaySessionRequestDto>(),
+                PayTrigger.SePayWebhook,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task HandleSePayWebhook_SessionAlreadyPaid_IdempotentSkip()
+    {
+        // Regression: webhook trùng (session đã Paid từ staff manual) → PaySessionCoreAsync
+        // throw ConflictException(SessionMustBeUnpaidForPayment) → webhook swallow + log + return.
+        // KHÔNG double-pay, KHÔNG throw ra ngoài.
+
+        var sessionId = Guid.NewGuid();
+        var cafeId = Guid.NewGuid();
+        const string orderId = "BV-IDEMPOTENT123456";
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Unpaid,
+            TotalAmount = 50_000m,
+            OrderId = orderId,
+            TransferContent = orderId
+        };
+
+        _mockDepositService.Setup(s => s.GetBySePayTransactionIdAsync(It.IsAny<string>()))
+            .ReturnsAsync((BookingDeposit?)null);
+        _mockDepositService.Setup(s => s.GetByOrderIdAsync(It.IsAny<string>()))
+            .ReturnsAsync((BookingDeposit?)null);
+        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        _mockSessionRepo.Setup(r => r.GetByOrderIdAsync(It.IsAny<string>())).ReturnsAsync(session);
+
+        // Mock PaySessionCoreAsync throw ConflictException giả lập session đã Paid.
+        _mockActiveSessionService
+            .Setup(s => s.PaySessionCoreAsync(
+                cafeId, sessionId,
+                It.IsAny<PaySessionRequestDto>(),
+                PayTrigger.SePayWebhook,
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ConflictException(
+                "Phiên chơi phải ở trạng thái chờ thanh toán (UNPAID) để thanh toán."));
+
+        var webhook = new SePayWebhookDto
+        {
+            OrderId = orderId,
+            GatewayTransactionId = "TXN-IDEMPOTENT",
+            Amount = 50_000m,
+            Status = "success",
+            SessionId = sessionId,
+            ReferenceCode = "REF-IDEMPOTENT"
+        };
+
+        // KHÔNG throw ra ngoài (idempotent skip).
+        await _service.HandleSePayWebhookAsync(webhook);
+
+        // Verify PaySessionCoreAsync được gọi 1 lần (không retry).
+        _mockActiveSessionService.Verify(
+            s => s.PaySessionCoreAsync(
+                cafeId, sessionId,
+                It.IsAny<PaySessionRequestDto>(),
+                PayTrigger.SePayWebhook,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task HandleSePayWebhook_SessionAmountMismatch_DoesNotDelegate()
+    {
+        // Regression: SePay gửi amount khác TotalAmount → webhook skip KHÔNG delegate.
+        // Trước đây có thể update status trước khi validate amount.
+
+        var sessionId = Guid.NewGuid();
+        var cafeId = Guid.NewGuid();
+        const string orderId = "BV-MISMATCH9876543";
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Unpaid,
+            TotalAmount = 100_000m, // expect 100k
+            OrderId = orderId,
+            TransferContent = orderId
+        };
+
+        _mockDepositService.Setup(s => s.GetBySePayTransactionIdAsync(It.IsAny<string>()))
+            .ReturnsAsync((BookingDeposit?)null);
+        _mockDepositService.Setup(s => s.GetByOrderIdAsync(It.IsAny<string>()))
+            .ReturnsAsync((BookingDeposit?)null);
+        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        _mockSessionRepo.Setup(r => r.GetByOrderIdAsync(It.IsAny<string>())).ReturnsAsync(session);
+
+        var webhook = new SePayWebhookDto
+        {
+            OrderId = orderId,
+            GatewayTransactionId = "TXN-MISMATCH",
+            Amount = 50_000m, // receive 50k — mismatch!
+            Status = "success",
+            SessionId = sessionId
+        };
+
+        await _service.HandleSePayWebhookAsync(webhook);
+
+        // Verify KHÔNG delegate PaySessionCoreAsync (amount mismatch → early return).
+        _mockActiveSessionService.Verify(
+            s => s.PaySessionCoreAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(),
+                It.IsAny<PaySessionRequestDto>(),
+                It.IsAny<PayTrigger>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleSePayWebhook_SessionCancelled_OnlyLogs()
+    {
+        // Regression: SePay webhook "failed" / "cancelled" cho session payment → chỉ log,
+        // KHÔNG delegate PaySessionCoreAsync (vì không có amount hợp lệ để close session).
+        // Staff sẽ xử lý riêng trên POS.
+
+        var sessionId = Guid.NewGuid();
+        var cafeId = Guid.NewGuid();
+        const string orderId = "BV-CANCELLED12345";
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Unpaid,
+            TotalAmount = 80_000m,
+            OrderId = orderId,
+            TransferContent = orderId
+        };
+
+        _mockDepositService.Setup(s => s.GetBySePayTransactionIdAsync(It.IsAny<string>()))
+            .ReturnsAsync((BookingDeposit?)null);
+        _mockDepositService.Setup(s => s.GetByOrderIdAsync(It.IsAny<string>()))
+            .ReturnsAsync((BookingDeposit?)null);
+        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        _mockSessionRepo.Setup(r => r.GetByOrderIdAsync(It.IsAny<string>())).ReturnsAsync(session);
+
+        var webhook = new SePayWebhookDto
+        {
+            OrderId = orderId,
+            GatewayTransactionId = "TXN-CANCELLED",
+            Amount = 80_000m,
+            Status = "cancelled", // failed/cancelled → chỉ log
+            SessionId = sessionId
+        };
+
+        await _service.HandleSePayWebhookAsync(webhook);
+
+        // Verify KHÔNG delegate PaySessionCoreAsync.
+        _mockActiveSessionService.Verify(
+            s => s.PaySessionCoreAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(),
+                It.IsAny<PaySessionRequestDto>(),
+                It.IsAny<PayTrigger>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     #endregion
