@@ -27,6 +27,13 @@ public interface IWalkInService
         Reservation reservation, int releasedSeats, DateTime windowStart, CancellationToken ct = default);
 
     /// <summary>
+    /// GAP-14 Fix: Lấy WalkInWindow đang active cho 1 Reservation (dùng cho idempotency check).
+    /// Trả về null nếu không có window active.
+    /// </summary>
+    Task<WalkInWindow?> GetActiveWindowByReservationIdAsync(
+        Guid reservationId, CancellationToken ct = default);
+
+    /// <summary>
     /// Cleanup expired WalkInWindows (gọi bởi background job).
     /// </summary>
     Task CleanupExpiredWindowsAsync(CancellationToken ct = default);

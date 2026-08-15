@@ -63,4 +63,10 @@ public interface IWalkInWindowRepository
     /// </summary>
     Task<IReadOnlyList<WalkInWindow>> GetOverlappingAsync(
         Guid cafeId, DateTime windowStart, DateTime windowEnd, CancellationToken ct = default);
+
+    /// <summary>
+    /// GAP-14 Fix: Lấy WalkInWindow active (Available/Partial) cho 1 Reservation.
+    /// Dùng cho idempotency check trước khi tạo WalkInWindow mới từ early checkout.
+    /// </summary>
+    Task<WalkInWindow?> GetActiveByReservationIdAsync(Guid reservationId, CancellationToken ct = default);
 }

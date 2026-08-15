@@ -22,6 +22,7 @@ public class PaymentService : IPaymentService
     private readonly ISePayAccountService _sePayAccountService;
     private readonly IWalletService _walletService; // BVC top-up webhook
     private readonly IActiveSessionService _activeSessionService; // Webhook delegate PaySessionCore
+    private readonly IPaymentWebhookAuditRepository _webhookAuditRepository; // GAP-10
     private readonly ILogger<PaymentService> _logger;
 
     public PaymentService(
@@ -34,6 +35,7 @@ public class PaymentService : IPaymentService
         ISePayAccountService sePayAccountService,
         IWalletService walletService,
         IActiveSessionService activeSessionService,
+        IPaymentWebhookAuditRepository webhookAuditRepository,
         ILogger<PaymentService> logger)
     {
         _depositService = depositService;
@@ -45,6 +47,7 @@ public class PaymentService : IPaymentService
         _sePayAccountService = sePayAccountService;
         _walletService = walletService;
         _activeSessionService = activeSessionService;
+        _webhookAuditRepository = webhookAuditRepository;
         _logger = logger;
     }
 
@@ -660,6 +663,7 @@ public class PaymentService : IPaymentService
         if (session == null)
         {
             _logger.LogWarning("SePay webhook session payment not matched. OrderId={OrderId}", webhook.OrderId);
+            await RecordAuditAsync(webhook, null, "session_not_found", $"OrderId={webhook.OrderId} không match session nào");
             return;
         }
 
@@ -667,12 +671,46 @@ public class PaymentService : IPaymentService
 
         if (normalizedStatus is "success" or "paid")
         {
-            // Validate amount BEFORE delegate để không half-commit.
-            if (webhook.Amount != session.TotalAmount)
+            // GAP-02 Fix: Validate currency trước khi xử lý amount. SePay VN chỉ thanh toán VND;
+            // nếu webhook mang currency khác → reject (có thể do gateway config sai hoặc attack).
+            if (!string.IsNullOrWhiteSpace(webhook.Currency)
+                && !webhook.Currency.Equals("VND", StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogWarning(
-                    "SePay webhook amount mismatch for session. Expected={Expected}, Received={Received}, SessionId={SessionId}",
-                    session.TotalAmount, webhook.Amount, session.Id);
+                    "SePay webhook currency not VND. Currency={Currency}, Expected=VND, SessionId={SessionId}, OrderId={OrderId}",
+                    webhook.Currency, session.Id, webhook.OrderId);
+                await RecordAuditAsync(webhook, session.Id, "currency_invalid",
+                    $"Currency={webhook.Currency} không phải VND");
+                return;
+            }
+
+            // GAP-01 Fix: Validate amount với tolerance 1 VND (rounding của bank/decimal precision).
+            // Trước đây so sánh strict `!=` → reject nếu bank charge fee transfer lệch 1-2 VND.
+            // Tolerance 1 VND chấp nhận rounding noise; > 1 VND là thật sự mismatch.
+            const decimal AmountTolerance = 1m;
+            var amountDiff = webhook.Amount - session.TotalAmount;
+            if (Math.Abs(amountDiff) > AmountTolerance)
+            {
+                _logger.LogWarning(
+                    "SePay webhook amount mismatch > {Tolerance} VND. Expected={Expected}, Received={Received}, Diff={Diff}, SessionId={SessionId}",
+                    AmountTolerance, session.TotalAmount, webhook.Amount, amountDiff, session.Id);
+                await RecordAuditAsync(webhook, session.Id, "amount_mismatch",
+                    $"Expected={session.TotalAmount}, Received={webhook.Amount}, Diff={amountDiff}");
+                return;
+            }
+
+            // GAP-03 Fix: Nếu session đã closed (terminal) nhưng khách vẫn CK thành công
+            // (vd. staff đã đóng session nhưng khách vẫn ấn QR sau đó) → KHÔNG gọi PaySessionCore
+            // (sẽ throw 409). Tiền đã vào tài khoản SePay nhưng session không active để capture BVC.
+            // Log warning để staff xử lý refund manual qua POS.
+            // Closed = terminal (BR-END-05 auto-release, hoặc staff đã đóng phiên).
+            if (session.Status == GroupSessionStatus.Closed)
+            {
+                _logger.LogWarning(
+                    "SePay webhook success nhưng session đã Closed (terminal). Tiền đã vào SePay nhưng KHÔNG capture BVC, staff cần refund manual. SessionId={SessionId}, Amount={Amount}, OrderId={OrderId}",
+                    session.Id, webhook.Amount, webhook.OrderId);
+                await RecordAuditAsync(webhook, session.Id, "session_terminal",
+                    $"Session Status={session.Status} → staff cần refund manual");
                 return;
             }
 
@@ -690,6 +728,7 @@ public class PaymentService : IPaymentService
                     request: new PaySessionRequestDto(),
                     trigger: PayTrigger.SePayWebhook,
                     ct: default);
+                await RecordAuditAsync(webhook, session.Id, "success", "Payment committed");
             }
             catch (ConflictException ex) when (ex.Message.Contains(ApiErrorMessages.Pos.SessionMustBeUnpaidForPayment))
             {
@@ -697,6 +736,8 @@ public class PaymentService : IPaymentService
                 _logger.LogInformation(
                     "SePay webhook session already paid (idempotent skip). SessionId={SessionId}, OrderId={OrderId}",
                     session.Id, webhook.OrderId);
+                await RecordAuditAsync(webhook, session.Id, "already_paid",
+                    "Session đã Paid trước đó (idempotent skip)");
             }
 
             return;
@@ -710,6 +751,64 @@ public class PaymentService : IPaymentService
             _logger.LogInformation(
                 "Session payment webhook failed/cancelled (no auto-handler). SessionId={SessionId}, Status={Status}",
                 session.Id, normalizedStatus);
+            await RecordAuditAsync(webhook, session.Id, "failed_cancelled",
+                $"Status={normalizedStatus} - staff xử lý manual");
+        }
+    }
+
+    // GAP-10 Fix: Ghi audit record cho mỗi webhook nhận được.
+    // Best-effort: lỗi audit KHÔNG throw (không block webhook flow).
+    // Note: Dùng anonymous object phẳng thay vì serialize SePayWebhookDto trực tiếp
+    // (SnakeOrCamelConverter trên SePayWebhookDto gây stack overflow khi serialize).
+    private async Task RecordAuditAsync(
+        SePayWebhookDto webhook, Guid? sessionId, string result, string detail)
+    {
+        try
+        {
+            // Plain object — không qua JsonConverter nào.
+            var payloadObj = new
+            {
+                webhook.OrderId,
+                webhook.GatewayTransactionId,
+                webhook.Amount,
+                Currency = string.IsNullOrWhiteSpace(webhook.Currency) ? "VND" : webhook.Currency,
+                webhook.Status,
+                webhook.ReferenceCode,
+                webhook.SessionId,
+                webhook.Content,
+                webhook.TransferType
+            };
+            string payloadJson;
+            try
+            {
+                payloadJson = System.Text.Json.JsonSerializer.Serialize(payloadObj);
+            }
+            catch
+            {
+                payloadJson = $"{{ \"orderId\": \"{webhook.OrderId}\", \"status\": \"{webhook.Status}\", \"amount\": {webhook.Amount} }}";
+            }
+
+            await _webhookAuditRepository.AddAsync(new PaymentWebhookAudit
+            {
+                Id = Guid.NewGuid(),
+                OrderId = webhook.OrderId ?? string.Empty,
+                GatewayTransactionId = webhook.GatewayTransactionId,
+                SessionId = sessionId,
+                Amount = webhook.Amount,
+                Currency = string.IsNullOrWhiteSpace(webhook.Currency) ? "VND" : webhook.Currency,
+                Status = webhook.Status ?? string.Empty,
+                Result = result,
+                Detail = detail,
+                Payload = payloadJson,
+                ProcessedAt = DateTime.UtcNow
+            });
+        }
+        catch (Exception ex)
+        {
+            // Best-effort: log warning nhưng không throw để không block webhook flow.
+            _logger.LogWarning(ex,
+                "GAP-10: Failed to record PaymentWebhookAudit. OrderId={OrderId}, Result={Result}",
+                webhook.OrderId, result);
         }
     }
 

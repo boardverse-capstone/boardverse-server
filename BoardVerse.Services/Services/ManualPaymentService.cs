@@ -122,7 +122,18 @@ public class ManualPaymentService : IManualPaymentService
             await _sessionRepository.SaveChangesAsync();
 
             // Lifecycle cleanup: close lobby (in transaction with status update).
-            await _sessionRepository.ReleaseMembersAndCloseLobbyAsync(request.OrderId);
+            // GAP-08 Fix: wrap trong try/catch — fail vẫn commit payment.
+            try
+            {
+                await _sessionRepository.ReleaseMembersAndCloseLobbyAsync(request.OrderId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "GAP-08: ManualPay - ReleaseMembersAndCloseLobby failed for SessionId={SessionId}. " +
+                    "Payment vẫn commit; lobby close sẽ retry qua AutoReleaseExpiredSessionsJob.",
+                    request.OrderId);
+            }
 
             if (dbTx != null)
             {
@@ -131,7 +142,18 @@ public class ManualPaymentService : IManualPaymentService
 
             // FIX: Release table/box AFTER payment commit (not at checkout).
             // This ensures table/box stays InUse while awaiting payment.
-            await _sessionRepository.ReleaseSessionTableAndBoxAsync(request.OrderId);
+            // GAP-06 Fix: try/catch + log — fail thì background job retry.
+            try
+            {
+                await _sessionRepository.ReleaseSessionTableAndBoxAsync(request.OrderId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "GAP-06: ManualPay - ReleaseSessionTableAndBox failed for SessionId={SessionId} AFTER commit. " +
+                    "Session PAID nhưng table/box vẫn InUse. Background job sẽ retry.",
+                    request.OrderId);
+            }
 
             _logger.LogInformation(
                 "Manual session payment confirmed. SessionId={SessionId}, Amount={Amount}, Method={Method}, StaffId={StaffId}, Role={Role}",

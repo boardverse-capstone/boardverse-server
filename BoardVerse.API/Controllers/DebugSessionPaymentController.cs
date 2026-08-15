@@ -197,6 +197,10 @@ public class DebugSessionPaymentController : ControllerBase
     /// <summary>
     /// Mock SePay webhook success cho 1 session — đẩy status Unpaid → Paid.
     /// Sau khi gọi endpoint này, GET /api/v1/pos/sessions/{sessionId} sẽ thấy status=Paid.
+    /// 
+    /// GAP-09 Fix: Gọi qua PaymentService.HandleSePayWebhookAsync thay vì update DB trực tiếp.
+    /// Trước đây chỉ update Status → thiếu 6 side-effects (capture BVC, WalkInWindow,
+    /// release table/box, close lobby, member invoices). Giờ giống flow thật 100%.
     /// </summary>
     [HttpPost("mock-success")]
     public async Task<IActionResult> MockSuccess([FromQuery] Guid sessionId)
@@ -214,23 +218,49 @@ public class DebugSessionPaymentController : ControllerBase
                 currentStatus = session.Status.ToString()
             });
 
-        // Cập nhật trực tiếp thay vì gọi webhook (đơn giản, không cần HMAC).
-        session.Status = GroupSessionStatus.Paid;
-        session.PaidAt = DateTime.UtcNow;
-        session.UpdatedAt = DateTime.UtcNow;
-        await _db.SaveChangesAsync();
+        // GAP-09 Fix: Build SePayWebhookDto giống gateway thật rồi gọi HandleSePayWebhookAsync.
+        // Đảm bảo debug mode chạy đúng flow production (capture BVC, WalkInWindow, release, invoices).
+        var webhook = new SePayWebhookDto
+        {
+            OrderId = session.OrderId ?? $"BV-S-{session.Id:N}",
+            GatewayTransactionId = $"MOCK-TXN-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}",
+            Amount = session.TotalAmount,
+            Currency = "VND",
+            Status = "success",
+            ReferenceCode = $"MOCK-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}",
+            PaidAt = DateTime.UtcNow
+        };
+
+        try
+        {
+            await _paymentService.HandleSePayWebhookAsync(webhook);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "[DebugSessionPayment] Mock-success webhook failed. SessionId={SessionId}", sessionId);
+            return StatusCode(500, new
+            {
+                error = "InternalError",
+                message = "Mock webhook xử lý thất bại. Kiểm tra log server."
+            });
+        }
+
+        // Re-query để trả về trạng thái mới nhất.
+        var updated = await _db.ActiveSessions.AsNoTracking().FirstOrDefaultAsync(s => s.Id == sessionId);
 
         _logger.LogInformation(
-            "[DebugSessionPayment] Mock-success session {SessionId} → Paid (Amount={Amount})",
-            session.Id, session.TotalAmount);
+            "[DebugSessionPayment] Mock-success session {SessionId} → {Status} (Amount={Amount}, OrderId={OrderId})",
+            sessionId, updated?.Status, session.TotalAmount, webhook.OrderId);
 
         return Ok(new
         {
-            sessionId = session.Id,
-            status = session.Status.ToString(),
-            paidAt = session.PaidAt,
+            sessionId = sessionId,
+            status = updated?.Status.ToString(),
+            paidAt = updated?.PaidAt,
             totalAmount = session.TotalAmount,
-            message = "Session đã được mock chuyển sang Paid."
+            orderId = webhook.OrderId,
+            message = "Session đã được mock chuyển sang Paid (qua webhook flow thật)."
         });
     }
 

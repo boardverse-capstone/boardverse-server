@@ -144,4 +144,17 @@ public class WalkInWindowRepository : IWalkInWindowRepository
                 && w.WindowEnd > windowStart)
             .ToListAsync(ct);
     }
+
+    /// <summary>
+    /// GAP-14 Fix: Lấy WalkInWindow active (Available/Partial) cho 1 Reservation.
+    /// </summary>
+    public async Task<WalkInWindow?> GetActiveByReservationIdAsync(Guid reservationId, CancellationToken ct = default)
+    {
+        return await _db.WalkInWindows
+            .Where(w => w.SourceReservationId == reservationId
+                && (w.Status == WalkInWindowStatus.Available
+                    || w.Status == WalkInWindowStatus.Partial))
+            .OrderByDescending(w => w.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+    }
 }

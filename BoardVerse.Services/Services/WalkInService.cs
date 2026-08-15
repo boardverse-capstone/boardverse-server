@@ -230,6 +230,17 @@ public class WalkInService : IWalkInService
     }
 
     /// <summary>
+    /// GAP-14 Fix: Lấy WalkInWindow đang active cho 1 Reservation (idempotency check).
+    /// Trả về window có SourceReservationId == reservationId và Status = Available/Partial.
+    /// Trả null nếu không có → caller có thể tạo mới.
+    /// </summary>
+    public async Task<WalkInWindow?> GetActiveWindowByReservationIdAsync(
+        Guid reservationId, CancellationToken ct = default)
+    {
+        return await _windowRepository.GetActiveByReservationIdAsync(reservationId, ct);
+    }
+
+    /// <summary>
     /// Cleanup expired WalkInWindows (gọi bởi WalkInWindowCleanupJob).
     /// Đóng windows đã hết hạn (WindowEnd &lt; now và chưa closed).
     /// </summary>

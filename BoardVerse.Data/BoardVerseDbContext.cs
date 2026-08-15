@@ -65,6 +65,9 @@ namespace BoardVerse.Data
         public DbSet<PlayerRiskScore> PlayerRiskScores => Set<PlayerRiskScore>();
         public DbSet<RiskScoreHistory> RiskScoreHistories => Set<RiskScoreHistory>();
 
+        // GAP-10 Fix: Audit table cho mọi SePay webhook.
+        public DbSet<PaymentWebhookAudit> PaymentWebhookAudits => Set<PaymentWebhookAudit>();
+
         // BR-REFUND-01..07 (docs/time-slot-fixed-end-design (1).md §9.4)
         public DbSet<RefundTransaction> RefundTransactions => Set<RefundTransaction>();
 

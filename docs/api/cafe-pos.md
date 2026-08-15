@@ -1226,6 +1226,34 @@ POST /api/cafes/{cafeId}/pos/sessions/{id}/pay
 > - **Fix K (Status re-check trong transaction):** `Status == UNPAID` được validate **bên trong**
 >   `BeginTransaction` block (race với concurrent pay cùng sessionId hoặc webhook tự pay).
 >
+> **🐛 Audit gaps fix (2026-08-15):**
+> - **GAP-01 (Amount tolerance):** Webhook amount check dùng tolerance 1 VND thay vì `!=` strict,
+>   tránh false-reject khi bank rounding lệch 1-2 VND.
+> - **GAP-02 (Currency validation):** Webhook phải có `Currency == "VND"`; reject nếu khác.
+> - **GAP-03 (Session terminal guard):** Nếu `session.Status == Closed` (terminal) mà webhook vẫn
+>   success → KHÔNG gọi PaySessionCore; log warning + audit record để staff refund manual.
+> - **GAP-05 (BVC capture idempotency):** `ReservationService.CompleteAndCaptureAsync` dùng
+>   key `capture-{reservationId}` (deterministic) thay vì `capture-{reservationId}-{Ticks}` để
+>   tránh double-capture khi webhook retry/scheduler race.
+> - **GAP-06 (Table/box release fail):** `ReleaseSessionTableAndBoxAsync` chạy SAU commit —
+>   giờ wrap try/catch + log error, background job sẽ retry release nếu fail.
+> - **GAP-07 (WalkInWindow metric):** Structured log `walkin_window_creation_failed` + sessionId
+>   để monitor fail rate qua Grafana/Loki.
+> - **GAP-08 (Lobby close fail):** `ReleaseMembersAndCloseLobbyAsync` giờ try/catch — fail vẫn
+>   commit payment để customer không mất tiền.
+> - **GAP-09 (Mock webhook session):** `DebugSessionPaymentController.MockSuccess` gọi qua
+>   `PaymentService.HandleSePayWebhookAsync` thay vì update DB trực tiếp → debug chạy đúng flow thật.
+> - **GAP-10 (Webhook audit table):** Mọi webhook nhận được ghi vào `PaymentWebhookAudits`
+>   table (payload + result + sessionId) để admin query/debug/refund.
+> - **GAP-11 (Amount mismatch counter):** `PaymentWebhookAudits` index `(Result, ProcessedAt)` để
+>   query `count(Result='amount_mismatch', since=...)` — alert nếu > 5/giờ.
+> - **GAP-12 (Penalty idempotent):** `member.PenaltyAmount = penalty.PenaltyAmount` thay vì `+=`
+>   để tránh cộng dồn khi webhook retry.
+> - **GAP-13 (AddLateMember guard):** `Status != Paid && Status != Closed` — không cho add member
+>   vào session đã terminal.
+> - **GAP-14 (WalkInWindow idempotent):** Trước khi tạo WalkInWindow mới, check
+>   `GetActiveWindowByReservationIdAsync` — nếu đã có → trả về window cũ (no-op).
+>
 > **🐛 Bug fixes phát hiện khi review (Bug #1, #3, #4 — 2026-08-10):**
 > - **Bug #1 (member.Subtotal duplicate):** `BuildMemberInvoices` tính lại `memberSubtotal` từ
 >   `LeftAt - JoinedAt` → khác với `session.Subtotal` (persist từ Checkout) nếu `cafe.BasePrice` đổi.

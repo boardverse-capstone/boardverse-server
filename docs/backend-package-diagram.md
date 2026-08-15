@@ -60,11 +60,11 @@ flowchart TB
  subgraph DATA["BoardVerse.Data (Infrastructure Layer)"]
  DbContext["BoardVerseDbContext + Migrations"]
  Repos["Repositories (53)"]
- Configs["EF Configurations (49) + Converters"]
+ Configs["EF Configurations (50) + Converters"]
  end
 
  subgraph CORE["BoardVerse.Core (Domain Layer)"]
- Entities["Entities (71) + Enums (67)"]
+ Entities["Entities (72) + Enums (67)"]
  DTOs["DTOs (187 files, ~280 types)"]
  Interfaces["IRepositories (54) + IServices (64)"]
  Common["Settings + Constants + Helpers + Messages"]
@@ -110,7 +110,7 @@ flowchart TB
 ```mermaid
 flowchart LR
  subgraph Core["BoardVerse.Core"]
- Entities["Entities/ (71 entities)"]
+ Entities["Entities/ (72 entities)"]
  Enums["Enum/ (67 enums)"]
  DTOs["DTOs/ (~280 DTO records/classes trong 27 folder con)"]
  IfaceRepo["IRepositories/ (54 interface)"]
@@ -127,7 +127,7 @@ flowchart LR
  end
 ```
 
-#### A.1. `Entities/` — 71 POCO entity
+#### A.1. `Entities/` — 72 POCO entity
 
 | # | Entity | Mô tả ngắn |
 |---|---|---|
@@ -177,6 +177,7 @@ flowchart LR
 | 44 | `MatchHistoryParticipant` | Người chơi trong match history |
 | 45 | `MatchResult` | Kết quả trận đấu |
 | 46 | `OutboxEvent` | Transactional outbox cho event |
+| 46a | `PaymentWebhookAudit` | Audit log cho mỗi webhook SePay nhận được (orderId, gateway, amount, status, payload, remoteIp) |
 | 47 | `PlayerActionHistory` | Audit admin action |
 | 48 | `PlayerAlert` | Cảnh báo cho admin |
 | 49 | `PlayerKarmaRating` | Điểm Karma |
@@ -202,6 +203,7 @@ flowchart LR
 | 69 | `WalkInBooking` | Walk-in booking (legacy + mới) |
 | 70 | `WalkInWindow` | Cửa sổ walk-in cho slot trống |
 | 71 | `Wallet` | Ví BVC của user |
+| 72 | `PaymentWebhookAudit` | Audit log webhook SePay (gộp chung vị trí theo alphabet — xem chi tiết ở § 1.3.4 của `backend-entities-diagram.md`) |
 
 #### A.2. `Enum/` — 67 enum nghiệp vụ
 
@@ -275,7 +277,7 @@ flowchart LR
 | 66 | `WalkInWindowStatus` | Open/Closed/Expired |
 | 67 | `PayTrigger` | (đã liệt kê ở #37) |
 
-#### A.3. `IRepositories/` — 54 interface repositories
+#### A.3. `IRepositories/` — 55 interface repositories
 
 | # | Repository Interface |
 |---|---|
@@ -316,6 +318,7 @@ flowchart LR
 | 35 | `ILobbyRepository` |
 | 36 | `IMatchResultRepository` |
 | 37 | `IOutboxRepository` |
+| 37a | `IPaymentWebhookAuditRepository` |
 | 38 | `IPlayerAlertRepository` (+ inner `PlayerAlertQuery`) |
 | 39 | `IPlayerRiskScoreRepository` |
 | 40 | `IPosCheckInTokenRepository` |
@@ -556,15 +559,15 @@ Tổng số file theo từng folder con:
 flowchart LR
  subgraph Data["BoardVerse.Data"]
  DbCtx["BoardVerseDbContext (EF Core)"]
- Configs["Configurations/ (49 IEntityTypeConfiguration<T>)"]
- Repos["Repositories/ (53 concrete repos)"]
+ Configs["Configurations/ (50 IEntityTypeConfiguration<T>)"]
+ Repos["Repositories/ (54 concrete repos)"]
  Converters["Converters/ (DepositSnapshotConverter)"]
  Helpers["Helpers/ (GameSearchHelper)"]
  Migrations["Migrations/ (EF Core migrations)"]
  end
 ```
 
-#### B.1. `Configurations/` — 49 `IEntityTypeConfiguration<T>`
+#### B.1. `Configurations/` — 50 `IEntityTypeConfiguration<T>`
 
 | # | Configuration |
 |---|---|
@@ -599,6 +602,7 @@ flowchart LR
 | 29 | `LobbyNotificationSentConfiguration` |
 | 30 | `MatchResultConfiguration` (+ inner `MatchHistoryConfiguration`, `MatchHistoryParticipantConfiguration`) |
 | 31 | `OutboxEventConfiguration` |
+| 31a | `PaymentWebhookAuditConfiguration` |
 | 32 | `PlayerActionHistoryConfiguration` |
 | 33 | `PlayerAlertConfiguration` |
 | 34 | `PlayerLocationHistoryConfiguration` |
@@ -618,7 +622,7 @@ flowchart LR
 | 48 | `WalkInWindowConfiguration` |
 | 49 | `WalletConfiguration` |
 
-#### B.2. `Repositories/` — 53 concrete repository
+#### B.2. `Repositories/` — 54 concrete repository
 
 | # | Repository |
 |---|---|
@@ -658,6 +662,7 @@ flowchart LR
 | 34 | `LobbyRepository` |
 | 35 | `MatchResultRepository` |
 | 36 | `OutboxRepository` |
+| 36a | `PaymentWebhookAuditRepository` |
 | 37 | `PlayerAlertRepository` |
 | 38 | `PlayerRiskScoreRepository` |
 | 39 | `PosCheckInTokenRepository` |
@@ -1051,7 +1056,7 @@ flowchart LR
 | **Booking (Flow B — legacy)** | `BookingController`, `CafeBookingController` | `BookingService`, `BookingDepositService`, `CafeBookingService`, `LegacyBookingCleanupService` | `IBookingRepository`, `IBookingDepositRepository` | `Booking`, `BookingDeposit`, `BookingRating`, `BookingNoShowVote` |
 | **Lobby / Matchmaking** | `LobbyController`, `LobbyInviteController`, `FriendController`, `TournamentController` | `LobbyService`, `LobbyInviteService`, `LobbyMessageService`, `FriendService` | `ILobbyRepository`, `ILobbyInviteRepository`, `ILobbyMemberRepository`, `ILobbyMessageRepository`, `IFriendshipRepository` | `Lobby`, `LobbyMember`, `LobbyInvite`, `LobbyMessage`, `Friendship`, `LobbyAtRiskWarning`, `LobbyNotificationSent` |
 | **Active Session / POS** | `CafePosController`, `PlayerCheckInController`, `ReceiptController`, `TournamentPosController` | `CafePosService`, `ActiveSessionService`, `PlayerCheckInService`, `ReceiptService`, `TournamentService` | `IActiveSessionRepository`, `ICafePosRepository`, `IPosCheckInTokenRepository` | `ActiveSession`, `ActiveSessionMember`, `ActiveSessionGame`, `PosCheckInToken`, `CafeTable`, `CafeShift` |
-| **Payment / Wallet (BVC + SePay)** | `PaymentController`, `SePayWebhookController`, `DebugSePayController`, `WalletController`, `AdminWalletController` | `PaymentService`, `PaymentGatewayService`, `SePayClient`, `VietQrClient`, `QrImageProxyService`, `WalletService`, `BvcRefundRequestService`, `ManualPaymentService` | `IBvcLedgerEntryRepository`, `IBvcTopUpRequestRepository`, `IBvcRefundRequestRepository`, `ITransactionRepository`, `ISePayAccountRepository`, `IRefundTransactionRepository` | `BvcLedgerEntry`, `BvcTopUpRequest`, `BvcRefundRequest`, `Transaction`, `RefundTransaction`, `SePayAccount`, `BookingDeposit` |
+| **Payment / Wallet (BVC + SePay)** | `PaymentController`, `SePayWebhookController`, `DebugSePayController`, `WalletController`, `AdminWalletController` | `PaymentService`, `PaymentGatewayService`, `SePayClient`, `VietQrClient`, `QrImageProxyService`, `WalletService`, `BvcRefundRequestService`, `ManualPaymentService` | `IBvcLedgerEntryRepository`, `IBvcTopUpRequestRepository`, `IBvcRefundRequestRepository`, `ITransactionRepository`, `ISePayAccountRepository`, `IRefundTransactionRepository`, `IPaymentWebhookAuditRepository` | `BvcLedgerEntry`, `BvcTopUpRequest`, `BvcRefundRequest`, `Transaction`, `RefundTransaction`, `SePayAccount`, `BookingDeposit`, `PaymentWebhookAudit` |
 | **Cafe Management** | `CafeController`, `CafeScheduleController`, `CafeInventoryController`, `CafeShiftController`, `CafeSettlementController`, `CafePartnerApplicationController` | `CafeService`, `CafeScheduleService`, `CafeInventoryService`, `CafeShiftService`, `CafePartnerApplicationService`, `SettlementService` | `ICafeRepository`, `ICafeConfigRepository`, `ICafeInventoryRepository`, `ICafeShiftRepository`, `ICafePartnerApplicationRepository`, `ICafeSettlementRepository`, `ICafeScheduleOverrideRepository` | `Cafe`, `CafeConfig`, `CafeScheduleOverride`, `CafeGameInventory`, `CafeInventoryBox`, `CafeGameComponentPenalty`, `CafeShift`, `CafeSettlement`, `CafePartnerApplication`, `CafeStaff`, `CafeTable` |
 | **Karma / Rating** | `KarmaController`, `UserRatingController`, `BookingRatingController` | `KarmaService`, `KarmaRatingService`, `PlayerKarmaService`, `KarmaConfigurationService`, `LevelingService`, `LeaderboardService` | `IKarmaRatingRepository`, `IKarmaShortPlayRecordRepository` | `PlayerKarmaRating`, `KarmaLog`, `KarmaShortPlayRecord`, `MatchHistory`, `MatchHistoryParticipant` |
 | **Risk / Cooling-off / Admin Moderation** | `AdminModerationController`, `AdminReportController`, `AdminCafeController` | `PlayerRiskScoreService`, `PlayerRiskQueryService`, `PlayerAlertService`, `CoolingOffService`, `AdminModerationService`, `AdminReportService` | `IPlayerRiskScoreRepository`, `IPlayerAlertRepository`, `IAdminModerationRepository` | `PlayerRiskScore`, `PlayerAlert`, `PlayerActionHistory`, `PlayerAccountLink`, `RiskScoreHistory`, `Wallet` |
@@ -1105,8 +1110,8 @@ flowchart LR
 ## 1.2.7 Tóm tắt
 
 - Backend BoardVerse tuân thủ **Clean Architecture 4-tier** rất rõ ràng: `API → Services → Data → Core`, không có cycle, không có layer "nhảy cóc".
-- `Core` chứa **71 entity + 67 enum + 54 IRepositories + 64 IServices + 187 file DTO (~280 DTO types) + 8 Settings + 26 Helpers + 41 Exception + 3 Messages** — là nguồn sự thật duy nhất về domain.
-- `Data` ánh xạ domain → Postgres/PostGIS qua 49 `IEntityTypeConfiguration` và 53 repository; toàn bộ schema đi qua EF migration.
+- `Core` chứa **72 entity + 67 enum + 55 IRepositories + 64 IServices + 187 file DTO (~280 DTO types) + 8 Settings + 26 Helpers + 41 Exception + 3 Messages** — là nguồn sự thật duy nhất về domain.
+- `Data` ánh xạ domain → Postgres/PostGIS qua 50 `IEntityTypeConfiguration` và 54 repository; toàn bộ schema đi qua EF migration.
 - `Services` dày nhất với 61 concrete service + 64 interface, được nhóm theo bounded context trong folder con (`Payments`, `Bgg`, `Email`, `Geocoding`, `Notifications`).
 - `API` gồm 57 controller, 4 SignalR hub, 23 background job, 1 global middleware, 3 filter, 2 JWT helper — entry point duy nhất cho client.
 - Mọi package trong `Core` được thiết kế **persistence-ignorant** (không biết EF, không biết HTTP), đảm bảo có thể thay đổi infrastructure mà không động vào business rule.

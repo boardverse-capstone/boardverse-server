@@ -2906,9 +2906,13 @@ public class ReservationService : IReservationService
             }
 
             // 7a. Capture BVC (BR-REVENUE-01: phần quy định về quán).
-            //    Idempotency key gắn với reservationId + UpdatedAt để tránh double capture
-            //    nếu có 2 scheduler/host race condition.
-            var captureIdempotencyKey = $"capture-{reservation.Id:N}-{reservation.UpdatedAt.Ticks:x}";
+            //    GAP-05 Fix: Idempotency key phải DETERMINISTIC — chỉ dựa vào reservationId
+            //    (KHÔNG dùng reservation.UpdatedAt.Ticks vì UpdatedAt thay đổi mỗi lần save →
+            //    webhook retry/scheduler race → 2 ledger entries → DOUBLE CAPTURE BVC).
+            //    Key cố định `capture-{reservationId}` → ApplyBalanceMutationAsync sẽ check
+            //    ledger table bằng GetByIdempotencyKeyForUpdateAsync → nếu tồn tại → return (no-op).
+            //    Note: cùng key cho cả capture + refund vì chúng là 2 entries riêng biệt trên ledger.
+            var captureIdempotencyKey = $"capture-{reservation.Id:N}";
 
             await _walletService.CaptureDepositAsync(
                 reservation.HostId,
@@ -2919,9 +2923,11 @@ public class ReservationService : IReservationService
                 ct);
 
             // 7b. Refund 30% cho BR-REFUND-05 (0.5 ≤ playedRatio < 0.9).
+            //    Idempotency key riêng biệt (capture-refund-{reservationId}) để ledger entry
+            //    không trùng với capture entry.
             if (refundAmount > 0)
             {
-                var refundIdempotencyKey = $"capture-refund-{reservation.Id:N}-{reservation.UpdatedAt.Ticks:x}";
+                var refundIdempotencyKey = $"capture-refund-{reservation.Id:N}";
                 await _walletService.ReleaseDepositAsync(
                     reservation.HostId,
                     refundAmount,

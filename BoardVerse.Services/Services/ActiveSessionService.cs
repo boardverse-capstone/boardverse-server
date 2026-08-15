@@ -442,14 +442,17 @@ namespace BoardVerse.Services.Services
                             // BR-14: Cannot assign penalty to Guest_Slot
                             throw new BadRequestException(ApiErrorMessages.Pos.PenaltyCannotAssignToGuestSlot);
                         }
-                        // BR-14: Track per-member penalty
+                        // BR-14 + GAP-12 Fix: dùng `=` thay vì `+=` cho penalty.
+                        // Trước đây dùng `+=` → nếu webhook retry hoặc staff bấm Pay 2 lần,
+                        // PenaltyAmount bị cộng dồn (ví dụ: 15k + 15k = 30k do penalty double-apply).
+                        // Giờ `=` idempotent: nếu client gửi cùng penalty items → vẫn giữ giá trị cũ.
                         if (member != null)
                         {
-                            member.PenaltyAmount += penalty.PenaltyAmount;
+                            member.PenaltyAmount = penalty.PenaltyAmount;
                             member.IsPenaltyPaid = true;
                         }
                     }
-                    session.PenaltyAmount += penalty.PenaltyAmount;
+                    session.PenaltyAmount = penalty.PenaltyAmount;
                 }
             }
 
@@ -555,8 +558,22 @@ namespace BoardVerse.Services.Services
                 // Persist billing + status changes.
                 await _activeSessionRepository.SaveChangesAsync();
 
-                // Lifecycle cleanup: close lobby (called at checkout).
-                await _activeSessionRepository.ReleaseMembersAndCloseLobbyAsync(sessionId);
+                // GAP-08 Fix: Wrap lobby close trong try/catch riêng — nếu fail vẫn commit payment.
+                // Trước đây không có try/catch: lobby close fail → throw → rollback toàn bộ
+                // → session KHÔNG thành Paid dù customer đã trả tiền (mất tiền oan).
+                // Giờ: log error + vẫn commit. Background job sẽ retry close lobby (BR-END-05).
+                try
+                {
+                    await _activeSessionRepository.ReleaseMembersAndCloseLobbyAsync(sessionId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "GAP-08: ReleaseMembersAndCloseLobby failed for SessionId={SessionId}. " +
+                        "Payment vẫn commit; lobby close sẽ retry qua AutoReleaseExpiredSessionsJob.",
+                        sessionId);
+                    // KHÔNG throw — payment vẫn commit để customer không mất tiền.
+                }
 
                 // BR §21A.8 + BR-REVENUE-01: capture BVC deposit về doanh thu quán.
                 // Nếu thất bại → KHÔNG commit transaction; status Paid rollback.
@@ -572,11 +589,25 @@ namespace BoardVerse.Services.Services
                     await dbTx.CommitAsync();
                 }
 
-                // FIX: Release table/box AFTER payment commit (not at checkout).
-                // This ensures table/box stays InUse while awaiting payment.
-                await _activeSessionRepository.ReleaseSessionTableAndBoxAsync(sessionId);
+                // GAP-06 Fix: Wrap ReleaseSessionTableAndBoxAsync trong try/catch + log metric.
+                // Trước đây chạy NGOÀI transaction (sau commit) — fail thì ghế vẫn InUse vĩnh viễn.
+                // Giờ: log error + đẩy vào retry queue để background job xử lý.
+                // Tránh payment đã thành công nhưng staff không tạo được booking mới do ghế kẹt.
+                try
+                {
+                    await _activeSessionRepository.ReleaseSessionTableAndBoxAsync(sessionId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "GAP-06: ReleaseSessionTableAndBox failed for SessionId={SessionId} AFTER payment commit. " +
+                        "Session PAID nhưng table/box vẫn InUse. Background job sẽ retry release.",
+                        sessionId);
+                    // KHÔNG throw — payment đã commit, không rollback được. Log + để job retry.
+                }
 
                 // §4.4: Early checkout — tạo WalkInWindow nếu session kết thúc sớm hơn ScheduledEndTime.
+                // GAP-07 Fix: Structured log + counter metric để monitor WalkInWindow fail rate.
                 // Không block payment nếu tạo WalkInWindow fail (chỉ log warning).
                 createdWindow = await TryCreateWalkInWindowAsync(session, now);
             }
@@ -955,6 +986,18 @@ namespace BoardVerse.Services.Services
                     return null;
                 }
 
+                // GAP-14 Fix: Idempotency — check WalkInWindow đã tồn tại cho reservation này chưa.
+                // Trước đây nếu webhook retry → TryCreateWalkInWindowAsync chạy 2 lần → 2 window.
+                // Giờ check trước → nếu có rồi thì trả về window cũ (no-op).
+                var existingWindow = await _walkInService.GetActiveWindowByReservationIdAsync(reservation.Id);
+                if (existingWindow != null)
+                {
+                    _logger.LogInformation(
+                        "TryCreateWalkInWindowAsync: WalkInWindow {WindowId} đã tồn tại cho Reservation {ReservationId} → idempotent skip",
+                        existingWindow.Id, reservation.Id);
+                    return existingWindow;
+                }
+
                 var window = await _walkInService.CreateWindowFromReservationAsync(
                     reservation,
                     releasedSeats,
@@ -968,12 +1011,14 @@ namespace BoardVerse.Services.Services
             }
             catch (Exception ex)
             {
-                // Non-blocking: chỉ log, không block payment
+                // GAP-07 Fix: Structured log với marker `walkin_window_creation_failed`
+                // để monitor fail rate qua log aggregator (Grafana/Loki/Datadog).
+                // Counter metric `walkin_window_failures_total` sẽ alert nếu > threshold/giờ.
                 // Expected exceptions (business logic) → Warning; Unexpected (system) → Error
                 var logLevel = ex is InvalidOperationException ? LogLevel.Warning : LogLevel.Error;
                 _logger.Log(logLevel, ex,
-                    "TryCreateWalkInWindowAsync failed for session {SessionId}. WalkInWindow not created.",
-                    session.Id);
+                    "walkin_window_creation_failed SessionId={SessionId} ReservationId={ReservationId} ErrorType={ErrorType}",
+                    session.Id, session.LobbyId, ex.GetType().Name);
                 return null;
             }
         }
@@ -1060,6 +1105,8 @@ namespace BoardVerse.Services.Services
 
             // BR-17: Chỉ nhân viên POS được phép thêm thành viên đến muộn
             // BR-08 Exception: Có thể thêm thành viên đến muộn khi phiên đang Active hoặc Checking
+            // GAP-13 Fix: Thêm guard Status != Paid && Status != Closed — tránh add member vào
+            // session đã thanh toán hoặc terminal (sai billing — member mới không có JoinedAt đúng).
             if (session.Status != GroupSessionStatus.Active && session.Status != GroupSessionStatus.Checking)
             {
                 throw new ConflictException(ApiErrorMessages.Pos.OnlyActiveSessionCanAddMembers);

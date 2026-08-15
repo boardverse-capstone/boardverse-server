@@ -128,6 +128,36 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
 
         options.Events = JwtBearerEventHandlers.Create();
+
+        // SignalR WebSocket clients (browser @microsoft/signalr, mobile clients) cannot set custom
+        // headers on the WebSocket handshake, so they pass the JWT via the `access_token` query
+        // string. Lift it into the bearer pipeline for hub paths only; REST endpoints keep the
+        // default Authorization-header behaviour.
+        options.Events.OnMessageReceived = context =>
+        {
+            var path = context.HttpContext.Request.Path;
+            if (!path.StartsWithSegments("/hubs"))
+            {
+                return Task.CompletedTask;
+            }
+
+            var accessToken = context.Request.Query["access_token"];
+            if (string.IsNullOrEmpty(accessToken))
+            {
+                return Task.CompletedTask;
+            }
+
+            // Reject obviously malformed tokens early to avoid passing garbage downstream.
+            var token = accessToken.ToString();
+            var parts = token.Split('.');
+            if (parts.Length != 3)
+            {
+                return Task.CompletedTask;
+            }
+
+            context.Token = token;
+            return Task.CompletedTask;
+        };
     });
 
 // Add Authorization
@@ -190,6 +220,7 @@ builder.Services.AddScoped<IMatchResultRepository, MatchResultRepository>();
 builder.Services.AddScoped<IAdminModerationRepository, AdminModerationRepository>();
 builder.Services.AddScoped<IPlayerAlertRepository, PlayerAlertRepository>(); // R-01
 builder.Services.AddScoped<IPlayerRiskScoreRepository, PlayerRiskScoreRepository>(); // BR-RISK-01
+builder.Services.AddScoped<IPaymentWebhookAuditRepository, PaymentWebhookAuditRepository>(); // GAP-10
 builder.Services.AddScoped<ISystemConfigurationRepository, SystemConfigurationRepository>();
 builder.Services.AddScoped<ICafePartnerApplicationRepository, CafePartnerApplicationRepository>();
 builder.Services.AddScoped<IBookingDepositRepository, BookingDepositRepository>();
