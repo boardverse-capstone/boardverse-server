@@ -49,21 +49,33 @@ namespace BoardVerse.Core.DTOs.Lobby
         public List<LobbyMemberDto> Members { get; set; } = new();
     }
 
-    /// <summary>
-    /// Response sau khi host giải tán lobby (hard delete).
-    /// </summary>
-    public class DissolveLobbyResponseDto
-    {
-        /// <summary>LobbyId đã bị xóa.</summary>
-        public Guid LobbyId { get; set; }
+/// <summary>
+/// Response sau khi host giải tán lobby (soft delete — row vẫn còn để phục vụ audit + risk signals).
+///
+/// GAP #1 + #6 fix (2026-08-16): host trước đây không được hoàn BVC và inventory không được giải phóng.
+/// BR-REFUND-02/03: refund matrix theo thời điểm hủy (grace 15p / 24h / 6h / dưới 6h).
+/// </summary>
+public class DissolveLobbyResponseDto
+{
+    /// <summary>LobbyId đã chuyển sang trạng thái Dissolved (terminal, soft-deleted).</summary>
+    public Guid LobbyId { get; set; }
 
-        /// <summary>ReservationId liên kết (nếu có). Trạng thái reservation được chuyển về Holding.</summary>
-        public Guid? ReservationId { get; set; }
+    /// <summary>ReservationId liên kết (nếu có). Trạng thái reservation được chuyển sang CancelledByPlayer.</summary>
+    public Guid? ReservationId { get; set; }
 
-        /// <summary>Lý do giải tán.</summary>
-        public string? Reason { get; set; }
+    /// <summary>Lý do giải tán.</summary>
+    public string? Reason { get; set; }
 
-        /// <summary>Thời điểm giải tán.</summary>
-        public DateTime DissolvedAt { get; set; }
-    }
+    /// <summary>Thời điểm giải tán.</summary>
+    public DateTime DissolvedAt { get; set; }
+
+    /// <summary>Số BVC hoàn trả lại ví <c>availableBalance</c> của host (BR-REFUND-02/03).</summary>
+    public long RefundBvc { get; set; }
+
+    /// <summary>Số BVC bị forfeit (giữ lại thuộc doanh thu quán khi hủy dưới 6h hoặc quá grace).</summary>
+    public long ForfeitBvc { get; set; }
+
+    /// <summary>Tên policy áp dụng (grace-15p-no-member, cancel-24h, cancel-6h, cancel-under-6h).</summary>
+    public string? RefundPolicyApplied { get; set; }
+}
 }

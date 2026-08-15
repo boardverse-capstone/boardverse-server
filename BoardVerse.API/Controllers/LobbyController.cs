@@ -189,18 +189,19 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Host giải tán lobby — hard delete toàn bộ records (Lobby + Members + Messages + Invites + Reports).
-        /// Chỉ host mới được gọi. Không áp dụng khi lobby đã check-in tại quán hoặc đã đóng/rating.
-        /// Giải phóng reservation về Holding để host tạo lobby mới cùng slot. [Role: Player — chỉ Host]
+        /// Host giải tán lobby — soft delete (row vẫn còn để phục vụ audit + risk signals).
+        /// Tính refund BVC theo BR-REFUND-02/03 (grace 15p / 24h / 6h trước giờ chơi) + giải phóng
+        /// SeatInventory/GameInventory atomic với status flip. Chỉ host mới được gọi. Không áp dụng
+        /// khi lobby đã check-in tại quán, đã đóng, hoặc đã terminal. [Role: Player — chỉ Host]
         /// </summary>
         /// <param name="lobbyId">Mã phòng chờ.</param>
         /// <param name="request">Lý do giải tán (optional).</param>
-        /// <response code="200">Phòng chờ đã giải tán.</response>
+        /// <response code="200">Phòng chờ đã giải tán. Response có kèm RefundBvc/ForfeitBvc/RefundPolicyApplied.</response>
         /// <response code="401">Thiếu token.</response>
         /// <response code="403">Không phải Host.</response>
         /// <response code="404">Không tìm thấy phòng chờ.</response>
         /// <response code="409">Phòng đã đóng hoặc đang trong phiên chơi, không thể giải tán.</response>
-        /// <response code="500">Lỗi hệ thống.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpDelete("{lobbyId:guid}")]
         public async Task<IActionResult> DissolveLobby(Guid lobbyId, [FromBody] DissolveLobbyRequestDto? request)
         {

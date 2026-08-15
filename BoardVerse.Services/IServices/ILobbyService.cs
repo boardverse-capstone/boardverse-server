@@ -52,9 +52,9 @@ namespace BoardVerse.Services.IServices
         Task<LobbyResponseDto> CloseLobbyAsync(Guid lobbyId, Guid hostUserId, string? reason = null);
 
         /// <summary>
-        /// Host giải tán lobby — hard delete toàn bộ records (Lobby + Members + Messages + Invites + Reports).
-        /// Chỉ áp dụng khi lobby chưa check-in tại quán (status ≠ InProgress/Closed/RatingOpen).
-        /// Giải phóng reservation → Holding (nếu có) để host có thể tạo lobby mới cùng slot.
+        /// Host giải tán lobby — soft delete (row vẫn còn để audit + risk signals).
+        /// Tính refund BVC theo BR-REFUND-02/03 (grace 15p / 24h / 6h) + giải phóng SeatInventory/GameInventory.
+        /// Chỉ áp dụng khi lobby chưa check-in tại quán.
         /// </summary>
         Task<DissolveLobbyResponseDto> DissolveLobbyAsync(Guid lobbyId, Guid hostUserId, string? reason = null);
 
