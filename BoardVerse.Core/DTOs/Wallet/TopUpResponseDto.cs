@@ -11,6 +11,13 @@ public class TopUpResponseDto
     /// <summary>URL QR code (deposit qua SePay/VietQR).</summary>
     public string? QrUrl { get; set; }
 
+    /// <summary>
+    /// Ảnh QR dạng PNG đã encode Base64 (QR do backend proxy từ vietqr.app, server-to-server
+    /// — bypass CORS cho Flutter Web). Mobile có thể dùng trực tiếp <c>Image.memory(bytes)</c>;
+    /// null nếu upstream vietqr.app không fetch được (client vẫn có <c>QrUrl</c> để fallback).
+    /// </summary>
+    public string? QrImageBase64 { get; set; }
+
     /// <summary>Mã order gửi sang gateway (cho tra cứu).</summary>
     public string OrderId { get; set; } = string.Empty;
 

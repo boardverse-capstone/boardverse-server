@@ -54,7 +54,11 @@ namespace BoardVerse.Services.Services
             return MapToDto(cafe);
         }
 
-        public async Task<CafeDetailDto> GetCafeDetailAsync(Guid cafeId, double? latitude = null, double? longitude = null)
+        public async Task<CafeDetailDto> GetCafeDetailAsync(
+            Guid cafeId,
+            double? latitude = null,
+            double? longitude = null,
+            bool includeSensitiveInfo = false)
         {
             var cafe = await _cafeRepository.GetCafeDetailAsync(cafeId);
             if (cafe == null)
@@ -129,17 +133,25 @@ namespace BoardVerse.Services.Services
 
                 // Operational Status
                 OperationalStatus = cafe.PartnerOperationalStatus?.ToString() ?? "ACTIVE",
-                OperationalStatusReason = cafe.PartnerOperationalStatusReason,
+                OperationalStatusReason = includeSensitiveInfo ? cafe.PartnerOperationalStatusReason : null,
                 IsCurrentlyOpen = isCurrentlyOpen,
 
                 // Refund Policy (BR-18)
                 RefundPolicy = cafe.RefundPolicy.ToString(),
                 RefundTiers = refundTiers,
 
-                // Deposit Configuration
-                DepositRatePerPerson = 10, // Default từ BR-DEPOSIT-03
+                // Deposit Configuration (BR-DEPOSIT-03 + BR-NEW-01 defaults)
+                DepositRatePerPerson = 10,
+                MinDeposit = new CafeMinDepositDto
+                {
+                    SameDay = 50_000,
+                    OneDay = 50_000,
+                    TwoDays = 100_000,
+                    ThreeToFourDays = 150_000,
+                    FiveToSevenDays = 200_000
+                },
 
-                // BR-NEW-12: CafeConfig
+                // BR-NEW-12: CafeConfig defaults
                 CafeConfig = new CafeConfigDto
                 {
                     Capacity = cafe.TotalSeats,
@@ -482,17 +494,9 @@ namespace BoardVerse.Services.Services
                 // === Operational ===
                 OperationalStatus = cafe.PartnerOperationalStatus?.ToString() ?? "ACTIVE",
                 OperationalStatusReason = cafe.PartnerOperationalStatusReason,
-                IsCurrentlyOpen = true, // populated async nếu cần; default true cho mobile
 
                 // === Refund ===
                 RefundPolicy = cafe.RefundPolicy.ToString(),
-
-                // === Deposit ===
-                DepositRatePerPerson = 10,
-
-                // === Pricing model ===
-                PricingModel = (CafePricingModel)(int)cafe.BillingModel,
-                LockPricingWhileOpen = true,
 
                 // === Schedule ===
                 WeekdayOpen = cafe.WeekdayOpen.HasValue
@@ -511,8 +515,6 @@ namespace BoardVerse.Services.Services
                 // === Manager-only fields (ẩn nếu isStaff) ===
                 ManagerId = isStaff ? Guid.Empty : cafe.ManagerId,
                 DefaultHoldDurationMinutes = cafe.DefaultHoldDurationMinutes,
-                MaxAdvanceBookingDays = 7, // BR-NEW-01: hard limit
-                StrictSchedule = false,
 
                 // === Audit ===
                 UpdatedAt = cafe.UpdatedAt,
@@ -523,13 +525,11 @@ namespace BoardVerse.Services.Services
             var utcNow = DateTime.UtcNow;
             var today = DateOnly.FromDateTime(utcNow);
             var weekEnd = utcNow.AddDays(7);
-            var monthStart = new DateTime(utcNow.Year, utcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
 
             int staffCount = cafe.StaffMembers?.Count ?? 0;
             int upcomingBookingsCount;
             int activeLobbiesToday;
             int pendingCafeApprovalCount;
-            decimal? currentMonthRevenue;
             long heldDepositTotal;
             int availableSeats;
             int heldSeats;
@@ -537,7 +537,6 @@ namespace BoardVerse.Services.Services
             Dictionary<TimeSlot, int>? seatsBySlot = null;
             List<CafeScheduleOverride>? scheduleOverrides = null;
             List<RefundTierDto>? refundTiers = null;
-            CafeConfigDto? cafeConfig = null;
 
             try
             {
@@ -580,11 +579,6 @@ namespace BoardVerse.Services.Services
                     .Select(slot => _reservationRepository.GetActiveByCafePlayDateSlotAsync(cafe.Id, today, slot));
                 var slotResults = await Task.WhenAll(slotTasks);
                 activeLobbiesToday = slotResults.Sum(r => r.Count);
-                // Current month revenue: tổng doanh thu từ ActiveSession PAID trong tháng.
-                // TODO: thêm IActiveSessionRepository.GetMonthlyRevenueAsync(cafeId, year, month).
-                // Hiện tại CafeService không inject IActiveSessionService => để null cho dashboard.
-                _ = monthStart;
-                currentMonthRevenue = null;
 
                 // Held deposit total: t�ng HeldBalance của các player có Reservation active tại cafe này
                 // (Reservation.DepositAmount đang giữ trong ví BVC)
@@ -597,11 +591,10 @@ namespace BoardVerse.Services.Services
             }
             catch (Exception)
             {
-                // Nếu query fail (DB tạm không khả dụng), fallback 0/null để manager dashboard vẫn render.
+                // Nếu query fail (DB tạm không khả dụng), fallback 0 để manager dashboard vẫn render.
                 upcomingBookingsCount = 0;
                 activeLobbiesToday = 0;
                 pendingCafeApprovalCount = 0;
-                currentMonthRevenue = null;
                 heldDepositTotal = 0;
                 availableSeats = 0;
                 heldSeats = 0;
@@ -612,7 +605,6 @@ namespace BoardVerse.Services.Services
             dto.UpcomingBookingsCount = upcomingBookingsCount;
             dto.ActiveLobbiesToday = activeLobbiesToday;
             dto.PendingCafeApprovalLobbiesCount = pendingCafeApprovalCount;
-            dto.CurrentMonthRevenue = currentMonthRevenue;
             dto.HeldDepositTotal = heldDepositTotal;
             dto.AvailableSeats = availableSeats;
             dto.HeldSeats = heldSeats;
@@ -646,8 +638,18 @@ namespace BoardVerse.Services.Services
             }
             dto.RefundTiers = refundTiers;
 
-            // Cafe config (BR-NEW-12) — đang dùng giá trị default từ cafe entity + BR-NEW-01
-            // Sau khi có CafeConfigEntity riêng sẽ map từ đó
+            // Deposit Configuration (BR-DEPOSIT-03 + BR-NEW-01 defaults)
+            dto.DepositRatePerPerson = 10;
+            dto.MinDeposit = new CafeMinDepositDto
+            {
+                SameDay = 50_000,
+                OneDay = 50_000,
+                TwoDays = 100_000,
+                ThreeToFourDays = 150_000,
+                FiveToSevenDays = 200_000
+            };
+
+            // BR-NEW-12: CafeConfig defaults
             dto.CafeConfig = new CafeConfigDto
             {
                 Capacity = cafe.TotalSeats,
@@ -663,16 +665,6 @@ namespace BoardVerse.Services.Services
                 MaxTotalDepositPerUser = 500_000,
                 RecruitmentDeadlineBufferMinutes = 120,
                 CancellationGraceMinutes = 15
-            };
-
-            // Min deposit (BR-NEW-01)
-            dto.MinDeposit = new CafeMinDepositDto
-            {
-                SameDay = 50_000,
-                OneDay = 50_000,
-                TwoDays = 100_000,
-                ThreeToFourDays = 150_000,
-                FiveToSevenDays = 200_000
             };
 
             // POS-related counts
@@ -1224,6 +1216,7 @@ namespace BoardVerse.Services.Services
                 Id = c.Id,
                 Name = c.Name,
                 Address = c.Address,
+                PhoneNumber = c.PhoneNumber,
                 TotalSeats = c.TotalSeats,
                 IsActive = c.IsActive,
                 DepositPercentage = c.DepositPercentage,
@@ -1261,6 +1254,14 @@ namespace BoardVerse.Services.Services
         {
             return null;
         }
+
+        // Schedule Overrides: admin cần xem/tạo override giờ mở cửa cho ngày lễ
+        var utcNow = DateTime.UtcNow;
+        var today = DateOnly.FromDateTime(utcNow);
+        var scheduleOverrides = await _cafeRepository.GetScheduleOverridesAsync(
+            cafeId,
+            fromDate: today,
+            toDate: today.AddDays(365));
 
         return new AdminCafeDetailDto
         {
@@ -1314,6 +1315,17 @@ namespace BoardVerse.Services.Services
             HasSePayConfigured = !string.IsNullOrWhiteSpace(c.SePayMerchantId)
                                  && !string.IsNullOrWhiteSpace(c.SePayApiKey)
                                  && !string.IsNullOrWhiteSpace(c.SePaySecretKey),
+
+            // Schedule Overrides (admin cần xem/tạo override giờ mở cửa cho ngày lễ)
+            ScheduleOverrides = scheduleOverrides.Select(o => new CafeScheduleOverrideDto
+            {
+                Date = o.EffectiveFrom ?? today,
+                Reason = null,
+                OpenTime = o.StartTime,
+                CloseTime = o.EndTime,
+                IsClosed = o.IsClosed,
+                AffectedTimeSlot = o.TimeSlot
+            }).ToList(),
 
             // Audit
             CreatedAt = c.CreatedAt,

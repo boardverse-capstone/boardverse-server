@@ -1747,12 +1747,17 @@ public class ReservationService : IReservationService
                 await _reservationRepository.UpdateAsync(reservation);
                 await _lobbyRepository.UpdateAsync(lobby);
 
-                await _walletService.ForfeitDepositAsync(
-                    reservation.HostId,
-                    reservation.DepositAmount,
-                    lobby.Id,
-                    reservation.Id,
-                    forfeitIdempotencyKey);
+                // BR-REFUND-03: no-show forfeit 100%. Nếu DepositAmount = 0
+                // (test edge case hoặc quote đặc biệt) thì bỏ qua — không có gì để forfeit.
+                if (reservation.DepositAmount > 0)
+                {
+                    await _walletService.ForfeitDepositAsync(
+                        reservation.HostId,
+                        reservation.DepositAmount,
+                        lobby.Id,
+                        reservation.Id,
+                        forfeitIdempotencyKey);
+                }
 
                 await _reservationRepository.SaveChangesAsync();
 

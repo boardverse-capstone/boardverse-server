@@ -36,6 +36,7 @@ public class WalletService : IWalletService
     private readonly IUserManagementRepository _userRepository;
     private readonly IPaymentGatewayService _paymentGateway;
     private readonly ISePayAccountService _sePayAccountService;
+    private readonly IQrImageProxyService _qrImageProxy;
     private readonly ILogger<WalletService> _logger;
     private readonly BoardVerseDbContext _db; // GAP #13: cần cho BeginTransactionAsync
 
@@ -46,6 +47,7 @@ public class WalletService : IWalletService
         IUserManagementRepository userRepository,
         IPaymentGatewayService paymentGateway,
         ISePayAccountService sePayAccountService,
+        IQrImageProxyService qrImageProxy,
         ILogger<WalletService> logger,
         BoardVerseDbContext db)
     {
@@ -55,6 +57,7 @@ public class WalletService : IWalletService
         _userRepository = userRepository;
         _paymentGateway = paymentGateway;
         _sePayAccountService = sePayAccountService;
+        _qrImageProxy = qrImageProxy;
         _logger = logger;
         _db = db;
     }
@@ -132,10 +135,38 @@ public class WalletService : IWalletService
                 "Top-up idempotent hit (BvcTopUpRequest). UserId={UserId}, Key={Key}, Bvc={Bvc}, Status={Status}",
                 userId, request.IdempotencyKey, existingTopUp.ExpectedBvc, existingTopUp.Status);
 
+            // Reconstruct VietQR URL từ master account để proxy lại QR cho client
+            // (OrderId đã được lưu lúc tạo, nhưng QrUrl không persist → build lại từ master).
+            string? qrUrlForReplay = null;
+            try
+            {
+                var masterForReplay = await _sePayAccountService.GetRawMasterAccountAsync();
+                if (masterForReplay != null && masterForReplay.IsActive
+                    && !string.IsNullOrWhiteSpace(masterForReplay.BankCode)
+                    && !string.IsNullOrWhiteSpace(masterForReplay.AccountNumber))
+                {
+                    qrUrlForReplay = BuildVietQrUrl(
+                        masterForReplay,
+                        existingTopUp.AmountVnd,
+                        $"BVC-{existingTopUp.OrderId}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to reconstruct VietQR URL for idempotent replay. UserId={UserId}, OrderId={OrderId}",
+                    userId, existingTopUp.OrderId);
+            }
+
+            var replayBase64 = string.IsNullOrEmpty(qrUrlForReplay)
+                ? null
+                : await TryFetchQrBase64Async(qrUrlForReplay, userId, existingTopUp.OrderId);
+
             return new TopUpResponseDto
             {
                 PaymentUrl = existingTopUp.OrderId,
-                QrUrl = null,
+                QrUrl = qrUrlForReplay,
+                QrImageBase64 = replayBase64,
                 OrderId = existingTopUp.OrderId,
                 ExpectedBvc = existingTopUp.ExpectedBvc,
                 ExpiresAt = existingTopUp.ExpiresAt,
@@ -219,10 +250,15 @@ public class WalletService : IWalletService
             "Top-up quote created. UserId={UserId}, BvcAmount={Bvc}, OrderId={OrderId}, TopUpRequestId={TopUpRequestId}",
             userId, bvcAmount, orderId, topUpRequest.Id);
 
+        // Proxy ảnh QR từ vietqr.app về server-side để trả Base64 cho Flutter Web (bypass CORS).
+        // Fail thì vẫn trả response, chỉ thiếu QrImageBase64 — client vẫn có QrUrl để load trực tiếp.
+        var qrBase64 = await TryFetchQrBase64Async(result.QrImageUrl, userId, orderId);
+
         return new TopUpResponseDto
         {
             PaymentUrl = paymentUrl,
             QrUrl = result.QrImageUrl,
+            QrImageBase64 = qrBase64,
             OrderId = orderId,
             ExpectedBvc = bvcAmount,
             ExpiresAt = topUpRequest.ExpiresAt,
@@ -392,15 +428,71 @@ public class WalletService : IWalletService
             "Top-up amount updated. OldTopUpId={OldTopUpId}, NewTopUpId={NewTopUpId}, UserId={UserId}, OldBvc={OldBvc}, NewBvc={NewBvc}, OrderId={OrderId}",
             topUpId, newTopUp.Id, userId, existing.ExpectedBvc, bvcAmount, orderId);
 
+        var qrBase64 = await TryFetchQrBase64Async(result.QrImageUrl, userId, orderId);
+
         return new TopUpResponseDto
         {
             PaymentUrl = paymentUrl,
             QrUrl = result.QrImageUrl,
+            QrImageBase64 = qrBase64,
             OrderId = orderId,
             ExpectedBvc = bvcAmount,
             ExpiresAt = newTopUp.ExpiresAt,
             IdempotencyKey = request.IdempotencyKey
         };
+    }
+
+    /// <summary>
+    /// Proxy ảnh QR từ vietqr.app về Base64. Fail thì trả null (không throw) để không block flow.
+    /// </summary>
+    private async Task<string?> TryFetchQrBase64Async(string? qrUrl, Guid userId, string orderId)
+    {
+        if (string.IsNullOrWhiteSpace(qrUrl))
+        {
+            return null;
+        }
+
+        try
+        {
+            var base64 = await _qrImageProxy.FetchAsBase64Async(qrUrl);
+            if (base64 == null)
+            {
+                _logger.LogInformation(
+                    "QR image proxy unavailable, returning response without QrImageBase64. UserId={UserId}, OrderId={OrderId}",
+                    userId, orderId);
+            }
+            return base64;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Unexpected error fetching QR base64. UserId={UserId}, OrderId={OrderId}",
+                userId, orderId);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Build lại VietQR URL từ SePay master account + amount + description.
+    /// Dùng cho idempotent replay (BvcTopUpRequest không persist QrUrl).
+    /// </summary>
+    private static string BuildVietQrUrl(SePayAccount master, long amountVnd, string description)
+    {
+        var parts = new List<string>
+        {
+            $"bank={Uri.EscapeDataString(master.BankCode!.Trim())}",
+            $"acc={Uri.EscapeDataString(master.AccountNumber!.Trim())}",
+            "template=compact",
+            $"amount={(int)amountVnd}",
+            "showinfo=true",
+            "fullacc=true",
+            $"des={Uri.EscapeDataString(description.Trim())}"
+        };
+        if (!string.IsNullOrWhiteSpace(master.AccountHolder))
+        {
+            parts.Add($"holder={Uri.EscapeDataString(master.AccountHolder.Trim())}");
+        }
+        return $"https://vietqr.app/img?{string.Join("&", parts)}";
     }
 
     public async Task<BvcTransactionPageDto> GetTransactionsAsync(Guid userId, int page, int pageSize)
@@ -642,6 +734,75 @@ public class WalletService : IWalletService
 
         var pending = await _topUpRequestRepository.GetPendingByExactOrderIdAsync(orderId, cancellationToken);
         return pending?.OrderId;
+    }
+
+    /// <summary>
+    /// Lookup BvcTopUpRequest theo OrderId cho player hiện tại.
+    /// Trả null nếu OrderId rỗng / không tồn tại / không thuộc user.
+    /// </summary>
+    public async Task<BvcTopUpRequest?> GetTopUpByOrderIdForUserAsync(
+        string orderId,
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(orderId))
+        {
+            return null;
+        }
+
+        // OrderId được lưu dạng "BVC-{18hex}" trong DB.
+        // Nếu client gửi raw 18-char hex, lookup exact; nếu gửi cả prefix, lookup exact vẫn OK.
+        var topUp = await _topUpRequestRepository.GetByOrderIdAsync(orderId, cancellationToken);
+        if (topUp == null)
+        {
+            // Fallback: thử lookup exact 18-char nếu client gửi full "BVC-XXXX".
+            var rawHex = orderId.StartsWith("BVC-", StringComparison.OrdinalIgnoreCase)
+                ? orderId["BVC-".Length..]
+                : orderId;
+            if (rawHex.Length == 18)
+            {
+                var byHex = await _topUpRequestRepository.GetPendingByExactOrderIdAsync(rawHex, cancellationToken);
+                topUp = byHex;
+            }
+        }
+
+        if (topUp == null || topUp.UserId != userId)
+        {
+            return null;
+        }
+
+        return topUp;
+    }
+
+    /// <summary>
+    /// Proxy ảnh QR cho đơn top-up theo OrderId. Dùng cho endpoint fallback.
+    /// Re-construct VietQR URL từ SePay master (BvcTopUpRequest không persist QrUrl),
+    /// sau đó fetch base64 từ vietqr.app server-side.
+    /// </summary>
+    public async Task<Stream?> GetTopUpQrImageStreamAsync(
+        string orderId,
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        var topUp = await GetTopUpByOrderIdForUserAsync(orderId, userId, cancellationToken);
+        if (topUp == null)
+        {
+            return null;
+        }
+
+        var master = await _sePayAccountService.GetRawMasterAccountAsync();
+        if (master == null || !master.IsActive
+            || string.IsNullOrWhiteSpace(master.BankCode)
+            || string.IsNullOrWhiteSpace(master.AccountNumber))
+        {
+            _logger.LogWarning(
+                "GetTopUpQrImageStreamAsync: SePay master not configured. UserId={UserId}, OrderId={OrderId}",
+                userId, orderId);
+            return null;
+        }
+
+        var qrUrl = BuildVietQrUrl(master, topUp.AmountVnd, $"BVC-{topUp.OrderId}");
+        return await _qrImageProxy.FetchAsStreamAsync(qrUrl, cancellationToken);
     }
 
     /// <summary>

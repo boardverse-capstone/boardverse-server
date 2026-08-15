@@ -1168,9 +1168,19 @@ namespace BoardVerse.Services.Services
                 {
                     Id = m.Id,
                     UserId = m.UserId,
-                    UserName = m.User?.Username ?? string.Empty,
+                    UserName = m.IsGuestSlot
+                        ? (string.IsNullOrWhiteSpace(m.GuestDisplayName) ? "Khách vô danh" : m.GuestDisplayName)
+                        : (m.User?.Username ?? string.Empty),
+                    IsGuestSlot = m.IsGuestSlot,
                     JoinedAt = m.JoinedAt,
                     LeftAt = m.LeftAt,
+                    TotalMinutesPlayed = m.Status == IndividualSessionStatus.Finished
+                        ? m.TotalMinutesPlayed
+                        : (int)Math.Floor((utcNow - m.JoinedAt).TotalMinutes),
+                    Subtotal = 0, // Per-member subtotal is recomputed at checkout (MapInvoices/PaySession).
+                    PenaltyAmount = m.PenaltyAmount,
+                    IsCheckedOut = m.IsCheckedOut,
+                    CheckedOutAt = m.CheckedOutAt,
                     Status = m.Status
                 }).ToList() ?? [],
                 Games = session.Games?.Select(g => new ActiveSessionGameDto
@@ -1821,6 +1831,22 @@ namespace BoardVerse.Services.Services
             AddGuestSlotRequestDto request)
         {
             await EnsurePosAccessAsync(cafeId, userId, userRole);
+
+            // Accept both JSON keys "displayName" and "username" (backward-compat with older clients).
+            // Merge BEFORE re-validating length so we don't reject legitimate aliases.
+            if (string.IsNullOrWhiteSpace(request.DisplayName)
+                && !string.IsNullOrWhiteSpace(request.Username))
+            {
+                request.DisplayName = request.Username.Trim();
+            }
+
+            // GAP-17 Fix: validate after merge — name phải có ý nghĩa (2-100 ký tự, không rỗng).
+            if (string.IsNullOrWhiteSpace(request.DisplayName)
+                || request.DisplayName.Length < 2
+                || request.DisplayName.Length > 100)
+            {
+                throw new BadRequestException(ApiErrorMessages.Pos.GuestSlotDisplayNameInvalid);
+            }
 
             var result = await _activeSessionService.AddGuestSlotAsync(cafeId, sessionId, request);
 

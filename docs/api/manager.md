@@ -54,9 +54,34 @@ Response trả về `ManagerCafeDto[]` — kế thừa `CafeDetailDto` + thêm c
         { "minHoursBeforeScheduled": 12, "refundPercent": 25 },
         { "minHoursBeforeScheduled": 0,  "refundPercent": 0 }
       ],
+
+      // === Deposit defaults (BR-DEPOSIT-03 + BR-NEW-01) ===
       "depositRatePerPerson": 10,
-      "minDeposit": null,
-      "cafeConfig": null,
+      "minDeposit": {
+        "sameDay": 50000,
+        "oneDay": 50000,
+        "twoDays": 100000,
+        "threeToFourDays": 150000,
+        "fiveToSevenDays": 200000
+      },
+
+      // === CafeConfig defaults (BR-NEW-12) ===
+      "cafeConfig": {
+        "capacity": 200,
+        "maxLobbiesPerUserPerDay": 1,
+        "maxPlayersPerLobbySameDay": 30,
+        "maxPlayersPerLobby1Day": 20,
+        "maxPlayersPerLobby2Days": 15,
+        "maxPlayersPerLobby3To4Days": 10,
+        "maxPlayersPerLobby5To7Days": 6,
+        "requireApprovalForDistant": true,
+        "distantThresholdDays": 2,
+        "approvalTimeoutHours": 24,
+        "maxTotalDepositPerUser": 500000,
+        "recruitmentDeadlineBufferMinutes": 120,
+        "cancellationGraceMinutes": 15
+      },
+
       "availableSeats": 200,
       "heldSeats": 0,
       "inUseSeats": 0,
@@ -74,15 +99,11 @@ Response trả về `ManagerCafeDto[]` — kế thừa `CafeDetailDto` + thêm c
       "sePayAccountNumber": "...",
       "sePayReturnUrl": "...",
       "defaultHoldDurationMinutes": 30,
-      "maxAdvanceBookingDays": 7,
       "staffCount": 3,
-      "pricingModel": "TimeBased",
-      "lockPricingWhileOpen": true,
       "weekdayOpen": "09:00",
       "weekdayClose": "22:00",
       "weekendOpen": "10:00",
       "weekendClose": "23:00",
-      "strictSchedule": false,
       "updatedAt": "2026-08-10T05:00:00Z",
       "operationalProfileUpdatedAt": "2026-08-01T06:00:00Z"
     }
@@ -104,14 +125,16 @@ Response trả về `ManagerCafeDto[]` — kế thừa `CafeDetailDto` + thêm c
 | `upcomingBookingsCount` | `IBookingRepository.GetByCafeIdAsync(now, +7d)` filter `PendingDeposit/Confirmed/CheckedIn` | Booking active trong 7 ngày tới |
 | `activeLobbiesToday` | `IReservationRepository.GetActiveByCafePlayDateSlotAsync(cafe, today, slot)` × 4 slots | Lobby active (Holding/Confirmed) hôm nay |
 | `pendingCafeApprovalLobbiesCount` | `IReservationRepository.GetPendingCafeApprovalAsync(cafe)` | Lobby BR-NEW-11 chờ cafe duyệt |
-| `currentMonthRevenue` | **Hiện null** — đợi `IActiveSessionRepository.GetMonthlyRevenueAsync` | Doanh thu tháng từ ActiveSession PAID |
 | `heldDepositTotal` | Tổng `DepositAmount` của Reservation `Holding/Confirmed` trong 4 slots hôm nay | Tổng BVC đang giữ trong ví player cho cafe này |
 | `availableSeats` / `heldSeats` / `inUseSeats` | `ICafeRepository.GetAvailableSeatsByTimeSlotAsync` + `CountHeldSeatsAsync` + `CountInUseSeatsAsync` | Seat inventory hôm nay |
 | `availableSeatsByTimeSlot` | `ICafeRepository.GetAvailableSeatsByTimeSlotAsync(cafeId, today)` | Dict `[timeSlot → availableSeats]` |
 | `scheduleOverrides` | `ICafeRepository.GetScheduleOverridesAsync(cafeId, today, today+30d)` | Override giờ mở cửa 30 ngày tới |
-| `cafeConfig` | Hard-coded default từ BR-NEW-01/12 | Capacity/MaxLobbies/MinDeposit của cafe (sẽ migrate từ `CafeConfigEntity` khi có) |
-| `minDeposit` | Hard-coded default từ BR-NEW-01 | Mức cọc tối thiểu theo khoảng cách playDate |
+| `cafeConfig` | **Hard-coded theo BR-NEW-12 defaults** (chưa có `CafeConfigEntity`) | Capacity/MaxLobbies/MinDeposit defaults |
+| `minDeposit` | **Hard-coded theo BR-NEW-01 defaults** (chưa có schema override) | Mức cọc tối thiểu theo khoảng cách playDate |
+| `depositRatePerPerson` | **Hard-coded theo BR-DEPOSIT-03** (`= 10`) | Tỷ lệ cọc theo người (BVC/người) |
 | `numberOfTables` / `numberOfPrivateRooms` / `numberOfGamesOwned` / `hasGameMaster` | `Cafe.NumberOfTables`/... | Số bàn / phòng riêng / game / có GameMaster |
+
+> **Lưu ý về hardcode:** `cafeConfig`, `minDeposit`, `depositRatePerPerson` hiện trả về giá trị mặc định theo BR (BoardVerse rule). Khi nào có bảng `CafeConfigEntity` riêng cho mỗi cafe, sẽ đọc từ DB thay vì hardcode.
 
 Dùng `id` từ response cho các API `/api/cafes/{cafeId}/...`.
 

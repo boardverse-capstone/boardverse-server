@@ -1,6 +1,7 @@
 using System.Net;
 using BoardVerse.Core.DTOs.Lobby;
 using BoardVerse.Core.DTOs.Payment;
+using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.DTOs.Reservation;
 using BoardVerse.Core.DTOs.Session;
 using BoardVerse.Core.Enum;
@@ -483,17 +484,89 @@ public class BookingMatchmakingPosFlowIntegrationTests
 
         // Act - BR-13: Guest slot không chịu trách nhiệm tài sản độc lập
         // BR-14: Không gán phí phạt cho Guest_Slot
+        // Regression: CafePosService.MapSession phải map IsGuestSlot=true và UserName=GuestDisplayName
+        var guestDisplayName = "Khach vo danh 1";
         var guestResponse = await ApiTestClient.PostJsonAsync(_client,
-            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/sessions/{sessionId}/guest-slots",
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/{sessionId}/guest-slots",
             new
             {
-                displayName = "Khach vo danh 1"
+                displayName = guestDisplayName
             });
 
         // Assert
         Assert.Equal(HttpStatusCode.OK, guestResponse.StatusCode);
 
+        var session = await ApiTestClient.ReadApiResponseAsync<ActiveSessionDto>(guestResponse);
+        var addedGuest = session.Data!.Members.SingleOrDefault(m => m.IsGuestSlot && m.UserId == null);
+        Assert.NotNull(addedGuest);
+        Assert.True(addedGuest!.IsGuestSlot, "Member mới phải có IsGuestSlot = true.");
+        Assert.Equal(guestDisplayName, addedGuest.UserName);
+        Assert.Null(addedGuest.UserId);
+
+        // Act (2) — Regression: alias "username" cũng phải hoạt động (backward-compat client cũ).
+        var aliasDisplayName = "Khach vo danh 2";
+        var aliasResponse = await ApiTestClient.PostJsonAsync(_client,
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/{sessionId}/guest-slots",
+            new
+            {
+                username = aliasDisplayName
+            });
+
+        // Assert (2)
+        Assert.Equal(HttpStatusCode.OK, aliasResponse.StatusCode);
+        var sessionWithAlias = await ApiTestClient.ReadApiResponseAsync<ActiveSessionDto>(aliasResponse);
+        var addedGuestAlias = sessionWithAlias.Data!.Members
+            .Where(m => m.IsGuestSlot && m.UserId == null)
+            .OrderByDescending(m => m.JoinedAt)
+            .First();
+        Assert.Equal(aliasDisplayName, addedGuestAlias.UserName);
+
         // Cleanup - End session
+        ApiTestClient.Authorize(_client, managerToken);
+        await _client.PostAsync(
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/{sessionId}/end",
+            null);
+    }
+
+    [IntegrationFact]
+    public async Task AddGuestSlot_EmptyDisplayName_Returns400()
+    {
+        // Regression: cả displayName + username đều rỗng → 400 với message rõ ràng.
+        var managerToken = await IntegrationTestAuth.AsManagerAsync(_client);
+        ApiTestClient.Authorize(_client, managerToken);
+
+        var startResponse = await ApiTestClient.PostJsonAsync(_client,
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions",
+            new
+            {
+                cafeTableId = IntegrationTestFixtures.DemoPosTableId,
+                barcode = IntegrationTestFixtures.PosBoxBarcode
+            });
+
+        if (startResponse.StatusCode == HttpStatusCode.Conflict)
+        {
+            return; // box đang bận từ test khác
+        }
+
+        if (startResponse.StatusCode == HttpStatusCode.Forbidden)
+        {
+            return; // staff chưa setup
+        }
+
+        startResponse.EnsureSuccessStatusCode();
+        var sessionId = (await ApiTestClient.ReadApiResponseAsync<SessionStartedDto>(startResponse)).Data!.Id;
+
+        // Act: gửi cả displayName="" và không có username
+        var invalidResponse = await ApiTestClient.PostJsonAsync(_client,
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/{sessionId}/guest-slots",
+            new
+            {
+                displayName = ""
+            });
+
+        Assert.Equal(HttpStatusCode.BadRequest, invalidResponse.StatusCode);
+
+        // Cleanup
         ApiTestClient.Authorize(_client, managerToken);
         await _client.PostAsync(
             $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/{sessionId}/end",

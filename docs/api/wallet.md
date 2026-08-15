@@ -78,9 +78,10 @@ Admin cộng/trừ thủ công:
 | Method | Path | Role | Mô tả |
 |--------|------|------|--------|
 | `GET` | `/api/v1/wallet` | Player | Lấy ví (auto-create nếu chưa có) |
-| `POST` | `/api/v1/wallet/topup` | Player | Tạo đơn top-up BVC từ VND |
+| `POST` | `/api/v1/wallet/topup` | Player | Tạo đơn top-up BVC từ VND (trả kèm `qrImageBase64`) |
 | `PATCH` | `/api/v1/wallet/topup/{topUpId}` | Player | Đổi số tiền đơn top-up đang Pending (chưa thanh toán) |
 | `DELETE` | `/api/v1/wallet/topup/{topUpId}` | Player | Hủy đơn top-up đang Pending (chưa thanh toán) |
+| `GET` | `/api/v1/wallet/topup/{orderId}/qr-image` | Player | Proxy ảnh QR PNG (fallback khi `qrImageBase64` null) |
 | `GET` | `/api/v1/wallet/transactions` | Player | Lịch sử ledger phân trang |
 | `POST` | `/api/v1/wallet/refund-requests` | Player | Gửi yêu cầu hoàn BVC (liên kết ledger entry) |
 | `GET` | `/api/v1/wallet/refund-requests` | Player | Lịch sử yêu cầu hoàn BVC của player (phân trang) |
@@ -138,6 +139,8 @@ Nếu `includeHeld=true`:
 
 Tạo đơn top-up BVC qua SePay master account.
 
+> **QR image proxy:** Response bao gồm `qrImageBase64` (PNG đã encode Base64) — backend proxy từ vietqr.app server-side để bypass CORS cho Flutter Web. Mobile + Web đều `Image.memory(base64Decode(...))` luôn, không cần thêm HTTP request. Nếu upstream VietQR timeout/5xx → trả `qrImageBase64 = null`, client dùng `qrUrl` để load trực tiếp hoặc gọi endpoint fallback `GET /api/v1/wallet/topup/{orderId}/qr-image`.
+
 ### Body
 
 ```json
@@ -164,12 +167,23 @@ Tạo đơn top-up BVC qua SePay master account.
 {
   "paymentUrl": "https://pay.sepay.vn/...",
   "qrUrl": "https://qr.sepay.vn/...",
+  "qrImageBase64": "iVBORw0KGgoAAAANSUhEUgAA...",
   "orderId": "BVC-A1B2C3D4E5",
   "expectedBvc": 100,
   "expiresAt": "2026-08-02T17:30:00Z",
   "idempotencyKey": "uuid-v4"
 }
 ```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `paymentUrl` | string | URL mở app SePay / trang thanh toán (chính). |
+| `qrUrl` | string? | URL ảnh QR từ VietQR. Dùng khi client không nhận được `qrImageBase64`. |
+| `qrImageBase64` | string? | Ảnh QR PNG đã encode Base64 — proxy từ vietqr.app server-side. **Null nếu upstream timeout/5xx** (không block flow). |
+| `orderId` | string | Mã order gửi sang SePay. UNIQUE. |
+| `expectedBvc` | long | Số BVC sẽ cộng sau khi webhook success. |
+| `expiresAt` | datetime | Hạn chót thanh toán (UTC, ~10 phút sau khi tạo). |
+| `idempotencyKey` | string | Echo lại key từ request. |
 
 ### Error
 
@@ -179,6 +193,39 @@ Tạo đơn top-up BVC qua SePay master account.
 | `401` | Thiếu token. |
 | `403` | Tài khoản bị hạn chế. |
 | `500` | Lỗi hệ thống / SePay gateway fail. |
+
+---
+
+## GET `/api/v1/wallet/topup/{orderId}/qr-image`
+
+Proxy ảnh QR PNG cho đơn top-up đang Pending theo OrderId. **Dùng khi `qrImageBase64` trong response của `POST /topup` là `null`** (upstream VietQR fail).
+
+Chỉ chính chủ đơn mới lấy được ảnh (ownership check). Cache 10 phút — trùng với `expiresAt` của QR.
+
+### Path
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `orderId` | string | ✅ | OrderId đầy đủ `BVC-1983EBFA5333CF7F42` hoặc 18-char hex `1983EBFA5333CF7F42`. |
+
+### Response `200`
+
+```
+HTTP/1.1 200 OK
+Content-Type: image/png
+Cache-Control: public, max-age=600
+
+<binary PNG bytes>
+```
+
+### Error
+
+| Status | Mô tả |
+|--------|--------|
+| `401` | Thiếu token. |
+| `403` | Không phải chủ đơn. |
+| `404` | Không tìm thấy đơn top-up hoặc upstream VietQR không trả ảnh. |
+| `500` | Lỗi hệ thống. |
 
 ---
 
@@ -228,6 +275,7 @@ Tạo đơn top-up BVC qua SePay master account.
 {
   "paymentUrl": "https://pay.sepay.vn/...",
   "qrUrl": "https://qr.sepay.vn/...",
+  "qrImageBase64": "iVBORw0KGgoAAAANSUhEUgAA...",
   "orderId": "BVC-F6G7H8I9J0",
   "expectedBvc": 50,
   "expiresAt": "2026-08-02T17:30:00Z",

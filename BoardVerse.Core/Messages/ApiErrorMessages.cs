@@ -330,6 +330,14 @@ public static string AccessForbidden(Guid cafeId) =>
  public const string BarcodeRequired =
  "Mã vạch không được để trống.";
 
+        /// <summary>
+        /// GAP-Fix: Tên hiển thị cho khách vô danh (BR-13) phải hợp lệ 2-100 ký tự.
+        /// Alias JSON "username" được merge vào "displayName" trước khi validate.
+        /// </summary>
+        public const string GuestSlotDisplayNameInvalid =
+            "Tên hiển thị cho khách vô danh phải từ 2-100 ký tự. " +
+            "Gửi kèm 'displayName' (hoặc alias 'username') trong body.";
+
         // ===== Phase 5 / EC-11 — Manager override played time (BR-REFUND-07 §time-slot-fixed-end v3.0) =====
         public const string OnlyManagerCanOverride =
             "Chỉ Manager mới có thể override giờ chơi. Staff chỉ được mở dispute.";
@@ -640,6 +648,15 @@ public static string SessionMustBeActiveForGameAssignment(string current) =>
 
  public const string TopUpIdInvalid =
  "Id đơn top-up không hợp lệ.";
+
+ /// <summary>Backend không proxy được ảnh QR từ vietqr.app (timeout / network / 5xx).
+ /// Không block top-up — response vẫn trả <c>QrUrl</c>, chỉ thiếu <c>QrImageBase64</c>.</summary>
+ public const string QrImageProxyUnavailable =
+ "Không thể tải ảnh QR từ VietQR. Vui lòng dùng URL QR được trả về để tải trực tiếp.";
+
+ /// <summary>Không tìm thấy QR cho OrderId (chưa tạo / hết hạn / failed).</summary>
+ public static string QrImageNotFoundForOrder(string orderId) =>
+ $"Không tìm thấy ảnh QR cho đơn top-up '{orderId}'. Đơn có thể đã hết hạn hoặc chưa được tạo.";
 
  // ===== BVC Refund Request (player → admin review) =====
  public static string RefundRequestNotFound(Guid id) =>

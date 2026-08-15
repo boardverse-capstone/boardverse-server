@@ -23,6 +23,7 @@ public class WalletServiceTests
     private readonly Mock<IUserManagementRepository> _mockUserRepo;
     private readonly Mock<IPaymentGatewayService> _mockGateway;
     private readonly Mock<ISePayAccountService> _mockSePayAccount;
+    private readonly Mock<IQrImageProxyService> _mockQrProxy;
     private readonly Mock<ILogger<WalletService>> _mockLogger;
     private readonly BoardVerseDbContext DbContext;
     private readonly WalletService _service;
@@ -35,9 +36,15 @@ public class WalletServiceTests
         _mockUserRepo = new Mock<IUserManagementRepository>();
         _mockGateway = new Mock<IPaymentGatewayService>();
         _mockSePayAccount = new Mock<ISePayAccountService>();
+        _mockQrProxy = new Mock<IQrImageProxyService>();
         _mockLogger = new Mock<ILogger<WalletService>>();
 
         var fakeDbContext = new FakeDbContext();
+
+        // Default: QR proxy returns null — tests can override per-case.
+        _mockQrProxy
+            .Setup(p => p.FetchAsBase64Async(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string?)null);
 
         _service = new WalletService(
             _mockWalletRepo.Object,
@@ -46,6 +53,7 @@ public class WalletServiceTests
             _mockUserRepo.Object,
             _mockGateway.Object,
             _mockSePayAccount.Object,
+            _mockQrProxy.Object,
             _mockLogger.Object,
             DbContext);
     }
@@ -761,6 +769,398 @@ public class WalletServiceTests
         Assert.Equal(100, page.Items[0].Amount);
         Assert.Equal(150, page.Items[1].BalanceSnapshot);
         Assert.Equal("BVC-ABC", page.Items[1].RelatedPaymentRef);
+    }
+
+    #endregion
+
+    #region CreateTopUpAsync — QR image proxy
+
+    [Fact]
+    public async Task CreateTopUpAsync_HappyPath_PopulatesQrImageBase64_WhenProxyReturns()
+    {
+        var userId = Guid.NewGuid();
+        var req = new TopUpRequestDto
+        {
+            AmountVnd = 100_000,
+            IdempotencyKey = "qr-proxy-key-1234"
+        };
+
+        SetupUserWithoutWallet(userId);
+        SetupLedgerNoExistingKey(req.IdempotencyKey);
+
+        _mockSePayAccount
+            .Setup(s => s.GetRawMasterAccountAsync())
+            .ReturnsAsync(new SePayAccount
+            {
+                IsActive = true,
+                BankCode = "MBBank",
+                AccountNumber = "0123456789",
+                AccountHolder = "BOARDVERSE MASTER"
+            });
+
+        var qrUrl = "https://vietqr.app/img?bank=MBBank&acc=0123456789&template=compact&amount=100000";
+        _mockGateway
+            .Setup(g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentGatewayResult
+            {
+                IsSuccess = true,
+                PaymentUrl = "https://pay.sepay.vn/abc",
+                QrImageUrl = qrUrl,
+                Gateway = PaymentGateway.SePay
+            });
+
+        // QR proxy returns a valid base64 PNG stub.
+        const string expectedBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+        _mockQrProxy
+            .Setup(p => p.FetchAsBase64Async(qrUrl, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expectedBase64);
+
+        var dto = await _service.CreateTopUpAsync(userId, req);
+
+        Assert.Equal(expectedBase64, dto.QrImageBase64);
+        Assert.Equal(qrUrl, dto.QrUrl);
+        Assert.Equal(100, dto.ExpectedBvc);
+        _mockQrProxy.Verify(p => p.FetchAsBase64Async(qrUrl, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateTopUpAsync_ProxyReturnsNull_StillReturnsSuccessWithNullQrImageBase64()
+    {
+        var userId = Guid.NewGuid();
+        var req = new TopUpRequestDto
+        {
+            AmountVnd = 50_000,
+            IdempotencyKey = "qr-proxy-null-key-1234"
+        };
+
+        SetupUserWithoutWallet(userId);
+        SetupLedgerNoExistingKey(req.IdempotencyKey);
+
+        _mockSePayAccount
+            .Setup(s => s.GetRawMasterAccountAsync())
+            .ReturnsAsync(new SePayAccount
+            {
+                IsActive = true,
+                BankCode = "MBBank",
+                AccountNumber = "0123456789",
+                AccountHolder = "BOARDVERSE MASTER"
+            });
+
+        var qrUrl = "https://vietqr.app/img?bank=MBBank&acc=0123456789&template=compact&amount=50000";
+        _mockGateway
+            .Setup(g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentGatewayResult
+            {
+                IsSuccess = true,
+                PaymentUrl = "https://pay.sepay.vn/abc",
+                QrImageUrl = qrUrl,
+                Gateway = PaymentGateway.SePay
+            });
+
+        // QR proxy returns null (e.g. vietqr.app timeout / 5xx).
+        _mockQrProxy
+            .Setup(p => p.FetchAsBase64Async(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string?)null);
+
+        var dto = await _service.CreateTopUpAsync(userId, req);
+
+        // Top-up flow KHÔNG bị fail khi QR proxy fail — client vẫn có QrUrl để fallback.
+        Assert.Null(dto.QrImageBase64);
+        Assert.Equal(qrUrl, dto.QrUrl);
+        Assert.Equal(50, dto.ExpectedBvc);
+        Assert.False(string.IsNullOrEmpty(dto.OrderId));
+    }
+
+    [Fact]
+    public async Task CreateTopUpAsync_NoQrUrl_SkipsProxyCall()
+    {
+        var userId = Guid.NewGuid();
+        var req = new TopUpRequestDto
+        {
+            AmountVnd = 30_000,
+            IdempotencyKey = "qr-proxy-skip-key-1234"
+        };
+
+        SetupUserWithoutWallet(userId);
+        SetupLedgerNoExistingKey(req.IdempotencyKey);
+
+        _mockSePayAccount
+            .Setup(s => s.GetRawMasterAccountAsync())
+            .ReturnsAsync(new SePayAccount
+            {
+                IsActive = true,
+                BankCode = "MBBank",
+                AccountNumber = "0123456789",
+                AccountHolder = "BOARDVERSE MASTER"
+            });
+
+        // Gateway trả về QrImageUrl = null (edge case).
+        _mockGateway
+            .Setup(g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentGatewayResult
+            {
+                IsSuccess = true,
+                PaymentUrl = "https://pay.sepay.vn/abc",
+                QrImageUrl = null,
+                Gateway = PaymentGateway.SePay
+            });
+
+        var dto = await _service.CreateTopUpAsync(userId, req);
+
+        Assert.Null(dto.QrImageBase64);
+        // Không gọi proxy khi không có URL.
+        _mockQrProxy.Verify(
+            p => p.FetchAsBase64Async(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateTopUpAsync_IdempotentHit_ReconstructsQrUrlAndProxiesAgain()
+    {
+        var userId = Guid.NewGuid();
+        var key = "idempotent-qr-key-1234";
+        var req = new TopUpRequestDto { AmountVnd = 80_000, IdempotencyKey = key };
+
+        SetupUserWithoutWallet(userId);
+
+        var existing = new BvcTopUpRequest
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            OrderId = "1983EBFA5333CF7F42",
+            AmountVnd = 80_000,
+            ExpectedBvc = 80,
+            IdempotencyKey = key,
+            Status = BvcTopUpStatus.Pending,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(10)
+        };
+        _mockTopUpRepo.Setup(r => r.GetByIdempotencyKeyAsync(key, CancellationToken.None))
+            .ReturnsAsync(existing);
+
+        _mockSePayAccount
+            .Setup(s => s.GetRawMasterAccountAsync())
+            .ReturnsAsync(new SePayAccount
+            {
+                IsActive = true,
+                BankCode = "MBBank",
+                AccountNumber = "0123456789",
+                AccountHolder = "BOARDVERSE MASTER"
+            });
+
+        const string expectedBase64 = "REPLAYBASE64==";
+        _mockQrProxy
+            .Setup(p => p.FetchAsBase64Async(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expectedBase64);
+
+        var dto = await _service.CreateTopUpAsync(userId, req);
+
+        // Idempotent replay: QrUrl phải được reconstruct (chứa OrderId + amount đúng),
+        // QrImageBase64 được proxy lại để client luôn có ảnh QR dù gọi lại.
+        Assert.Equal(expectedBase64, dto.QrImageBase64);
+        Assert.NotNull(dto.QrUrl);
+        Assert.Contains("BVC-1983EBFA5333CF7F42", dto.QrUrl);
+        Assert.Contains("amount=80000", dto.QrUrl);
+        Assert.Equal(existing.OrderId, dto.OrderId);
+    }
+
+    [Fact]
+    public async Task UpdateTopUpAmountAsync_HappyPath_PopulatesQrImageBase64()
+    {
+        var topUpId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var req = new UpdateTopUpRequestDto { AmountVnd = 70_000, IdempotencyKey = "update-qr-key-1234" };
+        var existing = new BvcTopUpRequest
+        {
+            Id = topUpId,
+            UserId = userId,
+            OrderId = "BVC-OLD",
+            AmountVnd = 20_000,
+            ExpectedBvc = 20,
+            IdempotencyKey = "old-key-1234",
+            Status = BvcTopUpStatus.Pending
+        };
+        _mockTopUpRepo.Setup(r => r.GetByIdAsync(topUpId, CancellationToken.None))
+            .ReturnsAsync(existing);
+        _mockTopUpRepo.Setup(r => r.GetByIdempotencyKeyAsync("update-qr-key-1234", CancellationToken.None))
+            .ReturnsAsync((BvcTopUpRequest?)null);
+        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync()).ReturnsAsync(new SePayAccount
+        {
+            IsActive = true,
+            BankCode = "MBBank",
+            AccountNumber = "0123456789",
+            AccountHolder = "BV MASTER"
+        });
+
+        var qrUrl = "https://vietqr.app/img?bank=MBBank&acc=0123456789&template=compact&amount=70000";
+        _mockGateway
+            .Setup(g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentGatewayResult
+            {
+                IsSuccess = true,
+                PaymentUrl = "https://pay.sepay.vn/new",
+                QrImageUrl = qrUrl
+            });
+
+        const string expectedBase64 = "UPDATEQR==";
+        _mockQrProxy
+            .Setup(p => p.FetchAsBase64Async(qrUrl, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expectedBase64);
+
+        var dto = await _service.UpdateTopUpAmountAsync(topUpId, userId, req);
+
+        Assert.Equal(expectedBase64, dto.QrImageBase64);
+        Assert.Equal(qrUrl, dto.QrUrl);
+        Assert.Equal(70, dto.ExpectedBvc);
+    }
+
+    #endregion
+
+    #region GetTopUpByOrderIdForUserAsync / GetTopUpQrImageStreamAsync
+
+    [Fact]
+    public async Task GetTopUpByOrderIdForUserAsync_NullOrderId_ReturnsNull()
+    {
+        var userId = Guid.NewGuid();
+        var result = await _service.GetTopUpByOrderIdForUserAsync(string.Empty, userId);
+        Assert.Null(result);
+        _mockTopUpRepo.Verify(r => r.GetByOrderIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetTopUpByOrderIdForUserAsync_DifferentUser_ReturnsNull()
+    {
+        var ownerId = Guid.NewGuid();
+        var attackerId = Guid.NewGuid();
+        var topUp = new BvcTopUpRequest
+        {
+            Id = Guid.NewGuid(),
+            UserId = ownerId,
+            OrderId = "BVC-OWNER",
+            AmountVnd = 50_000,
+            ExpectedBvc = 50,
+            IdempotencyKey = "k",
+            Status = BvcTopUpStatus.Pending
+        };
+        _mockTopUpRepo.Setup(r => r.GetByOrderIdAsync("BVC-OWNER", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(topUp);
+
+        var result = await _service.GetTopUpByOrderIdForUserAsync("BVC-OWNER", attackerId);
+        Assert.Null(result); // ownership fail
+    }
+
+    [Fact]
+    public async Task GetTopUpByOrderIdForUserAsync_StripsBvcPrefixAndFindsByHex()
+    {
+        var userId = Guid.NewGuid();
+        var topUp = new BvcTopUpRequest
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            OrderId = "1983EBFA5333CF7F42",
+            AmountVnd = 20_000,
+            ExpectedBvc = 20,
+            IdempotencyKey = "k",
+            Status = BvcTopUpStatus.Pending
+        };
+        _mockTopUpRepo.Setup(r => r.GetByOrderIdAsync("BVC-1983EBFA5333CF7F42", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((BvcTopUpRequest?)null);
+        _mockTopUpRepo.Setup(r => r.GetPendingByExactOrderIdAsync("1983EBFA5333CF7F42", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(topUp);
+
+        var result = await _service.GetTopUpByOrderIdForUserAsync("BVC-1983EBFA5333CF7F42", userId);
+
+        Assert.NotNull(result);
+        Assert.Equal(userId, result!.UserId);
+    }
+
+    [Fact]
+    public async Task GetTopUpQrImageStreamAsync_NoMasterAccount_ReturnsNull()
+    {
+        var userId = Guid.NewGuid();
+        var topUp = new BvcTopUpRequest
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            OrderId = "1983EBFA5333CF7F42",
+            AmountVnd = 50_000,
+            ExpectedBvc = 50,
+            IdempotencyKey = "k",
+            Status = BvcTopUpStatus.Pending
+        };
+        _mockTopUpRepo.Setup(r => r.GetByOrderIdAsync("BVC-1983EBFA5333CF7F42", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(topUp);
+        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync())
+            .ReturnsAsync((SePayAccount?)null);
+
+        var stream = await _service.GetTopUpQrImageStreamAsync("BVC-1983EBFA5333CF7F42", userId);
+
+        Assert.Null(stream);
+        _mockQrProxy.Verify(
+            p => p.FetchAsStreamAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task GetTopUpQrImageStreamAsync_HappyPath_ReconstructsUrlAndFetchesStream()
+    {
+        var userId = Guid.NewGuid();
+        var topUp = new BvcTopUpRequest
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            OrderId = "1983EBFA5333CF7F42",
+            AmountVnd = 20_000,
+            ExpectedBvc = 20,
+            IdempotencyKey = "k",
+            Status = BvcTopUpStatus.Pending
+        };
+        _mockTopUpRepo.Setup(r => r.GetByOrderIdAsync("BVC-1983EBFA5333CF7F42", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(topUp);
+        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync())
+            .ReturnsAsync(new SePayAccount
+            {
+                IsActive = true,
+                BankCode = "MBBank",
+                AccountNumber = "0123456789",
+                AccountHolder = "BV MASTER"
+            });
+
+        var expectedStream = new MemoryStream(new byte[] { 0x89, 0x50, 0x4E, 0x47 });
+        _mockQrProxy.Setup(p => p.FetchAsStreamAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expectedStream);
+
+        var stream = await _service.GetTopUpQrImageStreamAsync("BVC-1983EBFA5333CF7F42", userId);
+
+        Assert.NotNull(stream);
+        Assert.Same(expectedStream, stream);
+        _mockQrProxy.Verify(
+            p => p.FetchAsStreamAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task GetTopUpQrImageStreamAsync_ProxyFails_ReturnsNull()
+    {
+        var userId = Guid.NewGuid();
+        var topUp = new BvcTopUpRequest
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            OrderId = "1983EBFA5333CF7F42",
+            AmountVnd = 20_000,
+            ExpectedBvc = 20,
+            IdempotencyKey = "k",
+            Status = BvcTopUpStatus.Pending
+        };
+        _mockTopUpRepo.Setup(r => r.GetByOrderIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(topUp);
+        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync())
+            .ReturnsAsync(new SePayAccount { IsActive = true, BankCode = "MBBank", AccountNumber = "0123456789" });
+        _mockQrProxy.Setup(p => p.FetchAsStreamAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Stream?)null);
+
+        var stream = await _service.GetTopUpQrImageStreamAsync("BVC-1983EBFA5333CF7F42", userId);
+        Assert.Null(stream);
     }
 
     #endregion

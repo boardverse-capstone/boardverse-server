@@ -1017,11 +1017,20 @@ POST /api/cafes/{cafeId}/pos/sessions
 
 ```powershell
 # Thêm khách vô danh (BR-13: hết pin, không có app)
+# Body chấp nhận cả "displayName" (chuẩn) và "username" (alias backward-compat).
+# Nếu cả 2 đều gửi → ưu tiên displayName. Nếu cả 2 rỗng → 400.
 POST /api/cafes/{cafeId}/pos/sessions/{id}/guest-slots
 {
-  "displayName": "Khách A",
-  "seatIndex": 2
+  "displayName": "Khách A"
 }
+# Hoặc alias:
+POST /api/cafes/{cafeId}/pos/sessions/{id}/guest-slots
+{
+  "username": "Khách A"
+}
+# Response: trả về ActiveSessionDto — guest member có `isGuestSlot = true`,
+# `userName = "Khách A"` (từ displayName hoặc username), `userId = null`.
+# Validation: tên phải từ 2-100 ký tự; sai sẽ trả 400 với message Pos.GuestSlotDisplayNameInvalid.
 
 # Thêm thành viên đến muộn (Exception 8)
 POST /api/cafes/{cafeId}/pos/sessions/{id}/members/add

@@ -7,10 +7,20 @@ namespace BoardVerse.Services.IServices
     public interface ICafeService
     {
         /// <summary>
-        /// Lấy thông tin chi tiết quán cafe (public endpoint).
+        /// Lấy thông tin chi tiết quán cafe (public endpoint cho player).
         /// Bao gồm: pricing, refund policy, seat availability, schedule overrides.
+        /// Field nhạy cảm (OperationalStatusReason) bị ẩn cho player.
+        /// Set <paramref name="includeSensitiveInfo"/>=true để lấy đầy đủ (chỉ manager/admin).
         /// </summary>
-        Task<CafeDetailDto> GetCafeDetailAsync(Guid cafeId, double? latitude = null, double? longitude = null);
+        /// <param name="cafeId">Mã cafe.</param>
+        /// <param name="latitude">Vĩ độ player (optional, để tính distance).</param>
+        /// <param name="longitude">Kinh độ player (optional, để tính distance).</param>
+        /// <param name="includeSensitiveInfo">True nếu caller là manager/admin/staff và cần thấy lý do nội bộ.</param>
+        Task<CafeDetailDto> GetCafeDetailAsync(
+            Guid cafeId,
+            double? latitude = null,
+            double? longitude = null,
+            bool includeSensitiveInfo = false);
 
         /// <summary>
         /// Lấy thông tin cơ bản quán cafe (cho legacy compatibility).

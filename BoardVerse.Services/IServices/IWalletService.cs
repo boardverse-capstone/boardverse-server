@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Wallet;
+using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Services.IServices;
@@ -149,6 +150,25 @@ public interface IWalletService
     /// <returns>OrderId pending phù hợp, hoặc null nếu không có.</returns>
     Task<string?> FindPendingTopUpOrderIdAsync(
         string orderId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lookup BvcTopUpRequest theo OrderId (chính chủ userId để chống leak).
+    /// Trả null nếu không tìm thấy hoặc không thuộc userId.
+    /// </summary>
+    Task<BvcTopUpRequest?> GetTopUpByOrderIdForUserAsync(
+        string orderId,
+        Guid userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lấy ảnh QR PNG (stream) cho đơn top-up theo OrderId (chỉ chính chủ).
+    /// Dùng cho endpoint fallback <c>GET /api/v1/wallet/topup/{orderId}/qr-image</c>.
+    /// Trả null nếu không có OrderId hoặc upstream fail.
+    /// </summary>
+    Task<Stream?> GetTopUpQrImageStreamAsync(
+        string orderId,
+        Guid userId,
         CancellationToken cancellationToken = default);
 
     /// <summary>

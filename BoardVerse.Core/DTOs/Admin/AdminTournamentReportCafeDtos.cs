@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using BoardVerse.Core.DTOs.Cafe;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Messages;
 
@@ -386,6 +387,7 @@ namespace BoardVerse.Core.DTOs.Admin
         public Guid Id { get; set; }
         public string Name { get; set; } = string.Empty;
         public string Address { get; set; } = string.Empty;
+        public string? PhoneNumber { get; set; }
         public Guid ManagerId { get; set; }
         public string ManagerName { get; set; } = string.Empty;
         public string Status { get; set; } = string.Empty;
@@ -443,6 +445,9 @@ namespace BoardVerse.Core.DTOs.Admin
 
         // SePay
         public bool HasSePayConfigured { get; set; }
+
+        // Schedule Overrides (admin cần xem/tạo override giờ mở cửa cho ngày lễ)
+        public List<CafeScheduleOverrideDto>? ScheduleOverrides { get; set; }
 
         // Audit
         public DateTime CreatedAt { get; set; }

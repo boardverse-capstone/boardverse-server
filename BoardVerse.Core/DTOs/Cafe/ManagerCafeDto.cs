@@ -27,12 +27,9 @@ public class ManagerCafeDto : CafeDetailDto
     /// <summary>Phút giữ chỗ mặc định (BR-06: tối đa 30).</summary>
     public int DefaultHoldDurationMinutes { get; set; } = 30;
 
-    /// <summary>Số ngày tối đa nhận đặt chỗ trước.</summary>
-    public int MaxAdvanceBookingDays { get; set; } = 7;
-
     // === Staff / Org ===
 
-    /// <summary>Tổng số nhân viên đang active trong quán.</summary>
+    /// <summary>T�ng số nhân viên đang active trong quán.</summary>
     public int StaffCount { get; set; }
 
     /// <summary>Số booking trong 7 ngày tới (kể cả walk-in pending).</summary>
@@ -46,23 +43,12 @@ public class ManagerCafeDto : CafeDetailDto
 
     // === Revenue snapshot (BR-REVENUE-01) ===
 
-    /// <summary>Tổng doanh thu tháng hiện tại (VND).</summary>
-    public decimal? CurrentMonthRevenue { get; set; }
-
     /// <summary>Tổng cọc BVC đang giữ (heldBalance) cho player của quán này.</summary>
     public long HeldDepositTotal { get; set; }
 
-    // === Pricing structure ===
-
-    /// <summary>Mô hình kinh doanh raw (TimeBased/FlatEntry).</summary>
-    public CafePricingModel PricingModel { get; set; } = CafePricingModel.TimeBased;
-
-    /// <summary>Có chặn sửa giá khi mở cửa không (BR-04).</summary>
-    public bool LockPricingWhileOpen { get; set; } = true;
-
     // === Schedule / Hours ===
 
-    /// <summary>Giờ mở cửa ngày thường (HH:mm).</summary>
+    /// <summary>Giờ m� cửa ngày thường (HH:mm).</summary>
     public TimeOnly? WeekdayOpen { get; set; }
 
     /// <summary>Giờ đóng cửa ngày thường (HH:mm).</summary>
@@ -74,9 +60,6 @@ public class ManagerCafeDto : CafeDetailDto
     /// <summary>Giờ đóng cửa cuối tuần (HH:mm).</summary>
     public TimeOnly? WeekendClose { get; set; }
 
-    /// <summary>Có mở cửa ngoài giờ theo lịch cố định không (true → đóng theo override).</summary>
-    public bool StrictSchedule { get; set; }
-
     // === Audit timestamps ===
 
     /// <summary>Lần cuối cập nhật thông tin quán.</summary>
@@ -84,13 +67,4 @@ public class ManagerCafeDto : CafeDetailDto
 
     /// <summary>Lần cuối cập nhật pricing config.</summary>
     public DateTime? OperationalProfileUpdatedAt { get; set; }
-}
-
-public enum CafePricingModel
-{
-    /// <summary>Tính theo giờ chơi + block lũy tiến.</summary>
-    TimeBased = 0,
-
-    /// <summary>Phí cố định / flat rate (FlatEntry).</summary>
-    FlatEntry = 1
 }

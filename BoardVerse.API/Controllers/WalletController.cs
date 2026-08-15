@@ -59,10 +59,12 @@ public class WalletController : BaseApiController
     /// Tạo đơn top-up BVC từ tiền thật (VND) qua SePay master account.
     /// Validate BR § II.2: tối thiểu 10.000 VND (= 10 BVC), bội số 1.000 VND.
     /// BR § XVII.1: idempotency — gửi lại cùng <c>IdempotencyKey</c> trả về cùng kết quả.
+    /// Response bao gồm <c>qrImageBase64</c> (PNG đã encode Base64) — backend proxy từ
+    /// vietqr.app server-side để Flutter Web hiển thị QR mà không bị CORS.
     /// [Role: Player — đã đăng nhập, account không bị suspended/banned.]
     /// </summary>
     /// <param name="request">Số tiền VND + idempotency key.</param>
-    /// <response code="201">Tạo đơn top-up thành công, trả về URL thanh toán.</response>
+    /// <response code="201">Tạo đơn top-up thành công, trả về URL thanh toán + QR base64 (nếu proxy thành công).</response>
     /// <response code="400">Dữ liệu không hợp lệ (dưới min, không chia hết).</response>
     /// <response code="401">Thiếu token.</response>
     /// <response code="403">Tài khoản đang bị hạn chế.</response>
@@ -78,6 +80,58 @@ public class WalletController : BaseApiController
         var userId = GetUserIdFromClaims();
         var response = await _walletService.CreateTopUpAsync(userId, request);
         return NewResponse(201, "Tạo đơn top-up BVC thành công.", response);
+    }
+
+    /// <summary>
+    /// Lấy ảnh QR PNG cho đơn top-up đang Pending theo OrderId (chỉ chính chủ).
+    /// Endpoint fallback khi client không nhận được <c>qrImageBase64</c> trong response
+    /// của <c>POST /topup</c> (do upstream VietQR timeout / 5xx).
+    /// Cache 10 phút (QR có expiresAt 10 phút — trùng khớp).
+    /// [Role: Player — chỉ chính chủ đơn.]
+    /// </summary>
+    /// <param name="orderId">OrderId đầy đủ (vd. <c>BVC-1983EBFA5333CF7F42</c>) hoặc 18-char hex.</param>
+    /// <response code="200">Trả về ảnh PNG (Content-Type: image/png).</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải chủ đơn.</response>
+    /// <response code="404">Không tìm thấy đơn top-up hoặc upstream VietQR không trả ảnh.</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpGet("topup/{orderId}/qr-image")]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(typeof(object), 403)]
+    [ProducesResponseType(typeof(object), 404)]
+    [ProducesResponseType(500)]
+    public async Task<IActionResult> GetTopUpQrImage([FromRoute] string orderId)
+    {
+        if (string.IsNullOrWhiteSpace(orderId))
+        {
+            return NewResponse(400, "OrderId không hợp lệ.", null);
+        }
+
+        var userId = GetUserIdFromClaims();
+
+        // Ownership check trước khi fetch ảnh — chống leak QR cho user khác.
+        var topUp = await _walletService.GetTopUpByOrderIdForUserAsync(orderId, userId);
+        if (topUp == null)
+        {
+            return NewResponse(404, ApiErrorMessages.Wallet.QrImageNotFoundForOrder(orderId), null);
+        }
+        if (topUp.UserId != userId)
+        {
+            return NewResponse(403, ApiErrorMessages.Wallet.TopUpNotOwned, null);
+        }
+
+        var stream = await _walletService.GetTopUpQrImageStreamAsync(orderId, userId);
+        if (stream == null)
+        {
+            return NewResponse(404, ApiErrorMessages.Wallet.QrImageNotFoundForOrder(orderId), null);
+        }
+
+        Response.Headers["Cache-Control"] = "public, max-age=600"; // 10 phút — trùng TopUpQrExpiryMinutes
+        return new FileStreamResult(stream, "image/png")
+        {
+            EnableRangeProcessing = false
+        };
     }
 
     /// <summary>

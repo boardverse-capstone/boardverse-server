@@ -20,6 +20,100 @@
 
 ---
 
+## So sánh các GET cafe endpoint
+
+### Tổng quan
+
+| Endpoint | DTO trả về | Auth | Dùng cho |
+|---------|-----------|------|----------|
+| `GET /api/cafes/{id}` | `CafeDetailDto` | Public (AllowAnonymous) | Player xem chi tiết 1 quán trước khi đặt chỗ |
+| `GET /api/cafes` | `PaginatedResponse<NearbyCafeDto>` | Player | List view (không GPS) |
+| `GET /api/cafes/nearby` | `NearbyCafeSearchResultDto` (chứa `NearbyCafeDto[]`) | Public | Player discovery GPS |
+| `GET /api/cafes/nearby/me` | `NearbyCafeSearchResultDto` | Player (đã đăng nhập) | Player discovery dùng vị trí đã lưu |
+| `GET /api/cafes/search` | `PaginatedResponse<NearbyCafeDto>` | Public | Player search theo tên |
+| `GET /api/manager/my-cafes` | `ManagerCafeDto[]` | Manager | Manager dashboard |
+| `GET /api/staff/my-cafes` | `ManagerCafeDto[]` | CafeStaff | Staff dashboard |
+| `GET /api/admin/cafes` | `AdminCafeListItemDto[]` | Admin | Admin list |
+| `GET /api/admin/cafes/{id}` | `AdminCafeDetailDto` | Admin | Admin xem chi tiết |
+
+### Chi tiết field theo từng endpoint
+
+#### `GET /api/cafes/{id}` → `CafeDetailDto` (player/public)
+
+Kế thừa `CafeDto` + thêm: `operationalStatus`, `operationalStatusReason` (ẩn cho player), `isCurrentlyOpen`, `refundPolicy`, `refundTiers`, `depositRatePerPerson`, `minDeposit`, `availableSeats`, `heldSeats`, `inUseSeats`, `availableSeatsByTimeSlot`, `cafeConfig`, `scheduleOverrides`, `numberOfTables`, `numberOfPrivateRooms`, `numberOfGamesOwned`, `hasGameMaster`, `distanceKm`.
+
+**Không trả:** `ManagerId`, `SePayMerchantId/ApiKey/SecretKey`, `SePayBankCode`, `SePayAccountNumber`, `SePayReturnUrl`, `WeekdayOpen/Close`, `WeekendOpen/Close`, `StaffCount`, `UpcomingBookingsCount`, `ActiveLobbiesToday`, `PendingCafeApprovalLobbiesCount`, `HeldDepositTotal`, `DefaultHoldDurationMinutes`, `UpdatedAt`, `OperationalProfileUpdatedAt`, `OperationalStatusReason` (lý do nội bộ).
+
+#### `GET /api/cafes`, `/nearby`, `/nearby/me`, `/search` → `NearbyCafeDto` (player)
+
+Kế thừa `CafeDto` + thêm: `distanceMeters`, `availableGameCount`, `totalGameBoxCount`, `availableTableCount`, `totalTableCount`, `selectedGameAvailabilityStatus`, `estimatedWaitMinutes`.
+
+**Không trả:** Mọi refund policy, deposit config, schedule overrides, operational status, staff/lobby/revenue metrics, distance chỉ có nếu truyền lat/lng (không tính trong list view).
+
+`NearbyCafeSearchResultDto` bọc thêm: `emptyResultMessage`, `alternativeSuggestions` (chỉ khi truyền `gameTemplateId`).
+
+#### `GET /api/manager/my-cafes` & `/api/staff/my-cafes` → `ManagerCafeDto` (manager/staff)
+
+Kế thừa `CafeDetailDto` + thêm **manager-only**: `ManagerId`, `SePayMerchantId`, `SePayBankCode`, `SePayAccountNumber`, `SePayReturnUrl`, `DefaultHoldDurationMinutes`, `StaffCount`, `UpcomingBookingsCount`, `ActiveLobbiesToday`, `PendingCafeApprovalLobbiesCount`, `HeldDepositTotal`, `WeekdayOpen/Close`, `WeekendOpen/Close`, `UpdatedAt`, `OperationalProfileUpdatedAt`.
+
+**Quan trọng:** Manager/Staff thấy `operationalStatusReason` (lý do nội bộ) + `HeldDepositTotal` (revenue snapshot).
+
+**Staff field filter:** Staff thấy `ManagerId = Guid.Empty` và ẩn SePay raw (`SePayMerchantId`, `SePayBankCode`, `SePayAccountNumber`, `SePayReturnUrl`).
+
+#### `GET /api/admin/cafes` → `AdminCafeListItemDto` (admin)
+
+Gọn cho list view: `Id`, `Name`, `Address`, `PhoneNumber`, `TotalSeats`, `IsActive`, `DepositPercentage`, `HasSePayConfigured`, `ManagerId`, `ManagerName`, `NumberOfTables`, `NumberOfGamesOwned`, `StaffCount`, `CreatedAt`, `Status`.
+
+> Admin có thể click call trực tiếp từ list nhờ `PhoneNumber` (thêm 2026-08-15).
+
+#### `GET /api/admin/cafes/{id}` → `AdminCafeDetailDto` (admin)
+
+DTO riêng cho admin — **không kế thừa `CafeDetailDto`**: `Id`, `Name`, `Address`, `Latitude`, `Longitude`, `PhoneNumber`, `Description`, `ManagerId`, `ManagerName`, `ManagerEmail`, `PartnerOperationalStatus`, `PartnerOperationalStatusReason`, `PartnerOperationalStatusChangedAt`, `WeekdayOpen/Close`, `WeekendOpen/Close`, `NumberOfTables`, `NumberOfPrivateRooms`, `TotalSeats`, `NumberOfGamesOwned`, `PopularGamesList`, `HasGameMaster`, `BillingModel`, `BasePrice`, `TieredBlockRate`, `TieredBlockMinutes`, `IsPricingLocked`, `DepositPercentage`, `DefaultHoldDurationMinutes`, `RefundPolicy`, `HasSePayConfigured`, `ScheduleOverrides`, `CreatedAt`, `UpdatedAt`, `IsActive`.
+
+> Admin xem/tạo override giờ mở cửa cho ngày lễ qua `ScheduleOverrides` (thêm 2026-08-15).
+
+**Admin-specific:** `ManagerEmail`, `PopularGamesList`, `PartnerOperationalStatusChangedAt`, `TieredBlockRate`, `IsPricingLocked`, `DefaultHoldDurationMinutes`, `ScheduleOverrides`.
+
+> Security note: Admin KHÔNG thấy `SePayApiKey`/`SePaySecretKey` (secret) — chỉ `HasSePayConfigured` boolean.
+
+### Ma trận bảo mật — field nào endpoint nào trả
+
+| Field | `/{id}` (player) | `/nearby` etc. (player) | `my-cafes` (manager) | `my-cafes` (staff) | `/admin/cafes/{id}` |
+|-------|:-:|:-:|:-:|:-:|:-:|
+| `Id`, `Name`, `Address`, `PhoneNumber`, `Description`, `CreatedAt` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `Latitude`, `Longitude` | ✅ | ❌ | ✅ | ✅ | ✅ |
+| `TotalSeats`, `BillingModel`, `BasePrice`, `TieredBlockRate`, `TieredBlockMinutes`, `DepositPercentage`, `IsPricingLocked` | ✅ | ❌ | ✅ | ✅ | ✅ |
+| `HasSePayConfigured` (bool derived) | ✅ | ❌ | ✅ | ✅ | ✅ |
+| `OperationalStatus` (string) | ✅ | ❌ | ✅ | ✅ | ✅ |
+| **`OperationalStatusReason`** (lý do nội bộ) | ❌ **ẩn** | ❌ | ✅ | ✅ | ✅ |
+| `IsCurrentlyOpen` | ✅ | ❌ | ✅ | ✅ | ❌ |
+| `RefundPolicy`, `RefundTiers` | ✅ | ❌ | ✅ | ✅ | `RefundPolicy` only |
+| `DepositRatePerPerson`, `MinDeposit`, `CafeConfig` (BR defaults) | ✅ | ❌ | ✅ | ✅ | ❌ |
+| `AvailableSeats`, `HeldSeats`, `InUseSeats`, `AvailableSeatsByTimeSlot` | ✅ | ❌ | ✅ | ✅ | ❌ |
+| `ScheduleOverrides` | ✅ | ❌ | ✅ | ✅ | ✅ |
+| `NumberOfTables`, `NumberOfPrivateRooms`, `NumberOfGamesOwned`, `HasGameMaster` | ✅ | ❌ | ✅ | ✅ | ✅ |
+| `PhoneNumber` (admin cần liên hệ cafe từ list/detail) | ❌ | ❌ | ❌ | ❌ | ✅ |
+| `DistanceKm` | ✅ (nếu truyền lat/lng) | ❌ | ❌ | ❌ | ❌ |
+| `DistanceMeters` | ❌ | ✅ | ❌ | ❌ | ❌ |
+| `AvailableGameCount`, `TotalGameBoxCount`, `AvailableTableCount`, `TotalTableCount` | ❌ | ✅ | ❌ | ❌ | ❌ |
+| `SelectedGameAvailabilityStatus`, `EstimatedWaitMinutes` | ❌ | ✅ | ❌ | ❌ | ❌ |
+| `ManagerId` | ❌ | ❌ | ✅ | ✅ (set Empty) | ✅ |
+| `ManagerName`, `ManagerEmail` | ❌ | ❌ | ❌ | ❌ | ✅ |
+| `SePayMerchantId`, `SePayBankCode`, `SePayAccountNumber`, `SePayReturnUrl` | ❌ | ❌ | ✅ | ❌ (staff ẩn) | ❌ |
+| `DefaultHoldDurationMinutes` | ❌ | ❌ | ✅ | ✅ | ✅ |
+| `StaffCount`, `UpcomingBookingsCount`, `ActiveLobbiesToday`, `PendingCafeApprovalLobbiesCount`, `HeldDepositTotal` | ❌ | ❌ | ✅ | ✅ | ❌ |
+| `WeekdayOpen/Close`, `WeekendOpen/Close` | ❌ | ❌ | ✅ | ✅ | ✅ |
+| `UpdatedAt`, `OperationalProfileUpdatedAt` | ❌ | ❌ | ✅ | ✅ | `UpdatedAt` only |
+| `PopularGamesList`, `PartnerOperationalStatusChangedAt` | ❌ | ❌ | ❌ | ❌ | ✅ |
+
+### Security filter cho player endpoint `GET /api/cafes/{id}` (public)
+
+> **Cập nhật 2026-08-15:** Field `operationalStatusReason` (lý do nội bộ khi quán bị Inactive/Banned) **luôn null** cho player endpoint. Manager/Admin/Staff thấy field này qua endpoint riêng.
+>
+> Implementation: `ICafeService.GetCafeDetailAsync(includeSensitiveInfo = false)` — `OperationalStatusReason = includeSensitiveInfo ? cafe.PartnerOperationalStatusReason : null`.
+
+---
+
 ## GET /api/cafes
 
 Lấy danh sách tất cả quán cafe đang hoạt động cho player (`IsActive=true` AND `PartnerOperationalStatus=Active`).

@@ -14,6 +14,16 @@ public static class PaymentServiceExtensions
         services.AddHttpClient<ISePayClient, SePayClient>()
             .SetHandlerLifetime(TimeSpan.FromMinutes(5));
 
+        services.AddHttpClient<IQrImageProxyService, QrImageProxyService>(client =>
+            {
+                // UA giả lập trình duyệt phổ biến — tránh một số CDN reject server-to-server.
+                client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+                client.Timeout = TimeSpan.FromSeconds(10);
+            })
+            .SetHandlerLifetime(TimeSpan.FromMinutes(5));
+
         services.AddScoped<IVietQrClient, VietQrClient>();
 
         // VietQR gateway — tạo QR tĩnh, không cần retry

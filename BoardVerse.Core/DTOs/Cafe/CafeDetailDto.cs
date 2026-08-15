@@ -25,12 +25,14 @@ public class CafeDetailDto : CafeDto
     /// <summary>Các bậc hoàn cọc khi Policy=Partial.</summary>
     public List<RefundTierDto>? RefundTiers { get; set; }
 
-    // === BR-NEW-12: Deposit Configuration ===
-    /// <summary>Tỷ lệ cọc theo người (BVC/người). Giá trị mặc định: 10.</summary>
+    // === BR-DEPOSIT-03 + BR-NEW-01: Deposit defaults ===
+    // NOTE: Hard-coded theo BR. Sẽ migrate từ CafeConfigEntity khi có bảng riêng.
+
+    /// <summary>Tỷ lệ cọc theo người (BVC/người). Hard-coded theo BR-DEPOSIT-03 (min 1, max 100, default 10).</summary>
     public int DepositRatePerPerson { get; set; } = 10;
 
-    /// <summary>Mức cọc tối thiểu theo khoảng cách playDate (BVC). Thay đổi theo CafeConfig.</summary>
-    public CafeMinDepositDto? MinDeposit { get; set; }
+    /// <summary>Mức cọc tối thiểu theo khoảng cách playDate (BVC). Hard-coded theo BR-NEW-01.</summary>
+    public CafeMinDepositDto MinDeposit { get; set; } = new();
 
     // === BR-05: Seat Availability ===
     /// <summary>Tổng số ghế trống hiện tại.</summary>
@@ -45,9 +47,10 @@ public class CafeDetailDto : CafeDto
     /// <summary>Số ghế trống theo từng timeSlot (nếu có thông tin).</summary>
     public Dictionary<string, int>? AvailableSeatsByTimeSlot { get; set; }
 
-    // === BR-NEW-12: Cafe Configuration Limits ===
+    // === BR-NEW-12: Cafe Configuration Limits (defaults) ===
+    // NOTE: Hard-coded theo BR. Sẽ migrate từ CafeConfigEntity khi có bảng riêng.
     /// <summary>Cấu hình hạn mức riêng của cafe (override BR-NEW-01 defaults).</summary>
-    public CafeConfigDto? CafeConfig { get; set; }
+    public CafeConfigDto CafeConfig { get; set; } = new();
 
     // === Schedule Overrides ===
     /// <summary>Danh sách override giờ mở cửa cho ngày đặc biệt (lễ, Tết...).</summary>
@@ -71,69 +74,70 @@ public class CafeDetailDto : CafeDto
 }
 
 /// <summary>
-/// Mức cọc tối thiểu theo khoảng cách playDate (BR-NEW-01 / BR-NEW-08).
+/// Mức cọc tối thiểu theo khoảng cách playDate (BR-NEW-01).
+/// Hard-coded defaults, sẽ migrate từ CafeConfigEntity khi có schema.
 /// </summary>
 public class CafeMinDepositDto
 {
-    /// <summary>Mức cọc tối thiểu khi đặt trong ngày (BVC).</summary>
-    public int SameDay { get; set; }
+    /// <summary>Mức cọc tối thiểu khi đặt trong ngày (BVC). BR-NEW-01: 50.000.</summary>
+    public int SameDay { get; set; } = 50_000;
 
-    /// <summary>Mức cọc tối thiểu khi đặt 1 ngày sau (BVC).</summary>
-    public int OneDay { get; set; }
+    /// <summary>Mức cọc tối thiểu khi đặt 1 ngày sau (BVC). BR-NEW-01: 50.000.</summary>
+    public int OneDay { get; set; } = 50_000;
 
-    /// <summary>Mức cọc tối thiểu khi đặt 2 ngày sau (BVC).</summary>
-    public int TwoDays { get; set; }
+    /// <summary>Mức cọc tối thiểu khi đặt 2 ngày sau (BVC). BR-NEW-01: 100.000.</summary>
+    public int TwoDays { get; set; } = 100_000;
 
-    /// <summary>Mức cọc tối thiểu khi đặt 3-4 ngày sau (BVC).</summary>
-    public int ThreeToFourDays { get; set; }
+    /// <summary>Mức cọc tối thiểu khi đặt 3-4 ngày sau (BVC). BR-NEW-01: 150.000.</summary>
+    public int ThreeToFourDays { get; set; } = 150_000;
 
-    /// <summary>Mức cọc tối thiểu khi đặt 5-7 ngày sau (BVC).</summary>
-    public int FiveToSevenDays { get; set; }
+    /// <summary>Mức cọc tối thiểu khi đặt 5-7 ngày sau (BVC). BR-NEW-01: 200.000.</summary>
+    public int FiveToSevenDays { get; set; } = 200_000;
 }
 
 /// <summary>
 /// Cấu hình hạn mức riêng của cafe (BR-NEW-12).
-/// Override giá trị mặc định của BR-NEW-01.
+/// Hard-coded defaults, sẽ migrate từ CafeConfigEntity khi có schema.
 /// </summary>
 public class CafeConfigDto
 {
     /// <summary>Tổng số ghế của quán.</summary>
     public int Capacity { get; set; }
 
-    /// <summary>Tối đa lobby active / user / day.</summary>
+    /// <summary>Tối đa lobby active / user / day. BR-NEW-02.</summary>
     public int MaxLobbiesPerUserPerDay { get; set; } = 1;
 
-    /// <summary>Tối đa người / lobby khi đặt cùng ngày.</summary>
+    /// <summary>Tối đa người / lobby khi đặt cùng ngày. BR-NEW-01.</summary>
     public int MaxPlayersPerLobbySameDay { get; set; } = 30;
 
-    /// <summary>Tối đa người / lobby khi đặt 1 ngày sau.</summary>
+    /// <summary>Tối đa người / lobby khi đặt 1 ngày sau. BR-NEW-01.</summary>
     public int MaxPlayersPerLobby1Day { get; set; } = 20;
 
-    /// <summary>Tối đa người / lobby khi đặt 2 ngày sau.</summary>
+    /// <summary>Tối đa người / lobby khi đặt 2 ngày sau. BR-NEW-01.</summary>
     public int MaxPlayersPerLobby2Days { get; set; } = 15;
 
-    /// <summary>Tối đa người / lobby khi đặt 3-4 ngày sau.</summary>
+    /// <summary>Tối đa người / lobby khi đặt 3-4 ngày sau. BR-NEW-01.</summary>
     public int MaxPlayersPerLobby3To4Days { get; set; } = 10;
 
-    /// <summary>Tối đa người / lobby khi đặt 5-7 ngày sau.</summary>
+    /// <summary>Tối đa người / lobby khi đặt 5-7 ngày sau. BR-NEW-01.</summary>
     public int MaxPlayersPerLobby5To7Days { get; set; } = 6;
 
-    /// <summary>Có yêu cầu cafe duyệt lobby public xa (> DistantThresholdDays) không.</summary>
+    /// <summary>Có yêu cầu cafe duyệt lobby public xa (> DistantThresholdDays) không. BR-NEW-11.</summary>
     public bool RequireApprovalForDistant { get; set; } = true;
 
-    /// <summary>Ngưỡng ngày bắt đầu cần cafe duyệt (mặc định 2 ngày).</summary>
+    /// <summary>Ngưỡng ngày bắt đầu cần cafe duyệt. BR-NEW-11.</summary>
     public int DistantThresholdDays { get; set; } = 2;
 
-    /// <summary>Timeout duyệt lobby (giờ). Mặc định 24.</summary>
+    /// <summary>Timeout duyệt lobby (giờ). BR-NEW-11.</summary>
     public int ApprovalTimeoutHours { get; set; } = 24;
 
-    /// <summary>Tổng cọc tối đa / user (BVC). Mặc định 500000.</summary>
+    /// <summary>Tổng cọc tối đa / user (BVC). BR-USER-LIMIT-03.</summary>
     public long MaxTotalDepositPerUser { get; set; } = 500_000;
 
-    /// <summary>Buffer tối thiểu từ lúc tạo lobby đến recruitment deadline (phút). Mặc định 120.</summary>
+    /// <summary>Buffer tối thiểu từ lúc tạo lobby đến recruitment deadline (phút). BR-LOBBY-01a.</summary>
     public int RecruitmentDeadlineBufferMinutes { get; set; } = 120;
 
-    /// <summary>Grace period hủy lobby (phút). Mặc định 15.</summary>
+    /// <summary>Grace period hủy lobby (phút). BR-REFUND-03.</summary>
     public int CancellationGraceMinutes { get; set; } = 15;
 }
 
