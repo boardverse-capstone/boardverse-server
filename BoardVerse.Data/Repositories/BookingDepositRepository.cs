@@ -22,11 +22,24 @@ namespace BoardVerse.Data.Repositories
                 .FirstOrDefaultAsync(d => d.Id == depositId);
         }
 
+        /// <summary>
+        /// GAP-XX Fix (2026-08-15): SePay BankAPINotify strip dấu '-' khỏi transfer content
+        /// → webhook OrderId = "BV3382750A787C4AEF" (mất '-'). DB lưu "BV-3382750A787C4AEF".
+        /// Exact match fail → "deposit not matched" → webhook skip → staff manual confirm.
+        /// Normalize cả 2 phía (strip '-', uppercase) để match đúng.
+        /// </summary>
         public async Task<BookingDeposit?> GetByOrderIdAsync(string orderId)
         {
+            if (string.IsNullOrWhiteSpace(orderId))
+            {
+                return null;
+            }
+
+            var normalized = orderId.Replace("-", "").Trim().ToUpperInvariant();
             return await _db.BookingDeposits
                 .Include(d => d.Cafe)
-                .FirstOrDefaultAsync(d => d.OrderId == orderId);
+                .FirstOrDefaultAsync(d => d.OrderId != null
+                    && d.OrderId.Replace("-", "").ToUpper() == normalized);
         }
 
         /// <summary>

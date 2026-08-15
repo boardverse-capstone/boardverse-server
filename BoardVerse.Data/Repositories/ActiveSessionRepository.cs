@@ -55,6 +55,15 @@ namespace BoardVerse.Data.Repositories
         /// <summary>
         /// BUGFIX (subagent audit #3): Index-based lookup theo OrderId.
         /// Thay thế cho GetAllUnpaidAsync() + FirstOrDefault scan trong PaymentService webhook.
+        ///
+        /// GAP-XX Fix (2026-08-15): SePay BankAPINotify strip non-alphanumeric khỏi
+        /// transfer content → webhook OrderId = "BV3382750A787C4AEF" (mất dấu '-').
+        /// DB lưu OrderId = "BV-3382750A787C4AEF" (có dấu '-'). Exact match fail.
+        /// Fix: normalize cả 2 phía (strip '-', uppercase) trước khi so sánh.
+        /// In-memory normalize thay vì EF.Functions vì:
+        ///  - Không phụ thuộc provider (Npgsql/PostgreSQL hay SQLite test).
+        ///  - OrderId không quá lớn → không cần DB-side function.
+        ///  - Tránh EF.Functions.ILike regression Npgsql khác version.
         /// </summary>
         public async Task<ActiveSession?> GetByOrderIdAsync(string orderId)
         {
@@ -62,6 +71,10 @@ namespace BoardVerse.Data.Repositories
             {
                 return null;
             }
+
+            var normalized = NormalizeOrderId(orderId);
+
+            // Query normalized form so DB-side match chính xác sau khi strip.
             return await _db.ActiveSessions
                 .Include(s => s.Members)
                     .ThenInclude(m => m.User)
@@ -69,8 +82,16 @@ namespace BoardVerse.Data.Repositories
                 .Include(s => s.CafeTable)
                 .Include(s => s.CafeInventoryBox)
                 .Include(s => s.GameTemplate)
-                .FirstOrDefaultAsync(s => s.OrderId == orderId);
+                .FirstOrDefaultAsync(s => s.OrderId != null
+                    && s.OrderId.Replace("-", "").ToUpper() == normalized);
         }
+
+        /// <summary>
+        /// GAP-XX Fix: Normalize OrderId cho webhook lookup. Strip dấu '-' và uppercase
+        /// để chấp nhận cả "BV-3382750A787C4AEF" (DB) lẫn "BV3382750A787C4AEF" (SePay webhook).
+        /// </summary>
+        private static string NormalizeOrderId(string orderId)
+            => orderId.Replace("-", "").Trim().ToUpperInvariant();
 
         public async Task<ActiveSession?> GetByLobbyIdWithMembersAsync(Guid lobbyId)
         {
