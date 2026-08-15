@@ -147,20 +147,75 @@ public class RealOutboxPublisher : IOutboxEventPublisher
         var posHub = scope.ServiceProvider.GetRequiredService<IPosHubService>();
         var pushService = scope.ServiceProvider.GetRequiredService<IPushNotificationService>();
 
-        if (evt.LobbyId.HasValue)
-        {
-            await posHub.NotifySessionCompleted(evt.LobbyId.Value);
-        }
-
         var payload = ParsePayload(evt.Payload);
 
+        // GAP-XX Fix: Đọc sessionId từ payload JSON (ReservationService ghi "activeSessionId",
+        // ActiveSessionService ghi "sessionId"). MapSignalR theo sessionId — group session:{sessionId}
+        // là group PosHub.JoinSession tạo ra → FE subscribe group này nhận SessionPaid event.
+        //
+        // Vấn đề cũ: code dưới đây dùng evt.LobbyId cho group "session:{lobbyId}" — SAI vì:
+        //   1. Group PosHub.JoinSession dùng SESSION id, không phải lobby id.
+        //   2. Walk-in session (LobbyId = null) miss hoàn toàn → không ai nhận SignalR.
+        //   3. Lobby:Session 1:N có thể có nhiều session liên kết 1 lobby → broadcast nhầm.
+        Guid? sessionId = null;
+        if (payload.TryGetValue("sessionId", out var sid) && Guid.TryParse(sid, out var parsedSessionId))
+        {
+            sessionId = parsedSessionId;
+        }
+        else if (payload.TryGetValue("activeSessionId", out var aid) && Guid.TryParse(aid, out var parsedActiveSessionId))
+        {
+            sessionId = parsedActiveSessionId;
+        }
+
+        // Notify qua session group (preferred) + legacy lobby group (back-compat cho lobby có FE cũ).
+        if (sessionId.HasValue)
+        {
+            // Đọc thêm cafeId, totalAmount, paidAt từ payload cho SignalR notification.
+            Guid? cafeId = null;
+            if (payload.TryGetValue("cafeId", out var cid) && Guid.TryParse(cid, out var parsedCafeId))
+            {
+                cafeId = parsedCafeId;
+            }
+            decimal totalAmount = 0m;
+            if (payload.TryGetValue("totalAmount", out var ta) && decimal.TryParse(ta, out var parsedTotal))
+            {
+                totalAmount = parsedTotal;
+            }
+            DateTime paidAt = DateTime.UtcNow;
+            if (payload.TryGetValue("paidAt", out var pa) && DateTime.TryParse(pa, out var parsedPaidAt))
+            {
+                paidAt = parsedPaidAt;
+            }
+
+            await posHub.NotifySessionPaidAsync(
+                sessionId.Value,
+                cafeId ?? Guid.Empty,
+                evt.LobbyId,
+                totalAmount,
+                paidAt);
+        }
+        else if (evt.LobbyId.HasValue)
+        {
+            // Fallback: chỉ có lobbyId (event cũ chưa có sessionId trong payload) → dùng
+            // NotifySessionCompleted cũ (group session:{lobbyId} sai tên nhưng đã có FE subscribe).
+            await posHub.NotifySessionCompleted(evt.LobbyId.Value);
+        }
+        else
+        {
+            _logger.LogWarning(
+                "[Outbox] SessionCompleted event {EventId} không có sessionId/activeSessionId trong payload " +
+                "và không có LobbyId → skip SignalR push. EventType={EventType}",
+                evt.Id, evt.EventType);
+        }
+
+        // Push notification (giữ nguyên logic cũ — chỉ push khi có UserId).
         if (evt.UserId.HasValue)
         {
                 await pushService.SendAsync(evt.UserId.Value, "Phiên chơi đã kết thúc",
                     "Cảm ơn bạn đã sử dụng BoardVerse! Hãy đánh giá các thành viên nhé.",
                 new Dictionary<string, string>
                 {
-                    ["lobbyId"] = evt.LobbyId?.ToString() ?? "",
+                    ["sessionId"] = sessionId?.ToString() ?? evt.LobbyId?.ToString() ?? "",
                     ["event"] = "SessionCompleted"
                 });
         }

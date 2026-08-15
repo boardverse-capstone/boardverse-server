@@ -25,6 +25,8 @@ namespace BoardVerse.Services.Services
         private readonly IReservationRepository _reservationRepository;
         // Early checkout: inject để tạo WalkInWindow khi session kết thúc sớm (§4.4).
         private readonly IWalkInService _walkInService;
+        // BR-REQUIRED §17.5: Outbox event cho SignalR push khi session paid (cả Manual lẫn Webhook).
+        private readonly IOutboxRepository _outboxRepository;
         private readonly ILogger<ActiveSessionService> _logger;
 
         public ActiveSessionService(
@@ -37,6 +39,7 @@ namespace BoardVerse.Services.Services
             ILobbyRepository lobbyRepository,
             IReservationRepository reservationRepository,
             IWalkInService walkInService,
+            IOutboxRepository outboxRepository,
             ILogger<ActiveSessionService> logger)
         {
             _cafeRepository = cafeRepository;
@@ -48,6 +51,7 @@ namespace BoardVerse.Services.Services
             _lobbyRepository = lobbyRepository;
             _reservationRepository = reservationRepository;
             _walkInService = walkInService;
+            _outboxRepository = outboxRepository;
             _logger = logger;
         }
 
@@ -618,6 +622,56 @@ namespace BoardVerse.Services.Services
                     await dbTx.RollbackAsync();
                 }
                 throw;
+            }
+
+            // BR-REQUIRED §17.5: Outbox event SessionCompleted cho SignalR/push.
+            // IdempotencyKey dựa trên sessionId (deterministic) — webhook retry / double-click Pay
+            // → trùng key → UX_OutboxEvents_IdempotencyKey chặn insert lần 2.
+            // Walk-in session (LobbyId = null) vẫn emit event; payload có sessionId, FE dùng để update UI.
+            // Skip BVC capture event ở đây — ReservationService đã emit event riêng khi CompleteAndCaptureAsync.
+            // Hai event khác nhau (SessionCompleted ở đây vs SessionCompleted ở Reservation) được dedupe
+            // bằng IdempotencyKey riêng: `session-paid-{sessionId}` vs `capture-{reservationId}`.
+            try
+            {
+                var sessionPaidPayload = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    sessionId,
+                    cafeId = session.CafeId,
+                    lobbyId = session.LobbyId,
+                    hostId = session.HostId,
+                    trigger = trigger.ToString(),
+                    totalAmount = session.TotalAmount,
+                    paidAt = now,
+                    bvcCaptureStatus = bvcCaptureStatus.ToString()
+                });
+
+                await _outboxRepository.AddAsync(new OutboxEvent
+                {
+                    Id = Guid.NewGuid(),
+                    EventType = OutboxEventType.SessionCompleted,
+                    Payload = sessionPaidPayload,
+                    IdempotencyKey = $"session-paid-{sessionId:N}",
+                    LobbyId = session.LobbyId,
+                    UserId = session.HostId,
+                    CreatedAt = now
+                });
+
+                await _outboxRepository.SaveChangesAsync();
+
+                _logger.LogInformation(
+                    "Outbox SessionCompleted emitted for SessionId={SessionId}, Trigger={Trigger}",
+                    sessionId, trigger);
+            }
+            catch (Exception ex)
+            {
+                // GAP-XX: Outbox fail KHÔNG được rollback payment — DB đã commit, payment đã PAID.
+                // Log + để background job sweep các payment mà thiếu event (nếu cần thiết kế lại).
+                _logger.LogError(ex,
+                    "GAP-XX: Failed to emit Outbox SessionCompleted for SessionId={SessionId}. " +
+                    "Payment đã commit nhưng FE sẽ không nhận SignalR event. " +
+                    "FE cần polling fallback hoặc admin reconcile.",
+                    sessionId);
+                // KHÔNG throw — payment đã thành công, không rollback được.
             }
 
             var finalSession = await _activeSessionRepository.GetByIdAsync(sessionId);

@@ -25,4 +25,11 @@ public interface IPosHubService
 
     /// <summary>BR-REQUIRED §17.5: POS đóng phiên → SessionCompleted.</summary>
     Task NotifySessionCompleted(Guid lobbyId);
+
+    /// <summary>
+    /// GAP-XX: Push SignalR khi ActiveSession PAID (cả Manual lẫn SePay webhook).
+    /// FE subscribe group <c>session:{sessionId}</c> nhận <c>SessionPaid</c> event → tắt UI Pay,
+    /// hiển thị "Đã thanh toán". Walk-in session (LobbyId = null) vẫn nhận được event này.
+    /// </summary>
+    Task NotifySessionPaidAsync(Guid sessionId, Guid cafeId, Guid? lobbyId, decimal totalAmount, DateTime paidAt);
 }

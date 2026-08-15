@@ -134,4 +134,40 @@ public class PosHubService : IPosHubService
             "Notified session {LobbyId} about SessionCompleted",
             lobbyId);
     }
+
+    /// <summary>
+    /// GAP-XX: Notify tất cả clients trong group <c>session:{sessionId}</c> rằng session đã PAID.
+    /// Được gọi từ <c>RealOutboxPublisher.PublishSessionCompletedAsync</c> khi đọc OutboxEvents.
+    /// FE subscribe group này (PosHub.JoinSession) nhận event <c>SessionPaid</c> → tắt UI thanh toán.
+    /// Walk-in session (LobbyId = null) vẫn được notify qua group session:{sessionId} —
+    /// lobby-only fallback (NotifySessionCompleted theo lobbyId) sẽ miss trường hợp này.
+    /// </summary>
+    public async Task NotifySessionPaidAsync(
+        Guid sessionId,
+        Guid cafeId,
+        Guid? lobbyId,
+        decimal totalAmount,
+        DateTime paidAt)
+    {
+        var notification = new
+        {
+            EventType = "SessionPaid",
+            SessionId = sessionId,
+            CafeId = cafeId,
+            LobbyId = lobbyId,
+            TotalAmount = totalAmount,
+            PaidAt = paidAt,
+            Timestamp = DateTime.UtcNow
+        };
+
+        // Push tới group session:{sessionId} — đây là group PosHub.JoinSession tạo ra.
+        // Cả POS lẫn member mobile app đã subscribe group này đều nhận được.
+        await _hubContext.Clients
+            .Group($"session:{sessionId}")
+            .SendAsync("SessionPaid", notification);
+
+        _logger.LogInformation(
+            "Notified session {SessionId} about SessionPaid (TotalAmount={Total}, LobbyId={LobbyId})",
+            sessionId, totalAmount, lobbyId);
+    }
 }
