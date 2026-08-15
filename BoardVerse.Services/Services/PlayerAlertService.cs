@@ -221,6 +221,7 @@ public class PlayerAlertService : IPlayerAlertService
     {
         Id = a.Id,
         UserId = a.UserId,
+        Username = a.User?.Username,
         AlertType = a.AlertType,
         Severity = a.Severity,
         Status = a.Status,

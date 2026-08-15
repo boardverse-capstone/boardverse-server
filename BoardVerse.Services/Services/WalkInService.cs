@@ -277,7 +277,7 @@ public class WalkInService : IWalkInService
         if (booking.Status != WalkInBookingStatus.Active)
         {
             throw new ConflictException(
-                $"Chỉ có thể hủy WalkInBooking ở trạng thái Active. Trạng thái hiện tại: {booking.Status}");
+                ApiErrorMessages.System.WalkInCancelInvalidStatus(booking.Status));
         }
 
         // Lấy WalkInWindow để trả ghế

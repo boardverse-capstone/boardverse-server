@@ -121,7 +121,7 @@ public class FriendReportService : IFriendReportService
             && status != "Pending" && status != "Reviewed" && status != "Dismissed")
         {
             throw new BadRequestException(
-                $"Status filter không hợp lệ: '{status}'. Chỉ chấp nhận Pending/Reviewed/Dismissed.");
+                ApiErrorMessages.System.FriendReportInvalidStatusFilter(status));
         }
 
         var (reports, total) = await _reportRepository.GetAllForAdminAsync(status, offset, limit);

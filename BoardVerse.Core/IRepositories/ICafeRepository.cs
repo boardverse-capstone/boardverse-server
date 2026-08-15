@@ -11,12 +11,23 @@ namespace BoardVerse.Core.IRepositories
         Task<Cafe?> GetByIdAsync(Guid id);
         Task<Cafe?> GetActiveByIdAsync(Guid id);
         Task<Cafe?> GetByIdWithInventoriesAsync(Guid id);
+
+        /// <summary>
+        /// Lấy Cafe kèm Manager navigation (FK User) — dùng cho Admin GET /api/admin/cafes/{id}
+        /// cần render ManagerName/ManagerEmail.
+        /// </summary>
+        Task<Cafe?> GetByIdWithManagerAsync(Guid id);
         Task<User?> GetUserByEmailAsync(string email);
         Task<User?> GetUserByIdAsync(Guid userId);
         Task<bool> UsernameExistsAsync(string username, Guid? excludedUserId = null);
         Task AddCafeStaffAsync(CafeStaff cafeStaff);
         Task AddUserAsync(User user);
         Task<bool> IsStaffMemberExistsAsync(Guid cafeId, Guid userId);
+        /// <summary>
+        /// GAP-C1: True if userId is the cafe's manager OR a staff member —
+        /// single-tenant authorization check for cross-cafe IDOR guards.
+        /// </summary>
+        Task<bool> IsManagerOrStaffAsync(Guid cafeId, Guid userId);
         Task<int> CountActiveStaffAssignmentsAsync(Guid userId);
         Task<PaginatedResponse<StaffDto>> GetStaffPagedAsync(Guid cafeId, PaginationParams paginationParams);
         Task<CafeStaff?> GetCafeStaffAsync(Guid cafeId, Guid staffId);

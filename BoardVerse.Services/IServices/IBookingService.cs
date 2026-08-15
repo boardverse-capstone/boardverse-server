@@ -39,7 +39,7 @@ public interface IBookingService
     /// <summary>
     /// Lấy danh sách booking của cafe.
     /// </summary>
-    Task<IReadOnlyList<BookingResponseDto>> GetByCafeIdAsync(Guid cafeId, Guid? requestingUserId = null);
+    Task<IReadOnlyList<BookingResponseDto>> GetByCafeIdAsync(Guid cafeId, Guid? requestingUserId = null, bool isStaffOrManager = false);
 
     /// <summary>
     /// Cập nhật booking (chỉ một số trường được phép).

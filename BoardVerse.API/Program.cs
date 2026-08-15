@@ -169,6 +169,7 @@ builder.Services.AddScoped<IKarmaService, KarmaService>();
 builder.Services.AddScoped<ICafeScheduleOverrideRepository, CafeScheduleOverrideRepository>();
 builder.Services.AddScoped<IScheduleResolver, CafeScheduleResolver>();
 builder.Services.AddScoped<ICafeScheduleService, CafeScheduleService>();
+builder.Services.AddScoped<ITimeSlotService, TimeSlotService>();
 builder.Services.AddScoped<IAuthRepository, AuthRepository>();
 builder.Services.AddScoped<IUserProfileRepository, UserProfileRepository>();
 builder.Services.AddScoped<IUserManagementRepository, UserManagementRepository>();
@@ -203,6 +204,10 @@ builder.Services.AddScoped<IBookingRatingRepository, BookingRatingRepository>();
 builder.Services.AddScoped<ICafeBookingService, CafeBookingService>();
 builder.Services.AddScoped<IBookingRatingService, BookingRatingService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
+builder.Services.AddScoped<LegacyBookingCleanupService>(); // Cleanup stale legacy Booking rows
+builder.Services.AddSingleton<LegacyBookingCleanupMetricsStore>(); // GAP-10: persist metrics across scopes
+builder.Services.Configure<BoardVerse.Core.Settings.LegacyBookingSettings>(
+    builder.Configuration.GetSection(BoardVerse.Core.Settings.LegacyBookingSettings.SectionName));
 
 // Background Jobs
 
@@ -277,6 +282,11 @@ if (!builder.Environment.IsEnvironment("Testing"))
     builder.Services.AddHostedService<LobbyNotificationJob>(); // N-01: BR-NEW-13 milestone notifications
     builder.Services.AddHostedService<LobbyAtRiskWarningJob>(); // N-02: BR-NEW-14 at-risk warning
     builder.Services.AddHostedService<ReservationNoShowDetectionJob>(); // BR-CHECKIN-02: auto NoShow 30 phút grace
+    // GAP-9: Conditional registration — skip Testing env để không phá integration test.
+    if (!builder.Environment.IsEnvironment("Testing"))
+    {
+        builder.Services.AddHostedService<LegacyBookingCleanupJob>(); // Legacy Flow B: sweep stale PendingDeposit/Confirmed rows
+    }
     builder.Services.AddHostedService<AutoReleaseExpiredSessionsJob>(); // BR-END-05: auto-release session khi staff quên end
     builder.Services.AddHostedService<WalkInWindowCleanupJob>(); // §4.4: auto-close expired WalkInWindows
     builder.Services.AddHostedService<CoolingOffJob>(); // BR-NEW-10: detect signals + expire cooling-off
@@ -383,13 +393,45 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 // Add CORS
+// Two policies:
+//   "BoardVerseCors" - default cho REST API (giữ AllowAnyOrigin cho tương thích hiện tại).
+//   "SignalRCors"    - explicit cho SignalR hubs: chỉ allow trusted origins + AllowCredentials + expose negotiate headers.
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", policy =>
+    options.AddPolicy("BoardVerseCors", policy =>
     {
         policy.AllowAnyOrigin()
               .AllowAnyMethod()
               .AllowAnyHeader();
+    });
+
+    options.AddPolicy("SignalRCors", policy =>
+    {
+        // Trusted origins for SignalR negotiate. Hardcode dev origins; production origins
+        // được bổ sung qua env var BoardVerse__SignalROrigins__0, _1, ... (comma-separated).
+        var allowedOrigins = new List<string>
+        {
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:5022"
+        };
+
+        var extraOrigins = builder.Configuration.GetSection("BoardVerse:SignalROrigins").Get<string[]>();
+        if (extraOrigins is not null)
+        {
+            allowedOrigins.AddRange(extraOrigins.Where(o => !string.IsNullOrWhiteSpace(o)));
+        }
+
+        policy.WithOrigins(allowedOrigins.ToArray())
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials()
+              .WithExposedHeaders(
+                  "negotiate-version",
+                  "signalr-connection-id",
+                  "x-signalr-user-agent");
     });
 });
 
@@ -448,7 +490,7 @@ if (enableSwagger)
     });
 }
 
-app.UseCors("AllowAll");
+app.UseCors("BoardVerseCors");
 
 // Serve static HTML test pages from a dedicated wwwroot folder.
 // P0-Fix-#1: KHÔNG mount thư mục CHA project (lộ appsettings.json, .git/, source code).
@@ -477,8 +519,13 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-// Map SignalR Hubs
-app.MapHub<LobbyHub>("/hubs/lobby");
-app.MapHub<PosHub>("/hubs/pos");
+// Map SignalR Hubs - apply SignalRCors policy to expose negotiate headers + allow credentials.
+// Note: RequireCors must come BEFORE RequireAuthorization so preflight (OPTIONS) is handled
+// by CORS middleware without hitting JwtBearer auth, otherwise the OPTIONS request fails
+// with 401 and the browser drops the negotiate POST.
+app.MapHub<LobbyHub>("/hubs/lobby")
+    .RequireCors("SignalRCors");
+app.MapHub<PosHub>("/hubs/pos")
+    .RequireCors("SignalRCors");
 
 app.Run();

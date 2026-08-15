@@ -250,7 +250,7 @@ public class CafePosCreateCheckInTokenTests
     }
 
     [Fact]
-    public async Task CreateCheckInToken_AllAttemptsCollide_ThrowsInvalidOperation()
+    public async Task CreateCheckInToken_AllAttemptsCollide_ThrowsInternalServerError()
     {
         var cafeId = Guid.NewGuid();
         var cafe = BuildCafe(cafeId, Guid.NewGuid());
@@ -261,7 +261,9 @@ public class CafePosCreateCheckInTokenTests
 
         var svc = CreateService();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        // Sau khi migrate sang ApiErrorMessages: lỗi collision 5 lần được map sang InternalServerErrorException
+        // (lỗi kỹ thuật của service, không phải business rule violation).
+        await Assert.ThrowsAsync<InternalServerErrorException>(() =>
             svc.CreateCheckInTokenAsync(cafeId, Guid.NewGuid(), "Manager",
                 new CreatePosCheckInTokenRequestDto()));
     }

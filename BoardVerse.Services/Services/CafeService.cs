@@ -20,6 +20,8 @@ namespace BoardVerse.Services.Services
         private readonly IBookingRepository _bookingRepository;
         private readonly ILobbyHubService _hubService;
         private readonly IPushNotificationService _pushNotificationService;
+        private readonly ILobbyRepository _lobbyRepository;
+        private readonly IReservationRepository _reservationRepository;
 
         public CafeService(
             ICafeRepository cafeRepository,
@@ -27,7 +29,9 @@ namespace BoardVerse.Services.Services
             ISystemConfigurationProvider systemConfigurationProvider,
             IBookingRepository bookingRepository,
             ILobbyHubService hubService,
-            IPushNotificationService pushNotificationService)
+            IPushNotificationService pushNotificationService,
+            ILobbyRepository lobbyRepository,
+            IReservationRepository reservationRepository)
         {
             _cafeRepository = cafeRepository;
             _userProfileRepository = userProfileRepository;
@@ -35,6 +39,8 @@ namespace BoardVerse.Services.Services
             _bookingRepository = bookingRepository;
             _hubService = hubService;
             _pushNotificationService = pushNotificationService;
+            _lobbyRepository = lobbyRepository;
+            _reservationRepository = reservationRepository;
         }
 
         public async Task<CafeDto> GetCafeAsync(Guid cafeId)
@@ -297,7 +303,13 @@ namespace BoardVerse.Services.Services
         public async Task<IEnumerable<ManagerCafeDto>> GetManagerCafesAsync(Guid managerId)
         {
             var cafes = await _cafeRepository.GetCafesByManagerIdAsync(managerId);
-            return cafes.Select(c => MapToManagerDto(c, isStaff: false));
+            var cafesList = cafes as IReadOnlyList<Cafe> ?? cafes.ToList();
+            var results = new List<ManagerCafeDto>(cafesList.Count);
+            foreach (var c in cafesList)
+            {
+                results.Add(await MapToManagerDtoAsync(c, isStaff: false));
+            }
+            return results;
         }
 
         public async Task AddStaffAsync(Guid cafeId, Guid currentManagerId, AddStaffRequestDto dto)
@@ -429,14 +441,21 @@ namespace BoardVerse.Services.Services
         public async Task<IEnumerable<ManagerCafeDto>> GetMyWorkplacesAsync(Guid currentStaffId)
         {
             var cafes = await _cafeRepository.GetCafesByStaffIdAsync(currentStaffId);
-            return cafes.Select(c => MapToManagerDto(c, isStaff: true));
+            var cafesList = cafes as IReadOnlyList<Cafe> ?? cafes.ToList();
+            var results = new List<ManagerCafeDto>(cafesList.Count);
+            foreach (var c in cafesList)
+            {
+                results.Add(await MapToManagerDtoAsync(c, isStaff: true));
+            }
+            return results;
         }
 
         /// <summary>
         /// Map Cafe entity → ManagerCafeDto (bao gồm operational details + SePay raw + schedule).
         /// isStaff=true ẩn một số field nhạy cảm (manager-only fields).
+        /// Async để query các counter (staff count, upcoming bookings, active lobbies, revenue, seats, ...).
         /// </summary>
-        private ManagerCafeDto MapToManagerDto(Cafe cafe, bool isStaff)
+        private async Task<ManagerCafeDto> MapToManagerDtoAsync(Cafe cafe, bool isStaff)
         {
             var dto = new ManagerCafeDto
             {
@@ -498,10 +517,169 @@ namespace BoardVerse.Services.Services
                 // === Audit ===
                 UpdatedAt = cafe.UpdatedAt,
                 OperationalProfileUpdatedAt = cafe.OperationalProfileUpdatedAt,
-
-                // === Counts (initialized — async ở controller nếu cần) ===
-                StaffCount = cafe.StaffMembers?.Count ?? 0,
             };
+
+            // === Counts (đếm từ DB song song) ===
+            var utcNow = DateTime.UtcNow;
+            var today = DateOnly.FromDateTime(utcNow);
+            var weekEnd = utcNow.AddDays(7);
+            var monthStart = new DateTime(utcNow.Year, utcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+
+            int staffCount = cafe.StaffMembers?.Count ?? 0;
+            int upcomingBookingsCount;
+            int activeLobbiesToday;
+            int pendingCafeApprovalCount;
+            decimal? currentMonthRevenue;
+            long heldDepositTotal;
+            int availableSeats;
+            int heldSeats;
+            int inUseSeats;
+            Dictionary<TimeSlot, int>? seatsBySlot = null;
+            List<CafeScheduleOverride>? scheduleOverrides = null;
+            List<RefundTierDto>? refundTiers = null;
+            CafeConfigDto? cafeConfig = null;
+
+            try
+            {
+                var bookingsWeekTask = _bookingRepository.GetByCafeIdAsync(cafe.Id, utcNow, weekEnd);
+                var pendingApprovalTask = _reservationRepository.GetPendingCafeApprovalAsync(
+                    new List<Guid> { cafe.Id }, cafe.Id, null, 1, 1);
+                var seatsBySlotTask = _cafeRepository.GetAvailableSeatsByTimeSlotAsync(cafe.Id, today);
+                var scheduleOverridesTask = _cafeRepository.GetScheduleOverridesAsync(
+                    cafe.Id, today, today.AddDays(30));
+                var heldSeatsTask = _cafeRepository.CountHeldSeatsAsync(cafe.Id, today);
+                var inUseSeatsTask = _cafeRepository.CountInUseSeatsAsync(cafe.Id, today);
+
+                await Task.WhenAll(
+                    bookingsWeekTask, pendingApprovalTask,
+                    seatsBySlotTask, scheduleOverridesTask,
+                    heldSeatsTask, inUseSeatsTask);
+
+                var bookingsWeek = bookingsWeekTask.Result;
+                var pendingApproval = pendingApprovalTask.Result;
+                seatsBySlot = seatsBySlotTask.Result;
+                scheduleOverrides = scheduleOverridesTask.Result;
+                heldSeats = heldSeatsTask.Result;
+                inUseSeats = inUseSeatsTask.Result;
+
+                // Upcoming bookings = Confirmed/PendingDeposit chưa kết thúc trong 7 ngày tới
+                upcomingBookingsCount = bookingsWeek.Count(b =>
+                    b.Status == BookingStatus.PendingDeposit
+                    || b.Status == BookingStatus.Confirmed
+                    || b.Status == BookingStatus.CheckedIn);
+
+                // Pending cafe approval (BR-NEW-11)
+                pendingCafeApprovalCount = pendingApproval.TotalCount;
+
+                // Active lobbies today: Reservation holding/confirmed + Lobby status ∈ (Open/Viable/Full/InProgress/PendingActivation/PendingCafeApproval)
+                var activeReservationsToday = await _reservationRepository.GetActiveByCafePlayDateSlotAsync(
+                    cafe.Id, today, TimeSlot.Morning)
+                    .ContinueWith(t => t.Result);
+                // Count all slots today
+                var slotTasks = new[] { TimeSlot.Morning, TimeSlot.Afternoon, TimeSlot.Evening, TimeSlot.LateNight }
+                    .Select(slot => _reservationRepository.GetActiveByCafePlayDateSlotAsync(cafe.Id, today, slot));
+                var slotResults = await Task.WhenAll(slotTasks);
+                activeLobbiesToday = slotResults.Sum(r => r.Count);
+                // Current month revenue: tổng doanh thu từ ActiveSession PAID trong tháng.
+                // TODO: thêm IActiveSessionRepository.GetMonthlyRevenueAsync(cafeId, year, month).
+                // Hiện tại CafeService không inject IActiveSessionService => để null cho dashboard.
+                _ = monthStart;
+                currentMonthRevenue = null;
+
+                // Held deposit total: t�ng HeldBalance của các player có Reservation active tại cafe này
+                // (Reservation.DepositAmount đang giữ trong ví BVC)
+                heldDepositTotal = slotResults.SelectMany(r => r)
+                    .Where(r => r.Status == ReservationStatus.Holding || r.Status == ReservationStatus.Confirmed)
+                    .Sum(r => (long)r.DepositAmount);
+
+                // Seats
+                availableSeats = seatsBySlot.Values.Sum();
+            }
+            catch (Exception)
+            {
+                // Nếu query fail (DB tạm không khả dụng), fallback 0/null để manager dashboard vẫn render.
+                upcomingBookingsCount = 0;
+                activeLobbiesToday = 0;
+                pendingCafeApprovalCount = 0;
+                currentMonthRevenue = null;
+                heldDepositTotal = 0;
+                availableSeats = 0;
+                heldSeats = 0;
+                inUseSeats = 0;
+            }
+
+            dto.StaffCount = staffCount;
+            dto.UpcomingBookingsCount = upcomingBookingsCount;
+            dto.ActiveLobbiesToday = activeLobbiesToday;
+            dto.PendingCafeApprovalLobbiesCount = pendingCafeApprovalCount;
+            dto.CurrentMonthRevenue = currentMonthRevenue;
+            dto.HeldDepositTotal = heldDepositTotal;
+            dto.AvailableSeats = availableSeats;
+            dto.HeldSeats = heldSeats;
+            dto.InUseSeats = inUseSeats;
+            dto.AvailableSeatsByTimeSlot = seatsBySlot?.ToDictionary(
+                kvp => kvp.Key.ToString(), kvp => kvp.Value);
+
+            // Schedule overrides
+            dto.ScheduleOverrides = scheduleOverrides?
+                .Select(o => new CafeScheduleOverrideDto
+                {
+                    Date = o.EffectiveFrom ?? today,
+                    Reason = null,
+                    OpenTime = o.StartTime,
+                    CloseTime = o.EndTime,
+                    IsClosed = o.IsClosed,
+                    AffectedTimeSlot = o.TimeSlot
+                }).ToList();
+
+            // Refund tiers
+            if (!string.IsNullOrEmpty(cafe.RefundTiersJson) && cafe.RefundTiersJson != "[]")
+            {
+                try
+                {
+                    refundTiers = System.Text.Json.JsonSerializer.Deserialize<List<RefundTierDto>>(cafe.RefundTiersJson);
+                }
+                catch
+                {
+                    refundTiers = null;
+                }
+            }
+            dto.RefundTiers = refundTiers;
+
+            // Cafe config (BR-NEW-12) — đang dùng giá trị default từ cafe entity + BR-NEW-01
+            // Sau khi có CafeConfigEntity riêng sẽ map từ đó
+            dto.CafeConfig = new CafeConfigDto
+            {
+                Capacity = cafe.TotalSeats,
+                MaxLobbiesPerUserPerDay = 1,
+                MaxPlayersPerLobbySameDay = 30,
+                MaxPlayersPerLobby1Day = 20,
+                MaxPlayersPerLobby2Days = 15,
+                MaxPlayersPerLobby3To4Days = 10,
+                MaxPlayersPerLobby5To7Days = 6,
+                RequireApprovalForDistant = true,
+                DistantThresholdDays = 2,
+                ApprovalTimeoutHours = 24,
+                MaxTotalDepositPerUser = 500_000,
+                RecruitmentDeadlineBufferMinutes = 120,
+                CancellationGraceMinutes = 15
+            };
+
+            // Min deposit (BR-NEW-01)
+            dto.MinDeposit = new CafeMinDepositDto
+            {
+                SameDay = 50_000,
+                OneDay = 50_000,
+                TwoDays = 100_000,
+                ThreeToFourDays = 150_000,
+                FiveToSevenDays = 200_000
+            };
+
+            // POS-related counts
+            dto.NumberOfTables = cafe.NumberOfTables;
+            dto.NumberOfPrivateRooms = cafe.NumberOfPrivateRooms;
+            dto.NumberOfGamesOwned = cafe.NumberOfGamesOwned;
+            dto.HasGameMaster = cafe.HasGameMaster;
 
             // Hide SePay raw từ staff (chỉ manager thấy)
             if (!isStaff)
@@ -1078,7 +1256,7 @@ namespace BoardVerse.Services.Services
 
     public async Task<AdminCafeDetailDto?> GetAdminCafeDetailAsync(Guid cafeId)
     {
-        var c = await _cafeRepository.GetByIdAsync(cafeId);
+        var c = await _cafeRepository.GetByIdWithManagerAsync(cafeId);
         if (c == null)
         {
             return null;
@@ -1094,19 +1272,53 @@ namespace BoardVerse.Services.Services
             PhoneNumber = c.PhoneNumber,
             Description = c.Description,
             ManagerId = c.ManagerId,
+
+            // Manager contact (BR-Audit: cần biết ai chịu trách nhiệm quán)
+            ManagerName = !string.IsNullOrWhiteSpace(c.Manager?.Username)
+                ? c.Manager!.Username
+                : c.Manager?.Email ?? c.Manager?.PhoneNumber ?? "N/A",
+            ManagerEmail = c.Manager?.Email,
+
+            // Operational Status
+            PartnerOperationalStatus = c.PartnerOperationalStatus?.ToString() ?? string.Empty,
+            PartnerOperationalStatusReason = c.PartnerOperationalStatusReason,
+            PartnerOperationalStatusChangedAt = c.PartnerOperationalStatusChangedAt,
+
+            // Schedule (TimeSpan? — TimeOnly? trên entity được lưu thành TimeSpan)
+            WeekdayOpen = c.WeekdayOpen,
+            WeekdayClose = c.WeekdayClose,
+            WeekendOpen = c.WeekendOpen,
+            WeekendClose = c.WeekendClose,
+
+            // Profile
+            NumberOfTables = c.NumberOfTables,
+            NumberOfPrivateRooms = c.NumberOfPrivateRooms,
             TotalSeats = c.TotalSeats,
-            IsActive = c.IsActive,
+            NumberOfGamesOwned = c.NumberOfGamesOwned,
+            PopularGamesList = c.PopularGamesList ?? string.Empty,
+            HasGameMaster = c.HasGameMaster,
+
+            // Billing
             BillingModel = c.BillingModel.ToString(),
             BasePrice = c.BasePrice,
             TieredBlockRate = c.TieredBlockRate,
             TieredBlockMinutes = c.TieredBlockMinutes,
+            IsPricingLocked = c.IsPricingLocked,
+
+            // Deposit
             DepositPercentage = c.DepositPercentage,
             DefaultHoldDurationMinutes = c.DefaultHoldDurationMinutes,
             RefundPolicy = c.RefundPolicy.ToString(),
-            IsPricingLocked = c.IsPricingLocked,
-            HasSePayConfigured = !string.IsNullOrWhiteSpace(c.SePayMerchantId),
+
+            // SePay
+            HasSePayConfigured = !string.IsNullOrWhiteSpace(c.SePayMerchantId)
+                                 && !string.IsNullOrWhiteSpace(c.SePayApiKey)
+                                 && !string.IsNullOrWhiteSpace(c.SePaySecretKey),
+
+            // Audit
             CreatedAt = c.CreatedAt,
-            UpdatedAt = c.UpdatedAt
+            UpdatedAt = c.UpdatedAt,
+            IsActive = c.IsActive
         };
     }
 

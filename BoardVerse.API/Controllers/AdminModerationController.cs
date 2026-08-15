@@ -6,6 +6,7 @@ using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
+using BoardVerse.Services.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -21,19 +22,22 @@ namespace BoardVerse.API.Controllers
         private readonly IPlayerRiskQueryService _riskQueryService;
         private readonly IPlayerAlertService _alertService;
         private readonly IPlayerRiskScoreService _riskScoreService;
+        private readonly LegacyBookingCleanupMetricsStore _legacyBookingMetrics;
 
         public AdminModerationController(
             IAdminModerationService adminModerationService,
             ICoolingOffService coolingOffService,
             IPlayerRiskQueryService riskQueryService,
             IPlayerAlertService alertService,
-            IPlayerRiskScoreService riskScoreService)
+            IPlayerRiskScoreService riskScoreService,
+            LegacyBookingCleanupMetricsStore legacyBookingMetrics)
         {
             _adminModerationService = adminModerationService;
             _coolingOffService = coolingOffService;
             _riskQueryService = riskQueryService;
             _alertService = alertService;
             _riskScoreService = riskScoreService;
+            _legacyBookingMetrics = legacyBookingMetrics;
         }
 
         /// <summary>
@@ -191,7 +195,7 @@ namespace BoardVerse.API.Controllers
         {
             if (!ModelState.IsValid)
             {
-                return NewResponse(400, "Dữ liệu không hợp lệ.", null);
+                return NewResponse(400, ApiErrorMessages.System.ReservationInvalidRequest, null);
             }
 
             var adminUserId = GetUserIdFromClaims();
@@ -392,6 +396,21 @@ namespace BoardVerse.API.Controllers
             var history = await _riskScoreService.GetHistoryAsync(userId, fromDate, toDate);
             return NewResponse(200, "Lấy lịch sử risk score thành công.",
                 new { UserId = userId, FromDate = fromDate, ToDate = toDate, Items = history });
+        }
+
+        /// <summary>
+        /// GAP-10: Metrics cho <c>LegacyBookingCleanupJob</c> — last-run + counters. [Role: Admin]
+        /// Dùng để monitor Phase 1 cleanup job trước khi tắt `/api/bookings/*` ở Phase 3.
+        /// </summary>
+        /// <response code="200">Snapshot metrics: lastRunAtUtc, lastBookingsProcessed, totalRuns, totalBookingsProcessed, lastDurationMs.</response>
+        /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
+        /// <response code="403">Không có role Admin.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpGet("legacy-booking/cleanup-stats")]
+        public IActionResult GetLegacyBookingCleanupStats()
+        {
+            var metrics = _legacyBookingMetrics.Snapshot();
+            return NewResponse(200, "Lấy legacy booking cleanup stats thành công.", metrics);
         }
     }
 }

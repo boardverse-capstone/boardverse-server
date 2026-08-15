@@ -29,10 +29,12 @@ public class CafeScheduleOverrideConfiguration : IEntityTypeConfiguration<CafeSc
         builder.Property(o => o.EffectiveFrom).HasColumnType("date");
         builder.Property(o => o.EffectiveTo).HasColumnType("date");
 
-        // Lookup chính khi resolve: cafe × slot × playDate.
-        // EffectiveFrom/To filter ở runtime (null = áp dụng mọi ngày).
+        // UNIQUE constraint (cafe, slot) — mỗi cafe chỉ có tối đa 1 override cho 1 slot tại 1 thời điểm.
+        // Tránh duplicate rows khi CafeScheduleService.Upsert (dùng GetActiveAsync filter ngày) và
+        // TimeSlotService.Create (dùng GetByCafeAndSlotAsync không filter) cùng chạy.
         builder.HasIndex(o => new { o.CafeId, o.TimeSlot })
-            .HasDatabaseName("IX_CafeScheduleOverrides_Cafe_TimeSlot");
+            .IsUnique()
+            .HasDatabaseName("IX_CafeScheduleOverrides_Cafe_TimeSlot_Unique");
 
         builder.HasOne(o => o.Cafe)
             .WithMany()

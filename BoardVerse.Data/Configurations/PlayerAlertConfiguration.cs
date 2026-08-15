@@ -24,6 +24,11 @@ public class PlayerAlertConfiguration : IEntityTypeConfiguration<PlayerAlert>
 
         b.Property(x => x.ResolutionNote).HasMaxLength(2000);
 
+        b.HasOne(x => x.User)
+            .WithMany()
+            .HasForeignKey(x => x.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         b.HasIndex(x => new { x.UserId, x.Status });
         b.HasIndex(x => new { x.Severity, x.Status });
         b.HasIndex(x => x.CreatedAt);

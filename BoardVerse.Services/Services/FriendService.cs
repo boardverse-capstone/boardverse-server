@@ -867,7 +867,7 @@ public class FriendService : IFriendService
         if (count >= limit)
         {
             throw new ConflictException(
-                $"Người dùng '{profile?.Username}' đã đạt giới hạn {limit} bạn bè. Không thể accept thêm.");
+                ApiErrorMessages.System.FriendLimitReached(profile?.Username ?? "", limit));
         }
     }
 

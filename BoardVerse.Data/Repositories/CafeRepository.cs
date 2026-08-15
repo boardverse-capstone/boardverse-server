@@ -26,6 +26,18 @@ namespace BoardVerse.Data.Repositories
                 .FirstOrDefaultAsync(c => c.Id == id);
         }
 
+        /// <summary>
+        /// Lấy Cafe kèm Manager navigation (FK User) — dùng cho AdminCafeController.GET /api/admin/cafes/{id}
+        /// cần render ManagerName/ManagerEmail. Include Manager tránh NullRef khi map DTO.
+        /// </summary>
+        public async Task<Cafe?> GetByIdWithManagerAsync(Guid id)
+        {
+            return await _context.Cafes
+                .Include(c => c.Manager)
+                .Include(c => c.StaffMembers)
+                .FirstOrDefaultAsync(c => c.Id == id);
+        }
+
         public async Task<Cafe?> GetActiveByIdAsync(Guid id)
         {
             return await _context.Cafes
@@ -93,6 +105,17 @@ namespace BoardVerse.Data.Repositories
         {
             return await _context.CafeStaffs
                 .AnyAsync(cs => cs.CafeId == cafeId && cs.UserId == userId);
+        }
+
+        /// <summary>
+        /// GAP-C1: Returns true when the user is the cafe's manager OR a staff member.
+        /// Used by IDOR guards on booking/receipt endpoints to lock cross-tenant access.
+        /// </summary>
+        public async Task<bool> IsManagerOrStaffAsync(Guid cafeId, Guid userId)
+        {
+            return await _context.Cafes
+                .AnyAsync(c => c.Id == cafeId && (c.ManagerId == userId
+                    || _context.CafeStaffs.Any(cs => cs.CafeId == cafeId && cs.UserId == userId)));
         }
 
         public async Task<int> CountActiveStaffAssignmentsAsync(Guid userId)

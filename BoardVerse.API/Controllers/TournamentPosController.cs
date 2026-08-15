@@ -364,6 +364,41 @@ public class TournamentPosController : BaseApiController
     // === Match endpoints ===
 
     /// <summary>
+    /// Lấy danh sách tất cả các bàn đấu của tournament (mọi vòng). [Role: Manager — phải là chủ quán tạo tournament.]
+    /// </summary>
+    /// <param name="tournamentId">Mã giải đấu.</param>
+    /// <response code="200">Danh sách bàn đấu của tournament.</response>
+    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+    /// <response code="403">Không phải chủ quán tạo tournament.</response>
+    /// <response code="404">Không tìm thấy giải đấu.</response>
+    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+    [HttpGet("{tournamentId:guid}/matches")]
+    public async Task<IActionResult> GetMatches(Guid tournamentId)
+    {
+        var managerId = GetUserIdFromClaims();
+        var result = await _tournamentService.GetMatchesForPosAsync(managerId, tournamentId);
+        return this.NewResponse(200, ApiSuccessMessages.Tournament.MatchesRetrieved, result);
+    }
+
+    /// <summary>
+    /// Lấy danh sách bàn đấu của 1 vòng cụ thể trong tournament. [Role: Manager — phải là chủ quán tạo tournament.]
+    /// </summary>
+    /// <param name="tournamentId">Mã giải đấu.</param>
+    /// <param name="roundNumber">Số vòng (1-3 cho Swiss, 4 cho Final).</param>
+    /// <response code="200">Danh sách bàn đấu của vòng.</response>
+    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+    /// <response code="403">Không phải chủ quán tạo tournament.</response>
+    /// <response code="404">Không tìm thấy giải đấu.</response>
+    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+    [HttpGet("{tournamentId:guid}/matches/round/{roundNumber:int}")]
+    public async Task<IActionResult> GetRoundMatches(Guid tournamentId, int roundNumber)
+    {
+        var managerId = GetUserIdFromClaims();
+        var result = await _tournamentService.GetRoundMatchesForPosAsync(managerId, tournamentId, roundNumber);
+        return this.NewResponse(200, ApiSuccessMessages.Tournament.RoundMatchesRetrieved, result);
+    }
+
+    /// <summary>
     /// Bắt đầu 1 bàn đấu (Scheduled → OnGoing). [Role: Manager]
     /// </summary>
     /// <param name="matchId">Mã bàn đấu.</param>

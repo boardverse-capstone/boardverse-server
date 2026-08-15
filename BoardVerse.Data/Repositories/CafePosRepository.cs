@@ -132,6 +132,51 @@ namespace BoardVerse.Data.Repositories
                 .AsNoTracking()
                 .AnyAsync(s => s.Id == sessionId && s.CafeId == cafeId);
 
+        /// <summary>
+        /// Gap-Fix: Đảm bảo sơ đồ bàn POS phản ánh đúng trạng thái "đang có phiên chơi hoạt động".
+        ///
+        /// Trước đây <c>GetTablesAsync</c> chỉ đọc cột <c>CafeTables.Status</c> trong DB, dẫn đến bàn
+        /// có phiên <c>Active/Checking/Unpaid</c> vẫn hiển thị <c>Available</c> nếu
+        /// <c>CafeTables.Status</c> chưa được cập nhật đúng (do bug cũ, manual SQL fixup,
+        /// checkout path không update, v.v.).
+        ///
+        /// Method này build Dictionary&lt;tableId, busySessionStatus&gt; từ <c>ActiveSessions</c>:
+        /// - Chỉ tính các session chưa thanh toán (Active, Checking, Unpaid).
+        /// - Một bàn có nhiều session → lấy session có status quan trọng nhất (Active > Checking > Unpaid).
+        /// - Trả về Dictionary rỗng nếu cafe không có session nào (tránh N+1 query ở service).
+        ///
+        /// Service sẽ overlay kết quả này lên <c>CafeTables.Status</c> để render ra POS UI.
+        /// </summary>
+        public async Task<IReadOnlyDictionary<Guid, GroupSessionStatus>> GetBusyTableIdsByCafeAsync(Guid cafeId)
+        {
+            // Lấy (CafeTableId, Status) của các session chưa thanh toán.
+            // Dùng AsNoTracking vì chỉ đọc.
+            var all = await _context.ActiveSessions
+                .AsNoTracking()
+                .Where(s => s.CafeId == cafeId
+                            && s.CafeTableId.HasValue
+                            && (s.Status == GroupSessionStatus.Active
+                                || s.Status == GroupSessionStatus.Checking
+                                || s.Status == GroupSessionStatus.Unpaid))
+                .Select(s => new { s.CafeTableId, s.Status })
+                .ToListAsync();
+
+            if (all.Count == 0)
+            {
+                return new Dictionary<Guid, GroupSessionStatus>();
+            }
+
+            // Group by tableId, chọn status priority = Active (0) > Checking (1) > Unpaid (2) > others.
+            // Dùng First + sort nhỏ nhất (vì Active = 0 nhỏ nhất trong enum theo thứ tự khai báo).
+            var result = all
+                .GroupBy(s => s.CafeTableId!.Value)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Min(s => s.Status));
+
+            return result;
+        }
+
         public async Task<IReadOnlyList<ActiveSession>> GetActiveSessionsAsync(Guid cafeId, Guid? gameTemplateId)
         {
             var sessionQuery = _context.ActiveSessions

@@ -1,5 +1,6 @@
 using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.Entities;
+using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Core.IRepositories
 {
@@ -22,6 +23,17 @@ namespace BoardVerse.Core.IRepositories
         /// Dùng cho cross-cafe guard khi truyền optional sessionId.
         /// </summary>
         Task<bool> ActiveSessionExistsInCafeAsync(Guid sessionId, Guid cafeId);
+
+        /// <summary>
+        /// Lấy danh sách CafeTableId hiện đang có session chưa thanh toán (Active / Checking / Unpaid).
+        /// Dùng để derive trạng thái bàn trong <c>GetTablesAsync</c> — đảm bảo bàn có session hoạt động
+        /// luôn trả về <see cref="Core.Enum.CafeTableStatus.InUse"/> bất chấp giá trị <c>CafeTables.Status</c>
+        /// trong DB có bị stale hay không (ví dụ do migration / manual fixup / bug trước đó).
+        ///
+        /// Trả kèm <c>Status</c> của session đang đầu tiên để service biết session "quan trọng nhất"
+        /// (ưu tiên Active &gt; Checking &gt; Unpaid) cho trường hợp cần show trong UI.
+        /// </summary>
+        Task<IReadOnlyDictionary<Guid, GroupSessionStatus>> GetBusyTableIdsByCafeAsync(Guid cafeId);
         Task<IReadOnlyList<ActiveSession>> GetActiveSessionsAsync(Guid cafeId, Guid? gameTemplateId);
         Task<IReadOnlyList<ActiveSession>> GetUnpaidSessionsAsync(Guid cafeId, Guid? sessionId = null);
         /// <summary>

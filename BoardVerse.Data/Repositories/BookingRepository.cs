@@ -69,6 +69,7 @@ public class BookingRepository : IBookingRepository
         return await query
             .Include(b => b.CafeTable)
             .Include(b => b.Lobby)
+                .ThenInclude(l => l!.Members)
             .OrderBy(b => b.ScheduledStartTime)
             .ToListAsync();
     }

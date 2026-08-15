@@ -18,12 +18,21 @@ public interface ICafeScheduleOverrideRepository
     /// <summary>Lấy tất cả override của cafe (cho UI quản lý).</summary>
     Task<IReadOnlyList<CafeScheduleOverride>> ListByCafeAsync(Guid cafeId);
 
-    Task AddAsync(CafeScheduleOverride overrideEntity);
+    /// <summary>
+    /// Lấy override cụ thể cho (cafe, slot) — bất kể EffectiveFrom/EffectiveTo.
+    /// Trả null nếu cafe chưa có override cho slot này.
+    /// Dùng cho UI quản lý (GET single override, PUT partial update).
+    /// </summary>
+    Task<CafeScheduleOverride?> GetByCafeAndSlotAsync(Guid cafeId, TimeSlot slot);
 
+    Task AddAsync(CafeScheduleOverride overrideEntity);
     Task UpdateAsync(CafeScheduleOverride overrideEntity);
 
     /// <summary>Xóa override theo (cafe, slot) — dùng khi cafe muốn quay về default.</summary>
     Task DeleteAsync(Guid cafeId, TimeSlot slot);
+
+    /// <summary>Xóa override theo Id — dùng cho DELETE endpoint chuẩn REST.</summary>
+    Task DeleteByIdAsync(Guid overrideId);
 
     Task SaveChangesAsync();
 }

@@ -69,6 +69,17 @@ public interface ITournamentService
     // === Matches ===
     Task<IReadOnlyList<TournamentMatchResponseDto>> GetMatchesAsync(Guid tournamentId);
     Task<IReadOnlyList<TournamentMatchResponseDto>> GetRoundMatchesAsync(Guid tournamentId, int roundNumber);
+
+    /// <summary>
+    /// Manager POS: Lấy tất cả matches của tournament (đã validate manager owns cafe).
+    /// </summary>
+    Task<IReadOnlyList<TournamentMatchResponseDto>> GetMatchesForPosAsync(Guid managerId, Guid tournamentId);
+
+    /// <summary>
+    /// Manager POS: Lấy matches của 1 round cụ thể (đã validate manager owns cafe).
+    /// </summary>
+    Task<IReadOnlyList<TournamentMatchResponseDto>> GetRoundMatchesForPosAsync(Guid managerId, Guid tournamentId, int roundNumber);
+
     Task<TournamentMatchResponseDto> StartMatchAsync(Guid managerId, Guid matchId);
     Task<TournamentMatchResponseDto> RecordMatchResultAsync(Guid managerId, Guid matchId, RecordMatchResultRequestDto request);
     Task<TournamentMatchResponseDto> UpdateMatchResultAsync(Guid managerId, Guid matchId, UpdateMatchResultRequestDto request);

@@ -136,7 +136,7 @@ public class ReservationController : BaseApiController
         var result = await _reservationService.GetByIdAsync(userId, reservationId);
         if (result == null)
         {
-            return this.NewResponse(404, $"Không tìm thấy reservation '{reservationId}' hoặc bạn không có quyền xem.", null);
+            return this.NewResponse(404, ApiErrorMessages.System.ReservationAccessDenied(reservationId), null);
         }
         return this.NewResponse(200, "ReservationDetailRetrieved", result);
     }

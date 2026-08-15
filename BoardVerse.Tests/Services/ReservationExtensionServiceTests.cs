@@ -131,7 +131,8 @@ public class ReservationExtensionServiceTests : IDisposable
 
         // Assert
         Assert.False(result.CanExtend);
-        Assert.Contains("WalkInWindow", result.Reason);
+        // BR-RES-08: Reason thông báo người dùng bằng tiếng Việt (walk-in thay vì WalkInWindow camel case).
+        Assert.Contains("walk-in", result.Reason, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

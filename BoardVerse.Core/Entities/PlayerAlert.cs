@@ -13,6 +13,9 @@ public class PlayerAlert
     /// <summary>User bị phát hiện có tín hiệu rủi ro.</summary>
     public Guid UserId { get; set; }
 
+    /// <summary>Navigation property đến User (để load Username cho admin display).</summary>
+    public User? User { get; set; }
+
     public PlayerAlertType AlertType { get; set; }
 
     public PlayerAlertSeverity Severity { get; set; }

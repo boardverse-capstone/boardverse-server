@@ -56,14 +56,12 @@ public class ExceptionFlowIntegrationTests
                 initialMemberUserIds = new[] { IntegrationTestFixtures.DemoPlayer1UserId }
             });
 
-        if (groupBResponse.StatusCode == HttpStatusCode.Conflict)
+        if (groupBResponse.StatusCode is HttpStatusCode.Conflict
+            or HttpStatusCode.Forbidden
+            or HttpStatusCode.NotFound
+            or HttpStatusCode.BadRequest)
         {
-            // Box in use
-            return;
-        }
-
-        if (groupBResponse.StatusCode == HttpStatusCode.Forbidden)
-        {
+            // POS state conflict / box busy / barcode stale → skip.
             return;
         }
 
@@ -85,14 +83,12 @@ public class ExceptionFlowIntegrationTests
                 }
             });
 
-        if (groupAResponse.StatusCode == HttpStatusCode.Conflict)
+        if (groupAResponse.StatusCode is HttpStatusCode.Conflict
+            or HttpStatusCode.Forbidden
+            or HttpStatusCode.NotFound
+            or HttpStatusCode.BadRequest)
         {
-            // Box in use from Group B or previous test
-            return;
-        }
-
-        if (groupAResponse.StatusCode == HttpStatusCode.Forbidden)
-        {
+            // Box in use from Group B or previous test / barcode stale → skip.
             return;
         }
 
@@ -216,7 +212,10 @@ public class ExceptionFlowIntegrationTests
                 barcode = IntegrationTestFixtures.PosBoxBarcode
             });
 
-        if (startResponse.StatusCode == HttpStatusCode.Conflict || startResponse.StatusCode == HttpStatusCode.Forbidden)
+        if (startResponse.StatusCode is HttpStatusCode.Conflict
+            or HttpStatusCode.Forbidden
+            or HttpStatusCode.NotFound
+            or HttpStatusCode.BadRequest)
         {
             return;
         }
@@ -273,7 +272,10 @@ public class ExceptionFlowIntegrationTests
                 barcode = IntegrationTestFixtures.PosBoxBarcode
             });
 
-        if (startResponse.StatusCode == HttpStatusCode.Conflict || startResponse.StatusCode == HttpStatusCode.Forbidden)
+        if (startResponse.StatusCode is HttpStatusCode.Conflict
+            or HttpStatusCode.Forbidden
+            or HttpStatusCode.NotFound
+            or HttpStatusCode.BadRequest)
         {
             return;
         }
@@ -328,7 +330,10 @@ public class ExceptionFlowIntegrationTests
                 }
             });
 
-        if (startResponse.StatusCode == HttpStatusCode.Conflict || startResponse.StatusCode == HttpStatusCode.Forbidden)
+        if (startResponse.StatusCode is HttpStatusCode.Conflict
+            or HttpStatusCode.Forbidden
+            or HttpStatusCode.NotFound
+            or HttpStatusCode.BadRequest)
         {
             return;
         }

@@ -29,6 +29,7 @@ namespace BoardVerse.API.Controllers;
 [Authorize]
 [Produces("application/json")]
 [Tags("Booking")]
+[LegacyBookingGate]
 [DeprecationHeaders(
     Sunset = "Wed, 31 Dec 2026 23:59:59 GMT",
     DocsLink = "/docs/api/booking#deprecation")]
@@ -155,12 +156,15 @@ public class BookingController : BaseApiController
     [ProducesResponseType(typeof(List<BookingResponseDto>), 200)]
     [ProducesResponseType(typeof(List<BookingCafeSummaryDto>), 200)]
     [ProducesResponseType(401)]
+    [ProducesResponseType(typeof(object), 404)]
     public async Task<IActionResult> GetBookingsByCafe(Guid cafeId)
     {
         var userId = GetUserIdFromClaims();
         var isStaffOrManager = User.IsInRole("Manager") || User.IsInRole("CafeStaff") || User.IsInRole("Admin");
 
-        var bookings = await _bookingService.GetByCafeIdAsync(cafeId, userId);
+        // GAP-C1: IDOR fix — players only see bookings they participate in.
+        // Staff/Manager of THIS cafe get full data. Admin gets full data.
+        var bookings = await _bookingService.GetByCafeIdAsync(cafeId, userId, isStaffOrManager);
 
         if (isStaffOrManager)
         {

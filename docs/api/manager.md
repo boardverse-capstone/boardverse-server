@@ -94,6 +94,24 @@ Response trả về `ManagerCafeDto[]` — kế thừa `CafeDetailDto` + thêm c
 > - Staff endpoint `GET /api/staff/my-cafes` trả về cùng shape `ManagerCafeDto[]` nhưng `managerId`, `sePayMerchantId`, `sePayBankCode`, `sePayAccountNumber`, `sePayReturnUrl` luôn là `null/empty` (chỉ manager mới thấy SePay raw).
 > - Field `availableSeats`/`heldSeats`/`inUseSeats` cho biết tổng toàn quán; chi tiết theo `playDate + timeSlot` xem `availableSeatsByTimeSlot`.
 > - `RefundTiers` chỉ populate khi `refundPolicy = "Partial"`.
+> - Endpoint query **song song** các counter (staff / bookings / lobbies / seats / schedule / approval) qua `Task.WhenAll`. Nếu query fail (DB tạm không khả dụng), dashboard fallback 0/null để UI vẫn render.
+
+**Field counters (tính realtime tại thời điểm gọi API):**
+
+| Field | Nguồn | Ý nghĩa |
+|---|---|---|
+| `staffCount` | `Cafe.StaffMembers.Count` | Số nhân viên (CafeStaff) đang liên kết với cafe |
+| `upcomingBookingsCount` | `IBookingRepository.GetByCafeIdAsync(now, +7d)` filter `PendingDeposit/Confirmed/CheckedIn` | Booking active trong 7 ngày tới |
+| `activeLobbiesToday` | `IReservationRepository.GetActiveByCafePlayDateSlotAsync(cafe, today, slot)` × 4 slots | Lobby active (Holding/Confirmed) hôm nay |
+| `pendingCafeApprovalLobbiesCount` | `IReservationRepository.GetPendingCafeApprovalAsync(cafe)` | Lobby BR-NEW-11 chờ cafe duyệt |
+| `currentMonthRevenue` | **Hiện null** — đợi `IActiveSessionRepository.GetMonthlyRevenueAsync` | Doanh thu tháng từ ActiveSession PAID |
+| `heldDepositTotal` | Tổng `DepositAmount` của Reservation `Holding/Confirmed` trong 4 slots hôm nay | Tổng BVC đang giữ trong ví player cho cafe này |
+| `availableSeats` / `heldSeats` / `inUseSeats` | `ICafeRepository.GetAvailableSeatsByTimeSlotAsync` + `CountHeldSeatsAsync` + `CountInUseSeatsAsync` | Seat inventory hôm nay |
+| `availableSeatsByTimeSlot` | `ICafeRepository.GetAvailableSeatsByTimeSlotAsync(cafeId, today)` | Dict `[timeSlot → availableSeats]` |
+| `scheduleOverrides` | `ICafeRepository.GetScheduleOverridesAsync(cafeId, today, today+30d)` | Override giờ mở cửa 30 ngày tới |
+| `cafeConfig` | Hard-coded default từ BR-NEW-01/12 | Capacity/MaxLobbies/MinDeposit của cafe (sẽ migrate từ `CafeConfigEntity` khi có) |
+| `minDeposit` | Hard-coded default từ BR-NEW-01 | Mức cọc tối thiểu theo khoảng cách playDate |
+| `numberOfTables` / `numberOfPrivateRooms` / `numberOfGamesOwned` / `hasGameMaster` | `Cafe.NumberOfTables`/... | Số bàn / phòng riêng / game / có GameMaster |
 
 Dùng `id` từ response cho các API `/api/cafes/{cafeId}/...`.
 

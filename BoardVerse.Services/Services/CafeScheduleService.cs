@@ -169,7 +169,8 @@ public class CafeScheduleService : ICafeScheduleService
             && request.EffectiveFrom > request.EffectiveTo)
         {
             throw new BadRequestException(
-                $"EffectiveFrom '{request.EffectiveFrom:yyyy-MM-dd}' phải trước EffectiveTo '{request.EffectiveTo:yyyy-MM-dd}'.");
+                ApiErrorMessages.System.CafeScheduleEffectiveRangeInvalid(
+                    request.EffectiveFrom.Value, request.EffectiveTo.Value));
         }
     }
 

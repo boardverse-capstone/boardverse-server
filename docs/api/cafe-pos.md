@@ -56,6 +56,15 @@ Lấy sơ đồ bàn realtime cho Web POS. Trả `CafeTableStatusDto[]` gồm `I
 
 **Role:** Manager — chủ quán; CafeStaff — đã được gắn vào quán.
 
+### Self-healing status (Gap-Fix)
+
+`Status` trả về **không** chỉ đọc thẳng cột `CafeTables.Status` trong DB. Service derive realtime từ bảng `ActiveSessions`:
+
+- Nếu tồn tại `ActiveSessions` với `CafeTableId` tương ứng **và** `Status ∈ {Active, Checking, Unpaid}` (session chưa thanh toán) → bàn được trả về `Status = "InUse"`, **bất chấp** cột `CafeTables.Status` trong DB có bị stale (do manual SQL fixup, migration dở, hoặc bug path nào đó trước đó không update).
+- Nếu không có session đang chạy → dùng cached `CafeTables.Status` (giữ `Reserved`, `EventInProgress` hoặc `Available`).
+
+Mục đích: đảm bảo UI POS luôn thấy đúng bàn nào đang có khách, không bị "Bàn X đang chơi nhưng vẫn hiện Available trong sơ đồ".
+
 ### Query params
 
 | Param | Type | Default | Mô tả |

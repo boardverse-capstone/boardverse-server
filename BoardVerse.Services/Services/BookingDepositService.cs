@@ -48,7 +48,7 @@ public class BookingDepositService : IBookingDepositService
         if (amount > maxDeposit)
         {
             throw new BadRequestException(
-                $"Số tiền cọc ({amount:N0}đ) vượt quá 50% giá vé cơ bản ({maxDeposit:N0}đ) của quán. BR-03.");
+                ApiErrorMessages.Pos.DepositExceedsHalfBasePrice(amount, maxDeposit));
         }
 
         if (amount <= 0)
@@ -82,26 +82,30 @@ public class BookingDepositService : IBookingDepositService
 
     public async Task<BookingDeposit> MarkAsPaidAsync(Guid depositId, string? sePayTransactionId = null)
     {
+        var now = DateTime.UtcNow;
+        var rowsAffected = await _depositRepository.TryMarkAsPaidAsync(depositId, sePayTransactionId, now);
+
+        if (rowsAffected == 0)
+        {
+            // Either deposit not found, or status was not Pending (already Paid/Refunded/Forfeited).
+            // Re-fetch to distinguish + return idempotent for the "already paid" case.
+            var existing = await _depositRepository.GetByIdAsync(depositId)
+                ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
+
+            if (existing.Status == BookingDepositStatus.Paid)
+            {
+                _logger.LogInformation("Deposit already paid (duplicate webhook). DepositId={DepositId}", depositId);
+                return existing;
+            }
+
+            throw new ConflictException(ApiErrorMessages.Payment.DepositMarkAsPaidInvalidStatus(existing.Status.ToString()));
+        }
+
+        // GAP-C4: rowsAffected == 1 → we won the race; load updated entity + trigger booking confirm.
         var deposit = await _depositRepository.GetByIdAsync(depositId)
             ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
 
-        if (deposit.Status == BookingDepositStatus.Paid)
-        {
-            _logger.LogInformation("Deposit already paid. DepositId={DepositId}", depositId);
-            return deposit;
-        }
-
-        if (deposit.Status != BookingDepositStatus.Pending)
-        {
-            throw new ConflictException(ApiErrorMessages.Payment.DepositMarkAsPaidInvalidStatus(deposit.Status.ToString()));
-        }
-
-        deposit.Status = BookingDepositStatus.Paid;
-        deposit.PaidAt = DateTime.UtcNow;
-        deposit.SePayTransactionId = sePayTransactionId ?? deposit.SePayTransactionId;
-        deposit.UpdatedAt = DateTime.UtcNow;
-
-        // BR-05: Nếu deposit có liên kết Booking -> tự động confirm booking
+        // BR-05: Nếu deposit có liên kết Booking -> tự động confirm booking.
         if (deposit.BookingId.HasValue)
         {
             var booking = await _bookingRepository.GetByIdAsync(deposit.BookingId.Value);
@@ -109,14 +113,12 @@ public class BookingDepositService : IBookingDepositService
             {
                 booking.Status = BookingStatus.Confirmed;
                 await _bookingRepository.UpdateAsync(booking);
+                await _bookingRepository.SaveChangesAsync();
                 _logger.LogInformation(
                     "Booking auto-confirmed after deposit paid. BookingId={BookingId}, DepositId={DepositId}",
                     deposit.BookingId.Value, depositId);
             }
         }
-
-        await _depositRepository.UpdateAsync(deposit);
-        await _depositRepository.SaveChangesAsync();
 
         _logger.LogInformation(
             "BookingDeposit marked as paid. DepositId={DepositId}, Amount={Amount}, SePayTransactionId={SePayTransactionId}",
@@ -127,31 +129,30 @@ public class BookingDepositService : IBookingDepositService
 
     public async Task<BookingDeposit> MarkAsRefundedAsync(Guid depositId)
     {
+        var now = DateTime.UtcNow;
+        var rowsAffected = await _depositRepository.TryMarkAsRefundedAsync(depositId, now);
+
+        if (rowsAffected == 0)
+        {
+            var existing = await _depositRepository.GetByIdAsync(depositId)
+                ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
+
+            if (existing.Status == BookingDepositStatus.Refunded)
+            {
+                _logger.LogInformation("Deposit already refunded (idempotent). DepositId={DepositId}", depositId);
+                return existing;
+            }
+
+            throw new ConflictException(ApiErrorMessages.Payment.DepositRefundInvalidStatus(existing.Status.ToString()));
+        }
+
         var deposit = await _depositRepository.GetByIdAsync(depositId)
             ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
-
-        if (deposit.Status == BookingDepositStatus.Refunded)
-        {
-            _logger.LogInformation("Deposit already refunded. DepositId={DepositId}", depositId);
-            return deposit;
-        }
-
-        if (deposit.Status != BookingDepositStatus.Paid)
-        {
-            throw new ConflictException(ApiErrorMessages.Payment.DepositRefundInvalidStatus(deposit.Status.ToString()));
-        }
 
         var refundAmount = CalculatePartialRefund(deposit);
         _logger.LogInformation(
             "Refund calculated. DepositId={DepositId}, OriginalAmount={Amount}, RefundAmount={RefundAmount}, Policy={Policy}",
             depositId, deposit.Amount, refundAmount, deposit.RefundPolicy);
-
-        deposit.Status = BookingDepositStatus.Refunded;
-        deposit.RefundedAt = DateTime.UtcNow;
-        deposit.UpdatedAt = DateTime.UtcNow;
-
-        await _depositRepository.UpdateAsync(deposit);
-        await _depositRepository.SaveChangesAsync();
 
         _logger.LogInformation(
             "BookingDeposit refunded. DepositId={DepositId}, RefundedAmount={RefundAmount}",
@@ -162,31 +163,30 @@ public class BookingDepositService : IBookingDepositService
 
     public async Task<BookingDeposit> ForfeitAsync(Guid depositId)
     {
+        var now = DateTime.UtcNow;
+        var rowsAffected = await _depositRepository.TryForfeitAsync(depositId, now);
+
+        if (rowsAffected == 0)
+        {
+            var existing = await _depositRepository.GetByIdAsync(depositId)
+                ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
+
+            if (existing.Status == BookingDepositStatus.Forfeited)
+            {
+                _logger.LogInformation("Deposit already forfeited (idempotent). DepositId={DepositId}", depositId);
+                return existing;
+            }
+
+            if (existing.RefundPolicy != DepositRefundPolicy.None)
+            {
+                throw new ConflictException(ApiErrorMessages.Payment.DepositForfeitInvalidPolicy(existing.RefundPolicy.ToString()));
+            }
+
+            throw new ConflictException(ApiErrorMessages.Payment.DepositForfeitInvalidStatus(existing.Status.ToString()));
+        }
+
         var deposit = await _depositRepository.GetByIdAsync(depositId)
             ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
-
-        if (deposit.Status == BookingDepositStatus.Forfeited)
-        {
-            _logger.LogInformation("Deposit already forfeited. DepositId={DepositId}", depositId);
-            return deposit;
-        }
-
-        if (deposit.Status != BookingDepositStatus.Paid)
-        {
-            throw new ConflictException(ApiErrorMessages.Payment.DepositForfeitInvalidStatus(deposit.Status.ToString()));
-        }
-
-        if (deposit.RefundPolicy != DepositRefundPolicy.None)
-        {
-            throw new ConflictException(ApiErrorMessages.Payment.DepositForfeitInvalidPolicy(deposit.RefundPolicy.ToString()));
-        }
-
-        deposit.Status = BookingDepositStatus.Forfeited;
-        deposit.ForfeitedAt = DateTime.UtcNow;
-        deposit.UpdatedAt = DateTime.UtcNow;
-
-        await _depositRepository.UpdateAsync(deposit);
-        await _depositRepository.SaveChangesAsync();
 
         _logger.LogInformation("BookingDeposit forfeited (no-refund policy). DepositId={DepositId}, Amount={Amount}",
             depositId, deposit.Amount);
@@ -196,21 +196,15 @@ public class BookingDepositService : IBookingDepositService
 
     public async Task ExpireAsync(Guid depositId)
     {
-        var deposit = await _depositRepository.GetByIdAsync(depositId)
-            ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
+        var now = DateTime.UtcNow;
+        var rowsAffected = await _depositRepository.TryExpireAsync(depositId, now);
 
-        if (deposit.Status != BookingDepositStatus.Pending)
+        if (rowsAffected == 0)
         {
-            _logger.LogInformation("Cannot expire deposit: status is {Status}, DepositId={DepositId}", deposit.Status, depositId);
+            // Already expired (Refunded) or in another terminal state — idempotent no-op.
+            _logger.LogInformation("Deposit expiry no-op (already in terminal state). DepositId={DepositId}", depositId);
             return;
         }
-
-        deposit.Status = BookingDepositStatus.Refunded;
-        deposit.RefundedAt = DateTime.UtcNow;
-        deposit.UpdatedAt = DateTime.UtcNow;
-
-        await _depositRepository.UpdateAsync(deposit);
-        await _depositRepository.SaveChangesAsync();
 
         _logger.LogInformation("BookingDeposit expired. DepositId={DepositId}", depositId);
     }

@@ -50,6 +50,16 @@ namespace BoardVerse.Core.Messages
             public const string OverrideDeleted = "Xóa override, cafe quay về dùng lịch mặc định thành công.";
         }
 
+        public static class TimeSlot
+        {
+            public const string DefaultSlotsRetrieved = "Lấy danh sách khung giờ mặc định thành công.";
+            public const string CafeSlotsRetrieved = "Lấy danh sách khung giờ của quán thành công.";
+            public const string SlotRetrieved = "Lấy thông tin khung giờ thành công.";
+            public const string OverrideCreated = "Tạo override khung giờ cho quán thành công.";
+            public const string OverrideUpdated = "Cập nhật override khung giờ thành công.";
+            public const string OverrideDeleted = "Xóa override khung giờ thành công. Quán sẽ dùng lịch mặc định cho slot này.";
+        }
+
         public static class CafeShift
         {
             public const string ShiftOpened = "Mở ca làm việc thành công.";

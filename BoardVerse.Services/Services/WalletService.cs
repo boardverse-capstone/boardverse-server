@@ -310,7 +310,7 @@ public class WalletService : IWalletService
         if (conflictByKey != null && conflictByKey.Id != topUpId)
         {
             throw new ConflictException(
-                $"Idempotency key đã được dùng cho đơn top-up '{conflictByKey.Id}'.");
+                ApiErrorMessages.Wallet.TopUpIdempotencyKeyConflict(conflictByKey.Id));
         }
 
         // Đánh dấu đơn cũ = Cancelled.
@@ -484,7 +484,7 @@ public class WalletService : IWalletService
                 if (w.HeldBalance < amt)
                 {
                     throw new BadRequestException(
-                        $"Số dư BVC đang giữ ({w.HeldBalance}) không đủ để release {amt}.");
+                        ApiErrorMessages.Wallet.HeldBalanceInsufficient(w.HeldBalance, amt));
                 }
                 w.HeldBalance -= amt;
                 w.AvailableBalance += amt;
@@ -587,7 +587,7 @@ public class WalletService : IWalletService
                 if (w.HeldBalance < amt)
                 {
                     throw new BadRequestException(
-                        $"Số dư BVC đang giữ ({w.HeldBalance}) không đủ để capture {amt}.");
+                        ApiErrorMessages.Wallet.HeldBalanceInsufficientForCapture(w.HeldBalance, amt));
                 }
                 w.HeldBalance -= amt;
                 w.TotalActiveDeposit = Math.Max(0, w.TotalActiveDeposit - amt);
@@ -616,7 +616,7 @@ public class WalletService : IWalletService
                 if (w.HeldBalance < amt)
                 {
                     throw new BadRequestException(
-                        $"Số dư BVC đang giữ ({w.HeldBalance}) không đủ để forfeit {amt}.");
+                        ApiErrorMessages.Wallet.HeldBalanceInsufficientForForfeit(w.HeldBalance, amt));
                 }
                 w.HeldBalance -= amt;
                 w.TotalActiveDeposit = Math.Max(0, w.TotalActiveDeposit - amt);
@@ -821,7 +821,7 @@ public class WalletService : IWalletService
                     if (w.AvailableBalance < amt)
                     {
                         throw new BadRequestException(
-                            $"Số dư khả dụng ({w.AvailableBalance} BVC) không đủ để trừ {amt} BVC.");
+                            ApiErrorMessages.Wallet.AvailableBalanceInsufficient(w.AvailableBalance, amt));
                     }
                     w.AvailableBalance -= amt;
                 }

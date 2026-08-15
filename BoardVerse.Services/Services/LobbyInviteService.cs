@@ -269,7 +269,7 @@ public class LobbyInviteService : ILobbyInviteService
         if (oldInvite.Status == LobbyInviteStatus.Accepted)
         {
             throw new ConflictException(
-                $"Lời mời đã được chấp nhận. Không thể gửi lại.");
+                ApiErrorMessages.LobbyInvite.AlreadyAccepted);
         }
         if (oldInvite.Status == LobbyInviteStatus.Pending)
         {
@@ -558,7 +558,8 @@ public class LobbyInviteService : ILobbyInviteService
             if (!Enum.TryParse<LobbyInviteFriendStatus>(name, ignoreCase: true, out var parsed))
             {
                 throw new BadRequestException(
-                    $"Trạng thái mời không hợp lệ: '{name}'. Hợp lệ: {string.Join(", ", Enum.GetNames<LobbyInviteFriendStatus>())}");
+                    ApiErrorMessages.System.LobbyInviteFriendStatusInvalid(
+                        name, string.Join(", ", Enum.GetNames<LobbyInviteFriendStatus>())));
             }
             result.Add(parsed);
         }

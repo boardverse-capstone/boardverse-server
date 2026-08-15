@@ -863,7 +863,7 @@ namespace BoardVerse.Services.Services
             if (activeCount < lobby.MinPlayers)
             {
                 throw new ConflictException(
-                    $"Phòng chờ cần ít nhất {lobby.MinPlayers} người để khóa (hiện có {activeCount}).");
+                    ApiErrorMessages.System.LobbyNotEnoughMembersToLock(lobby.MinPlayers, activeCount));
             }
 
             lobby.Status = LobbyStatus.Full;
@@ -1249,7 +1249,7 @@ namespace BoardVerse.Services.Services
             if (lobby.Status != LobbyStatus.Open)
             {
                 throw new ConflictException(
-                    "Chỉ có thể boost khi lobby đang mở tuyển người.");
+                    ApiErrorMessages.System.LobbyBoostRequiresOpen);
             }
 
             // Check cooldown: không boost quá 1 lần trong 6 giờ
@@ -1259,7 +1259,7 @@ namespace BoardVerse.Services.Services
             {
                 var remainingMinutes = (int)(minBoostInterval - (DateTime.UtcNow - lobby.UpdatedAt)).TotalMinutes;
                 throw new ConflictException(
-                    $"Bạn chỉ có thể boost 1 lần mỗi {cooldownHours} giờ. Vui lòng đợi {remainingMinutes} phút nữa.");
+                    ApiErrorMessages.System.LobbyBoostCooldown(cooldownHours, remainingMinutes));
             }
 
             // Boost: cập nhật CreatedAt để lobby hiện lên đầu trong search/discovery

@@ -212,7 +212,7 @@ public class WalkInServiceTests : IDisposable
         Assert.Equal("0912345678", result.GuestPhone);
         Assert.Equal(2, result.Seats);
         Assert.Equal("Unpaid", result.PaymentStatus);
-        Assert.Equal("Active", result.Status);
+        Assert.Equal("Pending", result.Status); // WalkInBookingStatus.Active is now an alias for Pending.
     }
 
     // ===== CleanupExpiredWindowsAsync =====

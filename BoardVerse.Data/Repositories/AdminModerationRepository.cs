@@ -193,22 +193,41 @@ namespace BoardVerse.Data.Repositories
             }
 
             var total = await query.CountAsync();
-            var items = await query
+
+            var paged = await query
                 .OrderByDescending(h => h.CreatedAt)
                 .Skip((q.PageNumber - 1) * q.PageSize)
                 .Take(q.PageSize)
-                .Select(h => new PlayerActionHistoryDto
-                {
-                    Id = h.Id,
-                    UserId = h.UserId,
-                    ActionType = h.ActionType,
-                    ActionBy = h.ActionBy,
-                    Reason = h.Reason,
-                    Metadata = h.Metadata,
-                    CreatedAt = h.CreatedAt,
-                    ExpiresAt = h.ExpiresAt
-                })
+                .Select(h => new { h.Id, h.UserId, h.ActionType, h.ActionBy, h.Reason, h.Metadata, h.CreatedAt, h.ExpiresAt })
                 .ToListAsync();
+
+            var distinctIds = paged
+                .SelectMany(x => new[] { x.UserId, x.ActionBy })
+                .Where(id => id != Guid.Empty)
+                .Distinct()
+                .ToList();
+            var usernameMap = distinctIds.Count > 0
+                ? await _context.Users
+                    .Where(u => distinctIds.Contains(u.Id))
+                    .Select(u => new { u.Id, u.Username })
+                    .ToDictionaryAsync(u => u.Id, u => u.Username)
+                : new Dictionary<Guid, string>();
+
+            var items = paged.Select(h => new PlayerActionHistoryDto
+            {
+                Id = h.Id,
+                UserId = h.UserId,
+                Username = usernameMap.TryGetValue(h.UserId, out var uname) ? uname : string.Empty,
+                ActionType = h.ActionType,
+                ActionBy = h.ActionBy,
+                ActionByUsername = h.ActionBy == Guid.Empty
+                    ? "system"
+                    : (usernameMap.TryGetValue(h.ActionBy, out var aname) ? aname : null),
+                Reason = h.Reason,
+                Metadata = h.Metadata,
+                CreatedAt = h.CreatedAt,
+                ExpiresAt = h.ExpiresAt
+            }).ToList();
 
             return new PaginatedResponse<PlayerActionHistoryDto>
             {

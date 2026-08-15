@@ -1,3 +1,4 @@
+using BoardVerse.API.Filters;
 using BoardVerse.Core.DTOs.Booking;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
@@ -14,7 +15,11 @@ namespace BoardVerse.API.Controllers;
 [Authorize]
 [Produces("application/json")]
 [Tags("Booking Rating")]
+[LegacyBookingGate] // BUG-1: gate chung với BookingController — khi LegacyBooking.Enabled=false, trả 410 Gone.
+#pragma warning disable CS0618 // §13.1 Phase 1: Controller deprecated — sẽ xóa ở Phase 4 cùng BookingController.
+[Obsolete("§13.1 Phase 1: BookingRatingController mượn prefix /api/bookings/* của flow cũ. Khi FE xác nhận không còn gọi, set LegacyBooking.Enabled=false để gate 410. Xóa ở Phase 4 cùng BookingController.")]
 public class BookingRatingController : BaseApiController
+#pragma warning restore CS0618
 {
     private readonly IBookingRatingService _bookingRatingService;
 

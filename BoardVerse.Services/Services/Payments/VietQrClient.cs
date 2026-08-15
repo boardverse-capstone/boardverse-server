@@ -1,3 +1,4 @@
+using BoardVerse.Core.Messages;
 using Microsoft.Extensions.Logging;
 
 namespace BoardVerse.Services.Services.Payments;
@@ -43,12 +44,12 @@ public class VietQrClient : IVietQrClient
         string template = "compact",
         bool showInfo = true)
     {
-        if (string.IsNullOrWhiteSpace(bankCode))
-            throw new ArgumentException("Mã ngân hàng là bắt buộc.", nameof(bankCode));
-        if (string.IsNullOrWhiteSpace(accountNumber))
-            throw new ArgumentException("Số tài khoản là bắt buộc.", nameof(accountNumber));
-        if (amount <= 0)
-            throw new ArgumentException("Số tiền phải lớn hơn 0.", nameof(amount));
+            if (string.IsNullOrWhiteSpace(bankCode))
+                throw new ArgumentException(ApiErrorMessages.System.VietQrBankCodeRequired, nameof(bankCode));
+            if (string.IsNullOrWhiteSpace(accountNumber))
+                throw new ArgumentException(ApiErrorMessages.System.VietQrAccountNumberRequired, nameof(accountNumber));
+            if (amount <= 0)
+                throw new ArgumentException(ApiErrorMessages.System.VietQrAmountMustBePositive, nameof(amount));
 
         // Normalize: trim trailing/leading whitespace from bank/account/holder.
         // BUGFIX: previously trailing space in BankCode (e.g. "970436 ") was

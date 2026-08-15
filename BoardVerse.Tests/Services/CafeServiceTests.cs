@@ -16,14 +16,9 @@ public class CafeServiceTests
 {
     private static readonly Guid GameTemplateId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
-    [Fact]
-    public async Task GetNearbyCafesAsync_EmptyGameTemplateId_ThrowsBadRequest()
-    {
-        var service = BuildService();
-
-        await Assert.ThrowsAsync<BadRequestException>(() =>
-            service.GetNearbyCafesAsync(10.0, 106.0, 15, Guid.Empty, null, new PaginationParams()));
-    }
+    // Note: GetNearbyCafesAsync không còn reject Guid.Empty cho gameTemplateId — giờ đây gameTemplateId
+    // là optional (BR-MATCH-04: filter theo game nếu user chỉ định, ngược lại trả all nearby cafes).
+    // Test này đã bị xóa vì behavior thay đổi.
 
     [Theory]
     [InlineData(-91, 106)]
@@ -222,10 +217,20 @@ public class CafeServiceTests
         bookingRepo ??= new Mock<IBookingRepository>();
         hubService ??= new Mock<ILobbyHubService>();
         pushNotificationService ??= new Mock<IPushNotificationService>();
+        var lobbyRepo = new Mock<ILobbyRepository>();
+        var reservationRepo = new Mock<IReservationRepository>();
 
         config.Setup(c => c.GetDoubleAsync(SystemConfigKeys.MatchmakingRadiusKm, GeoLocationHelper.DefaultNearbyRadiusKm))
             .ReturnsAsync(GeoLocationHelper.DefaultNearbyRadiusKm);
 
-        return new CafeService(cafeRepo.Object, profileRepo.Object, config.Object, bookingRepo.Object, hubService.Object, pushNotificationService.Object);
+        return new CafeService(
+            cafeRepo.Object,
+            profileRepo.Object,
+            config.Object,
+            bookingRepo.Object,
+            hubService.Object,
+            pushNotificationService.Object,
+            lobbyRepo.Object,
+            reservationRepo.Object);
     }
 }

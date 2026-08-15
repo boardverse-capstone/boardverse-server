@@ -285,9 +285,8 @@ public class ReservationService : IReservationService
                     existing.Status);
 
                 throw new ConflictException(
-                    $"IdempotencyKey '{request.IdempotencyKey}' đã được dùng cho reservation khác. " +
-                    $"Các tham số không khớp: {string.Join(", ", paramsMismatch)}. " +
-                    $"Dùng IdempotencyKey mới hoặc thay đổi params để khớp với reservation cũ.");
+                    ApiErrorMessages.System.IdempotencyKeyParamsMismatch(
+                        request.IdempotencyKey, string.Join(", ", paramsMismatch)));
             }
 
             // Params khớp → kiểm tra self-heal (R-Bug-029) như cũ
@@ -331,7 +330,7 @@ public class ReservationService : IReservationService
 
             var existingLobbyId = existing.LobbyId
                 ?? throw new InternalServerErrorException(
-                    $"Reservation idempotent '{existing.Id:N}' thiếu lobby.");
+                    ApiErrorMessages.System.ReservationLobbyMissingOnIdempotent(existing.Id));
 
             return new ReservationConfirmResponseDto
             {
@@ -940,7 +939,7 @@ public class ReservationService : IReservationService
         }
 
         throw new InternalServerErrorException(
-            $"Không thể hoàn tất cancel reservation '{request.ReservationId}' sau {MaxRetries} lần thử.");
+            ApiErrorMessages.System.CancelRetryExhausted(request.ReservationId, MaxRetries));
     }
 
     private async Task<CancelReservationResponseDto> ExecuteCancelTransactionAsync(
@@ -1199,7 +1198,7 @@ public class ReservationService : IReservationService
         }
 
         throw new InternalServerErrorException(
-            $"Không thể hoàn tất cancel-after-checkin reservation '{reservation.Id}' sau {MaxRetries} lần thử.");
+            ApiErrorMessages.System.CancelAfterCheckinRetryExhausted(reservation.Id, MaxRetries));
     }
 
     private async Task<CancelAfterCheckinResponseDto> ExecuteCancelAfterCheckinTransactionAsync(
@@ -1339,7 +1338,7 @@ public class ReservationService : IReservationService
         }
 
         throw new InternalServerErrorException(
-            $"Không thể hoàn tất cafe approval reservation '{request.ReservationId}' sau {MaxRetries} lần thử.");
+            ApiErrorMessages.System.CafeApprovalRetryExhausted(request.ReservationId, MaxRetries));
     }
 
     private async Task<CafeApprovalResponseDto> ExecuteCafeApprovalTransactionAsync(
@@ -1888,7 +1887,7 @@ public class ReservationService : IReservationService
         }
 
         throw new InternalServerErrorException(
-            "Không thể hoàn tất check-in sau nhiều lần thử.");
+            ApiErrorMessages.System.CheckInRetryExhausted(reservation.Id, maxRetries));
     }
 
     private async Task<ReservationCheckInResponseDto> ExecuteCheckInTransactionAsync(
@@ -1907,7 +1906,7 @@ public class ReservationService : IReservationService
             if (seatInventory == null)
             {
                 throw new ConflictException(
-                    $"Không tìm thấy seat inventory cho reservation '{reservation.Id}'.");
+                    ApiErrorMessages.System.SeatInventoryMissingForReservation(reservation.CafeId, reservation.PlayDate, reservation.TimeSlot.ToString()));
             }
 
             var gameInventory = await _gameInventoryRepository.GetForUpdateAsync(
@@ -1915,7 +1914,7 @@ public class ReservationService : IReservationService
             if (gameInventory == null)
             {
                 throw new ConflictException(
-                    $"Không tìm thấy game inventory cho reservation '{reservation.Id}'.");
+                    ApiErrorMessages.System.GameInventoryMissingForReservation(reservation.CafeId, reservation.PlayDate, reservation.TimeSlot.ToString()));
             }
 
             // 6. Validate inventory state — must be Held.
@@ -2352,12 +2351,12 @@ public class ReservationService : IReservationService
                 _db.ChangeTracker.Clear();
                 reservation = await _reservationRepository.GetByLobbyIdAsync(lobbyId)
                     ?? throw new InternalServerErrorException(
-                        $"Reservation cho lobby '{lobbyId}' không tìm thấy sau retry.");
+                        ApiErrorMessages.System.ReservationByLobbyNotFoundAfterRetry(lobbyId, maxRetries));
             }
         }
 
         throw new InternalServerErrorException(
-            $"Không thể capture BVC cho lobby '{lobbyId}' sau {maxRetries} lần thử.");
+            ApiErrorMessages.System.BvcCaptureRetryExhausted(lobbyId, maxRetries));
     }
 
     /// <summary>
@@ -2811,7 +2810,7 @@ public class ReservationService : IReservationService
             if (seatInventory == null)
             {
                 throw new ConflictException(
-                    $"Không tìm thấy seat inventory cho reservation '{reservation.Id}'.");
+                    ApiErrorMessages.System.SeatInventoryMissingForReservation(reservation.CafeId, reservation.PlayDate, reservation.TimeSlot.ToString()));
             }
 
             var gameInventory = await _gameInventoryRepository.GetForUpdateAsync(
@@ -2819,7 +2818,7 @@ public class ReservationService : IReservationService
             if (gameInventory == null)
             {
                 throw new ConflictException(
-                    $"Không tìm thấy game inventory cho reservation '{reservation.Id}'.");
+                    ApiErrorMessages.System.GameInventoryMissingForReservation(reservation.CafeId, reservation.PlayDate, reservation.TimeSlot.ToString()));
             }
 
             // 2. Validate inventory state — must be InUse (từ CheckInAsync move).
@@ -3017,14 +3016,15 @@ public class ReservationService : IReservationService
         if (reservation.Status != ReservationStatus.Completed)
         {
             throw new ConflictException(
-                $"Chỉ có reservation đã Completed mới có thể override refund. Current status: {reservation.Status}");
+                ApiErrorMessages.System.OverrideRefundInvalidStatus(reservation.Id.ToString(), reservation.Status.ToString()));
         }
 
         // 3. Validate refund amount không vượt quá deposit.
         if (request.RefundAmountBvc > reservation.DepositAmount)
         {
             throw new BadRequestException(
-                $"Refund amount ({request.RefundAmountBvc} BVC) không được vượt quá deposit amount ({reservation.DepositAmount} BVC).");
+                ApiErrorMessages.System.RefundAmountExceedsDeposit(
+                    request.RefundAmountBvc, reservation.DepositAmount));
         }
 
         // 4. Thực hiện refund (AdminCredit).
@@ -3129,7 +3129,9 @@ public class ReservationService : IReservationService
             if (scheduledEndTime.Date != scheduledStartTime.Date.AddDays(1))
             {
                 throw new BadRequestException(
-                    $"Khung giờ LateNight (23:00-06:00) phải kết thúc vào ngày hôm sau.");
+                    ApiErrorMessages.System.LateNightMustEndNextDay(
+                        scheduledStartTime.ToString("HH:mm"),
+                        scheduledEndTime.ToString("HH:mm")));
             }
         }
         else
@@ -3183,7 +3185,7 @@ public class ReservationService : IReservationService
         if (!reservation.CheckedInAt.HasValue)
         {
             throw new ConflictException(
-                $"Reservation '{reservation.Id}' chưa có CheckedInAt — không thể tính playedRatio.");
+                ApiErrorMessages.System.ReservationMissingCheckedInAt(reservation.Id));
         }
 
         // Validate BR-RES-08 (sanity check).

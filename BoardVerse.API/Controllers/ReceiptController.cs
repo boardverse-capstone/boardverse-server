@@ -72,13 +72,13 @@ namespace BoardVerse.API.Controllers
         {
             if (endDate < startDate)
             {
-                return NewResponse(400, "Ngày kết thúc phải lớn hơn hoặc bằng ngày bắt đầu.", null);
+                return NewResponse(400, ApiErrorMessages.System.DateRangeInvalid(startDate, endDate), null);
             }
 
             var validGranularities = new[] { "daily", "weekly", "monthly" };
             if (!validGranularities.Contains(granularity?.ToLowerInvariant()))
             {
-                return NewResponse(400, "Granularity phải là 'daily', 'weekly' hoặc 'monthly'.", null);
+                return NewResponse(400, ApiErrorMessages.System.InvalidGranularity(0), null);
             }
 
             var report = await _receiptService.GetRevenueReportAsync(cafeId, startDate, endDate, granularity);

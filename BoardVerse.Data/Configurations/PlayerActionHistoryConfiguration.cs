@@ -31,6 +31,13 @@ namespace BoardVerse.Data.Configurations
             entity.HasIndex(p => p.UserId);
             entity.HasIndex(p => p.CreatedAt);
             entity.HasIndex(p => p.ActionType);
+
+            // Navigation đến User (target) — không có FK constraint cứng vì ActionBy có thể là Guid.Empty (system actor).
+            // Sub-query ở repository vẫn lookup được Username dựa trên UserId FK thật trong DB.
+            entity.HasOne(p => p.User)
+                .WithMany()
+                .HasForeignKey(p => p.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
         }
     }
 }

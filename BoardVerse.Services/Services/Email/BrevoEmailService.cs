@@ -117,7 +117,7 @@ namespace BoardVerse.Services.Services.Email
                 || uri.Scheme != Uri.UriSchemeHttps)
             {
                 throw new EmailSendingException(
-                    $"Invalid Brevo ApiBaseUrl '{apiBaseUrl}'. Use https://api.brevo.com");
+                    ApiErrorMessages.System.BrevoInvalidApiBaseUrl(apiBaseUrl));
             }
 
             return uri;

@@ -15,7 +15,9 @@ public class PlayerAlertRepository : IPlayerAlertRepository
     public PlayerAlertRepository(BoardVerseDbContext db) => _db = db;
 
     public async Task<PlayerAlert?> GetByIdAsync(Guid alertId) =>
-        await _db.PlayerAlerts.FirstOrDefaultAsync(a => a.Id == alertId);
+        await _db.PlayerAlerts
+            .Include(a => a.User)
+            .FirstOrDefaultAsync(a => a.Id == alertId);
 
     public async Task AddAsync(PlayerAlert alert)
     {
@@ -42,6 +44,7 @@ public class PlayerAlertRepository : IPlayerAlertRepository
             {
                 Id = a.Id,
                 UserId = a.UserId,
+                Username = a.User != null ? a.User.Username : null,
                 AlertType = a.AlertType,
                 Severity = a.Severity,
                 Status = a.Status,

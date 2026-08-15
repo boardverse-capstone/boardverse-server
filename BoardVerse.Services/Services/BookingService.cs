@@ -116,6 +116,16 @@ public class BookingService : IBookingService
 
             // 7. Tạo Booking (walk-in cho phép LobbyId = null)
             var defaultPlayerQty = lobby?.Members.Count(m => m.IsActive) ?? 1;
+            // GAP-11 fix: BR-07 — PlayerQuantity phải <= cafeTable.SeatCount.
+            // Áp dụng cả walk-in (defaultPlayerQty) lẫn PlayerQuantity do client gửi.
+            var requestedQty = request.PlayerQuantity ?? defaultPlayerQty;
+            if (requestedQty > cafeTable.SeatCount)
+            {
+                throw new BadRequestException(
+                    ApiErrorMessages.Booking.PlayerQuantityExceedsTableSeats(
+                        requestedQty, cafeTable.Name ?? "", cafeTable.SeatCount));
+            }
+
             var booking = new Booking
             {
                 Id = Guid.NewGuid(),
@@ -124,7 +134,7 @@ public class BookingService : IBookingService
                 CafeTableId = request.CafeTableId,
                 ScheduledStartTime = request.ScheduledStartTime,
                 ScheduleEndTime = request.ScheduleEndTime,
-                PlayerQuantity = request.PlayerQuantity ?? defaultPlayerQty,
+                PlayerQuantity = requestedQty,
                 Status = BookingStatus.PendingDeposit,
                 VerificationQRCode = $"BV-{Guid.NewGuid():N}".Substring(0, 20)
             };
@@ -244,8 +254,30 @@ public class BookingService : IBookingService
         return false;
     }
 
-    public async Task<IReadOnlyList<BookingResponseDto>> GetByCafeIdAsync(Guid cafeId, Guid? requestingUserId = null)
+    public async Task<IReadOnlyList<BookingResponseDto>> GetByCafeIdAsync(Guid cafeId, Guid? requestingUserId = null, bool isStaffOrManager = false)
     {
+        // GAP-C1: IDOR guard. Non-staff users (Player) get a sanitized list rendered by the controller;
+        // here we still require the cafe to exist so we can return a clean 404 instead of an empty array
+        // for invalid cafeIds.
+        var cafe = await _cafeRepository.GetByIdAsync(cafeId)
+            ?? throw new NotFoundException($"Không tìm thấy quán '{cafeId}'.");
+
+        if (requestingUserId.HasValue && !isStaffOrManager)
+        {
+            var ownsAccess = await _cafeRepository.IsManagerOrStaffAsync(cafeId, requestingUserId.Value);
+            if (!ownsAccess)
+            {
+                // Player view: only return bookings the caller actually participates in.
+                var allBookings = await _bookingRepository.GetByCafeIdAsync(cafeId);
+                return allBookings
+                    .Where(b => b.Lobby != null
+                                && (b.Lobby.HostUserId == requestingUserId.Value
+                                    || b.Lobby.Members.Any(m => m.UserId == requestingUserId.Value && m.IsActive)))
+                    .Select(BookingResponseDto.FromEntity)
+                    .ToList();
+            }
+        }
+
         var bookings = await _bookingRepository.GetByCafeIdAsync(cafeId);
         return bookings.Select(BookingResponseDto.FromEntity).ToList();
     }
@@ -289,15 +321,32 @@ public class BookingService : IBookingService
             throw new ConflictException(ApiErrorMessages.Booking.CannotUpdateBookingInCurrentState);
         }
 
-        if (request.CafeTableId.HasValue)
+        // BUG-5 fix: Nếu đổi bàn, validate conflict trên bàn mới + release bàn cũ.
+        var oldTableId = booking.CafeTableId;
+        if (request.CafeTableId.HasValue && request.CafeTableId.Value != oldTableId)
         {
-            var table = await _cafeTableRepository.GetByIdAsync(request.CafeTableId.Value)
+            var newTable = await _cafeTableRepository.GetByIdAsync(request.CafeTableId.Value)
                 ?? throw new NotFoundException(ApiErrorMessages.Booking.TableNotFound(request.CafeTableId.Value));
-            if (table.CafeId != booking.CafeId)
+            if (newTable.CafeId != booking.CafeId)
             {
                 throw new BadRequestException(ApiErrorMessages.Booking.TableNotInBookingCafe);
             }
+
+            // Defensive: check không conflict bàn khác (lọc trừ chính mình).
+            // Tính time range dự kiến (ưu tiên request mới, fallback current).
+            var newStart = request.ScheduledStartTime ?? booking.ScheduledStartTime;
+            var newEnd = request.ScheduleEndTime ?? booking.ScheduleEndTime;
+            var conflicts = await _bookingRepository.GetConflictingBookingsWithLockAsync(
+                request.CafeTableId.Value, newStart, newEnd);
+            var realConflicts = conflicts.Where(c => c.Id != booking.Id).ToList();
+            if (realConflicts.Count > 0)
+            {
+                throw new ConflictException(ApiErrorMessages.Booking.TableAlreadyBookedInTimeRange);
+            }
+
+            // Apply new table + release old table (nếu không có ActiveSession nào giữ).
             booking.CafeTableId = request.CafeTableId.Value;
+            await TryReleaseTableIfIdleAsync(oldTableId, booking.CafeId, DateTime.UtcNow);
         }
 
         if (request.ScheduledStartTime.HasValue)
@@ -313,6 +362,17 @@ public class BookingService : IBookingService
 
         if (request.PlayerQuantity.HasValue)
         {
+            // GAP-11 fix: BR-07 — playerQuantity <= cafeTable.SeatCount (áp dụng cả walk-in).
+            var liveTable = booking.CafeTable != null && booking.CafeTable.Id == booking.CafeTableId
+                ? booking.CafeTable
+                : await _cafeTableRepository.GetByIdAsync(booking.CafeTableId);
+            if (liveTable != null && request.PlayerQuantity.Value > liveTable.SeatCount)
+            {
+                throw new ConflictException(
+                    ApiErrorMessages.Booking.PlayerQuantityExceedsTableSeats(
+                        request.PlayerQuantity.Value, liveTable.Name ?? "", liveTable.SeatCount));
+            }
+
             // BR-22 + mobile gap #15: playerQuantity <= số members active trong lobby
             // (walk-in booking LobbyId = null → bỏ qua check này).
             if (booking.LobbyId.HasValue)
@@ -337,6 +397,39 @@ public class BookingService : IBookingService
         await _bookingRepository.SaveChangesAsync();
 
         return BookingResponseDto.FromEntity(booking);
+    }
+
+    /// <summary>
+    /// BUG-5 helper: Release bàn về Available nếu bàn đang Reserved/InUse nhưng
+    /// không có ActiveSession nào đang giữ. Dùng khi move booking sang bàn khác
+    /// hoặc khi cancel booking Confirmed.
+    /// </summary>
+    private async Task TryReleaseTableIfIdleAsync(Guid cafeTableId, Guid cafeId, DateTime nowUtc)
+    {
+        var table = await _cafeTableRepository.GetByIdAsync(cafeTableId);
+        if (table == null)
+        {
+            return;
+        }
+        if (table.Status != CafeTableStatus.Reserved && table.Status != CafeTableStatus.InUse)
+        {
+            return;
+        }
+
+        var hasActiveSession = await _db.ActiveSessions
+            .AsNoTracking()
+            .AnyAsync(s => s.CafeTableId == cafeTableId
+                           && s.CafeId == cafeId
+                           && (s.Status == GroupSessionStatus.Active
+                               || s.Status == GroupSessionStatus.Checking
+                               || s.Status == GroupSessionStatus.Unpaid));
+
+        if (!hasActiveSession)
+        {
+            table.Status = CafeTableStatus.Available;
+            table.UpdatedAt = nowUtc;
+            await _cafeTableRepository.UpdateAsync(table);
+        }
     }
 
     public async Task<BookingResponseDto> CancelBookingAsync(
@@ -370,10 +463,22 @@ public class BookingService : IBookingService
         if (booking.Status == BookingStatus.Confirmed)
         {
             var table = await _cafeTableRepository.GetByIdAsync(booking.CafeTableId);
+            // Gap-Fix 2026-08-15: defensive check session active trên bàn trước khi release.
+            // Nếu đã có ActiveSession chưa thanh toán trên bàn này (vd session khác đang chơi,
+            // hoặc session đã start từ trước khi booking bị cancel) → KHÔNG set Available.
+            // Self-healing fix ở GetTablesAsync sẽ trả InUse nhưng vẫn giữ logic ở đây nhất quán.
             if (table != null)
             {
-                // Release table back to Available - defensive check to handle race conditions
-                if (table.Status == CafeTableStatus.Reserved || table.Status == CafeTableStatus.InUse)
+                var hasActiveSession = await _db.ActiveSessions
+                    .AsNoTracking()
+                    .AnyAsync(s => s.CafeTableId == table.Id
+                                   && s.CafeId == table.CafeId
+                                   && (s.Status == GroupSessionStatus.Active
+                                       || s.Status == GroupSessionStatus.Checking
+                                       || s.Status == GroupSessionStatus.Unpaid));
+
+                if (!hasActiveSession &&
+                    (table.Status == CafeTableStatus.Reserved || table.Status == CafeTableStatus.InUse))
                 {
                     table.Status = CafeTableStatus.Available;
                     await _cafeTableRepository.UpdateAsync(table);

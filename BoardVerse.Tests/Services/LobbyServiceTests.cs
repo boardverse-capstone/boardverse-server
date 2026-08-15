@@ -62,7 +62,8 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        // JoinLobbyAsync uses GetByIdForUpdateAsync (H4: SELECT FOR UPDATE) to prevent race conditions.
+        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId)).ReturnsAsync(lobby);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
 
@@ -218,7 +219,8 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        // JoinLobbyAsync uses GetByIdForUpdateAsync (H4: SELECT FOR UPDATE) to prevent race conditions.
+        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId)).ReturnsAsync(lobby);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object);
@@ -245,7 +247,8 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        // JoinLobbyAsync uses GetByIdForUpdateAsync (H4: SELECT FOR UPDATE) to prevent race conditions.
+        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId)).ReturnsAsync(lobby);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object);
@@ -274,7 +277,8 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        // JoinLobbyAsync uses GetByIdForUpdateAsync (H4: SELECT FOR UPDATE) to prevent race conditions.
+        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId)).ReturnsAsync(lobby);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object);
@@ -302,7 +306,8 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        // JoinLobbyAsync uses GetByIdForUpdateAsync (H4: SELECT FOR UPDATE) to prevent race conditions.
+        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId)).ReturnsAsync(lobby);
         lobbyRepo.Setup(r => r.GetActiveLobbiesByHostAsync(It.IsAny<Guid>())).ReturnsAsync(new List<Lobby>());
         lobbyRepo.Setup(r => r.GetActiveLobbiesByMemberAsync(It.IsAny<Guid>())).ReturnsAsync(new List<Lobby>());
 
@@ -337,7 +342,8 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        // JoinLobbyAsync uses GetByIdForUpdateAsync (H4: SELECT FOR UPDATE) to prevent race conditions.
+        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId)).ReturnsAsync(lobby);
         lobbyRepo.Setup(r => r.GetActiveLobbiesByHostAsync(It.IsAny<Guid>())).ReturnsAsync(new List<Lobby>());
         lobbyRepo.Setup(r => r.GetActiveLobbiesByMemberAsync(It.IsAny<Guid>())).ReturnsAsync(new List<Lobby>());
 
@@ -938,7 +944,8 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        // JoinLobbyAsync uses GetByIdForUpdateAsync (H4: SELECT FOR UPDATE) to prevent race conditions.
+        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId)).ReturnsAsync(lobby);
 
         var userRepo = new Mock<IUserManagementRepository>();
         userRepo.Setup(r => r.GetByIdWithProfileAsync(newUserId)).ReturnsAsync(new User
@@ -980,7 +987,8 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        // JoinLobbyAsync uses GetByIdForUpdateAsync (H4: SELECT FOR UPDATE) to prevent race conditions.
+        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId)).ReturnsAsync(lobby);
         lobbyRepo.Setup(r => r.GetActiveLobbiesByHostAsync(It.IsAny<Guid>())).ReturnsAsync(new List<Lobby>());
         lobbyRepo.Setup(r => r.GetActiveLobbiesByMemberAsync(It.IsAny<Guid>())).ReturnsAsync(new List<Lobby>());
 
@@ -1026,7 +1034,8 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        // JoinLobbyAsync uses GetByIdForUpdateAsync (H4: SELECT FOR UPDATE) to prevent race conditions.
+        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId)).ReturnsAsync(lobby);
         lobbyRepo.Setup(r => r.GetActiveLobbiesByHostAsync(It.IsAny<Guid>())).ReturnsAsync(new List<Lobby>());
         lobbyRepo.Setup(r => r.GetActiveLobbiesByMemberAsync(It.IsAny<Guid>())).ReturnsAsync(new List<Lobby>());
 

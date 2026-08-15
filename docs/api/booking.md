@@ -12,6 +12,12 @@
 > - `BookingRatingController.cs` — Karma cross-rating (vẫn dùng cho cả 2 flows)
 > - **Reservation flow (Flow A MỚI):** xem [reservation.md](./reservation.md)
 >
+> **Feature flag (2026-08-15):** Toàn bộ controller `/api/bookings/*` được gate bởi `LegacyBookingSettings.Enabled`
+> (config section `LegacyBooking`). Khi `Enabled = false`, mọi endpoint trả `410 Gone` với header
+> `Deprecation: true` + body hướng dẫn migrate sang `/api/v1/reservations/*`. Trên production
+> (Render) hiện đang `Enabled = true` — chuyển sang `false` qua env `LegacyBooking__Enabled=false` sau khi
+> FE xác nhận không còn gọi `/api/bookings/*`. Sunset cuối cùng: `Wed, 31 Dec 2026 23:59:59 GMT`.
+>
 > **Domain phụ trách:** Tạo booking (legacy), check-in/out, theo dõi trạng thái session, no-show vote, cross-rating.
 >
 > | Flow liên quan | Doc |
@@ -537,3 +543,64 @@ await connection.invoke("LeaveBookingGroup", bookingId);
 ```
 
 **Tại sao thay polling:** Polling 5s có độ trễ; SignalR realtime giải quyết "single check-in" flow.
+
+---
+
+## Legacy Cleanup Job (2026-08-15)
+
+Vì Booking legacy có thể bị kẹt ở `PendingDeposit` hoặc `Confirmed` quá giờ
+mà **không có job nào xử lý** (Flow A dùng Reservation có `ReservationNoShowDetectionJob` riêng),
+BoardVerse thêm `LegacyBookingCleanupJob` để quét dọn:
+
+| Status | Điều kiện stale | Hành động |
+|---|---|---|
+| `PendingDeposit` | `ScheduledStartTime < now - PendingDepositGraceMinutes` (default 30) | Set `Status = NoShow`, bump `UpdatedAt` |
+| `Confirmed` | `ScheduledStartTime < now - ConfirmedGraceMinutes` (default 30) AND `CheckedInAt = null` | Set `Status = NoShow`, bump `UpdatedAt` |
+| `CheckedIn` (Confirmed + có `CheckedInAt`) | — | **Không chạm** |
+| `Cancelled` / `NoShow` (terminal) | — | **Không chạm** |
+| Tương lai | `ScheduledStartTime > now` | **Không chạm** |
+
+**Source:** `BoardVerse.API/BackgroundServices/LegacyBookingCleanupJob.cs` +
+`BoardVerse.Services/Services/LegacyBookingCleanupService.cs`. Hosted service chạy mỗi
+`LegacyBooking.CleanupIntervalMinutes` (default 5 phút), batch size `CleanupBatchSize` (default 100).
+
+**Lưu ý quan trọng:** Job KHÔNG forfeit BVC vì legacy Booking không có `Reservation.DepositAmount`
+flow — host chưa bao giờ trả BVC nên không có gì để forfeit. Tương tự với WalkInWindow:
+WalkInWindow chỉ sinh ra từ `ReservationNoShowDetectionJob`, không từ job này.
+
+**Test:** `BoardVerse.Tests/Services/LegacyBookingCleanupServiceTests.cs` (10 test cases).
+
+### Config reference
+
+```jsonc
+// appsettings.json hoặc appsettings.Production.json
+{
+  "LegacyBooking": {
+    "Enabled": true,                 // false → toàn bộ /api/bookings/* trả 410 Gone
+    "CleanupJobEnabled": true,       // false → tắt job, giữ controller hoạt động
+    "CleanupIntervalMinutes": 5,
+    "PendingDepositGraceMinutes": 30,
+    "ConfirmedGraceMinutes": 30,
+    "CleanupBatchSize": 100
+  }
+}
+```
+
+**Trên Render (production):** override qua env `LegacyBooking__Enabled=false`,
+`LegacyBooking__CleanupJobEnabled=false` (sau khi FE xác nhận không còn dùng).
+
+---
+
+## Rollout timeline — Phase 1 → Phase 4
+
+| Giai đoạn | Hành động | Người chịu trách nhiệm | Verification |
+|---|---|---|---|
+| **Phase 1 (2026-08-15)** ✅ | Thêm `[LegacyBookingGate]` + `LegacyBooking:Enabled=true` (default). Doc cập nhật, controller đánh dấu `[Obsolete]`. `LegacyBookingCleanupJob` chạy mỗi 5 phút. | BE | Build OK, 15 unit tests, 1985 integration tests pass. |
+| **Phase 2 (TBD - sau 2 tuần)** | Theo dõi logs `LegacyBookingCleanupService` → confirm không có booking stale mới. FE Owner verify không còn log HTTP 4xx/5xx từ `/api/bookings/*`. | BE + FE | Log scan + Grafana dashboard. |
+| **Phase 3 (TBD - sau 4 tuần)** | Set `LegacyBooking:Enabled=false` trên **staging** trước. Tất cả `/api/bookings/*` trả `410 Gone` với header `Deprecation: true`. Smoke test: gọi `/api/bookings/{id}` → 410 + body hướng dẫn client chuyển sang `/api/v1/reservations/{id}`. | BE + QA | Manual Swagger + cURL. |
+| **Phase 3.5 (TBD - 1 tuần sau Phase 3)** | Sau khi staging confirm OK, **flip trên production**: `LegacyBooking__Enabled=false` env trên Render. BookingController + BookingRatingController return 410. | BE on-call | Check logs `/api/bookings/*` 24h đầu → kỳ vọng 410. |
+| **Phase 4 (TBD - 31 Dec 2026)** | Sunset cuối cùng. Xóa `BookingController`, `BookingRatingController`, `LegacyBookingGateAttribute`, `LegacyBookingCleanupJob`, `LegacyBookingSettings` + entity `Booking` + `BookingDeposit` (sau ETL). Background job cleanup có thể tắt trước ở Phase 3.5. | BE | EF migration `RemoveLegacyBooking` + manual prod smoke test. |
+
+> **Rollback:** Phase 3/3.5 chỉ là feature flag → rollback cực nhanh bằng cách set
+> `LegacyBooking__Enabled=true` lại. Phase 4 cần reverse migration (giữ nguyên file
+> backup code).

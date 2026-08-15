@@ -54,7 +54,7 @@ namespace BoardVerse.API.Controllers
                     if (!Enum.TryParse<CafeTableStatus>(raw, ignoreCase: true, out var s))
                     {
                         return this.NewResponse(400,
-                            $"Trạng thái bàn không hợp lệ: '{raw}'. Giá trị hợp lệ: {string.Join(", ", Enum.GetNames<CafeTableStatus>())}.",
+                            ApiErrorMessages.Controller.InvalidQueryParameter(raw, string.Join(", ", Enum.GetNames<CafeTableStatus>())),
                             null);
                     }
                     parsed.Add(s);
@@ -95,7 +95,7 @@ namespace BoardVerse.API.Controllers
         {
             if (!ModelState.IsValid)
             {
-                return this.NewResponse(400, "Dữ liệu không hợp lệ.", null);
+                return this.NewResponse(400, ApiErrorMessages.System.ReservationInvalidRequest, null);
             }
 
             var hasLegacy = request.TableNames != null && request.TableNames.Count > 0;
@@ -103,14 +103,13 @@ namespace BoardVerse.API.Controllers
 
             if (hasLegacy && hasNew)
             {
-                return this.NewResponse(400, "Chỉ được gửi một trong hai: 'tableNames' hoặc 'tables'.", null);
+                return this.NewResponse(400, ApiErrorMessages.System.ReservationOnlyOneOfTableNamesOrTables, null);
             }
 
             if (!hasLegacy && !hasNew)
             {
-                return this.NewResponse(400, "Phải gửi 'tableNames' hoặc 'tables' với ít nhất 1 phần tử.", null);
+                return this.NewResponse(400, ApiErrorMessages.System.ReservationInvalidTableConfig("Thiếu tableNames và tables"), null);
             }
-
             var managerId = GetUserIdFromClaims();
 
             if (hasNew)
@@ -150,7 +149,7 @@ namespace BoardVerse.API.Controllers
         {
             if (!ModelState.IsValid)
             {
-                return this.NewResponse(400, "Dữ liệu không hợp lệ.", null);
+                return this.NewResponse(400, ApiErrorMessages.System.ReservationInvalidRequest, null);
             }
 
             var managerId = GetUserIdFromClaims();
@@ -840,7 +839,7 @@ public async Task<IActionResult> GetPaidSessions(
         {
             if (!ModelState.IsValid)
             {
-                return this.NewResponse(400, "Dữ liệu không hợp lệ.", null);
+                return this.NewResponse(400, ApiErrorMessages.System.ReservationInvalidRequest, null);
             }
 
             var (userId, role) = GetViewerContext();
@@ -878,7 +877,7 @@ public async Task<IActionResult> GetPaidSessions(
         {
             if (!ModelState.IsValid)
             {
-                return this.NewResponse(400, "Dữ liệu không hợp lệ.", null);
+                return this.NewResponse(400, ApiErrorMessages.System.ReservationInvalidRequest, null);
             }
 
             var (userId, role) = GetViewerContext();

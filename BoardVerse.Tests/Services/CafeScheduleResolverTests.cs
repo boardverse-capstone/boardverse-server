@@ -188,9 +188,13 @@ public class CafeScheduleResolverTests
         public Task<IReadOnlyList<CafeScheduleOverride>> ListByCafeAsync(Guid cafeId)
             => Task.FromResult<IReadOnlyList<CafeScheduleOverride>>(Array.Empty<CafeScheduleOverride>());
 
+        public Task<CafeScheduleOverride?> GetByCafeAndSlotAsync(Guid cafeId, TimeSlot slot)
+            => Task.FromResult<CafeScheduleOverride?>(null);
+
         public Task AddAsync(CafeScheduleOverride overrideEntity) => Task.CompletedTask;
         public Task UpdateAsync(CafeScheduleOverride overrideEntity) => Task.CompletedTask;
         public Task DeleteAsync(Guid cafeId, TimeSlot slot) => Task.CompletedTask;
+        public Task DeleteByIdAsync(Guid overrideId) => Task.CompletedTask;
         public Task SaveChangesAsync() => Task.CompletedTask;
     }
 
@@ -226,9 +230,19 @@ public class CafeScheduleResolverTests
         public Task<IReadOnlyList<CafeScheduleOverride>> ListByCafeAsync(Guid cafeId)
             => Task.FromResult<IReadOnlyList<CafeScheduleOverride>>(new[] { _entry });
 
+        public Task<CafeScheduleOverride?> GetByCafeAndSlotAsync(Guid cafeId, TimeSlot slot)
+        {
+            if (_entry.CafeId != cafeId || _entry.TimeSlot != slot)
+            {
+                return Task.FromResult<CafeScheduleOverride?>(null);
+            }
+            return Task.FromResult<CafeScheduleOverride?>(_entry);
+        }
+
         public Task AddAsync(CafeScheduleOverride overrideEntity) => Task.CompletedTask;
         public Task UpdateAsync(CafeScheduleOverride overrideEntity) => Task.CompletedTask;
         public Task DeleteAsync(Guid cafeId, TimeSlot slot) => Task.CompletedTask;
+        public Task DeleteByIdAsync(Guid overrideId) => Task.CompletedTask;
         public Task SaveChangesAsync() => Task.CompletedTask;
     }
 }

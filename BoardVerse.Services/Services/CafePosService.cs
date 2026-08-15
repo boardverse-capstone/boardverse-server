@@ -71,6 +71,16 @@ namespace BoardVerse.Services.Services
         /// GAP-21 Fix: GetTables với filter includeOnlyAvailable.
         /// includeInactive: lấy cả bàn soft-deleted (IsActive=false). Mặc định false để khớp hành vi cũ.
         /// statuses: nếu khác null, chỉ trả bàn có Status thuộc collection này (ghi đè includeOnlyAvailable).
+        ///
+        /// Gap-Fix "Sơ đồ bàn hiển thị sai trạng thái khi có session hoạt động":
+        /// Trước đây status trả về chỉ dựa trên cột <c>CafeTables.Status</c> trong DB, dẫn đến hiện tượng
+        /// bàn có session Active/Checking/Unpaid vẫn hiển thị "Available" nếu cột Status bị stale
+        /// (do manual SQL fixup, migration dở, hoặc bug path trước đó chưa update).
+        /// Cách fix: derive status từ <c>ActiveSessions</c> — đây là source-of-truth duy nhất.
+        ///
+        /// Thứ tự ưu tiên status của bàn:
+        /// 1. Nếu <c>ActiveSessions</c> có session chưa thanh toán (Active/Checking/Unpaid) → <c>InUse</c>.
+        /// 2. Ngược lại dùng cached <c>CafeTables.Status</c> (Reserved / EventInProgress / Available).
         /// </summary>
         public async Task<IReadOnlyList<CafeTableStatusDto>> GetTablesAsync(
             Guid cafeId,
@@ -84,28 +94,47 @@ namespace BoardVerse.Services.Services
 
             var allTables = await _posRepository.GetActiveTablesAsync(cafeId, includeInactive);
 
-            IEnumerable<CafeTable> filtered = allTables;
+            // Gap-Fix: Build map bàn đang bận từ ActiveSessions (source-of-truth).
+            // Self-healing: nếu CafeTables.Status bị stale do bug cũ, vẫn trả đúng InUse.
+            var busyTableStatuses = await _posRepository.GetBusyTableIdsByCafeAsync(cafeId);
+
+            // Derive status: overlay busyTableStatuses lên cached t.Status.
+            // Nếu table có session chưa thanh toán → InUse, kể cả khi t.Status cached = Available.
+            // Nếu table KHÔNG có session → giữ nguyên t.Status cached (Reserved/EventInProgress vẫn respected).
+            var tablesWithDerivedStatus = allTables
+                .Select(t => new
+                {
+                    Table = t,
+                    DerivedStatus = busyTableStatuses.ContainsKey(t.Id)
+                        ? CafeTableStatus.InUse
+                        : t.Status
+                })
+                .ToList();
+
+            IEnumerable<(CafeTable Table, CafeTableStatus DerivedStatus)> filtered = tablesWithDerivedStatus
+                .Select(x => (x.Table, x.DerivedStatus));
+
             if (statuses is { Count: > 0 })
             {
                 var statusSet = new HashSet<CafeTableStatus>(statuses);
-                filtered = allTables.Where(t => statusSet.Contains(t.Status));
+                filtered = filtered.Where(x => statusSet.Contains(x.DerivedStatus));
             }
             else if (includeOnlyAvailable)
             {
-                filtered = allTables.Where(t => t.Status == CafeTableStatus.Available);
+                filtered = filtered.Where(x => x.DerivedStatus == CafeTableStatus.Available);
             }
 
             return filtered
-                .OrderBy(t => t.SortOrder)
-                .ThenBy(t => t.Name)
-                .Select(t => new CafeTableStatusDto
+                .OrderBy(x => x.Table.SortOrder)
+                .ThenBy(x => x.Table.Name)
+                .Select(x => new CafeTableStatusDto
                 {
-                    Id = t.Id,
-                    Name = t.Name,
-                    SortOrder = t.SortOrder,
-                    SeatCount = t.SeatCount,
-                    Status = t.Status,
-                    IsActive = t.IsActive
+                    Id = x.Table.Id,
+                    Name = x.Table.Name,
+                    SortOrder = x.Table.SortOrder,
+                    SeatCount = x.Table.SeatCount,
+                    Status = x.DerivedStatus,
+                    IsActive = x.Table.IsActive
                 })
                 .ToList();
         }
@@ -322,14 +351,14 @@ namespace BoardVerse.Services.Services
             if (query.FromDate > query.ToDate)
             {
                 throw new BadRequestException(
-                    $"FromDate ({query.FromDate:yyyy-MM-dd}) phải <= ToDate ({query.ToDate:yyyy-MM-dd}).");
+                    ApiErrorMessages.System.DateRangeInvalid(query.FromDate, query.ToDate));
             }
 
             // Giới hạn range tối đa 90 ngày để tránh query nặng (audit pagination sau).
             if (query.ToDate.DayNumber - query.FromDate.DayNumber > 90)
             {
                 throw new BadRequestException(
-                    $"Khoảng ngày thanh toán tối đa 90 ngày. Hiện tại: {query.FromDate:yyyy-MM-dd} → {query.ToDate:yyyy-MM-dd} = {(query.ToDate.DayNumber - query.FromDate.DayNumber)} ngày.");
+                    ApiErrorMessages.System.DateRangeExceeded(query.FromDate, query.ToDate));
             }
 
             var paged = await _posRepository.GetPaidSessionsPagedAsync(
@@ -691,7 +720,7 @@ namespace BoardVerse.Services.Services
                 if (nonceUsed)
                 {
                     throw new ConflictException(
-                        $"Mã QR này đã được sử dụng. Vui lòng yêu cầu khách quét lại mã mới.");
+                        ApiErrorMessages.System.QrAlreadyUsed);
                 }
             }
 
@@ -765,7 +794,7 @@ namespace BoardVerse.Services.Services
             {
                 // Reservation không thuộc cafe này, hoặc chưa Confirmed.
                 throw new ConflictException(
-                    $"Không thể check-in reservation '{reservationCode}': {ex.Message}");
+                    ApiErrorMessages.System.ReservationCheckInFailed(reservationCode, ex.Message));
             }
 
             _logger.LogInformation(
@@ -953,8 +982,8 @@ namespace BoardVerse.Services.Services
                     if (preReservation.GameId != gameTemplateId)
                     {
                         throw new ConflictException(
-                            $"Reservation '{preReservation.Id}' đặt game '{preReservation.GameId}' " +
-                            $"nhưng staff đang scan box game '{gameTemplateId}'. Không thể check-in.");
+                            ApiErrorMessages.System.ReservationGameMismatch(
+                                preReservation.Id, gameTemplateId));
                     }
                 }
             }
@@ -1051,16 +1080,12 @@ namespace BoardVerse.Services.Services
                 }
             }
 
-            var otherSessionsOnTable = await _posRepository.GetActiveSessionsAsync(cafeId, null);
-            var tableStillBusy = otherSessionsOnTable.Any(s =>
-                s.Id != session.Id && s.CafeTableId == session.CafeTableId);
-
-            // W1 Fix: Null check for CafeTable before dereferencing
-            if (!tableStillBusy && session.CafeTable != null && session.CafeTable.Status == CafeTableStatus.InUse)
-            {
-                session.CafeTable.Status = CafeTableStatus.Available;
-                session.CafeTable.UpdatedAt = now;
-            }
+            // Gap-Fix 2026-08-15: KHÔNG set table.Status = Available ở đây.
+            // EndGameSessionAsync chỉ chuyển session sang Checking (BR-12, chờ kiểm kê linh kiện).
+            // Bàn vẫn phải là InUse cho đến khi thanh toán xong (Paid) — self-healing fix ở
+            // GetTablesAsync derive status từ ActiveSessions (Status ∈ {Active,Checking,Unpaid})
+            // vẫn trả InUse, nên UI POS sẽ thấy bàn "đang bận" cho đến khi session sang Paid.
+            // Set Available duy nhất tại ActiveSessionService.PaySessionAsync (xem UpdateTableAfterPaymentAsync).
 
             await _posRepository.SaveChangesAsync();
 
@@ -1212,6 +1237,16 @@ namespace BoardVerse.Services.Services
                 throw new NotFoundException(ApiErrorMessages.Pos.SessionGameNotFound(sessionGameId));
             }
 
+            // GAP-D: BR-12 chỉ cho phép kiểm kê khi session đang CHECKING (đã trả game).
+            // GET checklist cho phép FE đồng bộ UI ngay từ khi end-game → cùng status
+            // với Submit/Reset để staff không truy cập nhầm khi session ACTIVE.
+            var session = sessionGame.ActiveSession;
+            if (session.Status != GroupSessionStatus.Checking)
+            {
+                throw new ConflictException(
+                    ApiErrorMessages.System.ChecklistViewRequiresChecking);
+            }
+
             var components = sessionGame.GameTemplate.Components?.ToList() ?? [];
 
             // FIX Bug "ComponentChecklist luôn trả đầy đủ dù hộp đã bị mất":
@@ -1219,8 +1254,12 @@ namespace BoardVerse.Services.Services
             // Ví dụ: Phiên trước box thiếu 1 quân cờ → Actual=14/15.
             // Lần này staff kiểm kê → ExpectedQuantity=14 (không phải 15),
             // nếu khách trả còn 14/14 thì đủ, nếu còn 13/14 thì phạt tiếp 1 quân.
+            // W-4: defensive null. GetLatestComponentCheckByBoxAsync có thể trả null
+            // nếu repo setup Moq chưa trả default, hoặc DB chưa có audit trail nào.
+            // null.TryGetValue → NRE 500. Empty dict là fallback an toàn.
             var latestByComponent = await _posRepository
-                .GetLatestComponentCheckByBoxAsync(sessionGame.CafeInventoryBoxId);
+                .GetLatestComponentCheckByBoxAsync(sessionGame.CafeInventoryBoxId)
+                ?? new Dictionary<Guid, ComponentCheckResult>();
 
             return new ComponentChecklistDto
             {
@@ -1234,7 +1273,7 @@ namespace BoardVerse.Services.Services
                     ComponentKind = c.ComponentKind,
                     // Nếu box từng được check → dùng ActualQuantity gần nhất làm baseline mới.
                     // Nếu chưa có lần check nào → dùng DefaultQuantity từ template.
-                    ExpectedQuantity = latestByComponent.TryGetValue(c.Id, out var last)
+                    ExpectedQuantity = latestByComponent.TryGetValue(c.Id, out var last) && last.ActualQuantity > 0
                         ? last.ActualQuantity
                         : c.DefaultQuantity
                 }).ToList()
@@ -1271,8 +1310,53 @@ namespace BoardVerse.Services.Services
             if (session.Status != GroupSessionStatus.Checking)
             {
                 throw new ConflictException(
-                    $"Chỉ có thể kiểm tra linh kiện khi phiên đang ở trạng thái CHECKING (đã trả game). Trạng thái hiện tại: {session.Status}.");
+                    ApiErrorMessages.System.ChecklistSubmitRequiresChecking);
             }
+
+            // GAP-A: Wrap mutation trong 1 transaction. Nếu 2 staff cùng bấm Submit trên cùng
+            // session game (2 POS tablet / 2 ca), cả hai sẽ qua check NotChecked ngay sau đó
+            // cùng insert ComponentCheckResults. Insert thứ 2 vi phạm unique constraint
+            // (ActiveSessionGameId, GameComponentTemplateId) → DB ném PostgresException 23505
+            // → mặc định 500. Catch riêng unique violation ở cuối hàm → throw ConflictException
+            // (409) thay vì 500.
+            //
+            // Lưu ý: việc thêm ExecuteSqlRaw với row lock cũng là 1 lựa chọn, nhưng transaction
+            // đơn giản hơn và đủ tốt cho 1 staff/ca trong MVP.
+            await using var tx = await _db.Database.BeginTransactionAsync();
+
+            try
+            {
+                var resultDto = await SubmitComponentCheckCoreAsync(
+                    sessionGame, session, cafeId, userId, request);
+
+                await tx.CommitAsync();
+                return resultDto;
+            }
+            catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+            {
+                // GAP-A: duplicate (ActiveSessionGameId, GameComponentTemplateId) → 409.
+                await tx.RollbackAsync();
+                _logger.LogWarning(
+                    "Concurrent component-check submit detected cho sessionGameId={SessionGameId} bởi staffId={StaffId}.",
+                    request.SessionGameId, userId);
+                throw new ConflictException(
+                    ApiErrorMessages.Pos.ComponentCheckConcurrentSubmit);
+            }
+            catch
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
+        }
+
+        // Core mutation logic tách ra để SubmitComponentCheckAsync có thể wrap transaction.
+        private async Task<ComponentCheckResultDto> SubmitComponentCheckCoreAsync(
+            ActiveSessionGame sessionGame,
+            ActiveSession session,
+            Guid cafeId,
+            Guid userId,
+            SubmitComponentCheckRequestDto request)
+        {
 
             var components = sessionGame.GameTemplate.Components?.ToList() ?? [];
 
@@ -1280,8 +1364,12 @@ namespace BoardVerse.Services.Services
             // Lấy ActualQuantity từ lần kiểm kê GẦN NHẤT của cùng box làm baseline mới.
             // Nếu box đã thiếu linh kiện ở phiên trước → MarkAllValid phải ghi Actual = baseline,
             // không phải DefaultQuantity từ template (sẽ khôi phục sai).
+            // W-4: defensive null. GetLatestComponentCheckByBoxAsync có thể trả null
+            // nếu repo setup Moq chưa trả default, hoặc DB chưa có audit trail nào.
+            // null.TryGetValue → NRE 500. Empty dict là fallback an toàn.
             var latestByComponent = await _posRepository
-                .GetLatestComponentCheckByBoxAsync(sessionGame.CafeInventoryBoxId);
+                .GetLatestComponentCheckByBoxAsync(sessionGame.CafeInventoryBoxId)
+                ?? new Dictionary<Guid, ComponentCheckResult>();
 
             // AC 3.2: "Tất cả hợp lệ" → mark Verified ngay. Vẫn insert 1 dòng result cho mỗi component
             // với ActualQuantity = ExpectedQuantity (baseline) để admin audit "staff bấm AllValid lúc Y, không đếm chi tiết".
@@ -1295,7 +1383,7 @@ namespace BoardVerse.Services.Services
 
                 var allValidResults = components.Select(c =>
                 {
-                    var baseline = latestByComponent.TryGetValue(c.Id, out var last)
+                    var baseline = latestByComponent.TryGetValue(c.Id, out var last) && last.ActualQuantity > 0
                         ? last.ActualQuantity
                         : c.DefaultQuantity;
                     return new ComponentCheckResult
@@ -1355,7 +1443,7 @@ namespace BoardVerse.Services.Services
             if (duplicateIds.Count > 0)
             {
                 throw new BadRequestException(
-                    $"Kết quả kiểm tra chứa component ID trùng lặp: {string.Join(", ", duplicateIds)}");
+                    ApiErrorMessages.System.ChecklistDuplicateComponentIds(duplicateIds.First()));
             }
 
             // H8 Fix: Bắt buộc staff nhập ActualQuantity cho TẤT CẢ components của game.
@@ -1372,7 +1460,7 @@ namespace BoardVerse.Services.Services
                     .Select(c => c.ComponentName)
                     .ToList();
                 throw new BadRequestException(
-                    $"Thiếu kết quả kiểm tra cho {missingComponentIds.Count} linh kiện: {string.Join(", ", missingNames)}. Vui lòng nhập đầy đủ ActualQuantity cho mọi linh kiện.");
+                    ApiErrorMessages.System.ChecklistMissingComponents);
             }
 
             // H8 Fix: cấm ActualQuantity âm (sai validation từ client).
@@ -1383,7 +1471,7 @@ namespace BoardVerse.Services.Services
             if (negativeQtyIds.Count > 0)
             {
                 throw new BadRequestException(
-                    $"ActualQuantity phải >= 0 cho mọi linh kiện. Các ID vi phạm: {string.Join(", ", negativeQtyIds)}");
+                    ApiErrorMessages.System.ChecklistNegativeQuantity);
             }
 
             decimal totalPenalty = 0;
@@ -1412,6 +1500,13 @@ namespace BoardVerse.Services.Services
                     .Select(m => m.Id)
                     .ToHashSet();
 
+                // GAP-C: build map ActualQuantity theo componentId để validate ngay
+                // nếu staff set ResponsibleMemberId cho dòng ĐỦ (actualQty >= expectedQty).
+                // Trước đây server silently set ResponsibleMemberId = null ở cuối method
+                // → admin audit không thấy dấu vết → dễ che giấu nhân viên set nhầm.
+                var actualQtyMap = request.Results
+                    .ToDictionary(r => r.ComponentId, r => r.ActualQuantity);
+
                 foreach (var (componentId, memberId) in responsibleMemberMap)
                 {
                     if (!sessionMemberIds.Contains(memberId))
@@ -1424,6 +1519,21 @@ namespace BoardVerse.Services.Services
                     {
                         // BR-14: cấm gán penalty cho Guest_Slot
                         throw new BadRequestException(ApiErrorMessages.Pos.PenaltyCannotAssignToGuestSlot);
+                    }
+
+                    // GAP-C: chỉ cho phép assign ResponsibleMemberId khi linh kiện THIẾU
+                    // (actualQty < expectedQty). Nếu staff set cho dòng đủ, reject ngay
+                    // thay vì silently drop ở assignment ở cuối method.
+                    // Lưu ý: comparison dùng DefaultQuantity ở đây (chưa load baseline),
+                    // vì validate sớm trước khi apply baseline.
+                    var expectedQtyForValidation = components
+                        .FirstOrDefault(c => c.Id == componentId)?.DefaultQuantity ?? 0;
+                    var actualQtyForValidation = actualQtyMap.GetValueOrDefault(componentId, 0);
+
+                    if (expectedQtyForValidation > 0 && actualQtyForValidation >= expectedQtyForValidation)
+                    {
+                        throw new BadRequestException(
+                            ApiErrorMessages.Pos.ComponentPenaltyMemberInvalidForFullComponent(memberId));
                     }
                 }
             }
@@ -1439,7 +1549,7 @@ namespace BoardVerse.Services.Services
                 // Nếu box đã bị mất linh kiện ở phiên trước → ExpectedQuantity = baseline mới
                 // (ActualQuantity của lần kiểm gần nhất), không phải DefaultQuantity từ template.
                 // Nếu chưa có lần check nào → dùng DefaultQuantity.
-                var expectedQty = latestByComponent.TryGetValue(component.Id, out var lastBaseline)
+                var expectedQty = latestByComponent.TryGetValue(component.Id, out var lastBaseline) && lastBaseline.ActualQuantity > 0
                     ? lastBaseline.ActualQuantity
                     : component.DefaultQuantity;
                 var missing = expectedQty - actualQty;
@@ -1546,7 +1656,7 @@ namespace BoardVerse.Services.Services
             if (session.Status != GroupSessionStatus.Checking)
             {
                 throw new ConflictException(
-                    $"Chỉ có thể reset checklist khi phiên đang ở trạng thái CHECKING. Trạng thái hiện tại: {session.Status}.");
+                    ApiErrorMessages.System.ChecklistResetRequiresChecking);
             }
 
             // Reset checklist
@@ -1557,9 +1667,23 @@ namespace BoardVerse.Services.Services
 
             // BR-12: Xóa audit trail cũ để staff có thể kiểm tra lại từ đầu.
             // Lưu ý: chỉ xóa các dòng thuộc session game hiện tại (không cascade sang session khác).
-            await _posRepository.DeleteComponentCheckResultsAsync(sessionGameId);
-
-            await _posRepository.SaveChangesAsync();
+            //
+            // GAP-E: Wrap reset + delete trong 1 transaction. Trước đây nếu SaveChangesAsync
+            // ở giữa thất bại → entity state đã thay đổi trên tracker nhưng chưa commit. Sau
+            // đó delete + save khác round-trip → rủi ro data trong trạng thái lủng lẳng nếu
+            // có exception giữa chừng.
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                await _posRepository.DeleteComponentCheckResultsAsync(sessionGameId);
+                await _posRepository.SaveChangesAsync();
+                await tx.CommitAsync();
+            }
+            catch
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
 
             _logger.LogInformation(
                 "Component checklist reset. SessionGameId={SessionGameId}, CafeId={CafeId}, StaffId={StaffId}",
@@ -1604,7 +1728,7 @@ namespace BoardVerse.Services.Services
             if (sessionGame == null)
             {
                 throw new ConflictException(
-                    $"Hộp game '{box.Barcode}' không thuộc phiên chơi này. Vui lòng kiểm tra lại.");
+                    ApiErrorMessages.System.BoxNotInSession(box.Barcode));
             }
 
             // Tính surcharge_fine
@@ -1882,7 +2006,7 @@ namespace BoardVerse.Services.Services
                 if (!sessionExists)
                 {
                     throw new NotFoundException(
-                        $"Session '{effectiveSessionId.Value}' không tồn tại trong quán này.");
+                        ApiErrorMessages.System.SessionNotInCafe(effectiveSessionId.Value, cafeId));
                 }
             }
 
@@ -1965,13 +2089,13 @@ namespace BoardVerse.Services.Services
             if (session == null)
             {
                 throw new NotFoundException(
-                    $"Session '{request.SessionId}' không tồn tại.");
+                    ApiErrorMessages.System.SessionNotFoundInCafe(cafeId, request.SessionId));
             }
 
             if (session.CafeId != cafeId)
             {
                 throw new NotFoundException(
-                    $"Session '{request.SessionId}' không thuộc quán này.");
+                    ApiErrorMessages.System.SessionNotInCafe(request.SessionId, cafeId));
             }
 
             // Phase 4 / §7.2 evidence: trả về timestamps + total minutes để staff thấy rõ
@@ -2052,13 +2176,13 @@ namespace BoardVerse.Services.Services
             if (session == null)
             {
                 throw new NotFoundException(
-                    $"Session '{request.SessionId}' không tồn tại.");
+                    ApiErrorMessages.System.SessionNotFoundInCafe(cafeId, request.SessionId));
             }
 
             if (session.CafeId != cafeId)
             {
                 throw new NotFoundException(
-                    $"Session '{request.SessionId}' không thuộc quán này.");
+                    ApiErrorMessages.System.SessionNotInCafe(request.SessionId, cafeId));
             }
 
             // EC-11 §7.2: Manager chỉ được override khi session CHƯA thanh toán.
@@ -2224,6 +2348,38 @@ namespace BoardVerse.Services.Services
                 Status = "Overridden",
                 OverriddenAt = overrideAudit.CreatedAt
             };
+        }
+
+        /// <summary>
+        /// GAP-A: Kiểm tra xem <paramref name="ex"/> có phải unique constraint violation
+        /// của Postgres không (SQLSTATE 23505). Khi 2 staff cùng submit component-check
+        /// trên cùng session game, insert thứ 2 vi phạm unique index
+        /// <c>IX_ComponentCheckResults_ActiveSessionGameId_GameComponentTemplateId</c>.
+        /// </summary>
+        private static bool IsUniqueViolation(DbUpdateException ex)
+        {
+            // Npgsql bọc PostgresException trong DbUpdateException; chuỗi
+            // "duplicate key value violates unique constraint" hoặc SqlState 23505.
+            // Check cả 2 cách để chắc chắn với cả InMemory (test) lẫn Postgres (prod).
+            var inner = ex.InnerException;
+            if (inner == null) return false;
+
+            var message = inner.Message ?? string.Empty;
+            if (message.Contains("23505", StringComparison.Ordinal)
+                || message.Contains("unique constraint", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            // Fallback: nếu provider nội bộ expose SqlState (Npgsql.PostgresException có property này).
+            var sqlStateProp = inner.GetType().GetProperty("SqlState");
+            if (sqlStateProp?.GetValue(inner) is string state && state == "23505")
+            {
+                return true;
+            }
+
+            return false;
         }
     }
 }

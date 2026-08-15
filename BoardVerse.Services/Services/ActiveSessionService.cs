@@ -395,7 +395,7 @@ namespace BoardVerse.Services.Services
             if (session.Subtotal < 0)
             {
                 throw new ConflictException(
-                    $"Phiên chơi '{sessionId}' có Subtotal âm ({session.Subtotal}). Có thể phiên bị skip Checkout. Vui lòng gọi /checkout trước khi /pay.");
+                    ApiErrorMessages.System.SubtotalNegative);
             }
 
             // BR-14: Validate penalties before assignment
@@ -495,7 +495,7 @@ namespace BoardVerse.Services.Services
                     if (lobby == null)
                     {
                         throw new NotFoundException(
-                            $"Lobby '{session.LobbyId.Value}' không tồn tại. Không thể capture BVC.");
+                            ApiErrorMessages.System.LobbyNotFoundForCapture(session.LobbyId.Value));
                     }
                     if (lobby.Status is LobbyStatus.Closed
                         or LobbyStatus.TimeoutFailed
@@ -511,7 +511,7 @@ namespace BoardVerse.Services.Services
                     else if (lobby.Status != LobbyStatus.InProgress)
                     {
                         throw new ConflictException(
-                            $"Lobby '{lobby.Id}' đang ở trạng thái '{lobby.Status}' — chỉ Lobby InProgress mới capture được BVC. Vui lòng refresh POS.");
+                            ApiErrorMessages.System.LobbyNotInProgressForCapture);
                     }
                 }
 

@@ -32,6 +32,12 @@ public class CafeScheduleOverrideRepository : ICafeScheduleOverrideRepository
             .ToListAsync();
     }
 
+    public Task<CafeScheduleOverride?> GetByCafeAndSlotAsync(Guid cafeId, TimeSlot slot)
+    {
+        return _db.CafeScheduleOverrides
+            .FirstOrDefaultAsync(o => o.CafeId == cafeId && o.TimeSlot == slot);
+    }
+
     public Task AddAsync(CafeScheduleOverride overrideEntity)
     {
         _db.CafeScheduleOverrides.Add(overrideEntity);
@@ -40,8 +46,9 @@ public class CafeScheduleOverrideRepository : ICafeScheduleOverrideRepository
 
     public Task UpdateAsync(CafeScheduleOverride overrideEntity)
     {
+        // Entity đã được EF tracking (qua GetByCafeAndSlotAsync). Chỉ cập nhật UpdatedAt —
+        // EF sẽ tự detect property changes khi SaveChangesAsync được gọi.
         overrideEntity.UpdatedAt = DateTime.UtcNow;
-        _db.CafeScheduleOverrides.Update(overrideEntity);
         return Task.CompletedTask;
     }
 
@@ -49,6 +56,16 @@ public class CafeScheduleOverrideRepository : ICafeScheduleOverrideRepository
     {
         var existing = await _db.CafeScheduleOverrides
             .FirstOrDefaultAsync(o => o.CafeId == cafeId && o.TimeSlot == slot);
+        if (existing != null)
+        {
+            _db.CafeScheduleOverrides.Remove(existing);
+        }
+    }
+
+    public async Task DeleteByIdAsync(Guid overrideId)
+    {
+        var existing = await _db.CafeScheduleOverrides
+            .FirstOrDefaultAsync(o => o.Id == overrideId);
         if (existing != null)
         {
             _db.CafeScheduleOverrides.Remove(existing);

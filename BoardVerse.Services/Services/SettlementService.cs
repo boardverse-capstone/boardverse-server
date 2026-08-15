@@ -83,7 +83,7 @@ public class SettlementService : ISettlementService
         if (string.IsNullOrWhiteSpace(cafe.SePayAccountNumber) || string.IsNullOrWhiteSpace(cafe.SePayBankCode))
         {
             throw new ConflictException(
-                $"Cafe '{cafe.Name}' chưa được cấu hình SePay bank (SePayAccountNumber/SePayBankCode). Vui lòng cấu hình trong POS trước khi giải ngân.");
+                ApiErrorMessages.Pos.SePayBankNotConfigured(cafe.Name ?? ""));
         }
 
         var deposit = await _depositRepository.GetByActiveSessionIdAsync(activeSessionId)
