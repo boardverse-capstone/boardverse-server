@@ -54,6 +54,7 @@ internal static class IntegrationTestDataBootstrapper
         await EnsureDemoCafeAsync(db);
         await EnsureDemoTablesAsync(db);
         await EnsureDemoCatanInventoryAsync(db);
+        await EnsureDemoSplendorInventoryAsync(db);
         await EnsureDemoStaffAsync(db);
         await EnsureDemoLobbiesAsync(db);
         await EnsureDemoBookingDepositAsync(db);
@@ -792,6 +793,118 @@ internal static class IntegrationTestDataBootstrapper
         IntegrationTestFixtures.DemoCatanGameTemplateId = inventory.GameTemplateId;
         IntegrationTestFixtures.CatanBarcode = boxes[0].Barcode;
         IntegrationTestFixtures.PosBoxBarcode = boxes[0].Barcode;
+    }
+
+    /// <summary>
+    /// Seed Splendor inventory + box cho demo cafe.
+    /// Dùng để test Exception 6 / AttachGame flow "trả game lấy hộp mới".
+    /// </summary>
+    private static async Task EnsureDemoSplendorInventoryAsync(BoardVerseDbContext db)
+    {
+        // Lookup Splendor game template (giống pattern EnsureDemoCatanInventoryAsync).
+        Guid splendorId;
+        try
+        {
+            splendorId = await db.Database
+                .SqlQueryRaw<Guid>("SELECT \"Id\" AS \"Value\" FROM \"GameTemplates\" WHERE \"IsActive\" = true AND LOWER(\"Name\") LIKE '%splendor%' ORDER BY \"Name\" LIMIT 1")
+                .FirstOrDefaultAsync();
+        }
+        catch
+        {
+            try
+            {
+                splendorId = await db.Database
+                    .SqlQueryRaw<Guid>("SELECT \"Id\" AS \"Value\" FROM \"GameTemplates\" WHERE LOWER(\"Name\") LIKE '%splendor%' ORDER BY \"Name\" LIMIT 1")
+                    .FirstOrDefaultAsync();
+            }
+            catch
+            {
+                splendorId = Guid.Empty;
+            }
+        }
+
+        if (splendorId == Guid.Empty)
+        {
+            // Splendor không có trong master catalog → skip nhẹ nhàng (không throw).
+            // Test sẽ skip nếu SplendorBarcode r�ng.
+            IntegrationTestFixtures.SplendorBarcode = string.Empty;
+            return;
+        }
+
+        // Reuse fixed DemoSplendorInventoryId nếu bootstrapper đã chạy trước đó;
+        // nếu không có thì lookup theo (cafe, gameTemplate).
+        var inventory = await db.CafeGameInventories.FirstOrDefaultAsync(i =>
+            (i.Id == IntegrationTestFixtures.DemoSplendorInventoryId && i.Id != Guid.Empty)
+            || (i.CafeId == IntegrationTestFixtures.DemoCafeId && i.GameTemplateId == splendorId));
+
+        if (inventory == null)
+        {
+            var now = DateTime.UtcNow;
+            inventory = new CafeGameInventory
+            {
+                Id = Guid.NewGuid(),
+                CafeId = IntegrationTestFixtures.DemoCafeId,
+                GameTemplateId = splendorId,
+                BoxQuantity = 1,  // 1 hộp là đủ cho test AttachGame
+                Status = CafeGameInventoryStatus.Available,
+                CreatedAt = now,
+                UpdatedAt = now,
+                IsActive = false  // force EF to include column, raw UPDATE ở dưới
+            };
+            db.CafeGameInventories.Add(inventory);
+        }
+        else
+        {
+            inventory.CafeId = IntegrationTestFixtures.DemoCafeId;
+            inventory.GameTemplateId = splendorId;
+            inventory.BoxQuantity = Math.Max(inventory.BoxQuantity, 1);
+            inventory.IsActive = true;
+            inventory.Status = CafeGameInventoryStatus.Available;
+            inventory.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await db.SaveChangesAsync();
+
+        await db.Database.ExecuteSqlRawAsync(
+            "UPDATE \"CafeGameInventories\" SET \"IsActive\" = true WHERE \"Id\" = {0}",
+            inventory.Id);
+
+        var boxes = await db.CafeInventoryBoxes
+            .Where(b => b.CafeGameInventoryId == inventory.Id)
+            .ToListAsync();
+
+        var knownBoxIds = boxes.Select(b => b.Id).ToHashSet();
+        CafeInventoryBoxSyncHelper.ApplySync(inventory, boxes);
+        foreach (var box in boxes.Where(b => !knownBoxIds.Contains(b.Id)))
+        {
+            db.CafeInventoryBoxes.Add(box);
+        }
+
+        await db.SaveChangesAsync();
+
+        var activeBoxes = await db.CafeInventoryBoxes
+            .Where(b => b.CafeGameInventoryId == inventory.Id && b.IsActive)
+            .OrderBy(b => b.Barcode)
+            .ToListAsync();
+
+        if (activeBoxes.Count == 0)
+        {
+            // Không throw — đánh dấu skip qua SplendorBarcode rỗng.
+            IntegrationTestFixtures.SplendorBarcode = string.Empty;
+            return;
+        }
+
+        foreach (var box in activeBoxes)
+        {
+            box.Status = CafeGameInventoryStatus.Available;
+            box.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await db.SaveChangesAsync();
+
+        IntegrationTestFixtures.DemoSplendorInventoryId = inventory.Id;
+        IntegrationTestFixtures.SplendorGameTemplateId = splendorId;
+        IntegrationTestFixtures.SplendorBarcode = activeBoxes[0].Barcode;
     }
 
     private static async Task EnsureDemoStaffAsync(BoardVerseDbContext db)

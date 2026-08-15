@@ -8,6 +8,7 @@ using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.Extensions.Logging;
+using System.Linq;
 
 namespace BoardVerse.Services.Services
 {
@@ -164,6 +165,13 @@ namespace BoardVerse.Services.Services
                 throw new ConflictException(ApiErrorMessages.Pos.GuestSlotNotAllowedAfterSessionEnded);
             }
 
+            // Phone: optional — chỉ validate nếu client gửi lên. Chuẩn hóa về chữ số trước khi lưu.
+            var normalizedPhone = NormalizePhoneDigits(request.PhoneNumber);
+            if (!string.IsNullOrWhiteSpace(request.PhoneNumber) && !IsValidVnPhoneNumber(normalizedPhone))
+            {
+                throw new BadRequestException(ApiErrorMessages.Pos.GuestSlotPhoneNumberInvalid);
+            }
+
             await _activeSessionRepository.AddMemberAsync(new ActiveSessionMember
             {
                 Id = Guid.NewGuid(),
@@ -171,6 +179,7 @@ namespace BoardVerse.Services.Services
                 UserId = null,
                 IsGuestSlot = true,
                 GuestDisplayName = request.DisplayName,
+                GuestPhoneNumber = string.IsNullOrWhiteSpace(normalizedPhone) ? null : normalizedPhone,
                 Status = IndividualSessionStatus.Playing,
                 JoinedAt = DateTime.UtcNow
             });
@@ -179,6 +188,16 @@ namespace BoardVerse.Services.Services
 
             return MapSessionDto(session);
         }
+
+        private static string NormalizePhoneDigits(string? phone) =>
+            string.IsNullOrWhiteSpace(phone)
+                ? string.Empty
+                : new string(phone.Where(char.IsDigit).ToArray());
+
+        private static bool IsValidVnPhoneNumber(string digits) =>
+            digits.Length is 10 or 11
+            && digits.StartsWith('0')
+            && digits[1] is '3' or '5' or '7' or '8' or '9';
 
         public async Task<ActiveSessionResponseDto> PartialCheckoutAsync(Guid cafeId, Guid sessionId, PartialCheckoutRequestDto request, CancellationToken ct = default)
         {
@@ -840,12 +859,17 @@ namespace BoardVerse.Services.Services
                 PausedAt = session.PausedAt,
                 EndedAt = session.EndedAt,
                 PaidAt = session.PaidAt,
-                Members = session.Members?.Select(m => new ActiveSessionMemberDto
+                // BR-13: Ẩn host user (staff tạo session) khỏi members list.
+                // Host lưu ở session.HostId để audit / SignalR — KHÔNG phải customer.
+                Members = session.Members?
+                    .Where(m => m.UserId != session.HostId)
+                    .Select(m => new ActiveSessionMemberDto
                 {
                     Id = m.Id,
                     UserId = m.UserId,
                     UserName = m.User?.Username ?? string.Empty,
                     IsGuestSlot = m.IsGuestSlot,
+                    PhoneNumber = m.IsGuestSlot ? m.GuestPhoneNumber : null,
                     JoinedAt = m.JoinedAt,
                     LeftAt = m.LeftAt,
                     TotalMinutesPlayed = m.Status == IndividualSessionStatus.Finished

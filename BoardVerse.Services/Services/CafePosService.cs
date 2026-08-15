@@ -551,14 +551,9 @@ namespace BoardVerse.Services.Services
                 CreatedAt = now
             };
 
-            var hostMember = new ActiveSessionMember
-            {
-                Id = Guid.NewGuid(),
-                ActiveSessionId = session.Id,
-                UserId = userId,
-                JoinedAt = now,
-                Status = IndividualSessionStatus.Playing
-            };
+            // BR-13: Walk-in session KHÔNG tạo hostMember cho staff.
+            // Staff chỉ là người khởi tạo (lưu ở HostId) — KHÔNG phải customer, không tính tiền giờ,
+            // không hiển thị trong members list. Members của walk-in chỉ chứa guest slots / late members.
 
             // BR-12: Auto-create ActiveSessionGame when starting session.
             // This ensures SubmitComponentCheck has a valid target when session enters CHECKING.
@@ -579,7 +574,6 @@ namespace BoardVerse.Services.Services
             table.UpdatedAt = now;
 
             await _posRepository.AddSessionAsync(session);
-            await _posRepository.AddSessionMemberAsync(hostMember);
             await _posRepository.AddSessionGameAsync(sessionGame);
             await _posRepository.SaveChangesAsync();
 
@@ -588,7 +582,7 @@ namespace BoardVerse.Services.Services
             session.GameTemplate = box.CafeGameInventory.GameTemplate;
             // L3: Không detach Host — MapSession đọc session.Host?.Username.
             // Nếu sau này cần HostName, load Host qua repository trước khi map.
-            session.Members = [hostMember];
+            session.Members = []; // Walk-in: không có member nào, chờ AddGuestSlot / AddLateMember.
 
             return MapSession(session, now);
         }
@@ -1164,7 +1158,13 @@ namespace BoardVerse.Services.Services
                 PausedAt = session.PausedAt,
                 EndedAt = session.EndedAt,
                 PaidAt = session.PaidAt,
-                Members = session.Members?.Where(m => m.Status != IndividualSessionStatus.Finished).Select(m => new ActiveSessionMemberDto
+                // BR-13: Ẩn host user (staff tạo session) khỏi members list.
+                // Host lưu ở session.HostId để audit / SignalR — KHÔNG phải customer,
+                // nên không hiển thị và không tính tiền giờ (Checkout/Pay đã lặp Members).
+                Members = session.Members?
+                    .Where(m => m.Status != IndividualSessionStatus.Finished
+                                && m.UserId != session.HostId)
+                    .Select(m => new ActiveSessionMemberDto
                 {
                     Id = m.Id,
                     UserId = m.UserId,
@@ -1172,6 +1172,7 @@ namespace BoardVerse.Services.Services
                         ? (string.IsNullOrWhiteSpace(m.GuestDisplayName) ? "Khách vô danh" : m.GuestDisplayName)
                         : (m.User?.Username ?? string.Empty),
                     IsGuestSlot = m.IsGuestSlot,
+                    PhoneNumber = m.IsGuestSlot ? m.GuestPhoneNumber : null,
                     JoinedAt = m.JoinedAt,
                     LeftAt = m.LeftAt,
                     TotalMinutesPlayed = m.Status == IndividualSessionStatus.Finished

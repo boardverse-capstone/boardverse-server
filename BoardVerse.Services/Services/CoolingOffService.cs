@@ -146,8 +146,11 @@ public class CoolingOffService : ICoolingOffService
 
         var timeoutCount = await _lobbyRepository.CountFailuresByTypeForHostAsync(
             userId, since7d, now, LobbyStatus.TimeoutFailed);
-        var cancelCount = await _lobbyRepository.CountFailuresByTypeForHostAsync(
+        var hostCancelledCount = await _lobbyRepository.CountFailuresByTypeForHostAsync(
             userId, since7d, now, LobbyStatus.HostCancelled);
+        var dissolvedCount = await _lobbyRepository.CountFailuresByTypeForHostAsync(
+            userId, since7d, now, LobbyStatus.Dissolved);
+        var cancelCount = hostCancelledCount + dissolvedCount;
 
         // Forfeit amount từ ledger (LedgerEntryType.DepositForfeit) trong 30 ngày.
         var forfeitAmountDecimal = await _ledgerRepository.SumForfeitAsync(userId, since30d);

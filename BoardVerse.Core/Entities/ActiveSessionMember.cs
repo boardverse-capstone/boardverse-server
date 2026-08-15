@@ -23,6 +23,12 @@ namespace BoardVerse.Core.Entities
         /// <summary>Tên hiển thị cho Guest_Slot.</summary>
         public string? GuestDisplayName { get; set; }
 
+        /// <summary>
+        /// Số điện thoại Guest_Slot (optional, dùng để liên hệ khi cần).
+        /// Validate format VN (10-11 chữ số, đầu 03/05/07/08/09) ở service layer.
+        /// </summary>
+        public string? GuestPhoneNumber { get; set; }
+
         // === Session Link (BR-14: Tách/ghép nhóm) ===
         /// <summary>Session gốc khi member tách nhóm. Dùng để track thời gian liên tục.</summary>
         public Guid? OriginalSessionId { get; set; }

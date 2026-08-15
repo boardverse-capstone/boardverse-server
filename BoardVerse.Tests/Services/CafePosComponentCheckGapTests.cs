@@ -162,8 +162,9 @@ public class CafePosComponentCheckGapTests
                 Results = new List<ComponentCheckResultItemDto>()
             }));
 
-        Assert.Contains("đang được thực hiện bởi nhân viên khác", ex.Message);
-        Assert.Contains(SessionGameId.ToString(), ex.Message);
+        Assert.Contains("Đã có người khác đang gửi checklist", ex.Message);
+        // Concurrent message không embed session id — đó là message thân thiện cho staff,
+        // ID đã có trong logs structured logging (không hiển thị cho user).
     }
 
     /// <summary>
@@ -228,8 +229,8 @@ var memberX = new ActiveSessionMember
                 }
             }));
 
-        Assert.Contains("không thiếu nhưng đã chỉ định", ex.Message);
-        Assert.Contains(ComponentAId.ToString(), ex.Message);
+        Assert.Contains("khi chưa chọn linh kiện hỏng/mất cụ thể", ex.Message);
+        Assert.Contains(MemberXId.ToString(), ex.Message);
     }
 
     [Fact]
@@ -359,7 +360,7 @@ var memberX = new ActiveSessionMember
         var ex = await Assert.ThrowsAsync<ConflictException>(() => service.GetComponentChecklistAsync(
             CafeId, ManagerId, "Manager", SessionGameId));
 
-        Assert.Contains("CHECKING", ex.Message);
+        Assert.Contains("Checking", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -18,5 +18,12 @@ namespace BoardVerse.Core.DTOs.Session
         /// </summary>
         [JsonPropertyName("username")]
         public string? Username { get; set; }
+
+        /// <summary>
+        /// Số điện thoại khách vô danh (optional).
+        /// Validate format VN (10-11 chữ số, đầu 03/05/07/08/09) ở service.
+        /// </summary>
+        [StringLength(20, ErrorMessage = "Số điện thoại không được dài quá 20 ký tự.")]
+        public string? PhoneNumber { get; set; }
     }
 }

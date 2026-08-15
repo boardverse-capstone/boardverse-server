@@ -19,6 +19,11 @@ namespace BoardVerse.Data.Configurations
 
             builder.Property(m => m.JoinedAt).IsRequired();
 
+            // Optional phone for GuestSlot (BR-13). Max 20 chars to fit VN (+84) international.
+            builder.Property(m => m.GuestPhoneNumber)
+                .HasMaxLength(20)
+                .IsRequired(false);
+
             // C17: UpdatedAt as concurrency token for optimistic concurrency on penalty/financial updates.
             builder.Property(m => m.UpdatedAt)
                 .HasDefaultValueSql("now() at time zone 'utc'")

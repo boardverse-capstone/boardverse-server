@@ -6,6 +6,8 @@ public class ActiveSessionMemberDto
     public Guid? UserId { get; set; }
     public string UserName { get; set; } = string.Empty;
     public bool IsGuestSlot { get; set; }
+    /// <summary>Số điện thoại (chỉ áp dụng cho Guest_Slot).</summary>
+    public string? PhoneNumber { get; set; }
     public DateTime JoinedAt { get; set; }
     public DateTime? LeftAt { get; set; }
     /// <summary>BR-16: Tổng phút đã chơi của thành viên này.</summary>

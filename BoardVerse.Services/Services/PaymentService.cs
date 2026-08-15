@@ -68,11 +68,18 @@ public class PaymentService : IPaymentService
 
         if (string.IsNullOrWhiteSpace(deposit.OrderId))
         {
-            deposit.OrderId = GenerateOrderId(deposit.Id);
+            // BUGFIX: OrderId phải KHỚP TransferContent để webhook SePay BankAPINotify
+            // parse ngược ra được. Trước đây: OrderId = "BV{D8}" (8 hex hash) còn
+            // TransferContent = "BV-{Guid:N}" (32 hex) → webhook lookup fail.
+            deposit.OrderId = BuildPaymentCode();
+            deposit.TransferContent = deposit.OrderId;
+        }
+        else if (string.IsNullOrWhiteSpace(deposit.TransferContent))
+        {
+            deposit.TransferContent = deposit.OrderId;
         }
 
-        // Sinh TransferContent ngẫu nhiên để khách nhập khi chuyển khoản ngân hàng
-        var transferContent = $"BV-{Guid.NewGuid():N}";
+        var transferContent = deposit.TransferContent;
 
         // Deposit payment: Lấy bank info từ DB (Master Account)
         var bankCode = string.Empty;
@@ -193,8 +200,16 @@ public class PaymentService : IPaymentService
             throw new PaymentException(ApiErrorMessages.Payment.SePayMasterAccountNotFound);
         }
 
-        // Sinh TransferContent ngẫu nhiên mới cho mỗi lần tạo QR
-        var transferContent = $"BV-{Guid.NewGuid():N}";
+        // BUGFIX: Regenerate phải GIỮ NGUYÊN OrderId đã có trong DB — không sinh
+        // mới, vì khách đã có thể chuyển khoản theo QR cũ. Nếu legacy record (trước fix)
+        // có TransferContent lệch OrderId, đồng bộ theo OrderId hiện tại.
+        if (string.IsNullOrWhiteSpace(deposit.TransferContent)
+            || !string.Equals(deposit.TransferContent, deposit.OrderId, StringComparison.OrdinalIgnoreCase))
+        {
+            deposit.TransferContent = deposit.OrderId;
+        }
+
+        var transferContent = deposit.TransferContent;
 
         var paymentRequest = new PaymentGatewayRequest
         {
@@ -308,13 +323,20 @@ public class PaymentService : IPaymentService
 
         if (string.IsNullOrWhiteSpace(session.OrderId))
         {
-            session.OrderId = GenerateOrderId(session.Id);
+            // BUGFIX: OrderId phải KHỚP TransferContent để webhook SePay BankAPINotify
+            // (chỉ gửi content) parse ngược ra được OrderId lookup trong DB.
+            // Trước đây: OrderId = "BV88596434" (hash từ session.Id, 8 hex) còn
+            // TransferContent = "BV-{Guid:N}" (32 hex) → webhook lookup fail.
+            session.OrderId = BuildPaymentCode();
+            session.TransferContent = session.OrderId;
         }
-
-        // Sinh TransferContent ngẫu nhiên để khách nhập khi chuyển khoản
-        if (string.IsNullOrWhiteSpace(session.TransferContent))
+        else if (string.IsNullOrWhiteSpace(session.TransferContent)
+                 || !string.Equals(session.TransferContent, session.OrderId, StringComparison.OrdinalIgnoreCase))
         {
-            session.TransferContent = $"BV-{Guid.NewGuid():N}";
+            // Legacy record trước fix: OrderId đã có nhưng TransferContent lệch (hoặc rỗng).
+            // Đồng bộ TransferContent theo OrderId hiện tại — KHÔNG đổi OrderId vì QR
+            // cũ đã được in cho khách, webhook có thể đã gửi về theo code đó.
+            session.TransferContent = session.OrderId;
         }
 
         var bankCode = string.Empty;
@@ -428,21 +450,28 @@ public class PaymentService : IPaymentService
             throw new PaymentException(ApiErrorMessages.Payment.PaymentCafeNotConfiguredSePay(cafe.Name));
         }
 
-        // Tạo order ID mới nếu chưa có
+        // BUGFIX: Regenerate phải dùng LẠI OrderId/TransferContent đã có trong DB
+        // (đã được sync khi CreateSessionPaymentAsync) — không được sinh mới, vì
+        // webhook SePay gửi về dựa trên QR trước đó sẽ lookup fail. Nếu legacy record
+        // chưa có (DB cũ trước fix), mới sinh mới và sync cả hai.
         if (string.IsNullOrWhiteSpace(session.OrderId))
         {
-            session.OrderId = GenerateOrderId(session.Id);
+            session.OrderId = BuildPaymentCode();
+            session.TransferContent = session.OrderId;
         }
-
-        // Sinh TransferContent ngẫu nhiên mới cho mỗi lần tạo QR
-        var transferContent = $"BV-{Guid.NewGuid():N}";
+        else if (string.IsNullOrWhiteSpace(session.TransferContent)
+                 || !string.Equals(session.TransferContent, session.OrderId, StringComparison.OrdinalIgnoreCase))
+        {
+            // Legacy record trước fix: đồng bộ TransferContent theo OrderId hiện tại.
+            session.TransferContent = session.OrderId;
+        }
 
         var paymentRequest = new PaymentGatewayRequest
         {
             OrderId = session.OrderId,
             Amount = session.TotalAmount,
             CustomerEmail = null,
-            Description = transferContent,
+            Description = session.TransferContent,
             Metadata = new Dictionary<string, string?>
             {
                 ["sessionId"] = session.Id.ToString(),
@@ -467,8 +496,8 @@ public class PaymentService : IPaymentService
 
         var paymentUrl = result.PaymentUrl ?? result.QrImageUrl ?? throw new PaymentException(ApiErrorMessages.Payment.GatewayQrUrlMissing);
 
-        // Lưu TransferContent mới vào DB
-        session.TransferContent = transferContent;
+        // TransferContent đã đồng bộ với OrderId ở đầu method — không tạo mới để tránh
+        // race với webhook SePay đã gửi về theo QR cũ.
         await _activeSessionRepository.UpdateAsync(session);
         await _activeSessionRepository.SaveChangesAsync();
 
@@ -482,7 +511,7 @@ public class PaymentService : IPaymentService
             PaymentUrl = paymentUrl,
             QrImageUrl = result.QrImageUrl,
             OrderId = session.OrderId,
-            TransferContent = transferContent,
+            TransferContent = session.TransferContent,
             Amount = session.TotalAmount,
             Status = "Pending",
             Gateway = result.Gateway.ToString(),
@@ -746,6 +775,22 @@ public class PaymentService : IPaymentService
         var bytes = depositId.ToByteArray();
         var hash = BitConverter.ToUInt32(bytes, 0) % 100_000_000;
         return $"BV{hash:D8}";
+    }
+
+    /// <summary>
+    /// BUGFIX: Sinh payment code đồng nhất cho cả OrderId và TransferContent.
+    /// Format: BV-{16 hex char} (18 chars total). Được SePay BankAPINotify parse
+    /// ngược về qua regex `BV[A-Z0-9]{8,16}` (sau ToUpper) → lookup thẳng vào
+    /// ActiveSession.OrderId index. 16 hex cho collision rate ~ 1/2^64 — đủ unique
+    /// cho session payment.
+    ///
+    /// KHÔNG dùng Guid.NewGuid():N (32 hex) vì regex fallback chỉ chấp nhận 8-16
+    /// hex → trả về substring 16 đầu, lệch hoàn toàn với DB nếu lưu full 32.
+    /// </summary>
+    private static string BuildPaymentCode()
+    {
+        var hex = Guid.NewGuid().ToString("N").Substring(0, 16);
+        return ("BV-" + hex).ToUpperInvariant();
     }
 
     /// <summary>

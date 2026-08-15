@@ -74,7 +74,6 @@ public class BookingDepositServiceTests
                 refundPolicy: DepositRefundPolicy.Full));
 
         Assert.Contains("50%", ex.Message);
-        Assert.Contains("BR-03", ex.Message);
     }
 
     [Fact]

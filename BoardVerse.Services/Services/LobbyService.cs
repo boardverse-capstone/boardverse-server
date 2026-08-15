@@ -778,9 +778,16 @@ namespace BoardVerse.Services.Services
         }
 
         /// <summary>
-        /// Host giải tán lobby — hard delete toàn bộ records (Lobby + Members + Messages + Invites + Reports).
-        /// Chỉ áp dụng khi lobby chưa check-in tại quán.
-        /// Giải phóng reservation → Holding để host có thể tạo lobby mới cùng slot.
+        /// Host giải tán lobby trước khi check-in tại quán (DELETE /api/v1/lobbies/{id}).
+        ///
+        /// Soft delete: row Lobby + LobbyMember + LobbyMessage + LobbyInvite + LobbyReport
+        /// vẫn còn trong DB để phục vụ:
+        ///  - BR-RISK-01 (SIG-01/SIG-02): tính risk score cho host.
+        ///  - BR-NEW-10 §XI.1: cooling-off detection (3 lần/7 ngày).
+        ///  - Audit trail (player action history).
+        ///
+        /// Lobby.Status = Dissolved (terminal, không thuộc ActiveLobbyStatuses nên BR-NEW-08
+        /// cho phép host tạo lobby mới cùng playDate+timeSlot).
         /// </summary>
         public async Task<DissolveLobbyResponseDto> DissolveLobbyAsync(Guid lobbyId, Guid hostUserId, string? reason = null)
         {
@@ -794,6 +801,7 @@ namespace BoardVerse.Services.Services
             }
 
             // Không cho phép dissolve khi đã check-in / đang chơi / đã đóng / đang rating
+            // (Dissolved đã là terminal — không cần guard)
             if (lobby.Status == LobbyStatus.InProgress
                 || lobby.Status == LobbyStatus.Closed
                 || lobby.Status == LobbyStatus.RatingOpen
@@ -809,14 +817,22 @@ namespace BoardVerse.Services.Services
             var reservationId = lobby.ReservationId;
             var dissolvedAt = DateTime.UtcNow;
 
-            // 1. Cancel pending invites
+            // 1. Cancel pending invites (giữ row, chỉ đổi status)
             await _lobbyInviteRepository.CancelAllPendingForLobbyAsync(lobbyId);
 
-            // 2. Hard-delete messages (dùng repo trực tiếp)
-            await _lobbyMessageRepository.RemoveByLobbyAsync(lobbyId);
+            // 2. Mark members inactive (audit trail — vẫn giữ row)
+            foreach (var member in lobby.Members.Where(m => m.IsActive))
+            {
+                member.IsActive = false;
+                member.Status = LobbyMemberStatus.LobbyTerminated;
+                member.LeftAt ??= dissolvedAt;
+            }
 
-            // 3. Hard-delete lobby + members + invites + reports
-            await _lobbyRepository.RemoveAsync(lobby);
+            // 3. Soft-delete lobby
+            lobby.Status = LobbyStatus.Dissolved;
+            lobby.ClosedAt = dissolvedAt;
+            lobby.ClosedReason = reason ?? "Host đã giải tán phòng chờ.";
+            lobby.UpdatedAt = dissolvedAt;
 
             await _lobbyRepository.SaveChangesAsync();
 

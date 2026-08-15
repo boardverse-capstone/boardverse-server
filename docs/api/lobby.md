@@ -319,8 +319,11 @@ Authorization: Bearer <jwt>
 
 ## DELETE /api/v1/lobbies/{lobbyId}
 
-Host giải tán lobby — **hard delete** toàn bộ records (`Lobby`, `LobbyMember`, `LobbyMessage`, `LobbyInvite`, `LobbyReport`).
-Chỉ host được gọi. Không áp dụng khi lobby đã check-in / đang chơi / đã đóng / đang rating.
+Host giải tán lobby — **soft delete** (`Lobby.Status = Dissolved`). Row vẫn còn trong DB
+để phục vụ audit trail + risk score signals (BR-RISK-01 SIG-01/SIG-02, BR-NEW-10 cooling-off).
+
+Chỉ host được gọi. Không áp dụng khi lobby đã check-in / đang chơi / đã đóng / đang rating /
+đã terminal (HostCancelled/TimeoutFailed/RejectedByCafe/ExpiredByCafe).
 
 Giải phóng `Reservation` về `Holding` (nếu có) để host tạo lobby mới cùng `playDate + timeSlot`.
 
@@ -366,8 +369,12 @@ Giải phóng `Reservation` về `Holding` (nếu có) để host tạo lobby m�
 }
 ```
 
-**Side effect:**
-- Hard delete: `Lobby` + `LobbyMember` + `LobbyMessage` + `LobbyInvite` + `LobbyReport`.
+**Side effect (soft delete):**
+- `Lobby.Status` = `Dissolved` (terminal).
+- `Lobby.ClosedAt` + `Lobby.ClosedReason` được set.
+- `LobbyMember.IsActive` = `false`, `LobbyMember.Status` = `LobbyTerminated` cho tất cả members.
+- `LobbyInvite` chuyển sang cancelled (qua `CancelAllPendingForLobbyAsync`).
+- `LobbyMessage` + `LobbyReport` **giữ nguyên** (audit trail).
 - `Reservation.Status` chuyển về `Holding` (nếu đang `Confirmed`).
 
 **Trạng thái không cho phép dissolve:**

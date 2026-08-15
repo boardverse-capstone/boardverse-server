@@ -1097,8 +1097,84 @@ POST /api/cafes/{cafeId}/pos/sessions/component-check
 # Bước 3: Nếu bấm sai → reset checklist (xóa audit trail cũ)
 POST /api/cafes/{cafeId}/pos/sessions/component-check/reset?sessionGameId={guid}
 # → CheckStatus về NotChecked, xóa hết ComponentCheckResults cũ
-# → Staff submit lại từ đầu
+# → Staff submit lại t� đầu
 ```
+
+### Luồng 6b: Trả game lấy hộp mới (Exception 6 + BR-12 — full flow)
+
+> **Quy trình thay thế cho API deprecated `/sessions/{id}/return-game`.**
+> Dùng khi nhóm đang chơi Catan, tự ý lên kệ lấy thêm game Splendor (không báo nhân viên).
+> Khi nhóm mang cả 2 hộp ra trả, nhân viên quét barcode Splendor → endpoint `/games` đính vào session.
+
+```powershell
+# Bước 1: Bắt đầu session Catan (session.Active)
+POST /api/cafes/{cafeId}/pos/sessions
+{
+  "cafeTableId": "...",
+  "barcode": "BV-xxxxxxxx-001"  # Catan box
+}
+
+# Bước 2: Đính thêm Splendor box vào session (Exception 6)
+# Yêu cầu: session.Status = Active
+# Box status sẽ chuyển Available → InUse sau khi attach thành công.
+POST /api/cafes/{cafeId}/pos/sessions/{id}/games
+{
+  "gameBarcode": "BV-xxxxxxxx-002"  # Splendor box
+}
+# Response: ActiveSessionDto với Games = [Catan, Splendor]
+
+# Bước 3: Verify box Splendor đã InUse (qua endpoint GET single-box)
+GET /api/cafes/{cafeId}/pos/boxes/by-barcode/{splendorBarcode}
+# Response: status = InUse
+
+# Bước 4: Nhóm chơi xong, bấm "Trả game" trên POS → session.Checking
+POST /api/cafes/{cafeId}/pos/sessions/{id}/end
+
+# Bước 5: Kiểm kê linh kiện cả 2 hộp (BR-12 — bắt buộc trước checkout)
+# Lặp lại cho từng sessionGameId trong session.Games:
+POST /api/cafes/{cafeId}/pos/sessions/component-check
+{
+  "sessionGameId": "{sessionGameId của Catan}",
+  "markAllValid": true   # hoặc "results": [...] nếu thiếu linh kiện
+}
+# Response: ComponentCheckResultDto với checkStatus = Verified, totalPenaltyAmount = 0
+
+# Bước 6: Checkout — chuyển Checking → Unpaid (BR-12)
+POST /api/cafes/{cafeId}/pos/sessions/{id}/checkout
+{
+  "componentsVerified": true
+}
+
+# Bước 7: Pay — happy path cuối cùng
+POST /api/cafes/{cafeId}/pos/sessions/{id}/pay
+{
+  "notes": "..."
+}
+```
+
+**Đảm bảo đúng flow:**
+
+| Bước | Endpoint | Điều kiện trước | Sau khi gọi |
+|---|---|---|---|
+| Attach game | `POST /games` | session.Active, box.Available | session.Active, box.InUse |
+| End | `POST /end` | session.Active | session.Checking, cả 2 boxes.Available |
+| Component-check | `POST /component-check` | session.Checking | sessionGame.CheckStatus = Verified |
+| Checkout | `POST /checkout` | Tất cả sessionGames đã Verified | session.Unpaid |
+| Pay | `POST /pay` | session.Unpaid | session.Paid |
+
+**Negative cases:**
+
+- Attach khi session.Checking/Unpaid/Paid → 409 (chỉ cho phép Active).
+- Attach box đã InUse (đang trong session khác) → 409.
+- Attach box không tồn tại → 404.
+- Checkout khi còn sessionGame chưa Verified → 400 `ChecklistNotCompleteForGames`.
+- Pay khi session chưa Unpaid → 409 `SessionMustBeUnpaidForPayment`.
+
+**Test coverage:** xem `BoardVerse.Tests.Integration.ExceptionFlowIntegrationTests`:
+
+- `Exception6_AttachExtraGame_AttachesAndMarksBoxInUse` — happy path attach + verify box InUse.
+- `Exception6_AttachToCheckingSession_Returns409` — attach vào session không Active → 409.
+- `Exception6_FullFlow_ReturnGame_AttachNewGame_Pay` — end-to-end 7 bước trên.
 
 ### Luồng 7: Kết thúc phiên chơi
 

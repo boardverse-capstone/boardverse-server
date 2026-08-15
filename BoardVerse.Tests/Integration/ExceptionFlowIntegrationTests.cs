@@ -1,8 +1,13 @@
 using System.Net;
 using BoardVerse.Core.DTOs.Lobby;
+using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.DTOs.Session;
+using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
+using BoardVerse.Data;
 using BoardVerse.Tests.Integration.Infrastructure;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace BoardVerse.Tests.Integration;
 
@@ -13,9 +18,20 @@ namespace BoardVerse.Tests.Integration;
 public class ExceptionFlowIntegrationTests
 {
     private readonly HttpClient _client;
+    private readonly BoardVerseWebApplicationFactory _factory;
 
-    public ExceptionFlowIntegrationTests(BoardVerseWebApplicationFactory factory) =>
+    /// <summary>
+    /// Serialize tất cả test POS trong class này để tránh race condition khi nhiều test
+    /// cùng touch ActiveSessions + CafeInventoryBoxes của demo cafe (HardReset ở test A
+    /// có thể xóa session của test B chạy song song).
+    /// </summary>
+    private static readonly SemaphoreSlim _posTestLock = new(1, 1);
+
+    public ExceptionFlowIntegrationTests(BoardVerseWebApplicationFactory factory)
+    {
+        _factory = factory;
         _client = factory.CreateClient();
+    }
 
     #region EXCEPTION 4: Tách nhóm - Ghép nhóm linh hoạt
 
@@ -380,62 +396,319 @@ public class ExceptionFlowIntegrationTests
     #region EXCEPTION 6: Tự ý đổi game không qua quầy
 
     /// <summary>
-    /// Exception 6: Khách tự ý lấy thêm game Splendor mà không báo nhân viên
-    /// Khi trả game, POS phát hiện game chưa được gán vào session
+    /// Exception 6: POS cho phép nhân viên gán thêm hộp game vào phiên đang Active.
+    /// Flow thực sự: start Catan → attach Splendor → verify box Splendor = InUse + games.Count = 2.
+    /// Đây là endpoint thay thế cho /sessions/{id}/return-game (deprecated) khi nhóm
+    /// tự ý lấy thêm game mà không báo nhân viên.
     /// </summary>
     [IntegrationFact]
-    public async Task Exception6_ReturnUnregisteredGame_PosDetectsMissing()
+    public async Task Exception6_AttachExtraGame_AttachesAndMarksBoxInUse()
     {
-        // Arrange
+        await RunExclusiveAsync(async () =>
+        {
+            await Exception6_AttachExtraGame_AttachesAndMarksBoxInUse_Inner();
+        });
+    }
+
+    private async Task Exception6_AttachExtraGame_AttachesAndMarksBoxInUse_Inner()
+    {
+        // Arrange — login as Manager (CafeStaff + Manager role cùng lúc).
         var managerToken = await IntegrationTestAuth.AsManagerAsync(_client);
         ApiTestClient.Authorize(_client, managerToken);
 
-        // Start session with Catan
-        var startResponse = await ApiTestClient.PostJsonAsync(_client,
-            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions",
-            new { cafeTableId = IntegrationTestFixtures.DemoPosTableId, barcode = IntegrationTestFixtures.PosBoxBarcode });
+        // Hard reset để box Catan = Available (test trước có thể đã InUse).
+        await HardResetPosStateAsync();
 
-        if (startResponse.StatusCode != HttpStatusCode.Created)
+        // Skip gracefully nếu Splendor chưa được seed (DB không có master catalog).
+        if (string.IsNullOrEmpty(IntegrationTestFixtures.SplendorBarcode))
         {
             return;
         }
 
-        var session = await ApiTestClient.ReadApiResponseAsync<SessionStartedDto>(startResponse);
-        var sessionId = session.Data!.Id;
+        var catanBarcode = IntegrationTestFixtures.PosBoxBarcode;
+        var splendorBarcode = IntegrationTestFixtures.SplendorBarcode;
+        Assert.False(string.IsNullOrEmpty(catanBarcode), "Catan box phải được seed");
 
-        // Get a second game barcode from catalog
-        var boxesResponse = await _client.GetAsync(
-            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/boxes?pageSize=50");
-        List<PosBoxDto> boxes = new();
-        if (boxesResponse.IsSuccessStatusCode)
+        // Act 1: Start session với Catan.
+        var startResponse = await ApiTestClient.PostJsonAsync(_client,
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions",
+            new { cafeTableId = IntegrationTestFixtures.DemoPosTableId, barcode = catanBarcode });
+
+        Assert.Equal(HttpStatusCode.Created, startResponse.StatusCode);
+        var startedEnvelope = await ApiTestClient.ReadApiResponseAsync<FullSessionDto>(startResponse);
+        var sessionId = startedEnvelope.Data!.Id;
+        Assert.Equal(GroupSessionStatus.Active, startedEnvelope.Data!.Status);
+
+        // Act 2: GET session detail → confirm chỉ có 1 game (Catan).
+        var sessionBeforeAttach = await _client.GetAsync(
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/{sessionId}");
+        Assert.Equal(HttpStatusCode.OK, sessionBeforeAttach.StatusCode);
+
+        // Act 3: Attach Splendor box vào session qua endpoint thực sự của Exception 6.
+        var attachResponse = await ApiTestClient.PostJsonAsync(_client,
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/{sessionId}/games",
+            new { gameBarcode = splendorBarcode });
+
+        Assert.Equal(HttpStatusCode.OK, attachResponse.StatusCode);
+
+        // Assert: response chứa 2 games (Catan + Splendor).
+        var attachedEnvelope = await ApiTestClient.ReadApiResponseAsync<FullSessionDto>(attachResponse);
+        Assert.NotNull(attachedEnvelope.Data);
+        Assert.Equal(GroupSessionStatus.Active, attachedEnvelope.Data!.Status);
+
+        // Act 4: Verify Splendor box đã chuyển sang InUse (qua endpoint GET single-box).
+        var boxResponse = await _client.GetAsync(
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/boxes/by-barcode/{splendorBarcode}");
+        Assert.Equal(HttpStatusCode.OK, boxResponse.StatusCode);
+        var splendorBoxEnvelope = await ApiTestClient.ReadApiResponseAsync<CafeInventoryBoxDto>(boxResponse);
+        Assert.NotNull(splendorBoxEnvelope.Data);
+        Assert.Equal(CafeGameInventoryStatus.InUse, splendorBoxEnvelope.Data!.Status);
+
+        // Negative case 1: attach lại Splendor → Conflict (box đã trong session).
+        var reAttachResponse = await ApiTestClient.PostJsonAsync(_client,
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/{sessionId}/games",
+            new { gameBarcode = splendorBarcode });
+        Assert.Equal(HttpStatusCode.Conflict, reAttachResponse.StatusCode);
+
+        // Negative case 2: attach box không tồn tại → NotFound.
+        var ghostResponse = await ApiTestClient.PostJsonAsync(_client,
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/{sessionId}/games",
+            new { gameBarcode = "BV-NOT-EXIST-001" });
+        Assert.Equal(HttpStatusCode.NotFound, ghostResponse.StatusCode);
+    }
+
+    /// <summary>
+    /// Exception 6 (negative case): Attach vào session KHÔNG ở trạng thái Active → Conflict 409.
+    /// Đây là GAP-13 fix: chỉ cho phép attach khi session đang Active.
+    /// </summary>
+    [IntegrationFact]
+    public async Task Exception6_AttachToCheckingSession_Returns409()
+    {
+        await RunExclusiveAsync(async () =>
         {
-            var boxesEnvelope = await ApiTestClient.ReadApiResponseAsync<PosBoxesListDto>(boxesResponse);
-            if (boxesEnvelope.Data != null)
-            {
-                boxes = boxesEnvelope.Data.Data ?? new();
-            }
-        }
-        var secondGameBarcode = boxes.LastOrDefault()?.Barcode ?? "EXTRA-GAME-001";
+            await Exception6_AttachToCheckingSession_Returns409_Inner();
+        });
+    }
 
-        // End the game session
+    private async Task Exception6_AttachToCheckingSession_Returns409_Inner()
+    {
+        var managerToken = await IntegrationTestAuth.AsManagerAsync(_client);
+        ApiTestClient.Authorize(_client, managerToken);
+
+        // Hard reset: xóa thẳng session cũ + reset box/table, không dùng API end
+        // (vì session cũ có thể ở CHECKING/Active khiến box vẫn InUse → start mới bị conflict).
+        await HardResetPosStateAsync();
+
+        if (string.IsNullOrEmpty(IntegrationTestFixtures.SplendorBarcode))
+        {
+            return;
+        }
+
+        var catanBarcode = IntegrationTestFixtures.PosBoxBarcode;
+        var splendorBarcode = IntegrationTestFixtures.SplendorBarcode;
+
+        // Start session với Catan.
+        var startResponse = await ApiTestClient.PostJsonAsync(_client,
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions",
+            new { cafeTableId = IntegrationTestFixtures.DemoPosTableId, barcode = catanBarcode });
+        Assert.Equal(HttpStatusCode.Created, startResponse.StatusCode);
+        var sessionAId = (await ApiTestClient.ReadApiResponseAsync<FullSessionDto>(startResponse)).Data!.Id;
+
+        // End session → status Checking.
+        var endResponse = await _client.PostAsync(
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/{sessionAId}/end", null);
+        Assert.True(
+            endResponse.IsSuccessStatusCode ||
+            endResponse.StatusCode is HttpStatusCode.Conflict,
+            $"End session phải trả 200 hoặc 409, thực tế: {endResponse.StatusCode}");
+
+        // Attach Splendor vào session đang Checking → Conflict (GAP-13).
+        var attachResponse = await ApiTestClient.PostJsonAsync(_client,
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/{sessionAId}/games",
+            new { gameBarcode = splendorBarcode });
+        Assert.Equal(HttpStatusCode.Conflict, attachResponse.StatusCode);
+    }
+
+    /// <summary>
+    /// Exception 6 — FULL FLOW: Trả game lấy hộp mới.
+    /// Luồng: start Catan → attach Splendor → end → component-check cả 2 → pay.
+    /// Đây là luồng đúng nghĩa Exception 6 + BR-12 (kiểm kê bắt buộc).
+    /// </summary>
+    [IntegrationFact]
+    public async Task Exception6_FullFlow_ReturnGame_AttachNewGame_Pay()
+    {
+        await RunExclusiveAsync(async () =>
+        {
+            await Exception6_FullFlow_ReturnGame_AttachNewGame_Pay_Inner();
+        });
+    }
+
+    private async Task Exception6_FullFlow_ReturnGame_AttachNewGame_Pay_Inner()
+    {
+        var managerToken = await IntegrationTestAuth.AsManagerAsync(_client);
+        ApiTestClient.Authorize(_client, managerToken);
+
+        await HardResetPosStateAsync();
+
+        if (string.IsNullOrEmpty(IntegrationTestFixtures.SplendorBarcode))
+        {
+            return;
+        }
+
+        var catanBarcode = IntegrationTestFixtures.PosBoxBarcode;
+        var splendorBarcode = IntegrationTestFixtures.SplendorBarcode;
+
+        // Bước 1: Start session Catan → status Active.
+        var startResponse = await ApiTestClient.PostJsonAsync(_client,
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions",
+            new { cafeTableId = IntegrationTestFixtures.DemoPosTableId, barcode = catanBarcode });
+        Assert.Equal(HttpStatusCode.Created, startResponse.StatusCode);
+        var sessionId = (await ApiTestClient.ReadApiResponseAsync<FullSessionDto>(startResponse)).Data!.Id;
+
+        // Bước 2: Attach Splendor → ACTIVE có 2 games.
+        var attachResponse = await ApiTestClient.PostJsonAsync(_client,
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/{sessionId}/games",
+            new { gameBarcode = splendorBarcode });
+        Assert.Equal(HttpStatusCode.OK, attachResponse.StatusCode);
+
+        // Bước 3: End session → CHECKING (BR-12: bắt buộc kiểm kê trước khi về sớm / pay).
         var endResponse = await _client.PostAsync(
             $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/{sessionId}/end", null);
+        if (!endResponse.IsSuccessStatusCode)
+        {
+            var errorBody = await endResponse.Content.ReadAsStringAsync();
+            throw new Exception(
+                $"End session failed: status={endResponse.StatusCode} body={errorBody}");
+        }
+        Assert.Equal(HttpStatusCode.OK, endResponse.StatusCode);
 
-        Assert.True(endResponse.IsSuccessStatusCode || endResponse.StatusCode == HttpStatusCode.Conflict);
+        // Bước 4: Lấy sessionGames từ DB để biết sessionGameId của Catan + Splendor.
+        List<Guid> sessionGameIds;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BoardVerseDbContext>();
+            sessionGameIds = await db.ActiveSessionGames
+                .Where(g => g.ActiveSessionId == sessionId)
+                .OrderBy(g => g.AttachedAt)
+                .Select(g => g.Id)
+                .ToListAsync();
+        }
+        Assert.Equal(2, sessionGameIds.Count);
 
-        // Try to return an unregistered game (simulating Exception 6)
-        // The system should detect this game was never registered to a session
-        var returnResponse = await ApiTestClient.PostJsonAsync(_client,
-            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/inventory/boxes/{secondGameBarcode}/return",
-            new { sessionId = sessionId });
+        // Bước 5: Component-check Catan (MarkAllValid → Verified).
+        var checkCatan = await ApiTestClient.PostJsonAsync(_client,
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/component-check",
+            new { sessionGameId = sessionGameIds[0], markAllValid = true });
+        Assert.Equal(HttpStatusCode.OK, checkCatan.StatusCode);
 
-        // System should either:
-        // 1. Accept it and link to session (happy path)
-        // 2. Return conflict/error if game was never registered
+        // Bước 6: Component-check Splendor (MarkAllValid → Verified).
+        var checkSplendor = await ApiTestClient.PostJsonAsync(_client,
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/component-check",
+            new { sessionGameId = sessionGameIds[1], markAllValid = true });
+        Assert.Equal(HttpStatusCode.OK, checkSplendor.StatusCode);
+
+        // Bước 7: Verify state cuối — cả 2 sessionGames đã Verified, không có penalty.
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BoardVerseDbContext>();
+            var finalGames = await db.ActiveSessionGames
+                .Where(g => g.ActiveSessionId == sessionId)
+                .ToListAsync();
+            Assert.Equal(2, finalGames.Count);
+            Assert.All(finalGames, g =>
+            {
+                Assert.Equal(BoardVerse.Core.Enum.ComponentCheckStatus.Verified, g.CheckStatus);
+                Assert.Equal(0m, g.TotalPenaltyAmount);
+            });
+        }
+
+        // Bước 7.5: Checkout session — chuyển từ Checking → Unpaid.
+        var checkoutResponse = await ApiTestClient.PostJsonAsync(_client,
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/{sessionId}/checkout",
+            new { componentsVerified = true });
+        var checkoutBody = await checkoutResponse.Content.ReadAsStringAsync();
         Assert.True(
-            returnResponse.IsSuccessStatusCode ||
-            returnResponse.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.BadRequest or HttpStatusCode.NotFound,
-            $"Expected success or conflict for unregistered game, got {returnResponse.StatusCode}");
+            checkoutResponse.IsSuccessStatusCode,
+            $"Checkout failed: status={checkoutResponse.StatusCode} body={checkoutBody}");
+
+        // Bước 8: Pay session — happy path cuối cùng của flow.
+        var payResponse = await ApiTestClient.PostJsonAsync(_client,
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/{sessionId}/pay",
+            new { notes = "Exception 6 full-flow test pay" });
+        var payBody = await payResponse.Content.ReadAsStringAsync();
+        Assert.True(
+            payResponse.IsSuccessStatusCode,
+            $"Pay session failed: status={payResponse.StatusCode} body={payBody}");
+    }
+
+    /// <summary>
+    /// Hard reset: xóa thẳng ActiveSessions của demo cafe và reset box/table về trạng thái ban đầu.
+    /// Dùng khi API end không giải phóng được (vd. session CHECKING + có member FINISHED).
+    /// </summary>
+    private async Task HardResetPosStateAsync()
+    {
+        await CleanupActiveSessionsAsync();
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BoardVerseDbContext>();
+
+        // Xóa tất cả session của demo cafe.
+        var sessions = await db.ActiveSessions
+            .Where(s => s.CafeId == IntegrationTestFixtures.DemoCafeId)
+            .ToListAsync();
+        if (sessions.Count > 0)
+        {
+            // Xóa session games + members trước (FK).
+            var sessionIds = sessions.Select(s => s.Id).ToList();
+            var sessionGames = await db.ActiveSessionGames
+                .Where(g => sessionIds.Contains(g.ActiveSessionId))
+                .ToListAsync();
+            db.ActiveSessionGames.RemoveRange(sessionGames);
+
+            var sessionMembers = await db.ActiveSessionMembers
+                .Where(m => sessionIds.Contains(m.ActiveSessionId))
+                .ToListAsync();
+            db.ActiveSessionMembers.RemoveRange(sessionMembers);
+
+            db.ActiveSessions.RemoveRange(sessions);
+        }
+
+        // Reset boxes.
+        var boxes = await db.CafeInventoryBoxes
+            .Include(b => b.CafeGameInventory)
+            .Where(b => b.IsActive && b.CafeGameInventory.CafeId == IntegrationTestFixtures.DemoCafeId)
+            .ToListAsync();
+        foreach (var box in boxes)
+        {
+            box.Status = CafeGameInventoryStatus.Available;
+            box.UpdatedAt = DateTime.UtcNow;
+        }
+
+        // Reset table.
+        var table = await db.CafeTables.FirstOrDefaultAsync(t => t.Id == IntegrationTestFixtures.DemoPosTableId);
+        if (table != null)
+        {
+            table.Status = CafeTableStatus.Available;
+            table.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Wrapper để serialize POS tests trong class này (tránh race condition với ActiveSessions).
+    /// </summary>
+    private async Task RunExclusiveAsync(Func<Task> action)
+    {
+        await _posTestLock.WaitAsync();
+        try
+        {
+            await action();
+        }
+        finally
+        {
+            _posTestLock.Release();
+        }
     }
 
     #endregion

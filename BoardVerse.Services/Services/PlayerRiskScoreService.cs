@@ -165,9 +165,12 @@ public class PlayerRiskScoreService : IPlayerRiskScoreService
         signals["SIG-01"] = await _lobbyRepo.CountFailuresByTypeForHostAsync(
             userId, sevenDayWindow, now, LobbyStatus.TimeoutFailed);
 
-        // SIG-02: lobby HostCancelled trong 7d.
-        signals["SIG-02"] = await _lobbyRepo.CountFailuresByTypeForHostAsync(
+        // SIG-02: lobby HostCancelled + Dissolved trong 7d (cả hai là host chủ động hủy).
+        var hostCancelled = await _lobbyRepo.CountFailuresByTypeForHostAsync(
             userId, sevenDayWindow, now, LobbyStatus.HostCancelled);
+        var dissolved = await _lobbyRepo.CountFailuresByTypeForHostAsync(
+            userId, sevenDayWindow, now, LobbyStatus.Dissolved);
+        signals["SIG-02"] = hostCancelled + dissolved;
 
         // SIG-03: tổng BVC forfeit trong 30d.
         var forfeitAmount = await _ledgerRepo.SumForfeitAsync(userId, thirtyDayWindow);

@@ -41,5 +41,12 @@ public enum LobbyStatus
     ExpiredByCafe = 13,
 
     /// <summary>Đã đạt minPlayers trước recruitmentDeadline, vẫn nhận thêm đến maxPlayers.</summary>
-    Viable = 14
+    Viable = 14,
+
+    /// <summary>
+    /// Host chủ động giải tán lobby trước khi check-in (DELETE /api/v1/lobbies/{id}).
+    /// Soft delete: row vẫn còn trong DB để phục vụ audit trail + risk score signals
+    /// (BR-RISK-01 SIG-01/SIG-02, BR-NEW-10 cooling-off).
+    /// </summary>
+    Dissolved = 15
 }

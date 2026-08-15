@@ -585,6 +585,184 @@ public class PaymentServiceTests
 
     #endregion
 
+    #region CreateSessionPaymentAsync — OrderId/TransferContent sync (bugfix)
+
+    [Fact]
+    public async Task CreateSessionPayment_OrderIdAndTransferContent_AreSynced()
+    {
+        // BUGFIX regression: trước fix, OrderId = "BV88596434" (8 hex hash từ session.Id)
+        // còn TransferContent = "BV-{Guid:N}" (32 hex) → webhook SePay parse TransferContent
+        // ra OrderId 18 hex không khớp → log "session payment not matched", session mãi Unpaid.
+        // Sau fix: cả hai phải bằng nhau để webhook lookup thẳng vào DB.
+
+        var sessionId = Guid.NewGuid();
+        var cafeId = Guid.NewGuid();
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Unpaid,
+            TotalAmount = 85_000m,
+            OrderId = string.Empty, // chưa có — sẽ được sinh
+            TransferContent = null
+        };
+        var cafe = CreateTestCafe(cafeId, 100_000m);
+        cafe.SePayAccountId = Guid.NewGuid();
+        cafe.ManagerId = Guid.NewGuid();
+
+        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        _mockCafeRepo.Setup(r => r.GetByIdAsync(cafeId)).ReturnsAsync(cafe);
+        _mockSePayAccountService.Setup(s => s.GetRawByCafeIdAsync(cafeId))
+            .ReturnsAsync(new SePayAccount
+            {
+                Id = cafe.SePayAccountId.Value,
+                BankCode = "MBBank",
+                AccountNumber = "0855199924",
+                AccountHolder = "TEST HOLDER",
+                IsActive = true
+            });
+        _mockGateway.Setup(g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), default))
+            .ReturnsAsync(new PaymentGatewayResult
+            {
+                IsSuccess = true,
+                Gateway = PaymentGateway.VietQr,
+                QrImageUrl = "https://vietqr.app/img?x=1",
+                RequiresManualConfirmation = true
+            });
+        _mockSessionRepo.Setup(r => r.UpdateAsync(It.IsAny<ActiveSession>())).Returns(Task.CompletedTask);
+        _mockSessionRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+
+        var request = new CreateSessionPaymentRequestDto { SessionId = sessionId, CustomerEmail = "x@y.z" };
+        var actorUserId = cafe.ManagerId;
+        var result = await _service.CreateSessionPaymentAsync(request, actorUserId, "Manager");
+
+        // OrderId và TransferContent phải BẰNG NHAU (case-insensitive) để webhook match.
+        Assert.False(string.IsNullOrWhiteSpace(result.OrderId));
+        Assert.False(string.IsNullOrWhiteSpace(result.TransferContent));
+        Assert.Equal(result.OrderId, result.TransferContent, ignoreCase: true);
+
+        // Format phải là BV-{16 hex uppercase} để khớp regex `BV[A-Z0-9]{8,16}` trong
+        // SePayWebhookDto.ExtractOrderId.
+        var match = System.Text.RegularExpressions.Regex.Match(
+            result.OrderId, @"^BV-[A-F0-9]{16}$");
+        Assert.True(match.Success, $"OrderId '{result.OrderId}' không match format BV-XXXXXXXXXXXXXXXX");
+
+        // OrderId mới cũng phải được persist xuống DB qua session object.
+        Assert.Equal(result.OrderId, session.OrderId, ignoreCase: true);
+        Assert.Equal(result.OrderId, session.TransferContent, ignoreCase: true);
+        _mockSessionRepo.Verify(r => r.UpdateAsync(It.Is<ActiveSession>(s =>
+            s.Id == sessionId
+            && !string.IsNullOrWhiteSpace(s.OrderId)
+            && string.Equals(s.OrderId, s.TransferContent, StringComparison.OrdinalIgnoreCase)
+        )), Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateSessionPayment_LegacyRecord_SyncsTransferContentToExistingOrderId()
+    {
+        // Bugfix: legacy records (tạo trước fix) có OrderId != TransferContent.
+        // Khi CreateSessionPaymentAsync chạy lại, TransferContent phải được đồng bộ
+        // theo OrderId hiện tại (không đổi OrderId vì QR cũ đã được in cho khách).
+
+        var sessionId = Guid.NewGuid();
+        var cafeId = Guid.NewGuid();
+        const string legacyOrderId = "BV-AB12CD34EF56AB78"; // format đúng 16 hex
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Unpaid,
+            TotalAmount = 4_000m,
+            OrderId = legacyOrderId,
+            TransferContent = "BV-LEGACYDIFFERENT00000000000000" // lệch
+        };
+        var cafe = CreateTestCafe(cafeId, 100_000m);
+        cafe.SePayAccountId = Guid.NewGuid();
+        cafe.ManagerId = Guid.NewGuid();
+
+        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        _mockCafeRepo.Setup(r => r.GetByIdAsync(cafeId)).ReturnsAsync(cafe);
+        _mockSePayAccountService.Setup(s => s.GetRawByCafeIdAsync(cafeId))
+            .ReturnsAsync(new SePayAccount
+            {
+                Id = cafe.SePayAccountId.Value,
+                BankCode = "MBBank",
+                AccountNumber = "0855199924",
+                AccountHolder = "TEST HOLDER",
+                IsActive = true
+            });
+        _mockGateway.Setup(g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), default))
+            .ReturnsAsync(new PaymentGatewayResult
+            {
+                IsSuccess = true,
+                Gateway = PaymentGateway.VietQr,
+                QrImageUrl = "https://vietqr.app/img?x=1"
+            });
+        _mockSessionRepo.Setup(r => r.UpdateAsync(It.IsAny<ActiveSession>())).Returns(Task.CompletedTask);
+        _mockSessionRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+
+        var request = new CreateSessionPaymentRequestDto { SessionId = sessionId };
+        var result = await _service.CreateSessionPaymentAsync(request, cafe.ManagerId, "Manager");
+
+        // OrderId KHÔNG được đổi (giữ cho khách đã có QR cũ), TransferContent đồng bộ về.
+        Assert.Equal(legacyOrderId, result.OrderId, ignoreCase: true);
+        Assert.Equal(legacyOrderId, result.TransferContent, ignoreCase: true);
+        Assert.Equal(legacyOrderId, session.OrderId, ignoreCase: true);
+        Assert.Equal(legacyOrderId, session.TransferContent, ignoreCase: true);
+    }
+
+    [Fact]
+    public async Task HandleSePayWebhook_SessionMatchedByOrderId_UpdatesStatus()
+    {
+        // End-to-end: CreateSessionPayment tạo ra OrderId "BV-XXXXXXXXXXXXXXXX", sau đó
+        // SePay webhook BankAPINotify gửi về content "BV-XXXXXXXXXXXXXXXX ..." → ExtractOrderId
+        // parse ra OrderId "BVXXXXXXXXXXXXXXXX" → match với session.OrderId (case-insensitive
+        // trong DB index). Phải update session.Status = Paid.
+
+        var sessionId = Guid.NewGuid();
+        var cafeId = Guid.NewGuid();
+        const string orderId = "BV-AB12CD34EF56AB78";
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Unpaid,
+            TotalAmount = 85_000m,
+            OrderId = orderId,
+            TransferContent = orderId
+        };
+
+        _mockDepositService.Setup(s => s.GetBySePayTransactionIdAsync(It.IsAny<string>()))
+            .ReturnsAsync((BookingDeposit?)null);
+        _mockDepositService.Setup(s => s.GetByOrderIdAsync(It.IsAny<string>()))
+            .ReturnsAsync((BookingDeposit?)null);
+        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        _mockSessionRepo.Setup(r => r.GetByOrderIdAsync(It.IsAny<string>())).ReturnsAsync(session);
+        _mockSessionRepo.Setup(r => r.TryUpdateStatusAsync(sessionId, GroupSessionStatus.Unpaid, GroupSessionStatus.Paid))
+            .ReturnsAsync(true);
+
+        // Webhook BankAPINotify: content chứa TransferContent (case-insensitive — bank có thể uppercase).
+        // Controller gọi Normalize() trước khi pass vào service; unit test phải gọi thủ công.
+        var webhook = new SePayWebhookDto
+        {
+            Content = $"chuyen tien {orderId.ToLowerInvariant()} thanh toan",
+            ReferenceCode = "TXN-PROD-001",
+            TransferType = "in",
+            TransferAmount = 85_000m
+        };
+        webhook.Normalize();
+
+        await _service.HandleSePayWebhookAsync(webhook);
+
+        // Verify webhook đã parse ra OrderId đúng format.
+        Assert.Equal(orderId.ToUpperInvariant(), webhook.OrderId, ignoreCase: true);
+
+        _mockSessionRepo.Verify(r => r.TryUpdateStatusAsync(sessionId, GroupSessionStatus.Unpaid, GroupSessionStatus.Paid), Times.Once);
+        _mockSessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(sessionId), Times.Once);
+    }
+
+    #endregion
+
     #region Helpers
 
     private static BookingDeposit CreateTestDeposit(Guid? id = null, BookingDepositStatus status = BookingDepositStatus.Pending, Guid? cafeId = null)

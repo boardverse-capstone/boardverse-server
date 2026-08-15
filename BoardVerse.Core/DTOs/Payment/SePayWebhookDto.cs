@@ -135,19 +135,25 @@ public class SePayWebhookDto
         // Tìm pattern theo thứ tự ưu tiên:
         //   1. BVC-[A-Z0-9]+     — top-up OrderId còn dấu '-'
         //   2. BVC[A-Z0-9]{16,18} — top-up OrderId bị SePay strip '-' (BankAPINotify)
-        //   3. BV[A-Z0-9]{8,16}   — deposit/session OrderId (legacy)
-        // Bắt BUỘC dùng Matches() rồi chọn match dài nhất để tránh greedy-short
+        //   3. BV-?[A-Z0-9]{8,16} — deposit/session OrderId (legacy + BUGFIX mới)
+        // Bắt BU�C dùng Matches() rồi chọn match dài nhất để tránh greedy-short
         // khớp nhầm vào BVC{18hex} rồi cắt còn 16.
+        //
+        // BUGFIX (2026-08-15): format OrderId mới cho session/deposit payment
+        // là "BV-XXXXXXXXXXXXXXXX" (BV + 16 hex, có dấu '-' phân tách). Regex cũ
+        // `BV[A-Z0-9]{8,16}` không match dấu '-' → parse fail → webhook "not matched".
+        // Thêm `-?` để chấp nhận cả 2 dạng (có/không dấu '-'), đồng thời fallback
+        // trả về nguyên match (giữ cả dấu '-') để lookup khớp ActiveSession.OrderId.
         var match = System.Text.RegularExpressions.Regex.Match(
             content,
             @"BVC-?[A-Z0-9]{6,18}",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         if (!match.Success)
         {
-            // Fallback cho legacy deposit/session.
+            // Fallback cho legacy + mới deposit/session OrderId. Match cả BV- và BV.
             var fallback = System.Text.RegularExpressions.Regex.Match(
                 content,
-                @"BV[A-Z0-9]{8,16}",
+                @"BV-?[A-Z0-9]{8,24}",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             return fallback.Success ? fallback.Value.ToUpperInvariant() : null;
         }

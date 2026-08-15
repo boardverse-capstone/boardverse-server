@@ -338,6 +338,14 @@ public static string AccessForbidden(Guid cafeId) =>
             "Tên hiển thị cho khách vô danh phải từ 2-100 ký tự. " +
             "Gửi kèm 'displayName' (hoặc alias 'username') trong body.";
 
+        /// <summary>
+        /// Phone của Guest_Slot (optional) khi gửi lên phải là số VN hợp lệ
+        /// (10-11 chữ số, đầu 03/05/07/08/09). Bỏ trống nếu khách không cung cấp.
+        /// </summary>
+        public const string GuestSlotPhoneNumberInvalid =
+            "Số điện thoại khách vô danh phải là số Việt Nam hợp lệ gồm 10–11 chữ số " +
+            "(bắt đầu bằng 03, 05, 07, 08 hoặc 09).";
+
         // ===== Phase 5 / EC-11 — Manager override played time (BR-REFUND-07 §time-slot-fixed-end v3.0) =====
         public const string OnlyManagerCanOverride =
             "Chỉ Manager mới có thể override giờ chơi. Staff chỉ được mở dispute.";
