@@ -15,6 +15,8 @@
 | `/{cafeId}/staff` | GET | Manager (chủ quán) |
 | `/{cafeId}/staff/{staffId}` | DELETE | Manager (chủ quán) |
 | `/{id}/sepay-config` | PUT | Manager (chủ quán) |
+| `/{cafeId}/reservations` | GET | Manager, CafeStaff |
+| `/{cafeId}/lobbies` | GET | Manager, CafeStaff |
 
 > Lấy `cafeId` qua [GET /api/manager/my-cafes](./manager.md) thay vì hardcode.
 
@@ -555,3 +557,139 @@ Cập nhật biểu phí của quán (BasePrice, BillingModel, TieredBlockRate, 
 ```
 
 **Lỗi:** `400`; `403`; `404`; `409` quán đang hoạt động; `500`.
+
+---
+
+## GET /api/cafes/{cafeId}/reservations
+
+Lấy danh sách reservation của 1 cafe cho Manager/CafeStaff. Filter theo status, playDate, có phân trang.
+
+### Request
+
+- Method: `GET`
+- Path: `/api/cafes/{cafeId}/reservations`
+- Auth: Manager, CafeStaff
+
+### Query Parameters
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `status` | string | No | Filter theo reservation status (PendingApproval, Holding, Confirmed, CheckedIn, Cancelled, NoShow, etc.) |
+| `playDate` | DateOnly | No | Filter theo ngày dự kiến chơi |
+| `pageNumber` | int | No | Trang (default 1) |
+| `pageSize` | int | No | Kích thước trang (default 20) |
+
+### Response 200
+
+```json
+{
+  "statusCode": 200,
+  "message": "CafeReservationsRetrieved",
+  "data": {
+    "data": [
+      {
+        "reservationId": "guid",
+        "hostId": "guid",
+        "hostUserName": "host_player",
+        "cafeId": "guid",
+        "cafeName": "Boss Cafe",
+        "gameTemplateId": "guid",
+        "gameName": "Catan",
+        "playDate": "2026-08-15",
+        "timeSlot": "Evening",
+        "preferredStartTime": "19:00",
+        "minPlayers": 3,
+        "maxPlayers": 4,
+        "currentPlayers": 4,
+        "status": "Confirmed",
+        "depositAmountBvc": 120,
+        "createdAt": "2026-08-14T10:00:00Z"
+      }
+    ],
+    "meta": {
+      "currentPage": 1,
+      "pageSize": 20,
+      "totalItems": 45,
+      "totalPages": 3,
+      "hasPrevious": false,
+      "hasNext": true
+    }
+  }
+}
+```
+
+### Lỗi
+
+| Code | Mô tả |
+|------|--------|
+| 401 | Thiếu token |
+| 403 | Không phải manager/staff của cafe |
+| 404 | Không tìm thấy cafe |
+
+---
+
+## GET /api/cafes/{cafeId}/lobbies
+
+Lấy danh sách lobby của 1 cafe cho Manager/CafeStaff. Filter theo lobby status, playDate, có phân trang.
+
+### Request
+
+- Method: `GET`
+- Path: `/api/cafes/{cafeId}/lobbies`
+- Auth: Manager, CafeStaff
+
+### Query Parameters
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `status` | string | No | Filter theo lobby status (Open, Full, PendingCafeApproval, InProgress, Closed, TimeoutFailed, HostCancelled, etc.) |
+| `playDate` | DateOnly | No | Filter theo ngày dự kiến chơi |
+| `pageNumber` | int | No | Trang (default 1) |
+| `pageSize` | int | No | Kích thước trang (default 20) |
+
+### Response 200
+
+```json
+{
+  "statusCode": 200,
+  "message": "CafeLobbiesRetrieved",
+  "data": {
+    "data": [
+      {
+        "lobbyId": "guid",
+        "hostId": "guid",
+        "hostUserName": "host_player",
+        "cafeId": "guid",
+        "cafeName": "Boss Cafe",
+        "gameTemplateId": "guid",
+        "gameName": "Catan",
+        "playDate": "2026-08-15",
+        "timeSlot": "Evening",
+        "minPlayers": 3,
+        "maxPlayers": 4,
+        "currentPlayers": 2,
+        "status": "Open",
+        "isPrivate": false,
+        "recruitmentDeadline": "2026-08-15T18:40:00Z",
+        "createdAt": "2026-08-14T10:00:00Z"
+      }
+    ],
+    "meta": {
+      "currentPage": 1,
+      "pageSize": 20,
+      "totalItems": 30,
+      "totalPages": 2,
+      "hasPrevious": false,
+      "hasNext": true
+    }
+  }
+}
+```
+
+### Lỗi
+
+| Code | Mô tả |
+|------|--------|
+| 401 | Thiếu token |
+| 403 | Không phải manager/staff của cafe |
+| 404 | Không tìm thấy cafe |

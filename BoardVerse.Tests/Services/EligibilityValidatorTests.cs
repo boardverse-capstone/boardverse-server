@@ -155,28 +155,29 @@ public class EligibilityValidatorTests
         _validator.ValidateHostCanCreate(ctx);
     }
 
-    // ===== Bug #3 regression: Member join với cả host + member lobby active =====
+    // ===== BR-USER-LIMIT-05: ĐÃ BỎ — Host có thể join lobby khác =====
 
     [Fact]
-    public void ValidateMemberCanJoin_Should_ThrowHostCannotJoin_When_HostAndMemberBothActive()
+    public void ValidateMemberCanJoin_Should_Pass_When_OnlyHostActive_AndTotalBelow2()
     {
-        // Arrange: user vừa host 1 lobby vừa member 1 lobby khác (đã max 2).
+        // Arrange: user chỉ host 1 lobby (tổng = 1, chưa max).
+        // BR-USER-LIMIT-05 ĐÃ BỎ — Host được phép join lobby khác nếu không overlap.
+        var ctx = BuildMemberContext(hasActiveHostLobby: true, activeMemberLobbyCount: 0);
+
+        // Act + Assert: không throw vì BR-USER-LIMIT-05 đã bỏ
+        _validator.ValidateMemberCanJoin(ctx);
+    }
+
+    [Fact]
+    public void ValidateMemberCanJoin_Should_ThrowMemberLimit_When_HostAndMemberBothActive()
+    {
+        // Arrange: user vừa host 1 lobby vừa member 1 lobby khác (tổng = 2, đã max).
+        // BR-USER-LIMIT-01 chặn trước → throw MemberCannotCreateLobby vì member limit đạt max.
         var ctx = BuildMemberContext(hasActiveHostLobby: true, activeMemberLobbyCount: 1);
 
         // Act + Assert
         var ex = Assert.Throws<ForbiddenException>(() => _validator.ValidateMemberCanJoin(ctx));
-        Assert.Equal(ApiErrorMessages.Reservation.HostCannotJoinLobby, ex.Message);
-    }
-
-    [Fact]
-    public void ValidateMemberCanJoin_Should_ThrowHostCannotJoin_When_OnlyHostActive()
-    {
-        // Arrange
-        var ctx = BuildMemberContext(hasActiveHostLobby: true, activeMemberLobbyCount: 0);
-
-        // Act + Assert
-        var ex = Assert.Throws<ForbiddenException>(() => _validator.ValidateMemberCanJoin(ctx));
-        Assert.Equal(ApiErrorMessages.Reservation.HostCannotJoinLobby, ex.Message);
+        Assert.Equal(ApiErrorMessages.Reservation.MemberCannotCreateLobby, ex.Message);
     }
 
     [Fact]

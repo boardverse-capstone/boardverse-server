@@ -207,7 +207,7 @@ Member nhấn "Tham gia" → gọi `POST /api/v1/lobbies/{id}/join`.
 
 Backend validate:
 
-- BR-USER-LIMIT-01, 02, 04, 05 (cross-role).
+- BR-USER-LIMIT-01, 02, 04 (cross-role). **BR-USER-LIMIT-05: ĐÃ BỎ** — host có thể join lobby khác nếu không overlap.
 - Karma của member ≥ `lobby.minKarma`.
 - Lobby chưa full, chưa quá `recruitmentDeadline`.
 - Friendship (nếu lobby private): member phải là bạn `Accepted` của ít nhất 1 member active.

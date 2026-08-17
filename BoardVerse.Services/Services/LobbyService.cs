@@ -405,32 +405,23 @@ namespace BoardVerse.Services.Services
 
         /// <summary>
         /// BR-USER-LIMIT-* + BR-RISK-04 cho member join lobby:
-        /// - BR-USER-LIMIT-05: User đang là host của lobby ACTIVE → không được join.
-        /// - BR-USER-LIMIT-01: Member đã tham gia 1 lobby active → không join thêm.
+        /// - BR-USER-LIMIT-01: tổng host + member ≤ 2 active.
+        /// - BR-USER-LIMIT-05: **ĐÃ BỎ** — Host có thể join lobby khác nếu không overlap.
         /// - BR-USER-LIMIT-02: Lịch của member trùng với lobby đang join (+30p buffer).
         /// - BR-RISK-04: Account bị suspended/banned → chặn.
         /// </summary>
         private async Task ValidateMemberEligibilityAsync(Guid userId, Lobby lobby, DateTime now)
         {
-            // BR-USER-LIMIT-05: User đang host lobby ACTIVE → không được join lobby khác.
             var activeHostLobbies = await _lobbyRepository.GetActiveLobbiesByHostAsync(userId);
             var activeMemberLobbies = await _lobbyRepository.GetActiveLobbiesByMemberAsync(userId);
 
-            // BR-USER-LIMIT-01: tổng host + member ≤ 2 active. Check tổng trước.
+            // BR-USER-LIMIT-01: tổng host + member ≤ 2 active.
             var totalActiveLobbies = activeHostLobbies.Count + activeMemberLobbies.Count;
             if (totalActiveLobbies >= 2)
             {
-                // Ưu tiên message host trước (cross-role nghiêm trọng hơn).
-                if (activeHostLobbies.Count > 0)
-                {
-                    throw new ForbiddenException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
-                }
-                throw new ForbiddenException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);
-            }
-
-            if (activeHostLobbies.Count > 0)
-            {
-                throw new ForbiddenException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
+                // BR-USER-LIMIT-01: Đã đạt tổng 2 lobby (host + member).
+                // Đổi message đúng theo BR mới (BR-USER-LIMIT-05 ĐÃ BỎ - host được join).
+                throw new ForbiddenException(ApiErrorMessages.Reservation.TotalLobbyLimitReached);
             }
 
             // BR-USER-LIMIT-01: Member đã có 1 lobby member active → không join thêm.
@@ -1448,23 +1439,16 @@ namespace BoardVerse.Services.Services
             var newHostActiveLobbies = await _lobbyRepository.GetActiveLobbiesByHostAsync(newHostUserId);
             var newHostMemberLobbies = await _lobbyRepository.GetActiveLobbiesByMemberAsync(newHostUserId);
 
-            // BR-USER-LIMIT-01: tổng host + member ≤ 2 active. Check tổng trước.
-            var totalActiveLobbies = newHostActiveLobbies.Count + newHostMemberLobbies.Count;
-            if (totalActiveLobbies >= 2)
+            // BR-USER-LIMIT-01: Tổng lobby (host + member) ≤ 2 active cho new host.
+            var totalNewHostLobbies = newHostActiveLobbies.Count + newHostMemberLobbies.Count;
+            if (totalNewHostLobbies >= 2)
             {
-                if (newHostActiveLobbies.Count > 0)
-                {
-                    throw new ConflictException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
-                }
-                throw new ConflictException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);
+                // BR-USER-LIMIT-05 ĐÃ BỎ: Host được phép join/transfer host sang lobby khác
+                // Chỉ block khi tổng lobby đã đạt max 2.
+                throw new ConflictException(ApiErrorMessages.Reservation.TotalLobbyLimitReached);
             }
 
-            if (newHostActiveLobbies.Count > 0)
-            {
-                throw new ConflictException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
-            }
-
-            // L-04: BR-USER-LIMIT-05 validation cho new host — new host không được đang là member của lobby active khác
+            // BR-USER-LIMIT-01: new host không được đang là member của lobby active khác.
             if (newHostMemberLobbies.Count > 0)
             {
                 throw new ConflictException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);

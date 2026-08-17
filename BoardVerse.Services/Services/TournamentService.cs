@@ -919,10 +919,9 @@ public class TournamentService : ITournamentService
             throw new ConflictException(ApiErrorMessages.Tournament.AlreadyWithdrawn(tournamentId));
         }
 
-        // KhÃ´ng cho kick khi participant Ä‘Ã£ check-in/active/finished (BR-MGR-KICK-01).
-        if (participant.Status == TournamentParticipantStatus.CheckedIn
-            || participant.Status == TournamentParticipantStatus.Active
-            || participant.Status == TournamentParticipantStatus.Finished)
+        // Không cho kick khi participant đã hoàn thành tournament (Finished).
+        // Cho phép kick khi đã CheckedIn/Active để Manager có thể loại người chơi vi phạm.
+        if (participant.Status == TournamentParticipantStatus.Finished)
         {
             throw new ConflictException(
                 ApiErrorMessages.Tournament.CannotKickAfterCheckIn(participant.Status));
@@ -2984,6 +2983,178 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
         // Tráº£ vá» auto preview Ä‘á»ƒ manager biáº¿t sau khi clear
         return await PreviewPairingsAsync(managerId, tournamentId, roundNumber);
+    }
+
+    /// <summary>
+    /// Hoán đổi vị trí 2 người chơi giữa 2 bàn trong cùng round.
+    /// Cho phép sửa pairings ngay cả khi round đã có matches.
+    /// </summary>
+    public async Task<RoundPairingsResponseDto> SwapPairingAsync(
+        Guid managerId, Guid tournamentId, SwapPairingRequestDto request)
+    {
+        var tournament = await _tournamentRepository.GetByIdWithDetailsAsync(tournamentId)
+            ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
+
+        await EnsureManagerOwnsCafeAsync(managerId, tournament.CafeId);
+
+        // Check tournament đang trong quá trình thi đấu
+        if (tournament.Status != TournamentStatus.OnGoing)
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Tournament.SwapOnlyAllowedWhenOnGoing);
+        }
+
+        ValidateRoundNumber(request.RoundNumber, tournament);
+
+        // Lấy các match trong round này
+        var roundMatches = tournament.Matches
+            .Where(m => m.RoundNumber == request.RoundNumber)
+            .ToList();
+
+        if (roundMatches.Count == 0)
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Tournament.RoundHasNoMatches(request.RoundNumber));
+        }
+
+        // Tìm match chứa Player A
+        var matchWithPlayerA = roundMatches
+            .FirstOrDefault(m => m.Player1Id == request.PlayerAId
+                || m.Player2Id == request.PlayerAId
+                || m.Player3Id == request.PlayerAId
+                || m.Player4Id == request.PlayerAId);
+
+        if (matchWithPlayerA == null || matchWithPlayerA.MatchNumber != request.FromMatchNumber)
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Tournament.PlayerNotInMatch(
+                    request.PlayerAId, request.FromMatchNumber));
+        }
+
+        // Tìm match chứa Player B
+        var matchWithPlayerB = roundMatches
+            .FirstOrDefault(m => m.Player1Id == request.PlayerBId
+                || m.Player2Id == request.PlayerBId
+                || m.Player3Id == request.PlayerBId
+                || m.Player4Id == request.PlayerBId);
+
+        if (matchWithPlayerB == null || matchWithPlayerB.MatchNumber != request.ToMatchNumber)
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Tournament.PlayerNotInMatch(
+                    request.PlayerBId, request.ToMatchNumber));
+        }
+
+        // Check: 2 người cùng bàn
+        if (matchWithPlayerA.Id == matchWithPlayerB.Id)
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Tournament.SwapSameMatch);
+        }
+
+        // Check: không swap match đã hoàn thành
+        if (matchWithPlayerA.Status == TournamentMatchStatus.Completed
+            || matchWithPlayerB.Status == TournamentMatchStatus.Completed)
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Tournament.SwapMatchAlreadyCompleted);
+        }
+
+        // Check: không swap match đang đấu (có thể cho phép nhưng cảnh báo)
+        if (matchWithPlayerA.Status == TournamentMatchStatus.OnGoing
+            || matchWithPlayerB.Status == TournamentMatchStatus.OnGoing)
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Tournament.SwapMatchOnGoing);
+        }
+
+        // Hoán đổi vị trí giữa 2 match
+        SwapPlayerBetweenMatches(matchWithPlayerA, request.PlayerAId, matchWithPlayerB, request.PlayerBId);
+
+        // Cập nhật RoundXPairingsJson để đồng bộ với entity
+        var updatedPairings = BuildPairingsFromMatches(roundMatches);
+        var json = SerializeManualJson(updatedPairings);
+        SetRoundPairingsJson(tournament, request.RoundNumber, json);
+
+        tournament.UpdatedAt = DateTime.UtcNow;
+        await _tournamentRepository.SaveChangesAsync();
+
+        // Trả về danh sách pairings mới sau khi hoán đổi
+        return new RoundPairingsResponseDto
+        {
+            TournamentId = tournamentId,
+            RoundNumber = request.RoundNumber,
+            Source = "Manual (Swapped)",
+            Pairings = updatedPairings,
+            Warnings = new List<string>()
+        };
+    }
+
+    private void SwapPlayerBetweenMatches(
+        TournamentMatchBracket matchA, Guid playerA,
+        TournamentMatchBracket matchB, Guid playerB)
+    {
+        // Xác định vị trí của playerA và playerB
+        int? posA = GetPlayerPosition(matchA, playerA);
+        int? posB = GetPlayerPosition(matchB, playerB);
+
+        // Xóa playerA khỏi vị trí cũ trong matchA
+        ClearPlayerFromMatch(matchA, playerA);
+        // Xóa playerB khỏi vị trí cũ trong matchB
+        ClearPlayerFromMatch(matchB, playerB);
+
+        // Đặt playerA vào vị trí của playerB trong matchB
+        SetPlayerAtPosition(matchB, playerA, posB);
+        // Đặt playerB vào vị trí của playerA trong matchA
+        SetPlayerAtPosition(matchA, playerB, posA);
+
+        matchA.UpdatedAt = DateTime.UtcNow;
+        matchB.UpdatedAt = DateTime.UtcNow;
+    }
+
+    private int? GetPlayerPosition(TournamentMatchBracket match, Guid playerId)
+    {
+        if (match.Player1Id == playerId) return 1;
+        if (match.Player2Id == playerId) return 2;
+        if (match.Player3Id == playerId) return 3;
+        if (match.Player4Id == playerId) return 4;
+        return null;
+    }
+
+    private void ClearPlayerFromMatch(TournamentMatchBracket match, Guid playerId)
+    {
+        if (match.Player1Id == playerId) match.Player1Id = null;
+        else if (match.Player2Id == playerId) match.Player2Id = null;
+        else if (match.Player3Id == playerId) match.Player3Id = null;
+        else if (match.Player4Id == playerId) match.Player4Id = null;
+    }
+
+    private void SetPlayerAtPosition(TournamentMatchBracket match, Guid playerId, int? position)
+    {
+        if (position == 1) match.Player1Id = playerId;
+        else if (position == 2) match.Player2Id = playerId;
+        else if (position == 3) match.Player3Id = playerId;
+        else if (position == 4) match.Player4Id = playerId;
+    }
+
+    private List<ManualPairingDto> BuildPairingsFromMatches(List<TournamentMatchBracket> matches)
+    {
+        return matches
+            .OrderBy(m => m.MatchNumber)
+            .Select(m =>
+            {
+                var playerIds = new List<Guid>();
+                if (m.Player1Id.HasValue) playerIds.Add(m.Player1Id.Value);
+                if (m.Player2Id.HasValue) playerIds.Add(m.Player2Id.Value);
+                if (m.Player3Id.HasValue) playerIds.Add(m.Player3Id.Value);
+                if (m.Player4Id.HasValue) playerIds.Add(m.Player4Id.Value);
+                return new ManualPairingDto
+                {
+                    MatchNumber = m.MatchNumber,
+                    PlayerIds = playerIds
+                };
+            })
+            .ToList();
     }
 
     // === Helpers cho Manual Pairing ===

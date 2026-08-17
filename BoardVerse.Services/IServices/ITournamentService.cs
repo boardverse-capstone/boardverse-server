@@ -107,6 +107,9 @@ public interface ITournamentService
     /// <summary>Xóa manual pairings cho 1 round (quay lại dùng auto).</summary>
     Task<RoundPairingsResponseDto> ClearRoundPairingsAsync(Guid managerId, Guid tournamentId, int roundNumber);
 
+    /// <summary>Hoán đổi vị trí 2 người chơi giữa 2 bàn trong cùng round.</summary>
+    Task<RoundPairingsResponseDto> SwapPairingAsync(Guid managerId, Guid tournamentId, SwapPairingRequestDto request);
+
     // === Manager: Walk-in participant (khách vãng lai) ===
 
     /// <summary>

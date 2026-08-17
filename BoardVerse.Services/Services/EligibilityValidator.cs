@@ -15,7 +15,7 @@ namespace BoardVerse.Services.Services;
 /// - BR-USER-LIMIT-02: không lịch chồng lấn (+30p buffer).
 /// - BR-USER-LIMIT-03: cap tổng heldBalance (500k thường / 1M VIP / 200k risk cao).
 /// - BR-USER-LIMIT-04: member → không được host lobby khác.
-/// - BR-USER-LIMIT-05: host → không được join lobby khác.
+/// - BR-USER-LIMIT-05: **BỎ** — Host có thể join lobby khác nếu không overlap (BR-USER-LIMIT-01 kiểm soát tổng 2 lobby).
 /// - BR-NEW-02: 1 lobby active / playDate / user.
 /// - BR-NEW-05: tối đa 5 lần tạo/hủy / playDate.
 /// - BR-NEW-08: 1 lobby active / playDate+timeSlot / cafe / user.
@@ -129,21 +129,14 @@ public class EligibilityValidator
         var totalActiveLobbies = (context.HasActiveHostLobby ? 1 : 0) + context.ActiveMemberLobbyCount;
         if (totalActiveLobbies >= 2)
         {
-            // Đã đạt tối đa 2 lobby → báo tổng quá (ưu tiên thông báo cross-role).
-            if (context.HasActiveHostLobby)
-            {
-                throw new ForbiddenException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
-            }
-            throw new ForbiddenException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);
-        }
-
-        // BR-USER-LIMIT-05: host → không được join lobby khác.
-        if (context.HasActiveHostLobby)
-        {
-            throw new ForbiddenException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
+            // BR-USER-LIMIT-01: Tổng 2 lobby (host + member) đã đạt max.
+            // BR-USER-LIMIT-05 ĐÃ BỎ: Host được phép join lobby khác.
+            throw new ForbiddenException(ApiErrorMessages.Reservation.TotalLobbyLimitReached);
         }
 
         // BR-USER-LIMIT-01: member → không join thêm (đã đếm 1 ở trên).
+        // BR-USER-LIMIT-05: ĐÃ BỎ — Host được phép join lobby khác nếu không overlap
+        // (BR-USER-LIMIT-01 đã kiểm soát tổng 2 lobby active).
         if (context.ActiveMemberLobbyCount >= 1)
         {
             throw new ForbiddenException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);

@@ -49,3 +49,29 @@ public class RoundPairingsResponseDto
     /// <summary>Cảnh báo nếu có (vd: "Số người không chia hết cho 4, bàn 3 chỉ có 1 người").</summary>
     public List<string> Warnings { get; set; } = new();
 }
+
+/// <summary>
+/// Request hoán đổi vị trí 2 người chơi giữa các bàn trong cùng round.
+/// </summary>
+public class SwapPairingRequestDto
+{
+    /// <summary>RoundNumber: 1-4.</summary>
+    [Range(1, 4)]
+    public int RoundNumber { get; set; }
+
+    /// <summary>MatchNumber của bàn chứa Player A.</summary>
+    [Range(1, 100)]
+    public int FromMatchNumber { get; set; }
+
+    /// <summary>MatchNumber của bàn chứa Player B.</summary>
+    [Range(1, 100)]
+    public int ToMatchNumber { get; set; }
+
+    /// <summary>UserId của người chơi A cần hoán đổi.</summary>
+    [Required]
+    public Guid PlayerAId { get; set; }
+
+    /// <summary>UserId của người chơi B cần hoán đổi.</summary>
+    [Required]
+    public Guid PlayerBId { get; set; }
+}

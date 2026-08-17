@@ -42,6 +42,8 @@ Tuân thủ business rules:
 - [POST /{id}/check-in](#post-idcheck-in)
 - [POST /{id}/end](#post-idend)
 - [POST /{id}/extend](#post-idextend)
+- [POST /by-code/{reservationCode}/check-in](#post-by-codereservationcodecheck-in)
+- [POST /{id}/cancel-after-checkin](#post-idcancel-after-checkin)
 - [Luồng tích hợp](#luồng-tích-hợp)
 - [State machine](#state-machine)
 
@@ -422,7 +424,7 @@ Trường `warnings` chứa các cảnh báo từ server:
 | `403` | User bị `suspended` / `banned` | BR-RISK-04 |
 | `403` | Cooling-off active (chỉ tạo lobby trong ngày, cọc ×2) | BR-NEW-10 |
 | `403` | User đang là member của lobby active (không được host) | BR-USER-LIMIT-04 |
-| `403` | User đang là host của lobby active (không được join) | BR-USER-LIMIT-05 |
+| `403` | User đang là host của 1 lobby (không được host thêm) | BR-USER-LIMIT-01 |
 | `409` | Đã có lobby overlap (lịch chồng lấn +30 phút) | BR-USER-LIMIT-02 |
 | `409` | Đã host lobby `playDate+cafe+slot` | BR-NEW-08 |
 | `409` | Vượt 5 lần tạo/hủy / `playDate` | BR-NEW-05 |
@@ -859,6 +861,75 @@ Host mở rộng thời gian reservation (BR-EXT-01..05 + EC-05 + EC-08).
 
 ---
 
+## POST /{id}/cancel-after-checkin
+
+Host hủy reservation sau khi đã check-in. Áp dụng refund theo playedRatio (BR-REFUND-04/05).
+
+### Request
+
+- Method: `POST`
+- Path: `/api/v1/reservations/{reservationId}/cancel-after-checkin`
+- Auth: Player (JWT) — phải là host của reservation
+
+### Request Body
+
+```json
+{
+  "reason": "Trời mưa to không thể tiếp tục chơi",
+  "idempotencyKey": "host-cancel-after-checkin-xyz789"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `reason` | string | No | Lý do hủy (hiển thị trong audit log) |
+| `idempotencyKey` | string | Yes | Chống duplicate request |
+
+### Response 200
+
+```json
+{
+  "statusCode": 200,
+  "message": "ReservationCancelledAfterCheckin",
+  "data": {
+    "reservationId": "guid",
+    "previousStatus": "CheckedIn",
+    "newStatus": "CancelledByPlayer",
+    "playDurationMinutes": 45,
+    "playedRatio": 0.75,
+    "refundBvc": 30,
+    "forfeitBvc": 70,
+    "refundReason": "Hoàn 30% tiền cọc (playedRatio ≥ 50%)",
+    "cancellationType": "PartialForfeit",
+    "cancelledAt": "2026-08-15T11:00:00Z"
+  }
+}
+```
+
+### playedRatio và refund
+
+| playedRatio | Hoàn BVC | Karma |
+|------------|----------|-------|
+| `< 50%` | 0% (forfeit 100%) | Giảm nhẹ |
+| `≥ 50%` | 30% | Không phạt |
+| `≥ 90%` | 0% (treated as on-time) | Không phạt |
+
+### Lỗi
+
+| Code | Mô tả |
+|------|--------|
+| 400 | Request không hợp lệ / thiếu idempotencyKey |
+| 401 | Thiếu token |
+| 403 | Không phải host |
+| 404 | Không tìm thấy reservation |
+| 409 | Reservation chưa check-in hoặc đã ở trạng thái terminal |
+
+### Idempotency
+
+Retry với cùng `idempotencyKey` trả cùng kết quả. Server check `ReservationActionAudit` trước khi xử lý.
+
+---
+
 ## Luồng tích hợp
 
 ```
@@ -983,3 +1054,121 @@ Confirm verify **tất cả params** trước khi trả kết quả cũ:
 1. **Dùng key mới** khi muốn tạo reservation mới sau khi lobby cũ bị hủy
 2. **Lưu key** ở client để retry khi network fail
 3. **Client dedupe**: quote không cần server-side dedupe vì chỉ đọc
+
+---
+
+## GET /{id}/extend/availability
+
+Kiểm tra xem có thể extend reservation không (BR-EXT).
+
+### Request
+
+- Method: `GET`
+- Path: `/api/v1/reservations/{reservationId}/extend/availability`
+- Auth: Player (JWT) — chỉ host
+
+### Query Parameters
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `extensionMinutes` | int | Yes | Số phút muốn extend |
+
+### Response 200
+
+```json
+{
+  "statusCode": 200,
+  "message": "ExtendAvailability",
+  "data": {
+    "reservationId": "guid",
+    "currentScheduledEndTime": "2026-08-15T13:00:00Z",
+    "requestedExtensionMinutes": 30,
+    "newScheduledEndTime": "2026-08-15T13:30:00Z",
+    "isAvailable": true,
+    "remainingExtensionMinutes": 90,
+    "extensionCount": 1,
+    "maxExtensionMinutes": 120,
+    "reason": null
+  }
+}
+```
+
+### Response khi không khả dụng
+
+```json
+{
+  "statusCode": 200,
+  "message": "ExtendAvailability",
+  "data": {
+    "reservationId": "guid",
+    "isAvailable": false,
+    "reason": "Đã đạt số lần extend tối đa (2 lần)"
+  }
+}
+```
+
+### Lỗi
+
+| Code | Mô tả |
+|------|--------|
+| 401 | Thiếu token |
+| 404 | Không tìm thấy reservation |
+
+---
+
+## POST /by-code/{reservationCode}/check-in
+
+POS staff quét QR theo ReservationCode (8-char). Endpoint thay thế cho FE không biết reservationId.
+
+### Request
+
+- Method: `POST`
+- Path: `/api/v1/reservations/by-code/{reservationCode}/check-in`
+- Auth: Manager, CafeStaff
+
+### Path Parameters
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `reservationCode` | string | Mã 8-char alphanumeric từ QR code |
+
+### Request Body
+
+```json
+{
+  "cafeId": "guid",
+  "activeSessionId": "guid",
+  "idempotencyKey": "pos-checkin-abc123"
+}
+```
+
+### Response 201
+
+```json
+{
+  "statusCode": 201,
+  "message": "ReservationCheckedIn",
+  "data": {
+    "reservationId": "guid",
+    "lobbyId": "guid",
+    "activeSessionId": "guid",
+    "reservationStatus": "CheckedIn",
+    "lobbyStatus": "InProgress",
+    "checkedInAt": "2026-08-15T10:30:00Z"
+  }
+}
+```
+
+### Lỗi
+
+| Code | Mô tả |
+|------|--------|
+| 400 | Request không hợp lệ |
+| 401 | Thiếu token |
+| 403 | Không đủ quyền vận hành quán |
+| 404 | Không tìm thấy reservation |
+| 409 | Reservation không thuộc cafe hoặc đã check-in rồi |
+
+### Idempotency
+
+Scan cùng QR trả cùng response (cùng ActiveSessionId). Key: `pos-checkin:{code}`.

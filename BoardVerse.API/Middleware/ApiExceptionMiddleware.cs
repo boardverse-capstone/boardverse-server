@@ -51,14 +51,14 @@ namespace BoardVerse.API.Middleware
                         Path = context.Request.Path.Value ?? string.Empty
                     };
 
-                    context.Response.ContentType = "application/json";
+                    context.Response.ContentType = "application/json; charset=utf-8";
                     var payload = JsonSerializer.Serialize(response, jsonOptions);
                     await context.Response.WriteAsync(payload);
                 }
             }
             catch (AppException ex)
             {
-                context.Response.ContentType = "application/json";
+                context.Response.ContentType = "application/json; charset=utf-8";
                 context.Response.StatusCode = ex.StatusCode;
 
                 var response = new ApiResponse
@@ -93,7 +93,7 @@ namespace BoardVerse.API.Middleware
                     Path = context.Request.Path.Value ?? string.Empty
                 };
 
-                context.Response.ContentType = "application/json";
+                context.Response.ContentType = "application/json; charset=utf-8";
                 context.Response.StatusCode = response.StatusCode;
                 var payload = JsonSerializer.Serialize(response, jsonOptions);
                 await context.Response.WriteAsync(payload);
@@ -114,7 +114,7 @@ namespace BoardVerse.API.Middleware
                     Path = context.Request.Path.Value ?? string.Empty
                 };
 
-                context.Response.ContentType = "application/json";
+                context.Response.ContentType = "application/json; charset=utf-8";
                 context.Response.StatusCode = response.StatusCode;
                 var payload = JsonSerializer.Serialize(response, jsonOptions);
                 await context.Response.WriteAsync(payload);

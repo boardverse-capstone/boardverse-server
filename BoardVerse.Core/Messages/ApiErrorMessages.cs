@@ -2181,6 +2181,9 @@ public const string LobbyBoostOnlyWhenOpen =
     public const string ActiveLobbyMemberLimitReached =
         "Bạn đang tham gia một phòng khác rồi. Hãy rời phòng đó trước khi tạo phòng mới làm chủ phòng nhé!";
 
+    public const string TotalLobbyLimitReached =
+        "Bạn đã đạt giới hạn tối đa 2 phòng (1 host + 1 member). Hãy rời hoặc kết thúc một phòng trước nhé!";
+
     // ===== BR-USER-LIMIT-04/05: cross-role =====
     public const string MemberCannotCreateLobby =
         "Bạn đang tham gia một phòng khác nên chưa thể tạo phòng mới. Hãy rời phòng hiện tại trước nhé!";
@@ -2770,8 +2773,28 @@ public const string LobbyBoostOnlyWhenOpen =
  public static string PairingSizeInvalid(int matchNumber, int playerCount) =>
  "Sá»‘ ngÆ°á»i chÆ¡i cá»§a cáº·p Ä‘áº¥u thá»© {matchNumber} ({playerCount}) khÃ´ng há»£p lá»‡.";
 
- public const string NoOfferToDecline =
- "Bạn không có offer nào để từ chối.";
+ 
+
+public static string RoundHasNoMatches(int roundNumber) =>
+$"Vòng {roundNumber} chưa có trận đấu nào.";
+
+public static string PlayerNotInMatch(Guid playerId, int matchNumber) =>
+$"Người chơi không có trong bàn {matchNumber}.";
+
+public const string SwapOnlyAllowedWhenOnGoing =
+"Không thể hoán đổi khi giải đấu không diễn ra.";
+
+public const string SwapSameMatch =
+"Hai người chơi đang ở cùng một bàn. Không cần hoán đổi.";
+
+public const string SwapMatchAlreadyCompleted =
+"Không thể hoán đổi vì bàn đấu đã hoàn thành.";
+
+public const string SwapMatchOnGoing =
+"Không thể hoán đổi vì bàn đấu đang diễn ra.";
+
+public const string NoOfferToDecline =
+"Bạn không có offer nào để từ chối.";
 
  public static class Spectator
  {
