@@ -1,6 +1,7 @@
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
+using BoardVerse.Services.Helpers;
 using BoardVerse.Services.IServices;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -57,6 +58,17 @@ public class ReservationNoShowDetectionJob : BackgroundService
         var walkInService = scope.ServiceProvider.GetRequiredService<IWalkInService>();
         var outboxRepo = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
         var karmaService = scope.ServiceProvider.GetRequiredService<IPlayerKarmaService>();
+        var configProvider = scope.ServiceProvider.GetRequiredService<ISystemConfigurationProvider>();
+
+        // Skip no-show detection nếu bypass đang bật (dev/test only).
+        if (await TimeWindowGuard.ShouldBypassAsync(
+                configProvider, _logger,
+                operation: "ReservationNoShowDetectionJob"))
+        {
+            _logger.LogInformation(
+                "ReservationNoShowDetectionJob: skipped because bypass-time-window is enabled.");
+            return;
+        }
 
         var now = DateTime.UtcNow;
         var cutoff = now.AddMinutes(-30); // BR-CHECKIN-02: grace 30 phút

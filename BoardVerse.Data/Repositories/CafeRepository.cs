@@ -831,19 +831,27 @@ namespace BoardVerse.Data.Repositories
 
                 if (inventory != null)
                 {
+                    // HeldSeats + InUseSeats đã được ReservationService trừ đúng
+                    // → AvailableSeats (computed) phản ánh đúng số ghế còn trống.
                     result[slot] = inventory.AvailableSeats;
                 }
                 else
                 {
-                    // Không có inventory record → dùng TotalSeats của cafe
-                    // (quán chưa có ai đặt cho ngày này)
+                    // Không có SeatInventory row cho ngày này.
+                    // Vẫn phải trừ các reservation đang giữ ghế cho (cafe, playDate, slot)
+                    // để khớp với logic ReservationService.ConfirmAsync (BR §17.3).
                     var cafe = await _context.Cafes
                         .AsNoTracking()
                         .Where(c => c.Id == cafeId)
                         .Select(c => new { c.TotalSeats })
                         .FirstOrDefaultAsync();
 
-                    result[slot] = cafe?.TotalSeats ?? 0;
+                    var totalSeats = cafe?.TotalSeats ?? 0;
+
+                    var heldSeats = await CountHeldSeatsForSlotAsync(cafeId, playDate, slot);
+                    var inUseSeats = await CountInUseSeatsForSlotAsync(cafeId, playDate, slot);
+
+                    result[slot] = Math.Max(0, totalSeats - heldSeats - inUseSeats);
                 }
             }
 
@@ -893,6 +901,45 @@ namespace BoardVerse.Data.Repositories
         {
             // Đếm tổng số members đang active trong các session
             // ActiveSession: đã check-in, chưa paid
+            var startOfDay = playDate.ToDateTime(TimeOnly.MinValue);
+            var endOfDay = playDate.ToDateTime(TimeOnly.MaxValue);
+
+            return await _context.ActiveSessions
+                .AsNoTracking()
+                .Where(s =>
+                    s.CafeId == cafeId &&
+                    s.Status != GroupSessionStatus.Paid &&
+                    s.StartedAt >= startOfDay &&
+                    s.StartedAt <= endOfDay)
+                .SelectMany(s => s.Members)
+                .CountAsync(m => m.Status == IndividualSessionStatus.Playing);
+        }
+
+        /// <summary>
+        /// Đếm tổng MaxPlayers của các reservation đang giữ ghế cho (cafe, playDate, timeSlot).
+        /// Dùng cho fallback khi SeatInventory row chưa được tạo.
+        /// </summary>
+        private async Task<int> CountHeldSeatsForSlotAsync(Guid cafeId, DateOnly playDate, TimeSlot timeSlot)
+        {
+            return await _context.Reservations
+                .AsNoTracking()
+                .Where(r =>
+                    r.CafeId == cafeId &&
+                    r.PlayDate == playDate &&
+                    r.TimeSlot == timeSlot &&
+                    (r.Status == ReservationStatus.Holding ||
+                     r.Status == ReservationStatus.Confirmed ||
+                     r.Status == ReservationStatus.AwaitingDeposit))
+                .SumAsync(r => (int?)r.MaxPlayers) ?? 0;
+        }
+
+        /// <summary>
+        /// Đếm tổng số members đang active trong session cho (cafe, playDate).
+        /// ActiveSession không có TimeSlot field → chỉ filter theo ngày.
+        /// Dùng cho fallback khi SeatInventory row chưa được tạo.
+        /// </summary>
+        private async Task<int> CountInUseSeatsForSlotAsync(Guid cafeId, DateOnly playDate, TimeSlot timeSlot)
+        {
             var startOfDay = playDate.ToDateTime(TimeOnly.MinValue);
             var endOfDay = playDate.ToDateTime(TimeOnly.MaxValue);
 

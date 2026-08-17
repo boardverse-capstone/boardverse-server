@@ -1576,6 +1576,141 @@ public class TournamentServiceTests
         Assert.Empty(result);
     }
 
+    // ===================================================================
+    // === GetTournamentsAsync (status-filtered list for player FE)  ===
+    // ===================================================================
+
+    private static void SetupGameRepoForBuildResponse(Mock<IGameTemplateRepository> gameRepo)
+    {
+        // BuildResponseAsync fallback: nếu Tournament.GameTemplate == null thì gọi GetByIdAsync.
+        var splendor = new GameTemplate
+        {
+            Id = SplendorId,
+            Name = "Splendor",
+            IsActive = true,
+            IsTournamentSupported = true
+        };
+        gameRepo.Setup(r => r.GetByIdAsync(SplendorId)).ReturnsAsync(splendor);
+    }
+
+    [Fact]
+    public async Task GetTournamentsAsync_NoStatus_ReturnsAllTournaments()
+    {
+        var tournamentRepo = BuildTournamentRepo();
+        var gameRepo = BuildGameRepo();
+        var cafeRepo = BuildCafeRepo();
+        var userRepo = BuildUserRepo();
+        var configRepo = BuildConfigRepo();
+        var karmaRepo = BuildKarmaRepo();
+
+        var t1 = BuildRegistrationOpenTournament();
+        t1.Status = TournamentStatus.RegistrationOpen;
+        var t2 = BuildOnGoingTournament();
+        var t3 = BuildRegistrationOpenTournament();
+        t3.Id = Guid.NewGuid();
+        t3.Status = TournamentStatus.Completed;
+
+        tournamentRepo.Setup(r => r.GetAllByStatusAsync(null))
+            .ReturnsAsync(new[] { t1, t2, t3 });
+        SetupGameRepoForBuildResponse(gameRepo);
+
+        var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
+
+        var result = await svc.GetTournamentsAsync(UserId, status: null);
+
+        Assert.Equal(3, result.Count);
+        tournamentRepo.Verify(r => r.GetAllByStatusAsync(null), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetTournamentsAsync_AllKeyword_ReturnsAllTournaments()
+    {
+        var tournamentRepo = BuildTournamentRepo();
+        var gameRepo = BuildGameRepo();
+        var cafeRepo = BuildCafeRepo();
+        var userRepo = BuildUserRepo();
+        var configRepo = BuildConfigRepo();
+        var karmaRepo = BuildKarmaRepo();
+
+        tournamentRepo.Setup(r => r.GetAllByStatusAsync(null))
+            .ReturnsAsync(new List<Tournament> { BuildRegistrationOpenTournament() });
+        SetupGameRepoForBuildResponse(gameRepo);
+
+        var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
+
+        var result = await svc.GetTournamentsAsync(UserId, status: "all");
+
+        Assert.Single(result);
+        // Verify repo được gọi với status = null (không filter).
+        tournamentRepo.Verify(r => r.GetAllByStatusAsync(null), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetTournamentsAsync_ValidStatus_PassesEnumToRepo()
+    {
+        var tournamentRepo = BuildTournamentRepo();
+        var gameRepo = BuildGameRepo();
+        var cafeRepo = BuildCafeRepo();
+        var userRepo = BuildUserRepo();
+        var configRepo = BuildConfigRepo();
+        var karmaRepo = BuildKarmaRepo();
+
+        tournamentRepo.Setup(r => r.GetAllByStatusAsync(TournamentStatus.OnGoing))
+            .ReturnsAsync(new List<Tournament> { BuildOnGoingTournament() });
+        SetupGameRepoForBuildResponse(gameRepo);
+
+        var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
+
+        // Case-insensitive để tiện cho client.
+        var result = await svc.GetTournamentsAsync(UserId, status: "ongoing");
+
+        Assert.Single(result);
+        tournamentRepo.Verify(r => r.GetAllByStatusAsync(TournamentStatus.OnGoing), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetTournamentsAsync_BlankStatus_ReturnsAll()
+    {
+        var tournamentRepo = BuildTournamentRepo();
+        var gameRepo = BuildGameRepo();
+        var cafeRepo = BuildCafeRepo();
+        var userRepo = BuildUserRepo();
+        var configRepo = BuildConfigRepo();
+        var karmaRepo = BuildKarmaRepo();
+
+        tournamentRepo.Setup(r => r.GetAllByStatusAsync(null))
+            .ReturnsAsync(new List<Tournament> { BuildRegistrationOpenTournament() });
+        SetupGameRepoForBuildResponse(gameRepo);
+
+        var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
+
+        var result = await svc.GetTournamentsAsync(UserId, status: "  ");
+
+        Assert.Single(result);
+        tournamentRepo.Verify(r => r.GetAllByStatusAsync(null), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetTournamentsAsync_InvalidStatus_ThrowsBadRequest()
+    {
+        var tournamentRepo = BuildTournamentRepo();
+        var gameRepo = BuildGameRepo();
+        var cafeRepo = BuildCafeRepo();
+        var userRepo = BuildUserRepo();
+        var configRepo = BuildConfigRepo();
+        var karmaRepo = BuildKarmaRepo();
+
+        var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
+
+        await Assert.ThrowsAsync<BadRequestException>(
+            () => svc.GetTournamentsAsync(UserId, status: "FROZEN_STATUS"));
+
+        // Verify repo KHÔNG được gọi (validation fail trước khi query DB).
+        tournamentRepo.Verify(
+            r => r.GetAllByStatusAsync(It.IsAny<TournamentStatus?>()),
+            Times.Never);
+    }
+
     [Fact]
     public async Task GetEloHistoryAsync_UserNotFound_ThrowsNotFound()
     {
@@ -1835,7 +1970,11 @@ public class TournamentServiceTests
         var ex = await Assert.ThrowsAsync<BadRequestException>(
             () => svc.SetRoundPairingsAsync(ManagerId, TournamentId, request));
 
-        Assert.Contains(outsider.ToString(), ex.Message);
+        Assert.NotNull(ex);
+        Assert.NotNull(ex.Message);
+        // Diagnostic: print full exception message
+        Assert.True(ex.Message.Contains(outsider.ToString()),
+            $"Expected outsider GUID '{outsider}' in message: {ex.Message}");
     }
 
     [Fact]
@@ -1969,19 +2108,21 @@ public class TournamentServiceTests
         var karmaRepo = BuildKarmaRepo();
 
         var tournament = BuildOnGoingTournament();
-        // F15: Set matches đã có ở round hiện tại → throw ConflictException
+        tournament.CurrentRound = 1;
         tournament.Matches = new List<TournamentMatchBracket>
         {
-            new() { Id = Guid.NewGuid(), TournamentId = TournamentId, RoundNumber = 1, MatchNumber = 1 }
+            new() { Id = Guid.NewGuid(), TournamentId = TournamentId, RoundNumber = 1, MatchNumber = 1, Status = TournamentMatchStatus.OnGoing }
         };
 
         cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
         tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
-        await Assert.ThrowsAsync<ConflictException>(
+        var ex = await Assert.ThrowsAsync<ConflictException>(
             () => svc.SetPairingModeAsync(ManagerId, TournamentId, TournamentPairingMode.Manual));
+        Assert.NotNull(ex);
     }
 
     [Fact]
@@ -2250,16 +2391,18 @@ public class TournamentServiceTests
         tournament.CurrentRound = 1;
         tournament.Matches = new List<TournamentMatchBracket>
         {
-            new() { Id = Guid.NewGuid(), TournamentId = TournamentId, RoundNumber = 1, MatchNumber = 1 }
+            new() { Id = Guid.NewGuid(), TournamentId = TournamentId, RoundNumber = 1, MatchNumber = 1, Status = TournamentMatchStatus.OnGoing }
         };
 
         cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
         tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
-        await Assert.ThrowsAsync<ConflictException>(
+        var ex = await Assert.ThrowsAsync<ConflictException>(
             () => svc.SetPairingModeAsync(ManagerId, TournamentId, TournamentPairingMode.Manual));
+        Assert.NotNull(ex);
     }
 
     // ============================================

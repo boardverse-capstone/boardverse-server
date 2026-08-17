@@ -23,6 +23,16 @@ public interface ITournamentService
     // === Queries ===
     Task<TournamentResponseDto> GetTournamentAsync(Guid tournamentId, Guid? currentUserId);
     Task<IReadOnlyList<TournamentResponseDto>> GetOpenTournamentsAsync(Guid? currentUserId);
+
+    /// <summary>
+    /// Lấy danh sách tournament có thể lọc theo status.
+    /// - status = null → lấy tất cả (mọi status) để frontend tự filter.
+    /// - status = "RegistrationOpen" → trả danh sách đang mở đăng ký (giống <see cref="GetOpenTournamentsAsync"/> nhưng có Validate trước).
+    /// - status = "all" → cũng trả tất cả.
+    /// Status hợp lệ: Draft, RegistrationOpen, RegistrationClosed, OnGoing, Completed, Cancelled (case-insensitive).
+    /// </summary>
+    Task<IReadOnlyList<TournamentResponseDto>> GetTournamentsAsync(Guid? currentUserId, string? status);
+
     Task<IReadOnlyList<TournamentResponseDto>> GetCafeTournamentsAsync(Guid cafeId, Guid? currentUserId, string? status);
 
     // === Player: Register / Withdraw / Check-in ===

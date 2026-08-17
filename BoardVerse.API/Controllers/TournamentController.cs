@@ -44,6 +44,24 @@ public class TournamentController : BaseApiController
     }
 
     /// <summary>
+    /// Lấy danh sách tournament với filter status optional. [Role: Player]
+    /// Nếu không truyền status hoặc truyền "all" → trả tất cả tournament (mọi status).
+    /// Frontend dùng query param để tự hiển thị theo filter (Đang mở / Đang diễn ra / Đã kết thúc / Đã hủy, v.v.).
+    /// </summary>
+    /// <param name="status">Lọc theo TournamentStatus (Draft, RegistrationOpen, RegistrationClosed, OnGoing, Completed, Cancelled). Case-insensitive. Để trống hoặc "all" để lấy tất cả.</param>
+    /// <response code="200">Danh sách tournament (đã filter nếu có status).</response>
+    /// <response code="400">Status không hợp lệ.</response>
+    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+    [HttpGet]
+    public async Task<IActionResult> GetTournaments([FromQuery] string? status = null)
+    {
+        var userId = GetUserIdFromClaims();
+        var result = await _tournamentService.GetTournamentsAsync(userId, status);
+        return this.NewResponse(200, ApiSuccessMessages.Tournament.ListRetrieved, result);
+    }
+
+    /// <summary>
     /// Lấy thông tin chi tiết một giải đấu. [Role: Player]
     /// </summary>
     /// <param name="tournamentId">Mã giải đấu.</param>

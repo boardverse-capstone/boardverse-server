@@ -8,8 +8,10 @@ using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
 using BoardVerse.Data;
+using BoardVerse.Services.Helpers;
 using BoardVerse.Services.IServices;
 using GeoHelper = BoardVerse.Core.Helpers.GeoLocationHelper;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
@@ -52,6 +54,8 @@ namespace BoardVerse.Services.Services
         private readonly EligibilityValidator _eligibilityValidator;
         private readonly IUserProfileService _userProfileService;
         private readonly ILogger<LobbyService> _logger;
+        private readonly ISystemConfigurationProvider _configProvider;
+        private readonly IHttpContextAccessor _httpContextAccessor;
         private const int ExpRewardPerCompletedLobby = 10; // K-04: exp reward for completing a lobby session
 
         public LobbyService(
@@ -72,7 +76,9 @@ namespace BoardVerse.Services.Services
             BoardVerseDbContext db,
             EligibilityValidator eligibilityValidator,
             IUserProfileService userProfileService,
-            ILogger<LobbyService> logger)
+ILogger<LobbyService> logger,
+            ISystemConfigurationProvider configProvider = null!,
+            IHttpContextAccessor httpContextAccessor = null!)
         {
             _lobbyRepository = lobbyRepository;
             _gameTemplateRepository = gameTemplateRepository;
@@ -92,6 +98,8 @@ namespace BoardVerse.Services.Services
             _eligibilityValidator = eligibilityValidator;
             _userProfileService = userProfileService;
             _logger = logger;
+            _configProvider = configProvider;
+            _httpContextAccessor = httpContextAccessor;
         }
 
         public async Task<LobbyResponseDto> CreateLobbyAsync(Guid hostUserId, CreateLobbyRequestDto request)
@@ -290,7 +298,12 @@ namespace BoardVerse.Services.Services
                 }
 
                 // BR-LOBBY-01: chặn join sau recruitmentDeadline.
-                if (lobby.RecruitmentDeadline.HasValue && now > lobby.RecruitmentDeadline.Value)
+                var bypassLobbyDeadline = await TimeWindowGuard.ShouldBypassAsync(
+                    _httpContextAccessor?.HttpContext, _configProvider, _logger,
+                    operation: "Lobby.JoinDeadline", entityId: lobby.Id);
+                if (!bypassLobbyDeadline
+                    && lobby.RecruitmentDeadline.HasValue
+                    && now > lobby.RecruitmentDeadline.Value)
                 {
                     throw new ConflictException(ApiErrorMessages.Reservation.LobbyExpired);
                 }
@@ -412,6 +425,15 @@ namespace BoardVerse.Services.Services
         /// </summary>
         private async Task ValidateMemberEligibilityAsync(Guid userId, Lobby lobby, DateTime now)
         {
+            // BR-DEMO-01: demo mode → skip toàn bộ user-limit checks (BR-USER-LIMIT-01/04/05).
+            var bypassDemo = await DemoGuard.ShouldBypassDemoLocksAsync(
+                _httpContextAccessor?.HttpContext, _configProvider, _logger,
+                operation: "Lobby.ValidateMemberEligibility", entityId: userId);
+            if (bypassDemo)
+            {
+                return;
+            }
+
             var activeHostLobbies = await _lobbyRepository.GetActiveLobbiesByHostAsync(userId);
             var activeMemberLobbies = await _lobbyRepository.GetActiveLobbiesByMemberAsync(userId);
 
@@ -1583,7 +1605,10 @@ namespace BoardVerse.Services.Services
 
             // BR-LOBBY-01b: Buffer phải >= 60 phút
             var bufferMinutes = (newDeadline - now).TotalMinutes;
-            if (bufferMinutes < 60)
+            var bypassLobbyBuffer = await TimeWindowGuard.ShouldBypassAsync(
+                _httpContextAccessor?.HttpContext, _configProvider, _logger,
+                operation: "Lobby.TimeSlotChangeBuffer", entityId: lobby.Id);
+            if (!bypassLobbyBuffer && bufferMinutes < 60)
             {
                 throw new BadRequestException(
                     ApiErrorMessages.Lobby.BufferTooShortForTimeSlotChange((int)bufferMinutes));

@@ -36,29 +36,29 @@ public class TimeSlotService : ITimeSlotService
             new()
             {
                 Slot = nameof(TimeSlot.Morning),
-                DisplayName = "SÃ¡ng",
+                DisplayName = "Sáng",
                 DefaultStartTime = CafeSchedule.GetStartTime(TimeSlot.Morning),
                 DefaultEndTime = CafeSchedule.GetEndTime(TimeSlot.Morning),
                 DurationMinutes = CafeSchedule.GetDurationMinutes(TimeSlot.Morning),
-                Description = "PhiÃªn sÃ¡ng (06:00 â€“ 12:00)"
+                Description = "Phiên sáng (06:00 – 12:00)"
             },
             new()
             {
                 Slot = nameof(TimeSlot.Afternoon),
-                DisplayName = "Chiá»u",
+                DisplayName = "Chiều",
                 DefaultStartTime = CafeSchedule.GetStartTime(TimeSlot.Afternoon),
                 DefaultEndTime = CafeSchedule.GetEndTime(TimeSlot.Afternoon),
                 DurationMinutes = CafeSchedule.GetDurationMinutes(TimeSlot.Afternoon),
-                Description = "PhiÃªn chiá»u (12:00 â€“ 17:00)"
+                Description = "Phiên chiều (12:00 – 17:00)"
             },
             new()
             {
                 Slot = nameof(TimeSlot.Evening),
-                DisplayName = "Tá»‘i",
+                DisplayName = "Tối",
                 DefaultStartTime = CafeSchedule.GetStartTime(TimeSlot.Evening),
                 DefaultEndTime = CafeSchedule.GetEndTime(TimeSlot.Evening),
                 DurationMinutes = CafeSchedule.GetDurationMinutes(TimeSlot.Evening),
-                Description = "PhiÃªn tá»‘i (17:00 â€“ 23:00)"
+                Description = "Phiên tối (17:00 – 23:00)"
             },
             new()
             {
@@ -67,7 +67,7 @@ public class TimeSlotService : ITimeSlotService
                 DefaultStartTime = CafeSchedule.GetStartTime(TimeSlot.LateNight),
                 DefaultEndTime = CafeSchedule.GetEndTime(TimeSlot.LateNight),
                 DurationMinutes = CafeSchedule.GetDurationMinutes(TimeSlot.LateNight),
-                Description = "PhiÃªn khuya qua Ä‘Ãªm (23:00 â€“ 06:00 hÃ´m sau)"
+                Description = "Phiên khuya qua đêm (23:00 – 06:00 hôm sau)"
             }
         };
 

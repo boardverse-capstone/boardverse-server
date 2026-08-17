@@ -32,6 +32,14 @@ public interface IReservationRepository
     Task<IReadOnlyList<Reservation>> GetJoinedByUserAsync(Guid userId);
 
     /// <summary>
+    /// Lấy reservation overlap với [startTime, endTime] cho 1 cafe.
+    /// Dùng cho CafeBookingService.GetAvailabilityAsync (Flow B) để tính capacity chính xác
+    /// khi cả Flow A (Reservation) và Flow B (Booking) cùng giữ ghế.
+    /// </summary>
+    Task<IReadOnlyList<Reservation>> GetOverlappingReservationsAsync(
+        Guid cafeId, DateTime startTime, DateTime endTime);
+
+    /// <summary>
     /// BR §21A.5: lấy các reservation đang Holding mà recruitmentDeadline ≤ cutoff.
     /// Dùng cho RecruitmentDeadlineJob.
     /// </summary>

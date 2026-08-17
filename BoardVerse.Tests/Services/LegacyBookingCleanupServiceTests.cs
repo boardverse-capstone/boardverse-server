@@ -441,6 +441,7 @@ public class LegacyBookingCleanupServiceTests : IDisposable
 
         SeedStalePendingDeposit(BookingStatus.PendingDeposit, hoursAgo: 1);
         SeedStalePendingDeposit(BookingStatus.PendingDeposit, hoursAgo: 2);
+        await _db.SaveChangesAsync();
 
         var beforeRun = service.GetLastRunMetrics();
         Assert.Equal(0, beforeRun.TotalRuns);

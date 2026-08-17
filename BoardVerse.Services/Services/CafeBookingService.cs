@@ -10,7 +10,7 @@ namespace BoardVerse.Services.Services;
 
 /// <summary>
 /// Triển khai các API booking cho mobile Player (booking-payment-gaps.md #1, #2).
-/// Read-only: không mutate state. Chỉ query Booking + ActiveSession để tính capacity.
+/// Read-only: không mutate state. Query Booking + ActiveSession + Reservation + WalkIn để tính capacity.
 /// </summary>
 public class CafeBookingService : ICafeBookingService
 {
@@ -19,19 +19,25 @@ public class CafeBookingService : ICafeBookingService
     private readonly IBookingRepository _bookingRepository;
     private readonly IActiveSessionRepository _activeSessionRepository;
     private readonly ICafePosRepository _posRepository;
+    private readonly IReservationRepository _reservationRepository;
+    private readonly IWalkInWindowRepository _walkInWindowRepository;
 
     public CafeBookingService(
         ICafeRepository cafeRepository,
         ICafeTableRepository cafeTableRepository,
         IBookingRepository bookingRepository,
         IActiveSessionRepository activeSessionRepository,
-        ICafePosRepository posRepository)
+        ICafePosRepository posRepository,
+        IReservationRepository reservationRepository,
+        IWalkInWindowRepository walkInWindowRepository)
     {
         _cafeRepository = cafeRepository;
         _cafeTableRepository = cafeTableRepository;
         _bookingRepository = bookingRepository;
         _activeSessionRepository = activeSessionRepository;
         _posRepository = posRepository;
+        _reservationRepository = reservationRepository;
+        _walkInWindowRepository = walkInWindowRepository;
     }
 
     public async Task<IReadOnlyList<AvailableCafeTableDto>> GetAvailableTablesAsync(
@@ -127,7 +133,25 @@ public class CafeBookingService : ICafeBookingService
             .Where(s => s.CafeTableId.HasValue)
             .Sum(s => tables.FirstOrDefault(t => t.Id == s.CafeTableId)?.SeatCount ?? 0);
 
-        var availableSeats = Math.Max(0, totalSeats - bookedSeats - sessionSeats);
+        // Flow A — Reservation: giữ ghế qua SeatInventory.HeldSeats (đã được ReservationService
+        // trừ khi ConfirmAsync), không liên quan tới CafeTable. Đếm overlap từ Reservation entity.
+        var overlappingReservations = await _reservationRepository.GetOverlappingReservationsAsync(
+            cafeId, startTime, endTime);
+        var reservationHeldSeats = overlappingReservations
+            .Where(r => r.Status == ReservationStatus.Holding
+                     || r.Status == ReservationStatus.Confirmed
+                     || r.Status == ReservationStatus.AwaitingDeposit)
+            .Sum(r => r.MaxPlayers);
+
+        // WalkIn giữ ghế qua WalkInWindow.HeldSeats.
+        var overlappingWindows = await _walkInWindowRepository.GetOverlappingAsync(
+            cafeId, startTime, endTime);
+        var walkInHeldSeats = overlappingWindows
+            .Where(w => w.Status == WalkInWindowStatus.Available || w.Status == WalkInWindowStatus.Full)
+            .Sum(w => w.HeldSeats);
+
+        var availableSeats = Math.Max(0,
+            totalSeats - bookedSeats - sessionSeats - reservationHeldSeats - walkInHeldSeats);
         var hasCapacity = availableSeats >= seatCount;
 
         // Game box count nếu có filter gameTemplateId.
@@ -151,11 +175,26 @@ public class CafeBookingService : ICafeBookingService
             var altEnd = altStart.Add(duration);
             var altBookings = await _bookingRepository.GetOverlappingBookingsAsync(cafeId, altStart, altEnd);
             var altSessions = await _activeSessionRepository.GetActiveSessionsAsync(cafeId, null);
+            var altReservations = await _reservationRepository.GetOverlappingReservationsAsync(
+                cafeId, altStart, altEnd);
+            var altWindows = await _walkInWindowRepository.GetOverlappingAsync(
+                cafeId, altStart, altEnd);
+
             var altBookedSeats = altBookings.Sum(b => b.PlayerQuantity);
             var altSessionSeats = altSessions
                 .Where(s => s.CafeTableId.HasValue)
                 .Sum(s => tables.FirstOrDefault(t => t.Id == s.CafeTableId)?.SeatCount ?? 0);
-            var altAvailable = Math.Max(0, totalSeats - altBookedSeats - altSessionSeats);
+            var altReservationSeats = altReservations
+                .Where(r => r.Status == ReservationStatus.Holding
+                         || r.Status == ReservationStatus.Confirmed
+                         || r.Status == ReservationStatus.AwaitingDeposit)
+                .Sum(r => r.MaxPlayers);
+            var altWalkInSeats = altWindows
+                .Where(w => w.Status == WalkInWindowStatus.Available || w.Status == WalkInWindowStatus.Full)
+                .Sum(w => w.HeldSeats);
+
+            var altAvailable = Math.Max(0,
+                totalSeats - altBookedSeats - altSessionSeats - altReservationSeats - altWalkInSeats);
             if (altAvailable >= seatCount)
             {
                 altSlots.Add(new CafeAvailabilitySlotDto

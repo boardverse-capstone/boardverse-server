@@ -2,7 +2,10 @@ using BoardVerse.Core.DTOs.Reservation;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.Messages;
+using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 
 namespace BoardVerse.Tests.Services;
 
@@ -177,7 +180,7 @@ public class EligibilityValidatorTests
 
         // Act + Assert
         var ex = Assert.Throws<ForbiddenException>(() => _validator.ValidateMemberCanJoin(ctx));
-        Assert.Equal(ApiErrorMessages.Reservation.MemberCannotCreateLobby, ex.Message);
+        Assert.Equal(ApiErrorMessages.Reservation.TotalLobbyLimitReached, ex.Message);
     }
 
     [Fact]
@@ -199,5 +202,71 @@ public class EligibilityValidatorTests
 
         // Act + Assert
         _validator.ValidateMemberCanJoin(ctx);
+    }
+
+    // ===== BR-DEMO-01: Demo mode bypass =====
+    [Fact]
+    public async Task ValidateHostCanCreateAsync_Should_BypassAllLimits_When_DemoModeOn()
+    {
+        // Arrange: đầy đủ cờ sẽ throw bình thường — host có 1 lobby + member 1 lobby
+        // + max-create-or-cancel đạt giới hạn. Demo mode → tất cả skip.
+        var ctx = BuildHostContext(
+            hasActiveHostLobby: true,
+            hasActiveMemberLobby: true);
+        ctx.HostCreateOrCancelCount = 10; // > 5
+        ctx.WalletHeldBalance = 600_000; // > 500k thường
+
+        var configProvider = new Mock<ISystemConfigurationProvider>();
+        configProvider
+            .Setup(p => p.GetStringAsync("demo_loosen_lobby_constraints", "false"))
+            .ReturnsAsync("true");
+
+        // Act + Assert: KHÔNG throw
+        await _validator.ValidateHostCanCreateAsync(
+            ctx,
+            httpContextAccessor: null,
+            configProvider.Object,
+            NullLogger.Instance);
+    }
+
+    [Fact]
+    public async Task ValidateMemberCanJoinAsync_Should_BypassAllLimits_When_DemoModeOn()
+    {
+        // Arrange: member đã có 1 lobby active + host có 1 lobby → BR-USER-LIMIT-01 đạt max 2.
+        var ctx = BuildMemberContext(
+            hasActiveHostLobby: true,
+            activeMemberLobbyCount: 1);
+
+        var configProvider = new Mock<ISystemConfigurationProvider>();
+        configProvider
+            .Setup(p => p.GetStringAsync("demo_loosen_lobby_constraints", "false"))
+            .ReturnsAsync("true");
+
+        // Act + Assert: KHÔNG throw
+        await _validator.ValidateMemberCanJoinAsync(
+            ctx,
+            httpContextAccessor: null,
+            configProvider.Object,
+            NullLogger.Instance);
+    }
+
+    [Fact]
+    public async Task ValidateHostCanCreateAsync_Should_StillThrow_When_DemoModeOff()
+    {
+        // Arrange: control — demo mode OFF → vẫn throw bình thường.
+        var ctx = BuildHostContext(hasActiveHostLobby: true);
+
+        var configProvider = new Mock<ISystemConfigurationProvider>();
+        configProvider
+            .Setup(p => p.GetStringAsync("demo_loosen_lobby_constraints", "false"))
+            .ReturnsAsync("false");
+
+        // Act + Assert
+        await Assert.ThrowsAsync<ForbiddenException>(() =>
+            _validator.ValidateHostCanCreateAsync(
+                ctx,
+                httpContextAccessor: null,
+                configProvider.Object,
+                NullLogger.Instance));
     }
 }

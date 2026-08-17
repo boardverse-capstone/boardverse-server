@@ -26,6 +26,7 @@ using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using BoardVerse.Core.DTOs.Common;
 using BoardVerse.Core.Json;
+using BoardVerse.Core.Messages;
 using BoardVerse.Core.Settings;
 using System.Reflection;
 using Microsoft.Extensions.FileProviders;
@@ -346,6 +347,48 @@ builder.Services.AddControllers(options =>
     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
     options.JsonSerializerOptions.Converters.Add(new FlexibleDateOnlyJsonConverter());
     options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+});
+
+// [ApiController] auto-trả về ValidationProblemDetails (English) với shape { type, title, status, errors, traceId }.
+// Bắt response đó NGAY TRƯỚC khi nó escape ra client → chuyển sang ApiResponse shape + message tiếng Việt
+// từ ApiErrorMessages.Validation để UI parse được và người dùng hiểu được.
+// Chi tiết field-level vẫn được giữ trong Data để FE/dev debug.
+builder.Services.Configure<ApiBehaviorOptions>(options =>
+{
+ options.InvalidModelStateResponseFactory = context =>
+ {
+ var errors = context.ModelState
+ .Where(kvp => kvp.Value!.Errors.Count > 0)
+ .ToDictionary(
+ kvp => kvp.Key,
+ kvp => kvp.Value!.Errors.Select(e => e.ErrorMessage).ToArray());
+
+ var path = context.HttpContext.Request.Path.Value ?? string.Empty;
+ var firstField = errors.Keys.FirstOrDefault() ?? string.Empty;
+ var firstError = errors.Values.FirstOrDefault()?.FirstOrDefault() ?? string.Empty;
+
+ // 1) Thử lookup message cụ thể cho Reservation flow fields (PreferredEndTime, TimeSlot, ...).
+ // 2) Nếu không khớp domain đặc biệt nào → fallback FieldValidationFailed (generic per-field).
+ // 3) Nếu không extract được field name → GenericValidationFailed.
+ var specificMessage = ApiErrorMessages.Validation.GetReservationFieldMessage(firstField, firstError);
+ var friendlyMessage = specificMessage
+ ?? (string.IsNullOrEmpty(firstField)
+ ? ApiErrorMessages.Validation.GenericValidationFailed
+ : ApiErrorMessages.Validation.FieldValidationFailed(firstField, errors.Count));
+
+ return new BadRequestObjectResult(new ApiResponse
+ {
+ StatusCode = StatusCodes.Status400BadRequest,
+ Message = friendlyMessage,
+ Data = new
+ {
+ fields = errors,
+ path,
+ },
+ Timestamp = DateTime.UtcNow,
+ Path = path,
+ });
+ };
 });
 
 // Add Rate Limiting

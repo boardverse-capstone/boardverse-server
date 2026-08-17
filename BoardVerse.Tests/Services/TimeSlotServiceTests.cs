@@ -12,7 +12,7 @@ using Moq;
 namespace BoardVerse.Tests.Services;
 
 /// <summary>
-/// Unit tests cho <see cref="TimeSlotService"/> â€” quáº£n lÃ½ TimeSlot máº·c Ä‘á»‹nh + override theo cafe.
+/// Unit tests cho <see cref="TimeSlotService"/> â€” quáº£n lÃ½ TimeSlot máº·c đờ‹nh + override theo cafe.
 /// </summary>
 public class TimeSlotServiceTests
 {
@@ -103,9 +103,9 @@ public class TimeSlotServiceTests
 
         var result = await svc.GetDefaultTimeSlotsAsync();
 
-        Assert.Contains("SÃ¡ng", result.Single(s => s.Slot == nameof(TimeSlot.Morning)).DisplayName);
-        Assert.Contains("Chiá»u", result.Single(s => s.Slot == nameof(TimeSlot.Afternoon)).DisplayName);
-        Assert.Contains("Tá»‘i", result.Single(s => s.Slot == nameof(TimeSlot.Evening)).DisplayName);
+        Assert.Contains("Sáng", result.Single(s => s.Slot == nameof(TimeSlot.Morning)).DisplayName);
+        Assert.Contains("Chiều", result.Single(s => s.Slot == nameof(TimeSlot.Afternoon)).DisplayName);
+        Assert.Contains("Tối", result.Single(s => s.Slot == nameof(TimeSlot.Evening)).DisplayName);
         Assert.Contains("Khuya", result.Single(s => s.Slot == nameof(TimeSlot.LateNight)).DisplayName);
     }
 
@@ -368,7 +368,7 @@ public class TimeSlotServiceTests
         var ex = await Assert.ThrowsAsync<BadRequestException>(() =>
             svc.CreateOverrideAsync(cafeId, managerId, request));
 
-        Assert.Contains("Giá» báº¯t Ä‘áº§u", ex.Message);
+        Assert.Contains("Giờ bắt đầu", ex.Message);
     }
 
     [Fact]
@@ -418,7 +418,7 @@ public class TimeSlotServiceTests
         var ex = await Assert.ThrowsAsync<ConflictException>(() =>
             svc.CreateOverrideAsync(cafeId, managerId, request));
 
-        Assert.Contains("Ä‘Ã£ cÃ³ override", ex.Message);
+        Assert.Contains("đã có override", ex.Message);
     }
 
     [Fact]
@@ -708,7 +708,7 @@ public class TimeSlotServiceTests
     {
         var cafeId = Guid.NewGuid();
         var managerId = Guid.NewGuid();
-        // Override Ä‘Ã£ tá»“n táº¡i vá»›i IsClosed=true (Ä‘Ã£ Ä‘Ã³ng tá»« trÆ°á»›c).
+        // Override đÃ£ tờ“n táº¡i vờ›i IsClosed=true (đÃ£ đÃ³ng tờ« trÆ°ờ›c).
         var existing = BuildOverride(cafeId, TimeSlot.Morning, new TimeOnly(7, 0), new TimeOnly(13, 0), isClosed: true);
         _cafeRepo.Setup(r => r.GetByIdAsync(cafeId)).ReturnsAsync(BuildCafe(cafeId, managerId));
         _cafeRepo.Setup(r => r.GetCafesByManagerIdAsync(managerId))
@@ -720,7 +720,7 @@ public class TimeSlotServiceTests
 
         var request = new UpdateTimeSlotOverrideRequestDto
         {
-            IsClosed = false  // Manager muá»‘n má»Ÿ láº¡i slot
+            IsClosed = false  // Manager muờ‘n mờŸ láº¡i slot
         };
 
         var result = await svc.UpdateOverrideAsync(cafeId, managerId, "Morning", request);
@@ -829,7 +829,7 @@ public class TimeSlotServiceTests
 
         var svc = CreateService();
 
-        // Idempotent: gá»i delete dÃ¹ chÆ°a cÃ³ override váº«n thÃ nh cÃ´ng.
+        // Idempotent: gời delete dÃ¹ chÆ°a cÃ³ override váº«n thÃ nh cÃ´ng.
         await svc.DeleteOverrideAsync(cafeId, managerId, "Evening");
 
         _overrideRepo.Verify(r => r.DeleteAsync(cafeId, TimeSlot.Evening), Times.Once);

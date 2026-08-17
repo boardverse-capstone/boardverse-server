@@ -6,7 +6,9 @@ using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
 using BoardVerse.Data;
+using BoardVerse.Services.Helpers;
 using BoardVerse.Services.IServices;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -28,6 +30,8 @@ public class PlayerCheckInService : IPlayerCheckInService
     private readonly ICafePosService _posService;
     private readonly BoardVerseDbContext _db;
     private readonly ILogger<PlayerCheckInService> _logger;
+    private readonly ISystemConfigurationProvider _configProvider;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
     public PlayerCheckInService(
         IPosCheckInTokenRepository tokenRepository,
@@ -35,7 +39,9 @@ public class PlayerCheckInService : IPlayerCheckInService
         ILobbyRepository lobbyRepository,
         ICafePosService posService,
         BoardVerseDbContext db,
-        ILogger<PlayerCheckInService> logger)
+        ILogger<PlayerCheckInService> logger,
+        ISystemConfigurationProvider configProvider = null!,
+        IHttpContextAccessor httpContextAccessor = null!)
     {
         _tokenRepository = tokenRepository;
         _reservationRepository = reservationRepository;
@@ -43,6 +49,8 @@ public class PlayerCheckInService : IPlayerCheckInService
         _posService = posService;
         _db = db;
         _logger = logger;
+        _configProvider = configProvider;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     public async Task<PlayerScanTokenResponseDto> CheckInByTokenAsync(
@@ -134,7 +142,10 @@ public class PlayerCheckInService : IPlayerCheckInService
                 ApiErrorMessages.ReservationExtension.CheckInMissingScheduledEndTime(reservation.Id));
         var windowStart = scheduledStart.AddHours(-1);
         var windowEnd = scheduledEnd.AddMinutes(30);
-        if (now < windowStart || now > windowEnd)
+        var bypassCheckInWindow = await TimeWindowGuard.ShouldBypassAsync(
+            _httpContextAccessor?.HttpContext, _configProvider, _logger,
+            operation: "PlayerCheckIn.Window", entityId: reservation.Id);
+        if (!bypassCheckInWindow && (now < windowStart || now > windowEnd))
         {
             throw new ConflictException(
                 ApiErrorMessages.Reservation.CheckInTimeWindowInvalid(

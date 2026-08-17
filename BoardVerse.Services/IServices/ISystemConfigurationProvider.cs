@@ -4,6 +4,7 @@ namespace BoardVerse.Services.IServices
     {
         Task<int> GetIntAsync(string key, int fallback);
         Task<double> GetDoubleAsync(string key, double fallback);
+        Task<bool> GetBoolAsync(string key, bool fallback);
         Task<string> GetStringAsync(string key, string fallback);
         Task InvalidateCacheAsync();
     }

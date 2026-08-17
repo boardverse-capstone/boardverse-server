@@ -1,4 +1,4 @@
-﻿using BoardVerse.Core.Data;
+using BoardVerse.Core.Data;
 using BoardVerse.Core.DTOs.Tournament;
 using BoardVerse.Core.DTOs.Admin;
 using BoardVerse.Core.Entities;
@@ -7,7 +7,9 @@ using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
+using BoardVerse.Services.Helpers;
 using BoardVerse.Services.IServices;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -25,6 +27,7 @@ public class TournamentService : ITournamentService
     private readonly IKarmaRatingRepository _karmaRatingRepository;
     private readonly IPushNotificationService _pushNotificationService;
     private readonly ILogger<TournamentService> _logger;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
     public TournamentService(
         ITournamentRepository tournamentRepository,
@@ -36,7 +39,8 @@ public class TournamentService : ITournamentService
         ISystemConfigurationProvider systemConfigurationProvider,
         IKarmaRatingRepository karmaRatingRepository,
         IPushNotificationService pushNotificationService,
-        ILogger<TournamentService> logger)
+        ILogger<TournamentService> logger,
+        IHttpContextAccessor httpContextAccessor = null!)
     {
         _tournamentRepository = tournamentRepository;
         _waitlistRepository = waitlistRepository;
@@ -48,6 +52,7 @@ public class TournamentService : ITournamentService
         _karmaRatingRepository = karmaRatingRepository;
         _pushNotificationService = pushNotificationService;
         _logger = logger;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     // ====================================================================
@@ -80,7 +85,10 @@ public class TournamentService : ITournamentService
             ?? request.StartTime.AddHours(-24);
 
         // P2 Fix #12: Ensure deadline is not in the past
-        if (deadline <= now)
+        if (deadline <= now
+            && !await TimeWindowGuard.ShouldBypassAsync(
+                _httpContextAccessor?.HttpContext, _systemConfigurationProvider, _logger,
+                operation: "Tournament.CreateDeadlinePast", entityId: null))
         {
             throw new BadRequestException(
                 ApiErrorMessages.Tournament.RegistrationDeadlineInPast(deadline));
@@ -170,7 +178,10 @@ public class TournamentService : ITournamentService
             // Khi RegistrationOpen rá»“i, StartTime cÃ³ thá»ƒ Ä‘Ã£ qua nhÆ°ng tournament chÆ°a start
             // â†’ váº«n cho phÃ©p dá»i sang ngÃ y future khÃ¡c.
             if (tournament.Status == TournamentStatus.Draft
-                && request.StartTime.Value <= DateTime.UtcNow)
+                && request.StartTime.Value <= DateTime.UtcNow
+                && !await TimeWindowGuard.ShouldBypassAsync(
+                    _httpContextAccessor?.HttpContext, _systemConfigurationProvider, _logger,
+                    operation: "Tournament.StartTimeFuture", entityId: tournament.Id))
             {
                 throw new BadRequestException(ApiErrorMessages.Tournament.StartTimeMustBeFuture);
             }
@@ -673,6 +684,36 @@ public class TournamentService : ITournamentService
     public async Task<IReadOnlyList<TournamentResponseDto>> GetOpenTournamentsAsync(Guid? currentUserId)
     {
         var tournaments = await _tournamentRepository.GetAllOpenAsync();
+        var responses = new List<TournamentResponseDto>();
+        foreach (var t in tournaments)
+        {
+            responses.Add(await BuildResponseAsync(t, currentUserId));
+        }
+        return responses;
+    }
+
+    public async Task<IReadOnlyList<TournamentResponseDto>> GetTournamentsAsync(Guid? currentUserId, string? status)
+    {
+        // Hỗ trợ 3 trường hợp của FE:
+        // - status = null / "" → lấy tất cả (frontend tự filter).
+        // - status = "all" → lấy tất cả (giống null).
+        // - status = "<enum-name>" → parse TournamentStatus.
+        TournamentStatus? statusEnum = null;
+
+        if (!string.IsNullOrWhiteSpace(status)
+            && !string.Equals(status, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!Enum.TryParse<TournamentStatus>(status, ignoreCase: true, out var parsed))
+            {
+                throw new BadRequestException(
+                    ApiErrorMessages.Tournament.InvalidStatusFilter(
+                        status,
+                        "Draft, RegistrationOpen, RegistrationClosed, OnGoing, Completed hoặc Cancelled"));
+            }
+            statusEnum = parsed;
+        }
+
+        var tournaments = await _tournamentRepository.GetAllByStatusAsync(statusEnum);
         var responses = new List<TournamentResponseDto>();
         foreach (var t in tournaments)
         {
@@ -2868,12 +2909,12 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
             if (orderedParticipants.Count < 4)
             {
-                warnings.Add($"Sá»‘ ngÆ°á»i chÆ¡i ({orderedParticipants.Count}) dÆ°á»›i 4 â€” khÃ´ng Ä‘á»§ Ä‘á»ƒ táº¡o bÃ n Splendor há»£p lá»‡.");
+                warnings.Add($"Số người chơi ({orderedParticipants.Count}) dưới 4 — không đủ để tạo bàn Splendor hợp lệ.");
             }
             else if (orderedParticipants.Count % 4 != 0)
             {
                 var remainder = orderedParticipants.Count % 4;
-                warnings.Add($"Sá»‘ ngÆ°á»i chÆ¡i ({orderedParticipants.Count}) khÃ´ng chia háº¿t cho 4. BÃ n cuá»‘i sáº½ cÃ³ {remainder} ngÆ°á»i â€” nÃªn dÃ¹ng Manual mode Ä‘á»ƒ sáº¯p xáº¿p láº¡i.");
+                warnings.Add($"Số người chơi ({orderedParticipants.Count}) không chia hết cho 4. Bàn cuối sẽ có {remainder} người — nên dùng Manual mode để sắp xếp lại.");
             }
 
             return new RoundPairingsResponseDto
@@ -2895,7 +2936,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
         if (topFinalists.Count < tournament.FinalistCount)
         {
-            warnings.Add($"Chá»‰ cÃ³ {topFinalists.Count} ngÆ°á»i chÆ¡i Active, khÃ´ng Ä‘á»§ {tournament.FinalistCount} cho bÃ n chung káº¿t.");
+            warnings.Add($"Chỉ có {topFinalists.Count} người chơi Active, không đủ {tournament.FinalistCount} cho bàn chung kết.");
         }
 
         var finalPairings = new List<ManualPairingDto>

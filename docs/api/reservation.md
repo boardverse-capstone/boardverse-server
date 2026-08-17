@@ -930,6 +930,62 @@ Retry với cùng `idempotencyKey` trả cùng kết quả. Server check `Reserv
 
 ---
 
+## Bypass time-window (Dev/QA convenience)
+
+BoardVerse cung cấp cờ bypass cho phép Dev/QA test các ràng buộc thời gian mà không bị chặn bởi deadline thực tế.
+
+### Áp dụng cho các endpoint sau
+
+| Endpoint | Check bị bypass | Operation key |
+|----------|-----------------|---------------|
+| `POST /confirm`, `POST /quote` | Time-slot buffer, deadline past | `Lobby.*` |
+| `POST /{id}/check-in` (POS) | Check-in window (± grace) | `PlayerCheckIn.Window`, `Reservation.CheckInWindow` |
+| `POST /{id}/cancel` | Refund milestones (24h/6h → 100% always) | `Reservation.RefundMilestone` |
+| `POST /{id}/cancel-after-checkin` | playedRatio thresholds | `Reservation.RefundMilestone` |
+| (background) `ReservationNoShowDetectionJob` | No-show detection grace | `ReservationNoShowDetectionJob` |
+
+### Ba cách bật bypass (ưu tiên từ cao xuống thấp)
+
+1. **HTTP header** `X-Bypass-Time-Window: true` — chỉ áp dụng cho 1 request.
+2. **Query string** `?bypassTimeWindow=true` — chỉ áp dụng cho 1 request.
+3. **DB config** `bypass_time_window_validations=true` — áp dụng toàn cục sau ≤ 10s.
+
+### Ví dụ
+
+```bash
+# Bật bypass toàn cục (cần Admin role)
+curl -X POST https://api.boardverse.dev/api/v1/admin/configs/bypass-time-window \
+  -H "Authorization: Bearer <admin-token>"
+
+# Sau đó test check-in ngoài khung giờ thoải mái
+curl -X POST https://api.boardverse.dev/api/v1/reservations/{id}/check-in \
+  -H "Authorization: Bearer <staff-token>" \
+  -H "Content-Type: application/json" \
+  -d '{ "arrivedMemberIds": [...] }'
+
+# Hoặc dùng header cho 1 request duy nhất
+curl -X POST https://api.boardverse.dev/api/v1/reservations/{id}/check-in \
+  -H "Authorization: Bearer <staff-token>" \
+  -H "X-Bypass-Time-Window: true" \
+  -d '{ "arrivedMemberIds": [...] }'
+
+# Tắt bypass
+curl -X DELETE https://api.boardverse.dev/api/v1/admin/configs/bypass-time-window \
+  -H "Authorization: Bearer <admin-token>"
+```
+
+Xem chi tiết: [admin-configuration.md](./admin-configuration.md#bypass-time-window-devqa-convenience).
+
+> 💡 **Admin check nhanh**: Xem trạng thái `bypass_time_window_validations` (yêu cầu JWT Admin token) — dùng endpoint:
+> ```bash
+> curl https://api.boardverse.dev/api/v1/system-configs/bypass_time_window_validations \
+>   -H "Authorization: Bearer <admin-token>"
+> # → { ..., "inferredType": "bool", "parsedValue": true|false }
+> ```
+> Xem [system-config.md](./system-config.md).
+
+---
+
 ## Luồng tích hợp
 
 ```

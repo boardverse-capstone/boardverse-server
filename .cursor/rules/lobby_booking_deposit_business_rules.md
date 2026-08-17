@@ -2716,4 +2716,86 @@ accountStatus (active | warning | restricted | suspended | banned)  // BR-RISK-0
 
 ---
 
-**Trạng thái tài liệu**: Đã chốt với giảng viên và nhóm. Bổ sung section 17 (Recruitment Window & Spam Prevention) và section 18 (Player Risk Alert & Admin Management) ngày 02/08/2026 sau khi phân tích kỹ kịch bản spam cọc chiếm chỗ, cross-role rules và hệ thống phát hiện player spam. Mọi thay đổi phải được review và cập nhật đồng bộ tại file này.
+## 19. Bypass time-window (Dev/QA convenience)
+
+Triển khai ngày 17/08/2026 — cờ bypass cho phép Dev/QA test đầy đủ các flow có ràng buộc thời gian mà không bị chặn bởi deadline thực tế.
+
+### 19.1. Phạm vi bypass
+
+| Check | Service | Operation key |
+|-------|---------|---------------|
+| Check-in window (± grace) | `PlayerCheckInService.CheckInByTokenAsync`, `ReservationService.ValidateCheckInTimeWindowAsync` | `PlayerCheckIn.Window`, `Reservation.CheckInWindow` |
+| Lobby recruitment deadline | `LobbyService.JoinLobbyAsync` | `Lobby.JoinDeadline` |
+| Lobby time-slot change buffer | `LobbyService.UpdateTimeSlotAsync` | `Lobby.TimeSlotChangeBuffer` |
+| Refund milestones (24h/6h) | `ReservationService.ComputeRefundPolicyAsync` | `Reservation.RefundMilestone` |
+| No-show detection grace | `ReservationNoShowDetectionJob.RunDetectionAsync` | `ReservationNoShowDetectionJob` |
+| Tournament scheduled time + registration deadline | `TournamentService.CreateTournamentAsync`, `UpdateTournamentAsync` | `Tournament.CreateDeadlinePast`, `Tournament.StartTimeFuture` |
+
+### 19.2. Ba cách bật bypass
+
+| # | Cách | Phạm vi | Dùng khi |
+|---|------|---------|----------|
+| 1 | HTTP header `X-Bypass-Time-Window: true` | 1 request | Test 1 endpoint cụ thể |
+| 2 | Query string `?bypassTimeWindow=true` | 1 request | Test từ browser/Postman |
+| 3 | DB config `bypass_time_window_validations=true` | Toàn cục, áp dụng sau ≤ 10s | Test full flow |
+
+### 19.3. Helper class
+
+`BoardVerse.Services/Helpers/TimeWindowGuard.cs` — static helper `ShouldBypassAsync(httpContext, configProvider, logger, operation, entityId?)`.
+
+```csharp
+// Ưu tiên: HTTP header > query > DB config
+public static async Task<bool> ShouldBypassAsync(
+    HttpContext? httpContext,
+    ISystemConfigurationProvider configProvider,
+    ILogger logger,
+    string operation,
+    Guid? entityId = null,
+    CancellationToken ct = default);
+```
+
+Các method tiện ích không cần `HttpContext` (cho background job):
+
+```csharp
+public static Task<bool> ShouldBypassAsync(
+    ISystemConfigurationProvider configProvider,
+    ILogger logger,
+    string operation,
+    CancellationToken ct = default);
+```
+
+### 19.4. Admin endpoints
+
+```
+POST   /api/v1/admin/configs/bypass-time-window    # bật (DB config = true)
+DELETE /api/v1/admin/configs/bypass-time-window    # tắt (DB config = false)
+GET    /api/v1/admin/configs/bypass-time-window    # xem trạng thái
+POST   /api/v1/admin/configs/invalidate-cache      # force invalidate Redis cache
+```
+
+### 19.5. Cache & multi-instance
+
+- `SystemConfigurationService.CacheDuration = TimeSpan.FromSeconds(10)` — đảm bảo mọi instance cùng toggle trong vòng 10s.
+- Dùng `POST /invalidate-cache` để áp dụng ngay lập tức.
+- Default key trong DB: `bypass_time_window_validations`, default value: `false`.
+
+### 19.6. Lưu ý production
+
+- Production mặc định `false`. Không bật trên production trừ khi investigate sự cố.
+- Mọi lần toggle qua admin endpoint đều ghi audit log (qua admin action log có sẵn).
+- Logic bypass dùng pattern `if (!bypass && <originalCheck>)` — khi tắt bypass, hành vi y hệt như trước khi triển khai.
+
+### 19.7. Checklist khi thêm check mới
+
+Khi thêm ràng buộc thời gian mới trong service:
+
+1. ☐ Inject `ISystemConfigurationProvider` + `IHttpContextAccessor` vào service (cho phép null để không break unit test).
+2. ☐ Wrap original check: `if (!await TimeWindowGuard.ShouldBypassAsync(...) && <originalCheck>) { throw ... }`.
+3. ☐ Chọn `operation` key mô tả ngắn gọn (VD: `"Lobby.SomethingTimeCheck"`).
+4. ☐ Cập nhật section 19.1 của rule này + `docs/api/admin-configuration.md` + `docs/business-flows-overview.md`.
+5. ☐ Thêm unit test cho TimeWindowGuard (nếu chưa có) — verify 3-tier bypass.
+6. ☐ Test thủ công: bật bypass DB → kiểm tra check bị bỏ qua → tắt bypass → kiểm tra check hoạt động trở lại.
+
+---
+
+**Trạng thái tài liệu**: Đã chốt với giảng viên và nhóm. Bổ sung section 17 (Recruitment Window & Spam Prevention) và section 18 (Player Risk Alert & Admin Management) ngày 02/08/2026 sau khi phân tích kỹ kịch bản spam cọc chiếm chỗ, cross-role rules và hệ thống phát hiện player spam. Bổ sung section 19 (Bypass time-window Dev/QA) ngày 17/08/2026. Mọi thay đổi phải được review và cập nhật đồng bộ tại file này.

@@ -2,6 +2,10 @@ using BoardVerse.Core.DTOs.Reservation;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.Messages;
+using BoardVerse.Services.Helpers;
+using BoardVerse.Services.IServices;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 
 namespace BoardVerse.Services.Services;
 
@@ -34,9 +38,36 @@ public class EligibilityValidator
 
     /// <summary>
     /// Validate Host có thể tạo reservation. Throw với message nghiệp vụ nếu fail.
+    /// Method sync (không check demo mode) — giữ nguyên cho test/backward compat.
     /// </summary>
     public void ValidateHostCanCreate(
         HostReservationContext context)
+    {
+        ValidateHostCanCreateInternal(context).GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Async version có check demo mode (BR-DEMO-01/02/03). ReservationService nên gọi method này.
+    /// </summary>
+    public async Task ValidateHostCanCreateAsync(
+        HostReservationContext context,
+        IHttpContextAccessor? httpContextAccessor,
+        ISystemConfigurationProvider? configProvider,
+        ILogger? logger,
+        CancellationToken ct = default)
+    {
+        // BR-DEMO-01/02/03: nếu demo mode bật, skip toàn bộ user-limit + max-create-or-cancel checks.
+        if (await DemoGuard.ShouldBypassDemoLocksAsync(
+                httpContextAccessor?.HttpContext, configProvider, logger,
+                operation: "EligibilityValidator.HostCanCreate", entityId: context.HostId, ct: ct))
+        {
+            return;
+        }
+
+        await ValidateHostCanCreateInternal(context);
+    }
+
+    private Task ValidateHostCanCreateInternal(HostReservationContext context)
     {
         if (context.IsCoolingOff)
         {
@@ -107,12 +138,41 @@ public class EligibilityValidator
             throw new ConflictException(ApiErrorMessages.Reservation.HeldDepositCapExceeded(
                 context.WalletHeldBalance, cap, userType));
         }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>
     /// Validate Member có thể join lobby. Throw với message nghiệp vụ nếu fail.
+    /// Method sync (không check demo mode) — giữ nguyên cho test/backward compat.
     /// </summary>
     public void ValidateMemberCanJoin(MemberJoinContext context)
+    {
+        ValidateMemberCanJoinInternal(context).GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Async version có check demo mode (BR-DEMO-01). LobbyService nên gọi method này.
+    /// </summary>
+    public async Task ValidateMemberCanJoinAsync(
+        MemberJoinContext context,
+        IHttpContextAccessor? httpContextAccessor,
+        ISystemConfigurationProvider? configProvider,
+        ILogger? logger,
+        CancellationToken ct = default)
+    {
+        // BR-DEMO-01: nếu demo mode bật, skip toàn bộ user-limit checks.
+        if (await DemoGuard.ShouldBypassDemoLocksAsync(
+                httpContextAccessor?.HttpContext, configProvider, logger,
+                operation: "EligibilityValidator.MemberCanJoin", entityId: context.UserId, ct: ct))
+        {
+            return;
+        }
+
+        await ValidateMemberCanJoinInternal(context);
+    }
+
+    private Task ValidateMemberCanJoinInternal(MemberJoinContext context)
     {
         // BR-RISK-04: Banned → chặn vĩnh viễn. Suspended → chặn tạm thời.
         if (context.IsAccountBanned)
@@ -153,6 +213,8 @@ public class EligibilityValidator
             throw new ConflictException(ApiErrorMessages.Reservation.OverlappingLobbyExists(
                 context.Now, context.Now));
         }
+
+        return Task.CompletedTask;
     }
 
     private static void ValidateAccountStatus(bool suspended, bool banned)

@@ -1,4 +1,4 @@
-﻿using BoardVerse.Core.Enum;
+using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Core.Messages
 {
@@ -1578,6 +1578,109 @@ public const string SePayBankInfoIncomplete =
  {
  public const string RequestFailed = "Dữ liệu gửi lên không hợp lệ cho '{0}': {1}";
  public const string FieldRequired = "Trường '{0}' là bắt buộc. Bạn vui lòng điền đầy đủ thông tin nhé.";
+
+ /// <summary>
+ /// Tạo thông điệp lỗi validation thân thiện tiếng Việt cho field bị lỗi khi ASP.NET Core auto-trả về 400 trước khi controller chạy.
+ /// Phần message user-facing LUÔN tiếng Việt; chi tiết kỹ thuật gốc của ASP.NET được giữ riêng ở <c>data.fields</c> để FE/dev debug.
+ /// </summary>
+ /// <param name="fieldName">Tên field bị lỗi (vd: <c>PreferredEndTime</c>, <c>PreferredStartTime</c>). Để trống = không trích xuất được.</param>
+ /// <param name="errorCount">Tổng số lỗi trong request. 1 = số ít, &gt;1 = số nhiều.</param>
+ public static string FieldValidationFailed(string fieldName, int errorCount = 1)
+ {
+ var hasField = !string.IsNullOrEmpty(fieldName) && fieldName != "$";
+ return errorCount <= 1
+ ? (hasField
+ ? $"Trường '{fieldName}' chưa hợp lệ. Bạn kiểm tra và thử lại nhé!"
+ : "Dữ liệu gửi lên chưa hợp lệ. Bạn kiểm tra lại rồi thử lại nhé!")
+ : (hasField
+ ? $"Có {errorCount} trường chưa hợp lệ — trường đầu tiên: '{fieldName}'. Bạn kiểm tra và thử lại nhé!"
+ : $"Có {errorCount} trường chưa hợp lệ. Bạn kiểm tra và thử lại nhé!");
+ }
+
+ /// <summary>Fallback khi ModelState invalid nhưng không trích xuất được field name.</summary>
+ public const string GenericValidationFailed =
+ "Dữ liệu gửi lên chưa hợp lệ. Bạn kiểm tra lại rồi thử lại nhé!";
+
+ // ===== Reservation flow fields (BR §XXI-A.2..21A.3) =====
+ // Friendly Vietnamese messages cho các field DTO của Reservation flow —
+ // được dùng bởi InvalidModelStateResponseFactory khi ASP.NET Core auto
+ // reject request trước khi controller chạy (do [Required] validation).
+ // Message này hiển thị trực tiếp lên UI cho người dùng cuối, nên phải
+ // gợi ý cách sửa cụ thể thay vì chỉ chung chung "field không hợp lệ".
+
+ /// <summary>
+ /// BR-RESV-02: <c>PreferredEndTime</c> không bắt buộc — server tự tính
+ /// <c>scheduledEndTime</c> từ <c>timeSlot</c>. FE không cần (và không nên) gửi field này.
+ /// Hiển thị hướng dẫn thân thiện thay vì bắt FE gửi field không tồn tại trong spec.
+ /// </summary>
+ public const string ReservationPreferredEndTimeNotNeeded =
+ "Trường 'preferredEndTime' không cần gửi lên — hệ thống sẽ tự tính giờ kết thúc dựa trên khung giờ (timeSlot) bạn đã chọn. Bạn bỏ field này khỏi request rồi thử lại nhé!";
+
+ /// <summary>
+ /// BR-RESV-02: <c>PreferredStartTime</c> nên nằm trong khung giờ đã chọn.
+ /// Nếu FE gửi giờ nằm ngoài khung, đây là message gợi ý.
+ /// </summary>
+ public const string ReservationPreferredStartTimeOutOfRange =
+ "Giờ bắt đầu ưu tiên (preferredStartTime) phải nằm trong khung giờ bạn đã chọn (timeSlot). Ví dụ: khung 'evening' (17:00–23:00) → chỉ chọn giờ từ 17:00 đến 23:00.";
+
+ /// <summary>
+ /// <c>TimeSlot</c> enum không hợp lệ (giá trị ngoài 0–3, vd: do FE deserialize lỗi).
+ /// </summary>
+ public const string ReservationTimeSlotInvalid =
+ "Khung giờ (timeSlot) không hợp lệ. Vui lòng chọn 1 trong 4 khung: morning (06:00–12:00), afternoon (12:00–17:00), evening (17:00–23:00), lateNight (23:00–06:00).";
+
+ /// <summary>
+ /// <c>PlayDate</c> nằm ngoài khoảng cho phép [today, today+7] (BR §VIII).
+ /// Thường do FE dùng date cũ hoặc date quá xa.
+ /// </summary>
+ public const string ReservationPlayDateOutOfRange =
+ "Ngày dự kiến chơi (playDate) phải nằm trong vòng 7 ngày tới. Bạn chọn lại ngày khác nhé!";
+
+ /// <summary>
+ /// <c>MinPlayers</c>/<c>MaxPlayers</c> ngoài Range(1, 30) hoặc min &gt; max.
+ /// </summary>
+ public const string ReservationPlayerCountInvalid =
+ "Số người chơi không hợp lệ. Số tối thiểu (minPlayers) phải từ 1–30 và không được lớn hơn số tối đa (maxPlayers).";
+
+ /// <summary>
+ /// <c>IdempotencyKey</c> thiếu hoặc không đúng format (8–128 ký tự).
+ /// </summary>
+ public const string ReservationIdempotencyKeyInvalid =
+ "Mã idempotency (idempotencyKey) phải dài từ 8 đến 128 ký tự. Bạn kiểm tra lại nhé!";
+
+ /// <summary>
+ /// Lookup message cụ thể cho các field của Reservation flow.
+ /// Trả về <c>null</c> nếu field không thuộc domain này (để factory dùng generic message).
+ /// </summary>
+ /// <param name="fieldName">Tên field (PascalCase như trong DTO, vd: <c>PreferredEndTime</c>).</param>
+ /// <param name="errorMessage">Error message gốc của ASP.NET (<c>ModelStateEntry.Errors[0].ErrorMessage</c>) — dùng để phân biệt "required" vs "range" vs "format".</param>
+ public static string? GetReservationFieldMessage(string? fieldName, string? errorMessage = null)
+ {
+ if (string.IsNullOrEmpty(fieldName))
+ {
+ return null;
+ }
+
+ // Detect "required" từ message gốc (ASP.NET dùng "The X field is required.")
+ var isRequired = !string.IsNullOrEmpty(errorMessage)
+ && errorMessage.Contains("is required", StringComparison.OrdinalIgnoreCase);
+
+ return fieldName switch
+ {
+ "PreferredEndTime" => ReservationPreferredEndTimeNotNeeded,
+ "PreferredStartTime" => isRequired
+ ? "Giờ bắt đầu ưu tiên (preferredStartTime) là bắt buộc. Bạn chọn giờ trong khung giờ (timeSlot) đã chọn nhé."
+ : ReservationPreferredStartTimeOutOfRange,
+ "TimeSlot" => ReservationTimeSlotInvalid,
+ "PlayDate" => ReservationPlayDateOutOfRange,
+ "MinPlayers" or "MaxPlayers" => ReservationPlayerCountInvalid,
+ "IdempotencyKey" => ReservationIdempotencyKeyInvalid,
+ "CafeId" => "Mã quán (cafeId) là bắt buộc. Bạn kiểm tra lại nhé!",
+ "GameId" => "Mã game (gameId) là bắt buộc. Bạn kiểm tra lại nhé!",
+ _ => null,
+ };
+ }
+
  public const string TimeSlotRequired = "Khung giờ (TimeSlot) là bắt buộc. Bạn vui lòng chọn khung giờ hợp lệ nhé.";
  public const string EmailRequired = "Email là bắt buộc. Bạn nhập email để tiếp tục nhé.";
  public const string EmailInvalid = "Email không đúng định dạng. Bạn kiểm tra lại email nhé.";
@@ -2135,7 +2238,7 @@ public const string LobbyBoostOnlyWhenOpen =
         $"Khung giờ không hợp lệ ({(int)slot}). Chỉ chấp nhận: morning (06:00-12:00), afternoon (12:00-17:00), evening (17:00-23:00), lateNight (23:00-06:00).";
 
     public static string PosTokenNotFound(string token) =>
-        $"Không tìm thấy mã QR này.";
+        $"Không tìm thấy mã QR '{token}' này. Vui lòng kiểm tra lại mã QR hoặc liên hệ nhân viên quán.";
 
     public static string PosTokenNotInCheckInWindow(Guid reservationId) =>
         $"Đặt chỗ của bạn chưa đến giờ check-in. Bạn đến đúng giờ hoặc nhờ nhân viên hỗ trợ nhé!";
@@ -2761,17 +2864,17 @@ public const string LobbyBoostOnlyWhenOpen =
  public static string RoundCannotResetPairings(int roundNumber) =>
  "KhÃ´ng thá»ƒ táº¡o láº¡i cáº·p Ä‘áº¥u cho vÃ²ng {roundNumber} khi Ä‘Ã£ cÃ³ káº¿t quáº£.";
 
- public static string RoundNumberOutOfRange(int roundNumber, int totalRounds) =>
- "Sá»‘ vÃ²ng {roundNumber} náº±m ngoÃ i pháº¡m vi cho phÃ©p (1 - {totalRounds}).";
+public static string RoundNumberOutOfRange(int roundNumber, int totalRounds) =>
+"Số vòng {roundNumber} nằm ngoài phạm vi cho phép (1 - {totalRounds}).";
 
- public static string InvalidPairingUserIds(string userIds) =>
- "Danh sÃ¡ch userId ghÃ©p cáº·p khÃ´ng há»£p lá»‡: [{userIds}].";
+    public static string InvalidPairingUserIds(string userIds) =>
+        $"Danh sách userId ghép cặp không hợp lệ: [{userIds}].";
 
  public static string FinalPairingInvalidSingle(int finalistCount) =>
- "Cáº·p chung káº¿t chá»‰ cháº¥p nháº­n Ä‘Ãºng 2 ngÆ°á»i chÆ¡i (hiá»‡n cÃ³ {finalistCount}).";
+        $"Cặp chung kết chỉ chấp nhận đúng 2 người chơi (hiện có {finalistCount}).";
 
- public static string PairingSizeInvalid(int matchNumber, int playerCount) =>
- "Sá»‘ ngÆ°á»i chÆ¡i cá»§a cáº·p Ä‘áº¥u thá»© {matchNumber} ({playerCount}) khÃ´ng há»£p lá»‡.";
+    public static string PairingSizeInvalid(int matchNumber, int playerCount) =>
+        $"Số người chơi của cặp đấu thứ {matchNumber} ({playerCount}) không hợp lệ.";
 
  
 
@@ -3100,7 +3203,7 @@ public static class Settlement
             $"Khung LateNight phải kết thúc vào ngày hôm sau (start='{startTime}', end='{endTime}').";
 
         public const string TimeSlotOverrideInvalidTimeRange =
-            "Khoảng giờ override không hợp lệ.";
+            "Khoảng giờ override không hợp lệ: Giờ bắt đầu và giờ kết thúc không được bằng nhau (trừ khi IsClosed = true).";
 
         public const string TimeSlotOverrideInvalidEffectiveRange =
             "Khoảng hiệu lực của override không hợp lệ.";

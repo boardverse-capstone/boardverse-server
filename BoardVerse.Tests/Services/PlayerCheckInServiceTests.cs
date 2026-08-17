@@ -43,7 +43,8 @@ public class PlayerCheckInServiceTests
         _lobbyRepo.Object,
         _posService.Object,
         _db,
-        _logger.Object);
+        _logger.Object,
+        new Mock<ISystemConfigurationProvider>().Object);
 
     private static PosCheckInToken BuildValidToken(
         Guid cafeId,

@@ -67,6 +67,24 @@ public class TournamentRepository : ITournamentRepository
             .ToListAsync();
     }
 
+    public async Task<IReadOnlyList<Tournament>> GetAllByStatusAsync(TournamentStatus? status)
+    {
+        var query = _db.Tournaments
+            .Include(t => t.Participants)
+            .Include(t => t.GameTemplate)
+            .Include(t => t.Cafe)
+            .AsQueryable();
+
+        if (status.HasValue)
+        {
+            query = query.Where(t => t.Status == status.Value);
+        }
+
+        return await query
+            .OrderBy(t => t.StartTime)
+            .ToListAsync();
+    }
+
     public async Task<IReadOnlyList<Tournament>> GetUpcomingForClosingAsync(DateTime cutoffTime)
     {
         return await _db.Tournaments

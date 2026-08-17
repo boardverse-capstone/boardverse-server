@@ -12,7 +12,7 @@ namespace BoardVerse.Services.Services
     public class SystemConfigurationService : ISystemConfigurationProvider, IAdminSystemConfigurationService
     {
         private const string CacheKey = "boardverse:system-config:all";
-        private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(30);
+        private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(10);
 
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
@@ -44,6 +44,29 @@ namespace BoardVerse.Services.Services
             return double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
                 ? value
                 : fallback;
+        }
+
+        public async Task<bool> GetBoolAsync(string key, bool fallback)
+        {
+            var raw = await GetStringAsync(key, fallback ? "true" : "false");
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return fallback;
+            }
+
+            var trimmed = raw.Trim();
+            return trimmed switch
+            {
+                var s when s.Equals("true", StringComparison.OrdinalIgnoreCase) => true,
+                var s when s.Equals("false", StringComparison.OrdinalIgnoreCase) => false,
+                var s when s.Equals("1", StringComparison.Ordinal) => true,
+                var s when s.Equals("0", StringComparison.Ordinal) => false,
+                var s when s.Equals("yes", StringComparison.OrdinalIgnoreCase) => true,
+                var s when s.Equals("no", StringComparison.OrdinalIgnoreCase) => false,
+                var s when s.Equals("on", StringComparison.OrdinalIgnoreCase) => true,
+                var s when s.Equals("off", StringComparison.OrdinalIgnoreCase) => false,
+                _ => bool.TryParse(trimmed, out var parsed) ? parsed : fallback
+            };
         }
 
         public async Task<string> GetStringAsync(string key, string fallback)
@@ -84,6 +107,37 @@ namespace BoardVerse.Services.Services
 
             return await GetAllConfigsAsync();
         }
+
+        public async Task<SystemConfigEntryDto> SetConfigValueAsync(string key, string value)
+        {
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                throw new ArgumentException("Config key must not be empty.", nameof(key));
+            }
+
+            var trimmedKey = key.Trim();
+            SystemConfigKeys.SeedDefaults.TryGetValue(trimmedKey, out var seed);
+
+            var entity = new SystemConfiguration
+            {
+                ConfigKey = trimmedKey,
+                ConfigValue = value?.Trim() ?? string.Empty,
+                Description = seed.Description ?? string.Empty,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            await _repository.UpsertAsync(new List<SystemConfiguration> { entity });
+            await _repository.SaveChangesAsync();
+            await InvalidateCacheAsync();
+
+            return Map(entity);
+        }
+
+        public async Task<bool> IsBypassTimeWindowEnabledAsync()
+            => await GetBoolAsync(SystemConfigKeys.BypassTimeWindowValidations, fallback: false);
+
+        public async Task<bool> IsDemoLoosenLobbyConstraintsEnabledAsync()
+            => await GetBoolAsync(SystemConfigKeys.DemoLoosenLobbyConstraints, fallback: false);
 
         private async Task<IReadOnlyDictionary<string, string>> GetConfigMapAsync()
         {

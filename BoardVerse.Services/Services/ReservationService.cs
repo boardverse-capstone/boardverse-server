@@ -8,7 +8,9 @@ using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
 using BoardVerse.Data;
+using BoardVerse.Services.Helpers;
 using BoardVerse.Services.IServices;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -56,6 +58,8 @@ public class ReservationService : IReservationService
     private readonly RefundCalculationService _refundCalc;
     private readonly IWalkInService _walkInService;
     private readonly IPlayerKarmaService _karmaService;
+    private readonly ISystemConfigurationProvider _configProvider;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
     public ReservationService(
         BoardVerseDbContext db,
@@ -80,7 +84,9 @@ public class ReservationService : IReservationService
         IBookingRatingService bookingRatingService,
         RefundCalculationService refundCalc,
         IWalkInService walkInService,
-        IPlayerKarmaService karmaService)
+        IPlayerKarmaService karmaService,
+        ISystemConfigurationProvider configProvider = null!,
+        IHttpContextAccessor httpContextAccessor = null!)
     {
         _db = db;
         _walletService = walletService;
@@ -105,6 +111,8 @@ public class ReservationService : IReservationService
         _refundCalc = refundCalc;
         _walkInService = walkInService;
         _karmaService = karmaService;
+        _configProvider = configProvider;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     // ===== 21A.2 QUOTE =====
@@ -171,7 +179,7 @@ public class ReservationService : IReservationService
 
         // BR-LOBBY-01a/b: buffer check.
         var (isAllowed, _) = DepositCalculator.EvaluateBuffer(quote.BufferMinutes);
-        if (!isAllowed)
+        if (!isAllowed && !await ShouldBypassLobbyBufferAsync())
         {
             throw new BadRequestException(
                 ApiErrorMessages.Reservation.BufferTooShort(quote.BufferMinutes, 60));
@@ -185,7 +193,8 @@ public class ReservationService : IReservationService
             wallet,
             now);
 
-        _eligibilityValidator.ValidateHostCanCreate(eligibilityContext);
+        await _eligibilityValidator.ValidateHostCanCreateAsync(
+            eligibilityContext, _httpContextAccessor, _configProvider, _logger);
 
         // BR-RESV-02: build ScheduledStart/End từ user-chosen preferred times.
         var (scheduledStartTime, scheduledEndTime) = CafeSchedule.BuildScheduledStartEndFromPreferred(
@@ -410,7 +419,7 @@ public class ReservationService : IReservationService
 
         // 5. BR-LOBBY-01a/b: buffer check.
         var (isAllowed, _) = DepositCalculator.EvaluateBuffer(quote.BufferMinutes);
-        if (!isAllowed)
+        if (!isAllowed && !await ShouldBypassLobbyBufferAsync())
         {
             throw new BadRequestException(
                 ApiErrorMessages.Reservation.BufferTooShort(quote.BufferMinutes, 60));
@@ -426,7 +435,8 @@ public class ReservationService : IReservationService
         // 7. BR-USER-LIMIT-* / BR-NEW-* validate.
         var eligibilityContext = await BuildHostEligibilityContextAsync(
             hostId, quoteRequest, quote, wallet, now);
-        _eligibilityValidator.ValidateHostCanCreate(eligibilityContext);
+        await _eligibilityValidator.ValidateHostCanCreateAsync(
+            eligibilityContext, _httpContextAccessor, _configProvider, _logger);
 
         // 8. BR-RESERVATION-01: đủ ghế? BR-RESERVATION-02: đủ game copy?
         if (wallet.AvailableBalance < quote.FinalDeposit)
@@ -992,7 +1002,7 @@ public class ReservationService : IReservationService
             if (scheduledStart == default)
                 throw new InternalServerErrorException(
                     ApiErrorMessages.Reservation.CancelMissingScheduledStartTime);
-            var refundPolicy = ComputeRefundPolicy(
+            var refundPolicy = await ComputeRefundPolicyAsync(
                 scheduledStart,
                 now,
                 hasMembers,
@@ -2058,6 +2068,23 @@ public class ReservationService : IReservationService
         var windowStart = scheduledStart.AddMinutes(-EarlyGraceMinutes);
         var windowEnd = scheduledEnd.AddMinutes(LateGraceMinutes);
 
+        var bypassCheckInWindow = await TimeWindowGuard.ShouldBypassAsync(
+            _httpContextAccessor?.HttpContext, _configProvider, _logger,
+            operation: "Reservation.CheckInWindow", entityId: reservation.Id);
+        if (bypassCheckInWindow)
+        {
+            return;
+        }
+
+        // BR-DEMO-04: Demo mode → cho phép check-in sớm bất kỳ (không giới hạn early grace).
+        var bypassCheckInDemo = await DemoGuard.ShouldBypassDemoLocksAsync(
+            _httpContextAccessor?.HttpContext, _configProvider, _logger,
+            operation: "Reservation.CheckInWindow.Demo", entityId: reservation.Id);
+        if (bypassCheckInDemo)
+        {
+            return;
+        }
+
         if (now < windowStart)
         {
             throw new ConflictException(
@@ -2071,6 +2098,29 @@ public class ReservationService : IReservationService
                 ApiErrorMessages.Reservation.CheckInTimeWindowLate(
                     reservation.Id, scheduledEnd, windowEnd));
         }
+    }
+
+    /// <summary>
+    /// Wrapper TimeWindowGuard cho lobby buffer (BR-LOBBY-01a/b) và các deadline khác.
+    /// </summary>
+    private Task<bool> ShouldBypassLobbyBufferAsync()
+    {
+        // Lớp 1: TimeWindowGuard (bypass_time_window_validations DB hoặc per-request).
+        // Lớp 2: DemoGuard (demo_loosen_lobby_constraints) — BR-DEMO-02.
+        // Trả true nếu 1 trong 2 bật.
+        return ShouldBypassLobbyBufferCombinedAsync();
+    }
+
+    private async Task<bool> ShouldBypassLobbyBufferCombinedAsync()
+    {
+        var bypassTw = await TimeWindowGuard.ShouldBypassAsync(
+            _httpContextAccessor?.HttpContext, _configProvider, _logger,
+            operation: "Reservation.LobbyBuffer");
+        if (bypassTw) return true;
+
+        return await DemoGuard.ShouldBypassDemoLocksAsync(
+            _httpContextAccessor?.HttpContext, _configProvider, _logger,
+            operation: "Reservation.LobbyBuffer.Demo");
     }
 
     // ===== Helpers =====
@@ -2212,12 +2262,18 @@ public class ReservationService : IReservationService
         return requiresApproval ? LobbyStatus.PendingCafeApproval : LobbyStatus.PendingActivation;
     }
 
-    private static (string PolicyName, decimal RefundPercent) ComputeRefundPolicy(
+    private async Task<(string PolicyName, decimal RefundPercent)> ComputeRefundPolicyAsync(
         DateTime scheduledTime,
         DateTime now,
         bool hasMembers,
         double minutesSinceCreated)
     {
+        // Bypass time-window: hoàn 100% regardless of milestone (dev/test only).
+        if (await ShouldBypassLobbyBufferAsync())
+        {
+            return ("BypassTimeWindow", 1.0m);
+        }
+
         // BR-REFUND-03: grace 15 phút + chưa có member → hoàn 100%.
         if (minutesSinceCreated <= 15 && !hasMembers)
         {

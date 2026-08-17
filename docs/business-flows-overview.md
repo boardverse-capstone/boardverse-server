@@ -17,6 +17,7 @@
 7. [Bảng tổng hợp state machine](#vii-bảng-tổng-hợp-state-machine)
 8. [Luồng ngoại lệ tiêu biểu](#viii-luồng-ngoại-lệ-tiêu-biểu)
 9. [Liên kết tài liệu](#ix-liên-kết-tài-liệu)
+10. [Bypass time-window (Dev/QA)](#x-bypass-time-window-devqa)
 
 ---
 
@@ -628,8 +629,86 @@ Cùng Android ID.
 
 - [docs/api/lobby-hub.md](./api/lobby-hub.md) — SignalR Hub cho lobby realtime
 - [docs/api/admin-moderation.md](./api/admin-moderation.md) — Admin cooling-off + risk
+- [docs/api/admin-configuration.md](./api/admin-configuration.md) — Admin system config + bypass time-window
+- [docs/api/system-config.md](./api/system-config.md) — Public read-only endpoint (dev/QA check nhanh, không cần Admin token)
 - [docs/api/notifications.md](./api/notifications.md) — Notification 4 mốc
 - [docs/api/leaderboard.md](./api/leaderboard.md) — Karma + Elo
+
+---
+
+## X. Bypass time-window (Dev/QA)
+
+BoardVerse cung cấp cờ bypass các ràng buộc thời gian để Dev/QA test đầy đủ flow mà không bị chặn bởi deadline thực tế. Cờ áp dụng cho **6 check** sau:
+
+| # | Check bị bypass | Service | Operation key |
+|---|-----------------|---------|---------------|
+| 1 | Check-in window (± grace) | `PlayerCheckInService.CheckInByTokenAsync` + `ReservationService.ValidateCheckInTimeWindowAsync` | `PlayerCheckIn.Window`, `Reservation.CheckInWindow` |
+| 2 | Lobby recruitment deadline | `LobbyService.JoinLobbyAsync` | `Lobby.JoinDeadline` |
+| 3 | Lobby time-slot change buffer (< 60 phút) | `LobbyService.UpdateTimeSlotAsync` | `Lobby.TimeSlotChangeBuffer` |
+| 4 | Refund milestones (24h/6h) | `ReservationService.ComputeRefundPolicyAsync` | `Reservation.RefundMilestone` |
+| 5 | No-show detection grace | `ReservationNoShowDetectionJob.RunDetectionAsync` (background) | `ReservationNoShowDetectionJob` |
+| 6 | Tournament scheduled time + registration deadline | `TournamentService.CreateTournamentAsync` + `UpdateTournamentAsync` | `Tournament.CreateDeadlinePast`, `Tournament.StartTimeFuture` |
+
+### Ba cách bật bypass (ưu tiên từ cao xuống thấp)
+
+| # | Cách | Phạm vi | Dùng khi |
+|---|------|---------|----------|
+| 1 | HTTP header `X-Bypass-Time-Window: true` | 1 request | Test 1 endpoint cụ thể |
+| 2 | Query string `?bypassTimeWindow=true` | 1 request | Test từ browser/Postman |
+| 3 | DB config `bypass_time_window_validations=true` | Toàn cục (mọi instance, áp dụng sau ≤ 10s) | Test full flow / nhiều request liên tiếp |
+
+### Endpoint admin
+
+```bash
+# Bật bypass toàn cục (cách 3)
+POST /api/v1/admin/configs/bypass-time-window
+→ { bypassEnabled: true, appliedWithinSeconds: 10 }
+
+# Tắt bypass toàn cục
+DELETE /api/v1/admin/configs/bypass-time-window
+→ { bypassEnabled: false, appliedWithinSeconds: 10 }
+
+# Xem trạng thái
+GET /api/v1/admin/configs/bypass-time-window
+→ { bypassEnabled: false, configKey: "bypass_time_window_validations" }
+
+# Invalidate cache ngay lập tức (bỏ qua TTL 10s)
+POST /api/v1/admin/configs/invalidate-cache
+```
+
+### Ví dụ sử dụng
+
+```bash
+# Test check-in ngoài khung giờ (cách 1)
+curl https://api.boardverse.dev/api/v1/pos/check-in/scan \
+  -H "Authorization: Bearer <token>" \
+  -H "X-Bypass-Time-Window: true" \
+  -d '{"token": "ABCDEFGHJKLMNPQR"}'
+
+# Test full flow dev/QA (cách 3 - toàn cục)
+curl -X POST https://api.boardverse.dev/api/v1/admin/configs/bypass-time-window \
+  -H "Authorization: Bearer <admin-token>"
+# → Áp dụng trong vòng 10 giây cho mọi instance
+# → Test check-in, cancel, refund, no-show tự do
+# → Sau khi xong: DELETE /bypass-time-window để tắt
+```
+
+### Lưu ý quan trọng
+
+- **Production**: Mặc định `bypass_time_window_validations=false`. Không được bật trên production trừ khi có sự cố cần investigate.
+- **Multi-instance**: Cache TTL 10s (IDistributedCache / Redis) đảm bảo mọi instance cùng toggle trong khoảng thời gian ngắn. Dùng `POST /invalidate-cache` để áp dụng ngay.
+- **Audit**: Mọi lần toggle bypass ghi audit log qua endpoint admin (qua hệ thống admin action log có sẵn).
+- **Pre-existing safe**: Logic bypass dùng `TimeWindowGuard.ShouldBypassAsync` — wrap CÓ điều kiện `if (!bypass && <originalCheck>)`. Khi tắt bypass, hành vi y hệt như trước khi triển khai.
+
+Xem chi tiết: [api/admin-configuration.md](./api/admin-configuration.md).
+
+> 💡 **Admin check nhanh**: Để xem trạng thái `bypass_time_window_validations` (yêu cầu JWT Admin token), dùng endpoint:
+> ```bash
+> curl https://api.boardverse.dev/api/v1/system-configs/bypass_time_window_validations \
+>   -H "Authorization: Bearer <admin-token>"
+> # → { ..., "inferredType": "bool", "parsedValue": true|false }
+> ```
+> Xem [api/system-config.md](./api/system-config.md).
 
 ---
 

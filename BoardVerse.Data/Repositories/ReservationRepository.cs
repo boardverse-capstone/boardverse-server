@@ -88,6 +88,22 @@ public class ReservationRepository : IReservationRepository
             .ToListAsync();
     }
 
+    public async Task<IReadOnlyList<Reservation>> GetOverlappingReservationsAsync(
+        Guid cafeId, DateTime startTime, DateTime endTime)
+    {
+        // Reservation overlap với [startTime, endTime] khi:
+        //   reservation.ScheduledStartTime < endTime
+        //   && reservation.ScheduledEndTime > startTime
+        // (logic giống GetOverlappingBookingsAsync của BookingRepository).
+        return await _db.Reservations
+            .AsNoTracking()
+            .Where(r =>
+                r.CafeId == cafeId
+                && r.ScheduledStartTime < endTime
+                && r.ScheduledEndTime > startTime)
+            .ToListAsync();
+    }
+
     /// <summary>
     /// GAP #23 fix: cluster-safe query — dùng FOR UPDATE SKIP LOCKED để nhiều
     /// instance ReservationDeadlineJob không pick trùng reservation.

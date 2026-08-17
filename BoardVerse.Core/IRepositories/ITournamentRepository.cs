@@ -11,6 +11,14 @@ public interface ITournamentRepository
     Task<IReadOnlyList<Tournament>> GetByCafeAsync(Guid cafeId, TournamentStatus? status);
     /// <summary>Lấy tất cả tournament đang mở đăng ký (mọi game), status RegistrationOpen + deadline còn hạn.</summary>
     Task<IReadOnlyList<Tournament>> GetAllOpenAsync();
+
+    /// <summary>
+    /// Lấy tất cả tournament với filter status optional.
+    /// - status = null → trả tất cả tournament (mọi status, không filter).
+    /// - status != null → filter theo TournamentStatus cụ thể.
+    /// Mặc định sort theo StartTime asc.
+    /// </summary>
+    Task<IReadOnlyList<Tournament>> GetAllByStatusAsync(TournamentStatus? status);
     Task<IReadOnlyList<Tournament>> GetUpcomingForClosingAsync(DateTime cutoffTime);
 
     /// <summary>
