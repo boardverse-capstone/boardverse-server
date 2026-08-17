@@ -1269,11 +1269,32 @@ public class TournamentService : ITournamentService
             match.Status = TournamentMatchStatus.OnGoing;
         }
 
+        // Resolve winner: Final uses Participant.Id as PlayerNId, Swiss uses UserId directly.
+        // Normalize to Participant.Id upfront so all validations and assignments are consistent.
+        Guid? resolvedWinnerId = match.IsFinal
+            ? tournament.Participants.FirstOrDefault(p => p.UserId == request.WinnerUserId)?.Id
+            : request.WinnerUserId;
+
+        // Resolve results: Final uses Participant.Id, Swiss uses UserId
+        var resolvedResults = match.IsFinal
+            ? request.Results.Select(r => new
+            {
+                r.Score,
+                r.CardsBought,
+                ResolvedUserId = tournament.Participants.FirstOrDefault(p => p.UserId == r.UserId)?.Id
+            }).ToList()
+            : request.Results.Select(r => new
+            {
+                r.Score,
+                r.CardsBought,
+                ResolvedUserId = r.UserId
+            }).ToList();
+
         // Validate that winner is in the player list
         var playerSlots = new[] { match.Player1Id, match.Player2Id, match.Player3Id, match.Player4Id }
             .Where(p => p.HasValue).Select(p => p!.Value).ToList();
 
-        if (!playerSlots.Contains(request.WinnerUserId ?? Guid.Empty))
+        if (!resolvedWinnerId.HasValue || !playerSlots.Contains(resolvedWinnerId.Value))
         {
             throw new BadRequestException(ApiErrorMessages.Tournament.WinnerMustBePlayer(matchId));
         }
@@ -1291,48 +1312,50 @@ public class TournamentService : ITournamentService
         // Láº¥y GameTemplate config (TournamentMaxScorePerPlayer) tá»« tournament.GameTemplate.
         // Splendor = 15; Splendor Duel = 20. Default 15.
         var maxScorePerPlayer = tournament.GameTemplate?.TournamentMaxScorePerPlayer ?? 15;
-        foreach (var r in request.Results)
+        foreach (var r in resolvedResults)
         {
             if (r.Score > maxScorePerPlayer)
             {
                 throw new BadRequestException(
                     ApiErrorMessages.Tournament.ScoreExceedsLimit(
-                        r.UserId ?? Guid.Empty, r.Score, maxScorePerPlayer,
+                        r.ResolvedUserId ?? Guid.Empty, r.Score, maxScorePerPlayer,
                         tournament.GameTemplate?.Name ?? "Tournament"));
             }
         }
 
         // Apply scores to slot positions
-        foreach (var r in request.Results)
+        foreach (var r in resolvedResults)
         {
-            if (!playerSlots.Contains(r.UserId ?? Guid.Empty))
+            if (!r.ResolvedUserId.HasValue || !playerSlots.Contains(r.ResolvedUserId.Value))
             {
-                throw new BadRequestException(ApiErrorMessages.Tournament.PlayerNotInMatch(matchId, r.UserId ?? Guid.Empty));
+                throw new BadRequestException(ApiErrorMessages.Tournament.PlayerNotInMatch(matchId, r.ResolvedUserId ?? Guid.Empty));
             }
 
-            if (match.Player1Id == r.UserId)
+            if (match.Player1Id == r.ResolvedUserId)
             {
                 match.Player1Score = r.Score;
                 match.Player1CardsBought = r.CardsBought;
             }
-            else if (match.Player2Id == r.UserId)
+            else if (match.Player2Id == r.ResolvedUserId)
             {
                 match.Player2Score = r.Score;
                 match.Player2CardsBought = r.CardsBought;
             }
-            else if (match.Player3Id == r.UserId)
+            else if (match.Player3Id == r.ResolvedUserId)
             {
                 match.Player3Score = r.Score;
                 match.Player3CardsBought = r.CardsBought;
             }
-            else if (match.Player4Id == r.UserId)
+            else if (match.Player4Id == r.ResolvedUserId)
             {
                 match.Player4Score = r.Score;
                 match.Player4CardsBought = r.CardsBought;
             }
         }
 
-        match.WinnerPlayerId = request.WinnerUserId;
+        // WinnerPlayerId = resolvedWinnerId (already resolved for both Final and Swiss)
+        match.WinnerPlayerId = resolvedWinnerId;
+
         match.Status = TournamentMatchStatus.Completed;
         match.ActualEndTime = DateTime.UtcNow;
         match.RecordedByStaffId = request.RecordedByStaffId ?? managerId;
@@ -2772,22 +2795,24 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
     public async Task<TournamentResponseDto> SetPairingModeAsync(Guid managerId, Guid tournamentId, TournamentPairingMode mode)
     {
-        // F15 Fix: Load with matches Ä‘á»ƒ check round hiá»‡n táº¡i cÃ³ matches chÆ°a.
+        // F15: Cho phep Auto -> Manual khi da OnGoing, mien la cac ban dau chua bat dau.
+        // Manager co the dieu chinh ghep doi truoc khi bat dau vong neu pairing auto khong can bang.
+        // Chi block neu co ban dang dien ra (OnGoing) hoac da ket thuc (Completed).
         var tournament = await _tournamentRepository.GetByIdWithDetailsAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
 
         await EnsureManagerOwnsCafeAsync(managerId, tournament.CafeId);
 
-        // F15 Fix: Cho phÃ©p Auto â†’ Manual khi Ä‘Ã£ OnGoing, miá»…n lÃ  round hiá»‡n táº¡i chÆ°a build matches.
-        // Thá»±c táº¿: manager dÃ¹ng Auto cho R1-R2, muá»‘n Manual cho R3 (matchup quan trá»ng cáº§n control).
-        // Náº¿u round hiá»‡n táº¡i Ä‘Ã£ cÃ³ matches â†’ khÃ´ng cho Ä‘á»•i (trÃ¡nh data khÃ´ng khá»›p).
         if (tournament.Status == TournamentStatus.OnGoing && mode == TournamentPairingMode.Manual)
         {
-            var currentRoundHasMatches = tournament.Matches.Any(m => m.RoundNumber == tournament.CurrentRound);
-            if (currentRoundHasMatches)
+            var currentRoundMatches = tournament.Matches
+                .Where(m => m.RoundNumber == tournament.CurrentRound)
+                .ToList();
+            
+            if (currentRoundMatches.Any(m => m.Status == TournamentMatchStatus.OnGoing || m.Status == TournamentMatchStatus.Completed))
             {
                 throw new ConflictException(
-                    ApiErrorMessages.Tournament.CannotSwitchManualWithMatches);
+                    ApiErrorMessages.Tournament.CannotSwitchManualWithActiveMatches);
             }
         }
 

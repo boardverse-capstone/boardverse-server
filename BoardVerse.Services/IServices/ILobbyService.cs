@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Lobby;
+using BoardVerse.Core.DTOs.Reservation;
 using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Services.IServices
@@ -100,5 +101,14 @@ namespace BoardVerse.Services.IServices
 
         /// <summary>User report lobby vi phạm.</summary>
         Task<LobbyResponseDto> ReportLobbyAsync(Guid lobbyId, Guid reporterId, CreateLobbyReportDto request);
+
+        /// <summary>
+        /// Lấy danh sách lobby của 1 cafe cho Manager.
+        /// Filter theo status, playDate, có phân trang.
+        /// </summary>
+        Task<CafeLobbiesResponseDto> GetCafeLobbiesAsync(
+            Guid cafeManagerUserId,
+            Guid cafeId,
+            CafeLobbiesRequestDto request);
     }
 }

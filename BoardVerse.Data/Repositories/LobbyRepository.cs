@@ -534,6 +534,7 @@ namespace BoardVerse.Data.Repositories
             var query = _db.Lobbies
                 .Include(l => l.GameTemplate)
                 .Include(l => l.HostUser)
+                    .ThenInclude(u => u.Profile)
                 .Include(l => l.Members)
                 .AsQueryable();
 
@@ -567,6 +568,46 @@ namespace BoardVerse.Data.Repositories
 
             var items = await query
                 .OrderByDescending(l => l.UpdatedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            return (items, totalCount);
+        }
+
+        /// <summary>
+        /// Lấy danh sách lobby của 1 cafe cho Manager dashboard.
+        /// Filter theo status và playDate, có phân trang.
+        /// </summary>
+        public async Task<(IReadOnlyList<Lobby> Items, int TotalCount)> GetByCafeAsync(
+            Guid cafeId,
+            DateOnly? playDate,
+            List<LobbyStatus>? statuses,
+            int page,
+            int pageSize)
+        {
+            var query = _db.Lobbies
+                .Include(l => l.GameTemplate)
+                .Include(l => l.HostUser)
+                    .ThenInclude(u => u.Profile)
+                .Include(l => l.Members)
+                .Include(l => l.Reservation)
+                .Where(l => l.CafeId == cafeId);
+
+            if (playDate.HasValue)
+            {
+                query = query.Where(l => l.PlayDate == playDate.Value);
+            }
+
+            if (statuses != null && statuses.Count > 0)
+            {
+                query = query.Where(l => statuses.Contains(l.Status));
+            }
+
+            var totalCount = await query.CountAsync();
+
+            var items = await query
+                .OrderByDescending(l => l.CreatedAt)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .ToListAsync();

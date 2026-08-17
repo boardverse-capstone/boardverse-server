@@ -69,6 +69,17 @@ public interface IReservationRepository
     Task<int> CountHostActionsForPlayDateAsync(Guid hostId, DateOnly playDate);
 
     /// <summary>
+    /// Lấy danh sách reservation của 1 cafe cho Manager dashboard.
+    /// Filter theo status và playDate, có phân trang.
+    /// </summary>
+    Task<(IReadOnlyList<Reservation> Items, int TotalCount)> GetByCafeAsync(
+        Guid cafeId,
+        List<ReservationStatus>? statuses,
+        DateOnly? playDate,
+        int page,
+        int pageSize);
+
+    /// <summary>
     /// BR-CHECKIN-02: Lấy danh sách Reservation Confirmed nhưng đã quá 30 phút
     /// sau ScheduledStartTime mà chưa check-in → candidate cho NoShow.
     /// Dùng index IX_Reservations_ScheduledStartTime_Status.

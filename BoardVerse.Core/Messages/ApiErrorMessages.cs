@@ -2744,8 +2744,13 @@ public const string LobbyBoostOnlyWhenOpen =
  public static string FinalPairingsInvalid(int finalistCount) =>
  "Cáº·p Ä‘áº¥u chung káº¿t khÃ´ng há»£p lá»‡ vá»›i {finalistCount} finalist.";
 
- public const string CannotSwitchManualWithMatches =
- "KhÃ´ng thá»ƒ chuyá»ƒn sang cháº¿ Ä‘á»™ táº¡o cáº·p thá»§ cÃ´ng khi Ä‘Ã£ cÃ³ tráº­n Ä‘áº¥u tá»“n táº¡i.";
+ public static string CannotSwitchManualWithMatches(int currentRound) =>
+        $"Không thể chuyển sang chế độ ghép đôi thủ công khi vòng đấu hiện tại (Vòng {currentRound}) đã có bàn đấu. " +
+        $"Vui lòng hoàn thành vòng đấu hiện tại trước, sau đó chuyển sang Manual cho vòng tiếp theo.";
+
+ public static string CannotSwitchManualWithActiveMatches =>
+        "Không thể chuyển sang chế độ ghép đôi thủ công khi có bàn đấu đang diễn ra hoặc đã kết thúc. " +
+        "Vui lòng hoàn thành hoặc hủy các bàn đấu hiện tại trước khi thay đổi chế độ ghép đôi.";
 
  public static string RoundHasMatches(int roundNumber) =>
  "VÃ²ng {roundNumber} Ä‘Ã£ cÃ³ tráº­n Ä‘áº¥u tá»“n táº¡i. KhÃ´ng thá»ƒ thá»±c hiá»‡n thao tÃ¡c nÃ y.";

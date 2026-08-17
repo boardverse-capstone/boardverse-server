@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Lobby;
+using BoardVerse.Core.DTOs.Reservation;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
@@ -46,6 +47,7 @@ namespace BoardVerse.Services.Services
         private readonly ISeatInventoryRepository _seatInventoryRepository;
         private readonly IGameInventoryRepository _gameInventoryRepository;
         private readonly IOutboxRepository _outboxRepository;
+        private readonly ICafeRepository _cafeRepository;
         private readonly BoardVerseDbContext _db;
         private readonly EligibilityValidator _eligibilityValidator;
         private readonly IUserProfileService _userProfileService;
@@ -66,6 +68,7 @@ namespace BoardVerse.Services.Services
             ISeatInventoryRepository seatInventoryRepository,
             IGameInventoryRepository gameInventoryRepository,
             IOutboxRepository outboxRepository,
+            ICafeRepository cafeRepository,
             BoardVerseDbContext db,
             EligibilityValidator eligibilityValidator,
             IUserProfileService userProfileService,
@@ -84,6 +87,7 @@ namespace BoardVerse.Services.Services
             _seatInventoryRepository = seatInventoryRepository;
             _gameInventoryRepository = gameInventoryRepository;
             _outboxRepository = outboxRepository;
+            _cafeRepository = cafeRepository;
             _db = db;
             _eligibilityValidator = eligibilityValidator;
             _userProfileService = userProfileService;
@@ -1980,6 +1984,63 @@ namespace BoardVerse.Services.Services
             await _lobbyRepository.SaveChangesAsync();
 
             return MapLobbyDto(lobby, null);
+        }
+
+        /// <summary>
+        /// Lấy danh sách lobby của 1 cafe cho Manager.
+        /// </summary>
+        public async Task<CafeLobbiesResponseDto> GetCafeLobbiesAsync(
+            Guid cafeManagerUserId,
+            Guid cafeId,
+            CafeLobbiesRequestDto request)
+        {
+            // Validate user có quyền xem cafe này (Manager hoặc CafeStaff)
+            var hasAccess = await _cafeRepository.IsManagerOrStaffAsync(cafeId, cafeManagerUserId);
+            if (!hasAccess)
+            {
+                throw new ForbiddenException(ApiErrorMessages.Cafe.ManagerForbidden(cafeId));
+            }
+
+            var page = Math.Max(1, request.Page);
+            var pageSize = Math.Clamp(request.PageSize, 1, 100);
+
+            var (items, totalCount) = await _lobbyRepository.GetByCafeAsync(
+                cafeId,
+                request.PlayDate ?? DateOnly.FromDateTime(DateTime.UtcNow),
+                request.LobbyStatuses,
+                page,
+                pageSize);
+
+            var dtos = items.Select(l => new CafeLobbyItemDto
+            {
+                LobbyId = l.Id,
+                ReservationId = l.ReservationId,
+                HostId = l.HostUserId,
+                HostName = l.HostUser?.Profile?.LastResolvedDisplayName ?? l.HostUser?.Username ?? string.Empty,
+                GameId = l.GameTemplateId,
+                GameName = l.GameTemplate?.Name ?? string.Empty,
+                PlayDate = l.PlayDate ?? DateOnly.FromDateTime(DateTime.UtcNow),
+                TimeSlot = l.TimeSlot ?? Core.Enum.TimeSlot.Morning,
+                CurrentPlayers = l.Members?.Count(m => m.IsActive) ?? 0,
+                MinPlayers = l.MinPlayers,
+                MaxPlayers = l.MaxMembers,
+                Status = l.Status,
+                IsPrivate = l.IsPrivate,
+                ShareCode = l.ShareCode,
+                ScheduledStartTime = l.ScheduledStartTime ?? DateTime.MinValue,
+                ScheduledEndTime = l.Reservation?.ScheduledEndTime ?? DateTime.MinValue,
+                RecruitmentDeadline = l.RecruitmentDeadline ?? DateTime.MinValue,
+                DepositAmount = l.Reservation?.DepositAmount ?? 0,
+                CreatedAt = l.CreatedAt
+            }).ToList();
+
+            return new CafeLobbiesResponseDto
+            {
+                Items = dtos,
+                TotalCount = totalCount,
+                Page = page,
+                PageSize = pageSize
+            };
         }
 
         // ============================ Helpers ============================

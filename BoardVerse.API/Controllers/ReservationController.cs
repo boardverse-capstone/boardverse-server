@@ -403,6 +403,40 @@ public class ReservationController : BaseApiController
     }
 
     /// <summary>
+    /// BR §21A.7: POS scan QR check-in theo ReservationCode. [Role: Cafe Staff]
+    /// Endpoint thay thế cho FE không biết reservationId, chỉ cần ReservationCode từ QR.
+    /// Atomic transition Reservation.Status = Confirmed → CheckedIn, Lobby.Status = InProgress.
+    /// Idempotent theo ReservationCode.
+    /// </summary>
+    /// <param name="reservationCode">Mã 8-char alphanumeric từ QR code.</param>
+    /// <param name="request">CafeId, ActiveSessionId, TableNumber, IdempotencyKey.</param>
+    /// <response code="200">Check-in thành công.</response>
+    /// <response code="400">Request không hợp lệ.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải staff của cafe.</response>
+    /// <response code="404">Không tìm thấy reservation.</response>
+    /// <response code="409">Reservation không thuộc cafe hoặc đã check-in rồi.</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpPost("by-code/{reservationCode}/check-in")]
+    [Authorize(Roles = "Manager,CafeStaff")]
+    public async Task<IActionResult> CheckInByCode(
+        string reservationCode,
+        [FromBody] CheckInByCodeRequestDto request)
+    {
+        try
+        {
+            var userId = GetUserIdFromClaims();
+            var result = await _reservationService.CheckInByCodeAsync(userId, reservationCode, request);
+            return this.NewResponse(200, "ReservationCheckedIn", result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            var statusCode = GetStatusCodeForError(ex.Message);
+            return this.NewResponse(statusCode, ex.Message, null);
+        }
+    }
+
+    /// <summary>
     /// BR-END-01..05 (§21A.8, §3.4): POS kết thúc session + settle deposit. [Role: Cafe Staff]
     ///
     /// Tính playedRatio = (ActualEndAt - CheckedInAt) / (ScheduledEndTime - ScheduledStartTime).

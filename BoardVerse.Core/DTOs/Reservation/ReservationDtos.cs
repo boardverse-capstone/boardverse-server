@@ -352,7 +352,25 @@ public class ReservationCheckInRequestDto
 }
 
 /// <summary>
-/// Response sau check-in ? tr? ActiveSession ?? li?n k?t v?i Reservation.
+/// Request check-in theo ReservationCode (thay vi reservationId).
+/// Danh cho FE/POS chi co QR code, khong can biet reservationId.
+/// </summary>
+public class CheckInByCodeRequestDto
+{
+    [Required]
+    public Guid CafeId { get; set; }
+
+    [Required]
+    public Guid ActiveSessionId { get; set; }
+
+    public int? TableNumber { get; set; }
+
+    [StringLength(128, MinimumLength = 8)]
+    public string? IdempotencyKey { get; set; }
+}
+
+/// <summary>
+/// Response sau check-in tra ve ActiveSession de lien ket voi Reservation.
 /// </summary>
 public class ReservationCheckInResponseDto
 {
@@ -642,4 +660,102 @@ public class EndReservationResponseDto
 
     /// <summary>True n?u player b? tr? Karma (Phase 7).</summary>
     public bool KarmaRecorded { get; set; }
+}
+
+/// <summary>
+/// Request lấy danh sách reservation của 1 cafe cho Manager.
+/// </summary>
+public class CafeReservationsRequestDto
+{
+    /// <summary>Filter theo trạng thái. Null = all non-terminal.</summary>
+    public List<ReservationStatus>? Statuses { get; set; }
+
+    /// <summary>Filter theo ngày. Null = hôm nay.</summary>
+    public DateOnly? PlayDate { get; set; }
+
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; } = 20;
+}
+
+/// <summary>
+/// Response paginated cho danh sách reservation của cafe.
+/// </summary>
+public class CafeReservationsResponseDto
+{
+    public List<ReservationListItemDto> Items { get; set; } = [];
+    public int TotalCount { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalPages => (int)Math.Ceiling((double)TotalCount / PageSize);
+}
+
+/// <summary>
+/// Request lấy danh sách lobby của 1 cafe cho Manager.
+/// </summary>
+public class CafeLobbiesRequestDto
+{
+    /// <summary>Filter theo trạng thái lobby. Null = all.</summary>
+    public List<LobbyStatus>? LobbyStatuses { get; set; }
+
+    /// <summary>Filter theo ngày. Null = hôm nay.</summary>
+    public DateOnly? PlayDate { get; set; }
+
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; } = 20;
+}
+
+/// <summary>
+/// Lobby item cho dashboard của Manager.
+/// </summary>
+public class CafeLobbyItemDto
+{
+    public Guid LobbyId { get; set; }
+    public Guid? ReservationId { get; set; }
+
+    public Guid HostId { get; set; }
+    public string HostName { get; set; } = string.Empty;
+
+    public Guid GameId { get; set; }
+    public string GameName { get; set; } = string.Empty;
+
+    public DateOnly PlayDate { get; set; }
+    public TimeSlot TimeSlot { get; set; }
+    public string TimeSlotDisplay => TimeSlot switch
+    {
+        TimeSlot.Morning => "Sáng (06:00 - 12:00)",
+        TimeSlot.Afternoon => "Chiều (12:00 - 17:00)",
+        TimeSlot.Evening => "Tối (17:00 - 23:00)",
+        TimeSlot.LateNight => "Khuya (23:00 - 06:00)",
+        _ => TimeSlot.ToString()
+    };
+
+    public int CurrentPlayers { get; set; }
+    public int MinPlayers { get; set; }
+    public int MaxPlayers { get; set; }
+
+    public LobbyStatus Status { get; set; }
+    public string StatusDisplay => Status.ToString();
+
+    public bool IsPrivate { get; set; }
+    public string? ShareCode { get; set; }
+
+    public DateTime ScheduledStartTime { get; set; }
+    public DateTime ScheduledEndTime { get; set; }
+    public DateTime RecruitmentDeadline { get; set; }
+
+    public long DepositAmount { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+}
+
+/// <summary>
+/// Response paginated cho danh sách lobby của cafe.
+/// </summary>
+public class CafeLobbiesResponseDto
+{
+    public List<CafeLobbyItemDto> Items { get; set; } = [];
+    public int TotalCount { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalPages => (int)Math.Ceiling((double)TotalCount / PageSize);
 }

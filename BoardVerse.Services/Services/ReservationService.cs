@@ -1895,6 +1895,25 @@ public class ReservationService : IReservationService
             ApiErrorMessages.System.CheckInRetryExhausted(reservation.Id, maxRetries));
     }
 
+    public async Task<ReservationCheckInResponseDto> CheckInByCodeAsync(
+        Guid staffUserId,
+        string reservationCode,
+        CheckInByCodeRequestDto request)
+    {
+        // Chuyển đổi sang ReservationCheckInRequestDto để reuse logic
+        var checkInRequest = new ReservationCheckInRequestDto
+        {
+            CafeId = request.CafeId,
+            ReservationCode = reservationCode,
+            ActiveSessionId = request.ActiveSessionId,
+            TableNumber = request.TableNumber,
+            IdempotencyKey = request.IdempotencyKey
+                ?? $"pos-checkin:{reservationCode}:{Guid.NewGuid():N}"
+        };
+
+        return await CheckInAsync(staffUserId, checkInRequest);
+    }
+
     private async Task<ReservationCheckInResponseDto> ExecuteCheckInTransactionAsync(
         Reservation reservation,
         Guid staffUserId,
@@ -3290,6 +3309,64 @@ public class ReservationService : IReservationService
             ScheduledEndTime = reservation.ScheduledEndTime,
             WalkInWindowId = reservation.WalkInWindowId,
             KarmaRecorded = karmaRecorded
+        };
+    }
+
+    /// <summary>
+    /// Lấy danh sách reservation của 1 cafe cho Manager.
+    /// </summary>
+    public async Task<CafeReservationsResponseDto> GetCafeReservationsAsync(
+        Guid cafeManagerUserId,
+        Guid cafeId,
+        CafeReservationsRequestDto request)
+    {
+        // Validate user có quyền xem cafe này (Manager hoặc CafeStaff)
+        var hasAccess = await _cafeRepository.IsManagerOrStaffAsync(cafeId, cafeManagerUserId);
+        if (!hasAccess)
+        {
+            throw new ForbiddenException(ApiErrorMessages.Cafe.ManagerForbidden(cafeId));
+        }
+
+        var page = Math.Max(1, request.Page);
+        var pageSize = Math.Clamp(request.PageSize, 1, 100);
+
+        var (items, totalCount) = await _reservationRepository.GetByCafeAsync(
+            cafeId,
+            request.Statuses,
+            request.PlayDate ?? DateOnly.FromDateTime(DateTime.UtcNow),
+            page,
+            pageSize);
+
+        var dtos = items.Select(r => new ReservationListItemDto
+        {
+            Id = r.Id,
+            CafeId = r.CafeId,
+            CafeName = r.Cafe?.Name ?? string.Empty,
+            GameId = r.GameId,
+            GameName = r.Game?.Name ?? string.Empty,
+            PlayDate = r.PlayDate,
+            TimeSlot = r.TimeSlot,
+            CurrentPlayers = r.CurrentPlayers,
+            MaxPlayers = r.MaxPlayers,
+            Status = r.Status.ToString(),
+            DepositAmount = r.DepositAmount,
+            LobbyId = r.LobbyId,
+            LobbyStatus = r.Lobby?.Status.ToString(),
+            ReservationCode = r.ReservationCode,
+            ScheduledStartTime = r.ScheduledStartTime,
+            ScheduledEndTime = r.ScheduledEndTime,
+            RecruitmentDeadline = r.RecruitmentDeadline,
+            CreatedAt = r.CreatedAt,
+            IsHost = r.HostId == cafeManagerUserId,
+            TableNumber = r.TableNumber
+        }).ToList();
+
+        return new CafeReservationsResponseDto
+        {
+            Items = dtos,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize
         };
     }
 }

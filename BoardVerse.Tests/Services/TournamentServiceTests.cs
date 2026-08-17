@@ -714,6 +714,85 @@ public class TournamentServiceTests
         Assert.Equal(player, result.WinnerPlayerId);
     }
 
+    [Fact]
+    public async Task RecordMatchResultAsync_FinalMatch_SetsWinnerPlayerIdToParticipantId()
+    {
+        // Arrange — For Final matches, BuildFinalMatchAsync creates match with Participant.Id as PlayerNId.
+        // WinnerUserId (UserId) must be resolved to Participant.Id for WinnerPlayerId FK constraint.
+        var tournamentRepo = BuildTournamentRepo();
+        var gameRepo = BuildGameRepo();
+        var cafeRepo = BuildCafeRepo();
+        var userRepo = BuildUserRepo();
+        var configRepo = BuildConfigRepo();
+        var karmaRepo = BuildKarmaRepo();
+
+        var p1UserId = Guid.NewGuid();
+        var p2UserId = Guid.NewGuid();
+        var p1ParticipantId = Guid.NewGuid();
+        var p2ParticipantId = Guid.NewGuid();
+
+        var tournament = BuildOnGoingTournament();
+        tournament.GameTemplate = new GameTemplate
+        {
+            Id = SplendorId,
+            Name = "Splendor",
+            IsActive = true,
+            IsTournamentSupported = true,
+            TournamentMaxScorePerPlayer = 15,
+            TournamentMinPlayersPerTable = 2
+        };
+        tournament.CurrentRound = 4;
+        tournament.PreliminaryRounds = 3;
+        tournament.TotalRounds = 4;
+        tournament.FinalistCount = 4;
+        tournament.Participants = new List<TournamentParticipant>
+        {
+            new() { Id = p1ParticipantId, UserId = p1UserId, Status = TournamentParticipantStatus.Active },
+            new() { Id = p2ParticipantId, UserId = p2UserId, Status = TournamentParticipantStatus.Active }
+        };
+
+        // Final match created by BuildFinalMatchAsync with Participant.Id as PlayerNId
+        var match = new TournamentMatchBracket
+        {
+            Id = Guid.NewGuid(),
+            TournamentId = TournamentId,
+            RoundNumber = 4,
+            MatchNumber = 1,
+            IsFinal = true,
+            MatchType = Core.Enum.MatchType.Final,
+            Player1Id = p1ParticipantId,
+            Player2Id = p2ParticipantId,
+            Status = TournamentMatchStatus.OnGoing
+        };
+
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetMatchByIdAsync(match.Id)).ReturnsAsync(match);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        configRepo.Setup(r => r.GetIntAsync(SystemConfigKeys.EloKFactor, 32)).ReturnsAsync(32);
+        tournamentRepo.Setup(r => r.AddEloContributionAsync(It.IsAny<TournamentMatchEloContribution>())).Returns(Task.CompletedTask);
+        tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+
+        var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
+
+        var request = new RecordMatchResultRequestDto
+        {
+            MatchId = match.Id,
+            WinnerUserId = p1UserId,
+            Results = new List<MatchPlayerResultDto>
+            {
+                new() { UserId = p1UserId, Score = 15, CardsBought = 10 },
+                new() { UserId = p2UserId, Score = 8, CardsBought = 5 }
+            }
+        };
+
+        // Act
+        var result = await svc.RecordMatchResultAsync(ManagerId, match.Id, request);
+
+        // Assert — WinnerPlayerId must be p1ParticipantId (not p1UserId) for Final match FK constraint
+        Assert.NotNull(result);
+        Assert.Equal(p1ParticipantId, result.WinnerPlayerId);
+    }
+
     // ============================================
     // === POS: Mark NoShow — Karma + audit ===
     // ============================================

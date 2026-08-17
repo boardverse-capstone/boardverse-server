@@ -160,5 +160,16 @@ public interface ILobbyRepository
         int page, int pageSize,
         DateTime? fromUtc, DateTime? toUtc,
         LobbyStatus? failureType);
+
+    /// <summary>
+    /// Lấy danh sách lobby của 1 cafe cho Manager dashboard.
+    /// Filter theo status và playDate, có phân trang.
+    /// </summary>
+    Task<(IReadOnlyList<Lobby> Items, int TotalCount)> GetByCafeAsync(
+        Guid cafeId,
+        DateOnly? playDate,
+        List<LobbyStatus>? statuses,
+        int page,
+        int pageSize);
 }
 }

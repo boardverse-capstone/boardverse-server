@@ -321,4 +321,43 @@ public class ReservationRepository : IReservationRepository
     {
         return _db.SaveChangesAsync();
     }
+
+    /// <summary>
+    /// Lấy danh sách reservation của 1 cafe cho Manager dashboard.
+    /// Filter theo status và playDate, có phân trang.
+    /// </summary>
+    public async Task<(IReadOnlyList<Reservation> Items, int TotalCount)> GetByCafeAsync(
+        Guid cafeId,
+        List<ReservationStatus>? statuses,
+        DateOnly? playDate,
+        int page,
+        int pageSize)
+    {
+        var query = _db.Reservations
+            .Include(r => r.Host).ThenInclude(u => u.Profile)
+            .Include(r => r.Cafe)
+            .Include(r => r.Game)
+            .Include(r => r.Lobby)
+            .Where(r => r.CafeId == cafeId);
+
+        if (statuses != null && statuses.Count > 0)
+        {
+            query = query.Where(r => statuses.Contains(r.Status));
+        }
+
+        if (playDate.HasValue)
+        {
+            query = query.Where(r => r.PlayDate == playDate.Value);
+        }
+
+        var totalCount = await query.CountAsync();
+
+        var items = await query
+            .OrderByDescending(r => r.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return (items, totalCount);
+    }
 }
