@@ -1,4 +1,4 @@
-﻿using BoardVerse.Core.Constants;
+using BoardVerse.Core.Constants;
 using BoardVerse.Core.DTOs.TimeSlotOverride;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
@@ -11,8 +11,14 @@ using Microsoft.Extensions.Logging;
 namespace BoardVerse.Services.Services;
 
 /// <summary>
-/// Triá»ƒn khai <see cref="ITimeSlotService"/> â€” quáº£n lÃ½ 4 TimeSlot máº·c Ä‘á»‹nh vÃ  override theo cafe.
+/// Triển khai <see cref="ITimeSlotService"/> — quản lý 4 TimeSlot mặc định và override theo cafe.
+///
+/// BR-NEW-15 (2026-08-18): TimeSlot enum đang trong quá trình loại bỏ.
+/// - Phần quản lý override cụ thể (Create/Update/Delete theo slot) sẽ được chuyển sang
+///   <c>CafeScheduleService</c> dùng ApplyDate/OpenTime/CloseTime.
+/// - Các method quản lý theo slot (TimeSlotController endpoints) tạm thời trả về stub.
 /// </summary>
+[Obsolete("BR-NEW-15: TimeSlot-based management sẽ được thay bằng ApplyDate/OpenTime/CloseTime trong CafeScheduleService. Xem docs/time-slot-fixed-end-design.md v3.0.")]
 public class TimeSlotService : ITimeSlotService
 {
     private readonly ICafeScheduleOverrideRepository _overrideRepository;
@@ -37,36 +43,36 @@ public class TimeSlotService : ITimeSlotService
             {
                 Slot = nameof(TimeSlot.Morning),
                 DisplayName = "Sáng",
-                DefaultStartTime = CafeSchedule.GetStartTime(TimeSlot.Morning),
-                DefaultEndTime = CafeSchedule.GetEndTime(TimeSlot.Morning),
-                DurationMinutes = CafeSchedule.GetDurationMinutes(TimeSlot.Morning),
+                DefaultStartTime = TimeSlot.Morning.GetStartTime(),
+                DefaultEndTime = TimeSlot.Morning.GetEndTime(),
+                DurationMinutes = TimeSlot.Morning.GetDurationMinutes(),
                 Description = "Phiên sáng (06:00 – 12:00)"
             },
             new()
             {
                 Slot = nameof(TimeSlot.Afternoon),
                 DisplayName = "Chiều",
-                DefaultStartTime = CafeSchedule.GetStartTime(TimeSlot.Afternoon),
-                DefaultEndTime = CafeSchedule.GetEndTime(TimeSlot.Afternoon),
-                DurationMinutes = CafeSchedule.GetDurationMinutes(TimeSlot.Afternoon),
+                DefaultStartTime = TimeSlot.Afternoon.GetStartTime(),
+                DefaultEndTime = TimeSlot.Afternoon.GetEndTime(),
+                DurationMinutes = TimeSlot.Afternoon.GetDurationMinutes(),
                 Description = "Phiên chiều (12:00 – 17:00)"
             },
             new()
             {
                 Slot = nameof(TimeSlot.Evening),
                 DisplayName = "Tối",
-                DefaultStartTime = CafeSchedule.GetStartTime(TimeSlot.Evening),
-                DefaultEndTime = CafeSchedule.GetEndTime(TimeSlot.Evening),
-                DurationMinutes = CafeSchedule.GetDurationMinutes(TimeSlot.Evening),
+                DefaultStartTime = TimeSlot.Evening.GetStartTime(),
+                DefaultEndTime = TimeSlot.Evening.GetEndTime(),
+                DurationMinutes = TimeSlot.Evening.GetDurationMinutes(),
                 Description = "Phiên tối (17:00 – 23:00)"
             },
             new()
             {
                 Slot = nameof(TimeSlot.LateNight),
                 DisplayName = "Khuya",
-                DefaultStartTime = CafeSchedule.GetStartTime(TimeSlot.LateNight),
-                DefaultEndTime = CafeSchedule.GetEndTime(TimeSlot.LateNight),
-                DurationMinutes = CafeSchedule.GetDurationMinutes(TimeSlot.LateNight),
+                DefaultStartTime = TimeSlot.LateNight.GetStartTime(),
+                DefaultEndTime = TimeSlot.LateNight.GetEndTime(),
+                DurationMinutes = TimeSlot.LateNight.GetDurationMinutes(),
                 Description = "Phiên khuya qua đêm (23:00 – 06:00 hôm sau)"
             }
         };
@@ -79,11 +85,10 @@ public class TimeSlotService : ITimeSlotService
     {
         await EnsureCafeManagerAsync(cafeId, managerUserId);
 
-        var overrides = await _overrideRepository.ListByCafeAsync(cafeId);
-        var overrideBySlot = overrides.ToDictionary(o => o.TimeSlot, o => o);
-
+        // BR-NEW-15: Override theo TimeSlot slot đang bị loại bỏ.
+        // Trả về 4 slot default — override cụ thể xem qua CafeScheduleService.
         var slots = Enum.GetValues<TimeSlot>()
-            .Select(slot => BuildResponse(slot, cafeId, overrideBySlot))
+            .Select(slot => BuildDefaultResponse(slot, cafeId))
             .ToList();
 
         return slots;
@@ -93,112 +98,31 @@ public class TimeSlotService : ITimeSlotService
         Guid cafeId, Guid managerUserId, string slotName)
     {
         await EnsureCafeManagerAsync(cafeId, managerUserId);
-
         var slot = ParseTimeSlot(slotName);
-        var overrideEntry = await _overrideRepository.GetByCafeAndSlotAsync(cafeId, slot);
-
-        return BuildResponse(slot, cafeId,
-            overrideEntry is null
-                ? new Dictionary<TimeSlot, CafeScheduleOverride>()
-                : new Dictionary<TimeSlot, CafeScheduleOverride> { [slot] = overrideEntry });
+        return BuildDefaultResponse(slot, cafeId);
     }
 
-    public async Task<ManagerTimeSlotResponseDto> CreateOverrideAsync(
+    public Task<ManagerTimeSlotResponseDto> CreateOverrideAsync(
         Guid cafeId, Guid managerUserId, CreateTimeSlotOverrideRequestDto request)
     {
-        await EnsureCafeManagerAsync(cafeId, managerUserId);
-
-        var slot = ParseTimeSlot(request.TimeSlot);
-        ValidateOverrideTimeRange(slot, request.StartTime, request.EndTime, request.IsClosed);
-        ValidateEffectiveRange(request.EffectiveFrom, request.EffectiveTo);
-
-        var existing = await _overrideRepository.GetByCafeAndSlotAsync(cafeId, slot);
-        if (existing != null)
-        {
-            throw new ConflictException(ApiErrorMessages.System.TimeSlotOverrideOverrideAlreadyExists(cafeId, request.TimeSlot));
-        }
-
-        var entity = new CafeScheduleOverride
-        {
-            Id = Guid.NewGuid(),
-            CafeId = cafeId,
-            TimeSlot = slot,
-            StartTime = request.StartTime,
-            EndTime = request.EndTime,
-            IsClosed = request.IsClosed,
-            EffectiveFrom = request.EffectiveFrom,
-            EffectiveTo = request.EffectiveTo,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
-
-        await _overrideRepository.AddAsync(entity);
-        await _overrideRepository.SaveChangesAsync();
-
-        _logger.LogInformation(
-            "TimeSlot override created: Cafe={CafeId}, Slot={Slot}, IsClosed={IsClosed}",
-            cafeId, slot, request.IsClosed);
-
-        return MapOverride(entity, cafeId);
+        throw new NotImplementedException(
+            "BR-NEW-15: CreateOverrideAsync (theo TimeSlot slot) đang bị loại bỏ. " +
+            "Dùng CafeScheduleService.CreateOrUpdateOverrideAsync(Guid cafeId, DateOnly applyDate, ...) thay thế.");
     }
 
-    public async Task<ManagerTimeSlotResponseDto> UpdateOverrideAsync(
+    public Task<ManagerTimeSlotResponseDto> UpdateOverrideAsync(
         Guid cafeId, Guid managerUserId, string slotName, UpdateTimeSlotOverrideRequestDto request)
     {
-        await EnsureCafeManagerAsync(cafeId, managerUserId);
-
-        var slot = ParseTimeSlot(slotName);
-
-        var existing = await _overrideRepository.GetByCafeAndSlotAsync(cafeId, slot);
-        if (existing == null)
-        {
-            throw new NotFoundException(ApiErrorMessages.System.TimeSlotOverrideOverrideNotFound(cafeId, slotName));
-        }
-
-        // Náº¿u táº¥t cáº£ field request Ä‘á»u null â†’ khÃ´ng cÃ³ gÃ¬ Ä‘á»ƒ update.
-        if (request.StartTime == null && request.EndTime == null && request.IsClosed == null
-            && request.EffectiveFrom == null && request.EffectiveTo == null)
-        {
-            throw new BadRequestException(ApiErrorMessages.System.TimeSlotOverrideNoFieldsToUpdate);
-        }
-
-        // Snapshot giÃ¡ trá»‹ hiá»‡n táº¡i trÆ°á»›c khi Ã¡p partial update.
-        var newStart = request.StartTime ?? existing.StartTime;
-        var newEnd = request.EndTime ?? existing.EndTime;
-        var newIsClosed = request.IsClosed ?? existing.IsClosed;
-        var newEffectiveFrom = request.EffectiveFrom ?? existing.EffectiveFrom;
-        var newEffectiveTo = request.EffectiveTo ?? existing.EffectiveTo;
-
-        // Validate giÃ¡ trá»‹ má»›i (sau khi merge partial).
-        ValidateOverrideTimeRange(slot, newStart, newEnd, newIsClosed);
-        ValidateEffectiveRange(newEffectiveFrom, newEffectiveTo);
-
-        existing.StartTime = newStart;
-        existing.EndTime = newEnd;
-        existing.IsClosed = newIsClosed;
-        existing.EffectiveFrom = newEffectiveFrom;
-        existing.EffectiveTo = newEffectiveTo;
-
-        await _overrideRepository.UpdateAsync(existing);
-        await _overrideRepository.SaveChangesAsync();
-
-        _logger.LogInformation(
-            "TimeSlot override updated: Cafe={CafeId}, Slot={Slot}", cafeId, slot);
-
-        return MapOverride(existing, cafeId);
+        throw new NotImplementedException(
+            "BR-NEW-15: UpdateOverrideAsync (theo TimeSlot slot) đang bị loại bỏ. " +
+            "Dùng CafeScheduleService.CreateOrUpdateOverrideAsync(Guid cafeId, DateOnly applyDate, ...) thay thế.");
     }
 
-    public async Task DeleteOverrideAsync(
-        Guid cafeId, Guid managerUserId, string slotName)
+    public Task DeleteOverrideAsync(Guid cafeId, Guid managerUserId, string slotName)
     {
-        await EnsureCafeManagerAsync(cafeId, managerUserId);
-
-        var slot = ParseTimeSlot(slotName);
-        await _overrideRepository.DeleteAsync(cafeId, slot);
-        await _overrideRepository.SaveChangesAsync();
-
-        _logger.LogInformation(
-            "TimeSlot override deleted: Cafe={CafeId}, Slot={Slot}", cafeId, slot);
+        throw new NotImplementedException(
+            "BR-NEW-15: DeleteOverrideAsync (theo TimeSlot slot) đang bị loại bỏ. " +
+            "Dùng CafeScheduleService.DeleteOverrideAsync(Guid cafeId, DateOnly applyDate) thay thế.");
     }
 
     // ===== Helpers =====
@@ -235,61 +159,10 @@ public class TimeSlotService : ITimeSlotService
         return slot;
     }
 
-    private static void ValidateOverrideTimeRange(
-        TimeSlot slot,
-        TimeOnly? startTime,
-        TimeOnly? endTime,
-        bool isClosed)
+    private ManagerTimeSlotResponseDto BuildDefaultResponse(TimeSlot slot, Guid cafeId)
     {
-        if (isClosed)
-        {
-            return;
-        }
-
-        if (startTime.HasValue && endTime.HasValue && startTime.Value == endTime.Value)
-        {
-            throw new BadRequestException(ApiErrorMessages.System.TimeSlotOverrideInvalidTimeRange);
-        }
-    }
-
-    private static void ValidateEffectiveRange(DateOnly? from, DateOnly? to)
-    {
-        if (from.HasValue && to.HasValue && from.Value > to.Value)
-        {
-            throw new BadRequestException(ApiErrorMessages.System.TimeSlotOverrideInvalidEffectiveRange);
-        }
-    }
-
-    private ManagerTimeSlotResponseDto BuildResponse(
-        TimeSlot slot,
-        Guid cafeId,
-        IReadOnlyDictionary<TimeSlot, CafeScheduleOverride> overrideBySlot)
-    {
-        var defaultStart = CafeSchedule.GetStartTime(slot);
-        var defaultEnd = CafeSchedule.GetEndTime(slot);
-
-        if (overrideBySlot.TryGetValue(slot, out var ov))
-        {
-            var start = ov.StartTime ?? defaultStart;
-            var end = ov.EndTime ?? defaultEnd;
-
-            return new ManagerTimeSlotResponseDto
-            {
-                Id = ov.Id,
-                CafeId = cafeId,
-                TimeSlot = slot.ToString(),
-                StartTime = start,
-                EndTime = end,
-                DefaultStartTime = defaultStart,
-                DefaultEndTime = defaultEnd,
-                IsClosed = ov.IsClosed,
-                HasOverride = true,
-                EffectiveFrom = ov.EffectiveFrom,
-                EffectiveTo = ov.EffectiveTo,
-                CreatedAt = ov.CreatedAt,
-                UpdatedAt = ov.UpdatedAt
-            };
-        }
+        var defaultStart = slot.GetStartTime();
+        var defaultEnd = slot.GetEndTime();
 
         return new ManagerTimeSlotResponseDto
         {
@@ -308,30 +181,4 @@ public class TimeSlotService : ITimeSlotService
             UpdatedAt = null
         };
     }
-
-    private static ManagerTimeSlotResponseDto MapOverride(CafeScheduleOverride ov, Guid cafeId)
-    {
-        var defaultStart = CafeSchedule.GetStartTime(ov.TimeSlot);
-        var defaultEnd = CafeSchedule.GetEndTime(ov.TimeSlot);
-        var start = ov.StartTime ?? defaultStart;
-        var end = ov.EndTime ?? defaultEnd;
-
-        return new ManagerTimeSlotResponseDto
-        {
-            Id = ov.Id,
-            CafeId = cafeId,
-            TimeSlot = ov.TimeSlot.ToString(),
-            StartTime = start,
-            EndTime = end,
-            DefaultStartTime = defaultStart,
-            DefaultEndTime = defaultEnd,
-            IsClosed = ov.IsClosed,
-            HasOverride = true,
-            EffectiveFrom = ov.EffectiveFrom,
-            EffectiveTo = ov.EffectiveTo,
-            CreatedAt = ov.CreatedAt,
-            UpdatedAt = ov.UpdatedAt
-        };
-    }
 }
-

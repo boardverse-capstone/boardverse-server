@@ -349,17 +349,17 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Lấy danh sách lobby mà user đang tham gia. [Role: Player]
+        /// Lấy tất cả lobby của user (host hoặc member, active). [Role: Player]
         /// </summary>
-        /// <response code="200">Danh sách lobby joined.</response>
+        /// <response code="200">Danh sách lobby của user.</response>
         /// <response code="401">Thiếu token.</response>
         /// <response code="500">Lỗi hệ thống.</response>
-        [HttpGet("joined")]
-        public async Task<IActionResult> GetJoinedLobbies()
+        [HttpGet("my")]
+        public async Task<IActionResult> GetMyLobbies()
         {
             var userId = GetUserIdFromClaims();
-            var result = await _lobbyService.GetJoinedLobbiesAsync(userId);
-            return this.NewResponse(200, "Lấy danh sách phòng chờ đang tham gia.", result);
+            var result = await _lobbyService.GetMyLobbiesAsync(userId);
+            return this.NewResponse(200, "Lấy danh sách phòng chờ của bạn.", result);
         }
 
         /// <summary>

@@ -4,9 +4,9 @@ using BoardVerse.Core.Enum;
 namespace BoardVerse.Core.DTOs.Reservation;
 
 /// <summary>
-/// Request t?o quote cho 1 reservation (?21A.2).
-/// BR-DEPOSIT-01: Host tr? to?n b? c?c.
-/// BR-NEW-15: timeSlot c? ??nh.
+/// Request tạo quote cho 1 reservation (§21A.2).
+/// BR-DEPOSIT-01: Host trả toàn bộ cọc.
+/// BR-NEW-15 (2026-08-18): BỎ TimeSlot enum - dùng preferredStartTime/preferredEndTime.
 /// </summary>
 public class ReservationQuoteRequestDto
 {
@@ -19,16 +19,13 @@ public class ReservationQuoteRequestDto
     [Required]
     public DateOnly PlayDate { get; set; }
 
+    /// <summary>Start time bắt buộc, nằm trong giờ mở cửa cafe.</summary>
     [Required]
-    public TimeSlot TimeSlot { get; set; }
+    public TimeOnly PreferredStartTime { get; set; }
 
-    /// <summary>Start time bắt buộc, nằm trong [timeSlot.startTime, timeSlot.endTime].</summary>
+    /// <summary>End time bắt buộc, > PreferredStartTime, nằm trong giờ đóng cửa cafe.</summary>
     [Required]
-    public TimeOnly? PreferredStartTime { get; set; }
-
-    /// <summary>End time bắt buộc, nằm trong [PreferredStartTime, timeSlot.endTime], cùng ngày playDate.</summary>
-    [Required]
-    public TimeOnly? PreferredEndTime { get; set; }
+    public TimeOnly PreferredEndTime { get; set; }
 
     /// <summary>
     /// 1-30 players. MinPlayers m?c ??nh 2 ?? ??m b?o lobby ?? ng??i.
@@ -68,13 +65,11 @@ public class ReservationQuoteDto
     public Guid CafeId { get; set; }
     public Guid GameId { get; set; }
     public DateOnly PlayDate { get; set; }
-    public TimeSlot TimeSlot { get; set; }
-    public TimeOnly? PreferredStartTime { get; set; }
-    public TimeOnly? PreferredEndTime { get; set; }
+    public TimeOnly PreferredStartTime { get; set; }
+    public TimeOnly PreferredEndTime { get; set; }
 
     /// <summary>
-    /// BR-RESV-02: ScheduledStartTime + ScheduledEndTime luu DB luc <c>ConfirmAsync</c>.
-    /// FE d?ng ?? hi?n th? th?i gian ??u-cu?i phi?n (?? qua ??m v?i slot <c>LateNight</c>).
+    /// BR-RESV-02: ScheduledStartTime + ScheduledEndTime lưu DB lúc ConfirmAsync.
     /// </summary>
     public DateTime ScheduledStartTime { get; set; }
     public DateTime ScheduledEndTime { get; set; }
@@ -153,9 +148,10 @@ public class EarlyCheckoutRefundPreview
 }
 
 /// <summary>
-/// Request x?c nh?n reservation ? atomic hold BVC + seat + game copy (?21A.3).
-/// Server t? t?nh l?i quote + t?o Reservation + Lobby trong 1 transaction.
-/// IdempotencyKey ch?ng double-confirm (BR ?XVII.1).
+/// Request xác nhận reservation - atomic hold BVC + seat + game copy (§21A.3).
+/// Server tính lại quote + tạo Reservation + Lobby trong 1 transaction.
+/// IdempotencyKey chống double-confirm (BR §XVII.1).
+/// BR-NEW-15 (2026-08-18): BỎ TimeSlot - dùng preferredStartTime/preferredEndTime.
 /// </summary>
 public class ReservationConfirmRequestDto
 {
@@ -168,16 +164,13 @@ public class ReservationConfirmRequestDto
     [Required]
     public DateOnly PlayDate { get; set; }
 
+    /// <summary>Start time bắt buộc, nằm trong giờ mở cửa cafe.</summary>
     [Required]
-    public TimeSlot TimeSlot { get; set; }
+    public TimeOnly PreferredStartTime { get; set; }
 
-    /// <summary>Start time bắt buộc, nằm trong [timeSlot.startTime, timeSlot.endTime].</summary>
+    /// <summary>End time bắt buộc, > PreferredStartTime, nằm trong giờ đóng cửa cafe.</summary>
     [Required]
-    public TimeOnly? PreferredStartTime { get; set; }
-
-    /// <summary>End time bắt buộc, nằm trong [PreferredStartTime, timeSlot.endTime], cùng ngày playDate.</summary>
-    [Required]
-    public TimeOnly? PreferredEndTime { get; set; }
+    public TimeOnly PreferredEndTime { get; set; }
 
     /// <summary>
     /// 1-30 players. MinPlayers m?c ??nh 2 ?? ??m b?o lobby ?? ng??i.
@@ -403,11 +396,10 @@ public class ReservationDetailDto
     public string GameName { get; set; } = string.Empty;
 
     public DateOnly PlayDate { get; set; }
-    public TimeSlot TimeSlot { get; set; }
-    public TimeOnly? PreferredStartTime { get; set; }
-    public TimeOnly? PreferredEndTime { get; set; }
+    public TimeOnly PreferredStartTime { get; set; }
+    public TimeOnly PreferredEndTime { get; set; }
 
-    /// <summary>BR-RESV-02: scheduledStartTime + scheduledEndTime l?u DB.</summary>
+    /// <summary>BR-RESV-02: scheduledStartTime + scheduledEndTime lưu DB.</summary>
     public DateTime ScheduledStartTime { get; set; }
     public DateTime ScheduledEndTime { get; set; }
 
@@ -482,7 +474,8 @@ public class ReservationListItemDto
     public string GameName { get; set; } = string.Empty;
 
     public DateOnly PlayDate { get; set; }
-    public TimeSlot TimeSlot { get; set; }
+    public TimeOnly PreferredStartTime { get; set; }
+    public TimeOnly PreferredEndTime { get; set; }
 
     public int CurrentPlayers { get; set; }
     public int MaxPlayers { get; set; }
@@ -564,15 +557,8 @@ public class LobbyPendingApprovalItemDto
     public string GameName { get; set; } = string.Empty;
 
     public DateOnly PlayDate { get; set; }
-    public TimeSlot TimeSlot { get; set; }
-    public string TimeSlotDisplay => TimeSlot switch
-    {
-        TimeSlot.Morning => "Sáng (06:00 - 12:00)",
-        TimeSlot.Afternoon => "Chiều (12:00 - 17:00)",
-        TimeSlot.Evening => "Tối (17:00 - 23:00)",
-        TimeSlot.LateNight => "Khuya (23:00 - 06:00)",
-        _ => TimeSlot.ToString()
-    };
+    public TimeOnly PreferredStartTime { get; set; }
+    public TimeOnly PreferredEndTime { get; set; }
 
     public int MinPlayers { get; set; }
     public int MaxPlayers { get; set; }
@@ -719,15 +705,8 @@ public class CafeLobbyItemDto
     public string GameName { get; set; } = string.Empty;
 
     public DateOnly PlayDate { get; set; }
-    public TimeSlot TimeSlot { get; set; }
-    public string TimeSlotDisplay => TimeSlot switch
-    {
-        TimeSlot.Morning => "Sáng (06:00 - 12:00)",
-        TimeSlot.Afternoon => "Chiều (12:00 - 17:00)",
-        TimeSlot.Evening => "Tối (17:00 - 23:00)",
-        TimeSlot.LateNight => "Khuya (23:00 - 06:00)",
-        _ => TimeSlot.ToString()
-    };
+    public TimeOnly PreferredStartTime { get; set; }
+    public TimeOnly PreferredEndTime { get; set; }
 
     public int CurrentPlayers { get; set; }
     public int MinPlayers { get; set; }

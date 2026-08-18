@@ -473,9 +473,9 @@ ILogger<LobbyService> logger,
                 var overlapList = await _lobbyRepository.GetOverlappingLobbiesAsync(
                     userId,
                     lobby.PlayDate.Value,
-                    lobby.TimeSlot!.Value,
-                    lobby.RecruitmentDeadline.Value,
-                    lobby.ScheduledStartTime.Value);
+                    lobby.PreferredStartTime ?? (lobby.ScheduledStartTime.HasValue ? TimeOnly.FromDateTime(lobby.ScheduledStartTime.Value) : TimeOnly.MinValue),
+                    lobby.PreferredEndTime ?? (lobby.ScheduledStartTime.HasValue ? TimeOnly.FromDateTime(lobby.ScheduledStartTime.Value.AddHours(2)) : TimeOnly.MinValue),
+                    lobby.RecruitmentDeadline ?? DateTime.MinValue);
 
                 if (overlapList.Any())
                 {
@@ -726,10 +726,7 @@ ILogger<LobbyService> logger,
         private async Task<List<Lobby>> FilterOverlappingLobbiesAsync(List<Lobby> lobbies, Guid userId)
         {
             // Lấy tất cả lobby mà user đang host hoặc tham gia
-            var userHostingLobbies = await _lobbyRepository.GetActiveLobbiesByHostAsync(userId);
-            var userJoinedLobbies = await _lobbyRepository.GetJoinedLobbiesAsync(userId);
-
-            var userLobbies = userHostingLobbies.Concat(userJoinedLobbies).DistinctBy(l => l.Id).ToList();
+            var userLobbies = await _lobbyRepository.GetMyLobbiesAsync(userId);
 
             if (userLobbies.Count == 0)
             {
@@ -738,30 +735,29 @@ ILogger<LobbyService> logger,
 
             // Tính scheduledTime của các lobby user đang tham gia
             var userScheduledRanges = userLobbies
-                .Where(l => l.PlayDate.HasValue && l.TimeSlot.HasValue)
+                .Where(l => l.PlayDate.HasValue)
                 .Select(l => new
                 {
                     l.PlayDate,
                     l.TimeSlot,
-                    Start = GetScheduledTime(l.PlayDate!.Value, l.TimeSlot!.Value),
-                    End = GetScheduledTime(l.PlayDate!.Value, l.TimeSlot!.Value).AddMinutes(30) // +30 phút buffer
+                    Start = GetScheduledTime(l),
+                    End = GetScheduledTime(l).AddMinutes(30) // +30 phút buffer
                 }).ToList();
 
             // Loại bỏ lobby trùng lịch
             return lobbies.Where(lobby =>
             {
-                if (!lobby.PlayDate.HasValue || !lobby.TimeSlot.HasValue)
+                if (!lobby.PlayDate.HasValue)
                 {
                     return true; // Không có thông tin schedule → không filter
                 }
 
-                var lobbyStart = GetScheduledTime(lobby.PlayDate.Value, lobby.TimeSlot.Value);
+                var lobbyStart = GetScheduledTime(lobby);
                 var lobbyEnd = lobbyStart.AddMinutes(30);
 
-                // Kiểm tra overlap
+                // Kiểm tra overlap bằng computed Start/End times (BR-NEW-15: dùng PreferredStartTime)
                 return !userScheduledRanges.Any(userRange =>
                     userRange.PlayDate == lobby.PlayDate &&
-                    userRange.TimeSlot == lobby.TimeSlot &&
                     userRange.Start < lobbyEnd &&
                     lobbyStart < userRange.End);
             }).ToList();
@@ -769,14 +765,34 @@ ILogger<LobbyService> logger,
 
         /// <summary>
         /// Tính scheduledTime từ PlayDate + TimeSlot (sync — dùng default <c>CafeSchedule</c>).
-        /// Lưu ý: nếu lobby đã có <c>CafeScheduleOverride</c>, dùng <c>Lobby.ScheduledStartTime</c>
-        /// thay vì method này (đã được lưu lúc tạo lobby qua <c>ReservationService</c>).
+        /// BR-NEW-15 (2026-08-18): Dùng PreferredStartTime khi có, fallback to TimeSlot.GetStartTime().
         /// </summary>
-        private static DateTime GetScheduledTime(DateOnly playDate, TimeSlot timeSlot)
+        private static DateTime GetScheduledTime(Lobby lobby)
         {
-            // Delegate to CafeSchedule để đảm bảo consistency với schedule chính.
-            var timeOnly = CafeSchedule.GetStartTime(timeSlot);
-            return playDate.ToDateTime(timeOnly);
+            if (lobby.PlayDate.HasValue && lobby.PreferredStartTime.HasValue)
+                return lobby.PlayDate.Value.ToDateTime(lobby.PreferredStartTime.Value);
+
+            // Legacy: fall back to TimeSlot-based start time (for pre-BR-NEW-15 lobbies)
+            if (lobby.PlayDate.HasValue && lobby.TimeSlot.HasValue)
+                return lobby.PlayDate.Value.ToDateTime(lobby.TimeSlot.Value.GetStartTime());
+
+            // Last resort: use ScheduledStartTime stored on lobby
+            return lobby.ScheduledStartTime ?? DateTime.MinValue;
+        }
+
+        /// <summary>
+        /// Tính scheduledTime từ PlayDate + PreferredStartTime (BR-NEW-15).
+        /// Dùng cho legacy TimeSlot-based lobby khi PreferredStartTime chưa có.
+        /// </summary>
+        private static DateTime GetScheduledTimeFromPreferred(Lobby lobby)
+        {
+            if (lobby.PlayDate.HasValue && lobby.PreferredStartTime.HasValue)
+                return lobby.PlayDate.Value.ToDateTime(lobby.PreferredStartTime.Value);
+
+            if (lobby.PlayDate.HasValue && lobby.TimeSlot.HasValue)
+                return lobby.PlayDate.Value.ToDateTime(lobby.TimeSlot.Value.GetStartTime());
+
+            return lobby.ScheduledStartTime ?? DateTime.MinValue;
         }
 
         public async Task<LobbyResponseDto> CloseLobbyAsync(Guid lobbyId, Guid hostUserId, string? reason)
@@ -1137,12 +1153,12 @@ ILogger<LobbyService> logger,
         {
             if (reservation?.CafeId != null
                 && reservation.PlayDate != default
-                && reservation.TimeSlot != default)
+                && (reservation.PreferredStartTime.HasValue || reservation.PreferredEndTime.HasValue))
             {
-                if (reservation.SeatInventoryId != null)
+                if (reservation.SeatInventoryId != null && reservation.PreferredStartTime.HasValue && reservation.PreferredEndTime.HasValue)
                 {
                     var seatInv = await _seatInventoryRepository.GetForUpdateAsync(
-                        reservation.CafeId, reservation.PlayDate, reservation.TimeSlot);
+                        reservation.CafeId, reservation.PlayDate, reservation.PreferredStartTime.Value, reservation.PreferredEndTime.Value);
                     if (seatInv != null && lobby.MaxMembers > 0)
                     {
                         seatInv.HeldSeats = Math.Max(0, seatInv.HeldSeats - lobby.MaxMembers);
@@ -1151,10 +1167,10 @@ ILogger<LobbyService> logger,
                     }
                 }
 
-                if (reservation.GameInventoryId != null && reservation.GameId != Guid.Empty)
+                if (reservation.GameInventoryId != null && reservation.GameId != Guid.Empty && reservation.PreferredStartTime.HasValue && reservation.PreferredEndTime.HasValue)
                 {
                     var gameInv = await _gameInventoryRepository.GetForUpdateAsync(
-                        reservation.CafeId, reservation.GameId, reservation.PlayDate, reservation.TimeSlot);
+                        reservation.CafeId, reservation.GameId, reservation.PlayDate, reservation.PreferredStartTime.Value, reservation.PreferredEndTime.Value);
                     if (gameInv != null)
                     {
                         gameInv.HeldCopies = Math.Max(0, gameInv.HeldCopies - 1);
@@ -1168,10 +1184,12 @@ ILogger<LobbyService> logger,
             // Fallback: derive từ Lobby mirror fields (legacy lobby không có reservation).
             if (lobby.CafeId.HasValue
                 && lobby.PlayDate.HasValue
-                && lobby.TimeSlot.HasValue)
+                && (lobby.PreferredStartTime.HasValue || lobby.ScheduledStartTime.HasValue))
             {
+                var startTime = lobby.PreferredStartTime ?? TimeOnly.FromDateTime(lobby.ScheduledStartTime!.Value);
+                var endTime = lobby.PreferredEndTime ?? (lobby.ScheduledStartTime.HasValue ? TimeOnly.FromDateTime(lobby.ScheduledStartTime.Value.AddHours(2)) : TimeOnly.MinValue);
                 var seatInv = await _seatInventoryRepository.GetForUpdateAsync(
-                    lobby.CafeId.Value, lobby.PlayDate.Value, lobby.TimeSlot.Value);
+                    lobby.CafeId.Value, lobby.PlayDate.Value, startTime, endTime);
                 if (seatInv != null && lobby.MaxMembers > 0)
                 {
                     seatInv.HeldSeats = Math.Max(0, seatInv.HeldSeats - lobby.MaxMembers);
@@ -1573,17 +1591,16 @@ ILogger<LobbyService> logger,
             var now = DateTime.UtcNow;
             var playDate = lobby.PlayDate ?? DateOnly.FromDateTime(now);
 
-            // Xác định effective timeSlot (mới hoặc giữ nguyên)
-            var effectiveTimeSlot = request.NewTimeSlot ?? lobby.TimeSlot ?? Core.Enum.TimeSlot.Morning;
-            var oldTimeSlot = lobby.TimeSlot ?? Core.Enum.TimeSlot.Morning;
+            // BR-NEW-15: Determine effective start/end times (from PreferredStartTime/PreferredEndTime, not TimeSlot)
+            var effectiveStartTime = request.PreferredStartTime ?? lobby.PreferredStartTime;
+            var effectiveEndTime = request.PreferredEndTime ?? lobby.PreferredEndTime;
 
             // Validate preferred times nếu có
-            if (request.PreferredStartTime.HasValue || request.PreferredEndTime.HasValue)
+            if (effectiveStartTime.HasValue && effectiveEndTime.HasValue)
             {
                 var validation = Core.Constants.CafeSchedule.ValidatePreferredTimeRange(
-                    effectiveTimeSlot,
-                    request.PreferredStartTime,
-                    request.PreferredEndTime);
+                    effectiveStartTime.Value,
+                    effectiveEndTime.Value);
 
                 if (!validation.isValid)
                 {
@@ -1591,12 +1608,11 @@ ILogger<LobbyService> logger,
                 }
             }
 
-            // Tính ScheduledStartTime/EndTime mới
+            // Tính ScheduledStartTime/EndTime mới từ preferred times (BR-NEW-15: no TimeSlot param)
             var (scheduledStartTime, scheduledEndTime) = Core.Constants.CafeSchedule.BuildScheduledStartEndFromPreferred(
                 playDate,
-                effectiveTimeSlot,
-                request.PreferredStartTime ?? lobby.PreferredStartTime,
-                request.PreferredEndTime ?? lobby.PreferredEndTime);
+                effectiveStartTime ?? new TimeOnly(18, 0),
+                effectiveEndTime ?? new TimeOnly(23, 0));
 
             // Tính RecruitmentDeadline mới
             // BR-LOBBY-01: deadline = scheduledStartTime - leadTimeMinutes
@@ -1614,11 +1630,12 @@ ILogger<LobbyService> logger,
                     ApiErrorMessages.Lobby.BufferTooShortForTimeSlotChange((int)bufferMinutes));
             }
 
-            // Build change summary cho notification
+            // Build change summary cho notification (BR-NEW-15: dùng PreferredStartTime/PreferredEndTime)
             var changes = new List<string>();
-            if (request.NewTimeSlot.HasValue && request.NewTimeSlot != oldTimeSlot)
+            if (request.NewTimeSlot.HasValue && request.NewTimeSlot != lobby.TimeSlot)
             {
-                changes.Add($"khung giờ từ {GetTimeSlotDisplayName(oldTimeSlot)} sang {GetTimeSlotDisplayName(effectiveTimeSlot)}");
+                var oldSlotName = lobby.TimeSlot.HasValue ? lobby.TimeSlot.Value.GetDisplayName() : "không có";
+                changes.Add($"khung giờ từ {oldSlotName} sang {request.NewTimeSlot.Value.GetDisplayName()}");
             }
             if (request.PreferredStartTime.HasValue)
             {
@@ -1629,11 +1646,7 @@ ILogger<LobbyService> logger,
                 changes.Add($"giờ kết thúc: {request.PreferredEndTime:HH:mm}");
             }
 
-            // Update Lobby (mirror fields)
-            if (request.NewTimeSlot.HasValue)
-            {
-                lobby.TimeSlot = effectiveTimeSlot;
-            }
+            // Update Lobby (mirror fields) — TimeSlot is [Obsolete], only update if explicitly requested
             lobby.PreferredStartTime = request.PreferredStartTime ?? lobby.PreferredStartTime;
             lobby.PreferredEndTime = request.PreferredEndTime ?? lobby.PreferredEndTime;
             lobby.RecruitmentDeadline = newDeadline;
@@ -1646,10 +1659,6 @@ ILogger<LobbyService> logger,
                 var reservation = await _reservationRepository.GetByIdAsync(lobby.ReservationId.Value);
                 if (reservation != null)
                 {
-                    if (request.NewTimeSlot.HasValue)
-                    {
-                        reservation.TimeSlot = effectiveTimeSlot;
-                    }
                     reservation.PreferredStartTime = request.PreferredStartTime ?? reservation.PreferredStartTime;
                     reservation.PreferredEndTime = request.PreferredEndTime ?? reservation.PreferredEndTime;
                     reservation.RecruitmentDeadline = newDeadline;
@@ -1720,25 +1729,6 @@ ILogger<LobbyService> logger,
             await _hubService.NotifyLobbyUpdated(lobbyId);
 
             return MapLobbyDto(lobby, null);
-        }
-
-        private static string GetTimeSlotDisplayName(TimeSlot? timeSlot)
-        {
-            return timeSlot switch
-            {
-                TimeSlot.Morning => "Sáng (06:00-12:00)",
-                TimeSlot.Afternoon => "Chiều (12:00-17:00)",
-                TimeSlot.Evening => "Tối (17:00-23:00)",
-                TimeSlot.LateNight => "Khuya (23:00-06:00)",
-                _ => timeSlot?.ToString() ?? "Không xác định"
-            };
-        }
-
-        private static DateTime GetScheduledTimeFromTimeSlot(DateOnly playDate, TimeSlot timeSlot)
-        {
-            // Delegate to CafeSchedule để đảm bảo consistency với schedule chính.
-            var timeOnly = CafeSchedule.GetStartTime(timeSlot);
-            return playDate.ToDateTime(timeOnly);
         }
 
         public async Task<LobbyResponseDto> KickMemberAsync(Guid lobbyId, Guid hostUserId, Guid targetUserId, string? reason)
@@ -1962,9 +1952,11 @@ ILogger<LobbyService> logger,
             return lobbies.Select(l => MapLobbyDto(l, null)).ToList();
         }
 
-        public async Task<IReadOnlyList<LobbyResponseDto>> GetJoinedLobbiesAsync(Guid userId)
+        public async Task<IReadOnlyList<LobbyResponseDto>> GetMyLobbiesAsync(Guid userId)
         {
-            var lobbies = await _lobbyRepository.GetJoinedLobbiesAsync(userId);
+            _logger.LogDebug("GetMyLobbiesAsync called. UserId={UserId}", userId);
+            var lobbies = await _lobbyRepository.GetMyLobbiesAsync(userId);
+            _logger.LogDebug("GetMyLobbiesAsync result. UserId={UserId}, FoundCount={Count}", userId, lobbies.Count);
             return lobbies.Select(l => MapLobbyDto(l, null)).ToList();
         }
 
@@ -2029,7 +2021,8 @@ ILogger<LobbyService> logger,
                 GameId = l.GameTemplateId,
                 GameName = l.GameTemplate?.Name ?? string.Empty,
                 PlayDate = l.PlayDate ?? DateOnly.FromDateTime(DateTime.UtcNow),
-                TimeSlot = l.TimeSlot ?? Core.Enum.TimeSlot.Morning,
+                PreferredStartTime = l.PreferredStartTime ?? TimeOnly.FromDateTime(l.ScheduledStartTime ?? DateTime.UtcNow),
+                PreferredEndTime = l.PreferredEndTime ?? TimeOnly.FromDateTime(l.Reservation?.ScheduledEndTime ?? l.ScheduledStartTime ?? DateTime.UtcNow),
                 CurrentPlayers = l.Members?.Count(m => m.IsActive) ?? 0,
                 MinPlayers = l.MinPlayers,
                 MaxPlayers = l.MaxMembers,

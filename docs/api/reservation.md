@@ -22,8 +22,9 @@ Tuân thủ business rules:
 - **BR-LOBBY-01a/b**: Buffer ≥ 120 phút OK, 60–120 cảnh báo, < 60 từ chối.
 - **BR-USER-LIMIT-01..05**: 1 host lobby + 1 member lobby = tối đa 2 active; cap tổng heldBalance.
 - **BR-NEW-02**: 1 lobby active / `playDate` / user.
-- **BR-NEW-08**: 1 lobby active / `playDate+timeSlot` / `cafe` / user.
+- **BR-NEW-08**: 1 lobby active / `playDate+scheduledStartTime` / `cafe` / user.
 - **BR-NEW-11**: `playDate ≥ DistantThresholdDays` (mặc định 2) + lobby **public** → lobby ở `PendingCafeApproval`, chờ cafe duyệt 24h. Lobby **private** không cần cafe duyệt.
+- **BR-NEW-15 (2026-08-18):** Hệ thống giờ dùng `preferredStartTime` + `preferredEndTime` thay vì `TimeSlot` enum. `CafeScheduleOverride` dùng `ApplyDate` thay vì `TimeSlot`.
 - **BR-REFUND-02**: Cancel theo grace 15 phút + ≥24h / <24h. **Early checkout** dùng `playedRatio`: <50% → 0%, ≥50% → 30%, ≥90% → 0% (treated as on-time).
 - **BR-RESERVATION-01/02**: Giữ `maxPlayers` ghế + 1 game copy.
 

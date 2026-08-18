@@ -256,7 +256,6 @@ public class HostReservationContext
     public Guid HostId { get; set; }
     public Guid CafeId { get; set; }
     public DateOnly PlayDate { get; set; }
-    public TimeSlot TimeSlot { get; set; }
     public DateTime RecruitmentDeadline { get; set; }
     public DateTime Now { get; set; }
 
@@ -296,7 +295,6 @@ public class MemberJoinContext
     public Guid UserId { get; set; }
     public Guid CafeId { get; set; }
     public DateOnly PlayDate { get; set; }
-    public TimeSlot TimeSlot { get; set; }
     public DateTime RecruitmentDeadline { get; set; }
     public DateTime Now { get; set; }
 

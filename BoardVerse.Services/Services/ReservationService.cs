@@ -121,33 +121,30 @@ public class ReservationService : IReservationService
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         ValidatePlayDate(request.PlayDate, now);
-        ValidateTimeSlotWindow(request);
 
-        // Validate cafe + game tồn tại, dùng cho BR-RESERVATION-02.
-        await ValidateCafeAndGameAsync(request);
-
-        // Validate preferredStartTime + preferredEndTime nằm trong timeSlot window.
+        // Validate preferredStartTime + preferredEndTime hợp lệ.
         var (timeValid, timeError) = CafeSchedule.ValidatePreferredTimeRange(
-            request.TimeSlot, request.PreferredStartTime, request.PreferredEndTime);
+            request.PreferredStartTime, request.PreferredEndTime);
         if (!timeValid)
         {
             throw new BadRequestException(timeError!);
         }
 
+        // Validate cafe + game tồn tại.
+        await ValidateCafeAndGameAsync(request);
+
         // Load cafe config (BR-NEW-12).
         var cafeConfig = await _cafeConfigRepository.GetOrCreateDefaultAsync(request.CafeId);
 
-        // Ensure SeatInventory tồn tại để tính số BVC cọc (BR §21A.2).
-        // Dùng TotalSeats từ CafeConfig thay vì Cafe.TotalSeats vì config có thể override.
+        // Ensure SeatInventory tồn tại.
         await _seatInventoryRepository.EnsureRowAsync(
             request.CafeId,
             request.PlayDate,
-            request.TimeSlot,
+            request.PreferredStartTime,
+            request.PreferredEndTime,
             cafeConfig.Capacity);
 
-        // Ensure GameInventory tồn tại (BR-RESERVATION-02).
-        // TotalCopies lấy từ CafeGameInventory.BoxQuantity (số box khả dụng của cafe cho game này).
-        // Nếu cafe chưa add game vào inventory → dùng fallback 1 copy để quote vẫn chạy được.
+        // Ensure GameInventory tồn tại.
         var cafeInventory = await _cafeInventoryRepository.GetByCafeAndGameTemplateAsync(
             request.CafeId, request.GameId);
         var totalCopies = cafeInventory?.BoxQuantity ?? 1;
@@ -155,27 +152,26 @@ public class ReservationService : IReservationService
             request.CafeId,
             request.GameId,
             request.PlayDate,
-            request.TimeSlot,
+            request.PreferredStartTime,
+            request.PreferredEndTime,
             totalCopies);
 
         // Load wallet để lấy riskMultiplier.
         var wallet = await GetOrCreateWalletEntityAsync(hostId, now);
 
-        // Load cafe BasePrice cho BR-03 cap.
+        // Load cafe BasePrice.
         var cafe = await _cafeRepository.GetActiveByIdAsync(request.CafeId)
             ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(request.CafeId));
 
-        // Tính quote (có áp dụng CafeScheduleOverride qua resolver).
-        var quote = await _depositCalculator.CalculateWithScheduleAsync(
+        // Tính quote.
+        var quote = _depositCalculator.Calculate(
             request,
             cafeConfig,
             cafe.BasePrice,
             wallet.RiskMultiplier,
             wallet.IsCoolingOff,
             request.IsPrivate,
-            now,
-            _scheduleResolver,
-            request.CafeId);
+            now);
 
         // BR-LOBBY-01a/b: buffer check.
         var (isAllowed, _) = DepositCalculator.EvaluateBuffer(quote.BufferMinutes);
@@ -198,20 +194,19 @@ public class ReservationService : IReservationService
 
         // BR-RESV-02: build ScheduledStart/End từ user-chosen preferred times.
         var (scheduledStartTime, scheduledEndTime) = CafeSchedule.BuildScheduledStartEndFromPreferred(
-            request.PlayDate, request.TimeSlot, request.PreferredStartTime, request.PreferredEndTime);
+            request.PlayDate, request.PreferredStartTime, request.PreferredEndTime);
 
-        // Validate cafe mở cửa slot này.
-        var resolvedSchedule = await _scheduleResolver.ResolveAsync(
-            request.CafeId, request.PlayDate, request.TimeSlot);
+        // Validate cafe mở cửa.
+        var resolvedSchedule = await _scheduleResolver.ResolveAsync(request.CafeId, request.PlayDate);
         if (resolvedSchedule.IsClosed)
         {
-            throw new BadRequestException(ApiErrorMessages.Reservation.CafeScheduleSlotClosed(request.TimeSlot.ToString(), request.CafeId));
+            throw new BadRequestException(ApiErrorMessages.Reservation.CafeScheduleClosedForPlayDate);
         }
 
-        // BR-RES-07/08/09: validate reservation có startTime+endTime, cùng ngày, TimeSlot hợp lệ.
-        ValidateReservationTimeWindow(scheduledStartTime, scheduledEndTime, request.TimeSlot);
+        // Validate reservation time window.
+        ValidateReservationTimeWindow(scheduledStartTime, scheduledEndTime);
 
-        var recruitmentDeadline = scheduledStartTime.AddMinutes(-20); // default leadTimeMinutes
+        var recruitmentDeadline = scheduledStartTime.AddMinutes(-20);
 
         var warnings = new List<string>();
         if (quote.BufferWarning)
@@ -225,7 +220,6 @@ public class ReservationService : IReservationService
             CafeId = request.CafeId,
             GameId = request.GameId,
             PlayDate = request.PlayDate,
-            TimeSlot = request.TimeSlot,
             PreferredStartTime = request.PreferredStartTime,
             PreferredEndTime = request.PreferredEndTime,
             ScheduledStartTime = scheduledStartTime,
@@ -272,8 +266,10 @@ public class ReservationService : IReservationService
                 paramsMismatch.Add($"GameId (existing={existing.GameId}, request={request.GameId})");
             if (existing.PlayDate != request.PlayDate)
                 paramsMismatch.Add($"PlayDate (existing={existing.PlayDate}, request={request.PlayDate})");
-            if (existing.TimeSlot != request.TimeSlot)
-                paramsMismatch.Add($"TimeSlot (existing={existing.TimeSlot}, request={request.TimeSlot})");
+            if (existing.PreferredStartTime != request.PreferredStartTime)
+                paramsMismatch.Add($"PreferredStartTime (existing={existing.PreferredStartTime}, request={request.PreferredStartTime})");
+            if (existing.PreferredEndTime != request.PreferredEndTime)
+                paramsMismatch.Add($"PreferredEndTime (existing={existing.PreferredEndTime}, request={request.PreferredEndTime})");
             if (existing.MaxPlayers != request.MaxPlayers)
                 paramsMismatch.Add($"MaxPlayers (existing={existing.MaxPlayers}, request={request.MaxPlayers})");
             if (existing.MinPlayers != request.MinPlayers)
@@ -354,11 +350,11 @@ public class ReservationService : IReservationService
 
         // 2. Re-validate cafe + game + window.
         ValidatePlayDate(request.PlayDate, now);
-        ValidateTimeSlotWindowRaw(request.MinPlayers, request.MaxPlayers);
+        ValidatePlayersWindowRaw(request.MinPlayers, request.MaxPlayers);
 
-        // Validate preferredStartTime + preferredEndTime nằm trong timeSlot window.
+        // Validate preferredStartTime + preferredEndTime nằm trong giờ mở/đóng cửa cafe.
         var (timeValid, timeError) = CafeSchedule.ValidatePreferredTimeRange(
-            request.TimeSlot, request.PreferredStartTime, request.PreferredEndTime);
+            request.PreferredStartTime, request.PreferredEndTime);
         if (!timeValid)
         {
             throw new BadRequestException(timeError!);
@@ -369,7 +365,6 @@ public class ReservationService : IReservationService
             CafeId = request.CafeId,
             GameId = request.GameId,
             PlayDate = request.PlayDate,
-            TimeSlot = request.TimeSlot,
             PreferredStartTime = request.PreferredStartTime,
             PreferredEndTime = request.PreferredEndTime,
             MinPlayers = request.MinPlayers,
@@ -385,10 +380,12 @@ public class ReservationService : IReservationService
         var wallet = await GetOrCreateWalletEntityAsync(hostId, now);
 
         // Ensure SeatInventory tồn tại trước khi bắt đầu transaction.
+        // BR-NEW-15: Dùng PreferredStartTime/PreferredEndTime thay vì TimeSlot.
         await _seatInventoryRepository.EnsureRowAsync(
             request.CafeId,
             request.PlayDate,
-            request.TimeSlot,
+            request.PreferredStartTime,
+            request.PreferredEndTime,
             cafeConfig.Capacity);
 
         // Ensure GameInventory tồn tại (BR-RESERVATION-02) — fix bug GameInventoryNotFound 409.
@@ -400,22 +397,34 @@ public class ReservationService : IReservationService
             request.CafeId,
             request.GameId,
             request.PlayDate,
-            request.TimeSlot,
+            request.PreferredStartTime,
+            request.PreferredEndTime,
             totalCopies);
 
         // 4. Tính lại quote (server authoritative — BR §XVII.2) — có áp dụng CafeScheduleOverride.
         var cafe = await _cafeRepository.GetActiveByIdAsync(request.CafeId)
             ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(request.CafeId));
-        var quote = await _depositCalculator.CalculateWithScheduleAsync(
-            quoteRequest,
+        // BR-NEW-15: Calculate nhận ReservationQuoteRequestDto; map từ ConfirmDto.
+        var quoteRequestDto = new ReservationQuoteRequestDto
+        {
+            CafeId = request.CafeId,
+            GameId = request.GameId,
+            PlayDate = request.PlayDate,
+            PreferredStartTime = request.PreferredStartTime,
+            PreferredEndTime = request.PreferredEndTime,
+            MaxPlayers = request.MaxPlayers,
+            MinPlayers = request.MinPlayers,
+            IsPrivate = request.IsPrivate,
+            IdempotencyKey = request.IdempotencyKey
+        };
+        var quote = _depositCalculator.Calculate(
+            quoteRequestDto,
             cafeConfig,
             cafe.BasePrice,
             wallet.RiskMultiplier,
             wallet.IsCoolingOff,
             request.IsPrivate,
-            now,
-            _scheduleResolver,
-            request.CafeId);
+            now);
 
         // 5. BR-LOBBY-01a/b: buffer check.
         var (isAllowed, _) = DepositCalculator.EvaluateBuffer(quote.BufferMinutes);
@@ -446,19 +455,19 @@ public class ReservationService : IReservationService
         }
 
         // Validate cafe mở cửa slot này.
-        var resolvedSchedule = await _scheduleResolver.ResolveAsync(
-            request.CafeId, quoteRequest.PlayDate, quoteRequest.TimeSlot);
+        // BR-NEW-15: ResolveAsync now takes (cafeId, playDate) without TimeSlot.
+        var resolvedSchedule = await _scheduleResolver.ResolveAsync(request.CafeId, quoteRequest.PlayDate);
         if (resolvedSchedule.IsClosed)
         {
-            throw new BadRequestException(ApiErrorMessages.Reservation.CafeScheduleSlotClosed(quoteRequest.TimeSlot.ToString(), quoteRequest.CafeId));
+            throw new BadRequestException(ApiErrorMessages.Reservation.CafeScheduleClosedForPlayDate);
         }
 
         // BR-RESV-02: build ScheduledStart/End từ user-chosen preferred times.
         var (scheduledStartTime, scheduledEndTime) = CafeSchedule.BuildScheduledStartEndFromPreferred(
-            quoteRequest.PlayDate, quoteRequest.TimeSlot, quoteRequest.PreferredStartTime, quoteRequest.PreferredEndTime);
+            quoteRequest.PlayDate, quoteRequest.PreferredStartTime, quoteRequest.PreferredEndTime);
 
-        // BR-RES-07/08/09: validate reservation có startTime+endTime, cùng ngày, TimeSlot hợp lệ.
-        ValidateReservationTimeWindow(scheduledStartTime, scheduledEndTime, quoteRequest.TimeSlot);
+        // BR-RES-07/08/09: validate reservation có startTime+endTime, cùng ngày, preferred times hợp lệ.
+        ValidateReservationTimeWindow(scheduledStartTime, scheduledEndTime);
 
         var recruitmentDeadline = scheduledStartTime.AddMinutes(-20); // BR-LOBBY-01 default leadTimeMinutes = 20
 
@@ -471,7 +480,7 @@ public class ReservationService : IReservationService
             try
             {
                 return await ExecuteConfirmTransactionAsync(
-                    hostId, request, quoteRequest, cafeConfig, wallet, quote, scheduledStartTime, scheduledEndTime, recruitmentDeadline, now);
+                    hostId, request, quoteRequestDto, cafeConfig, wallet, quote, scheduledStartTime, scheduledEndTime, recruitmentDeadline, now);
             }
             catch (DbUpdateException dbx) when (IsSerializationFailure(dbx) && attempt < maxRetries)
             {
@@ -487,16 +496,26 @@ public class ReservationService : IReservationService
                 cafeConfig = await _cafeConfigRepository.GetOrCreateDefaultAsync(request.CafeId);
                 var cafeRetry = await _cafeRepository.GetActiveByIdAsync(request.CafeId)
                     ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(request.CafeId));
-                quote = await _depositCalculator.CalculateWithScheduleAsync(
-                    quoteRequest,
+                quoteRequestDto = new ReservationQuoteRequestDto
+                {
+                    CafeId = request.CafeId,
+                    GameId = request.GameId,
+                    PlayDate = request.PlayDate,
+                    PreferredStartTime = request.PreferredStartTime,
+                    PreferredEndTime = request.PreferredEndTime,
+                    MaxPlayers = request.MaxPlayers,
+                    MinPlayers = request.MinPlayers,
+                    IsPrivate = request.IsPrivate,
+                    IdempotencyKey = request.IdempotencyKey
+                };
+                quote = _depositCalculator.Calculate(
+                    quoteRequestDto,
                     cafeConfig,
                     cafeRetry.BasePrice,
                     wallet.RiskMultiplier,
                     wallet.IsCoolingOff,
                     request.IsPrivate,
-                    now,
-                    _scheduleResolver,
-                    request.CafeId);
+                    now);
             }
             catch (Exception ex)
             {
@@ -519,16 +538,26 @@ public class ReservationService : IReservationService
                 cafeConfig = await _cafeConfigRepository.GetOrCreateDefaultAsync(request.CafeId);
                 var cafeRetry = await _cafeRepository.GetActiveByIdAsync(request.CafeId)
                     ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(request.CafeId));
-                quote = await _depositCalculator.CalculateWithScheduleAsync(
-                    quoteRequest,
+                quoteRequestDto = new ReservationQuoteRequestDto
+                {
+                    CafeId = request.CafeId,
+                    GameId = request.GameId,
+                    PlayDate = request.PlayDate,
+                    PreferredStartTime = request.PreferredStartTime,
+                    PreferredEndTime = request.PreferredEndTime,
+                    MaxPlayers = request.MaxPlayers,
+                    MinPlayers = request.MinPlayers,
+                    IsPrivate = request.IsPrivate,
+                    IdempotencyKey = request.IdempotencyKey
+                };
+                quote = _depositCalculator.Calculate(
+                    quoteRequestDto,
                     cafeConfig,
                     cafeRetry.BasePrice,
                     wallet.RiskMultiplier,
                     wallet.IsCoolingOff,
                     request.IsPrivate,
-                    now,
-                    _scheduleResolver,
-                    request.CafeId);
+                    now);
             }
         }
 
@@ -556,8 +585,9 @@ public class ReservationService : IReservationService
         try
         {
             // 9. Lock seat inventory + game inventory (BR §17.3 — SELECT FOR UPDATE).
+            // BR-NEW-15: Dùng PreferredStartTime/PreferredEndTime thay vì TimeSlot.
             var seatInventory = await _seatInventoryRepository.GetForUpdateAsync(
-                request.CafeId, request.PlayDate, request.TimeSlot);
+                request.CafeId, request.PlayDate, request.PreferredStartTime, request.PreferredEndTime);
             if (seatInventory == null)
             {
                 throw new BadRequestException(ApiErrorMessages.Reservation.SeatInventoryNotConfigured);
@@ -573,7 +603,7 @@ public class ReservationService : IReservationService
             }
 
             var gameInventory = await _gameInventoryRepository.GetForUpdateAsync(
-                request.CafeId, request.GameId, request.PlayDate, request.TimeSlot);
+                request.CafeId, request.GameId, request.PlayDate, request.PreferredStartTime, request.PreferredEndTime);
             // AvailableCopies cũng là computed property — column không tồn tại trong DB, EF set = 0 sau raw SELECT.
             var copiesAvail = gameInventory == null
                 ? 0
@@ -608,7 +638,6 @@ public class ReservationService : IReservationService
                 CafeId = request.CafeId,
                 GameId = request.GameId,
                 PlayDate = request.PlayDate,
-                TimeSlot = request.TimeSlot,
                 PreferredStartTime = request.PreferredStartTime,
                 PreferredEndTime = request.PreferredEndTime,
                 RecruitmentDeadline = recruitmentDeadline,
@@ -643,7 +672,6 @@ public class ReservationService : IReservationService
                 CafeId = request.CafeId,
                 ReservationId = reservation.Id,
                 PlayDate = request.PlayDate,
-                TimeSlot = request.TimeSlot,
                 PreferredStartTime = request.PreferredStartTime,
                 PreferredEndTime = request.PreferredEndTime,
                 RecruitmentDeadline = recruitmentDeadline,
@@ -802,8 +830,8 @@ public class ReservationService : IReservationService
         catch (Exception ex)
         {
             _logger.LogError(ex,
-                "ExecuteConfirmTransactionAsync FAILED. HostId={HostId}, CafeId={CafeId}, GameId={GameId}, PlayDate={PlayDate}, TimeSlot={TimeSlot}, IdempotencyKey={IdempotencyKey}. Exception: {ExceptionType} - {ExceptionMessage}",
-                hostId, request.CafeId, request.GameId, request.PlayDate, request.TimeSlot, request.IdempotencyKey,
+                "ExecuteConfirmTransactionAsync FAILED. HostId={HostId}, CafeId={CafeId}, GameId={GameId}, PlayDate={PlayDate}, PreferredStartTime={PreferredStartTime}, PreferredEndTime={PreferredEndTime}, IdempotencyKey={IdempotencyKey}. Exception: {ExceptionType} - {ExceptionMessage}",
+                hostId, request.CafeId, request.GameId, request.PlayDate, request.PreferredStartTime, request.PreferredEndTime, request.IdempotencyKey,
                 ex.GetType().FullName, ex.Message);
             await tx.RollbackAsync();
             throw;
@@ -874,7 +902,8 @@ public class ReservationService : IReservationService
             cafeId = lobby.CafeId,
             gameId = lobby.GameTemplateId,
             playDate = lobby.PlayDate.ToString(),
-            timeSlot = (int)lobby.TimeSlot,
+            preferredStartTime = lobby.PreferredStartTime?.ToString("HH:mm") ?? "",
+            preferredEndTime = lobby.PreferredEndTime?.ToString("HH:mm") ?? "",
             maxPlayers = lobby.MaxMembers,
             recruitmentDeadline = lobby.RecruitmentDeadline,
             lobbyStatus = lobby.Status.ToString(),
@@ -1935,20 +1964,45 @@ public class ReservationService : IReservationService
         try
         {
             // 5. Lock seat inventory + game inventory (BR §17.3).
-            var seatInventory = await _seatInventoryRepository.GetForUpdateAsync(
-                reservation.CafeId, reservation.PlayDate, reservation.TimeSlot);
+            // BR-NEW-15: Dùng SeatInventoryId/GameInventoryId FK thay vì query theo TimeSlot.
+            SeatInventory? seatInventory;
+            GameInventory? gameInventory;
+            if (reservation.SeatInventoryId != null)
+            {
+                seatInventory = await _seatInventoryRepository.GetByIdForUpdateAsync(reservation.SeatInventoryId.Value);
+            }
+            else
+            {
+                seatInventory = await _seatInventoryRepository.GetForUpdateAsync(
+                    reservation.CafeId, reservation.PlayDate,
+                    reservation.PreferredStartTime ?? TimeOnly.MinValue,
+                    reservation.PreferredEndTime ?? TimeOnly.MaxValue);
+            }
             if (seatInventory == null)
             {
                 throw new ConflictException(
-                    ApiErrorMessages.System.SeatInventoryMissingForReservation(reservation.CafeId, reservation.PlayDate, reservation.TimeSlot.ToString()));
+                    ApiErrorMessages.System.SeatInventoryMissingForReservation(
+                        reservation.CafeId, reservation.PlayDate,
+                        $"{reservation.ScheduledStartTime:HH:mm}-{reservation.ScheduledEndTime:HH:mm}"));
             }
 
-            var gameInventory = await _gameInventoryRepository.GetForUpdateAsync(
-                reservation.CafeId, reservation.GameId, reservation.PlayDate, reservation.TimeSlot);
+            if (reservation.GameInventoryId != null)
+            {
+                gameInventory = await _gameInventoryRepository.GetByIdForUpdateAsync(reservation.GameInventoryId.Value);
+            }
+            else
+            {
+                gameInventory = await _gameInventoryRepository.GetForUpdateAsync(
+                    reservation.CafeId, reservation.GameId, reservation.PlayDate,
+                    reservation.PreferredStartTime ?? TimeOnly.MinValue,
+                    reservation.PreferredEndTime ?? TimeOnly.MaxValue);
+            }
             if (gameInventory == null)
             {
                 throw new ConflictException(
-                    ApiErrorMessages.System.GameInventoryMissingForReservation(reservation.CafeId, reservation.PlayDate, reservation.TimeSlot.ToString()));
+                    ApiErrorMessages.System.GameInventoryMissingForReservation(
+                        reservation.CafeId, reservation.PlayDate,
+                        $"{reservation.ScheduledStartTime:HH:mm}-{reservation.ScheduledEndTime:HH:mm}"));
             }
 
             // 6. Validate inventory state — must be Held.
@@ -2062,8 +2116,8 @@ public class ReservationService : IReservationService
 
         var scheduledStart = reservation.ScheduledStartTime;
         var scheduledEnd = reservation.ScheduledEndTime;
-        var resolvedSchedule = await _scheduleResolver.ResolveAsync(
-            reservation.CafeId, reservation.PlayDate, reservation.TimeSlot);
+        // BR-NEW-15: ResolveAsync takes (cafeId, playDate) without TimeSlot.
+        var resolvedSchedule = await _scheduleResolver.ResolveAsync(reservation.CafeId, reservation.PlayDate);
 
         var windowStart = scheduledStart.AddMinutes(-EarlyGraceMinutes);
         var windowEnd = scheduledEnd.AddMinutes(LateGraceMinutes);
@@ -2132,8 +2186,9 @@ public class ReservationService : IReservationService
         Wallet wallet,
         DateTime now)
     {
+        // BR-NEW-15: Dùng PreferredStartTime/PreferredEndTime thay vì TimeSlot.
         var overlapList = await _lobbyRepository.GetOverlappingLobbiesAsync(
-            hostId, request.PlayDate, request.TimeSlot, now, now);
+            hostId, request.PlayDate, request.PreferredStartTime, request.PreferredEndTime, now);
         var firstOverlap = overlapList.FirstOrDefault();
 
         var activeLobbyByHost = await _lobbyRepository.GetActiveLobbiesByHostAsync(hostId);
@@ -2141,12 +2196,12 @@ public class ReservationService : IReservationService
 
         var activeLobbyOnPlayDate = await _lobbyRepository.GetActiveLobbiesByHostAsync(hostId, request.PlayDate);
         var activeLobbyOnCafeSlot = await _lobbyRepository.GetActiveLobbiesByCafeDateSlotAsync(
-            hostId, request.CafeId, request.PlayDate, request.TimeSlot);
+            hostId, request.CafeId, request.PlayDate, request.PreferredStartTime, request.PreferredEndTime);
 
         var hostCreateOrCancelCount = await _reservationRepository.CountHostActionsForPlayDateAsync(hostId, request.PlayDate);
 
         var (scheduledStartTime, scheduledEndTime) = CafeSchedule.BuildScheduledStartEndFromPreferred(
-            request.PlayDate, request.TimeSlot, request.PreferredStartTime, request.PreferredEndTime);
+            request.PlayDate, request.PreferredStartTime, request.PreferredEndTime);
         var recruitmentDeadline = scheduledStartTime.AddMinutes(-20);
 
         return new HostReservationContext
@@ -2154,7 +2209,6 @@ public class ReservationService : IReservationService
             HostId = hostId,
             CafeId = request.CafeId,
             PlayDate = request.PlayDate,
-            TimeSlot = request.TimeSlot,
             RecruitmentDeadline = recruitmentDeadline,
             Now = now,
             PreferredScheduledStart = scheduledStartTime,
@@ -2217,17 +2271,12 @@ public class ReservationService : IReservationService
         }
     }
 
-    private static void ValidateTimeSlotWindow(ReservationQuoteRequestDto request)
+    private static void ValidatePlayersWindow(ReservationQuoteRequestDto request)
     {
-        if (!Enum.IsDefined(typeof(TimeSlot), request.TimeSlot))
-        {
-            throw new BadRequestException(ApiErrorMessages.Reservation.InvalidTimeSlot(request.TimeSlot));
-        }
-
-        ValidateTimeSlotWindowRaw(request.MinPlayers, request.MaxPlayers);
+        ValidatePlayersWindowRaw(request.MinPlayers, request.MaxPlayers);
     }
 
-    private static void ValidateTimeSlotWindowRaw(int minPlayers, int maxPlayers)
+    private static void ValidatePlayersWindowRaw(int minPlayers, int maxPlayers)
     {
         // Solo play (MinPlayers = 1) được phép.
         if (minPlayers < 1)
@@ -2308,8 +2357,7 @@ public class ReservationService : IReservationService
     {
         if (reservation.SeatInventoryId != null)
         {
-            var seatInv = await _seatInventoryRepository.GetForUpdateAsync(
-                reservation.CafeId, reservation.PlayDate, reservation.TimeSlot);
+            var seatInv = await _seatInventoryRepository.GetByIdForUpdateAsync(reservation.SeatInventoryId.Value);
             if (seatInv != null)
             {
                 seatInv.HeldSeats = Math.Max(0, seatInv.HeldSeats - reservation.MaxPlayers);
@@ -2320,8 +2368,7 @@ public class ReservationService : IReservationService
 
         if (reservation.GameInventoryId != null)
         {
-            var gameInv = await _gameInventoryRepository.GetForUpdateAsync(
-                reservation.CafeId, reservation.GameId, reservation.PlayDate, reservation.TimeSlot);
+            var gameInv = await _gameInventoryRepository.GetByIdForUpdateAsync(reservation.GameInventoryId.Value);
             if (gameInv != null)
             {
                 gameInv.HeldCopies = Math.Max(0, gameInv.HeldCopies - 1);
@@ -2652,8 +2699,8 @@ public class ReservationService : IReservationService
             GameId = reservation.GameId,
             GameName = reservation.Game?.Name ?? string.Empty,
             PlayDate = reservation.PlayDate,
-            TimeSlot = reservation.TimeSlot,
-            PreferredStartTime = reservation.PreferredStartTime,
+            PreferredStartTime = reservation.PreferredStartTime ?? TimeOnly.MinValue,
+            PreferredEndTime = reservation.PreferredEndTime ?? TimeOnly.MinValue,
             ScheduledStartTime = reservation.ScheduledStartTime,
             ScheduledEndTime = reservation.ScheduledEndTime,
             RecruitmentDeadline = reservation.RecruitmentDeadline,
@@ -2707,7 +2754,8 @@ public class ReservationService : IReservationService
             GameId = r.GameId,
             GameName = r.Game?.Name ?? string.Empty,
             PlayDate = r.PlayDate,
-            TimeSlot = r.TimeSlot,
+            PreferredStartTime = r.PreferredStartTime ?? TimeOnly.MinValue,
+            PreferredEndTime = r.PreferredEndTime ?? TimeOnly.MinValue,
             CurrentPlayers = r.CurrentPlayers,
             MaxPlayers = r.MaxPlayers,
             Status = r.Status.ToString(),
@@ -2773,7 +2821,8 @@ public class ReservationService : IReservationService
             GameId = reservation.GameId,
             GameName = reservation.Game?.Name ?? string.Empty,
             PlayDate = reservation.PlayDate,
-            TimeSlot = reservation.TimeSlot,
+            PreferredStartTime = reservation.PreferredStartTime ?? TimeOnly.MinValue,
+            PreferredEndTime = reservation.PreferredEndTime ?? TimeOnly.MinValue,
             MinPlayers = reservation.MinPlayers,
             MaxPlayers = reservation.MaxPlayers,
             CurrentPlayers = reservation.CurrentPlayers,
@@ -2832,7 +2881,8 @@ public class ReservationService : IReservationService
             GameId = r.GameId,
             GameName = r.Game?.Name ?? string.Empty,
             PlayDate = r.PlayDate,
-            TimeSlot = r.TimeSlot,
+            PreferredStartTime = r.PreferredStartTime ?? TimeOnly.MinValue,
+            PreferredEndTime = r.PreferredEndTime ?? TimeOnly.MinValue,
             MinPlayers = r.MinPlayers,
             MaxPlayers = r.MaxPlayers,
             CurrentPlayers = r.CurrentPlayers,
@@ -2885,20 +2935,45 @@ public class ReservationService : IReservationService
         try
         {
             // 1. Lock seat inventory + game inventory (BR §17.3).
-            var seatInventory = await _seatInventoryRepository.GetForUpdateAsync(
-                reservation.CafeId, reservation.PlayDate, reservation.TimeSlot);
+            // BR-NEW-15: Use SeatInventoryId/GameInventoryId FK when available.
+            SeatInventory? seatInventory;
+            if (reservation.SeatInventoryId.HasValue)
+            {
+                seatInventory = await _seatInventoryRepository.GetByIdForUpdateAsync(reservation.SeatInventoryId.Value);
+            }
+            else
+            {
+                seatInventory = await _seatInventoryRepository.GetForUpdateAsync(
+                    reservation.CafeId, reservation.PlayDate,
+                    TimeOnly.FromDateTime(reservation.ScheduledStartTime),
+                    TimeOnly.FromDateTime(reservation.ScheduledEndTime));
+            }
             if (seatInventory == null)
             {
                 throw new ConflictException(
-                    ApiErrorMessages.System.SeatInventoryMissingForReservation(reservation.CafeId, reservation.PlayDate, reservation.TimeSlot.ToString()));
+                    ApiErrorMessages.System.SeatInventoryMissingForReservation(
+                        reservation.CafeId, reservation.PlayDate,
+                        $"{reservation.ScheduledStartTime:HH:mm}-{reservation.ScheduledEndTime:HH:mm}"));
             }
 
-            var gameInventory = await _gameInventoryRepository.GetForUpdateAsync(
-                reservation.CafeId, reservation.GameId, reservation.PlayDate, reservation.TimeSlot);
+            GameInventory? gameInventory;
+            if (reservation.GameInventoryId.HasValue)
+            {
+                gameInventory = await _gameInventoryRepository.GetByIdForUpdateAsync(reservation.GameInventoryId.Value);
+            }
+            else
+            {
+                gameInventory = await _gameInventoryRepository.GetForUpdateAsync(
+                    reservation.CafeId, reservation.GameId, reservation.PlayDate,
+                    TimeOnly.FromDateTime(reservation.ScheduledStartTime),
+                    TimeOnly.FromDateTime(reservation.ScheduledEndTime));
+            }
             if (gameInventory == null)
             {
                 throw new ConflictException(
-                    ApiErrorMessages.System.GameInventoryMissingForReservation(reservation.CafeId, reservation.PlayDate, reservation.TimeSlot.ToString()));
+                    ApiErrorMessages.System.GameInventoryMissingForReservation(
+                        reservation.CafeId, reservation.PlayDate,
+                        $"{reservation.ScheduledStartTime:HH:mm}-{reservation.ScheduledEndTime:HH:mm}"));
             }
 
             // 2. Validate inventory state — must be InUse (từ CheckInAsync move).
@@ -3162,30 +3237,29 @@ public class ReservationService : IReservationService
 
     /// <summary>
     /// Tính scheduledStartTime + scheduledEndTime từ <paramref name="playDate"/> và resolved schedule.
-    /// BR-RES-07/08/09: endTime bắt buộc (không open-ended), auto-resolve từ TimeSlot.
-    /// LateNight (23:00-06:00) là overnight: endDate = playDate + 1 ngày.
+    /// BR-RES-07/08/09: endTime bắt buộc (không open-ended).
+    /// Overnight check: nếu endTime <= startTime → overnight (BR-NEW-15 §7.1 LateNight rule).
     /// Lưu vào DB (<see cref="Reservation.ScheduledStartTime"/>, <see cref="Reservation.ScheduledEndTime"/>)
     /// để WalkInWindowCleanupJob (§4.4), playedRatio (§4.3), extension flow (Phase 3)
-    /// không phải derive runtime từ TimeSlot.
+    /// không phải derive runtime từ TimeSlot enum.
     /// </summary>
     internal static (DateTime ScheduledStartTime, DateTime ScheduledEndTime) BuildScheduledStartEnd(
         DateOnly playDate,
         TimeOnly startTime,
-        TimeOnly endTime,
-        TimeSlot slot)
+        TimeOnly endTime)
     {
         var startDateTime = playDate.ToDateTime(startTime);
 
         DateTime endDateTime;
-        // LateNight là overnight: endDate = playDate + 1 ngày
-        if (slot == TimeSlot.LateNight)
+        // Overnight: endTime <= startTime (e.g., 23:00 → 06:00)
+        if (endTime <= startTime)
         {
             endDateTime = playDate.AddDays(1).ToDateTime(endTime);
         }
         else
         {
             endDateTime = playDate.ToDateTime(endTime);
-            // Sanity check: các slot khác phải cùng ngày
+            // Sanity check: cùng ngày
             if (endDateTime.Date != startDateTime.Date)
             {
                 throw new InvalidOperationException(
@@ -3198,19 +3272,23 @@ public class ReservationService : IReservationService
 
     /// <summary>
     /// BR-RES-07/08/09: validate rằng reservation có đầy đủ startTime + endTime,
-    /// cùng ngày (hoặc LateNight overnight), và TimeSlot thuộc BR-NEW-15 enum.
-    /// LateNight (23:00-06:00) cho phép endDate = startDate + 1 ngày.
+    /// cùng ngày (hoặc overnight/LateNight), không dùng TimeSlot enum nữa.
+    /// BR-NEW-15 (2026-08-18): BỎ TimeSlot param — derive overnight từ endTime &lt;= startTime.
     /// Throw BadRequestException với message tiếng Việt từ <see cref="ApiErrorMessages.Reservation"/>.
     /// </summary>
-    internal static void ValidateReservationTimeWindow(DateTime scheduledStartTime, DateTime scheduledEndTime, TimeSlot timeSlot)
+    internal static void ValidateReservationTimeWindow(DateTime scheduledStartTime, DateTime scheduledEndTime)
     {
         if (scheduledStartTime == default || scheduledEndTime == default)
         {
             throw new BadRequestException(ApiErrorMessages.Reservation.ReservationRequiresStartAndEnd);
         }
 
-        // LateNight là overnight slot: endDate = startDate + 1 ngày
-        if (timeSlot == TimeSlot.LateNight)
+        // Overnight check: endTime <= startTime → overnight (LateNight equivalent)
+        var startTimeOnly = TimeOnly.FromDateTime(scheduledStartTime);
+        var endTimeOnly = TimeOnly.FromDateTime(scheduledEndTime);
+        var isOvernight = endTimeOnly <= startTimeOnly;
+
+        if (isOvernight)
         {
             if (scheduledEndTime.Date != scheduledStartTime.Date.AddDays(1))
             {
@@ -3227,11 +3305,6 @@ public class ReservationService : IReservationService
             {
                 throw new BadRequestException(ApiErrorMessages.Reservation.ReservationEndTimeDifferentDay);
             }
-        }
-
-        if (!Enum.IsDefined(typeof(TimeSlot), timeSlot))
-        {
-            throw new BadRequestException(ApiErrorMessages.Reservation.ReservationInvalidTimeSlot(timeSlot));
         }
     }
 
@@ -3277,8 +3350,7 @@ public class ReservationService : IReservationService
         // Validate BR-RES-08 (sanity check).
         ValidateReservationTimeWindow(
             reservation.ScheduledStartTime,
-            reservation.ScheduledEndTime,
-            reservation.TimeSlot);
+            reservation.ScheduledEndTime);
 
         // Tính playedRatio.
         var playedMinutes = (actualEnd - reservation.CheckedInAt.Value).TotalMinutes;
@@ -3401,7 +3473,8 @@ public class ReservationService : IReservationService
             GameId = r.GameId,
             GameName = r.Game?.Name ?? string.Empty,
             PlayDate = r.PlayDate,
-            TimeSlot = r.TimeSlot,
+            PreferredStartTime = r.PreferredStartTime ?? TimeOnly.MinValue,
+            PreferredEndTime = r.PreferredEndTime ?? TimeOnly.MinValue,
             CurrentPlayers = r.CurrentPlayers,
             MaxPlayers = r.MaxPlayers,
             Status = r.Status.ToString(),

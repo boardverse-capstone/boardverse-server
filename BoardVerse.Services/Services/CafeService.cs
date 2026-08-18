@@ -177,15 +177,13 @@ namespace BoardVerse.Services.Services
                     kvp => kvp.Key.ToString(),
                     kvp => kvp.Value),
 
-                // Schedule Overrides
                 ScheduleOverrides = scheduleOverrides.Select(o => new CafeScheduleOverrideDto
                 {
-                    Date = o.EffectiveFrom ?? today,
+                    ApplyDate = o.ApplyDate,
                     Reason = null,
-                    OpenTime = o.StartTime,
-                    CloseTime = o.EndTime,
-                    IsClosed = o.IsClosed,
-                    AffectedTimeSlot = o.TimeSlot
+                    OpenTime = o.OpenTime,
+                    CloseTime = o.CloseTime,
+                    IsClosed = o.IsClosed
                 }).ToList(),
 
                 // Additional Info
@@ -612,16 +610,14 @@ namespace BoardVerse.Services.Services
             dto.AvailableSeatsByTimeSlot = seatsBySlot?.ToDictionary(
                 kvp => kvp.Key.ToString(), kvp => kvp.Value);
 
-            // Schedule overrides
             dto.ScheduleOverrides = scheduleOverrides?
                 .Select(o => new CafeScheduleOverrideDto
                 {
-                    Date = o.EffectiveFrom ?? today,
+                    ApplyDate = o.ApplyDate,
                     Reason = null,
-                    OpenTime = o.StartTime,
-                    CloseTime = o.EndTime,
-                    IsClosed = o.IsClosed,
-                    AffectedTimeSlot = o.TimeSlot
+                    OpenTime = o.OpenTime,
+                    CloseTime = o.CloseTime,
+                    IsClosed = o.IsClosed
                 }).ToList();
 
             // Refund tiers
@@ -1319,12 +1315,11 @@ namespace BoardVerse.Services.Services
             // Schedule Overrides (admin cần xem/tạo override giờ mở cửa cho ngày lễ)
             ScheduleOverrides = scheduleOverrides.Select(o => new CafeScheduleOverrideDto
             {
-                Date = o.EffectiveFrom ?? today,
+                ApplyDate = o.ApplyDate,
                 Reason = null,
-                OpenTime = o.StartTime,
-                CloseTime = o.EndTime,
-                IsClosed = o.IsClosed,
-                AffectedTimeSlot = o.TimeSlot
+                OpenTime = o.OpenTime,
+                CloseTime = o.CloseTime,
+                IsClosed = o.IsClosed
             }).ToList(),
 
             // Audit

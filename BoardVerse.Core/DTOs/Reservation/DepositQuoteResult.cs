@@ -59,7 +59,8 @@ public class EligibilityContext
     public Guid HostId { get; set; }
     public Guid CafeId { get; set; }
     public DateOnly PlayDate { get; set; }
-    public TimeSlot TimeSlot { get; set; }
+    public TimeOnly PreferredStartTime { get; set; }
+    public TimeOnly PreferredEndTime { get; set; }
     public DateTime RecruitmentDeadline { get; set; }
     public DateTime Now { get; set; }
 

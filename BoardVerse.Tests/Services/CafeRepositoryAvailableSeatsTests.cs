@@ -10,6 +10,11 @@ namespace BoardVerse.Tests.Services;
 /// Unit tests cho CafeRepository.GetAvailableSeatsByTimeSlotAsync — Gap G3.
 /// BR §17.3: khi SeatInventory row không tồn tại, fallback phải trừ
 /// Reservation HeldSeats + ActiveSession InUseSeats thay vì trả TotalSeats thô.
+///
+/// BR-NEW-15 (2026-08-18): SeatInventory dùng ScheduledStartTime/ScheduledEndTime (TimeOnly)
+/// thay vì TimeSlot enum. Repository GetAvailableSeatsByTimeSlotAsync vẫn dùng TimeSlot
+/// để trả về Dictionary&lt;TimeSlot, int&gt; (backward compat), nhưng query SeatInventory
+/// bằng ScheduledStartTime/ScheduledEndTime matching TimeSlot defaults.
 /// </summary>
 public class CafeRepositoryAvailableSeatsTests : IDisposable
 {
@@ -151,13 +156,16 @@ public class CafeRepositoryAvailableSeatsTests : IDisposable
     public async Task GetAvailableSeatsByTimeSlotAsync_Should_ReturnSeatInventoryValues_WhenExists()
     {
         // Happy path: SeatInventory tồn tại → dùng AvailableSeats computed.
+        // BR-NEW-15: SeatInventory dùng ScheduledStartTime/ScheduledEndTime
+        // matching TimeSlot defaults để query compatibility.
         var playDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1));
         _db.SeatInventories.Add(new SeatInventory
         {
             Id = Guid.NewGuid(),
             CafeId = _cafeId,
             PlayDate = playDate,
-            TimeSlot = TimeSlot.Afternoon,
+            ScheduledStartTime = TimeSlot.Afternoon.GetStartTime(), // 12:00
+            ScheduledEndTime = TimeSlot.Afternoon.GetEndTime(),     // 17:00
             TotalSeats = 20,
             HeldSeats = 4,
             InUseSeats = 2,
@@ -246,7 +254,8 @@ public class CafeRepositoryAvailableSeatsTests : IDisposable
             Id = Guid.NewGuid(),
             CafeId = _cafeId,
             PlayDate = playDate,
-            TimeSlot = TimeSlot.Afternoon,
+            ScheduledStartTime = TimeSlot.Afternoon.GetStartTime(),
+            ScheduledEndTime = TimeSlot.Afternoon.GetEndTime(),
             TotalSeats = 20,
             HeldSeats = 0,
             InUseSeats = 0,

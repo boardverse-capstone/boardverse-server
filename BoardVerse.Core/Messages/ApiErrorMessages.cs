@@ -2263,10 +2263,13 @@ public const string LobbyBoostOnlyWhenOpen =
  public const string CafeConfigMissing =
  "Quán chưa được cấu hình BVC. Không thể đặt cọc. Liên hệ quản lý quán.";
 
- public const string SeatInventoryNotConfigured =
- "Quán chưa được cấu hình số ghế cho ngày và khung giờ này. Liên hệ quản lý quán.";
+    public const string SeatInventoryNotConfigured =
+    "Quán chưa được cấu hình số ghế cho ngày và khung giờ này. Liên hệ quản lý quán.";
 
- public const string GameNotInCafeInventory =
+    public const string CafeScheduleClosedForPlayDate =
+    "Quán đóng cửa vào ngày bạn chọn. Vui lòng chọn ngày khác.";
+
+    public const string GameNotInCafeInventory =
  "Quán chưa nhập game này vào kho. Bạn chọn game khác đi nha.";
 
  // ===== BR-RESERVATION-01: maxPlayers > capacity =====

@@ -4,18 +4,23 @@ using BoardVerse.Core.Enum;
 namespace BoardVerse.Core.IRepositories;
 
 /// <summary>
-/// Tồn kho ghế theo cafe × playDate × timeSlot (§V + §19.11).
-/// Dùng cho atomic reservation (BR §17.3 / 17.4).
+/// Tồn kho ghế theo cafe × playDate × scheduled times.
+/// BR-NEW-15 (2026-08-18): Dùng ScheduledStartTime/ScheduledEndTime (TimeOnly) thay vì TimeSlot.
 /// </summary>
 public interface ISeatInventoryRepository
 {
-    Task<SeatInventory?> GetAsync(Guid cafeId, DateOnly playDate, TimeSlot timeSlot);
+    Task<SeatInventory?> GetAsync(Guid cafeId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime);
 
-    Task<SeatInventory?> GetForUpdateAsync(Guid cafeId, DateOnly playDate, TimeSlot timeSlot);
+    Task<SeatInventory?> GetForUpdateAsync(Guid cafeId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime);
+
+    /// <summary>
+    /// Load by FK ID (dùng cho ReleaseInventoriesAsync khi đã có SeatInventoryId).
+    /// </summary>
+    Task<SeatInventory?> GetByIdForUpdateAsync(Guid id);
 
     Task<IReadOnlyList<SeatInventory>> GetByCafeAsync(Guid cafeId, DateOnly fromDate, DateOnly toDate);
 
-    Task EnsureRowAsync(Guid cafeId, DateOnly playDate, TimeSlot timeSlot, int totalSeats);
+    Task EnsureRowAsync(Guid cafeId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime, int totalSeats);
 
     Task AddAsync(SeatInventory seatInventory);
 

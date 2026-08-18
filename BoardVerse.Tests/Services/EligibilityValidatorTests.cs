@@ -1,5 +1,4 @@
 using BoardVerse.Core.DTOs.Reservation;
-using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
@@ -27,7 +26,8 @@ public class EligibilityValidatorTests
             HostId = Guid.NewGuid(),
             CafeId = Guid.NewGuid(),
             PlayDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2)),
-            TimeSlot = TimeSlot.Evening,
+            PreferredScheduledStart = DateTime.UtcNow.AddHours(2),
+            PreferredScheduledEnd = DateTime.UtcNow.AddHours(5),
             RecruitmentDeadline = DateTime.UtcNow.AddHours(2),
             Now = DateTime.UtcNow,
             WalletHeldBalance = 0,
@@ -50,7 +50,6 @@ public class EligibilityValidatorTests
             UserId = Guid.NewGuid(),
             CafeId = Guid.NewGuid(),
             PlayDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2)),
-            TimeSlot = TimeSlot.Evening,
             RecruitmentDeadline = DateTime.UtcNow.AddHours(2),
             Now = DateTime.UtcNow,
             HasActiveHostLobby = hasActiveHostLobby,

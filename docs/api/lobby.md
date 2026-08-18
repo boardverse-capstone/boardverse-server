@@ -111,8 +111,7 @@ Xem chi tiết API:
 | `/{lobbyId}/share-info` | GET | Lấy Lobby ID + Share Code để copy | Member |
 | `/join-by-code` | POST | Join lobby bằng share code | Player |
 | `/discoverable` | GET | Browse lobby public đang mở (filter optional geo + game) | Player |
-| `/hosted` | GET | Lobby do user đang host | Player |
-| `/joined` | GET | Lobby user đang tham gia làm member | Player |
+| `/my` | GET | Tất cả lobby của user (host hoặc member, active) | Player |
 | `/{lobbyId}` | PATCH | Host cập nhật thông tin lobby (description, maxMembers, isPrivate, minKarmaScore, ...) | Host |
 | `/{lobbyId}/transfer-host` | POST | Host chuyển quyền host cho member khác | Host |
 | `/{lobbyId}/kick` | POST | Host kick thành viên khỏi lobby | Host |
@@ -299,7 +298,7 @@ Authorization: Bearer <jwt>
 
 **Khi nào dùng:**
 - Màn hình "Browse lobbies" / "Khám phá" — list tất cả phòng public mở gần user.
-- Kết hợp với `GET /hosted` + `GET /joined` để hiển thị đầy đủ các lobby liên quan tới user trên mobile.
+- Kết hợp với `GET /my` để hiển thị tất cả lobbies liên quan tới user trên mobile.
 
 ---
 
@@ -529,37 +528,20 @@ Xem tại [Lobby.md#discoverable](#get-apiv1lobbiesdiscoverable) — đã có �
 
 ---
 
-## GET /api/v1/lobbies/hosted
+## GET /api/v1/lobbies/my
 
-Lấy danh sách lobby do user hiện tại host (cả còn active lẫn đã đóng).
+Lấy tất cả lobby của user hiện tại (host hoặc member, chỉ active).
 
 **Role:** Player — đã đăng nhập
 
-**Response 200:** `LobbyResponseDto[]` — sắp xếp theo `CreatedAt` desc.
+**Response 200:** `LobbyResponseDto[]` — chỉ trả lobby còn active (status: `PendingActivation`, `PendingCafeApproval`, `Open`, `Viable`, `Full`, `InProgress`).
 
 **Response codes:**
 - `200` — Trả danh sách (có thể rỗng)
 - `401` — Thiếu token
 - `500` — Lỗi hệ thống
 
-**Use case:** Mobile tab "Phòng của tôi" — hiển thị lobby host đang tuyển + đã đóng.
-
----
-
-## GET /api/v1/lobbies/joined
-
-Lấy danh sách lobby user hiện tại đang tham gia với vai trò member.
-
-**Role:** Player — đã đăng nhập
-
-**Response 200:** `LobbyResponseDto[]` — chỉ trả lobby còn active, status khác `Closed`/`Cancelled`.
-
-**Response codes:**
-- `200` — Trả danh sách
-- `401` — Thiếu token
-- `500` — Lỗi hệ thống
-
-**Use case:** Mobile tab "Đang tham gia" — danh sách lobby member.
+**Use case:** Mobile tab "Phòng của tôi" — hiển thị lobby user đang host hoặc tham gia.
 
 ---
 

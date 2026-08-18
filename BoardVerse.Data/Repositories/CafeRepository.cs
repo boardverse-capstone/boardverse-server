@@ -816,9 +816,16 @@ namespace BoardVerse.Data.Repositories
 
         public async Task<Dictionary<TimeSlot, int>> GetAvailableSeatsByTimeSlotAsync(Guid cafeId, DateOnly playDate)
         {
+            // BR-NEW-15 (2026-08-18): GetAvailableSeatsByTimeSlotAsync đang trong quá trình refactor.
+            // SeatInventory.TimeSlot đã được thay bằng ScheduledStartTime/ScheduledEndTime.
+            // Tạm thời trả về total seats - held - inUse (không phân biệt slot).
+            // TODO Phase 2: Cập nhật trả về Dictionary<TimeOnly, int> dựa trên ScheduledStartTime ranges.
             var result = new Dictionary<TimeSlot, int>();
-            var utcNow = DateTime.UtcNow;
-            var today = DateOnly.FromDateTime(utcNow);
+            var totalSeats = await _context.Cafes
+                .AsNoTracking()
+                .Where(c => c.Id == cafeId)
+                .Select(c => c.TotalSeats)
+                .FirstOrDefaultAsync();
 
             foreach (TimeSlot slot in Enum.GetValues<TimeSlot>())
             {
@@ -827,30 +834,17 @@ namespace BoardVerse.Data.Repositories
                     .FirstOrDefaultAsync(s =>
                         s.CafeId == cafeId &&
                         s.PlayDate == playDate &&
-                        s.TimeSlot == slot);
+                        s.ScheduledStartTime == slot.GetStartTime() &&
+                        s.ScheduledEndTime == slot.GetEndTime());
 
                 if (inventory != null)
                 {
-                    // HeldSeats + InUseSeats đã được ReservationService trừ đúng
-                    // → AvailableSeats (computed) phản ánh đúng số ghế còn trống.
                     result[slot] = inventory.AvailableSeats;
                 }
                 else
                 {
-                    // Không có SeatInventory row cho ngày này.
-                    // Vẫn phải trừ các reservation đang giữ ghế cho (cafe, playDate, slot)
-                    // để khớp với logic ReservationService.ConfirmAsync (BR §17.3).
-                    var cafe = await _context.Cafes
-                        .AsNoTracking()
-                        .Where(c => c.Id == cafeId)
-                        .Select(c => new { c.TotalSeats })
-                        .FirstOrDefaultAsync();
-
-                    var totalSeats = cafe?.TotalSeats ?? 0;
-
                     var heldSeats = await CountHeldSeatsForSlotAsync(cafeId, playDate, slot);
                     var inUseSeats = await CountInUseSeatsForSlotAsync(cafeId, playDate, slot);
-
                     result[slot] = Math.Max(0, totalSeats - heldSeats - inUseSeats);
                 }
             }
@@ -866,19 +860,16 @@ namespace BoardVerse.Data.Repositories
 
             if (fromDate.HasValue)
             {
-                query = query.Where(o =>
-                    o.EffectiveTo == null || o.EffectiveTo >= fromDate.Value);
+                query = query.Where(o => o.ApplyDate >= fromDate.Value);
             }
 
             if (toDate.HasValue)
             {
-                query = query.Where(o =>
-                    o.EffectiveFrom == null || o.EffectiveFrom <= toDate.Value);
+                query = query.Where(o => o.ApplyDate <= toDate.Value);
             }
 
             return await query
-                .OrderBy(o => o.TimeSlot)
-                .ThenBy(o => o.EffectiveFrom)
+                .OrderBy(o => o.ApplyDate)
                 .ToListAsync();
         }
 

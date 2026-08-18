@@ -1,7 +1,6 @@
 using BoardVerse.Core.DTOs.Lobby;
 using BoardVerse.Core.DTOs.Wallet;
 using BoardVerse.Core.Entities;
-using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Data;
@@ -420,7 +419,8 @@ public class DissolveLobbyAsyncTests
             Id = Guid.NewGuid(),
             CafeId = cafeId,
             PlayDate = playDate,
-            TimeSlot = TimeSlot.Evening,
+            ScheduledStartTime = new TimeOnly(17, 0),
+            ScheduledEndTime = new TimeOnly(23, 0),
             TotalSeats = 20,
             HeldSeats = 4,
             InUseSeats = 0,
@@ -432,7 +432,8 @@ public class DissolveLobbyAsyncTests
             CafeId = cafeId,
             GameId = gameId,
             PlayDate = playDate,
-            TimeSlot = TimeSlot.Evening,
+            ScheduledStartTime = new TimeOnly(17, 0),
+            ScheduledEndTime = new TimeOnly(23, 0),
             TotalCopies = 3,
             HeldCopies = 1,
             InUseCopies = 0,
@@ -445,10 +446,10 @@ public class DissolveLobbyAsyncTests
         reservationRepo.Setup(r => r.GetByIdAsync(reservationId, It.IsAny<bool>())).ReturnsAsync(reservation);
 
         var seatRepo = new Mock<ISeatInventoryRepository>();
-        seatRepo.Setup(r => r.GetForUpdateAsync(cafeId, playDate, TimeSlot.Evening))
+        seatRepo.Setup(r => r.GetForUpdateAsync(cafeId, playDate, new TimeOnly(17, 0), new TimeOnly(23, 0)))
             .ReturnsAsync(seatInv);
         var gameRepo = new Mock<IGameInventoryRepository>();
-        gameRepo.Setup(r => r.GetForUpdateAsync(cafeId, gameId, playDate, TimeSlot.Evening))
+        gameRepo.Setup(r => r.GetForUpdateAsync(cafeId, gameId, playDate, new TimeOnly(17, 0), new TimeOnly(23, 0)))
             .ReturnsAsync(gameInv);
 
         var walletService = new Mock<IWalletService>();

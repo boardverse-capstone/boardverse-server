@@ -41,9 +41,9 @@ public interface ILobbyRepository
     Task<IReadOnlyList<Lobby>> GetLobbiesByHostAsync(Guid hostUserId);
 
     /// <summary>
-    /// Lấy các lobby user đang tham gia (active, chưa đóng).
+    /// Lấy tất cả lobby của user (host hoặc member, active).
     /// </summary>
-    Task<IReadOnlyList<Lobby>> GetJoinedLobbiesAsync(Guid userId);
+    Task<IReadOnlyList<Lobby>> GetMyLobbiesAsync(Guid userId);
 
     // ===== BR-NEW-* mở rộng cho Reservation flow =====
 
@@ -63,25 +63,27 @@ public interface ILobbyRepository
     Task<IReadOnlyList<Lobby>> GetActiveLobbiesByMemberAsync(Guid userId);
 
     /// <summary>
-    /// BR-NEW-08: lobby active của user trong cùng (cafe, playDate, timeSlot).
+    /// BR-NEW-08: lobby active của user trong cùng (cafe, playDate, scheduled times).
+    /// BR-NEW-15 (2026-08-18): Dùng TimeOnly thay vì TimeSlot.
     /// </summary>
-    Task<IReadOnlyList<Lobby>> GetActiveLobbiesByCafeDateSlotAsync(Guid cafeId, DateOnly playDate, Core.Enum.TimeSlot timeSlot);
+    Task<IReadOnlyList<Lobby>> GetActiveLobbiesByCafeDateSlotAsync(Guid cafeId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime);
 
     /// <summary>
-    /// BR-NEW-08: lobby active của user cụ thể trong cùng (cafe, playDate, timeSlot).
+    /// BR-NEW-08: lobby active của user cụ thể trong cùng (cafe, playDate, scheduled times).
+    /// BR-NEW-15 (2026-08-18): Dùng TimeOnly thay vì TimeSlot.
     /// </summary>
-    Task<IReadOnlyList<Lobby>> GetActiveLobbiesByCafeDateSlotAsync(Guid userId, Guid cafeId, DateOnly playDate, Core.Enum.TimeSlot timeSlot);
+    Task<IReadOnlyList<Lobby>> GetActiveLobbiesByCafeDateSlotAsync(Guid userId, Guid cafeId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime);
 
     /// <summary>
     /// BR-USER-LIMIT-02: lobby của user có overlap với khung [startTime, endTime] (+30p buffer).
-    /// Lấy từ Reservation.PlayDate + TimeSlot để so sánh.
+    /// BR-NEW-15 (2026-08-18): Dùng TimeOnly thay vì TimeSlot.
     /// </summary>
     Task<IReadOnlyList<Lobby>> GetOverlappingLobbiesAsync(
         Guid userId,
         DateOnly playDate,
-        Core.Enum.TimeSlot timeSlot,
-        DateTime newRecruitmentDeadline,
-        DateTime newScheduledTime);
+        TimeOnly newScheduledStartTime,
+        TimeOnly newScheduledEndTime,
+        DateTime newRecruitmentDeadline);
 
     /// <summary>
     /// BR-NEW-05: đếm số lobby user đã tạo (status không phải terminal) cho 1 playDate.

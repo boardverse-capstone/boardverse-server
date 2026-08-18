@@ -1,199 +1,123 @@
 using BoardVerse.Core.Constants;
 using BoardVerse.Core.Entities;
-using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.Services;
 
 namespace BoardVerse.Tests.Services;
 
 /// <summary>
-/// Unit tests cho <see cref="CafeScheduleResolver"/>:
-/// - Default time slot (BR-NEW-15, cập nhật cover 24h).
-/// - Override đóng slot.
-/// - Override startTime/endTime khác default.
-/// - EffectiveFrom/EffectiveTo filter theo playDate.
+/// Unit tests cho <see cref="CafeScheduleResolver"/>.
+/// BR-NEW-15 (2026-08-18): BỎ TimeSlot - dùng ApplyDate/OpenTime/CloseTime.
 /// </summary>
 public class CafeScheduleResolverTests
 {
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow.Date);
 
     [Fact]
-    public void GetDefault_Morning_ReturnsCorrectRange()
-    {
-        var sut = new CafeScheduleResolver(new NullOverrideRepository());
-
-        var schedule = sut.GetDefault(TimeSlot.Morning);
-
-        Assert.Equal(new TimeOnly(6, 0), schedule.StartTime);
-        Assert.Equal(new TimeOnly(12, 0), schedule.EndTime);
-        Assert.False(schedule.IsClosed);
-        Assert.False(schedule.HasOverride);
-    }
-
-    [Fact]
-    public void GetDefault_LateNight_Returns23To6Overnight()
-    {
-        var sut = new CafeScheduleResolver(new NullOverrideRepository());
-
-        var schedule = sut.GetDefault(TimeSlot.LateNight);
-
-        Assert.Equal(new TimeOnly(23, 0), schedule.StartTime);
-        Assert.Equal(new TimeOnly(6, 0), schedule.EndTime);
-        Assert.False(schedule.IsClosed);
-    }
-
-    [Fact]
-    public void GetDefault_Evening_Returns17To23()
-    {
-        var sut = new CafeScheduleResolver(new NullOverrideRepository());
-
-        var schedule = sut.GetDefault(TimeSlot.Evening);
-
-        Assert.Equal(new TimeOnly(17, 0), schedule.StartTime);
-        Assert.Equal(new TimeOnly(23, 0), schedule.EndTime);
-    }
-
-    [Fact]
-    public void GetDefault_Afternoon_Returns12To17()
-    {
-        var sut = new CafeScheduleResolver(new NullOverrideRepository());
-
-        var schedule = sut.GetDefault(TimeSlot.Afternoon);
-
-        Assert.Equal(new TimeOnly(12, 0), schedule.StartTime);
-        Assert.Equal(new TimeOnly(17, 0), schedule.EndTime);
-    }
-
-    [Fact]
     public async Task ResolveAsync_NoOverride_ReturnsDefault()
     {
         var sut = new CafeScheduleResolver(new NullOverrideRepository());
 
-        var schedule = await sut.ResolveAsync(Guid.NewGuid(), Today, TimeSlot.Morning);
+        var schedule = await sut.ResolveAsync(Guid.NewGuid(), Today);
 
         Assert.False(schedule.HasOverride);
         Assert.False(schedule.IsClosed);
-        Assert.Equal(new TimeOnly(6, 0), schedule.StartTime);
+        Assert.Equal(CafeSchedule.DefaultOpenTime, schedule.OpenTime);
+        Assert.Equal(CafeSchedule.DefaultCloseTime, schedule.CloseTime);
     }
 
     [Fact]
-    public async Task ResolveAsync_ClosedSlot_ReturnsIsClosedTrue()
+    public async Task ResolveAsync_ClosedDay_ReturnsIsClosedTrue()
     {
         var ovr = new CafeScheduleOverride
         {
             Id = Guid.NewGuid(),
             CafeId = Guid.NewGuid(),
-            TimeSlot = TimeSlot.LateNight,
+            ApplyDate = Today,
             IsClosed = true
         };
         var sut = new CafeScheduleResolver(new FixedOverrideRepository(ovr));
 
-        var schedule = await sut.ResolveAsync(ovr.CafeId, Today, TimeSlot.LateNight);
+        var schedule = await sut.ResolveAsync(ovr.CafeId, Today);
 
         Assert.True(schedule.HasOverride);
         Assert.True(schedule.IsClosed);
+        Assert.Equal(CafeSchedule.DefaultOpenTime, schedule.OpenTime);
+        Assert.Equal(CafeSchedule.DefaultCloseTime, schedule.CloseTime);
     }
 
     [Fact]
-    public async Task ResolveAsync_CustomStartEnd_ReturnsOverriddenRange()
+    public async Task ResolveAsync_CustomOpenClose_ReturnsOverriddenTimes()
     {
+        var customOpen = new TimeOnly(8, 0);
+        var customClose = new TimeOnly(22, 0);
         var ovr = new CafeScheduleOverride
         {
             Id = Guid.NewGuid(),
             CafeId = Guid.NewGuid(),
-            TimeSlot = TimeSlot.Morning,
-            StartTime = new TimeOnly(6, 0),
-            EndTime = new TimeOnly(12, 0),
+            ApplyDate = Today,
+            OpenTime = customOpen,
+            CloseTime = customClose,
             IsClosed = false
         };
         var sut = new CafeScheduleResolver(new FixedOverrideRepository(ovr));
 
-        var schedule = await sut.ResolveAsync(ovr.CafeId, Today, TimeSlot.Morning);
+        var schedule = await sut.ResolveAsync(ovr.CafeId, Today);
 
         Assert.True(schedule.HasOverride);
         Assert.False(schedule.IsClosed);
-        Assert.Equal(new TimeOnly(6, 0), schedule.StartTime);
-        Assert.Equal(new TimeOnly(12, 0), schedule.EndTime);
+        Assert.Equal(customOpen, schedule.OpenTime);
+        Assert.Equal(customClose, schedule.CloseTime);
     }
 
     [Fact]
-    public async Task ResolveAsync_EffectiveFrom_FiltersOutsideRange()
+    public async Task ResolveAsync_DifferentDate_ReturnsDefault()
     {
         var ovr = new CafeScheduleOverride
         {
             Id = Guid.NewGuid(),
             CafeId = Guid.NewGuid(),
-            TimeSlot = TimeSlot.Morning,
-            StartTime = new TimeOnly(6, 0),
-            EndTime = new TimeOnly(12, 0),
-            EffectiveFrom = Today.AddDays(7)
+            ApplyDate = Today,
+            IsClosed = true
         };
         var sut = new CafeScheduleResolver(new FixedOverrideRepository(ovr));
 
-        // playDate before EffectiveFrom → revert to default
-        var schedule = await sut.ResolveAsync(ovr.CafeId, Today, TimeSlot.Morning);
+        var schedule = await sut.ResolveAsync(ovr.CafeId, Today.AddDays(1));
 
         Assert.False(schedule.HasOverride);
-        Assert.Equal(new TimeOnly(6, 0), schedule.StartTime);
+        Assert.False(schedule.IsClosed);
     }
 
     [Fact]
-    public async Task ResolveAsync_EffectiveTo_FiltersOutsideRange()
+    public async Task ResolveAsync_DifferentCafe_ReturnsDefault()
     {
         var ovr = new CafeScheduleOverride
         {
             Id = Guid.NewGuid(),
             CafeId = Guid.NewGuid(),
-            TimeSlot = TimeSlot.Morning,
-            StartTime = new TimeOnly(6, 0),
-            EndTime = new TimeOnly(12, 0),
-            EffectiveTo = Today.AddDays(-1)
+            ApplyDate = Today,
+            IsClosed = true
         };
         var sut = new CafeScheduleResolver(new FixedOverrideRepository(ovr));
 
-        // playDate after EffectiveTo → revert to default
-        var schedule = await sut.ResolveAsync(ovr.CafeId, Today, TimeSlot.Morning);
+        var schedule = await sut.ResolveAsync(Guid.NewGuid(), Today);
 
         Assert.False(schedule.HasOverride);
-    }
-
-    [Fact]
-    public async Task ResolveAsync_EffectiveRangeMatches_AppliesOverride()
-    {
-        var ovr = new CafeScheduleOverride
-        {
-            Id = Guid.NewGuid(),
-            CafeId = Guid.NewGuid(),
-            TimeSlot = TimeSlot.Morning,
-            StartTime = new TimeOnly(6, 0),
-            EndTime = new TimeOnly(12, 0),
-            EffectiveFrom = Today.AddDays(-3),
-            EffectiveTo = Today.AddDays(3)
-        };
-        var sut = new CafeScheduleResolver(new FixedOverrideRepository(ovr));
-
-        var schedule = await sut.ResolveAsync(ovr.CafeId, Today, TimeSlot.Morning);
-
-        Assert.True(schedule.HasOverride);
-        Assert.Equal(new TimeOnly(6, 0), schedule.StartTime);
     }
 
     // ===== Test doubles =====
 
     private sealed class NullOverrideRepository : ICafeScheduleOverrideRepository
     {
-        public Task<CafeScheduleOverride?> GetActiveAsync(Guid cafeId, TimeSlot slot, DateOnly playDate)
+        public Task<CafeScheduleOverride?> GetByApplyDateAsync(Guid cafeId, DateOnly applyDate)
             => Task.FromResult<CafeScheduleOverride?>(null);
 
         public Task<IReadOnlyList<CafeScheduleOverride>> ListByCafeAsync(Guid cafeId)
             => Task.FromResult<IReadOnlyList<CafeScheduleOverride>>(Array.Empty<CafeScheduleOverride>());
 
-        public Task<CafeScheduleOverride?> GetByCafeAndSlotAsync(Guid cafeId, TimeSlot slot)
-            => Task.FromResult<CafeScheduleOverride?>(null);
-
         public Task AddAsync(CafeScheduleOverride overrideEntity) => Task.CompletedTask;
         public Task UpdateAsync(CafeScheduleOverride overrideEntity) => Task.CompletedTask;
-        public Task DeleteAsync(Guid cafeId, TimeSlot slot) => Task.CompletedTask;
+        public Task DeleteAsync(Guid cafeId, DateOnly applyDate) => Task.CompletedTask;
         public Task DeleteByIdAsync(Guid overrideId) => Task.CompletedTask;
         public Task SaveChangesAsync() => Task.CompletedTask;
     }
@@ -207,19 +131,9 @@ public class CafeScheduleResolverTests
             _entry = entry;
         }
 
-        public Task<CafeScheduleOverride?> GetActiveAsync(Guid cafeId, TimeSlot slot, DateOnly playDate)
+        public Task<CafeScheduleOverride?> GetByApplyDateAsync(Guid cafeId, DateOnly applyDate)
         {
-            if (_entry.CafeId != cafeId || _entry.TimeSlot != slot)
-            {
-                return Task.FromResult<CafeScheduleOverride?>(null);
-            }
-
-            if (_entry.EffectiveFrom.HasValue && playDate < _entry.EffectiveFrom.Value)
-            {
-                return Task.FromResult<CafeScheduleOverride?>(null);
-            }
-
-            if (_entry.EffectiveTo.HasValue && playDate > _entry.EffectiveTo.Value)
+            if (_entry.CafeId != cafeId || _entry.ApplyDate != applyDate)
             {
                 return Task.FromResult<CafeScheduleOverride?>(null);
             }
@@ -230,18 +144,9 @@ public class CafeScheduleResolverTests
         public Task<IReadOnlyList<CafeScheduleOverride>> ListByCafeAsync(Guid cafeId)
             => Task.FromResult<IReadOnlyList<CafeScheduleOverride>>(new[] { _entry });
 
-        public Task<CafeScheduleOverride?> GetByCafeAndSlotAsync(Guid cafeId, TimeSlot slot)
-        {
-            if (_entry.CafeId != cafeId || _entry.TimeSlot != slot)
-            {
-                return Task.FromResult<CafeScheduleOverride?>(null);
-            }
-            return Task.FromResult<CafeScheduleOverride?>(_entry);
-        }
-
         public Task AddAsync(CafeScheduleOverride overrideEntity) => Task.CompletedTask;
         public Task UpdateAsync(CafeScheduleOverride overrideEntity) => Task.CompletedTask;
-        public Task DeleteAsync(Guid cafeId, TimeSlot slot) => Task.CompletedTask;
+        public Task DeleteAsync(Guid cafeId, DateOnly applyDate) => Task.CompletedTask;
         public Task DeleteByIdAsync(Guid overrideId) => Task.CompletedTask;
         public Task SaveChangesAsync() => Task.CompletedTask;
     }

@@ -241,15 +241,15 @@ namespace BoardVerse.Data.Repositories
                 .ToListAsync();
         }
 
-        public async Task<IReadOnlyList<Lobby>> GetJoinedLobbiesAsync(Guid userId)
+        public async Task<IReadOnlyList<Lobby>> GetMyLobbiesAsync(Guid userId)
         {
             return await _db.Lobbies
                 .Include(l => l.Members)
                     .ThenInclude(m => m.User)
                 .Include(l => l.GameTemplate)
-                .Where(l => l.Members.Any(m => m.UserId == userId && m.IsActive)
-                    && (l.Status == LobbyStatus.Open || l.Status == LobbyStatus.Full
-                        || l.Status == LobbyStatus.InProgress || l.Status == LobbyStatus.RatingOpen))
+                .Where(l => ActiveLobbyStatuses.Contains(l.Status)
+                    && (l.HostUserId == userId
+                        || l.Members.Any(m => m.UserId == userId && m.IsActive)))
                 .OrderByDescending(l => l.ScheduledStartTime ?? l.CreatedAt)
                 .Take(50)
                 .ToListAsync();
@@ -285,12 +285,14 @@ namespace BoardVerse.Data.Repositories
         }
 
         public async Task<IReadOnlyList<Lobby>> GetActiveLobbiesByCafeDateSlotAsync(
-            Guid cafeId, DateOnly playDate, TimeSlot timeSlot)
+            Guid cafeId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime)
         {
+            // BR-NEW-15: Query by TimeOnly range instead of TimeSlot enum.
             return await _db.Lobbies
                 .Where(l => l.CafeId == cafeId
                     && l.PlayDate == playDate
-                    && l.TimeSlot == timeSlot
+                    && l.PreferredStartTime == scheduledStartTime
+                    && l.PreferredEndTime == scheduledEndTime
                     && ActiveLobbyStatuses.Contains(l.Status))
                 .ToListAsync();
         }
@@ -306,14 +308,16 @@ namespace BoardVerse.Data.Repositories
         }
 
         public async Task<IReadOnlyList<Lobby>> GetActiveLobbiesByCafeDateSlotAsync(
-            Guid userId, Guid cafeId, DateOnly playDate, TimeSlot timeSlot)
+            Guid userId, Guid cafeId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime)
         {
+            // BR-NEW-15: Query by TimeOnly range instead of TimeSlot enum.
             return await _db.Lobbies
                 .Include(l => l.Members)
                 .Where(l => l.HostUserId == userId
                     && l.CafeId == cafeId
                     && l.PlayDate == playDate
-                    && l.TimeSlot == timeSlot
+                    && l.PreferredStartTime == scheduledStartTime
+                    && l.PreferredEndTime == scheduledEndTime
                     && ActiveLobbyStatuses.Contains(l.Status))
                 .ToListAsync();
         }
@@ -344,11 +348,12 @@ namespace BoardVerse.Data.Repositories
         public async Task<IReadOnlyList<Lobby>> GetOverlappingLobbiesAsync(
             Guid userId,
             DateOnly playDate,
-            TimeSlot timeSlot,
-            DateTime newRecruitmentDeadline,
-            DateTime newScheduledTime)
+            TimeOnly newScheduledStartTime,
+            TimeOnly newScheduledEndTime,
+            DateTime newRecruitmentDeadline)
         {
             // BR-USER-LIMIT-02: 2 lobby/booking overlap nếu có intersection (cộng 30 phút đệm).
+            // BR-NEW-15: Dùng TimeOnly PreferredStartTime/PreferredEndTime thay vì TimeSlot enum.
             var buffer = TimeSpan.FromMinutes(30);
 
             var query = _db.Lobbies
@@ -364,11 +369,12 @@ namespace BoardVerse.Data.Repositories
                         || l.Members.Any(m => m.UserId == userId && m.IsActive)
                     )
                     && l.PlayDate == playDate
-                    && l.TimeSlot == timeSlot
+                    && l.PreferredStartTime == newScheduledStartTime
+                    && l.PreferredEndTime == newScheduledEndTime
                     && l.RecruitmentDeadline.HasValue);
 
             var lower = newRecruitmentDeadline - buffer;
-            var upper = newScheduledTime + buffer;
+            var upper = playDate.ToDateTime(newScheduledEndTime) + buffer;
 
             query = query.Where(l =>
                 (l.RecruitmentDeadline >= lower && l.RecruitmentDeadline <= upper)

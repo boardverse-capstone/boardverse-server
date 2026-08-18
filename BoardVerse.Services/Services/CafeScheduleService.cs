@@ -1,32 +1,27 @@
-using BoardVerse.Core.Constants;
 using BoardVerse.Core.DTOs.CafeSchedule;
 using BoardVerse.Core.Entities;
-using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
-using Microsoft.Extensions.Logging;
 
 namespace BoardVerse.Services.Services;
 
 /// <summary>
-/// Triển khai <see cref="ICafeScheduleService"/> — quản lý <c>CafeScheduleOverride</c>.
+/// Triển khai ICafeScheduleService - quản lý CafeScheduleOverride.
+/// BR-NEW-15 (2026-08-18): BỎ TimeSlot - dùng ApplyDate/OpenTime/CloseTime.
 /// </summary>
 public class CafeScheduleService : ICafeScheduleService
 {
     private readonly ICafeScheduleOverrideRepository _overrideRepository;
     private readonly ICafeRepository _cafeRepository;
-    private readonly ILogger<CafeScheduleService> _logger;
 
     public CafeScheduleService(
         ICafeScheduleOverrideRepository overrideRepository,
-        ICafeRepository cafeRepository,
-        ILogger<CafeScheduleService> logger)
+        ICafeRepository cafeRepository)
     {
         _overrideRepository = overrideRepository;
         _cafeRepository = cafeRepository;
-        _logger = logger;
     }
 
     public async Task<CafeScheduleResponseDto> GetScheduleAsync(Guid cafeId)
@@ -38,40 +33,11 @@ public class CafeScheduleService : ICafeScheduleService
         }
 
         var overrides = await _overrideRepository.ListByCafeAsync(cafeId);
-        var overrideBySlot = overrides.ToDictionary(o => o.TimeSlot, o => o);
-
-        var slots = Enum.GetValues<TimeSlot>()
-            .Select(slot =>
-            {
-                if (overrideBySlot.TryGetValue(slot, out var ov))
-                {
-                    return MapOverride(ov, cafeId);
-                }
-
-                var defaultStart = CafeSchedule.GetStartTime(slot);
-                var defaultEnd = CafeSchedule.GetEndTime(slot);
-                var cafeUpdatedAt = cafe.UpdatedAt ?? cafe.CreatedAt;
-                return new CafeScheduleOverrideResponseDto
-                {
-                    Id = Guid.Empty,
-                    CafeId = cafeId,
-                    TimeSlot = slot,
-                    StartTime = defaultStart,
-                    EndTime = defaultEnd,
-                    IsClosed = false,
-                    HasOverride = false,
-                    EffectiveFrom = null,
-                    EffectiveTo = null,
-                    CreatedAt = cafe.CreatedAt,
-                    UpdatedAt = cafeUpdatedAt
-                };
-            })
-            .ToList();
 
         return new CafeScheduleResponseDto
         {
             CafeId = cafeId,
-            Slots = slots
+            Days = overrides.Select(o => MapOverride(o, cafeId)).ToList()
         };
     }
 
@@ -81,10 +47,7 @@ public class CafeScheduleService : ICafeScheduleService
         await EnsureCafeExistsAsync(cafeId);
         await EnsureCafeManagerAsync(cafeId, managerUserId);
 
-        ValidateRequest(request);
-
-        var existing = await _overrideRepository.GetActiveAsync(
-            cafeId, request.TimeSlot, DateOnly.FromDateTime(DateTime.UtcNow));
+        var existing = await _overrideRepository.GetByApplyDateAsync(cafeId, request.ApplyDate);
 
         if (existing == null)
         {
@@ -92,43 +55,38 @@ public class CafeScheduleService : ICafeScheduleService
             {
                 Id = Guid.NewGuid(),
                 CafeId = cafeId,
-                TimeSlot = request.TimeSlot,
-                StartTime = request.StartTime,
-                EndTime = request.EndTime,
-                IsClosed = request.IsClosed,
-                EffectiveFrom = request.EffectiveFrom,
-                EffectiveTo = request.EffectiveTo
+                ApplyDate = request.ApplyDate,
+                OpenTime = request.OpenTime,
+                CloseTime = request.CloseTime,
+                IsClosed = request.IsClosed
             };
             await _overrideRepository.AddAsync(existing);
         }
         else
         {
-            existing.StartTime = request.StartTime;
-            existing.EndTime = request.EndTime;
+            existing.OpenTime = request.OpenTime;
+            existing.CloseTime = request.CloseTime;
             existing.IsClosed = request.IsClosed;
-            existing.EffectiveFrom = request.EffectiveFrom;
-            existing.EffectiveTo = request.EffectiveTo;
+            existing.UpdatedAt = DateTime.UtcNow;
             await _overrideRepository.UpdateAsync(existing);
         }
 
         await _overrideRepository.SaveChangesAsync();
 
-        _logger.LogInformation(
-            "CafeScheduleOverride upsert: Cafe={CafeId}, Slot={Slot}, IsClosed={IsClosed}",
-            cafeId, request.TimeSlot, request.IsClosed);
-
         return MapOverride(existing, cafeId);
     }
 
-    public async Task DeleteOverrideAsync(Guid cafeId, Guid managerUserId, TimeSlot slot)
+    public async Task DeleteOverrideAsync(Guid cafeId, Guid managerUserId, DateOnly applyDate)
     {
         await EnsureCafeExistsAsync(cafeId);
         await EnsureCafeManagerAsync(cafeId, managerUserId);
 
-        await _overrideRepository.DeleteAsync(cafeId, slot);
-        await _overrideRepository.SaveChangesAsync();
-
-        _logger.LogInformation("CafeScheduleOverride deleted: Cafe={CafeId}, Slot={Slot}", cafeId, slot);
+        var existing = await _overrideRepository.GetByApplyDateAsync(cafeId, applyDate);
+        if (existing != null)
+        {
+            await _overrideRepository.DeleteByIdAsync(existing.Id);
+            await _overrideRepository.SaveChangesAsync();
+        }
     }
 
     // ===== Helpers =====
@@ -151,45 +109,17 @@ public class CafeScheduleService : ICafeScheduleService
         }
     }
 
-    private static void ValidateRequest(UpsertCafeScheduleOverrideRequestDto request)
-    {
-        if (request.IsClosed)
-        {
-            // Khi đóng slot, không validate range.
-            return;
-        }
-
-        // Khi mở slot, nếu có StartTime + EndTime thì phải khác nhau.
-        if (request.StartTime.HasValue && request.EndTime.HasValue && request.StartTime == request.EndTime)
-        {
-            throw new BadRequestException(ApiErrorMessages.Reservation.CafeScheduleOverlapInvalid);
-        }
-
-        if (request.EffectiveFrom.HasValue && request.EffectiveTo.HasValue
-            && request.EffectiveFrom > request.EffectiveTo)
-        {
-            throw new BadRequestException(
-                ApiErrorMessages.System.CafeScheduleEffectiveRangeInvalid(
-                    request.EffectiveFrom.Value, request.EffectiveTo.Value));
-        }
-    }
-
     private static CafeScheduleOverrideResponseDto MapOverride(CafeScheduleOverride ov, Guid cafeId)
     {
-        var start = ov.StartTime ?? CafeSchedule.GetStartTime(ov.TimeSlot);
-        var end = ov.EndTime ?? CafeSchedule.GetEndTime(ov.TimeSlot);
-
         return new CafeScheduleOverrideResponseDto
         {
             Id = ov.Id,
             CafeId = cafeId,
-            TimeSlot = ov.TimeSlot,
-            StartTime = start,
-            EndTime = end,
+            ApplyDate = ov.ApplyDate,
+            OpenTime = ov.OpenTime ?? TimeOnly.MinValue,
+            CloseTime = ov.CloseTime ?? TimeOnly.MaxValue,
             IsClosed = ov.IsClosed,
             HasOverride = true,
-            EffectiveFrom = ov.EffectiveFrom,
-            EffectiveTo = ov.EffectiveTo,
             CreatedAt = ov.CreatedAt,
             UpdatedAt = ov.UpdatedAt
         };

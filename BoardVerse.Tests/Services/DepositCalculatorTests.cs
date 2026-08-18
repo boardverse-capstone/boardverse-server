@@ -39,7 +39,6 @@ public class DepositCalculatorTests
 
     private static ReservationQuoteRequestDto BuildRequest(
         DateOnly playDate,
-        TimeSlot slot = TimeSlot.Evening,
         int minPlayers = 2,
         int maxPlayers = 6)
     {
@@ -48,7 +47,8 @@ public class DepositCalculatorTests
             CafeId = Guid.NewGuid(),
             GameId = Guid.NewGuid(),
             PlayDate = playDate,
-            TimeSlot = slot,
+            PreferredStartTime = new TimeOnly(18, 0),
+            PreferredEndTime = new TimeOnly(22, 0),
             MinPlayers = minPlayers,
             MaxPlayers = maxPlayers,
             IdempotencyKey = $"quote-{Guid.NewGuid():N}"
@@ -310,28 +310,11 @@ public class DepositCalculatorTests
     [Fact]
     public void Calculate_BufferUnder2HoursButOver1Hour_SetsBufferWarning()
     {
-        // Arrange: now = 16:00, playDate evening 17:00 → scheduledTime = 17:00
-        // recruitmentDeadline = 17:00 - 20min = 16:40 → buffer = 40 phút (< 60 → reject)
+        // Arrange: now = 16:00, preferredStart = 18:00
+        // recruitmentDeadline = 18:00 - 20min = 17:40 → buffer = 100 phút (>= 60 → warning)
         var now = new DateTime(2026, 8, 2, 16, 0, 0, DateTimeKind.Utc);
         var playDate = DateOnly.FromDateTime(now.Date);
-        var request = BuildRequest(playDate, TimeSlot.Evening, maxPlayers: 6);
-        var config = BuildCafeConfig(ratePerPerson: 1);
-
-        // Act
-        var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, 1.0m, false, false, now);
-
-        // Assert
-        Assert.Equal(40, result.BufferMinutes);
-        Assert.False(result.BufferWarning); // 40 < 60 → không warning, reject
-    }
-
-    [Fact]
-    public void Calculate_BufferBetween60And120_SetsBufferWarningTrue()
-    {
-        // Arrange: now = 15:00, scheduledTime = 17:00 → buffer = 17:00 - 20min - 15:00 = 100 phút
-        var now = new DateTime(2026, 8, 2, 15, 0, 0, DateTimeKind.Utc);
-        var playDate = DateOnly.FromDateTime(now.Date);
-        var request = BuildRequest(playDate, TimeSlot.Evening, maxPlayers: 6);
+        var request = BuildRequest(playDate, maxPlayers: 6);
         var config = BuildCafeConfig(ratePerPerson: 1);
 
         // Act
@@ -339,7 +322,25 @@ public class DepositCalculatorTests
 
         // Assert
         Assert.Equal(100, result.BufferMinutes);
-        Assert.True(result.BufferWarning);
+        Assert.True(result.BufferWarning); // >= 60 → warning
+    }
+
+    [Fact]
+    public void Calculate_BufferUnder1Hour_Rejects()
+    {
+        // Arrange: now = 17:30, preferredStart = 18:00
+        // recruitmentDeadline = 18:00 - 20min = 17:40 → buffer = 10 phút (< 60 → reject/warning false)
+        var now = new DateTime(2026, 8, 2, 17, 30, 0, DateTimeKind.Utc);
+        var playDate = DateOnly.FromDateTime(now.Date);
+        var request = BuildRequest(playDate, maxPlayers: 6);
+        var config = BuildCafeConfig(ratePerPerson: 1);
+
+        // Act
+        var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, 1.0m, false, false, now);
+
+        // Assert
+        Assert.Equal(10, result.BufferMinutes);
+        Assert.False(result.BufferWarning); // < 60 → reject, no warning
     }
 
     // ===== Validation throws =====
@@ -420,11 +421,22 @@ public class DepositCalculatorTests
     [Fact]
     public void Calculate_BufferMinutes_MatchesDefaultLeadTimeMinutes()
     {
-        // Arrange: now=10:00 today, slot Morning (06:00) tomorrow
+        // Arrange: now=10:00 today, preferredStart=06:00 tomorrow
         // scheduledTime = tomorrow 06:00
         // deadline = 06:00 - 20 = 05:40 tomorrow → buffer = 19h40m = 1180 phút
         var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
-        var request = BuildRequest(DateOnly.FromDateTime(now.Date).AddDays(1), slot: TimeSlot.Morning);
+        var playDate = DateOnly.FromDateTime(now.Date).AddDays(1);
+        var request = new ReservationQuoteRequestDto
+        {
+            CafeId = Guid.NewGuid(),
+            GameId = Guid.NewGuid(),
+            PlayDate = playDate,
+            PreferredStartTime = new TimeOnly(6, 0), // Morning start
+            PreferredEndTime = new TimeOnly(10, 0),
+            MinPlayers = 2,
+            MaxPlayers = 6,
+            IdempotencyKey = $"quote-{Guid.NewGuid():N}"
+        };
         var config = BuildCafeConfig();
 
         // Act
@@ -438,10 +450,21 @@ public class DepositCalculatorTests
     [Fact]
     public void Calculate_BufferMinutes_10_BelowThreshold_NoWarning()
     {
-        // For 10p test: now=16:30, slot Evening (17:00) → deadline = 17:00 - 20 = 16:40
+        // For 10p test: now=16:30, preferredStart=17:00 → deadline = 17:00 - 20 = 16:40
         // buffer = 16:40 - 16:30 = 10p
         var now = new DateTime(2026, 8, 2, 16, 30, 0, DateTimeKind.Utc);
-        var request = BuildRequest(DateOnly.FromDateTime(now.Date), slot: TimeSlot.Evening);
+        var playDate = DateOnly.FromDateTime(now.Date);
+        var request = new ReservationQuoteRequestDto
+        {
+            CafeId = Guid.NewGuid(),
+            GameId = Guid.NewGuid(),
+            PlayDate = playDate,
+            PreferredStartTime = new TimeOnly(17, 0), // Evening start
+            PreferredEndTime = new TimeOnly(21, 0),
+            MinPlayers = 2,
+            MaxPlayers = 6,
+            IdempotencyKey = $"quote-{Guid.NewGuid():N}"
+        };
         var config = BuildCafeConfig();
 
         // Act
@@ -455,10 +478,21 @@ public class DepositCalculatorTests
     [Fact]
     public void Calculate_BufferMinutes_70_RaisesWarning()
     {
-        // Arrange: now=4:30, slot Morning (06:00) same day
+        // Arrange: now=4:30, preferredStart=06:00 same day
         // deadline = 06:00 - 20 = 05:40 → buffer = 70 phút
         var now = new DateTime(2026, 8, 2, 4, 30, 0, DateTimeKind.Utc);
-        var request = BuildRequest(DateOnly.FromDateTime(now.Date), slot: TimeSlot.Morning);
+        var playDate = DateOnly.FromDateTime(now.Date);
+        var request = new ReservationQuoteRequestDto
+        {
+            CafeId = Guid.NewGuid(),
+            GameId = Guid.NewGuid(),
+            PlayDate = playDate,
+            PreferredStartTime = new TimeOnly(6, 0), // Morning start
+            PreferredEndTime = new TimeOnly(10, 0),
+            MinPlayers = 2,
+            MaxPlayers = 6,
+            IdempotencyKey = $"quote-{Guid.NewGuid():N}"
+        };
         var config = BuildCafeConfig();
 
         // Act

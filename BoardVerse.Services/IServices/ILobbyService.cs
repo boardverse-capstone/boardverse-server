@@ -96,8 +96,8 @@ namespace BoardVerse.Services.IServices
         /// <summary>Lấy danh sách lobby mà user này host.</summary>
         Task<IReadOnlyList<LobbyResponseDto>> GetLobbiesByHostAsync(Guid hostUserId);
 
-        /// <summary>Lấy danh sách lobby mà user đang tham gia.</summary>
-        Task<IReadOnlyList<LobbyResponseDto>> GetJoinedLobbiesAsync(Guid userId);
+        /// <summary>Lấy tất cả lobby của user (host hoặc member, active).</summary>
+        Task<IReadOnlyList<LobbyResponseDto>> GetMyLobbiesAsync(Guid userId);
 
         /// <summary>User report lobby vi phạm.</summary>
         Task<LobbyResponseDto> ReportLobbyAsync(Guid lobbyId, Guid reporterId, CreateLobbyReportDto request);

@@ -156,7 +156,8 @@ public class SeatInventoryConfiguration : IEntityTypeConfiguration<SeatInventory
         builder.Property(s => s.Id).ValueGeneratedNever();
 
         builder.Property(s => s.PlayDate).HasColumnType("date").IsRequired();
-        builder.Property(s => s.TimeSlot).HasConversion<int>().IsRequired();
+        builder.Property(s => s.ScheduledStartTime).IsRequired();
+        builder.Property(s => s.ScheduledEndTime).IsRequired();
 
         builder.Property(s => s.TotalSeats).IsRequired();
         builder.Property(s => s.HeldSeats).HasDefaultValue(0);
@@ -168,10 +169,10 @@ public class SeatInventoryConfiguration : IEntityTypeConfiguration<SeatInventory
             .HasColumnType("bigint")
             .IsConcurrencyToken();
 
-        // BR § 8 — mỗi cafe có 1 row cho mỗi (playDate, timeSlot).
-        builder.HasIndex(s => new { s.CafeId, s.PlayDate, s.TimeSlot })
+        // BR-NEW-15: mỗi cafe có 1 row cho mỗi (playDate, scheduledStartTime, scheduledEndTime).
+        builder.HasIndex(s => new { s.CafeId, s.PlayDate, s.ScheduledStartTime, s.ScheduledEndTime })
             .IsUnique()
-            .HasDatabaseName("UX_SeatInventories_Cafe_PlayDate_TimeSlot");
+            .HasDatabaseName("UX_SeatInventories_Cafe_PlayDate_Times");
 
         builder.HasOne(s => s.Cafe)
             .WithMany()
@@ -189,7 +190,8 @@ public class GameInventoryConfiguration : IEntityTypeConfiguration<GameInventory
         builder.Property(g => g.Id).ValueGeneratedNever();
 
         builder.Property(g => g.PlayDate).HasColumnType("date").IsRequired();
-        builder.Property(g => g.TimeSlot).HasConversion<int>().IsRequired();
+        builder.Property(g => g.ScheduledStartTime).IsRequired();
+        builder.Property(g => g.ScheduledEndTime).IsRequired();
 
         builder.Property(g => g.TotalCopies).IsRequired();
         builder.Property(g => g.HeldCopies).HasDefaultValue(0);
@@ -199,9 +201,10 @@ public class GameInventoryConfiguration : IEntityTypeConfiguration<GameInventory
             .HasColumnType("bigint")
             .IsConcurrencyToken();
 
-        builder.HasIndex(g => new { g.CafeId, g.GameId, g.PlayDate, g.TimeSlot })
+        // BR-NEW-15: mỗi cafe-game có 1 row cho mỗi (playDate, scheduledStartTime, scheduledEndTime).
+        builder.HasIndex(g => new { g.CafeId, g.GameId, g.PlayDate, g.ScheduledStartTime, g.ScheduledEndTime })
             .IsUnique()
-            .HasDatabaseName("UX_GameInventories_Cafe_Game_PlayDate_TimeSlot");
+            .HasDatabaseName("UX_GameInventories_Cafe_Game_PlayDate_Times");
 
         builder.HasOne(g => g.Cafe)
             .WithMany()

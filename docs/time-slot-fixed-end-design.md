@@ -1,10 +1,33 @@
 # Time-slot Reservation with Fixed End Time - FE-Facing Spec
 
-| **Version:** 3.6 | Doc audit pass 9: Phase 8 — Risk Management & Admin Audit Log implemented + doc sync (PlayerAlert/PlayerRiskScore/RiskScoreHistory entities, 3 jobs, 7 admin endpoints, A-01/A-02 audit fix, PlayerActionHistory schema fix) |
-> **Created:** 2026-08-11 (v1.0) — revised 2026-08-12 (v2.0 FE-facing, v2.1 P0 DB-stored time, v2.2 Doc audit pass 2, v2.3 Doc audit pass 3, v2.4 Doc audit pass 4 entity/code alignment, v2.5 Reservation SoT clarification + §9.7 ownership table, v2.6 Phase 2/3 implemented, v2.7 Doc audit pass 5, v2.8 Doc audit pass 6 + BR-REFUND-04/05/06 fix + WalkInWindowCleanupJob, v2.9 Phase 0-3 closed, v3.0 Phase 4 completed: EC-10 warning, EC-11 dispute audit, RFC 8594 deprecation, missing DB indexes, v3.1 Phase 5 completed: BR-REFUND-08 late cancel after check-in endpoint + LateCancelRefundCalculator + 10 unit tests, v3.2 Phase 6 completed: EC-11 Manager override played time endpoint + ActiveSessionBillingCalculator + 12 unit tests, v3.3 Phase 7 completed: BR-NEW-10 cooling-off background job + admin endpoints + 27 unit tests, v3.4 Doc audit pass 7: sync §3.7 BR-KARMA-06/07/08/09/10, §7.1 +3 cooling-off EC (EC-12/13/14), §8.3 cooling-off mitigation, §10.5 +2 Phase 7 admin endpoints, §10.6 note cooling-off độc lập BookingController, §13.2 list 49 unit tests, §13.3 +4 cooling-off metrics, §14 glossary +7 terms), v3.6 Doc audit pass 9: Phase 8 — Risk Management + Admin Audit Log (PlayerAlert/PlayerRiskScore/RiskScoreHistory entities + 3 jobs + 7 admin endpoints + A-01/A-02 audit fix + PlayerActionHistory schema int-conversion fix)) |
+| **Version:** 3.7 | Doc audit pass 10: BR-NEW-15 RemoveTimeSlotEnumRefactor — bỏ TimeSlot enum, dùng preferredStartTime/preferredEndTime trực tiếp. |
+> **Created:** 2026-08-11 (v1.0) — revised 2026-08-12 (v2.0 FE-facing, v2.1 P0 DB-stored time, v2.2 Doc audit pass 2, v2.3 Doc audit pass 3, v2.4 Doc audit pass 4 entity/code alignment, v2.5 Reservation SoT clarification + §9.7 ownership table, v2.6 Phase 2/3 implemented, v2.7 Doc audit pass 5, v2.8 Doc audit pass 6 + BR-REFUND-04/05/06 fix + WalkInWindowCleanupJob, v2.9 Phase 0-3 closed, v3.0 Phase 4 completed: EC-10 warning, EC-11 dispute audit, RFC 8594 deprecation, missing DB indexes, v3.1 Phase 5 completed: BR-REFUND-08 late cancel after check-in endpoint + LateCancelRefundCalculator + 10 unit tests, v3.2 Phase 6 completed: EC-11 Manager override played time endpoint + ActiveSessionBillingCalculator + 12 unit tests, v3.3 Phase 7 completed: BR-NEW-10 cooling-off background job + admin endpoints + 27 unit tests, v3.4 Doc audit pass 7: sync §3.7 BR-KARMA-06/07/08/09/10, §7.1 +3 cooling-off EC (EC-12/13/14), §8.3 cooling-off mitigation, §10.5 +2 Phase 7 admin endpoints, §10.6 note cooling-off độc lập BookingController, §13.2 list 49 unit tests, §13.3 +4 cooling-off metrics, §14 glossary +7 terms), v3.6 Doc audit pass 9: Phase 8 — Risk Management + Admin Audit Log (PlayerAlert/PlayerRiskScore/RiskScoreHistory entities + 3 jobs + 7 admin endpoints + A-01/A-02 audit fix + PlayerActionHistory schema int-conversion fix), v3.7 2026-08-18: **BREAKING CHANGE** — BR-NEW-15 RemoveTimeSlotEnumRefactor: bỏ TimeSlot enum (Morning/Afternoon/Evening/LateNight), dùng preferredStartTime/preferredEndTime trực tiếp. CafeScheduleOverride dùng ApplyDate thay vì TimeSlot.) |
 > **Status:** Active
 > **Audience:** Frontend team + Mobile app integration
 > **Related rules:** `lobby-booking-deposit-bvc.mdc` (canonical BR source — *tên rule file mang tính lịch sử, đề cập "booking" từ flow cũ, hiện dùng cho Reservation flow*), `sepay-payment-flow.mdc`
+
+---
+
+## BREAKING CHANGE — BR-NEW-15 (2026-08-18)
+
+> ⚠️ **BREAKING CHANGE: Enum `TimeSlot` (Morning/Afternoon/Evening/LateNight) đã BỊ LOẠI BỎ.**
+
+Hệ thống giờ bây giờ dùng **`preferredStartTime`** và **`preferredEndTime`** trực tiếp (TimeOnly) thay vì `TimeSlot` enum cố định. FE cũng như các service/backend cần cập nhật theo.
+
+### Đã thay đổi:
+
+| Trước | Sau |
+|--------|------|
+| `TimeSlot` enum (Morning/Afternoon/Evening/LateNight) | `preferredStartTime` + `preferredEndTime` (TimeOnly) |
+| `CafeScheduleOverride.TimeSlot` | `CafeScheduleOverride.ApplyDate` (DateOnly) |
+| `SeatInventory.TimeSlot` | `SeatInventory.ScheduledStartTime` + `ScheduledEndTime` (TimeOnly) |
+| `GameInventory.TimeSlot` | `GameInventory.ScheduledStartTime` + `ScheduledEndTime` (TimeOnly) |
+
+### Impact trên FE:
+
+- API `/api/v1/reservations/quote` và `/api/v1/reservations/confirm` không còn nhận `timeSlot` field
+- FE gửi trực tiếp `preferredStartTime` và `preferredEndTime` (HH:mm format)
+- `scheduledStartTime` và `scheduledEndTime` được tính tự động từ input
 
 ---
 
@@ -40,7 +63,9 @@ FE không cần biết chi tiết `Booking` cũ. Mọi flow online (player app t
 
 ### 1.1. Mô tả
 
-**Time-slot Reservation với end time cố định** là mô hình đặt chỗ mà mỗi reservation phải có **thời gian bắt đầu** và **thời gian kết thúc** được xác định trước bởi một khung giờ cố định (`TimeSlot` enum). Khi player về sớm (early checkout), hệ thống release ghế + tạo `WalkInWindow` cho phép nhóm khác (walk-in) đặt vào slot trống đó.
+**Time-slot Reservation với end time cố định** là mô hình đặt chỗ mà mỗi reservation phải có **thời gian bắt đầu** và **thời gian kết thúc** được xác định bởi user qua **`preferredStartTime`** và **`preferredEndTime`** (TimeOnly). Khi player về sớm (early checkout), hệ thống release ghế + tạo `WalkInWindow` cho phép nhóm khác (walk-in) đặt vào slot trống đó.
+
+> ⚠️ **BREAKING CHANGE 2026-08-18:** Enum `TimeSlot` (Morning/Afternoon/Evening/LateNight) đã bị loại bỏ. Hệ thống giờ bây giờ dùng trực tiếp `preferredStartTime` + `preferredEndTime`. Xem [Breaking Change section](#breaking-change----br-new-15-2026-08-18) ở trên.
 
 ### 1.2. So sánh với mô hình cũ (mở)
 
