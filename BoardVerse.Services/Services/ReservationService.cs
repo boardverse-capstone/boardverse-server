@@ -2928,7 +2928,28 @@ public class ReservationService : IReservationService
         DateTime now,
         CancellationToken ct)
     {
-        await using var tx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+        // CRITICAL FIX (2026-08-18): Reuse ambient transaction nếu đã có (avoid
+        // "The connection is already in a transaction and cannot participate in another transaction").
+        // Background: khi được gọi từ ActiveSessionService.PaySessionCoreAsync (line 587),
+        // caller đã mở 1 transaction với `await using var dbTx = await TryBeginTransactionAsync()`
+        // (H8 fix) để wrap billing + status + cleanup + capture trong 1 transaction nguyên tử.
+        // Stack trace:
+        //   fail: BoardVerse.API.Controllers.SePayWebhookController[0]
+        //         SePay webhook processing failed.
+        //         System.InvalidOperationException: The connection is already in a transaction
+        //         at BoardVerse.Services.Services.ReservationService.ExecuteCompleteAndCaptureTransactionAsync(...)
+        //         at BoardVerse.Services.Services.ReservationService.CompleteAndCaptureAsync(...)
+        //         at BoardVerse.Services.Services.ActiveSessionService.PaySessionCoreAsync(...)
+        //         at BoardVerse.Services.Services.PaymentService.ProcessSessionPaymentWebhookAsync(...)
+        // Trick: nếu đã có CurrentTransaction → skip BeginTransactionAsync; outer transaction
+        // sẽ commit/rollback cho cả 2 method. Nếu chưa có (gọi standalone qua background job) →
+        // mở transaction mới như cũ.
+        var ambientTx = _db.Database.CurrentTransaction;
+        Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? ownedTx = null;
+        if (ambientTx == null)
+        {
+            ownedTx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+        }
 
         try
         {
@@ -3114,7 +3135,17 @@ public class ReservationService : IReservationService
             });
 
             await _db.SaveChangesAsync();
-            await tx.CommitAsync();
+
+            // CRITICAL FIX (2026-08-18): chỉ commit transaction nếu method này TỰ MỞ
+            // (ownedTx != null). Nếu đã có ambient transaction (gọi từ
+            // ActiveSessionService.PaySessionCoreAsync trong cùng DbContext scope),
+            // outer transaction sẽ commit toàn bộ — không gọi CommitAsync ở đây
+            // (gọi CommitAsync trên ambient transaction KHÔNG thuộc method này
+            // sẽ gây "transaction is already completed" hoặc commit sai scope).
+            if (ownedTx != null)
+            {
+                await ownedTx.CommitAsync(ct);
+            }
 
             _logger.LogInformation(
                 "Reservation completed + BVC captured. ReservationId={ReservationId}, CapturedBvc={Bvc}, ActiveSessionId={ActiveSessionId}",
@@ -3122,7 +3153,13 @@ public class ReservationService : IReservationService
         }
         catch
         {
-            await tx.RollbackAsync();
+            // Tương tự commit: chỉ rollback transaction do method này sở hữu.
+            // Ambient transaction sẽ tự rollback ở outer catch (ActiveSessionService.PaySessionCoreAsync
+            // line 622: `await dbTx.RollbackAsync()`).
+            if (ownedTx != null)
+            {
+                await ownedTx.RollbackAsync(ct);
+            }
             throw;
         }
     }

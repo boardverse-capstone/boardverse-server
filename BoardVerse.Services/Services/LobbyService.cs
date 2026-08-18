@@ -225,7 +225,10 @@ ILogger<LobbyService> logger,
                 var lobby = await _lobbyRepository.GetByIdForUpdateAsync(lobbyId)
                     ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
 
-                if (lobby.Status != LobbyStatus.Open)
+                // BR-LOBBY-READY-02: Cho phép join thêm khi lobby đã WaitingCheckIn (chờ check-in tại quán)
+                // nếu vẫn còn chỗ trống (< MaxMembers). Trước đây chỉ Open, dẫn đến bạn bè đến sau
+                // bị chặn không vào lobby dù còn ghế.
+                if (lobby.Status != LobbyStatus.Open && lobby.Status != LobbyStatus.WaitingCheckIn)
                 {
                     throw new ConflictException(ApiErrorMessages.Reservation.LobbyNotOpen);
                 }

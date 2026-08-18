@@ -902,10 +902,18 @@ namespace BoardVerse.Services.Services
                         ? CalculateRealtimeBilling(session.Cafe, memberMinutes)
                         : session.Cafe?.BasePrice ?? 0m)
                     : 0m;
-                totalMemberSubtotal += Math.Max(0, memberSubtotal);
+                memberSubtotal = Math.Max(0, memberSubtotal);
+
+                // Persist per-member Subtotal + TotalAmount so Checkout response matches DB
+                // and BuildMemberInvoices ở PaySession không phải đoán lại từ minutes.
+                member.Subtotal = memberSubtotal;
+                member.TotalAmount = memberSubtotal + member.PenaltyAmount;
+
+                totalMemberSubtotal += memberSubtotal;
             }
 
             session.Subtotal = totalMemberSubtotal;
+            session.TotalAmount = session.Subtotal + session.PenaltyAmount;
             session.TotalMinutesPlayed = session.EndedAt.HasValue
                 ? Math.Max(0, (int)Math.Floor((session.EndedAt.Value - session.StartedAt).TotalMinutes))
                 : 0;
