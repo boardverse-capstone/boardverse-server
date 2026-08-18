@@ -795,19 +795,78 @@ namespace BoardVerse.Services.Services
                 "POS check-in (BR mới): reservation {ReservationId} → ActiveSession {ActiveSessionId}",
                 checkInResult.ReservationId, session.Id);
 
-            // 3) Persist physical box/table + session (ReservationService đã lo atomic Reservation flip).
+            // 3) Lấy tất cả thành viên lobby để thêm vào session.
+            // BR §21A.7: "Quét một lần mã định danh đặt chỗ → kích hoạt phiên cho CẢ NHÓM".
+            var lobbyMembers = new List<LobbyMember>();
+            if (checkInResult.LobbyId != Guid.Empty)
+            {
+                var lobby = await _lobbyRepository.GetByIdWithMembersAsync(checkInResult.LobbyId);
+                if (lobby != null)
+                {
+                    lobbyMembers = lobby.Members.Where(m => m.IsActive).ToList();
+                    _logger.LogInformation(
+                        "POS check-in: lobby {LobbyId} has {TotalMembers} total members, {ActiveMembers} active (after IsActive filter)",
+                        lobby.Id, lobby.Members.Count, lobbyMembers.Count);
+                    foreach (var lm in lobby.Members)
+                    {
+                        _logger.LogInformation(
+                            "  member: UserId={UserId}, IsHost={IsHost}, IsActive={IsActive}, Status={Status}",
+                            lm.UserId, lm.IsHost, lm.IsActive, lm.Status);
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("POS check-in: lobby {LobbyId} not found when fetching members", checkInResult.LobbyId);
+                }
+            }
+
+            // 4) Persist physical box/table + session (ReservationService đã lo atomic Reservation flip).
             await using var tx = await _db.Database.BeginTransactionAsync();
+            var persistNow = DateTime.UtcNow;
 
             try
             {
                 await _posRepository.AddSessionAsync(session);
                 await _posRepository.SaveChangesAsync();
 
+                // Thêm host (đã tạo trong PrepareSessionSkeletonAsync).
                 await _posRepository.AddSessionMemberAsync(hostMember);
+
+                // Thêm các thành viên khác từ lobby.
+                // Skip host vì đã được thêm ở trên.
+                foreach (var lobbyMember in lobbyMembers.Where(m => !m.IsHost))
+                {
+                    var sessionMember = new ActiveSessionMember
+                    {
+                        Id = Guid.NewGuid(),
+                        ActiveSessionId = session.Id,
+                        UserId = lobbyMember.UserId,
+                        IsHost = false,
+                        IsGuestSlot = false,
+                        JoinedAt = persistNow,
+                        Status = IndividualSessionStatus.Playing
+                    };
+                    await _posRepository.AddSessionMemberAsync(sessionMember);
+                }
+
                 await _posRepository.AddSessionGameAsync(sessionGame);
                 await _posRepository.SaveChangesAsync();
 
                 await tx.CommitAsync();
+
+                // Update session.Members để trả về response đúng.
+                session.Members = [hostMember, .. lobbyMembers
+                    .Where(m => !m.IsHost)
+                    .Select(m => new ActiveSessionMember
+                    {
+                        Id = Guid.NewGuid(),
+                        ActiveSessionId = session.Id,
+                        UserId = m.UserId,
+                        IsHost = false,
+                        IsGuestSlot = false,
+                        JoinedAt = persistNow,
+                        Status = IndividualSessionStatus.Playing
+                    })];
             }
             catch
             {
@@ -815,9 +874,12 @@ namespace BoardVerse.Services.Services
                 throw;
             }
 
-            // 4) SignalR notify (giống legacy).
+            // 5) SignalR notify — gửi tất cả user IDs trong nhóm.
             var cafe = await _cafeRepository.GetByIdAsync(cafeId);
-            var memberUserIds = new List<Guid> { session.HostId };
+            var memberUserIds = session.Members
+                .Where(m => m.UserId.HasValue)
+                .Select(m => m.UserId!.Value)
+                .ToList();
             await _posHubService.NotifySessionActivatedAsync(
                 session.Id,
                 cafeId,
@@ -1007,6 +1069,8 @@ namespace BoardVerse.Services.Services
                 Id = Guid.NewGuid(),
                 ActiveSessionId = sessionId,
                 UserId = sessionHostId,
+                IsHost = true,
+                IsGuestSlot = false,
                 JoinedAt = now,
                 Status = IndividualSessionStatus.Playing
             };

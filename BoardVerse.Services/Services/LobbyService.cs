@@ -422,14 +422,9 @@ ILogger<LobbyService> logger,
             var activeCount = lobby.Members.Count(m => m.IsActive);
             reservation.CurrentPlayers = activeCount;
 
-            // Real-time: chuyển Holding → Confirmed ngay khi đủ minPlayers.
-            if (reservation.Status == ReservationStatus.Holding && activeCount >= reservation.MinPlayers)
-            {
-                reservation.Status = ReservationStatus.Confirmed;
-                _logger.LogInformation(
-                    "Reservation auto-confirmed: ReservationId={ReservationId}, CurrentPlayers={CurrentPlayers}, MinPlayers={MinPlayers}",
-                    reservation.Id, activeCount, reservation.MinPlayers);
-            }
+            // BR-LOBBY-READY-01: Reservation CHỈ chuyển Holding → Confirmed khi lobby đạt WaitingCheckIn
+            // (tất cả members ready). Lúc đủ minPlayers vẫn giữ Holding.
+            // Transition Confirmed chỉ xảy ra tại MarkMembersReadyAndTransitionToInProgressAsync.
         }
 
         // H4: null-safe transaction helper, pattern copy từ ActiveSessionService.TryBeginTransactionAsync.
@@ -526,8 +521,9 @@ ILogger<LobbyService> logger,
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
 
             // P1 Fix #1: Block leaving during terminal or in-progress states
+            // Also block leaving when all members are ready (WaitingCheckIn)
             if (lobby.Status is LobbyStatus.InProgress or LobbyStatus.Closed or
-                LobbyStatus.TimeoutFailed or LobbyStatus.HostCancelled)
+                LobbyStatus.TimeoutFailed or LobbyStatus.HostCancelled or LobbyStatus.WaitingCheckIn)
             {
                 throw new ConflictException(ApiErrorMessages.Lobby.CannotLeaveLobbyDuringSession);
             }
@@ -968,7 +964,7 @@ ILogger<LobbyService> logger,
                     throw new ForbiddenException(ApiErrorMessages.Lobby.OnlyHostCanDissolve);
                 }
 
-                // Status guard: không cho dissolve khi lobby đã terminal / đã check-in / đang rating.
+                // Status guard: không cho dissolve khi lobby đã terminal / đã check-in / đang rating / đang chờ check-in.
                 // GAP #10 fix: thêm LobbyStatus.Viable (lobby đạt minPlayers nhưng chưa full).
                 var forbiddenStatuses = new[]
                 {
@@ -980,7 +976,8 @@ ILogger<LobbyService> logger,
                     LobbyStatus.RejectedByCafe,
                     LobbyStatus.ExpiredByCafe,
                     LobbyStatus.Dissolved,
-                    LobbyStatus.Viable
+                    LobbyStatus.Viable,
+                    LobbyStatus.WaitingCheckIn
                 };
                 if (forbiddenStatuses.Contains(lobby.Status))
                 {
@@ -1403,9 +1400,9 @@ ILogger<LobbyService> logger,
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
 
-            if (lobby.Status != LobbyStatus.Full)
+            if (lobby.Status != LobbyStatus.Full && lobby.Status != LobbyStatus.WaitingCheckIn)
             {
-                throw new ConflictException(ApiErrorMessages.Lobby.OnlyFullLobbyCanInProgress);
+                throw new ConflictException(ApiErrorMessages.Lobby.OnlyFullOrWaitingCheckInCanInProgress);
             }
 
             lobby.Status = LobbyStatus.InProgress;
@@ -1959,7 +1956,8 @@ ILogger<LobbyService> logger,
 
             await _hubService.NotifyMemberReady(lobbyId, userId, isReady);
 
-            // BR-LOBBY-READY-01: Nếu TẤT CẢ members đều Ready → lobby tự chuyển InProgress.
+            // BR-LOBBY-READY-01: Nếu TẤT CẢ members đều Ready → lobby chuyển WaitingCheckIn (chờ check-in tại quán).
+            // Đồng thời chuyển Reservation Holding → Confirmed (đã sẵn sàng đến quán).
             // Áp dụng cho cả lobby Open/Full/Viable để cho phép Ready sớm (Option A).
             var readyableMembers = lobby.Members.Where(m => m.IsActive).ToList();
             var allReady = readyableMembers.Count > 0
@@ -1967,10 +1965,21 @@ ILogger<LobbyService> logger,
 
             if (allReady && readyableMembers.Count >= lobby.MinPlayers)
             {
-                lobby.Status = LobbyStatus.InProgress;
+                lobby.Status = LobbyStatus.WaitingCheckIn;
                 lobby.UpdatedAt = DateTime.UtcNow;
+
+                // BR-RESERVATION-READY-01: Khi lobby WaitingCheckIn → Reservation cũng Confirmed.
+                if (lobby.Reservation != null && lobby.Reservation.Status == ReservationStatus.Holding)
+                {
+                    lobby.Reservation.Status = ReservationStatus.Confirmed;
+                    lobby.Reservation.UpdatedAt = DateTime.UtcNow;
+                    _logger.LogInformation(
+                        "Reservation auto-confirmed (all members ready): ReservationId={ReservationId}, LobbyId={LobbyId}",
+                        lobby.Reservation.Id, lobby.Id);
+                }
+
                 await _lobbyRepository.SaveChangesAsync();
-                await _hubService.NotifyLobbyInProgress(lobbyId);
+                await _hubService.NotifyLobbyWaitingCheckIn(lobbyId);
             }
 
             return MapLobbyDto(lobby, null);

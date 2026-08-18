@@ -63,7 +63,10 @@ namespace BoardVerse.Data.Repositories
 
         public async Task<Lobby?> GetByIdWithMembersAsync(Guid lobbyId)
         {
+            // AsNoTracking: tránh EF cache trả entity cũ với Members rỗng khi caller
+            // (vd CafePosService) vừa load lobby ở transaction khác cùng DbContext.
             return await _db.Lobbies
+                .AsNoTracking()
                 .Include(l => l.Members)
                     .ThenInclude(m => m.User)
                 .Include(l => l.GameTemplate)

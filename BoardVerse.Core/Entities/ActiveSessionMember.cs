@@ -57,6 +57,14 @@ namespace BoardVerse.Core.Entities
         /// <summary>Đã thanh toán phí phạt chưa.</summary>
         public bool IsPenaltyPaid { get; set; }
 
+        // === Host role (BR-12, BR-22) ===
+        /// <summary>
+        /// True nếu thành viên này là host của phiên chơi.
+        /// Host chịu trách nhiệm tổng quát phiên + là người đặt cọc BVC.
+        /// Mỗi ActiveSession chỉ có duy nhất 1 host member.
+        /// </summary>
+        public bool IsHost { get; set; }
+
         // === Checkout ===
         /// <summary>True nếu đã thanh toán và rời nhóm (về sớm).</summary>
         public bool IsCheckedOut { get; set; }
@@ -75,6 +83,19 @@ namespace BoardVerse.Core.Entities
         /// GAP-10 Fix: ID của deposit đã áp dụng cho thành viên này.
         /// </summary>
         public Guid? DepositId { get; set; }
+
+        // === Billing (BR-15: hóa đơn cá nhân) ===
+        /// <summary>
+        /// Tiền giờ chơi cá nhân (subtotal trước penalty, trước khi áp deposit).
+        /// Tính theo công thức: tổng phút chơi cá nhân × đơn giá áp dụng.
+        /// </summary>
+        public decimal Subtotal { get; set; }
+
+        /// <summary>
+        /// Tổng hóa đơn cuối cùng phải thanh toán.
+        /// Công thức: Subtotal + PenaltyAmount - DepositAppliedAmount.
+        /// </summary>
+        public decimal TotalAmount { get; set; }
 
         // === Navigation ===
         public virtual ActiveSession ActiveSession { get; set; } = null!;

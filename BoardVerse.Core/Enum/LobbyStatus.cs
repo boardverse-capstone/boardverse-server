@@ -48,5 +48,8 @@ public enum LobbyStatus
     /// Soft delete: row vẫn còn trong DB để phục vụ audit trail + risk score signals
     /// (BR-RISK-01 SIG-01/SIG-02, BR-NEW-10 cooling-off).
     /// </summary>
-    Dissolved = 15
+    Dissolved = 15,
+
+    /// <summary>Tất cả members đã sẵn sàng (Ready), đang chờ check-in tại quán.</summary>
+    WaitingCheckIn = 16
 }

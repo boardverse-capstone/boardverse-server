@@ -2127,7 +2127,10 @@ public const string SePayBankInfoIncomplete =
  "Chỉ Host mới có thể mở cửa sổ đánh giá.";
 
  public const string OnlyFullLobbyCanInProgress =
- "Chỉ phòng ở trạng thái FULL mới chuyển sang IN_PROGRESS được.";
+ "Chỉ phòng ở trạng thái FULL hoặc WAITING_CHECK_IN mới chuyển sang IN_PROGRESS được.";
+
+ public const string OnlyFullOrWaitingCheckInCanInProgress =
+ "Chỉ phòng ở trạng thái FULL hoặc WAITING_CHECK_IN mới chuyển sang IN_PROGRESS được.";
 
  public const string OnlyInProgressCanClose =
  "Chỉ phòng đang chơi hoặc đang đánh giá mới đóng được.";

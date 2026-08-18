@@ -1545,12 +1545,9 @@ public class ReservationService : IReservationService
             {
                 if (reservation.CurrentPlayers >= reservation.MinPlayers)
                 {
-                    // Đạt minPlayers → viable/full → confirmed.
-                    // BR-NEW-11: Lobby PendingCafeApproval đã đạt minPlayers tại deadline → chuyển sang Viable.
-                    // Lý do: cafe vẫn có 24h để duyệt nhưng recruitment window đã kết thúc,
-                    // không thể block Viable transition. Nếu cafe từ chối sau đó → ProcessCafeApprovalExpiryAsync xử lý.
-                    reservation.Status = ReservationStatus.Confirmed;
-
+                    // BR-LOBBY-READY-01: Deadline đến mà đủ minPlayers → lobby Viable/Full nhưng KHÔNG chuyển
+                    // reservation sang Confirmed. Reservation chỉ Confirmed khi lobby đạt WaitingCheckIn
+                    // (tất cả members ready). Trước deadline, lobby có thể vẫn đang tuyển thêm.
                     if (reservation.CurrentPlayers >= reservation.MaxPlayers)
                     {
                         lobby.Status = LobbyStatus.Full;
@@ -1567,13 +1564,14 @@ public class ReservationService : IReservationService
                     }
 
                     lobby.UpdatedAt = now;
+                    reservation.Status = ReservationStatus.Holding; // giữ Holding chờ ready
 
                     await _reservationRepository.UpdateAsync(reservation);
                     await _lobbyRepository.UpdateAsync(lobby);
                     await _reservationRepository.SaveChangesAsync();
 
                     _logger.LogInformation(
-                        "Reservation confirmed at deadline. ReservationId={ReservationId}, Players={Players}, LobbyStatus={LobbyStatus}",
+                        "Reservation Holding at deadline (chờ WaitingCheckIn). ReservationId={ReservationId}, Players={Players}, LobbyStatus={LobbyStatus}",
                         reservation.Id, reservation.CurrentPlayers, lobby.Status);
                 }
                 else

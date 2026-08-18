@@ -36,6 +36,13 @@ namespace BoardVerse.Data.Configurations
             // H2: Decimal precision on financial fields (BR-22 per-member deposit + BR-14 penalty).
             builder.Property(m => m.PenaltyAmount).HasColumnType("numeric(18,2)");
             builder.Property(m => m.DepositAppliedAmount).HasColumnType("numeric(18,2)");
+            builder.Property(m => m.Subtotal).HasColumnType("numeric(18,2)");
+            builder.Property(m => m.TotalAmount).HasColumnType("numeric(18,2)");
+
+            // BR-12/BR-22: Host role (1 host per session).
+            builder.Property(m => m.IsHost)
+                .IsRequired()
+                .HasDefaultValue(false);
 
             builder.HasOne(m => m.ActiveSession)
                 .WithMany(s => s.Members)
