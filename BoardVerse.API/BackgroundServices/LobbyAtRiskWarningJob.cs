@@ -145,7 +145,7 @@ public class LobbyAtRiskWarningJob : BackgroundService
                         { "deadline", deadline.ToString("o") },
                         { "actionShareLink", lobbyUrl },
                         // Các action options cho client xử lý deeplink/callback
-                        { "actionChangeTimeSlot", $"boardverse://lobby/{lobby.Id}/change-timeslot" },
+                        { "actionChangeTime", $"boardverse://lobby/{lobby.Id}/change-time" },
                         { "actionCancel", $"boardverse://lobby/{lobby.Id}/cancel" },
                         { "actionBoost", $"boardverse://lobby/{lobby.Id}/boost" }
                     }

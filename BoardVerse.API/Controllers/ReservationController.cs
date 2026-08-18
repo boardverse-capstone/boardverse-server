@@ -68,9 +68,9 @@ public class ReservationController : BaseApiController
     /// Tạo quote cho reservation. [Role: Player]
     /// Quote chỉ validate + tính toán, KHÔNG tạo row DB. Idempotent theo IdempotencyKey.
     /// </summary>
-    /// <param name="request">CafeId, GameId, PlayDate, TimeSlot, MinPlayers, MaxPlayers, PreferredStartTime, IdempotencyKey.</param>
+    /// <param name="request">CafeId, GameId, PlayDate, MinPlayers, MaxPlayers, PreferredStartTime, PreferredEndTime, IdempotencyKey.</param>
     /// <response code="200">Trả quote gồm số BVC cần hold, balance hiện tại, missing amount, buffer, expiresAt.</response>
-    /// <response code="400">Request không hợp lệ (playDate ngoài [today, +7], minPlayers &lt; 1, maxPlayers &lt; 1, timeSlot không đúng, preferredStartTime không nằm trong timeSlot window).</response>
+    /// <response code="400">Request không hợp lệ (playDate ngoài [today, +7], minPlayers &lt; 1, maxPlayers &lt; 1, preferredStartTime không n�m trong cafe schedule).</response>
     /// <response code="401">Thiếu token.</response>
     /// <response code="403">User bị suspended/banned hoặc vượt cap tổng heldBalance.</response>
     /// <response code="404">Cafe/Game không tồn tại hoặc cafe không có game này.</response>
@@ -97,7 +97,7 @@ public class ReservationController : BaseApiController
     /// Trừ BVC từ ví, giữ seat + game copy, tạo Reservation + Lobby trong 1 transaction.
     /// Lobby có playDate &gt; 2 ngày sẽ vào trạng thái PendingCafeApproval (BR-NEW-11).
     /// </summary>
-    /// <param name="request">CafeId, GameId, PlayDate, TimeSlot, MinPlayers, MaxPlayers, ExpectedFinalDeposit, IdempotencyKey.</param>
+    /// <param name="request">CafeId, GameId, PlayDate, MinPlayers, MaxPlayers, PreferredStartTime, PreferredEndTime, ExpectedFinalDeposit, IdempotencyKey.</param>
     /// <response code="201">Reservation + Lobby đã được tạo trong transaction, trả ReservationId, LobbyId, RecruitmentDeadline, RequiresCafeApproval, CafeApprovalDeadline, HeldBvc.</response>
     /// <response code="400">Quote đã thay đổi (ExpectedFinalDeposit sai), buffer quá ngắn, insufficient balance, validate thất bại.</response>
     /// <response code="401">Thiếu token.</response>

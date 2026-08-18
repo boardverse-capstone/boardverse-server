@@ -1,3 +1,5 @@
+using BoardVerse.Core.Common;
+using BoardVerse.Core.DTOs.Admin;
 using BoardVerse.Core.Entities;
 
 namespace BoardVerse.Services.IServices
@@ -12,6 +14,11 @@ namespace BoardVerse.Services.IServices
             Guid sessionId,
             Guid activeSessionId);
         Task<IReadOnlyList<CafeSettlement>> GetPendingSettlementsAsync(Guid cafeId, Guid actorUserId, string actorRole);
+
+        /// <summary>
+        /// W-06: Admin list settlements với filter + phân trang.
+        /// </summary>
+        Task<PaginatedResponse<SettlementListItemDto>> GetPagedAsync(SettlementListQuery query);
 
         /// <summary>
         /// W-06: Admin manually override a failed settlement after retry exhaustion.

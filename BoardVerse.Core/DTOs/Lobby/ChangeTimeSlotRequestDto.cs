@@ -1,29 +1,22 @@
-using BoardVerse.Core.Enum;
-
 namespace BoardVerse.Core.DTOs.Lobby;
 
 /// <summary>
-/// Request body cho BR-NEW-14 (b): đổi timeSlot và/hoặc preferred times của lobby.
+/// Request body cho vi\u1ec7c \u0111\u1ed5i preferred start/end time c\u1ee7a lobby.
+/// BR-NEW-15 (2026-08-18): B\u1ecf TimeSlot enum, d\u00f9ng preferredStartTime/preferredEndTime tr\u1ef1c ti\u1ebfp.
 /// </summary>
 public class ChangeTimeSlotRequestDto
 {
     /// <summary>
-    /// Khung giờ mới: morning, afternoon, evening, lateNight.
-    /// Nếu null → giữ nguyên TimeSlot hiện tại.
-    /// </summary>
-    public TimeSlot? NewTimeSlot { get; set; }
-
-    /// <summary>
-    /// Giờ bắt đầu ưu tiên mới (HH:mm).
-    /// Phải nằm trong [timeSlot.startTime, timeSlot.endTime].
-    /// Nếu null → giữ nguyên giá trị hiện tại.
+    /// Gi\u1edd b\u1eaft \u0111\u1ea7u \u01b0u ti\u00ean m\u1edbi (HH:mm).
+    /// Ph\u1ea3i n\u1eb1m trong khung gi\u1edd m\u1edf c\u1eedra c\u1ee7a cafe.
+    /// N\u1ebfu null \u2192 gi\u1eef nguy\u00ean gi\u00e1 tr\u1ecb hi\u1ec7n t\u1ea1i.
     /// </summary>
     public TimeOnly? PreferredStartTime { get; set; }
 
     /// <summary>
-    /// Giờ kết thúc ưu tiên mới (HH:mm).
-    /// Phải nằm trong [preferredStartTime, timeSlot.endTime].
-    /// Nếu null → giữ nguyên giá trị hiện tại.
+    /// Gi\u1edd k\u1ebft th\u00fac \u01b0u ti\u00ean m\u1edbi (HH:mm).
+    /// Ph\u1ea3i n\u1eb1m trong khung gi\u1edd m\u1edf c\u1eedra c\u1ee7a cafe, &gt; preferredStartTime.
+    /// N\u1ebfu null \u2192 gi\u1eef nguy\u00ean gi\u00e1 tr\u1ecb hi\u1ec7n t\u1ea1i.
     /// </summary>
     public TimeOnly? PreferredEndTime { get; set; }
 }

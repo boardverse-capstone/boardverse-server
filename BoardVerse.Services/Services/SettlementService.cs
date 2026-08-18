@@ -1,3 +1,5 @@
+using BoardVerse.Core.Common;
+using BoardVerse.Core.DTOs.Admin;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
@@ -218,6 +220,12 @@ public class SettlementService : ISettlementService
 
         return await _settlementRepository.GetPendingAsync(cafeId);
     }
+
+    /// <summary>
+    /// W-06: Admin list settlements với filter + phân trang.
+    /// </summary>
+    public Task<PaginatedResponse<SettlementListItemDto>> GetPagedAsync(SettlementListQuery query) =>
+        _settlementRepository.GetPagedAsync(query);
 
     /// <summary>
     /// W-06: Admin manually override a failed settlement after retry exhaustion.

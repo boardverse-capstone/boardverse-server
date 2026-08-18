@@ -134,6 +134,8 @@ public const string SePayQrPreviewGenerated = "Đã tạo QR test cho payment ac
         {
             public const string PendingRetrieved = "Lấy danh sách settlement đang chờ thành công.";
             public const string Released = "Tạo yêu cầu giải ngân deposit thành công.";
+            public const string ListRetrieved = "Lấy danh sách settlement thành công."; // W-06 list endpoints
+            public const string FailedRetrieved = "Lấy danh sách settlement bị lỗi thành công."; // W-06 list endpoints
         }
 
         public static class MasterAccount

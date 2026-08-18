@@ -1,3 +1,5 @@
+using BoardVerse.Core.Common;
+using BoardVerse.Core.DTOs.Admin;
 using BoardVerse.Core.Entities;
 
 namespace BoardVerse.Core.IRepositories
@@ -13,6 +15,11 @@ namespace BoardVerse.Core.IRepositories
 
         /// <summary>W-06: Get settlement by Id for admin override.</summary>
         Task<CafeSettlement?> GetByIdAsync(Guid settlementId);
+
+        /// <summary>
+        /// W-06: Admin list settlements với filter + phân trang.
+        /// </summary>
+        Task<PaginatedResponse<SettlementListItemDto>> GetPagedAsync(SettlementListQuery query);
 
         Task SaveChangesAsync();
     }

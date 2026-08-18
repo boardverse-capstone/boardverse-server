@@ -200,7 +200,6 @@ builder.Services.AddScoped<IKarmaService, KarmaService>();
 builder.Services.AddScoped<ICafeScheduleOverrideRepository, CafeScheduleOverrideRepository>();
 builder.Services.AddScoped<IScheduleResolver, CafeScheduleResolver>();
 builder.Services.AddScoped<ICafeScheduleService, CafeScheduleService>();
-builder.Services.AddScoped<ITimeSlotService, TimeSlotService>();
 builder.Services.AddScoped<IAuthRepository, AuthRepository>();
 builder.Services.AddScoped<IUserProfileRepository, UserProfileRepository>();
 builder.Services.AddScoped<IUserManagementRepository, UserManagementRepository>();
@@ -367,8 +366,8 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
  var firstField = errors.Keys.FirstOrDefault() ?? string.Empty;
  var firstError = errors.Values.FirstOrDefault()?.FirstOrDefault() ?? string.Empty;
 
- // 1) Thử lookup message cụ thể cho Reservation flow fields (PreferredEndTime, TimeSlot, ...).
- // 2) Nếu không khớp domain đặc biệt nào → fallback FieldValidationFailed (generic per-field).
+// 1) Thử lookup message cụ thể cho Reservation flow fields (PreferredEndTime, ...).
+// 2) Nếu không khớp domain đặc biệt nào → fallback FieldValidationFailed (generic per-field).
  // 3) Nếu không extract được field name → GenericValidationFailed.
  var specificMessage = ApiErrorMessages.Validation.GetReservationFieldMessage(firstField, firstError);
  var friendlyMessage = specificMessage

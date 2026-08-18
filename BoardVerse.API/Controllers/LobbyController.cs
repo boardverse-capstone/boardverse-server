@@ -451,33 +451,32 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// BR-NEW-14 (b): Host đổi timeSlot và/hoặc preferred times của lobby.
+        /// BR-NEW-14 (b): Host đổi preferred start/end time của lobby.
         /// Chỉ áp dụng khi lobby chưa check-in (status = Open/Viable/Full/PendingCafeApproval).
-        /// Recalculate RecruitmentDeadline theo newTimeSlot/preferredTimes. [Role: Player — chỉ Host]
-        /// BR-RES-07/08/09: preferredStartTime/EndTime phải nằm trong slot range.
+        /// Recalculate RecruitmentDeadline theo preferredTimes.
+        /// BR-NEW-15 (2026-08-18): BỎ TimeSlot enum, dùng PreferredStartTime/PreferredEndTime trực tiếp. [Role: Player — chỉ Host]
         /// </summary>
         /// <param name="lobbyId">Mã phòng chờ.</param>
         /// <param name="request">
-        /// - newTimeSlot: khung giờ mới (morning/afternoon/evening/night), nullable = giữ nguyên
         /// - preferredStartTime: giờ bắt đầu ưu tiên (HH:mm), nullable = giữ nguyên
         /// - preferredEndTime: giờ kết thúc ưu tiên (HH:mm), nullable = giữ nguyên
         /// </param>
         /// <response code="200">Đã cập nhật thành công.</response>
         /// <response code="400">
-        /// - TimeSlot trùng với hiện tại (khi newTimeSlot = current)
         /// - Buffer không đủ 60 phút
-        /// - preferredStartTime/EndTime nằm ngoài slot range
+        /// - preferredStartTime/EndTime nằm ngoài cafe schedule
+        /// - preferredEndTime &lt;= preferredStartTime
         /// </response>
         /// <response code="401">Thiếu token.</response>
         /// <response code="403">Không phải Host.</response>
         /// <response code="404">Không tìm thấy lobby.</response>
         /// <response code="409">Lobby đã đóng/đang chơi hoặc không thể cập nhật.</response>
         /// <response code="500">Lỗi hệ thống.</response>
-        [HttpPost("{lobbyId:guid}/change-timeslot")]
-        public async Task<IActionResult> ChangeTimeSlot(Guid lobbyId, [FromBody] ChangeTimeSlotRequestDto request)
+        [HttpPost("{lobbyId:guid}/change-time")]
+        public async Task<IActionResult> ChangeTime(Guid lobbyId, [FromBody] ChangeTimeSlotRequestDto request)
         {
             var userId = GetUserIdFromClaims();
-            var result = await _lobbyService.ChangeTimeSlotAsync(lobbyId, userId, request);
+            var result = await _lobbyService.ChangeTimeAsync(lobbyId, userId, request);
             return this.NewResponse(200, "Đã cập nhật thời gian thành công.", result);
         }
 

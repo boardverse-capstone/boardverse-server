@@ -1560,7 +1560,7 @@ ILogger<LobbyService> logger,
         /// BR-LOBBY-01a/b/c: Validate buffer mới >= 120 phút.
         /// BR-RES-07/08/09: preferredStartTime/EndTime phải nằm trong slot range.
         /// </summary>
-        public async Task<LobbyResponseDto> ChangeTimeSlotAsync(
+        public async Task<LobbyResponseDto> ChangeTimeAsync(
             Guid lobbyId,
             Guid hostUserId,
             Core.DTOs.Lobby.ChangeTimeSlotRequestDto request)
@@ -1630,13 +1630,7 @@ ILogger<LobbyService> logger,
                     ApiErrorMessages.Lobby.BufferTooShortForTimeSlotChange((int)bufferMinutes));
             }
 
-            // Build change summary cho notification (BR-NEW-15: dùng PreferredStartTime/PreferredEndTime)
             var changes = new List<string>();
-            if (request.NewTimeSlot.HasValue && request.NewTimeSlot != lobby.TimeSlot)
-            {
-                var oldSlotName = lobby.TimeSlot.HasValue ? lobby.TimeSlot.Value.GetDisplayName() : "không có";
-                changes.Add($"khung giờ từ {oldSlotName} sang {request.NewTimeSlot.Value.GetDisplayName()}");
-            }
             if (request.PreferredStartTime.HasValue)
             {
                 changes.Add($"giờ bắt đầu: {request.PreferredStartTime:HH:mm}");

@@ -76,7 +76,7 @@ namespace BoardVerse.Services.IServices
         /// Update cả Reservation.TimeSlot + Lobby.TimeSlot (mirror) + recalculate RecruitmentDeadline.
         /// BR-RES-07/08/09: preferredStartTime/EndTime phải nằm trong slot range.
         /// </summary>
-        Task<LobbyResponseDto> ChangeTimeSlotAsync(Guid lobbyId, Guid hostUserId, Core.DTOs.Lobby.ChangeTimeSlotRequestDto request);
+        Task<LobbyResponseDto> ChangeTimeAsync(Guid lobbyId, Guid hostUserId, Core.DTOs.Lobby.ChangeTimeSlotRequestDto request);
 
         /// <summary>
         /// BR-NEW-14 (d): Boost lobby — tăng visibility trong search/discovery.
