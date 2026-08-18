@@ -67,7 +67,7 @@ public class CafeScheduleController : BaseApiController
     /// <response code="401">Thiếu token.</response>
     /// <response code="403">Không phải chủ cafe.</response>
     /// <response code="404">Không tìm thấy cafe hoặc override.</response>
-    [HttpDelete("{applyDate:date}")]
+    [HttpDelete("{applyDate}")]
     [ProducesResponseType(204)]
     public async Task<IActionResult> DeleteOverride(Guid cafeId, DateOnly applyDate)
     {
