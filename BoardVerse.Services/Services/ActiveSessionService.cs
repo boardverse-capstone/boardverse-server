@@ -433,7 +433,8 @@ namespace BoardVerse.Services.Services
                     ApiErrorMessages.System.SubtotalNegative);
             }
 
-            // BR-14: Validate penalties before assignment
+            // BR-14: Validate penalties before assignment (per-member only).
+            // session.PenaltyAmount là single source từ Checkout (line 901) — KHÔNG ghi đè ở đây.
             if (request.PenaltyItems != null && request.PenaltyItems.Count > 0)
             {
                 foreach (var penalty in request.PenaltyItems)
@@ -446,7 +447,7 @@ namespace BoardVerse.Services.Services
                             // BR-14: Cannot assign penalty to Guest_Slot
                             throw new BadRequestException(ApiErrorMessages.Pos.PenaltyCannotAssignToGuestSlot);
                         }
-                        // BR-14 + GAP-12 Fix: dùng `=` thay vì `+=` cho penalty.
+                        // BR-14 + GAP-12 Fix: dùng `=` thay vì `+=` cho penalty per-member.
                         // Trước đây dùng `+=` → nếu webhook retry hoặc staff bấm Pay 2 lần,
                         // PenaltyAmount bị cộng dồn (ví dụ: 15k + 15k = 30k do penalty double-apply).
                         // Giờ `=` idempotent: nếu client gửi cùng penalty items → vẫn giữ giá trị cũ.
@@ -456,42 +457,35 @@ namespace BoardVerse.Services.Services
                             member.IsPenaltyPaid = true;
                         }
                     }
-                    session.PenaltyAmount = penalty.PenaltyAmount;
+                    // LƯU Ý: KHÔNG ghi session.PenaltyAmount từ request nữa (single source từ Checkout).
+                    // Trước đây `session.PenaltyAmount = penalty.PenaltyAmount;` ở đây
+                    // → ghi đè giá trị persist ở Checkout → sai BR-12.
                 }
             }
 
-            // BR-12: Single source of truth cho penalty = ComponentCheckResult.ResponsibleMemberId
-            // (đã lưu lúc submit component-check). KHÔNG dùng PenaltyItems từ client nữa.
+            // BR-12 (single source of truth): session.PenaltyAmount đã được CompleteCheckoutAsync
+            // set từ persistedPenalty = sum sessionGame.TotalPenaltyAmount (CheckStatus = MissingComponents)
+            // — xem `BoardVerse.Services/Services/ActiveSessionService.cs::CompleteCheckoutAsync` line ~897.
             //
-            // Flow mới:
-            //   - Client submit component-check → chọn ResponsibleMemberId cho mỗi component thiếu.
-            //   - Lưu xuống ComponentCheckResult.PenaltyFee + ResponsibleMemberId.
-            //   - sessionGames.TotalPenaltyAmount = sum PenaltyFee của các component thiếu.
-            //   - Pay lấy persistedPenalty = sum TotalPenaltyAmount (BR-12 single source).
+            // PaySession KHÔNG cộng lại penalty. Chỉ:
+            //   1. Validate BR-14 (penalty không gán vào Guest_Slot) ở block trên.
+            //   2. Phân bổ per-member PenaltyAmount theo ResponsibleMemberId (block trên).
+            //   3. Recompute session.TotalAmount = Subtotal + session.PenaltyAmount (đã persist ở Checkout).
             //
-            // Back-compat: nếu client vẫn gửi PenaltyItems (cũ), log warning và áp dụng cho
-            // session.PenaltyAmount (cộng dồn), nhưng KHÔNG ảnh hưởng member invoices.
-            var sessionGames = await _posRepository.GetSessionGamesAsync(sessionId);
-            decimal persistedPenalty = sessionGames
-                .Where(g => g.CheckStatus == ComponentCheckStatus.MissingComponents)
-                .Sum(g => g.TotalPenaltyAmount);
-
-            var hasClientPenaltyItems = request.PenaltyItems is { Count: > 0 };
-            decimal clientPenaltyTotal = 0m;
-            if (hasClientPenaltyItems)
+            // Back-compat: nếu client CŨ vẫn gửi PenaltyItems ở request → log warning + áp dụng per-member
+            // (BR-14 guard vẫn chạy) nhưng KHÔNG cộng vào session.PenaltyAmount nữa.
+            // Penalty session-level giờ là single source từ Checkout.
+            if (request.PenaltyItems is { Count: > 0 })
             {
-                clientPenaltyTotal = request.PenaltyItems!.Sum(p => p.PenaltyAmount);
                 _logger.LogWarning(
-                    "PaySession: client vẫn gửi PenaltyItems (đã deprecated). Tổng={Total} cho session {SessionId}. Hãy dùng ResponsibleMemberId lúc submit component-check.",
-                    clientPenaltyTotal, sessionId);
+                    "PaySession: client vẫn gửi PenaltyItems (đã deprecated). session {SessionId}. " +
+                    "Penalty session-level giờ đọc từ Checkout (persisted), không cộng thêm từ request. " +
+                    "Hãy dùng ResponsibleMemberId lúc submit component-check.",
+                    sessionId);
             }
 
-            // Tổng penalty cuối cùng = persisted (single source) + client (back-compat, deprecated).
-            var totalPenaltyForSession = persistedPenalty + clientPenaltyTotal;
-            session.PenaltyAmount = totalPenaltyForSession;
-
             // BR-15: TotalAmount = Subtotal + PenaltyAmount (KHÔNG trừ deposit)
-            // Deposit chỉ dùng để giữ chỗ, không cấn trừ vào hóa đơn
+            // session.PenaltyAmount đã persist từ Checkout (line 901) → chỉ recompute TotalAmount.
             session.TotalAmount = session.Subtotal + session.PenaltyAmount;
             // LƯU Ý: KHÔNG set session.Status = Paid ở đây.
             // Set status sau khi pass tất cả guard checks bên trong transaction.
@@ -887,8 +881,27 @@ namespace BoardVerse.Services.Services
                 }
             }
 
-            // Tính Subtotal tại Checkout để PaySession/CreateSessionPayment có sẵn
-            // Penalty sẽ được cộng tại PaySession nếu có từ component-check
+            // BR-12 (single source of truth): Tính persistedPenalty từ sessionGame.TotalPenaltyAmount
+            // (đã được SubmitComponentCheck lưu lúc kiểm kê). Cộng vào session.PenaltyAmount ngay
+            // tại Checkout để response trả penaltyAmount = persistedPenalty và totalAmount = Subtotal + Penalty
+            // luôn (FE thấy bill cuối cùng ngay ở màn hình Checkout, không phải đợi PaySession).
+            //
+            // PaySession vẫn idempotent: line 491 set session.PenaltyAmount = persistedPenalty + clientPenalty
+            // (back-compat), ghi đè bằng cùng giá trị → không double-count.
+            var sessionGames = await _posRepository.GetSessionGamesAsync(session.Id);
+            decimal persistedPenalty = sessionGames
+                .Where(g => g.CheckStatus == ComponentCheckStatus.MissingComponents)
+                .Sum(g => g.TotalPenaltyAmount);
+            session.PenaltyAmount = persistedPenalty;
+
+            // Tính Subtotal tại Checkout để PaySession/CreateSessionPayment có sẵn.
+            // Penalty đã được cộng ở block BR-12 ở trên (persistedPenalty từ sessionGame.TotalPenaltyAmount).
+            //
+            // Per-member breakdown: persistent penalty của session ở đây CHỈ là tổng (chưa phân bổ
+            // member). Member.PenaltyAmount vẫn là 0 lúc Checkout — chỉ được phân bổ ở PaySession
+            // (Read line 442-460) dựa trên ComponentCheckResult.ResponsibleMemberId. Vì vậy
+            // member.TotalAmount = memberSubtotal + member.PenaltyAmount(=0) ở đây là đúng;
+            // PaySession sẽ ghi đè member.PenaltyAmount theo ResponsibleMemberId.
             decimal totalMemberSubtotal = 0;
 
             foreach (var member in session.Members)

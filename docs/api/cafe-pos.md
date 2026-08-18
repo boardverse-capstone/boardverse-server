@@ -1202,6 +1202,10 @@ POST /api/cafes/{cafeId}/pos/sessions/{id}/checkout
 # → Áp dụng DepositAppliedAmount cho từng member (BR-22)
 # → Member.TotalAmount = Subtotal + Penalty - DepositApplied
 # → session.TotalAmount = tổng tất cả member
+# → **BR-12 (2026-08-19):** session.PenaltyAmount = persistedPenalty
+#   (sum các ActiveSessionGame.TotalPenaltyAmount có CheckStatus = MissingComponents)
+#   → response trả penaltyAmount = persistedPenalty và totalAmount = Subtotal + Penalty
+#   luôn tại Checkout (FE thấy bill cuối cùng ngay, không phải đợi PaySession).
 # → Status: CHECKING → UNPAID
 
 # Bước 2: Pay (thanh toán hóa đơn tổng)
@@ -1213,6 +1217,11 @@ POST /api/cafes/{cafeId}/pos/sessions/{id}/pay
 }
 # → Status: UNPAID → PAID
 # → Boxes + tables + seats → Available
+# → **Idempotent BR-12 (2026-08-19):** session.PenaltyAmount đã được CompleteCheckoutAsync set từ
+#   persistedPenalty (= sum sessionGame.TotalPenaltyAmount CheckStatus = MissingComponents).
+#   PaySession KHÔNG cộng lại penalty — chỉ recompute session.TotalAmount = Subtotal + Penalty.
+#   Back-compat: nếu client CŨ vẫn gửi PenaltyItems → log warning + áp dụng per-member (BR-14 guard)
+#   nhưng KHÔNG ghi đè session.PenaltyAmount.
 ```
 
 > **⚙️ Implementation notes (Fix I + J + K — 2026-08-10):**
@@ -1253,6 +1262,7 @@ POST /api/cafes/{cafeId}/pos/sessions/{id}/pay
 >   vào session đã terminal.
 > - **GAP-14 (WalkInWindow idempotent):** Trước khi tạo WalkInWindow mới, check
 >   `GetActiveWindowByReservationIdAsync` — nếu đã có → trả về window cũ (no-op).
+> - **GAP-15 (Nested transaction crash — 2026-08-18):** SePay webhook trỏ vào session có liên kết Reservation (lobby đã check-in): `ActiveSessionService.PaySessionCoreAsync` đã mở transaction, gọi `ReservationService.CompleteAndCaptureAsync` → `BeginTransactionAsync` lần 2 trên cùng `BoardVerseDbContext` → `InvalidOperationException: The connection is already in a transaction`. Webhook trả 500, retry vẫn fail → ghost reservation. Fix: detect ambient transaction qua `_db.Database.CurrentTransaction` — nếu đã có thì reuse. Chi tiết tại [payment.md](./payment.md) §"Ambient Transaction Pattern".
 >
 > **🐛 Bug fixes phát hiện khi review (Bug #1, #3, #4 — 2026-08-10):**
 > - **Bug #1 (member.Subtotal duplicate):** `BuildMemberInvoices` tính lại `memberSubtotal` từ

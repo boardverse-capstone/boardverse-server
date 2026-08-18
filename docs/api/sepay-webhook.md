@@ -137,3 +137,44 @@ Webhook handler tìm kiếm theo thứ tự ưu tiên:
 1. `SePayTransactionId`
 2. `OrderId`
 3. `SessionId` / `OrderId` prefix (cho session payment)
+
+---
+
+## Known Issues & Bug History
+
+### 5. Nested-transaction crash (2026-08-18) — **đã fix**
+
+**Symptom:** SePay webhook thành công cho session payment (lobby đã check-in) → server trả `500 Internal Server Error`. SePay retry, vẫn fail. State không được cập nhật (session vẫn `UNPAID`, reservation vẫn `CheckedIn`) nhưng tiền đã được giữ phía SePay → ghost reservation.
+
+**Stack trace:**
+
+```
+fail: BoardVerse.API.Controllers.SePayWebhookController[0]
+      SePay webhook processing failed.
+      System.InvalidOperationException: The connection is already in a transaction
+      at BoardVerse.Services.Services.ReservationService.ExecuteCompleteAndCaptureTransactionAsync(...)
+      at BoardVerse.Services.Services.ReservationService.CompleteAndCaptureAsync(...)
+      at BoardVerse.Services.Services.ActiveSessionService.PaySessionCoreAsync(...)
+      at BoardVerse.Services.Services.PaymentService.ProcessSessionPaymentWebhookAsync(...)
+```
+
+**Root cause:** `ActiveSessionService.PaySessionCoreAsync` (outer method) đã mở 1 transaction bằng `await using var dbTx = await TryBeginTransactionAsync()` để wrap billing + status update + cleanup + capture. Bên trong, gọi `_reservationService.CompleteAndCaptureAsync(...)` → method đó gọi `ExecuteCompleteAndCaptureTransactionAsync` → lại gọi `_db.Database.BeginTransactionAsync(...)`. Trên cùng `BoardVerseDbContext` (singleton per scope), connection đã ở trong transaction → EF Core ném `InvalidOperationException`.
+
+**Trigger condition:** Session có `LobbyId` trỏ tới lobby đã check-in (Reservation ở `CheckedIn`). Khi đó `CompleteAndCaptureAsync` được gọi từ `PaySessionCoreAsync` (đã có transaction). Session walk-in (không có Lobby) không trigger bug này.
+
+**Fix:** Detect ambient transaction qua `_db.Database.CurrentTransaction` tại `ReservationService.ExecuteCompleteAndCaptureTransactionAsync`:
+- Nếu đã có ambient tx → reuse (không gọi `BeginTransactionAsync`).
+- Nếu chưa có → mở mới (giữ behavior cũ cho background jobs standalone).
+
+**Verify:** Replay payload `BV-0A88CA2AC8164A2C` lên Neon testing branch → `200 OK`. Caveat: chưa có integration test thật trigger đầy đủ code path; cần viết test regression trước khi deploy production.
+
+Xem chi tiết pattern ambient transaction tại [payment.md](./payment.md) §"Ambient Transaction Pattern".
+
+---
+
+## Liên quan
+
+- [payment.md](./payment.md) — controller chính, có §"Ambient Transaction Pattern".
+- [sepay-account.md](./sepay-account.md) — cấu hình master + cafe SePay.
+- [debug-sepay.md](./debug-sepay.md) — endpoint dev/test QR + mock webhook.
+- [active-session.md](./active-session.md) — controller POS (đã deprecated, gộp vào [cafe-pos.md](./cafe-pos.md)).

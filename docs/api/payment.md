@@ -383,7 +383,79 @@ Trước khi có cleanup contract:
 
 Sau fix: cả 3 entry point gọi cùng `IActiveSessionRepository.CompleteSessionPaymentCleanupAsync(sessionId)`. Amount-mismatch check chạy trước atomic status update. Box chỉ được set `Available` nếu hiện tại không phải `Available`.
 
+5. **Nested-transaction bug (2026-08-18)** — `InvalidOperationException: The connection is already in a transaction and cannot participate in another transaction` được ném ra từ `ReservationService.ExecuteCompleteAndCaptureTransactionAsync` khi SePay webhook trỏ vào session có liên kết Reservation (lobby đã check-in).
+
+   **Stack trace gốc:**
+
+   ```
+   fail: BoardVerse.API.Controllers.SePayWebhookController[0]
+         SePay webhook processing failed.
+         System.InvalidOperationException: The connection is already in a transaction
+         at BoardVerse.Services.Services.ReservationService.ExecuteCompleteAndCaptureTransactionAsync(...)
+         at BoardVerse.Services.Services.ReservationService.CompleteAndCaptureAsync(...)
+         at BoardVerse.Services.Services.ActiveSessionService.PaySessionCoreAsync(...)
+         at BoardVerse.Services.Services.PaymentService.ProcessSessionPaymentWebhookAsync(...)
+   ```
+
+   **Root cause:** `ActiveSessionService.PaySessionCoreAsync` mở 1 transaction với `await using var dbTx = await TryBeginTransactionAsync()` để wrap billing + status update + cleanup + capture. Sau đó gọi `_reservationService.CompleteAndCaptureAsync(lobbyId, sessionId, ct)` — method đó lại mở transaction thứ 2 trong `ExecuteCompleteAndCaptureTransactionAsync` bằng `_db.Database.BeginTransactionAsync(...)`. Trên cùng `BoardVerseDbContext` (singleton per scope), connection đã ở trong transaction → EF Core ném `InvalidOperationException`. Webhook trả 500, SePay retry, vẫn fail, tiền bị giữ phía SePay nhưng session + reservation state không cập nhật → ghost reservation.
+
+   **Fix (2026-08-18):** Tại `ReservationService.ExecuteCompleteAndCaptureTransactionAsync` (ReservationService.cs line 2947-2952), detect ambient transaction qua `_db.Database.CurrentTransaction`:
+   - Nếu `CurrentTransaction != null` → reuse ambient transaction (không gọi `BeginTransactionAsync`).
+   - Nếu `CurrentTransaction == null` → mở transaction mới (giữ behavior cũ cho background jobs gọi standalone).
+
+   Outer transaction ở `PaySessionCoreAsync` sẽ commit/rollback cho cả 2 method — atomicity giữ nguyên.
+
+   **Verify (2026-08-19, Neon testing branch):** Replay exact payload `BV-0A88CA2AC8164A2C` qua `POST /api/payments/sepay/webhook` → server trả `200 OK {"status":"ok"}`, không còn exception mới trong log. Caveat: webhook signature invalid trong test payload (đã ghi `signature: "mock"`) nên code path gây bug chỉ được verify một phần; cần thêm integration test thật sự trigger đầy đủ flow trước khi deploy production.
+
 Xem chi tiết: [sepay-webhook.md](./sepay-webhook.md) §V, [active-session.md](./active-session.md) §`POST .../pay`.
+
+### Ambient Transaction Pattern (2026-08-18)
+
+Mọi service method có thể được gọi từ **hai ngữ cảnh**:
+
+| Ngữ cảnh | Đặc điểm |
+|---|---|
+| **Standalone** (background job, controller trực tiếp) | Caller không mở transaction → method phải tự mở để đảm bảo atomicity |
+| **Nested** (gọi từ method khác đã mở transaction) | Caller đã mở transaction trên cùng `DbContext` → method PHẢI reuse, KHÔNG được mở transaction mới (sẽ ném `InvalidOperationException`) |
+
+**Pattern bắt buộc** khi viết service method có thể chạy cả hai ngữ cảnh:
+
+```csharp
+var ambientTx = _db.Database.CurrentTransaction;
+Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? ownedTx = null;
+if (ambientTx == null)
+{
+    ownedTx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+}
+
+try
+{
+    // ... business logic, gồm cả SaveChangesAsync ...
+    if (ownedTx != null)
+    {
+        await ownedTx.CommitAsync(ct);
+    }
+}
+catch
+{
+    if (ownedTx != null)
+    {
+        await ownedTx.RollbackAsync(ct);
+    }
+    throw;
+}
+finally
+{
+    if (ownedTx != null)
+    {
+        await ownedTx.DisposeAsync();
+    }
+}
+```
+
+Nếu KHÔNG cần kiểm soát transaction (chỉ `SaveChangesAsync` đơn lẻ), KHÔNG gọi `BeginTransactionAsync` — để ambient caller tự quản lý.
+
+**Áp dụng cho:** mọi service method trong `ReservationService`, `BookingService`, `PaymentService`, `ActiveSessionService` có thể được gọi từ controller trực tiếp HOẶC từ method khác đã wrap transaction.
 
 ## Business Rules áp dụng
 
