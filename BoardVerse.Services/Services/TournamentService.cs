@@ -1309,26 +1309,15 @@ public class TournamentService : ITournamentService
             match.Status = TournamentMatchStatus.OnGoing;
         }
 
-        // Resolve winner: Final uses Participant.Id as PlayerNId, Swiss uses UserId directly.
-        // Normalize to Participant.Id upfront so all validations and assignments are consistent.
-        Guid? resolvedWinnerId = match.IsFinal
-            ? tournament.Participants.FirstOrDefault(p => p.UserId == request.WinnerUserId)?.Id
-            : request.WinnerUserId;
-
-        // Resolve results: Final uses Participant.Id, Swiss uses UserId
-        var resolvedResults = match.IsFinal
-            ? request.Results.Select(r => new
-            {
-                r.Score,
-                r.CardsBought,
-                ResolvedUserId = tournament.Participants.FirstOrDefault(p => p.UserId == r.UserId)?.Id
-            }).ToList()
-            : request.Results.Select(r => new
-            {
-                r.Score,
-                r.CardsBought,
-                ResolvedUserId = r.UserId
-            }).ToList();
+        // Resolve winner + results: PlayerNId = User.Id for both Swiss và Final (FK reference).
+        // Walk-in cã UserId = null → không tham gia slot → request.UserId/WinnerUserId luôn là User.Id.
+        var resolvedWinnerId = request.WinnerUserId;
+        var resolvedResults = request.Results.Select(r => new
+        {
+            r.Score,
+            r.CardsBought,
+            ResolvedUserId = r.UserId
+        }).ToList();
 
         // Validate that winner is in the player list
         var playerSlots = new[] { match.Player1Id, match.Player2Id, match.Player3Id, match.Player4Id }
@@ -1698,35 +1687,36 @@ public class TournamentService : ITournamentService
 
     private async Task RevertMatchSwissScoresAsync(Tournament tournament, TournamentMatchBracket match)
     {
-        // PlayerNId = TournamentParticipant.Id.
-        // Trá»« láº¡i Swiss score cÅ© (PrestigePoints + CardsBought) cho táº¥t cáº£ players (ká»ƒ cáº£ walk-in).
-        var slotIds = new[]
+        // PlayerNId = User.Id (FK reference to Users table).
+        // Tìm participant theo UserId để revert Swiss score cũ (PrestigePoints + CardsBought).
+        // Walk-in cã UserId = null → không tham gia slot → không có gì để revert.
+        var slotUserIds = new[]
         {
             match.Player1Id, match.Player2Id,
             match.Player3Id, match.Player4Id
         }.Where(id => id.HasValue).Select(id => id!.Value).ToList();
 
-        foreach (var participantId in slotIds)
+        foreach (var userId in slotUserIds)
         {
-            var participant = tournament.Participants.FirstOrDefault(p => p.Id == participantId);
+            var participant = tournament.Participants.FirstOrDefault(p => p.UserId == userId);
             if (participant == null) continue;
 
-            if (participant.Id == match.Player1Id)
+            if (userId == match.Player1Id)
             {
                 participant.TotalPrestigePoints = Math.Max(0, participant.TotalPrestigePoints - (match.Player1Score ?? 0));
                 participant.TotalCardsBought = Math.Max(0, participant.TotalCardsBought - (match.Player1CardsBought ?? 0));
             }
-            else if (participant.Id == match.Player2Id)
+            else if (userId == match.Player2Id)
             {
                 participant.TotalPrestigePoints = Math.Max(0, participant.TotalPrestigePoints - (match.Player2Score ?? 0));
                 participant.TotalCardsBought = Math.Max(0, participant.TotalCardsBought - (match.Player2CardsBought ?? 0));
             }
-            else if (participant.Id == match.Player3Id)
+            else if (userId == match.Player3Id)
             {
                 participant.TotalPrestigePoints = Math.Max(0, participant.TotalPrestigePoints - (match.Player3Score ?? 0));
                 participant.TotalCardsBought = Math.Max(0, participant.TotalCardsBought - (match.Player3CardsBought ?? 0));
             }
-            else if (participant.Id == match.Player4Id)
+            else if (userId == match.Player4Id)
             {
                 participant.TotalPrestigePoints = Math.Max(0, participant.TotalPrestigePoints - (match.Player4Score ?? 0));
                 participant.TotalCardsBought = Math.Max(0, participant.TotalCardsBought - (match.Player4CardsBought ?? 0));
@@ -2456,15 +2446,21 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         // PlayerNId = TournamentParticipant.Id (khÃ´ng pháº£i UserId).
         // Walk-in cÃ³ Participant.Id nhÆ°ng UserId = null.
         // DÃ¹ng ParticipantId Ä‘á»ƒ walk-in cÃ³ thá»ƒ tham gia Final.
-        var top4 = TournamentEloCalculator.RankBySwiss(
-            tournament.Participants.Where(p => p.Status == TournamentParticipantStatus.Active),
+        // PlayerNId = User.Id (FK reference to Users table).
+        // Walk-in cã UserId = null → skip khõi Final slot (BR-13).
+        // Top theo Swiss score, chỉ lấy registered players.
+        var topParticipants = TournamentEloCalculator.RankBySwiss(
+            tournament.Participants.Where(p =>
+                p.Status == TournamentParticipantStatus.Active && p.UserId.HasValue),
             tournament.FinalistCount).ToList();
 
-        if (top4.Count < tournament.FinalistCount)
+        if (topParticipants.Count < tournament.FinalistCount)
         {
+            var activeCount = tournament.Participants
+                .Count(p => p.Status == TournamentParticipantStatus.Active);
             throw new ConflictException(
                 ApiErrorMessages.Tournament.FinalRequiresFourActiveParticipants(
-                    top4.Count, tournament.FinalistCount));
+                    activeCount, tournament.FinalistCount));
         }
 
         var finalMatch = new TournamentMatchBracket
@@ -2475,21 +2471,19 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
             MatchNumber = 1,
             IsFinal = true,
             MatchType = Core.Enum.MatchType.Final,
-            // DÃ¹ng Participant.Id Ä‘á»ƒ walk-in cÃ³ thá»ƒ tham gia Final
-            Player1Id = top4.ElementAtOrDefault(0)?.Id,
-            Player2Id = top4.ElementAtOrDefault(1)?.Id,
-            Player3Id = top4.ElementAtOrDefault(2)?.Id,
-            Player4Id = top4.ElementAtOrDefault(3)?.Id,
+            Player1Id = topParticipants.ElementAtOrDefault(0)?.UserId,
+            Player2Id = topParticipants.ElementAtOrDefault(1)?.UserId,
+            Player3Id = topParticipants.ElementAtOrDefault(2)?.UserId,
+            Player4Id = topParticipants.ElementAtOrDefault(3)?.UserId,
             Status = TournamentMatchStatus.Scheduled,
             CreatedAt = DateTime.UtcNow
         };
 
         await _tournamentRepository.AddMatchAsync(finalMatch);
 
-        // T-02: Build Third Place Match khi cÃ³ cáº¥u hÃ¬nh
-        if (tournament.HasThirdPlaceMatch && top4.Count >= 4)
+        if (tournament.HasThirdPlaceMatch && topParticipants.Count >= 4)
         {
-            await BuildThirdPlaceMatchAsync(tournament, top4);
+            await BuildThirdPlaceMatchAsync(tournament, topParticipants);
         }
     }
 
@@ -2505,8 +2499,8 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
             MatchNumber = 2,
             IsFinal = false,
             MatchType = Core.Enum.MatchType.ThirdPlaceMatch,
-            Player1Id = topParticipants.Count > 2 ? topParticipants[2].Id : null,
-            Player2Id = topParticipants.Count > 3 ? topParticipants[3].Id : null,
+            Player1Id = topParticipants.Count > 2 ? topParticipants[2].UserId : null,
+            Player2Id = topParticipants.Count > 3 ? topParticipants[3].UserId : null,
             Status = TournamentMatchStatus.Scheduled,
             CreatedAt = DateTime.UtcNow
         };
@@ -2519,8 +2513,8 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         // Walk-in Ä‘Æ°á»£c xáº¿p rank trong Final (hiá»ƒn thá»‹ vá»›i ðŸš¶ prefix trong response).
         // BR-13 analogy: walk-in khÃ´ng nháº­n Elo/Karma rewards (UserId = null).
         //
-        // LÆ°u Ã½: PlayerNId trong match slot = TournamentParticipant.Id (khÃ´ng pháº£i User.Id).
-        // Finalists: PlayerNId = User.Id (FK reference to Users table)
+        // Lưu ý: PlayerNId trong match slot = User.Id (FK reference to Users table).
+        // Walk-in cã UserId = null → không tham gia Final slot → không có trong playerIds.
         var playerIds = new[]
         {
             finalMatch.Player1Id, finalMatch.Player2Id,

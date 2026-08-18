@@ -715,10 +715,10 @@ public class TournamentServiceTests
     }
 
     [Fact]
-    public async Task RecordMatchResultAsync_FinalMatch_SetsWinnerPlayerIdToParticipantId()
+    public async Task RecordMatchResultAsync_FinalMatch_SetsWinnerPlayerIdToUserId()
     {
-        // Arrange — For Final matches, BuildFinalMatchAsync creates match with Participant.Id as PlayerNId.
-        // WinnerUserId (UserId) must be resolved to Participant.Id for WinnerPlayerId FK constraint.
+        // Arrange — For Final matches, BuildFinalMatchAsync creates match with User.Id as PlayerNId (FK).
+        // WinnerUserId (User.Id) is used directly as WinnerPlayerId — same contract as Swiss.
         var tournamentRepo = BuildTournamentRepo();
         var gameRepo = BuildGameRepo();
         var cafeRepo = BuildCafeRepo();
@@ -751,7 +751,7 @@ public class TournamentServiceTests
             new() { Id = p2ParticipantId, UserId = p2UserId, Status = TournamentParticipantStatus.Active }
         };
 
-        // Final match created by BuildFinalMatchAsync with Participant.Id as PlayerNId
+        // Final match created by BuildFinalMatchAsync with User.Id as PlayerNId (FK reference).
         var match = new TournamentMatchBracket
         {
             Id = Guid.NewGuid(),
@@ -760,8 +760,8 @@ public class TournamentServiceTests
             MatchNumber = 1,
             IsFinal = true,
             MatchType = Core.Enum.MatchType.Final,
-            Player1Id = p1ParticipantId,
-            Player2Id = p2ParticipantId,
+            Player1Id = p1UserId,
+            Player2Id = p2UserId,
             Status = TournamentMatchStatus.OnGoing
         };
 
@@ -788,9 +788,95 @@ public class TournamentServiceTests
         // Act
         var result = await svc.RecordMatchResultAsync(ManagerId, match.Id, request);
 
-        // Assert — WinnerPlayerId must be p1ParticipantId (not p1UserId) for Final match FK constraint
+        // Assert — WinnerPlayerId must be p1UserId (User.Id FK reference) for both Swiss và Final.
         Assert.NotNull(result);
-        Assert.Equal(p1ParticipantId, result.WinnerPlayerId);
+        Assert.Equal(p1UserId, result.WinnerPlayerId);
+    }
+
+    [Fact]
+    public async Task BuildFinalMatchAsync_UsesUserId_NotParticipantId_AndExcludesWalkIns()
+    {
+        // Arrange: 5 active participants — 4 registered (UserId != null) + 1 walk-in (UserId = null).
+        // Walk-in must NOT be assigned a PlayerNId slot (FK_FinalUserId would violate).
+        // Slots must reference User.Id (FK reference to Users), not Participant.Id.
+        var tournamentRepo = BuildTournamentRepo();
+        var gameRepo = BuildGameRepo();
+        var cafeRepo = BuildCafeRepo();
+        var userRepo = BuildUserRepo();
+        var configRepo = BuildConfigRepo();
+        var karmaRepo = BuildKarmaRepo();
+
+        var registered = Enumerable.Range(0, 4).Select(_ => Guid.NewGuid()).ToArray();
+        var walkIn = new TournamentParticipant
+        {
+            Id = Guid.NewGuid(),
+            UserId = null, // walk-in
+            Status = TournamentParticipantStatus.Active,
+            SwissWins = 4, // walk-in would otherwise top the ranking
+            TotalPrestigePoints = 999
+        };
+        var participants = new List<TournamentParticipant>();
+        for (var i = 0; i < 4; i++)
+        {
+            participants.Add(new TournamentParticipant
+            {
+                Id = Guid.NewGuid(),
+                UserId = registered[i],
+                Status = TournamentParticipantStatus.Active,
+                SwissWins = 4 - i,
+                TotalPrestigePoints = 100 - i * 10
+            });
+        }
+        participants.Add(walkIn);
+
+        var tournament = BuildOnGoingTournament();
+        tournament.Participants = participants;
+        tournament.CurrentRound = 3;
+        tournament.PreliminaryRounds = 3;
+        tournament.TotalRounds = 4;
+        tournament.FinalistCount = 4;
+        // Round 3 (last preliminary) must be completed before advancing to Final.
+        tournament.Matches = new List<TournamentMatchBracket>
+        {
+            new() { Id = Guid.NewGuid(), RoundNumber = 3, Status = TournamentMatchStatus.Completed }
+        };
+
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+
+        TournamentMatchBracket? createdMatch = null;
+        tournamentRepo.Setup(r => r.AddMatchAsync(It.IsAny<TournamentMatchBracket>()))
+            .Callback<TournamentMatchBracket>(m => createdMatch = m)
+            .Returns(Task.CompletedTask);
+        tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        gameRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>()))
+            .ReturnsAsync(new GameTemplate
+            {
+                Id = SplendorId,
+                Name = "Splendor",
+                IsActive = true,
+                IsTournamentSupported = true,
+                TournamentMaxScorePerPlayer = 15,
+                TournamentMinPlayersPerTable = 2
+            });
+
+        var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
+
+        // Act — AdvanceRoundAsync from round 3 → round 4 (Final, auto branch).
+        tournament.FinalPairingsJson = null;
+        await svc.AdvanceRoundAsync(ManagerId, TournamentId);
+
+        // Assert — slots are User.Id, walk-in is excluded.
+        Assert.NotNull(createdMatch);
+        Assert.True(createdMatch!.IsFinal);
+        Assert.Equal(registered[0], createdMatch.Player1Id); // top SwissWins
+        Assert.Equal(registered[1], createdMatch.Player2Id);
+        Assert.Equal(registered[2], createdMatch.Player3Id);
+        Assert.Equal(registered[3], createdMatch.Player4Id);
+        Assert.NotEqual(walkIn.Id, createdMatch.Player1Id);
+        Assert.NotEqual(walkIn.Id, createdMatch.Player2Id);
+        Assert.NotEqual(walkIn.Id, createdMatch.Player3Id);
+        Assert.NotEqual(walkIn.Id, createdMatch.Player4Id);
     }
 
     // ============================================
