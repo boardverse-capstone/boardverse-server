@@ -74,6 +74,7 @@ public interface ITournamentRepository
     Task AddMatchAsync(TournamentMatchBracket match);
     Task AddMatchesAsync(IEnumerable<TournamentMatchBracket> matches);
     Task UpdateMatchAsync(TournamentMatchBracket match);
+    Task DeleteMatchesByRoundAsync(Guid tournamentId, int roundNumber);
 
     // === Elo Contribution (for accurate revert) ===
     Task AddEloContributionAsync(TournamentMatchEloContribution contribution);

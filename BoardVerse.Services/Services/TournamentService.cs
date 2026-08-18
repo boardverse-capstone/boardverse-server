@@ -2993,30 +2993,38 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
     public async Task<RoundPairingsResponseDto> ClearRoundPairingsAsync(Guid managerId, Guid tournamentId, int roundNumber)
     {
-        var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
+        var tournament = await _tournamentRepository.GetByIdWithDetailsAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
 
         await EnsureManagerOwnsCafeAsync(managerId, tournament.CafeId);
 
         ValidateRoundNumber(roundNumber, tournament);
 
-        var roundExists = tournament.Matches.Count == 0
-            ? false
-            : await _tournamentRepository.GetMatchesByTournamentAsync(tournamentId) is var matches
-              && matches.Any(m => m.RoundNumber == roundNumber);
+        var roundMatches = tournament.Matches
+            .Where(m => m.RoundNumber == roundNumber)
+            .ToList();
 
-        if (roundExists)
+        if (roundMatches.Count > 0)
         {
-            throw new ConflictException(
-                ApiErrorMessages.Tournament.RoundCannotResetPairings(roundNumber));
+            var hasCompletedMatches = roundMatches.Any(m =>
+                m.Status == TournamentMatchStatus.Completed
+                || m.Status == TournamentMatchStatus.OnGoing);
+
+            if (hasCompletedMatches)
+            {
+                throw new ConflictException(
+                    ApiErrorMessages.Tournament.RoundCannotResetPairings(roundNumber));
+            }
+
+            await _tournamentRepository.DeleteMatchesByRoundAsync(tournamentId, roundNumber);
         }
 
         SetRoundPairingsJson(tournament, roundNumber, null);
+        tournament.PairingMode = TournamentPairingMode.Auto;
         tournament.UpdatedAt = DateTime.UtcNow;
 
         await _tournamentRepository.SaveChangesAsync();
 
-        // Tráº£ vá» auto preview Ä‘á»ƒ manager biáº¿t sau khi clear
         return await PreviewPairingsAsync(managerId, tournamentId, roundNumber);
     }
 

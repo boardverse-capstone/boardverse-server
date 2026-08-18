@@ -255,6 +255,9 @@ ILogger<LobbyService> logger,
 
                     lobby.UpdatedAt = now;
 
+                    // Sync Reservation.CurrentPlayers whenever member count changes.
+                    SyncReservationCurrentPlayers(lobby);
+
                     var filledToMaxActiveMembers = lobby.Members.Count(m => m.IsActive) >= lobby.MaxMembers;
                     if (filledToMaxActiveMembers)
                     {
@@ -348,6 +351,9 @@ ILogger<LobbyService> logger,
 
                 lobby.UpdatedAt = now;
 
+                // Sync Reservation.CurrentPlayers whenever member count changes.
+                SyncReservationCurrentPlayers(lobby);
+
                 var filledToMax = lobby.Members.Count(m => m.IsActive) >= lobby.MaxMembers;
                 if (filledToMax)
                 {
@@ -396,6 +402,33 @@ ILogger<LobbyService> logger,
                     await dbTx.RollbackAsync();
                 }
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Sync Reservation.CurrentPlayers với số active members trong Lobby.
+        /// Gọi sau mỗi thao tác join/leave/reactivate để Reservation.CurrentPlayers luôn đúng.
+        /// Nếu CurrentPlayers >= MinPlayers và Status còn là Holding → chuyển sang Confirmed real-time.
+        /// Không làm gì nếu lobby không có Reservation liên kết.
+        /// </summary>
+        private void SyncReservationCurrentPlayers(Lobby lobby)
+        {
+            if (lobby.Reservation == null)
+            {
+                return;
+            }
+
+            var reservation = lobby.Reservation;
+            var activeCount = lobby.Members.Count(m => m.IsActive);
+            reservation.CurrentPlayers = activeCount;
+
+            // Real-time: chuyển Holding → Confirmed ngay khi đủ minPlayers.
+            if (reservation.Status == ReservationStatus.Holding && activeCount >= reservation.MinPlayers)
+            {
+                reservation.Status = ReservationStatus.Confirmed;
+                _logger.LogInformation(
+                    "Reservation auto-confirmed: ReservationId={ReservationId}, CurrentPlayers={CurrentPlayers}, MinPlayers={MinPlayers}",
+                    reservation.Id, activeCount, reservation.MinPlayers);
             }
         }
 
@@ -548,6 +581,9 @@ ILogger<LobbyService> logger,
             member.Status = LobbyMemberStatus.Left;
             member.LeftAt = DateTime.UtcNow;
             lobby.UpdatedAt = DateTime.UtcNow;
+
+            // Sync Reservation.CurrentPlayers whenever member count changes.
+            SyncReservationCurrentPlayers(lobby);
 
             await _lobbyRepository.SaveChangesAsync();
 

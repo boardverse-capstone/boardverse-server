@@ -570,7 +570,7 @@ public class TournamentPosController : BaseApiController
     }
 
     /// <summary>
-    /// Xóa manual pairings cho 1 round (quay lại dùng auto). [Role: Manager]
+    /// Xóa manual pairings cho 1 round và quay lại dùng auto. Xóa luôn các trận đấu của round nếu chưa có kết quả. [Role: Manager]
     /// </summary>
     /// <param name="tournamentId">Mã giải đấu.</param>
     /// <param name="roundNumber">Vòng cần reset (1-4).</param>
@@ -579,7 +579,7 @@ public class TournamentPosController : BaseApiController
     /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
     /// <response code="403">Không phải chủ quán tạo tournament.</response>
     /// <response code="404">Không tìm thấy giải đấu.</response>
-    /// <response code="409">Round đã có matches — không thể reset.</response>
+    /// <response code="409">Round đã có trận đấu đang diễn ra hoặc đã hoàn thành — không thể reset.</response>
     /// <response code="500">Lỗi hệ thống không mong đợi.</response>
     [HttpDelete("{tournamentId:guid}/pairings/{roundNumber:int}")]
     public async Task<IActionResult> ClearRoundPairings(Guid tournamentId, int roundNumber)

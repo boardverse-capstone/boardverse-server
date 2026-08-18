@@ -24,6 +24,7 @@ namespace BoardVerse.Data.Repositories
                 .Include(l => l.GameTemplate)
                 .Include(l => l.Cafe)
                 .Include(l => l.Booking)
+                .Include(l => l.Reservation)
                 .FirstOrDefaultAsync(l => l.Id == lobbyId);
         }
 
@@ -37,6 +38,7 @@ namespace BoardVerse.Data.Repositories
             return await _db.Lobbies
                 .FromSqlRaw("SELECT * FROM \"Lobbies\" WHERE \"Id\" = {0} FOR UPDATE", lobbyId)
                 .Include(l => l.Members)
+                .Include(l => l.Reservation)
                 .AsSplitQuery()
                 .FirstOrDefaultAsync();
         }

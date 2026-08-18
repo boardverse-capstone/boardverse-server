@@ -264,6 +264,24 @@ public class TournamentRepository : ITournamentRepository
         return Task.CompletedTask;
     }
 
+    public async Task DeleteMatchesByRoundAsync(Guid tournamentId, int roundNumber)
+    {
+        var matches = await _db.TournamentMatchBrackets
+            .Where(m => m.TournamentId == tournamentId && m.RoundNumber == roundNumber)
+            .ToListAsync();
+
+        if (matches.Count == 0) return;
+
+        var matchIds = matches.Select(m => m.Id).ToList();
+
+        var contributions = await _db.TournamentMatchEloContributions
+            .Where(c => matchIds.Contains(c.MatchId))
+            .ToListAsync();
+        _db.TournamentMatchEloContributions.RemoveRange(contributions);
+
+        _db.TournamentMatchBrackets.RemoveRange(matches);
+    }
+
     // === Elo Contribution ===
     public async Task AddEloContributionAsync(TournamentMatchEloContribution contribution)
     {
