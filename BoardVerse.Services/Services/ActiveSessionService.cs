@@ -163,8 +163,13 @@ namespace BoardVerse.Services.Services
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
 
-            // BR-13: Guest slot được thêm khi phiên đang Active
-            if (session.Status != GroupSessionStatus.Active && session.Status != GroupSessionStatus.Checking)
+            // BR-13 (Exception 10): Guest slot được thêm khi phiên đang Active.
+            // P1 Fix (2026-08-19): KHÔNG cho phép thêm guest khi session đã Checking (sau khi
+            // EndGameSession) — session đã kết thúc, chỉ đang chờ kiểm kê linh kiện.
+            // Trước đây cho phép cả Active + Checking → staff có thể thêm guest vào phiên
+            // đã kết thúc (status Checking, endedAt đã set) → guest join sau joinedAt của members
+            // cũ → không hợp lệ ngữ nghĩa (guest không có giờ chơi, fee = 0).
+            if (session.Status != GroupSessionStatus.Active)
             {
                 throw new ConflictException(ApiErrorMessages.Pos.GuestSlotNotAllowedAfterSessionEnded);
             }
@@ -862,24 +867,16 @@ namespace BoardVerse.Services.Services
             return ActiveSessionBillingCalculator.CalculateRealtimeBilling(cafe, elapsedMinutes);
         }
 
-        private async Task<ActiveSessionResponseDto> CompleteCheckoutAsync(ActiveSession session, List<ComponentCheckoutItemDto>? components)
+        private async Task<ActiveSessionResponseDto> CompleteCheckoutAsync(ActiveSession session, List<ComponentCheckoutItemDto>? _components)
         {
             var now = DateTime.UtcNow;
             session.EndedAt = now;
             session.Status = GroupSessionStatus.Unpaid;
             session.IsCheckingInventory = false;
-            session.HasMissingComponents = false;
-
-            if (components != null && components.Count > 0)
-            {
-                foreach (var component in components)
-                {
-                    if (component.IsMissing || component.IsDamaged)
-                    {
-                        session.HasMissingComponents = true;
-                    }
-                }
-            }
+            // HasMissingComponents KHÔNG set ở đây — sẽ được sync từ sessionGame.CheckStatus
+            // ở block BR-12 bên dưới (single source of truth, xem comment line 897).
+            // Trước đây block `if (components != null && ...)` ở đây đọc từ request.components
+            // → sai nếu FE không gửi components trong khi SubmitComponentCheck đã set MissingComponents.
 
             // BR-12 (single source of truth): Tính persistedPenalty từ sessionGame.TotalPenaltyAmount
             // (đã được SubmitComponentCheck lưu lúc kiểm kê). Cộng vào session.PenaltyAmount ngay
@@ -893,6 +890,15 @@ namespace BoardVerse.Services.Services
                 .Where(g => g.CheckStatus == ComponentCheckStatus.MissingComponents)
                 .Sum(g => g.TotalPenaltyAmount);
             session.PenaltyAmount = persistedPenalty;
+
+            // P0 Fix (2026-08-19): HasMissingComponents sync từ sessionGame.CheckStatus (single source),
+            // KHÔNG đọc từ request.components nữa. Trước đây nếu staff gọi SubmitComponentCheck (set
+            // sessionGame.CheckStatus = MissingComponents) nhưng gọi Checkout KHÔNG truyền components
+            // → HasMissingComponents = false trong khi DB vẫn MissingComponents → FE hiển thị sai.
+            //
+            // Block `if (components != null ...)` cũ đã được xóa — không còn đọc từ request.components.
+            session.HasMissingComponents = sessionGames
+                .Any(g => g.CheckStatus == ComponentCheckStatus.MissingComponents);
 
             // Tính Subtotal tại Checkout để PaySession/CreateSessionPayment có sẵn.
             // Penalty đã được cộng ở block BR-12 ở trên (persistedPenalty từ sessionGame.TotalPenaltyAmount).

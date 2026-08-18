@@ -1673,6 +1673,41 @@ public class ActiveSessionServiceTests
             () => service.AddGuestSlotAsync(cafeId, sessionId, request));
     }
 
+    // P1 Regression test (2026-08-19): Session đã Checking (sau EndGame) phải reject thêm guest.
+    // Trước đây logic cho phép cả Active + Checking → guest join vào phiên đã endedAt → sai BR-13.
+    [Theory]
+    [InlineData(GroupSessionStatus.Checking)]
+    [InlineData(GroupSessionStatus.Unpaid)]
+    [InlineData(GroupSessionStatus.Paid)]
+    public async Task AddGuestSlotAsync_SessionNotActiveInAnyTerminalOrCheckingState_ThrowsConflictException(GroupSessionStatus status)
+    {
+        var cafeId = Guid.NewGuid();
+        var sessionId = Guid.NewGuid();
+
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = cafeId,
+            Status = status,
+            Members = new List<ActiveSessionMember>(),
+            Games = new List<ActiveSessionGame>()
+        };
+
+        var repo = new Mock<IActiveSessionRepository>();
+        repo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+
+        var cafeRepo = new Mock<ICafeRepository>();
+        var posRepo = new Mock<ICafePosRepository>();
+        var depositRepo = new Mock<IBookingDepositRepository>();
+        var settlementService = new Mock<ISettlementService>();
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object, new Mock<IReservationService>().Object, new Mock<ILobbyRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalkInService>().Object, new Mock<IOutboxRepository>().Object, new Mock<ILogger<ActiveSessionService>>().Object);
+
+        var request = new AddGuestSlotRequestDto { DisplayName = "Guest" };
+
+        await Assert.ThrowsAsync<ConflictException>(
+            () => service.AddGuestSlotAsync(cafeId, sessionId, request));
+    }
+
     #endregion
 
     #region Early Checkout WalkInWindow Tests (§4.4)
