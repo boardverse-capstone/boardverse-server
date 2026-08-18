@@ -27,8 +27,9 @@ public class TimeSlotServiceTests
     [InlineData(12, 0, 17, 0, true)]
     [InlineData(17, 0, 23, 0, true)]
     [InlineData(5, 0, 8, 0, false)] // before open
-    [InlineData(22, 0, 24, 0, false)] // after close
-    [InlineData(14, 0, 10, 0, false)] // end before start
+    [InlineData(22, 0, 23, 30, false)] // after close (23:30 > 23:00)
+    [InlineData(21, 0, 0, 0, true)] // overnight to midnight
+    [InlineData(14, 0, 10, 0, true)] // overnight
     [InlineData(10, 0, 10, 0, false)] // same time
     public void ValidatePreferredTimeRange_ReturnsExpectedResult(
         int startH, int startM, int endH, int endM, bool expectedValid)
@@ -52,8 +53,18 @@ public class TimeSlotServiceTests
         Assert.Equal(14, end.Hour);
     }
 
+    [Fact]
+    public void BuildScheduledStartEndFromPreferred_Overnight_UsesNextDayForEnd()
+    {
+        var playDate = new DateOnly(2026, 8, 18);
+        var (start, end) = CafeSchedule.BuildScheduledStartEndFromPreferred(
+            playDate, new TimeOnly(21, 0), new TimeOnly(0, 0));
+
+        Assert.Equal(new DateTime(2026, 8, 18, 21, 0, 0), start);
+        Assert.Equal(new DateTime(2026, 8, 19, 0, 0, 0), end);
+    }
+
     [Theory]
-    [InlineData(TimeSlot.Morning, 6, 0, 12, 0)]
     [InlineData(TimeSlot.Afternoon, 12, 0, 17, 0)]
     [InlineData(TimeSlot.Evening, 17, 0, 23, 0)]
     [InlineData(TimeSlot.LateNight, 23, 0, 6, 0)]

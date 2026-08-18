@@ -2226,12 +2226,20 @@ public const string LobbyBoostOnlyWhenOpen =
     // ===== BR-RES-07: Reservation bắt buộc có startTime + endTime =====
     public const string ReservationRequiresStartAndEnd =
         "Đặt chỗ bắt buộc phải có thời gian bắt đầu và thời gian kết thúc. " +
-        "Vui lòng chọn khung giờ (morning/afternoon/evening/lateNight) để hệ thống tự tính giờ kết thúc.";
+        "Vui lòng chọn đầy đủ preferredStartTime và preferredEndTime.";
 
-    // ===== BR-RES-08: endTime cùng ngày startTime (trừ LateNight) =====
+    public const string PreferredTimesMustDiffer =
+        "Thời gian kết thúc phải khác thời gian bắt đầu. Nếu chơi qua đêm, giờ kết thúc sẽ được hiểu là thuộc ngày hôm sau.";
+
+    public static string PreferredStartBeforeOpen(TimeOnly openTime) =>
+        $"Thời gian bắt đầu không được trước giờ mở cửa ({openTime:HH:mm}). Vui lòng chọn giờ bắt đầu khác.";
+
+    public static string PreferredEndAfterClose(TimeOnly closeTime) =>
+        $"Thời gian kết thúc không được sau giờ đóng cửa ({closeTime:HH:mm}). Vui lòng chọn giờ kết thúc khác.";
+
+    // ===== BR-RES-08: endTime cùng ngày startTime hoặc ngày kế tiếp nếu qua đêm =====
     public const string ReservationEndTimeDifferentDay =
-        "Thời gian kết thúc phải cùng ngày với thời gian bắt đầu. " +
-        "Vui lòng chọn khung giờ LateNight nếu bạn muốn chơi qua đêm.";
+        "Thời gian kết thúc phải cùng ngày với thời gian bắt đầu, hoặc thuộc ngày hôm sau nếu giờ kết thúc nhỏ hơn giờ bắt đầu.";
 
     // ===== BR-RES-09: TimeSlot không hợp lệ =====
     public static string ReservationInvalidTimeSlot(TimeSlot slot) =>

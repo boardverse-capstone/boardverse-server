@@ -3236,9 +3236,9 @@ public class ReservationService : IReservationService
     }
 
     /// <summary>
-    /// Tính scheduledStartTime + scheduledEndTime từ <paramref name="playDate"/> và resolved schedule.
+    /// Tính scheduledStartTime + scheduledEndTime từ <paramref name="playDate"/> và giờ user chọn.
     /// BR-RES-07/08/09: endTime bắt buộc (không open-ended).
-    /// Overnight check: nếu endTime <= startTime → overnight (BR-NEW-15 §7.1 LateNight rule).
+    /// Nếu endTime nhỏ hơn startTime thì endTime thuộc ngày kế tiếp.
     /// Lưu vào DB (<see cref="Reservation.ScheduledStartTime"/>, <see cref="Reservation.ScheduledEndTime"/>)
     /// để WalkInWindowCleanupJob (§4.4), playedRatio (§4.3), extension flow (Phase 3)
     /// không phải derive runtime từ TimeSlot enum.
@@ -3251,8 +3251,8 @@ public class ReservationService : IReservationService
         var startDateTime = playDate.ToDateTime(startTime);
 
         DateTime endDateTime;
-        // Overnight: endTime <= startTime (e.g., 23:00 → 06:00)
-        if (endTime <= startTime)
+        // Overnight: endTime < startTime (e.g., 21:00 → 00:00 ngày hôm sau)
+        if (endTime < startTime)
         {
             endDateTime = playDate.AddDays(1).ToDateTime(endTime);
         }
@@ -3272,8 +3272,8 @@ public class ReservationService : IReservationService
 
     /// <summary>
     /// BR-RES-07/08/09: validate rằng reservation có đầy đủ startTime + endTime,
-    /// cùng ngày (hoặc overnight/LateNight), không dùng TimeSlot enum nữa.
-    /// BR-NEW-15 (2026-08-18): BỎ TimeSlot param — derive overnight từ endTime &lt;= startTime.
+    /// cùng ngày hoặc ngày kế tiếp nếu qua đêm, không dùng TimeSlot enum nữa.
+    /// BR-NEW-15 (2026-08-18): derive overnight từ endTime &lt; startTime.
     /// Throw BadRequestException với message tiếng Việt từ <see cref="ApiErrorMessages.Reservation"/>.
     /// </summary>
     internal static void ValidateReservationTimeWindow(DateTime scheduledStartTime, DateTime scheduledEndTime)
@@ -3283,10 +3283,15 @@ public class ReservationService : IReservationService
             throw new BadRequestException(ApiErrorMessages.Reservation.ReservationRequiresStartAndEnd);
         }
 
-        // Overnight check: endTime <= startTime → overnight (LateNight equivalent)
+        if (scheduledEndTime <= scheduledStartTime)
+        {
+            throw new BadRequestException(ApiErrorMessages.Reservation.PreferredTimesMustDiffer);
+        }
+
+        // Overnight khi giờ kết thúc nhỏ hơn giờ bắt đầu.
         var startTimeOnly = TimeOnly.FromDateTime(scheduledStartTime);
         var endTimeOnly = TimeOnly.FromDateTime(scheduledEndTime);
-        var isOvernight = endTimeOnly <= startTimeOnly;
+        var isOvernight = endTimeOnly < startTimeOnly;
 
         if (isOvernight)
         {

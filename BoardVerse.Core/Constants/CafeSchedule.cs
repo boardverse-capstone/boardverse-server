@@ -1,3 +1,5 @@
+using BoardVerse.Core.Messages;
+
 namespace BoardVerse.Core.Constants;
 
 /// <summary>
@@ -14,24 +16,26 @@ public static class CafeSchedule
 
     /// <summary>
     /// Validate preferredStartTime + preferredEndTime hợp lệ.
+    /// Nếu end nhỏ hơn start, end thuộc ngày kế tiếp.
     /// </summary>
     public static (bool isValid, string? error) ValidatePreferredTimeRange(
         TimeOnly preferredStart,
         TimeOnly preferredEnd)
     {
-        if (preferredEnd <= preferredStart)
+        if (preferredEnd == preferredStart)
         {
-            return (false, "End time phải lớn hơn start time.");
+            return (false, ApiErrorMessages.Reservation.PreferredTimesMustDiffer);
         }
 
         if (preferredStart < DefaultOpenTime)
         {
-            return (false, $"Start time không được trước giờ mở cửa ({DefaultOpenTime:HH:mm}).");
+            return (false, ApiErrorMessages.Reservation.PreferredStartBeforeOpen(DefaultOpenTime));
         }
 
-        if (preferredEnd > DefaultCloseTime)
+        var isOvernight = preferredEnd < preferredStart;
+        if (!isOvernight && preferredEnd > DefaultCloseTime)
         {
-            return (false, $"End time không được sau giờ đóng cửa ({DefaultCloseTime:HH:mm}).");
+            return (false, ApiErrorMessages.Reservation.PreferredEndAfterClose(DefaultCloseTime));
         }
 
         return (true, null);
@@ -39,15 +43,20 @@ public static class CafeSchedule
 
     /// <summary>
     /// Helper: build ScheduledStartTime + ScheduledEndTime (DateTime) từ user input.
+    /// Nếu end nhỏ hơn start, ScheduledEndTime thuộc ngày kế tiếp.
     /// </summary>
     public static (DateTime scheduledStart, DateTime scheduledEnd) BuildScheduledStartEndFromPreferred(
         DateOnly playDate,
         TimeOnly preferredStart,
         TimeOnly preferredEnd)
     {
+        var endDate = preferredEnd < preferredStart
+            ? playDate.AddDays(1)
+            : playDate;
+
         return (
             playDate.ToDateTime(preferredStart),
-            playDate.ToDateTime(preferredEnd)
+            endDate.ToDateTime(preferredEnd)
         );
     }
 }

@@ -332,8 +332,8 @@ Tạo quote cho reservation. **KHÔNG tạo row DB** — chỉ validate + tính 
   "cafeId": "guid",
   "gameId": "guid",
   "playDate": "2026-08-04",
-  "timeSlot": "evening",
   "preferredStartTime": "19:30",
+  "preferredEndTime": "22:00",
   "minPlayers": 4,
   "maxPlayers": 6,
   "isPrivate": false,
@@ -346,8 +346,8 @@ Tạo quote cho reservation. **KHÔNG tạo row DB** — chỉ validate + tính 
 | `cafeId` | guid | Yes | Cafe còn hoạt động. |
 | `gameId` | guid | Yes | Game có trong `CafeGameInventory`. |
 | `playDate` | date | Yes | Trong khoảng `[today, today+7]`. |
-| `timeSlot` | enum | Yes | `morning` / `afternoon` / `evening` / `lateNight`. |
-| `preferredStartTime` | time | No | Phải nằm trong `[timeSlot.startTime, timeSlot.endTime]`. |
+| `preferredStartTime` | time | Yes | `HH:mm`. Phải `>= CafeSchedule.DefaultOpenTime` (06:00). |
+| `preferredEndTime` | time | Yes | `HH:mm`. Nếu `> preferredStartTime` → cùng ngày; nếu `<` → hiểu là ngày kế tiếp (overnight). Nếu `==` → 400. |
 | `minPlayers` | int | Yes | ≥ 2. |
 | `maxPlayers` | int | Yes | `minPlayers ≤ maxPlayers`. |
 | `isPrivate` | bool | No | `false` = public lobby (có thể cần cafe duyệt). `true` = private lobby (mời bạn, không cần cafe duyệt). Mặc định `false`. |
@@ -418,7 +418,9 @@ Trường `warnings` chứa các cảnh báo từ server:
 | `400` | `playDate` ngoài [today, +7] | - |
 | `400` | `minPlayers < 1` hoặc `maxPlayers > 30` | - |
 | `400` | `maxPlayers < minPlayers` | - |
-| `400` | `preferredStartTime` không nằm trong `timeSlot` window | BR-LOBBY-15b |
+| `400` | `preferredStartTime < CafeSchedule.DefaultOpenTime` (06:00) | BR-RES-07 |
+| `400` | `preferredEndTime == preferredStartTime` (zero-duration) | BR-RES-07 |
+| `400` | `preferredEndTime > DefaultCloseTime` (23:00) khi không overnight | BR-RES-07 |
 | `400` | Buffer < 60 phút (từ chối) | BR-LOBBY-01b |
 | `400` | Buffer 60-120 phút (cảnh báo) | BR-LOBBY-01c |
 | `401` | Thiếu token | - |
@@ -453,8 +455,8 @@ Confirm reservation — atomic transaction. Trừ BVC + giữ seat + giữ game 
   "cafeId": "guid",
   "gameId": "guid",
   "playDate": "2026-08-04",
-  "timeSlot": "evening",
   "preferredStartTime": "19:30",
+  "preferredEndTime": "22:00",
   "minPlayers": 4,
   "maxPlayers": 6,
   "isPrivate": false,
@@ -524,11 +526,47 @@ Khi active:
 
 Trigger: 3 lobby fail (`timeoutFailed` hoặc `hostCancelled` sau grace) trong 7 ngày.
 
+### Overnight Reservations (BR-RES-08)
+
+`POST /quote` và `POST /confirm` chấp nhận khung giờ qua đêm: nếu `preferredEndTime < preferredStartTime`, hệ thống hiểu rằng `scheduledEndTime` thuộc ngày kế tiếp của `playDate`.
+
+| Input | Interpretation |
+|---|---|
+| `preferredStartTime=21:00`, `preferredEndTime=00:00` | 21:00 hôm nay → 00:00 ngày kế tiếp (3 giờ) |
+| `preferredStartTime=22:00`, `preferredEndTime=02:00` | 22:00 hôm nay → 02:00 ngày kế tiếp (4 giờ) |
+| `preferredStartTime=19:00`, `preferredEndTime=21:00` | 19:00 hôm nay → 21:00 cùng ngày (2 giờ) |
+| `preferredStartTime=10:00`, `preferredEndTime=10:00` | **400** — zero-duration, không hợp lệ |
+| `preferredStartTime=05:00`, `preferredEndTime=08:00` | **400** — `preferredStartTime < DefaultOpenTime` (06:00) |
+| `preferredStartTime=20:00`, `preferredEndTime=23:30` (same day) | **400** — `preferredEndTime > DefaultCloseTime` (23:00) |
+
+Response trả `scheduledStartTime` + `scheduledEndTime` đầy đủ `DateTime` (kèm ngày thực tế), ví dụ:
+
+```json
+{
+  "playDate": "2026-08-18",
+  "preferredStartTime": "21:00:00",
+  "preferredEndTime": "00:00:00",
+  "scheduledStartTime": "2026-08-18T21:00:00Z",
+  "scheduledEndTime": "2026-08-19T00:00:00Z",
+  "durationMinutes": 180
+}
+```
+
+Lỗi thường gặp thêm (BR-RES-07/08):
+
+| Status | Message rule | BR |
+|---|---|---|
+| `400` | `PreferredTimesMustDiffer` (end == start, hoặc zero-duration) | BR-RES-07 |
+| `400` | `PreferredStartBeforeOpen(06:00)` | BR-RES-07 |
+| `400` | `PreferredEndAfterClose(23:00)` khi không overnight | BR-RES-07 |
+| `400` | `ReservationEndTimeDifferentDay` (end > start nhưng lệch sang ngày khác) | BR-RES-08 |
+
 ### Idempotency strict params (fix 2026-08-06)
 
 Confirm endpoint **verify tất cả params** trước khi trả kết quả cũ:
 
-- `CafeId`, `GameId`, `PlayDate`, `TimeSlot`
+- `CafeId`, `GameId`, `PlayDate`
+- `PreferredStartTime`, `PreferredEndTime`
 - `MaxPlayers`, `MinPlayers`
 - `ExpectedFinalDeposit`
 

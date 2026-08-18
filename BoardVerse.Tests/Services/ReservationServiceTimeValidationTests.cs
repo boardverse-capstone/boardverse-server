@@ -22,12 +22,12 @@ public class ReservationServiceTimeValidationTests
     }
 
     [Fact]
-    public void ValidatePreferredTimeRange_EndBeforeStart_ReturnsFalse()
+    public void ValidatePreferredTimeRange_OvernightRange_ReturnsTrue()
     {
         var (isValid, error) = CafeSchedule.ValidatePreferredTimeRange(
-            new TimeOnly(14, 0), new TimeOnly(10, 0));
-        Assert.False(isValid);
-        Assert.NotNull(error);
+            new TimeOnly(21, 0), new TimeOnly(0, 0));
+        Assert.True(isValid);
+        Assert.Null(error);
     }
 
     [Fact]
@@ -43,7 +43,7 @@ public class ReservationServiceTimeValidationTests
     public void ValidatePreferredTimeRange_EndAfterClose_ReturnsFalse()
     {
         var (isValid, error) = CafeSchedule.ValidatePreferredTimeRange(
-            new TimeOnly(22, 0), new TimeOnly(24, 0));
+            new TimeOnly(22, 0), new TimeOnly(23, 30));
         Assert.False(isValid);
         Assert.Contains("đóng cửa", error);
     }
@@ -78,6 +78,18 @@ public class ReservationServiceTimeValidationTests
 
         Assert.Equal(playDate, DateOnly.FromDateTime(scheduledStart));
         Assert.Equal(playDate, DateOnly.FromDateTime(scheduledEnd));
+    }
+
+    [Fact]
+    public void BuildScheduledStartEndFromPreferred_Overnight_UsesNextDayForEnd()
+    {
+        var playDate = new DateOnly(2026, 8, 18);
+        var (scheduledStart, scheduledEnd) = CafeSchedule.BuildScheduledStartEndFromPreferred(
+            playDate, new TimeOnly(21, 0), new TimeOnly(0, 0));
+
+        Assert.Equal(new DateTime(2026, 8, 18, 21, 0, 0), scheduledStart);
+        Assert.Equal(new DateTime(2026, 8, 19, 0, 0, 0), scheduledEnd);
+        Assert.Equal(TimeSpan.FromHours(3), scheduledEnd - scheduledStart);
     }
 
     // ===== TimeSlotExtensions (backward compat) =====
@@ -126,10 +138,10 @@ public class ReservationServiceTimeValidationTests
     }
 
     [Theory]
-    [InlineData(TimeSlot.Morning, "Buổi sáng (06:00 - 12:00)")]
-    [InlineData(TimeSlot.Afternoon, "Buổi chiều (12:00 - 17:00)")]
-    [InlineData(TimeSlot.Evening, "Buổi tối (17:00 - 23:00)")]
-    [InlineData(TimeSlot.LateNight, "Khuya (23:00 - 06:00)")]
+    [InlineData(TimeSlot.Morning, "Sáng (06:00-12:00)")]
+    [InlineData(TimeSlot.Afternoon, "Chiều (12:00-17:00)")]
+    [InlineData(TimeSlot.Evening, "Tối (17:00-23:00)")]
+    [InlineData(TimeSlot.LateNight, "Khuya (23:00-06:00)")]
     public void TimeSlotExtensions_GetDisplayName_ReturnsCorrectValue(TimeSlot slot, string expected)
     {
         Assert.Equal(expected, slot.GetDisplayName());

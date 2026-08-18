@@ -35,6 +35,17 @@ public class DepositQuoteResult
     /// </summary>
     public long FinalDeposit { get; set; }
 
+    /// <summary>
+    /// Giá vé cơ bản của cafe (VND) — dùng để FE hiển thị breakdown
+    /// "Tiền cọc = X% × {CafeBasePriceVnd:N0}đ = {FinalDeposit} BVC".
+    /// </summary>
+    public decimal CafeBasePriceVnd { get; set; }
+
+    /// <summary>
+    /// % cọc hiện tại (0.20 = 20%). Config trong code, không phụ thuộc BR-NEW-01 nữa.
+    /// </summary>
+    public decimal DepositPercentage { get; set; }
+
     /// <summary>Distance bucket từ playDate vs now.</summary>
     public DistanceBucket Distance { get; set; }
 

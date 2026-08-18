@@ -23,7 +23,9 @@ public class ReservationQuoteRequestDto
     [Required]
     public TimeOnly PreferredStartTime { get; set; }
 
-    /// <summary>End time bắt buộc, > PreferredStartTime, nằm trong giờ đóng cửa cafe.</summary>
+    /// <summary>
+    /// End time bắt buộc. Nếu nhỏ hơn PreferredStartTime, hệ thống hiểu là kết thúc vào ngày hôm sau.
+    /// </summary>
     [Required]
     public TimeOnly PreferredEndTime { get; set; }
 
@@ -168,7 +170,9 @@ public class ReservationConfirmRequestDto
     [Required]
     public TimeOnly PreferredStartTime { get; set; }
 
-    /// <summary>End time bắt buộc, > PreferredStartTime, nằm trong giờ đóng cửa cafe.</summary>
+    /// <summary>
+    /// End time bắt buộc. Nếu nhỏ hơn PreferredStartTime, hệ thống hiểu là kết thúc vào ngày hôm sau.
+    /// </summary>
     [Required]
     public TimeOnly PreferredEndTime { get; set; }
 

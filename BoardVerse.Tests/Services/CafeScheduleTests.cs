@@ -40,13 +40,13 @@ public class CafeScheduleTests
     }
 
     [Fact]
-    public void ValidatePreferredTimeRange_EndBeforeStart_ReturnsFalse()
+    public void ValidatePreferredTimeRange_EndBeforeStart_AllowsOvernight()
     {
         var (isValid, error) = CafeSchedule.ValidatePreferredTimeRange(
-            new TimeOnly(15, 0), new TimeOnly(10, 0));
+            new TimeOnly(21, 0), new TimeOnly(0, 0));
 
-        Assert.False(isValid);
-        Assert.Contains("lớn hơn", error);
+        Assert.True(isValid);
+        Assert.Null(error);
     }
 
     [Fact]
@@ -154,12 +154,24 @@ public class CafeScheduleTests
         Assert.Equal(new DateTime(2026, 8, 14, 22, 0, 0), scheduledEnd);
     }
 
+    [Fact]
+    public void BuildScheduledStartEndFromPreferred_Overnight_UsesNextDayForEnd()
+    {
+        var playDate = new DateOnly(2026, 8, 18);
+        var (scheduledStart, scheduledEnd) = CafeSchedule.BuildScheduledStartEndFromPreferred(
+            playDate, new TimeOnly(21, 0), new TimeOnly(0, 0));
+
+        Assert.Equal(new DateTime(2026, 8, 18, 21, 0, 0), scheduledStart);
+        Assert.Equal(new DateTime(2026, 8, 19, 0, 0, 0), scheduledEnd);
+    }
+
     // ===== Edge cases =====
 
     [Theory]
     [InlineData(6, 0, 6, 0, false)]   // zero duration
     [InlineData(6, 0, 6, 30, true)]  // 30 minutes
     [InlineData(10, 0, 10, 0, false)]  // zero duration
+    [InlineData(21, 0, 0, 0, true)]   // overnight to midnight
     [InlineData(22, 0, 23, 0, true)]   // exactly at close
     public void ValidatePreferredTimeRange_ZeroDuration_ReturnsFalse(
         int startH, int startM, int endH, int endM, bool expected)
