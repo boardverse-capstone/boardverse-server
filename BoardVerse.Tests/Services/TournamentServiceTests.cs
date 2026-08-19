@@ -866,17 +866,115 @@ public class TournamentServiceTests
         tournament.FinalPairingsJson = null;
         await svc.AdvanceRoundAsync(ManagerId, TournamentId);
 
-        // Assert — slots are User.Id, walk-in is excluded.
+        // Assert — Final match: only top 2 in Player1Id/Player2Id.
+        // Player3Id/Player4Id = null (reserved for future expansion; do NOT assign topParticipants[2]/[3]
+        // here — they belong to ThirdPlaceMatch to prevent duplicate player IDs).
+        // Before fix (bug): Final assigned all top 4 → ThirdPlaceMatch also used [2]/[3] → duplicate!
         Assert.NotNull(createdMatch);
         Assert.True(createdMatch!.IsFinal);
         Assert.Equal(registered[0], createdMatch.Player1Id); // top SwissWins
         Assert.Equal(registered[1], createdMatch.Player2Id);
-        Assert.Equal(registered[2], createdMatch.Player3Id);
-        Assert.Equal(registered[3], createdMatch.Player4Id);
+        Assert.Null(createdMatch.Player3Id); // assigned to ThirdPlaceMatch, NOT Final
+        Assert.Null(createdMatch.Player4Id); // assigned to ThirdPlaceMatch, NOT Final
         Assert.NotEqual(walkIn.Id, createdMatch.Player1Id);
         Assert.NotEqual(walkIn.Id, createdMatch.Player2Id);
-        Assert.NotEqual(walkIn.Id, createdMatch.Player3Id);
-        Assert.NotEqual(walkIn.Id, createdMatch.Player4Id);
+        // Player3Id/Player4Id are null in Final after fix (assigned to ThirdPlaceMatch)
+        Assert.Null(createdMatch.Player3Id);
+        Assert.Null(createdMatch.Player4Id);
+    }
+
+    // Regression test (2026-08-19): BuildFinalMatchAsync + BuildThirdPlaceMatchAsync must NOT
+    // assign the same player to both Final and ThirdPlace matches.
+    // Before fix: Final used all top 4 (Player1-4), ThirdPlace used [2] and [3] → duplicate!
+    // After fix: Final uses top 2 (Player1-2), ThirdPlace uses [2] and [3] — distinct.
+    [Fact]
+    public async Task BuildFinalMatchAsync_WithThirdPlaceMatch_NoDuplicatePlayerIds()
+    {
+        var tournamentRepo = BuildTournamentRepo();
+        var gameRepo = BuildGameRepo();
+        var cafeRepo = BuildCafeRepo();
+        var userRepo = BuildUserRepo();
+        var configRepo = BuildConfigRepo();
+        var karmaRepo = BuildKarmaRepo();
+
+        // 8 participants ranked by Swiss score: p1=top, p8=bottom
+        var participantIds = Enumerable.Range(0, 8).Select(_ => Guid.NewGuid()).ToArray();
+        var participants = participantIds.Select((id, idx) => new TournamentParticipant
+        {
+            Id = Guid.NewGuid(),
+            UserId = id,
+            Status = TournamentParticipantStatus.Active,
+            SwissWins = 8 - idx, // p1 has most wins, p8 has least
+            TotalPrestigePoints = 100 - idx * 5
+        }).ToList();
+
+        var tournament = BuildOnGoingTournament();
+        tournament.Participants = participants;
+        tournament.CurrentRound = 3;
+        tournament.PreliminaryRounds = 3;
+        tournament.TotalRounds = 4;
+        tournament.FinalistCount = 4;
+        tournament.HasThirdPlaceMatch = true; // enable ThirdPlaceMatch
+        tournament.Matches = new List<TournamentMatchBracket>
+        {
+            new() { Id = Guid.NewGuid(), RoundNumber = 3, Status = TournamentMatchStatus.Completed }
+        };
+
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+
+        var allCreatedMatches = new List<TournamentMatchBracket>();
+        tournamentRepo.Setup(r => r.AddMatchAsync(It.IsAny<TournamentMatchBracket>()))
+            .Callback<TournamentMatchBracket>(m => allCreatedMatches.Add(m))
+            .Returns(Task.CompletedTask);
+        tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        gameRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>()))
+            .ReturnsAsync(new GameTemplate
+            {
+                Id = SplendorId,
+                Name = "Splendor",
+                IsActive = true,
+                IsTournamentSupported = true,
+                TournamentMaxScorePerPlayer = 15,
+                TournamentMinPlayersPerTable = 2
+            });
+
+        var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
+        tournament.FinalPairingsJson = null;
+        await svc.AdvanceRoundAsync(ManagerId, TournamentId);
+
+        var finalMatch = allCreatedMatches.FirstOrDefault(m => m.IsFinal);
+        var thirdPlaceMatch = allCreatedMatches.FirstOrDefault(m => !m.IsFinal && m.MatchType == Core.Enum.MatchType.ThirdPlaceMatch);
+
+        Assert.NotNull(finalMatch);
+        Assert.NotNull(thirdPlaceMatch);
+
+        // Collect all assigned player IDs across both matches (filter out nulls)
+        var allAssignedIds = new HashSet<Guid>(
+            new[] { finalMatch!.Player1Id, finalMatch!.Player2Id, finalMatch!.Player3Id, finalMatch!.Player4Id,
+                    thirdPlaceMatch!.Player1Id, thirdPlaceMatch!.Player2Id }
+                .Where(id => id.HasValue)
+                .Select(id => id!.Value));
+
+        // After fix: Final has top 2 (p1, p2), ThirdPlace has next 2 (p3, p4)
+        // Total distinct players = 4 (p1, p2, p3, p4)
+        Assert.Equal(4, allAssignedIds.Count);
+
+        // Verify Final uses top 2
+        Assert.Equal(participantIds[0], finalMatch.Player1Id); // p1 = top
+        Assert.Equal(participantIds[1], finalMatch.Player2Id); // p2 = 2nd
+        Assert.Null(finalMatch.Player3Id);
+        Assert.Null(finalMatch.Player4Id);
+
+        // Verify ThirdPlace uses next 2 (distinct from Final)
+        Assert.Equal(participantIds[2], thirdPlaceMatch.Player1Id); // p3 = 3rd
+        Assert.Equal(participantIds[3], thirdPlaceMatch.Player2Id); // p4 = 4th
+
+        // No overlap between Final and ThirdPlace
+        var finalIds = new HashSet<Guid?> { finalMatch.Player1Id, finalMatch.Player2Id, finalMatch.Player3Id, finalMatch.Player4Id };
+        var thirdPlaceIds = new HashSet<Guid?> { thirdPlaceMatch.Player1Id, thirdPlaceMatch.Player2Id };
+        var overlap = finalIds.Intersect(thirdPlaceIds).Where(id => id.HasValue).ToList();
+        Assert.Empty(overlap);
     }
 
     // ============================================

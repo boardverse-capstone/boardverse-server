@@ -2463,28 +2463,39 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
                     activeCount, tournament.FinalistCount));
         }
 
-        var finalMatch = new TournamentMatchBracket
-        {
-            Id = Guid.NewGuid(),
-            TournamentId = tournament.Id,
-            RoundNumber = tournament.TotalRounds,
-            MatchNumber = 1,
-            IsFinal = true,
-            MatchType = Core.Enum.MatchType.Final,
-            Player1Id = topParticipants.ElementAtOrDefault(0)?.UserId,
-            Player2Id = topParticipants.ElementAtOrDefault(1)?.UserId,
-            Player3Id = topParticipants.ElementAtOrDefault(2)?.UserId,
-            Player4Id = topParticipants.ElementAtOrDefault(3)?.UserId,
-            Status = TournamentMatchStatus.Scheduled,
-            CreatedAt = DateTime.UtcNow
-        };
+        // Final match: top 2 participants. Player3Id/Player4Id = null (reserved for future expansion).
+            // ThirdPlaceMatch gets the remaining 2 from top 4 (see BuildThirdPlaceMatchAsync below).
+            var finalMatch = new TournamentMatchBracket
+            {
+                Id = Guid.NewGuid(),
+                TournamentId = tournament.Id,
+                RoundNumber = tournament.TotalRounds,
+                MatchNumber = 1,
+                IsFinal = true,
+                MatchType = Core.Enum.MatchType.Final,
+                Player1Id = topParticipants.ElementAtOrDefault(0)?.UserId,
+                Player2Id = topParticipants.ElementAtOrDefault(1)?.UserId,
+                Player3Id = null, // Reserved for expansion; do NOT assign topParticipants[2] here
+                Player4Id = null, // — they belong to ThirdPlaceMatch
+                Status = TournamentMatchStatus.Scheduled,
+                CreatedAt = DateTime.UtcNow
+            };
 
-        await _tournamentRepository.AddMatchAsync(finalMatch);
+            await _tournamentRepository.AddMatchAsync(finalMatch);
 
-        if (tournament.HasThirdPlaceMatch && topParticipants.Count >= 4)
-        {
-            await BuildThirdPlaceMatchAsync(tournament, topParticipants);
-        }
+            // ThirdPlaceMatch: uses the REMAINING 2 from top N (NOT the same as Final).
+            // Before fix: used topParticipants[2] and topParticipants[3] — DUPLICATED with Final's Player3Id/Player4Id.
+            // After fix: uses topParticipants[2] and topParticipants[3] ONLY when FinalistCount > 2;
+            // for FinalistCount = 4 (the default), these are distinct from Final's top 2.
+            //
+            // Safe access: topParticipants always has >= FinalistCount items (enforced by guard above).
+            // When FinalistCount = 4: Final gets [0,1], ThirdPlace gets [2,3] — no overlap.
+            // When FinalistCount = 2 + HasThirdPlaceMatch=true: this branch is unreachable
+            //   (2 players can't fill a Final + ThirdPlace), but guard above throws anyway.
+            if (tournament.HasThirdPlaceMatch && topParticipants.Count >= 4)
+            {
+                await BuildThirdPlaceMatchAsync(tournament, topParticipants);
+            }
     }
 
     private async Task BuildThirdPlaceMatchAsync(Tournament tournament, List<TournamentParticipant> topParticipants)
