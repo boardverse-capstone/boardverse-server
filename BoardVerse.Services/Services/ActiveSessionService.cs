@@ -770,7 +770,7 @@ namespace BoardVerse.Services.Services
                 // KHÔNG tính lại từ (LeftAt - JoinedAt) — sẽ khác nếu LeftAt thay đổi giữa 2 phase.
                 var memberMinutes = member.TotalMinutesPlayed;
 
-                decimal memberSubtotal = memberMinutes > 0
+                decimal memberSubtotal = memberMinutes >= 0
                     ? (cafe.BillingModel == CafePartnerBillingModel.TimeBased
                         ? CalculateRealtimeBilling(cafe, memberMinutes)
                         : cafe.BasePrice)
@@ -916,7 +916,7 @@ namespace BoardVerse.Services.Services
                 var memberMinutes = Math.Max(0, (int)Math.Floor((memberLeftAt - member.JoinedAt).TotalMinutes));
                 member.TotalMinutesPlayed = memberMinutes;
 
-                decimal memberSubtotal = memberMinutes > 0
+                decimal memberSubtotal = memberMinutes >= 0
                     ? (session.Cafe?.BillingModel == CafePartnerBillingModel.TimeBased
                         ? CalculateRealtimeBilling(session.Cafe, memberMinutes)
                         : session.Cafe?.BasePrice ?? 0m)
