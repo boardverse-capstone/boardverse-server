@@ -175,30 +175,37 @@ Xem chi tiết tại [booking-rating.md](./booking-rating.md).
 
 ---
 
-## Luồng booking — cập nhật
+### 3.4. `GET /api/bookings/cafe/{cafeId}` — Danh sách booking của cafe
 
-### Happy path
+**Role:** Manager, CafeStaff (của cafe này), Admin.
 
+**Dùng cho màn hình POS / dashboard quán:** xem lịch booking trong ngày.
+
+**Response 200:**
+
+```json
+{
+  "statusCode": 200,
+  "isSuccess": true,
+  "message": "Lấy danh sách booking của quán thành công.",
+  "data": [
+    { /* BookingResponseDto */ },
+    { /* BookingResponseDto */ }
+  ]
+}
 ```
-1. Mobile: POST /api/v1/lobbies (tạo lobby)
-   → Lobby status = Open
 
-2. Members join → LobbyFull
-   → Server tạo "intent" để đặt cọc
+Danh sách **đã được sắp xếp** theo `scheduledStartTime` tăng dần.
 
-3. Mobile: POST /api/payments/booking-deposit
-   Body: { cafeId, lobbyId?, scheduledStartTime, seatCount, amount }
-   → Status: PENDING_DEPOSIT
-   → BookingDeposit.QrUrl, QrExpiresAt = Now + 5min
-   → SeatSlot: AVAILABLE → HOLDING
+---
 
-4. Customer quét QR → thanh toán qua SePay/VietQR
-   → SePay gửi webhook → SePayWebhookController
-   → POST /api/payments/sepay/webhook
-   → PaymentService.HandleSePayWebhookAsync
-   → BookingDeposit.Status = Paid
-   → SeatSlot: HOLDING → RESERVED
-   → Lobby.Status = Full → Ready for check-in
+### 3.5. `PATCH /api/bookings/{bookingId}` — Cập nhật booking
+
+**Role:** Player — **chỉ Host của lobby**.
+
+**Điều kiện:**
+- Chỉ owner (host lobby) mới được sửa.
+- Chỉ sửa được khi booking chưa `CheckedIn` và chưa `Cancelled`.
 
 5. Customer đến quán → POS quét QR booking
    → Kiểm tra Booking.Status == Confirmed (chưa check-in)
@@ -247,38 +254,103 @@ FOR UPDATE SKIP LOCKED
 
 ---
 
-## State machine — `BookingDeposit`
+### 3.6. `DELETE /api/bookings/{bookingId}` — Hủy booking
 
-```mermaid
-stateDiagram-v2
-    [*] --> Pending: POST /booking-deposit
-    Pending --> Paid: SePay webhook success
-    Pending --> Expired: Quá 5 phút không thanh toán (BR-06)
-    Pending --> CancelledByPlayer: Khách hủy
-    Paid --> Refunded: Quán hủy vì bất khả kháng (BR-18)
-    Paid --> Forfeited: Không đến + hết thời gian cho phép
-    Expired --> [*]: Giải phóng ghế
-    CancelledByPlayer --> [*]
-    Refunded --> [*]: Hoàn 100% cọc
-    Forfeited --> [*]: Tịch thu cọc
+**Role:** Player — **chỉ Host của lobby**.
+
+**Điều kiện:**
+- Không thể hủy khi booking đã ở `CheckedIn`.
+- Hủy xong, status chuyển thành `Cancelled` (không xóa khỏi DB).
+
+**Query string (optional):**
+
+```
+?reason=Thành viên hủy vì bận việc đột xuất
 ```
 
-## State machine — `SeatSlot`
+| Field | Required | Mô tả |
+|-------|----------|--------|
+| `reason` | ❌ | Lý do hủy, optional |
 
-```mermaid
-stateDiagram-v2
-    [*] --> Available
-    Available --> Holding: Booking tạo (5 phút giữ)
-    Holding --> Reserved: Payment success (BR-05)
-    Holding --> Available: Quá 5 phút
-    Reserved --> InUse: Check-in tại quán
-    Reserved --> Available: Booking EXPIRED/CANCELLED
-    InUse --> Available: Session PAID (giải phóng)
+**Response 200:**
+
+```json
+{
+  "statusCode": 200,
+  "isSuccess": true,
+  "message": "Hủy booking thành công.",
+  "data": { /* BookingResponseDto, status = 4 (Cancelled) */ }
+}
 ```
+
+**Mã lỗi:** `403`, `404`, `409`.
 
 ---
 
-## API liên quan
+### 3.7. `POST /api/bookings/{bookingId}/check-in` — Check-in tại quán
+
+**Role:** Manager, CafeStaff (của cafe này).
+
+**Dùng cho POS:** quét `verificationQRCode` → gọi API này.
+
+**Điều kiện:**
+- Booking phải ở `Confirmed` (đã cọc OK).
+- Booking chưa `CheckedIn`.
+
+**Response 200:** `BookingResponseDto` với `status = 2 (CheckedIn)`.
+
+**Mã lỗi:**
+
+| Status | Nguyên nhân |
+|--------|-------------|
+| `403` | Không phải Manager/Staff của cafe sở hữu booking |
+| `404` | Không tìm thấy booking |
+| `409` | Booking chưa ở `Confirmed` (vd: vẫn đang `PendingDeposit`) |
+
+---
+
+### 3.8. `POST /api/bookings/{bookingId}/check-out` — Check-out tại quán
+
+**Role:** Manager, CafeStaff (của cafe này).
+
+**Điều kiện:**
+- Booking phải ở `CheckedIn`.
+
+**Response 200:** `BookingResponseDto` với `status = 1 (Confirmed)` — phiên chơi kết thúc.
+
+> Theo ERD, booking không có trạng thái `Completed`. Sau khi check-out, status trở về `Confirmed` để báo hiệu phiên đã đóng.
+
+---
+
+## 4. Bảng tóm tắt nhanh cho Front-end
+
+| Endpoint | Method | Role | Trả về |
+|----------|--------|------|--------|
+| `/api/bookings` | `POST` | Player (Host) | `BookingResponseDto` |
+| `/api/bookings/{id}` | `GET` | Player / Staff / Admin | `BookingResponseDto` |
+| `/api/bookings/lobby/{lobbyId}` | `GET` | Player (member lobby) / Staff | `BookingResponseDto \| null` |
+| `/api/bookings/cafe/{cafeId}` | `GET` | Manager / CafeStaff / Admin | `List<BookingResponseDto>` |
+| `/api/bookings/{id}` | `PATCH` | Player (Host) | `BookingResponseDto` |
+| `/api/bookings/{id}` | `DELETE` | Player (Host) | `BookingResponseDto` |
+| `/api/bookings/{id}/check-in` | `POST` | Manager / CafeStaff | `BookingResponseDto` |
+| `/api/bookings/{id}/check-out` | `POST` | Manager / CafeStaff | `BookingResponseDto` |
+
+---
+
+## 5. Lưu ý quan trọng cho FE
+
+1. **Không tự quản lý `userId`** trong body — backend lấy từ JWT token.
+2. **`status` trả về là integer**, không phải string. FE nên dùng `statusText` để hiển thị text, dùng `status` (int) để so sánh logic.
+3. **`scheduledStartTime`/`scheduleEndTime`** luôn là UTC (suffix `Z`). FE phải convert sang timezone local của user khi hiển thị.
+4. **Tạo booking** yêu cầu lobby đã `Full`. FE cần gọi `POST /api/v1/lobbies/{id}/lock` trước, chờ response thành công rồi mới tạo booking.
+5. **`cafeTableId` BẮT BUỘC** khi tạo booking. FE cần load danh sách bàn của cafe trước (qua `CafePosController` hoặc tương đương) để cho user chọn.
+6. **Trùng giờ ở cùng bàn** sẽ trả 409. Nên có UI cảnh báo hoặc auto-refresh sau khi tạo.
+7. **`verificationQRCode`** được backend tự sinh, FE chỉ hiển thị cho user và gửi cho POS khi check-in.
+8. **Hủy (DELETE)** chỉ chuyển status, **không xóa** record. Nếu FE muốn biết booking có active hay không, kiểm tra `status != Cancelled`.
+
+---
+
+## 6. Liên kết
 
 - **Payment API chi tiết:** [payment.md](./payment.md) — tất cả endpoint của `PaymentController`.
 - **Deposit flow:** [sepay-webhook.md](./sepay-webhook.md), [sepay-account.md](./sepay-account.md)
