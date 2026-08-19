@@ -2,6 +2,7 @@ namespace BoardVerse.Core.DTOs.Payment;
 
 public class CreatePaymentRequestDto
 {
+    public Guid? BookingId { get; set; }
     public Guid DepositId { get; set; }
     public decimal Amount { get; set; }
     public string? CustomerEmail { get; set; }

@@ -48,7 +48,7 @@ public class SePayClient : ISePayClient
         }
         if (!account.IsActive)
         {
-            throw new PaymentException("Master SePay account is not active.");
+            throw new PaymentException(ApiErrorMessages.Payment.SePayMasterAccountInactive);
         }
         return account;
     }

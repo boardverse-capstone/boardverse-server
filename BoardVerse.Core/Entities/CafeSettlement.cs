@@ -29,4 +29,11 @@ public class CafeSettlement
 
     /// <summary>Earliest time the retry job may pick this settlement again.</summary>
     public DateTime? NextRetryAt { get; set; }
+
+    // === W-06: Manual override ===
+    /// <summary>Admin ID who performed the override.</summary>
+    public Guid? OverrideBy { get; set; }
+
+    /// <summary>Timestamp when admin performed the override.</summary>
+    public DateTime? OverrideAt { get; set; }
 }

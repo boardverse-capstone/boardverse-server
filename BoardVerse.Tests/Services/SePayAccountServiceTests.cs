@@ -6,6 +6,7 @@ using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
+using BoardVerse.Services.Services.Payments;
 using Microsoft.Extensions.Logging;
 using Moq;
 
@@ -17,6 +18,8 @@ public class SePayAccountServiceTests
     private readonly Mock<ICafeRepository> _mockCafeRepo;
     private readonly Mock<ILogger<SePayAccountService>> _mockLogger;
     private readonly Mock<ICurrentUserService> _mockCurrentUser;
+    private readonly Mock<IVietQrClient> _mockVietQr;
+    private readonly Mock<IBookingDepositRepository> _mockBookingDepositRepo;
     private readonly SePayAccountService _service;
 
     private static readonly Guid TestUserId = Guid.NewGuid();
@@ -28,6 +31,8 @@ public class SePayAccountServiceTests
         _mockCafeRepo = new Mock<ICafeRepository>();
         _mockLogger = new Mock<ILogger<SePayAccountService>>();
         _mockCurrentUser = new Mock<ICurrentUserService>();
+        _mockVietQr = new Mock<IVietQrClient>();
+        _mockBookingDepositRepo = new Mock<IBookingDepositRepository>();
 
         _mockCurrentUser.Setup(x => x.GetCurrentUserId()).Returns(TestUserId);
 
@@ -35,7 +40,9 @@ public class SePayAccountServiceTests
             _mockRepo.Object,
             _mockCafeRepo.Object,
             _mockLogger.Object,
-            _mockCurrentUser.Object);
+            _mockCurrentUser.Object,
+            _mockVietQr.Object,
+            _mockBookingDepositRepo.Object);
     }
 
     #region GetByIdAsync
@@ -227,7 +234,7 @@ public class SePayAccountServiceTests
 
         var request = new UpdateSePayAccountRequestDto { MerchantId = "NEW-001" };
 
-        await Assert.ThrowsAsync<KeyNotFoundException>(() => _service.UpdateAsync(Guid.NewGuid(), request));
+        await Assert.ThrowsAsync<NotFoundException>(() => _service.UpdateAsync(Guid.NewGuid(), request));
     }
 
     [Fact]
@@ -338,11 +345,11 @@ public class SePayAccountServiceTests
     }
 
     [Fact]
-    public async Task DeleteAsync_NotFound_ThrowsKeyNotFoundException()
+    public async Task DeleteAsync_NotFound_ThrowsNotFoundException()
     {
         _mockRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((SePayAccount?)null);
 
-        await Assert.ThrowsAsync<KeyNotFoundException>(() => _service.DeleteAsync(Guid.NewGuid()));
+        await Assert.ThrowsAsync<NotFoundException>(() => _service.DeleteAsync(Guid.NewGuid()));
     }
 
     #endregion
@@ -405,6 +412,271 @@ public class SePayAccountServiceTests
 
         Assert.Equal(TestUserId, result.UpdatedByUserId);
         Assert.True(result.UpdatedAt.HasValue);
+    }
+
+    #endregion
+
+    #region CreateByManagerCafeAsync (Manager không cần đăng ký SePay)
+
+    [Fact]
+    public async Task CreateByManagerCafeAsync_HappyPath_CreatesCafeAccountWithoutSePayCredentials()
+    {
+        // Arrange: Manager có cafe, cafe chưa có payment account
+        var cafe = new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test St" };
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+            .ReturnsAsync(new List<Cafe> { cafe });
+        _mockCafeRepo.Setup(r => r.GetByIdAsync(TestCafeId)).ReturnsAsync(cafe);
+        _mockCafeRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId)).ReturnsAsync((SePayAccount?)null);
+        _mockRepo.Setup(r => r.AddAsync(It.IsAny<SePayAccount>())).Returns(Task.CompletedTask);
+
+        var request = new CreateCafePaymentAccountRequestDto
+        {
+            BankCode = "MBBank",
+            AccountNumber = "1234567890",
+            AccountHolder = "NGUYEN VAN A"
+        };
+
+        // Act
+        var result = await _service.CreateByManagerCafeAsync(request);
+
+        // Assert: AccountType = Cafe, KHÔNG có SePay credentials
+        Assert.Equal(SePayAccountType.Cafe, result.AccountType);
+        Assert.Equal(TestCafeId, result.CafeId);
+        Assert.Equal("MBBank", result.BankCode);
+        Assert.Equal("NGUYEN VAN A", result.AccountHolder);
+        Assert.Equal("******7890", result.MaskedAccountNumber);
+        Assert.Null(result.MerchantId);
+        Assert.True(result.IsActive);
+
+        _mockRepo.Verify(r => r.AddAsync(It.Is<SePayAccount>(a =>
+            a.AccountType == SePayAccountType.Cafe
+            && a.CafeId == TestCafeId
+            && a.MerchantId == null
+            && a.ApiKey == null
+            && a.SecretKey == null
+            && a.WebhookToken == null
+            && a.Environment == "Production"
+        )), Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateByManagerCafeAsync_MissingBankCode_ThrowsArgumentException()
+    {
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+            .ReturnsAsync(new List<Cafe> { new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test St" } });
+
+        var request = new CreateCafePaymentAccountRequestDto
+        {
+            BankCode = "",
+            AccountNumber = "1234567890",
+            AccountHolder = "NGUYEN VAN A"
+        };
+
+        var ex = await Assert.ThrowsAsync<ArgumentException>(
+            () => _service.CreateByManagerCafeAsync(request));
+        Assert.Equal(ApiErrorMessages.Payment.CafePaymentAccountBankCodeRequired, ex.Message);
+    }
+
+    [Fact]
+    public async Task CreateByManagerCafeAsync_MissingAccountNumber_ThrowsArgumentException()
+    {
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+            .ReturnsAsync(new List<Cafe> { new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test St" } });
+
+        var request = new CreateCafePaymentAccountRequestDto
+        {
+            BankCode = "MBBank",
+            AccountNumber = "",
+            AccountHolder = "NGUYEN VAN A"
+        };
+
+        var ex = await Assert.ThrowsAsync<ArgumentException>(
+            () => _service.CreateByManagerCafeAsync(request));
+        Assert.Equal(ApiErrorMessages.Payment.CafePaymentAccountAccountNumberRequired, ex.Message);
+    }
+
+    [Fact]
+    public async Task CreateByManagerCafeAsync_MissingAccountHolder_ThrowsArgumentException()
+    {
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+            .ReturnsAsync(new List<Cafe> { new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test St" } });
+
+        var request = new CreateCafePaymentAccountRequestDto
+        {
+            BankCode = "MBBank",
+            AccountNumber = "1234567890",
+            AccountHolder = ""
+        };
+
+        var ex = await Assert.ThrowsAsync<ArgumentException>(
+            () => _service.CreateByManagerCafeAsync(request));
+        Assert.Equal(ApiErrorMessages.Payment.CafePaymentAccountAccountHolderRequired, ex.Message);
+    }
+
+    [Fact]
+    public async Task CreateByManagerCafeAsync_ManagerHasNoCafe_ThrowsNotFoundException()
+    {
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+            .ReturnsAsync(new List<Cafe>());
+
+        var request = new CreateCafePaymentAccountRequestDto
+        {
+            BankCode = "MBBank",
+            AccountNumber = "1234567890",
+            AccountHolder = "NGUYEN VAN A"
+        };
+
+        await Assert.ThrowsAsync<NotFoundException>(
+            () => _service.CreateByManagerCafeAsync(request));
+    }
+
+    [Fact]
+    public async Task CreateByManagerCafeAsync_CafeAlreadyHasAccount_ThrowsInvalidOperation()
+    {
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+            .ReturnsAsync(new List<Cafe> { new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test St" } });
+        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId))
+            .ReturnsAsync(CreateTestAccount(TestCafeId, SePayAccountType.Cafe));
+
+        var request = new CreateCafePaymentAccountRequestDto
+        {
+            BankCode = "MBBank",
+            AccountNumber = "1234567890",
+            AccountHolder = "NGUYEN VAN A"
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _service.CreateByManagerCafeAsync(request));
+    }
+
+    [Fact]
+    public async Task CreateByManagerCafeAsync_CustomEnvironment_NormalizedToProduction()
+    {
+        var cafe = new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test St" };
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+            .ReturnsAsync(new List<Cafe> { cafe });
+        _mockCafeRepo.Setup(r => r.GetByIdAsync(TestCafeId)).ReturnsAsync(cafe);
+        _mockCafeRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId)).ReturnsAsync((SePayAccount?)null);
+        _mockRepo.Setup(r => r.AddAsync(It.IsAny<SePayAccount>())).Returns(Task.CompletedTask);
+
+        var request = new CreateCafePaymentAccountRequestDto
+        {
+            BankCode = "MBBank",
+            AccountNumber = "1234567890",
+            AccountHolder = "NGUYEN VAN A",
+            Environment = "PRODUCTION"
+        };
+
+        var result = await _service.CreateByManagerCafeAsync(request);
+
+        Assert.Equal("Production", result.Environment);
+    }
+
+    [Fact]
+    public async Task CreateByManagerCafeAsync_InvalidEnvironment_ThrowsArgumentException()
+    {
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+            .ReturnsAsync(new List<Cafe> { new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test St" } });
+
+        var request = new CreateCafePaymentAccountRequestDto
+        {
+            BankCode = "MBBank",
+            AccountNumber = "1234567890",
+            AccountHolder = "NGUYEN VAN A",
+            Environment = "Staging"
+        };
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => _service.CreateByManagerCafeAsync(request));
+    }
+
+    #endregion
+
+    #region GenerateTestQrByManagerCafeAsync
+
+    [Fact]
+    public async Task GenerateTestQrByManagerCafeAsync_HappyPath_ReturnsQrUrlWithTenThousandVnd()
+    {
+        var account = CreateTestAccount(TestCafeId, SePayAccountType.Cafe);
+        account.BankCode = "MBBank";
+        account.AccountNumber = "1234567890";
+        account.AccountHolder = "NGUYEN VAN A";
+
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+            .ReturnsAsync(new List<Cafe> { new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test" } });
+        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId)).ReturnsAsync(account);
+        _mockVietQr.Setup(q => q.GenerateQrUrl(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<decimal>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
+            .Returns((string bank, string acc, decimal amount, string? des, string? holder, string tmpl, bool show)
+                => $"https://vietqr.app/img?bank={bank}&acc={acc}&amount={(int)amount}&des={des}&holder={holder}");
+
+        var result = await _service.GenerateTestQrByManagerCafeAsync();
+
+        Assert.NotNull(result);
+        Assert.Equal(10_000m, result.TestAmount);
+        Assert.Equal("MBBank", result.BankCode);
+        Assert.Equal("NGUYEN VAN A", result.AccountHolder);
+        Assert.Equal("******7890", result.MaskedAccountNumber);
+        Assert.StartsWith("https://vietqr.app/img?", result.QrUrl);
+        Assert.Contains("bank=MBBank", result.QrUrl);
+        Assert.Contains("acc=1234567890", result.QrUrl);
+        Assert.Contains("amount=10000", result.QrUrl);
+        Assert.Contains("holder=NGUYEN", result.QrUrl);
+        Assert.StartsWith("BV-TEST-", result.TestTransferContent);
+        Assert.NotEmpty(result.Instructions);
+    }
+
+    [Fact]
+    public async Task GenerateTestQrByManagerCafeAsync_ManagerHasNoCafe_ThrowsNotFoundException()
+    {
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+            .ReturnsAsync(new List<Cafe>());
+
+        await Assert.ThrowsAsync<NotFoundException>(
+            () => _service.GenerateTestQrByManagerCafeAsync());
+    }
+
+    [Fact]
+    public async Task GenerateTestQrByManagerCafeAsync_CafeNoAccount_ThrowsNotFoundException()
+    {
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+            .ReturnsAsync(new List<Cafe> { new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test" } });
+        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId)).ReturnsAsync((SePayAccount?)null);
+
+        await Assert.ThrowsAsync<NotFoundException>(
+            () => _service.GenerateTestQrByManagerCafeAsync());
+    }
+
+    [Fact]
+    public async Task GenerateTestQrByManagerCafeAsync_BankInfoIncomplete_ThrowsInvalidOperation()
+    {
+        var account = CreateTestAccount(TestCafeId, SePayAccountType.Cafe);
+        account.BankCode = null; // simulate data corruption
+
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+            .ReturnsAsync(new List<Cafe> { new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test" } });
+        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId)).ReturnsAsync(account);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _service.GenerateTestQrByManagerCafeAsync());
+        Assert.Equal(ApiErrorMessages.Payment.SePayBankInfoIncomplete, ex.Message);
+    }
+
+    [Fact]
+    public async Task GenerateTestQrByManagerCafeAsync_CalledMultipleTimes_GeneratesUniqueTransferContent()
+    {
+        var account = CreateTestAccount(TestCafeId, SePayAccountType.Cafe);
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+            .ReturnsAsync(new List<Cafe> { new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test" } });
+        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId)).ReturnsAsync(account);
+
+        var result1 = await _service.GenerateTestQrByManagerCafeAsync();
+        var result2 = await _service.GenerateTestQrByManagerCafeAsync();
+
+        Assert.NotEqual(result1.TestTransferContent, result2.TestTransferContent);
     }
 
     #endregion

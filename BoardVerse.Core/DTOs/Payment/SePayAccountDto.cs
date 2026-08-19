@@ -22,6 +22,14 @@ public class SePayAccountDto
     public DateTime? UpdatedAt { get; set; }
 }
 
+/// <summary>
+/// [ADMIN] Tạo SePay account đầy đủ (Master hoặc Cafe).
+/// Manager KHÔNG dùng DTO này — Manager dùng <see cref="CreateCafePaymentAccountRequestDto"/> (4 field, không cần đăng ký SePay).
+///
+/// Flow khuyến nghị cho Cafe (Cách 2 trong sepay-payment-flow.md):
+/// Manager gọi <c>POST /api/sepay-accounts/my-cafe</c> với DTO đơn giản,
+/// admin BoardVerse vào SePay dashboard link TK ngân hàng của cafe vào company master.
+/// </summary>
 public class CreateSePayAccountRequestDto
 {
     public SePayAccountType AccountType { get; set; }
@@ -36,6 +44,54 @@ public class CreateSePayAccountRequestDto
     public string? AccountHolder { get; set; }
     public string? ReturnUrl { get; set; }
     public string? Environment { get; set; }
+}
+
+/// <summary>
+/// [MANAGER] Tạo payment account cho cafe của mình.
+/// CHỈ 4 field bắt buộc — KHÔNG cần MerchantId/ApiKey/SecretKey/WebhookToken.
+/// Manager không cần đăng ký SePay merchant. BoardVerse sẽ tự detect giao dịch
+/// vào TK ngân hàng thật của cafe qua SePay webhook (bank_mode=all).
+/// </summary>
+public class CreateCafePaymentAccountRequestDto
+{
+    /// <summary>Mã ngân hàng (VD: MBBank, VietinBank, Vietcombank). Bắt buộc.</summary>
+    public string BankCode { get; set; } = null!;
+
+    /// <summary>Số tài khoản ngân hàng thật của cafe. Bắt buộc.</summary>
+    public string AccountNumber { get; set; } = null!;
+
+    /// <summary>Tên chủ tài khoản (in hoa, không dấu). Bắt buộc để hiển thị QR chính xác.</summary>
+    public string AccountHolder { get; set; } = null!;
+
+    /// <summary>
+    /// Môi trường SePay cho cafe account (Test/Production). Mặc định 'Production'.
+    /// Hầu hết cafe KHÔNG cần đụng field này.
+    /// </summary>
+    public string? Environment { get; set; }
+}
+
+/// <summary>
+/// [MANAGER] Kết quả preview QR cho cafe payment account.
+/// Manager scan QR này trên app ngân hàng để verify VietQR render đúng + SePay detect được giao dịch.
+/// </summary>
+public class CafePaymentQrPreviewDto
+{
+    /// <summary>URL QR image (VietQR format) — paste vào browser hoặc hiển thị trên UI.</summary>
+    public string QrUrl { get; set; } = null!;
+
+    /// <summary>Số tiền test cố định (10.000 VND) để Manager CK thử.</summary>
+    public decimal TestAmount { get; set; }
+
+    /// <summary>Nội dung CK Manager cần nhập đúng khi test (SePay sẽ detect qua content).</summary>
+    public string TestTransferContent { get; set; } = null!;
+
+    /// <summary>Bank info echo lại để UI hiển thị confirm.</summary>
+    public string BankCode { get; set; } = null!;
+    public string MaskedAccountNumber { get; set; } = null!;
+    public string AccountHolder { get; set; } = null!;
+
+    /// <summary>Hướng dẫn test cho Manager (tiếng Việt).</summary>
+    public string Instructions { get; set; } = null!;
 }
 
 public class UpdateSePayAccountRequestDto
@@ -63,4 +119,27 @@ public class SePayAccountQuery
 public class SetEnvironmentRequestDto
 {
     public string Environment { get; set; } = null!;
+}
+
+/// <summary>
+/// Admin lookup: Tra cứu BookingDeposit theo SePayTransactionId.
+/// Bao gồm thông tin deposit + booking + cafe + status để debug webhook mismatch.
+/// </summary>
+public class SePayTransactionLookupDto
+{
+    public Guid DepositId { get; set; }
+    public string OrderId { get; set; } = string.Empty;
+    public Guid? BookingId { get; set; }
+    public Guid? ActiveSessionId { get; set; }
+    public Guid CafeId { get; set; }
+    public string? CafeName { get; set; }
+    public Guid UserId { get; set; }
+    public decimal Amount { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public string? SePayTransactionId { get; set; }
+    public string? SePayTransferId { get; set; }
+    public DateTime? PaidAt { get; set; }
+    public DateTime? RefundedAt { get; set; }
+    public DateTime? ForfeitedAt { get; set; }
+    public DateTime CreatedAt { get; set; }
 }

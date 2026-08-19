@@ -21,6 +21,8 @@ public class TournamentRepository : ITournamentRepository
         return await _db.Tournaments
             .Include(t => t.Participants)
             .Include(t => t.Matches)
+            .Include(t => t.GameTemplate)
+            .Include(t => t.Cafe)
             .FirstOrDefaultAsync(t => t.Id == tournamentId);
     }
 
@@ -30,6 +32,8 @@ public class TournamentRepository : ITournamentRepository
             .Include(t => t.Participants)
                 .ThenInclude(p => p.User)
             .Include(t => t.Matches)
+            .Include(t => t.GameTemplate)
+            .Include(t => t.Cafe)
             .FirstOrDefaultAsync(t => t.Id == tournamentId);
     }
 
@@ -37,6 +41,8 @@ public class TournamentRepository : ITournamentRepository
     {
         var query = _db.Tournaments
             .Include(t => t.Participants)
+            .Include(t => t.GameTemplate)
+            .Include(t => t.Cafe)
             .Where(t => t.CafeId == cafeId);
 
         if (status.HasValue)
@@ -53,6 +59,8 @@ public class TournamentRepository : ITournamentRepository
     {
         return await _db.Tournaments
             .Include(t => t.Participants)
+            .Include(t => t.GameTemplate)
+            .Include(t => t.Cafe)
             .Where(t => t.Status == TournamentStatus.RegistrationOpen
                 && t.RegistrationDeadline > DateTime.UtcNow)
             .OrderBy(t => t.StartTime)
@@ -63,6 +71,7 @@ public class TournamentRepository : ITournamentRepository
     {
         return await _db.Tournaments
             .Include(t => t.Participants)
+            .Include(t => t.GameTemplate)
             .Where(t => t.Status == TournamentStatus.RegistrationOpen
                 && t.RegistrationDeadline <= cutoffTime)
             .ToListAsync();
@@ -74,6 +83,7 @@ public class TournamentRepository : ITournamentRepository
         return await _db.Tournaments
             .Include(t => t.Participants)
             .Include(t => t.Cafe)
+            .Include(t => t.GameTemplate)
             .Where(t => (t.Status == TournamentStatus.RegistrationOpen || t.Status == TournamentStatus.RegistrationClosed)
                 && t.StartTime > now
                 && t.StartTime <= windowEnd)
@@ -87,6 +97,7 @@ public class TournamentRepository : ITournamentRepository
         var windowStart = DateTime.UtcNow.AddMinutes(-5);
         return await _db.Tournaments
             .Include(t => t.Participants)
+            .Include(t => t.GameTemplate)
             .Where(t => t.Status == TournamentStatus.OnGoing
                 && t.CurrentRound == 1
                 && t.StartedAt.HasValue
@@ -98,6 +109,7 @@ public class TournamentRepository : ITournamentRepository
     {
         return await _db.Tournaments
             .Include(t => t.Participants)
+            .Include(t => t.GameTemplate)
             .Where(t => t.CafeId == cafeId
                 && t.Status == TournamentStatus.OnGoing)
             .OrderByDescending(t => t.CurrentRound)
@@ -127,6 +139,7 @@ public class TournamentRepository : ITournamentRepository
     {
         return await _db.TournamentParticipants
             .Include(p => p.User)
+                .ThenInclude(u => u.Profile)
             .FirstOrDefaultAsync(p => p.TournamentId == tournamentId && p.UserId == userId);
     }
 
@@ -134,6 +147,7 @@ public class TournamentRepository : ITournamentRepository
     {
         return await _db.TournamentParticipants
             .Include(p => p.User)
+                .ThenInclude(u => u.Profile)
             .FirstOrDefaultAsync(p => p.Id == participantId);
     }
 
@@ -141,6 +155,7 @@ public class TournamentRepository : ITournamentRepository
     {
         return await _db.TournamentParticipants
             .Include(p => p.User)
+                .ThenInclude(u => u.Profile)
             .Where(p => p.TournamentId == tournamentId)
             .OrderBy(p => p.RegisteredAt)
             .ToListAsync();
@@ -150,6 +165,7 @@ public class TournamentRepository : ITournamentRepository
     {
         return await _db.TournamentParticipants
             .Include(p => p.User)
+                .ThenInclude(u => u.Profile)
             .Where(p => p.TournamentId == tournamentId
                 && p.Status != TournamentParticipantStatus.Registered)
             .OrderBy(p => p.CheckedInAt)
@@ -254,6 +270,8 @@ public class TournamentRepository : ITournamentRepository
     public async Task<IReadOnlyList<TournamentParticipant>> GetParticipantsByUserAsync(Guid userId)
     {
         return await _db.TournamentParticipants
+            .Include(p => p.User)
+                .ThenInclude(u => u!.Profile)
             .Include(p => p.Tournament)
                 .ThenInclude(t => t!.GameTemplate)
             .Include(p => p.Tournament)
@@ -316,5 +334,65 @@ public class TournamentRepository : ITournamentRepository
         return grouped.ToDictionary(
             x => x.UserId,
             x => (x.TournamentsPlayed, x.Champions));
+    }
+
+    // === Admin: Full CRUD + Reports ===
+
+    public async Task<(IReadOnlyList<Tournament> Items, int TotalCount)> GetAdminListAsync(
+        int page, int pageSize, string? searchTerm, TournamentStatus? status, Guid? cafeId)
+    {
+        var query = _db.Tournaments
+            .Include(t => t.GameTemplate)
+            .Include(t => t.Cafe)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(searchTerm))
+        {
+            var term = searchTerm.Trim().ToLower();
+            query = query.Where(t =>
+                t.Title.ToLower().Contains(term) ||
+                (t.Description != null && t.Description.ToLower().Contains(term)));
+        }
+
+        if (status.HasValue)
+        {
+            query = query.Where(t => t.Status == status.Value);
+        }
+
+        if (cafeId.HasValue)
+        {
+            query = query.Where(t => t.CafeId == cafeId.Value);
+        }
+
+        var totalCount = await query.CountAsync();
+
+        var items = await query
+            .OrderByDescending(t => t.StartTime)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return (items, totalCount);
+    }
+
+    public async Task<Tournament?> GetAdminDetailAsync(Guid tournamentId)
+    {
+        return await _db.Tournaments
+            .Include(t => t.GameTemplate)
+            .Include(t => t.Cafe)
+            .Include(t => t.Participants)
+                .ThenInclude(p => p.User)
+            .Include(t => t.Matches)
+            .FirstOrDefaultAsync(t => t.Id == tournamentId);
+    }
+
+    public async Task<int> CountAllAsync()
+    {
+        return await _db.Tournaments.CountAsync();
+    }
+
+    public async Task<int> CountByStatusAsync(TournamentStatus status)
+    {
+        return await _db.Tournaments.CountAsync(t => t.Status == status);
     }
 }

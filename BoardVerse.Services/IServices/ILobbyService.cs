@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Lobby;
+using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Services.IServices
 {
@@ -22,29 +23,40 @@ namespace BoardVerse.Services.IServices
 
         /// <summary>
         /// BR-10: Tìm lobby public theo game + filter địa lý + karma.
+        /// BR-USER-LIMIT-02: Nếu userId != null và ExcludeSelfOverlapping = true, loại bỏ các lobby trùng lịch.
         /// </summary>
-        Task<IReadOnlyList<LobbyResponseDto>> SearchLobbiesAsync(SearchLobbiesRequestDto request);
+        Task<IReadOnlyList<LobbyResponseDto>> SearchLobbiesAsync(SearchLobbiesRequestDto request, Guid? requestingUserId = null);
 
         /// <summary>
         /// Lấy danh sách lobby public đang mở (status=Open, IsPrivate=false)
         /// để player khác có thể thấy và join. Hỗ trợ filter optional theo game và khu vực.
+        /// BR-USER-LIMIT-02: Nếu userId != null và ExcludeSelfOverlapping = true, loại bỏ các lobby trùng lịch.
         /// </summary>
         /// <param name="gameTemplateId">Optional: chỉ lấy lobby của game này.</param>
         /// <param name="latitude">Optional: latitude user để sort theo khoảng cách.</param>
         /// <param name="longitude">Optional: longitude user.</param>
         /// <param name="radiusKm">Optional: chỉ lấy lobby trong bán kính này (km).</param>
         /// <param name="limit">Số lobby tối đa trả về (default 50).</param>
+        /// <param name="requestingUserId">UserId để filter overlapping (BR-USER-LIMIT-02).</param>
         Task<IReadOnlyList<LobbyResponseDto>> GetDiscoverableLobbiesAsync(
             Guid? gameTemplateId,
             double? latitude,
             double? longitude,
             double? radiusKm,
-            int limit = 50);
+            int limit = 50,
+            Guid? requestingUserId = null);
 
         /// <summary>
         /// Host đóng lobby (Closed status). Có thể kèm lý do.
         /// </summary>
         Task<LobbyResponseDto> CloseLobbyAsync(Guid lobbyId, Guid hostUserId, string? reason = null);
+
+        /// <summary>
+        /// Host giải tán lobby — hard delete toàn bộ records (Lobby + Members + Messages + Invites + Reports).
+        /// Chỉ áp dụng khi lobby chưa check-in tại quán (status ≠ InProgress/Closed/RatingOpen).
+        /// Giải phóng reservation → Holding (nếu có) để host có thể tạo lobby mới cùng slot.
+        /// </summary>
+        Task<DissolveLobbyResponseDto> DissolveLobbyAsync(Guid lobbyId, Guid hostUserId, string? reason = null);
 
         Task<LobbyResponseDto> LockLobbyAsync(Guid lobbyId, Guid hostUserId);
         Task<LobbyResponseDto> OpenKarmaWindowAsync(Guid lobbyId, Guid hostUserId);
@@ -53,6 +65,23 @@ namespace BoardVerse.Services.IServices
 
         /// <summary>Host chuyển quyền host cho thành viên khác.</summary>
         Task<LobbyResponseDto> TransferHostAsync(Guid lobbyId, Guid currentHostUserId, Guid newHostUserId);
+
+        /// <summary>L-03: Host tạo mã chia sẻ mới, invalidate mã cũ.</summary>
+        Task<LobbyResponseDto> RegenerateShareCodeAsync(Guid lobbyId, Guid hostUserId);
+
+        /// <summary>
+        /// BR-NEW-14 (b): Host đổi timeSlot và/hoặc preferred times của lobby.
+        /// Chỉ áp dụng khi lobby chưa check-in (status = Open/Viable/Full/PendingCafeApproval).
+        /// Update cả Reservation.TimeSlot + Lobby.TimeSlot (mirror) + recalculate RecruitmentDeadline.
+        /// BR-RES-07/08/09: preferredStartTime/EndTime phải nằm trong slot range.
+        /// </summary>
+        Task<LobbyResponseDto> ChangeTimeSlotAsync(Guid lobbyId, Guid hostUserId, Core.DTOs.Lobby.ChangeTimeSlotRequestDto request);
+
+        /// <summary>
+        /// BR-NEW-14 (d): Boost lobby — tăng visibility trong search/discovery.
+        /// Chỉ áp dụng khi lobby đang Open và chưa được boost trong 6 giờ gần nhất.
+        /// </summary>
+        Task<LobbyResponseDto> BoostLobbyAsync(Guid lobbyId, Guid hostUserId);
 
         /// <summary>Host kick thành viên khác khỏi lobby.</summary>
         Task<LobbyResponseDto> KickMemberAsync(Guid lobbyId, Guid hostUserId, Guid targetUserId, string? reason = null);

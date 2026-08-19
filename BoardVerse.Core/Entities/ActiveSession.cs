@@ -50,8 +50,6 @@ namespace BoardVerse.Core.Entities
         /// <summary>Nội dung chuyển khoản ngẫu nhiên cho thanh toán SePay/VietQR.</summary>
         public string? TransferContent { get; set; }
 
-        /// <summary>BR-15: Tổng tiền phạt hao hụt linh kiện.</summary>
-
         // === State (Group Session) ===
         /// <summary>Trạng thái phiên chơi tổng. Theo MDC Section 4.1.</summary>
         public GroupSessionStatus Status { get; set; } = GroupSessionStatus.Active;
@@ -60,21 +58,40 @@ namespace BoardVerse.Core.Entities
         public DateTime StartedAt { get; set; }
         public DateTime? EndedAt { get; set; }
 
+        /// <summary>L-05: Phiên đang tạm dừng (timer không đếm).</summary>
+        public bool IsPaused { get; set; }
+
+        /// <summary>L-05: Thời điểm phiên bị tạm dừng.</summary>
+        public DateTime? PausedAt { get; set; }
+
         /// <summary>Tổng số phút đã chơi (tính đến thời điểm hiện tại hoặc EndedAt).</summary>
         public int TotalMinutesPlayed { get; set; }
 
         /// <summary>Tổng tiền giờ chơi.</summary>
         public decimal Subtotal { get; set; }
 
-        /// <summary>Số tiền deposit đã cấn trừ.</summary>
+        /// <summary>
+        /// Số tiền deposit đã cấn trừ.
+        /// Mô hình mới: Host đặt cọc, tiền đi vào tài khoản BoardVerse → luôn = 0.
+        /// Mỗi thành viên thanh toán 100% tiền giờ khi checkout.
+        /// </summary>
         public decimal DepositAppliedAmount { get; set; }
 
-        /// <summary>Tổng tiền cuối cùng (Subtotal - DepositAppliedAmount).</summary>
+        /// <summary>Tổng tiền cuối cùng (thường = Subtotal vì DepositAppliedAmount = 0).</summary>
         public decimal TotalAmount { get; set; }
+
+        /// <summary>
+        /// Tổng tiền phạt đền bù linh kiện mất/hỏng (surcharge_fine).
+        /// Tính khi return-game, cập nhật vào hóa đơn phiên chơi.
+        /// </summary>
+        public decimal SurchargeFine { get; set; }
 
         // === Audit ===
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? PaidAt { get; set; }
+
+        /// <summary>Last write timestamp. Used as concurrency token for optimistic concurrency on financial updates.</summary>
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
         // === Navigation ===
         public virtual Cafe Cafe { get; set; } = null!;

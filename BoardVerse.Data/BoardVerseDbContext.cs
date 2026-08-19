@@ -27,6 +27,7 @@ namespace BoardVerse.Data
         public DbSet<ActiveSession> ActiveSessions => Set<ActiveSession>();
         public DbSet<ActiveSessionMember> ActiveSessionMembers => Set<ActiveSessionMember>();
         public DbSet<ActiveSessionGame> ActiveSessionGames => Set<ActiveSessionGame>();
+        public DbSet<ComponentCheckResult> ComponentCheckResults => Set<ComponentCheckResult>();
         public DbSet<Lobby> Lobbies => Set<Lobby>();
         public DbSet<LobbyMember> LobbyMembers => Set<LobbyMember>();
         public DbSet<PlayerKarmaRating> PlayerKarmaRatings => Set<PlayerKarmaRating>();
@@ -35,7 +36,6 @@ namespace BoardVerse.Data
         public DbSet<MatchHistoryParticipant> MatchHistoryParticipants => Set<MatchHistoryParticipant>();
         public DbSet<KarmaLog> KarmaLogs => Set<KarmaLog>();
         public DbSet<SystemConfiguration> SystemConfigurations => Set<SystemConfiguration>();
-        public DbSet<PaymentMasterAccount> PaymentMasterAccounts => Set<PaymentMasterAccount>();
         public DbSet<SePayAccount> SePayAccounts => Set<SePayAccount>();
         public DbSet<BookingDeposit> BookingDeposits => Set<BookingDeposit>();
         public DbSet<Booking> Bookings => Set<Booking>();
@@ -52,8 +52,60 @@ namespace BoardVerse.Data
         public DbSet<FriendReport> FriendReports => Set<FriendReport>();
         public DbSet<LobbyMessage> LobbyMessages => Set<LobbyMessage>();
         public DbSet<LobbyReport> LobbyReports => Set<LobbyReport>();
+        public DbSet<BookingNoShowVote> BookingNoShowVotes => Set<BookingNoShowVote>();
+        public DbSet<BookingRating> BookingRatings => Set<BookingRating>();
+        public DbSet<KarmaShortPlayRecord> KarmaShortPlayRecords => Set<KarmaShortPlayRecord>();
+        public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
+        public DbSet<Wallet> Wallets => Set<Wallet>();
+        public DbSet<BvcLedgerEntry> BvcLedgerEntries => Set<BvcLedgerEntry>();
+        public DbSet<BvcTopUpRequest> BvcTopUpRequests => Set<BvcTopUpRequest>();
+        public DbSet<BvcRefundRequest> BvcRefundRequests => Set<BvcRefundRequest>();
+        public DbSet<PlayerActionHistory> PlayerActionHistories => Set<PlayerActionHistory>();
+        public DbSet<PlayerAlert> PlayerAlerts => Set<PlayerAlert>();
+        public DbSet<PlayerRiskScore> PlayerRiskScores => Set<PlayerRiskScore>();
+        public DbSet<RiskScoreHistory> RiskScoreHistories => Set<RiskScoreHistory>();
 
-    public BoardVerseDbContext(DbContextOptions<BoardVerseDbContext> options) : base(options)
+        // GAP-10 Fix: Audit table cho mọi SePay webhook.
+        public DbSet<PaymentWebhookAudit> PaymentWebhookAudits => Set<PaymentWebhookAudit>();
+
+        // BR-REFUND-01..07 (docs/time-slot-fixed-end-design (1).md §9.4)
+        public DbSet<RefundTransaction> RefundTransactions => Set<RefundTransaction>();
+
+        // ===== BR-NEW-* §19: Reservation flow =====
+        public DbSet<Reservation> Reservations => Set<Reservation>();
+        public DbSet<SeatInventory> SeatInventories => Set<SeatInventory>();
+        public DbSet<GameInventory> GameInventories => Set<GameInventory>();
+        public DbSet<CafeConfig> CafeConfigs => Set<CafeConfig>();
+
+        // §9.3 + §9.4: Walk-in Window + WalkInBooking (Phase 2)
+        public DbSet<WalkInWindow> WalkInWindows => Set<WalkInWindow>();
+        public DbSet<WalkInBooking> WalkInBookings => Set<WalkInBooking>();
+
+        // BR-NEW-15: Cafe override lịch mặc định của TimeSlot (đóng slot, đổi giờ).
+        public DbSet<CafeScheduleOverride> CafeScheduleOverrides => Set<CafeScheduleOverride>();
+
+        // BR-REQUIRED §17.5: Transactional Outbox.
+        public DbSet<OutboxEvent> OutboxEvents => Set<OutboxEvent>();
+
+        // POS QR 2-chiều check-in (BR §21A.7)
+        public DbSet<PosCheckInToken> PosCheckInTokens => Set<PosCheckInToken>();
+
+        // T-03: Tournament waitlist
+        public DbSet<TournamentWaitlist> TournamentWaitlists => Set<TournamentWaitlist>();
+
+        // T-04: Tournament spectator
+        public DbSet<TournamentSpectator> TournamentSpectators => Set<TournamentSpectator>();
+
+        // N-01: Lobby milestone notification tracking (BR-NEW-13)
+        public DbSet<LobbyNotificationSent> LobbyNotificationSents => Set<LobbyNotificationSent>();
+
+        // N-02: Lobby at-risk warning tracking (BR-NEW-14)
+        public DbSet<LobbyAtRiskWarning> LobbyAtRiskWarnings => Set<LobbyAtRiskWarning>();
+
+        // P-03: Shift management
+        public DbSet<CafeShift> CafeShifts => Set<CafeShift>();
+
+        public BoardVerseDbContext(DbContextOptions<BoardVerseDbContext> options) : base(options)
     {
     }
 

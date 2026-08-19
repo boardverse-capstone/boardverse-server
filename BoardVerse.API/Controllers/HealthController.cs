@@ -1,11 +1,13 @@
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BoardVerse.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [AllowAnonymous] // Bắt buộc để FallbackPolicy ở Program.cs không chặn health endpoint (R-Bug-031).
     public class HealthController : BaseApiController
     {
         private readonly IHealthService _healthService;

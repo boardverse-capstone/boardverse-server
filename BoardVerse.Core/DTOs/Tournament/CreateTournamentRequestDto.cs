@@ -48,11 +48,19 @@ public class CreateTournamentRequestDto
     public int MaxEloRequirement { get; set; } = 2400;
 
     /// <summary>
-    /// Phạt Karma khi không đến tham dự (no-show). Range -100 → 0. Default -10 (theo <see cref="BoardVerse.Core.Helpers.TournamentKarmaPolicy.NoShowPenalty"/>).
+    /// Phạt Karma khi không đến tham dự (no-show). Range -100 → 0.
+    /// <para>
+    /// <c>int?</c> để phân biệt 3 trường hợp:
+    /// <list type="bullet">
+    ///   <item><c>null</c> → client KHÔNG gửi field → dùng default <see cref="BoardVerse.Core.Helpers.TournamentKarmaPolicy.NoShowPenalty"/> (-10).</item>
+    ///   <item><c>0</c> → client gửi rõ "không phạt" → lưu 0.</item>
+    ///   <item><c>-50</c> → client gửi rõ "-50" → lưu -50.</item>
+    /// </list>
+    /// </para>
     /// Winner/Finalist bonus do hệ thống tự tính (không nhập tay) theo rank.
     /// </summary>
     [Range(-100, 0)]
-    public int NoShowKarmaPenalty { get; set; } = TournamentKarmaPolicy.NoShowPenalty;
+    public int? NoShowKarmaPenalty { get; set; }
 
     /// <summary>Pairing mode: Auto (mặc định) hoặc Manual. Manager có thể đổi sau qua /pairing-mode endpoint.</summary>
     public TournamentPairingMode PairingMode { get; set; } = TournamentPairingMode.Auto;
@@ -63,4 +71,10 @@ public class CreateTournamentRequestDto
     /// </summary>
     [Range(2, 32)]
     public int? MinParticipants { get; set; }
+
+    /// <summary>
+    /// T-02: Có trận tranh hạng 3 hay không. Mặc định false.
+    /// Khi FinalistCount >= 4, organizer có thể bật để tạo thêm match cho hạng 3.
+    /// </summary>
+    public bool HasThirdPlaceMatch { get; set; } = false;
 }

@@ -9,13 +9,27 @@ namespace BoardVerse.Core.Entities
 
         // --- Gamer Identity ---
         public string? AvatarUrl { get; set; }
-
         public string? AvatarBorderUrl { get; set; }
+
+        /// <summary>K-05: Cover photo for player profile page.</summary>
+        public string? CoverPhotoUrl { get; set; }
+
+        /// <summary>K-05: JSON array of favorite game template IDs.</summary>
+        public string? FavoriteGamesJson { get; set; }
+
+        /// <summary>K-05: Preferred play mode.</summary>
+        public PlayerPlayMode PreferredPlayMode { get; set; } = PlayerPlayMode.Group;
 
         public string? Bio { get; set; }
 
         public int KarmaPoints { get; set; } = 100;
         public GamerTier GamerTier { get; set; } = GamerTier.Bronze;
+
+        // BR-KARMA-02: Last warning sent timestamp (for throttling).
+        public DateTime? LastWarningAt { get; set; }
+
+        // BR-KARMA-03: User restricted from short slots (< 4h) until this timestamp.
+        public DateTime? KarmaRestrictedUntil { get; set; }
 
         public int GlobalElo { get; set; } = 1200;
 
@@ -34,6 +48,15 @@ namespace BoardVerse.Core.Entities
         public double? LastKnownLongitude { get; set; }
         public DateTime? LastLocationUpdatedAt { get; set; }
         public PlayerLocationSource? LastLocationSource { get; set; }
+
+        // ====== Reverse-geocode cache (Nominatim) ======
+        // Persist label lần cuối đã resolve để GET /me/location trả ngay không cần lookup lại.
+        // Background job sẽ refresh khi LastLocationUpdatedAt > LastResolvedAt + 30 ngày (BR-NEW-* UX).
+        public string? LastResolvedDistrict { get; set; }
+        public string? LastResolvedCity { get; set; }
+        public string? LastResolvedCountry { get; set; }
+        public string? LastResolvedDisplayName { get; set; }
+        public DateTime? LastResolvedAt { get; set; }
 
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
         /// <summary>

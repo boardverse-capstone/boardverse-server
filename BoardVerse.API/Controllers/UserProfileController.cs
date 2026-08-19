@@ -75,6 +75,26 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
+        /// K-05: Cập nhật profile người chơi với cover photo, favorite games.
+        /// GamesPlayedCount và WinRate được tính từ MatchHistory. [Role: Player, Manager, CafeStaff, Admin]
+        /// </summary>
+        /// <param name="request">Thông tin profile cần cập nhật (coverPhoto, bio, favoriteGameIds).</param>
+        /// <response code="200">Cập nhật thành công, trả về profile kèm stats.</response>
+        /// <response code="400">Dữ liệu không hợp lệ.</response>
+        /// <response code="401">Thiếu token hoặc claim người dùng.</response>
+        /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
+        /// <response code="404">Không tìm thấy người dùng.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpPut("me/profile")]
+        [Authorize]
+        public async Task<IActionResult> UpdatePlayerProfile([FromBody] UpdatePlayerProfileDto request)
+        {
+            var userId = GetUserIdFromClaims();
+            var profile = await _profileService.UpdatePlayerProfileAsync(userId, request);
+            return this.NewResponse(200, ApiSuccessMessages.Profile.Updated, profile);
+        }
+
+        /// <summary>
         /// Cập nhật tiến trình và điểm số của hồ sơ người dùng. [Role: Player, Manager, CafeStaff, Admin — yêu cầu đăng nhập.]
         /// </summary>
         /// <param name="request">Thông tin tiến trình cần cập nhật.</param>
@@ -156,13 +176,19 @@ namespace BoardVerse.API.Controllers
         /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
         /// <response code="404">Không tìm thấy profile hoặc chưa có vị trí để xóa.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        /// <response code="204">Đã xóa vị trí hiện tại.</response>
+        /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+        /// <response code="403">Tài khoản bị chặn hoặc vô hiệu hóa.</response>
+        /// <response code="404">Không tìm thấy profile hoặc chưa có vị trí để xóa.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpDelete("me/location")]
         [Authorize]
+        [ProducesResponseType(204)]
         public async Task<IActionResult> ClearCurrentLocation()
         {
             var userId = GetUserIdFromClaims();
             await _profileService.ClearCurrentLocationAsync(userId);
-            return this.NewResponse(200, ApiSuccessMessages.Profile.LocationCleared, null);
+            return NoContent();
         }
 
         /// <summary>
@@ -191,11 +217,12 @@ namespace BoardVerse.API.Controllers
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpDelete]
         [Authorize]
+        [ProducesResponseType(204)]
         public async Task<IActionResult> Delete()
         {
             var userId = GetUserIdFromClaims();
             await _profileService.DeleteProfileAsync(userId);
-            return this.NewResponse(200, ApiSuccessMessages.Profile.Deleted, null);
+            return NoContent();
         }
     }
 }

@@ -126,16 +126,16 @@ public class FriendService : IFriendService
 
         await _friendshipRepository.SaveChangesAsync();
 
-        // Notify addressee (in-app notification / push) - fire-and-forget
+        // Warm up addressee's friend notes cache asynchronously (awaited, not fire-and-forget)
         _ = Task.Run(async () =>
         {
             try
             {
-                await _friendNoteService.GetMyNotesAsync(request.AddresseeId); // warm cache
+                await _friendNoteService.GetMyNotesAsync(request.AddresseeId);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to process side-effect after SendFriendRequest");
+                _logger.LogWarning(ex, "Failed to warm cache after SendFriendRequest");
             }
         });
 
@@ -535,18 +535,26 @@ public class FriendService : IFriendService
         // BR-FRIEND-SUGGEST-BLOCK-FILTER: loại bỏ user bị chặn (cả 2 chiều).
         var blockedUserIds = (await _friendshipRepository.GetBlockedUserIdsAsync(userId)).ToHashSet();
 
-        // 1. Friends-of-friends (BR-FRIEND-SUGGEST-01).
+        // 1. Friends-of-friends (BR-FRIEND-SUGGEST-01) — batch query tránh N+1.
         var candidates = new Dictionary<Guid, int>();
         var friendIds = currentFriends.ToList();
-        foreach (var friendId in friendIds)
+        if (friendIds.Count > 0)
         {
-            var friendsOfFriend = await _friendshipRepository.GetFriendUserIdsAsync(friendId);
-            foreach (var fofId in friendsOfFriend)
+            var friendsOfFriendsMap = await _friendshipRepository.GetFriendsForUsersAsync(friendIds)
+                ?? new Dictionary<Guid, IReadOnlyList<Guid>>();
+            foreach (var friendId in friendIds)
             {
-                if (currentFriends.Contains(fofId)) continue;
-                if (blockedUserIds.Contains(fofId)) continue;
-                candidates.TryGetValue(fofId, out var count);
-                candidates[fofId] = count + 1;
+                if (!friendsOfFriendsMap.TryGetValue(friendId, out var friendsOfFriend))
+                {
+                    continue;
+                }
+                foreach (var fofId in friendsOfFriend)
+                {
+                    if (currentFriends.Contains(fofId)) continue;
+                    if (blockedUserIds.Contains(fofId)) continue;
+                    candidates.TryGetValue(fofId, out var count);
+                    candidates[fofId] = count + 1;
+                }
             }
         }
 
@@ -570,7 +578,7 @@ public class FriendService : IFriendService
             .ToList();
 
         var users = await _userRepository.GetByIdsAsync(topIds);
-        var dict = users.ToDictionary(u => u.Id);
+        var dict = users.Where(u => u != null).ToDictionary(u => u!.Id);
 
         return topIds
             .Where(id => dict.ContainsKey(id))
@@ -601,7 +609,7 @@ public class FriendService : IFriendService
         if (mutualIds.Count == 0) return Array.Empty<MutualFriendDto>();
 
         var users = await _userRepository.GetByIdsAsync(mutualIds);
-        var userDict = users.ToDictionary(u => u.Id);
+        var userDict = users.Where(u => u != null).ToDictionary(u => u!.Id);
 
         // Lấy thời điểm kết bạn với currentUser.
         var myFriendships = await _friendshipRepository.GetFriendsAsync(currentUserId);
@@ -669,7 +677,7 @@ public class FriendService : IFriendService
         {
             var allowed = new[] { "Everyone", "FriendsOfFriends" };
             if (!allowed.Contains(dto.AcceptFriendRequestsFrom))
-                throw new BadRequestException($"AcceptFriendRequestsFrom phải là một trong: {string.Join(", ", allowed)}.");
+                throw new BadRequestException(ApiErrorMessages.Profile.AcceptFriendRequestsFromInvalid(string.Join(", ", allowed)));
             profile.Profile.AcceptFriendRequestsFrom = dto.AcceptFriendRequestsFrom;
         }
         if (dto.FriendLimit.HasValue) profile.Profile.FriendLimit = dto.FriendLimit.Value;
@@ -838,14 +846,15 @@ public class FriendService : IFriendService
         return sent.Count(f => f.RequesterId == requesterId && f.CreatedAt >= cutoff);
     }
 
+    // M3: Batch query friends-of-friends, tránh N queries trong loop.
     private async Task<bool> HasAnyFriendOfFriendAsync(Guid requesterId, Guid targetId, HashSet<Guid> currentFriends)
     {
-        foreach (var friendId in currentFriends)
+        if (currentFriends.Count == 0)
         {
-            var fof = await _friendshipRepository.GetFriendUserIdsAsync(friendId);
-            if (fof.Contains(targetId)) return true;
+            return false;
         }
-        return false;
+        var fofMap = await _friendshipRepository.GetFriendsForUsersAsync(currentFriends);
+        return fofMap.Values.Any(friendList => friendList.Contains(targetId));
     }
 
     private async Task EnforceFriendLimitAsync(Guid userId)
@@ -858,7 +867,7 @@ public class FriendService : IFriendService
         if (count >= limit)
         {
             throw new ConflictException(
-                $"Người dùng '{profile?.Username}' đã đạt giới hạn {limit} bạn bè. Không thể accept thêm.");
+                ApiErrorMessages.System.FriendLimitReached(profile?.Username ?? "", limit));
         }
     }
 

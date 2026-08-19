@@ -63,6 +63,9 @@ public class TournamentMatchResponseDto
     public int MatchNumber { get; set; }
     public bool IsFinal { get; set; }
 
+    /// <summary>T-02: Loại bàn đấu: Swiss / Final / ThirdPlaceMatch.</summary>
+    public Core.Enum.MatchType MatchType { get; set; }
+
     public Guid? Player1Id { get; set; }
     public Guid? Player2Id { get; set; }
     public Guid? Player3Id { get; set; }

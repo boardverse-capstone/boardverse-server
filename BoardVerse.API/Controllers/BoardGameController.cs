@@ -2,12 +2,14 @@ using BoardVerse.Core.DTOs.Game;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BoardVerse.API.Controllers
 {
     [ApiController]
     [Route("api/v1/board-games")]
+    [AllowAnonymous] // Toàn bộ endpoint là public (categories, search, detail, play-config).
     public class BoardGameController : BaseApiController
     {
         private readonly IBoardGameService _boardGameService;

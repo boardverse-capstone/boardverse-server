@@ -16,5 +16,11 @@ public enum GroupSessionStatus
     Unpaid = 2,
 
     /// <summary>Thanh toán xong. Giải phóng ghế, trigger Karma rating.</summary>
-    Paid = 3
+    Paid = 3,
+
+    /// <summary>
+    /// BR-END-05: Auto-release khi staff quên end session.
+    /// Grace 30 phút sau ScheduledEndTime → auto-release.
+    /// </summary>
+    Closed = 4
 }

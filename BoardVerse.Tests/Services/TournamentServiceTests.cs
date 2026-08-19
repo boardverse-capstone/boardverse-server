@@ -34,11 +34,14 @@ public class TournamentServiceTests
     private static readonly Guid SplendorId = Guid.Parse("aaaa8888-8888-8888-8888-888888888888");
 
     private static Mock<ITournamentRepository> BuildTournamentRepo() => new(MockBehavior.Strict);
+    private static Mock<ITournamentWaitlistRepository> BuildWaitlistRepo() => new(MockBehavior.Strict);
     private static Mock<IGameTemplateRepository> BuildGameRepo() => new(MockBehavior.Strict);
     private static Mock<ICafePosRepository> BuildCafeRepo() => new(MockBehavior.Strict);
+    private static Mock<ICafeRepository> BuildCafeEntityRepo() => new(MockBehavior.Strict);
     private static Mock<IUserProfileRepository> BuildUserRepo() => new(MockBehavior.Strict);
     private static Mock<ISystemConfigurationProvider> BuildConfigRepo() => new(MockBehavior.Strict);
     private static Mock<IKarmaRatingRepository> BuildKarmaRepo() => new(MockBehavior.Strict);
+    private static Mock<IPushNotificationService> BuildPushService() => new(MockBehavior.Loose);
     private static Mock<ILogger<TournamentService>> BuildLogger() => new(MockBehavior.Loose);
 
     private static TournamentService BuildService(
@@ -48,8 +51,9 @@ public class TournamentServiceTests
         Mock<IUserProfileRepository> userRepo,
         Mock<ISystemConfigurationProvider> configRepo,
         Mock<IKarmaRatingRepository> karmaRepo)
-        => new(tournamentRepo.Object, gameRepo.Object, cafeRepo.Object,
-               userRepo.Object, configRepo.Object, karmaRepo.Object, BuildLogger().Object);
+        => new(tournamentRepo.Object, BuildWaitlistRepo().Object, gameRepo.Object, cafeRepo.Object,
+               BuildCafeEntityRepo().Object, userRepo.Object, configRepo.Object, karmaRepo.Object,
+               BuildPushService().Object, BuildLogger().Object);
 
     // ============================================
     // === Tournament lifecycle (Manager POS) ===
@@ -142,6 +146,145 @@ public class TournamentServiceTests
         // Act & Assert
         await Assert.ThrowsAsync<ConfigurationMissingException>(
             () => svc.CreateTournamentAsync(ManagerId, CafeId, ValidCreateRequest()));
+    }
+
+    // ============================================
+    // === Karma Policy Edge Cases — NoShowKarmaPenalty ===
+    // ============================================
+
+    [Fact]
+    public async Task CreateTournamentAsync_NoShowKarmaPenaltyZero_PersistsZeroNotDefault()
+    {
+        // Phát hiện bug: client gửi noShowKarmaPenalty = 0 nhưng response trả về -10 (default C#).
+        // Nếu test này PASS → bug nằm ở middleware/JSON binding, không phải logic service.
+        // Nếu test này FAIL → bug ở TournamentService.
+        var tournamentRepo = BuildTournamentRepo();
+        var gameRepo = BuildGameRepo();
+        var cafeRepo = BuildCafeRepo();
+        var userRepo = BuildUserRepo();
+        var configRepo = BuildConfigRepo();
+        var karmaRepo = BuildKarmaRepo();
+
+        var splendor = new GameTemplate
+        {
+            Id = SplendorId,
+            Name = "Splendor",
+            IsActive = true,
+            IsTournamentSupported = true,
+            TournamentMaxScorePerPlayer = 15,
+            TournamentMinPlayersPerTable = 2
+        };
+        gameRepo.Setup(r => r.GetByNameAsync("Splendor")).ReturnsAsync(splendor);
+        gameRepo.Setup(r => r.GetByIdAsync(SplendorId)).ReturnsAsync(splendor);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
+
+        // Capture tournament khi AddAsync được gọi để verify ClampPenalty.
+        Tournament? capturedTournament = null;
+        tournamentRepo.Setup(r => r.AddAsync(It.IsAny<Tournament>()))
+            .Callback<Tournament>(t => capturedTournament = t)
+            .Returns(Task.CompletedTask);
+        tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+
+        // BuildResponseAsync lấy từ GetByIdWithDetailsAsync — tạo entity tươi NoShowKarmaPenalty = 0.
+        var responseEntity = BuildRegistrationOpenTournament();
+        responseEntity.NoShowKarmaPenalty = 0; // explicit
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>()))
+            .ReturnsAsync(responseEntity);
+
+        var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
+
+        // Act
+        var req = ValidCreateRequest();
+        req.NoShowKarmaPenalty = 0;
+        var result = await svc.CreateTournamentAsync(ManagerId, CafeId, req);
+
+        // Debug: in ra để xem capturedTournament
+        var capturedPenalty = capturedTournament?.NoShowKarmaPenalty ?? int.MinValue;
+        Assert.NotNull(capturedTournament);
+        Assert.Equal(0, capturedPenalty); // captured từ AddAsync phải = 0
+        Assert.Equal(0, result.NoShowKarmaPenalty); // response = 0
+    }
+
+    [Fact]
+    public async Task CreateTournamentAsync_NoShowKarmaPenaltyNotSet_UsesDefaultMinus10()
+    {
+        // Khi client không gửi field, default C# auto-property = -10 (TournamentKarmaPolicy.NoShowPenalty).
+        var tournamentRepo = BuildTournamentRepo();
+        var gameRepo = BuildGameRepo();
+        var cafeRepo = BuildCafeRepo();
+        var userRepo = BuildUserRepo();
+        var configRepo = BuildConfigRepo();
+        var karmaRepo = BuildKarmaRepo();
+
+        var splendor = new GameTemplate
+        {
+            Id = SplendorId,
+            Name = "Splendor",
+            IsActive = true,
+            IsTournamentSupported = true,
+            TournamentMaxScorePerPlayer = 15,
+            TournamentMinPlayersPerTable = 2
+        };
+        gameRepo.Setup(r => r.GetByNameAsync("Splendor")).ReturnsAsync(splendor);
+        gameRepo.Setup(r => r.GetByIdAsync(SplendorId)).ReturnsAsync(splendor);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.AddAsync(It.IsAny<Tournament>())).Returns(Task.CompletedTask);
+        tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>()))
+            .ReturnsAsync(BuildRegistrationOpenTournament());
+
+        var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
+
+        // Act: không set NoShowKarmaPenalty, để C# default = -10
+        var req = ValidCreateRequest();
+        req.NoShowKarmaPenalty = TournamentKarmaPolicy.NoShowPenalty; // = -10
+        var result = await svc.CreateTournamentAsync(ManagerId, CafeId, req);
+
+        // Assert: phải lưu đúng -10
+        Assert.NotNull(result);
+        Assert.Equal(-10, result.NoShowKarmaPenalty);
+    }
+
+    [Fact]
+    public async Task CreateTournamentAsync_NoShowKarmaPenaltyNegative50_ClampedCorrectly()
+    {
+        // Edge case: penalty ngoài khoảng [-100, 0] → clamp.
+        var tournamentRepo = BuildTournamentRepo();
+        var gameRepo = BuildGameRepo();
+        var cafeRepo = BuildCafeRepo();
+        var userRepo = BuildUserRepo();
+        var configRepo = BuildConfigRepo();
+        var karmaRepo = BuildKarmaRepo();
+
+        var splendor = new GameTemplate
+        {
+            Id = SplendorId,
+            Name = "Splendor",
+            IsActive = true,
+            IsTournamentSupported = true,
+            TournamentMaxScorePerPlayer = 15,
+            TournamentMinPlayersPerTable = 2
+        };
+        gameRepo.Setup(r => r.GetByNameAsync("Splendor")).ReturnsAsync(splendor);
+        gameRepo.Setup(r => r.GetByIdAsync(SplendorId)).ReturnsAsync(splendor);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.AddAsync(It.IsAny<Tournament>())).Returns(Task.CompletedTask);
+        tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        var responseEntity = BuildRegistrationOpenTournament();
+        responseEntity.NoShowKarmaPenalty = -50; // reflect request after clamping
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>()))
+            .ReturnsAsync(responseEntity);
+
+        var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
+
+        // Act
+        var req = ValidCreateRequest();
+        req.NoShowKarmaPenalty = -50;
+        var result = await svc.CreateTournamentAsync(ManagerId, CafeId, req);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(-50, result.NoShowKarmaPenalty);
     }
 
     [Fact]

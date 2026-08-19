@@ -1,3 +1,4 @@
+using BoardVerse.Core.Constants;
 using BoardVerse.Core.DTOs.LobbyInvite;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
@@ -83,6 +84,25 @@ public class LobbyInviteServiceTests
 
         await Assert.ThrowsAsync<ForbiddenException>(() =>
             svc.SendInviteAsync(lobbyId, Guid.NewGuid(), new SendLobbyInviteRequestDto { InviteeId = Guid.NewGuid() }));
+    }
+
+    [Fact]
+    public async Task SendInviteAsync_WhenLobbyPendingActivation_ThrowsConflict()
+    {
+        // Regression: BR-REQUIRED §17.4 + §21A.3 — ConfirmAsync phải promote lobby
+        // từ PendingActivation sang Open trong cùng transaction.
+        // Nếu lobby bị stuck ở PendingActivation (như bug production gặp ngày 2026-08-05),
+        // SendInviteAsync phải reject với 409 để tránh silently accepting invalid state.
+        var lobbyId = Guid.NewGuid();
+        var inviterId = Guid.NewGuid();
+        var lobby = BuildLobby(lobbyId, status: LobbyStatus.PendingActivation);
+        lobby.Members.Add(BuildMember(inviterId, isHost: true));
+        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+
+        var svc = CreateService();
+
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            svc.SendInviteAsync(lobbyId, inviterId, new SendLobbyInviteRequestDto { InviteeId = Guid.NewGuid() }));
     }
 
     [Fact]
@@ -224,6 +244,124 @@ public class LobbyInviteServiceTests
         var result = await svc.SendInviteAsync(lobbyId, inviterId, new SendLobbyInviteRequestDto { InviteeId = inviteeId });
 
         Assert.Equal(LobbyInviteStatus.Pending.ToString(), result.Status);
+    }
+
+    #endregion
+
+    #region BR-LOBBY-INVITE-10 Rate Limit (K-03)
+
+    /// <summary>
+    /// Helper setup: lobby public + no friendship + no pending invite + return captured LobbyInvite.
+    /// </summary>
+    private void SetupHappyPathInvites(Guid lobbyId, Guid inviterId, Guid inviteeId)
+    {
+        var lobby = BuildLobby(lobbyId);
+        lobby.Members.Add(BuildMember(inviterId, isHost: true));
+        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(inviterId, inviteeId)).ReturnsAsync((Friendship?)null);
+        _inviteRepo.Setup(r => r.GetPendingInviteAsync(lobbyId, inviteeId)).ReturnsAsync((LobbyInvite?)null);
+        _inviteRepo.Setup(r => r.AddAsync(It.IsAny<LobbyInvite>())).Returns(Task.CompletedTask);
+    }
+
+    [Fact]
+    public async Task SendInviteAsync_WhenInviterSentUnderLimit_Succeeds()
+    {
+        // BR-LOBBY-INVITE-10: 30 invite gửi / user / ngày. Dưới limit → pass.
+        var lobbyId = Guid.NewGuid();
+        var inviterId = Guid.NewGuid();
+        var inviteeId = Guid.NewGuid();
+        SetupHappyPathInvites(lobbyId, inviterId, inviteeId);
+        _inviteRepo.Setup(r => r.CountSentByInviterSinceAsync(inviterId, It.IsAny<DateTime>()))
+            .ReturnsAsync(LobbyInviteLimits.MaxSentPerUserPerDay - 1);
+        _inviteRepo.Setup(r => r.CountPendingByInviteeSinceAsync(inviteeId, It.IsAny<DateTime>()))
+            .ReturnsAsync(0);
+
+        var svc = CreateService();
+        var result = await svc.SendInviteAsync(lobbyId, inviterId, new SendLobbyInviteRequestDto { InviteeId = inviteeId });
+
+        Assert.Equal(LobbyInviteStatus.Pending.ToString(), result.Status);
+        _inviteRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task SendInviteAsync_WhenInviterSentAtLimit_ThrowsConflict()
+    {
+        // BR-LOBBY-INVITE-10: 30 invite gửi / user / ngày. Đạt limit → 409 InviteRateLimitExceeded.
+        var lobbyId = Guid.NewGuid();
+        var inviterId = Guid.NewGuid();
+        var inviteeId = Guid.NewGuid();
+        SetupHappyPathInvites(lobbyId, inviterId, inviteeId);
+        _inviteRepo.Setup(r => r.CountSentByInviterSinceAsync(inviterId, It.IsAny<DateTime>()))
+            .ReturnsAsync(LobbyInviteLimits.MaxSentPerUserPerDay);
+
+        var svc = CreateService();
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(() =>
+            svc.SendInviteAsync(lobbyId, inviterId, new SendLobbyInviteRequestDto { InviteeId = inviteeId }));
+        Assert.Contains("lời mời", ex.Message, StringComparison.OrdinalIgnoreCase);
+        _inviteRepo.Verify(r => r.AddAsync(It.IsAny<LobbyInvite>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SendInviteAsync_WhenInviteePendingAtLimit_ThrowsConflict()
+    {
+        // BR-LOBBY-INVITE-10: 20 invite Pending nhận / user / ngày. Đạt limit → 409.
+        // Quan trọng: check này chạy SAU check sent limit, nên setup sent=0.
+        var lobbyId = Guid.NewGuid();
+        var inviterId = Guid.NewGuid();
+        var inviteeId = Guid.NewGuid();
+        SetupHappyPathInvites(lobbyId, inviterId, inviteeId);
+        _inviteRepo.Setup(r => r.CountSentByInviterSinceAsync(inviterId, It.IsAny<DateTime>()))
+            .ReturnsAsync(0);
+        _inviteRepo.Setup(r => r.CountPendingByInviteeSinceAsync(inviteeId, It.IsAny<DateTime>()))
+            .ReturnsAsync(LobbyInviteLimits.MaxReceivedPerUserPerDay);
+
+        var svc = CreateService();
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(() =>
+            svc.SendInviteAsync(lobbyId, inviterId, new SendLobbyInviteRequestDto { InviteeId = inviteeId }));
+        Assert.Contains("lời mời", ex.Message, StringComparison.OrdinalIgnoreCase);
+        _inviteRepo.Verify(r => r.AddAsync(It.IsAny<LobbyInvite>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SendInviteAsync_WhenInviteePendingUnderLimit_Succeeds()
+    {
+        // BR-LOBBY-INVITE-10: 20 invite Pending nhận / user / ngày. Dưới limit → pass.
+        var lobbyId = Guid.NewGuid();
+        var inviterId = Guid.NewGuid();
+        var inviteeId = Guid.NewGuid();
+        SetupHappyPathInvites(lobbyId, inviterId, inviteeId);
+        _inviteRepo.Setup(r => r.CountSentByInviterSinceAsync(inviterId, It.IsAny<DateTime>()))
+            .ReturnsAsync(0);
+        _inviteRepo.Setup(r => r.CountPendingByInviteeSinceAsync(inviteeId, It.IsAny<DateTime>()))
+            .ReturnsAsync(LobbyInviteLimits.MaxReceivedPerUserPerDay - 1);
+
+        var svc = CreateService();
+        var result = await svc.SendInviteAsync(lobbyId, inviterId, new SendLobbyInviteRequestDto { InviteeId = inviteeId });
+
+        Assert.Equal(LobbyInviteStatus.Pending.ToString(), result.Status);
+    }
+
+    [Fact]
+    public async Task SendInviteAsync_SentLimitCheckedBeforeReceiveLimit()
+    {
+        // BR-LOBBY-INVITE-10: Inviter sent at limit check chạy TRƯỚC receive limit.
+        // Nếu cả 2 cùng đạt limit, throw về sent limit (short-circuit).
+        var lobbyId = Guid.NewGuid();
+        var inviterId = Guid.NewGuid();
+        var inviteeId = Guid.NewGuid();
+        SetupHappyPathInvites(lobbyId, inviterId, inviteeId);
+        _inviteRepo.Setup(r => r.CountSentByInviterSinceAsync(inviterId, It.IsAny<DateTime>()))
+            .ReturnsAsync(LobbyInviteLimits.MaxSentPerUserPerDay);
+        _inviteRepo.Setup(r => r.CountPendingByInviteeSinceAsync(inviteeId, It.IsAny<DateTime>()))
+            .ReturnsAsync(LobbyInviteLimits.MaxReceivedPerUserPerDay);
+
+        var svc = CreateService();
+
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            svc.SendInviteAsync(lobbyId, inviterId, new SendLobbyInviteRequestDto { InviteeId = inviteeId }));
+        _inviteRepo.Verify(r => r.CountPendingByInviteeSinceAsync(It.IsAny<Guid>(), It.IsAny<DateTime>()), Times.Never);
     }
 
     #endregion

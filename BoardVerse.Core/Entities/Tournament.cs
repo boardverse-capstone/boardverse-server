@@ -67,6 +67,12 @@ public class Tournament
     /// <summary>Số người vào Final. Mặc định 4 (1 bàn chung kết).</summary>
     public int FinalistCount { get; set; } = 4;
 
+    /// <summary>
+    /// Có trận tranh hạng 3 hay không.
+    /// Khi FinalistCount >= 4, organizer có thể bật để tạo thêm match cho hạng 3.
+    /// </summary>
+    public bool HasThirdPlaceMatch { get; set; } = false;
+
     /// <summary>Vòng hiện tại (0 = chưa bắt đầu, 1-3 = Swiss, 4 = Final).</summary>
     public int CurrentRound { get; set; } = 0;
 

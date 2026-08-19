@@ -1,7 +1,9 @@
 using BoardVerse.Core.DTOs.Payment;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Hosting;
 
 namespace BoardVerse.API.Controllers;
 
@@ -11,11 +13,16 @@ public class SePayWebhookController : ControllerBase
 {
     private readonly IPaymentService _paymentService;
     private readonly ILogger<SePayWebhookController> _logger;
+    private readonly IHostEnvironment _env;
 
-    public SePayWebhookController(IPaymentService paymentService, ILogger<SePayWebhookController> logger)
+    public SePayWebhookController(
+        IPaymentService paymentService,
+        ILogger<SePayWebhookController> logger,
+        IHostEnvironment env)
     {
         _paymentService = paymentService;
         _logger = logger;
+        _env = env;
     }
 
     [HttpPost]
@@ -23,15 +30,20 @@ public class SePayWebhookController : ControllerBase
     {
         try
         {
+            // SePay BankAPINotify gửi payload thô (content/transferAmount/transferType/...).
+            // Derive các field legacy (OrderId/Status/Amount/GatewayTransactionId)
+            // ngay tại entry point để handler downstream không phải thay đổi.
+            webhook.Normalize();
+
             await _paymentService.HandleSePayWebhookAsync(webhook);
             return Ok(new { status = "ok" });
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "SePay webhook processing failed.");
-            return StatusCode(500, new { status = "error" });
-        }
-    }
+catch (Exception ex)
+{
+_logger.LogError(ex, "SePay webhook processing failed.");
+return StatusCode(500, new { status = "error", message = ApiErrorMessages.Payment.SePayWebhookProcessingFailed });
+}
+}
 
     /// <summary>
     /// Redirect URL sau khi thanh toán SePay thành công.
@@ -41,23 +53,31 @@ public class SePayWebhookController : ControllerBase
     [AllowAnonymous]
     public IActionResult SePayReturn([FromQuery] string? orderId, [FromQuery] string? status)
     {
-        if (status == "success")
-        {
-            return Ok(new { message = "Thanh toán thành công! Vui lòng quay lại ứng dụng.", orderId });
-        }
-        return BadRequest(new { message = "Thanh toán thất bại hoặc bị hủy.", orderId });
+if (status == "success")
+{
+return Ok(new { message = ApiErrorMessages.Payment.SePayReturnSuccess, orderId });
+}
+return BadRequest(new { message = ApiErrorMessages.Payment.SePayReturnFailed, orderId });
     }
 
     /// <summary>
-    /// Mock webhook để test payment flow mà không cần SePay thật. [Role: Dev/Test]
+    /// Mock webhook để test payment flow mà không cần SePay thật. [Dev/Test Only]
+    /// P0 Fix #4: Gate with environment check to prevent production abuse.
     /// </summary>
     /// <param name="request">Thông tin mock payment.</param>
     /// <response code="200">Mock webhook xử lý thành công.</response>
+    /// <response code="403">Mock endpoint chỉ khả dụng trong Development.</response>
     /// <response code="500">Lỗi xử lý.</response>
     [HttpPost("mock")]
-    [AllowAnonymous]
     public async Task<IActionResult> MockWebhook([FromBody] MockWebhookRequestDto request)
     {
+        // P0 Fix #4: Gate endpoint to development only
+if (!_env.IsDevelopment())
+{
+_logger.LogWarning("Mock webhook called in non-development environment. Blocked.");
+return StatusCode(403, new { status = "forbidden", message = ApiErrorMessages.Payment.SePayMockEndpointBlocked });
+}
+
         try
         {
             var webhook = new SePayWebhookDto
@@ -70,16 +90,19 @@ public class SePayWebhookController : ControllerBase
                 Currency = request.Currency ?? "VND",
                 Status = request.Status ?? "success",
                 ReferenceCode = request.ReferenceCode,
-                PaidAt = request.Status == "success" ? DateTime.UtcNow : null
+                TransferAmount = request.Amount,
+                TransferType = (request.Status ?? "success") == "success" ? "in" : "out",
+                TransactionDate = request.Status == "success" ? DateTime.UtcNow : null
             };
+            webhook.Normalize();
 
             await _paymentService.HandleSePayWebhookAsync(webhook);
-            return Ok(new { status = "ok", webhook });
+            return Ok(new { status = "ok" });
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Mock webhook processing failed.");
-            return StatusCode(500, new { status = "error", message = ex.Message });
-        }
+catch (Exception ex)
+{
+_logger.LogError(ex, "Mock webhook processing failed.");
+return StatusCode(500, new { status = "error", message = ApiErrorMessages.Payment.SePayMockWebhookProcessingFailed });
+}
     }
 }

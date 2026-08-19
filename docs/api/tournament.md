@@ -20,6 +20,10 @@ API Tournament dành cho mobile app (Player): xem danh sách giải đang mở, 
 | `/my-registrations` | GET | Danh sách giải của tôi |
 | `/my-elo-history` | GET | Lịch sử Elo của tôi |
 | `/leaderboard` | GET | Top N người chơi theo GlobalElo |
+| `/{tournamentId}/spectators` | GET | Danh sách spectators (public) |
+| `/{tournamentId}/spectators/me` | GET | Spectate entry của tôi |
+| `/{tournamentId}/spectators` | POST | Bắt đầu spectate |
+| `/{tournamentId}/spectators` | DELETE | Rời khỏi spectate |
 
 ---
 
@@ -141,6 +145,119 @@ Top N người chơi theo `GlobalElo` (mặc định 100).
 | `topCount` | int | ❌ | Số lượng (mặc định 100, max 500) |
 
 **Response 200:** `LeaderboardResponseDto`.
+
+---
+
+## Spectator Endpoints (T-04)
+
+### GET /api/v1/tournaments/{tournamentId}/spectators
+
+Danh sách spectators của một tournament. **Public** — không cần đăng nhập.
+
+**Response 200:**
+
+```json
+{
+  "statusCode": 200,
+  "message": "Danh sách spectators.",
+  "data": [
+    {
+      "id": "guid",
+      "tournamentId": "guid",
+      "tournamentTitle": "Summer Catan Championship 2026",
+      "userId": "guid",
+      "userName": "spectator_user",
+      "joinedAt": "2026-08-07T14:00:00Z",
+      "leftAt": null
+    }
+  ]
+}
+```
+
+**Lỗi:** `401`; `404` không tìm thấy tournament; `500`.
+
+---
+
+### GET /api/v1/tournaments/{tournamentId}/spectators/me
+
+Lấy spectate entry của user hiện tại. **Role: Player** — yêu cầu đăng nhập.
+
+**Response 200:**
+
+```json
+{
+  "statusCode": 200,
+  "message": "Thông tin spectate của bạn.",
+  "data": {
+    "id": "guid",
+    "tournamentId": "guid",
+    "tournamentTitle": "Summer Catan Championship 2026",
+    "userId": "guid",
+    "userName": "player1",
+    "joinedAt": "2026-08-07T14:00:00Z",
+    "leftAt": null
+  }
+}
+```
+
+Nếu chưa spectate: `data: null`.
+
+**Lỗi:** `401`; `500`.
+
+---
+
+### POST /api/v1/tournaments/{tournamentId}/spectators
+
+Bắt đầu spectate một tournament. **Role: Player** — yêu cầu đăng nhập.
+
+**Điều kiện:**
+- Tournament không ở trạng thái `Draft`.
+- User không phải là participant của tournament này.
+
+**Response 200:**
+
+```json
+{
+  "statusCode": 200,
+  "message": "RegisteredForTournament",
+  "data": {
+    "id": "guid",
+    "tournamentId": "guid",
+    "tournamentTitle": "Summer Catan Championship 2026",
+    "userId": "guid",
+    "userName": "player1",
+    "joinedAt": "2026-08-07T14:00:00Z",
+    "leftAt": null
+  }
+}
+```
+
+**Lỗi:**
+- `401` thiếu token.
+- `404` không tìm thấy tournament.
+- `409` user là participant của tournament này.
+- `500`.
+
+---
+
+### DELETE /api/v1/tournaments/{tournamentId}/spectators
+
+Rời khỏi spectate. **Role: Player** — yêu cầu đăng nhập.
+
+**Response 200:**
+
+```json
+{
+  "statusCode": 200,
+  "message": "Đã rời khỏi spectate.",
+  "data": null
+}
+```
+
+**Lỗi:**
+- `401` thiếu token.
+- `404` không tìm thấy spectate entry.
+- `500`.
 
 ---
 

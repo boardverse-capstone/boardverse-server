@@ -53,7 +53,7 @@ public class UserAccessHelperTests
         var restricted = UserAccessHelper.IsAccessRestricted(user, DateTime.UtcNow, out var message);
 
         Assert.True(restricted);
-        Assert.Contains("vô hiệu hóa", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("tạm khóa", message, StringComparison.OrdinalIgnoreCase);
     }
 
     private static User CreateUser(

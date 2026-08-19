@@ -23,6 +23,12 @@ namespace BoardVerse.Core.Entities
         /// <summary>Tên hiển thị cho Guest_Slot.</summary>
         public string? GuestDisplayName { get; set; }
 
+        /// <summary>
+        /// Số điện thoại Guest_Slot (optional, dùng để liên hệ khi cần).
+        /// Validate format VN (10-11 chữ số, đầu 03/05/07/08/09) ở service layer.
+        /// </summary>
+        public string? GuestPhoneNumber { get; set; }
+
         // === Session Link (BR-14: Tách/ghép nhóm) ===
         /// <summary>Session gốc khi member tách nhóm. Dùng để track thời gian liên tục.</summary>
         public Guid? OriginalSessionId { get; set; }
@@ -58,11 +64,26 @@ namespace BoardVerse.Core.Entities
         /// <summary>Thời điểm checkout.</summary>
         public DateTime? CheckedOutAt { get; set; }
 
+        // === Deposit (BR-15, BR-22) ===
+        /// <summary>
+        /// GAP-10 Fix: Số tiền deposit đã áp dụng cho thành viên này khi thanh toán.
+        /// Mỗi thành viên có deposit riêng nếu có booking.
+        /// </summary>
+        public decimal DepositAppliedAmount { get; set; }
+
+        /// <summary>
+        /// GAP-10 Fix: ID của deposit đã áp dụng cho thành viên này.
+        /// </summary>
+        public Guid? DepositId { get; set; }
+
         // === Navigation ===
         public virtual ActiveSession ActiveSession { get; set; } = null!;
         public virtual User? User { get; set; }
 
         // === Audit ===
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        /// <summary>Last write timestamp. Used as concurrency token for optimistic concurrency on penalty/financial updates.</summary>
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     }
 }

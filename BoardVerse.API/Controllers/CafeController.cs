@@ -20,24 +20,27 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Tìm quán đối tác ACTIVE gần vị trí player, có thể lọc theo tựa game (PostGIS). [Role: Public]
+        /// Tìm quán đối tác ACTIVE gần vị trí player (PostGIS). [Role: Public]
+        /// Lọc tựa game là tuỳ chọn — nếu bỏ trống trả tất cả quán trong bán kính.
         /// </summary>
         /// <param name="latitude">Vĩ độ player (WGS84, -90 đến 90).</param>
         /// <param name="longitude">Kinh độ player (WGS84, -180 đến 180).</param>
         /// <param name="radiusKm">Bán kính tìm kiếm km (mặc định 15; cho phép 0.1–50).</param>
-        /// <param name="gameTemplateId">Bắt buộc — chỉ quán có hộp game Available hoặc InUse của tựa này (AC 2.1).</param>
+        /// <param name="gameTemplateId">Tùy chọn — khi truyền, chỉ quán có hộp game Available hoặc InUse của tựa này (AC 2.1). Bỏ trống → trả tất cả quán ACTIVE trong bán kính.</param>
+        /// <param name="name">Tìm kiếm theo tên quán (case-insensitive, partial match).</param>
         /// <param name="pageNumber">Số trang (mặc định 1).</param>
         /// <param name="pageSize">Kích thước trang (mặc định 20).</param>
-        /// <response code="200">Danh sách quán phân trang; khi rỗng kèm emptyResultMessage và alternativeSuggestions (AC 5.1, 5.2).</response>
-        /// <response code="400">Tọa độ, bán kính hoặc gameTemplateId không hợp lệ.</response>
+        /// <response code="200">Danh sách quán phân trang; khi rỗng kèm emptyResultMessage và alternativeSuggestions (AC 5.1, 5.2). alternativeSuggestions chỉ có khi truyền gameTemplateId.</response>
+        /// <response code="400">Tọa độ hoặc bán kính không hợp lệ.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpGet("nearby")]
         [AllowAnonymous]
         public async Task<IActionResult> GetNearbyCafes(
             [FromQuery] double latitude,
             [FromQuery] double longitude,
-            [FromQuery] Guid gameTemplateId,
+            [FromQuery] Guid? gameTemplateId = null,
             [FromQuery] double radiusKm = GeoLocationHelper.DefaultNearbyRadiusKm,
+            [FromQuery] string? name = null,
             [FromQuery] int pageNumber = 1,
             [FromQuery] int pageSize = 20)
         {
@@ -47,26 +50,30 @@ namespace BoardVerse.API.Controllers
                 longitude,
                 radiusKm,
                 gameTemplateId,
+                name,
                 pagination);
             return this.NewResponse(200, ApiSuccessMessages.Cafe.NearbyRetrieved, result);
         }
 
         /// <summary>
         /// Tìm quán gần vị trí đã lưu trên profile (LastKnown GPS/map pin). [Role: Player, Manager, CafeStaff, Admin]
+        /// Lọc tựa game là tuỳ chọn — khi bỏ trống trả tất cả quán trong bán kính.
         /// </summary>
-        /// <param name="gameTemplateId">Bắt buộc — tựa game player đã chọn (AC 2.1).</param>
+        /// <param name="gameTemplateId">Tùy chọn — khi truyền, chỉ quán có hộp game Available hoặc InUse của tựa này (AC 2.1). Bỏ trống → trả tất cả quán ACTIVE.</param>
         /// <param name="radiusKm">Bán kính tìm kiếm km (mặc định 15; cho phép 0.1–50).</param>
+        /// <param name="name">Tìm kiếm theo tên quán (case-insensitive, partial match).</param>
         /// <param name="pageNumber">Số trang (mặc định 1).</param>
         /// <param name="pageSize">Kích thước trang (mặc định 20).</param>
-        /// <response code="200">Cùng shape như GET /nearby; dùng tọa độ từ profile thay vì query lat/lng.</response>
-        /// <response code="400">Chưa lưu vị trí (gọi PUT /api/userprofile/me/location trước), hoặc gameTemplateId/bán kính không hợp lệ.</response>
+        /// <response code="200">Cùng shape như GET /nearby; dùng tọa độ từ profile thay vì query lat/lng. alternativeSuggestions chỉ có khi truyền gameTemplateId.</response>
+        /// <response code="400">Chưa lưu vị trí (gọi PUT /api/userprofile/me/location trước), hoặc bán kính không hợp lệ.</response>
         /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpGet("nearby/me")]
         [Authorize]
         public async Task<IActionResult> GetNearbyCafesForCurrentUser(
-            [FromQuery] Guid gameTemplateId,
+            [FromQuery] Guid? gameTemplateId = null,
             [FromQuery] double radiusKm = GeoLocationHelper.DefaultNearbyRadiusKm,
+            [FromQuery] string? name = null,
             [FromQuery] int pageNumber = 1,
             [FromQuery] int pageSize = 20)
         {
@@ -76,23 +83,80 @@ namespace BoardVerse.API.Controllers
                 userId,
                 radiusKm,
                 gameTemplateId,
+                name,
                 pagination);
             return this.NewResponse(200, ApiSuccessMessages.Cafe.NearbyRetrieved, result);
         }
 
         /// <summary>
-        /// Xem thông tin quán cafe (public). [Role: Public]
+        /// Xem thông tin chi tiết quán cafe (public).
+        /// Bao gồm: pricing, refund policy, seat availability, schedule overrides.
+        /// [Role: Public — không yêu cầu đăng nhập.]
         /// </summary>
         /// <param name="id">Mã định danh quán cafe.</param>
-        /// <response code="200">Trả về thông tin quán (tên, địa chỉ, mô tả, ...).</response>
+        /// <param name="latitude">Vĩ độ player (tùy chọn, để tính khoảng cách).</param>
+        /// <param name="longitude">Kinh độ player (tùy chọn, để tính khoảng cách).</param>
+        /// <response code="200">Trả về thông tin chi tiết quán: pricing, refund policy, seat availability, schedule overrides, distance (nếu có lat/lng).</response>
         /// <response code="404">Không tìm thấy quán hoặc quán đã bị vô hiệu hóa.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpGet("{id:guid}")]
         [AllowAnonymous]
-        public async Task<IActionResult> GetCafe(Guid id)
+        public async Task<IActionResult> GetCafe(
+            Guid id,
+            [FromQuery] double? latitude = null,
+            [FromQuery] double? longitude = null)
         {
-            var cafe = await _cafeService.GetCafeAsync(id);
+            var cafe = await _cafeService.GetCafeDetailAsync(id, latitude, longitude);
             return this.NewResponse(200, ApiSuccessMessages.Cafe.Retrieved, cafe);
+        }
+
+        /// <summary>
+        /// Lấy danh sách tất cả quán cafe đang hoạt động cho player (ACTIVE, IsActive=true).
+        /// Không filter theo vị trí, không yêu cầu tựa game — sắp xếp theo tên A→Z.
+        /// [Role: Player — cần đăng nhập.]
+        /// </summary>
+        /// <param name="pageNumber">Số trang (mặc định 1).</param>
+        /// <param name="pageSize">Kích thước trang (mặc định 20).</param>
+        /// <response code="200">Danh sách quán ACTIVE phân trang (shape NearbyCafeDto).</response>
+        /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpGet]
+        [Authorize]
+        public async Task<IActionResult> GetAllCafes(
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            var pagination = new PaginationParams { PageNumber = pageNumber, PageSize = pageSize };
+            var result = await _cafeService.GetAllActiveCafesAsync(pagination);
+            return this.NewResponse(200, ApiSuccessMessages.Cafe.ListRetrieved, result);
+        }
+
+        /// <summary>
+        /// Tìm kiếm quán cafe theo tên (không cần gameTemplateId). [Role: Public]
+        /// Dùng khi player đã biết quán, muốn tìm nhanh để đặt chỗ.
+        /// </summary>
+        /// <param name="name">Tên quán cần tìm (bắt buộc, case-insensitive, partial match).</param>
+        /// <param name="latitude">Vĩ độ player (tùy chọn, để tính khoảng cách).</param>
+        /// <param name="longitude">Kinh độ player (tùy chọn, để tính khoảng cách).</param>
+        /// <param name="radiusKm">Bán kính tìm kiếm km (mặc định 15; cho phép 0.1–50, chỉ áp dụng khi có lat/lng).</param>
+        /// <param name="pageNumber">Số trang (mặc định 1).</param>
+        /// <param name="pageSize">Kích thước trang (mặc định 20).</param>
+        /// <response code="200">Danh sách quán phân trang, sắp xếp theo khoảng cách (nếu có lat/lng) hoặc theo tên.</response>
+        /// <response code="400">Tên tìm kiếm trống, hoặc tọa độ/bán kính không hợp lệ.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpGet("search")]
+        [AllowAnonymous]
+        public async Task<IActionResult> SearchCafes(
+            [FromQuery] string name,
+            [FromQuery] double? latitude = null,
+            [FromQuery] double? longitude = null,
+            [FromQuery] double radiusKm = GeoLocationHelper.DefaultNearbyRadiusKm,
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            var pagination = new PaginationParams { PageNumber = pageNumber, PageSize = pageSize };
+            var result = await _cafeService.SearchCafesAsync(name, latitude, longitude, radiusKm, pagination);
+            return this.NewResponse(200, ApiSuccessMessages.Cafe.NearbyRetrieved, result);
         }
 
         /// <summary>
@@ -186,18 +250,19 @@ namespace BoardVerse.API.Controllers
         /// </summary>
         /// <param name="cafeId">Mã định danh quán cafe.</param>
         /// <param name="staffId">Mã user của nhân viên cần xóa khỏi quán.</param>
-        /// <response code="200">Xóa nhân viên khỏi quán thành công; tự động hạ role Player nếu không còn quán nào.</response>
+        /// <response code="204">Xóa nhân viên khỏi quán thành công; tự động hạ role Player nếu không còn quán nào.</response>
         /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
         /// <response code="403">Không phải role Manager, hoặc Manager không phải chủ quán.</response>
         /// <response code="404">Không tìm thấy quán hoặc nhân viên không thuộc quán này.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpDelete("{cafeId:guid}/staff/{staffId:guid}")]
         [Authorize(Roles = "Manager")]
+        [ProducesResponseType(204)]
         public async Task<IActionResult> RemoveStaff(Guid cafeId, Guid staffId)
         {
             var managerId = GetUserIdFromClaims();
             await _cafeService.RemoveStaffAsync(cafeId, managerId, staffId);
-            return this.NewResponse(200, ApiSuccessMessages.Cafe.StaffRemoved, null);
+            return NoContent();
         }
 
         /// <summary>
@@ -216,6 +281,62 @@ namespace BoardVerse.API.Controllers
             var managerId = GetUserIdFromClaims();
             await _cafeService.UpdateSePayConfigAsync(id, managerId, dto);
             return this.NewResponse(200, "SePay config updated successfully", null);
+        }
+
+        /// <summary>
+        /// Cập nhật chính sách hoàn cọc khi booking bị hủy (BR-18 / Task #12).
+        /// Manager cấu hình 1 trong 3 policy: Full (100%), Partial (theo bậc thang), None (tịch thu).
+        /// [Role: Manager — chỉ chủ quán (ManagerId của cafe).]
+        /// </summary>
+        /// <param name="id">Mã định danh quán cafe.</param>
+        /// <param name="dto">Chính sách hoàn cọc mới.</param>
+        /// <response code="200">Cập nhật thành công, trả về policy hiện tại.</response>
+        /// <response code="400">Tiers không hợp lệ (vd: Policy=Partial mà không có tiers).</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không phải chủ quán.</response>
+        /// <response code="404">Không tìm thấy quán.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPatch("{id:guid}/deposit-refund-policy")]
+        [Authorize(Roles = "Manager")]
+        [ProducesResponseType(typeof(RefundPolicyResponseDto), 200)]
+        [ProducesResponseType(typeof(object), 400)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(typeof(object), 403)]
+        [ProducesResponseType(typeof(object), 404)]
+        public async Task<IActionResult> UpdateRefundPolicy(Guid id, [FromBody] UpdateRefundPolicyRequestDto dto)
+        {
+            var managerId = GetUserIdFromClaims();
+            var result = await _cafeService.UpdateRefundPolicyAsync(id, managerId, dto);
+            return this.NewResponse(200, "Cập nhật chính sách hoàn cọc thành công.", result);
+        }
+
+        /// <summary>
+        /// Cập nhật biểu phí của quán (BasePrice, BillingModel, TieredBlockRate...).
+        /// BR-04: Chỉ cho phép khi quán đóng cửa (IsPricingLocked=false). Khi update thành công broadcast SignalR event CafePricingChanged.
+        /// [Role: Manager — chỉ chủ quán.]
+        /// </summary>
+        /// <param name="id">Mã định danh quán cafe.</param>
+        /// <param name="dto">Thông tin biểu phí cần cập nhật.</param>
+        /// <response code="200">Cập nhật thành công.</response>
+        /// <response code="400">Dữ liệu không hợp lệ.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không phải chủ quán.</response>
+        /// <response code="404">Không tìm thấy quán.</response>
+        /// <response code="409">Quán đang hoạt động (IsPricingLocked=true) — không thể sửa giá.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPut("{id:guid}/pricing-config")]
+        [Authorize(Roles = "Manager")]
+        [ProducesResponseType(typeof(CafePricingConfigResponseDto), 200)]
+        [ProducesResponseType(typeof(object), 400)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(typeof(object), 403)]
+        [ProducesResponseType(typeof(object), 404)]
+        [ProducesResponseType(typeof(object), 409)]
+        public async Task<IActionResult> UpdatePricingConfig(Guid id, [FromBody] UpdatePricingConfigRequestDto dto)
+        {
+            var managerId = GetUserIdFromClaims();
+            var result = await _cafeService.UpdatePricingConfigAsync(id, managerId, dto);
+            return this.NewResponse(200, "Cập nhật biểu phí thành công.", result);
         }
     }
 }

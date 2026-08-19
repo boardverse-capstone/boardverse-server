@@ -121,5 +121,125 @@ namespace BoardVerse.Data.Repositories
         }
 
         public Task SaveChangesAsync() => _context.SaveChangesAsync();
+
+        public async Task<PaginatedResponse<CoolingOffUserDto>> GetCoolingOffUsersAsync(PaginationParams pagination)
+        {
+            var query = _context.Wallets
+                .AsNoTracking()
+                .Include(w => w.User)
+                .Where(w => w.IsCoolingOff && w.CoolingOffExpiresAt > DateTime.UtcNow)
+                .AsQueryable();
+
+            var total = await query.CountAsync();
+            var items = await query
+                .OrderBy(w => w.CoolingOffExpiresAt)
+                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
+                .Take(pagination.PageSize)
+                .Select(w => new CoolingOffUserDto
+                {
+                    UserId = w.UserId,
+                    Username = w.User.Username,
+                    Email = w.User.Email,
+                    IsCoolingOff = w.IsCoolingOff,
+                    CoolingOffExpiresAt = w.CoolingOffExpiresAt,
+                    CoolingOffDaysRemaining = w.CoolingOffExpiresAt.HasValue
+                        ? (int)Math.Max(0, (w.CoolingOffExpiresAt.Value - DateTime.UtcNow).TotalDays)
+                        : 0,
+                    FailedLobbiesInWeek = 0,
+                    CancelledLobbiesInWeek = 0,
+                    TotalForfeitedBvc = 0,
+                    CoolingOffStartedAt = w.UpdatedAt
+                })
+                .ToListAsync();
+
+            return new PaginatedResponse<CoolingOffUserDto>
+            {
+                Data = items,
+                Meta = new PaginationMeta
+                {
+                    CurrentPage = pagination.PageNumber,
+                    PageSize = pagination.PageSize,
+                    TotalItems = total,
+                    TotalPages = total == 0 ? 0 : (int)Math.Ceiling(total / (double)pagination.PageSize)
+                }
+            };
+        }
+
+        public Task<Wallet?> GetWalletForUpdateAsync(Guid userId) =>
+            _context.Wallets.FirstOrDefaultAsync(w => w.UserId == userId);
+
+        public async Task<PaginatedResponse<PlayerActionHistoryDto>> GetPlayerActionHistoryAsync(PlayerActionHistoryQuery q)
+        {
+            var query = _context.PlayerActionHistories.AsNoTracking().AsQueryable();
+
+            if (q.UserId.HasValue)
+            {
+                query = query.Where(h => h.UserId == q.UserId.Value);
+            }
+
+            if (q.ActionType.HasValue)
+            {
+                query = query.Where(h => h.ActionType == q.ActionType.Value);
+            }
+
+            if (q.FromUtc.HasValue)
+            {
+                query = query.Where(h => h.CreatedAt >= q.FromUtc.Value);
+            }
+
+            if (q.ToUtc.HasValue)
+            {
+                query = query.Where(h => h.CreatedAt <= q.ToUtc.Value);
+            }
+
+            var total = await query.CountAsync();
+
+            var paged = await query
+                .OrderByDescending(h => h.CreatedAt)
+                .Skip((q.PageNumber - 1) * q.PageSize)
+                .Take(q.PageSize)
+                .Select(h => new { h.Id, h.UserId, h.ActionType, h.ActionBy, h.Reason, h.Metadata, h.CreatedAt, h.ExpiresAt })
+                .ToListAsync();
+
+            var distinctIds = paged
+                .SelectMany(x => new[] { x.UserId, x.ActionBy })
+                .Where(id => id != Guid.Empty)
+                .Distinct()
+                .ToList();
+            var usernameMap = distinctIds.Count > 0
+                ? await _context.Users
+                    .Where(u => distinctIds.Contains(u.Id))
+                    .Select(u => new { u.Id, u.Username })
+                    .ToDictionaryAsync(u => u.Id, u => u.Username)
+                : new Dictionary<Guid, string>();
+
+            var items = paged.Select(h => new PlayerActionHistoryDto
+            {
+                Id = h.Id,
+                UserId = h.UserId,
+                Username = usernameMap.TryGetValue(h.UserId, out var uname) ? uname : string.Empty,
+                ActionType = h.ActionType,
+                ActionBy = h.ActionBy,
+                ActionByUsername = h.ActionBy == Guid.Empty
+                    ? "system"
+                    : (usernameMap.TryGetValue(h.ActionBy, out var aname) ? aname : null),
+                Reason = h.Reason,
+                Metadata = h.Metadata,
+                CreatedAt = h.CreatedAt,
+                ExpiresAt = h.ExpiresAt
+            }).ToList();
+
+            return new PaginatedResponse<PlayerActionHistoryDto>
+            {
+                Data = items,
+                Meta = new PaginationMeta
+                {
+                    CurrentPage = q.PageNumber,
+                    PageSize = q.PageSize,
+                    TotalItems = total,
+                    TotalPages = total == 0 ? 0 : (int)Math.Ceiling(total / (double)q.PageSize)
+                }
+            };
+        }
     }
 }

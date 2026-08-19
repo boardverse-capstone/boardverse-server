@@ -24,18 +24,33 @@ public class BookingRepository : IBookingRepository
             query = query
                 .Include(b => b.Cafe)
                 .Include(b => b.CafeTable)
-                .Include(b => b.Lobby);
+                .Include(b => b.Lobby)
+                    .ThenInclude(l => l!.GameTemplate)
+                .Include(b => b.Lobby)
+                    .ThenInclude(l => l!.Members)
+                .Include(b => b.BookingDeposit);
         }
 
         return await query.FirstOrDefaultAsync(b => b.Id == bookingId);
     }
 
-    public async Task<Booking?> GetByLobbyIdAsync(Guid lobbyId)
+    public async Task<Booking?> GetByLobbyIdAsync(Guid lobbyId, bool includeRelations = true)
     {
-        return await _db.Bookings
-            .Include(b => b.Cafe)
-            .Include(b => b.CafeTable)
-            .FirstOrDefaultAsync(b => b.LobbyId == lobbyId);
+        var query = _db.Bookings.AsQueryable();
+
+        if (includeRelations)
+        {
+            query = query
+                .Include(b => b.Cafe)
+                .Include(b => b.CafeTable)
+                .Include(b => b.Lobby)
+                    .ThenInclude(l => l!.GameTemplate)
+                .Include(b => b.Lobby)
+                    .ThenInclude(l => l!.Members)
+                .Include(b => b.BookingDeposit);
+        }
+
+        return await query.FirstOrDefaultAsync(b => b.LobbyId == lobbyId);
     }
 
     public async Task<IReadOnlyList<Booking>> GetByCafeIdAsync(
@@ -54,6 +69,7 @@ public class BookingRepository : IBookingRepository
         return await query
             .Include(b => b.CafeTable)
             .Include(b => b.Lobby)
+                .ThenInclude(l => l!.Members)
             .OrderBy(b => b.ScheduledStartTime)
             .ToListAsync();
     }
@@ -64,6 +80,48 @@ public class BookingRepository : IBookingRepository
             .Where(b => b.CafeTableId == cafeTableId)
             .OrderBy(b => b.ScheduledStartTime)
             .ToListAsync();
+    }
+
+    /// <summary>
+    /// Lấy các booking của 1 cafe overlap [start, end] và không Cancelled.
+    /// Dùng cho mobile availability/available-tables (read-only, không lock).
+    /// </summary>
+    public async Task<IReadOnlyList<Booking>> GetOverlappingBookingsAsync(
+        Guid cafeId, DateTime startTime, DateTime endTime)
+    {
+        return await _db.Bookings
+            .Where(b => b.CafeId == cafeId
+                && b.Status != BookingStatus.Cancelled
+                && b.ScheduledStartTime < endTime
+                && b.ScheduleEndTime > startTime)
+            .ToListAsync();
+    }
+
+    /// <summary>
+    /// P1 Fix #6: Get conflicting bookings with pessimistic lock for race condition prevention.
+    /// Uses raw SQL with FOR UPDATE to lock rows during transaction.
+    /// </summary>
+    public async Task<IReadOnlyList<Booking>> GetConflictingBookingsWithLockAsync(
+        Guid cafeTableId, DateTime startTime, DateTime endTime)
+    {
+        // Use raw SQL with FOR UPDATE SKIP LOCKED for pessimistic locking
+        // This prevents race conditions when multiple bookings are created simultaneously
+        // Note: Only Cancelled is a terminal state - Confirmed/CheckedIn are not
+        var conflictingBookings = await _db.Bookings
+            .FromSqlRaw(
+                @"SELECT * FROM ""Bookings""
+                  WHERE ""CafeTableId"" = {0}
+                  AND ""Status"" != {1}
+                  AND ""ScheduledStartTime"" < {2}
+                  AND ""ScheduleEndTime"" > {3}
+                  FOR UPDATE SKIP LOCKED",
+                cafeTableId,
+                (int)BookingStatus.Cancelled,
+                endTime,
+                startTime)
+            .ToListAsync();
+
+        return conflictingBookings;
     }
 
     public async Task<IReadOnlyList<Booking>> GetByStatusAsync(BookingStatus status)
@@ -99,5 +157,41 @@ public class BookingRepository : IBookingRepository
     public async Task SaveChangesAsync()
     {
         await _db.SaveChangesAsync();
+    }
+
+    // === Admin: Reports ===
+
+    public async Task<int> CountByStatusAsync(BookingStatus status, DateTime? fromUtc, DateTime? toUtc)
+    {
+        var query = _db.Bookings.Where(b => b.Status == status);
+
+        if (fromUtc.HasValue)
+        {
+            query = query.Where(b => b.CreatedAt >= fromUtc.Value);
+        }
+
+        if (toUtc.HasValue)
+        {
+            query = query.Where(b => b.CreatedAt <= toUtc.Value);
+        }
+
+        return await query.CountAsync();
+    }
+
+    public async Task<int> CountAllAsync(DateTime? fromUtc, DateTime? toUtc)
+    {
+        var query = _db.Bookings.AsQueryable();
+
+        if (fromUtc.HasValue)
+        {
+            query = query.Where(b => b.CreatedAt >= fromUtc.Value);
+        }
+
+        if (toUtc.HasValue)
+        {
+            query = query.Where(b => b.CreatedAt <= toUtc.Value);
+        }
+
+        return await query.CountAsync();
     }
 }

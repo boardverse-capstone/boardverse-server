@@ -19,9 +19,23 @@ namespace BoardVerse.Data.Configurations
 
             builder.Property(m => m.JoinedAt).IsRequired();
 
+            // Optional phone for GuestSlot (BR-13). Max 20 chars to fit VN (+84) international.
+            builder.Property(m => m.GuestPhoneNumber)
+                .HasMaxLength(20)
+                .IsRequired(false);
+
+            // C17: UpdatedAt as concurrency token for optimistic concurrency on penalty/financial updates.
+            builder.Property(m => m.UpdatedAt)
+                .HasDefaultValueSql("now() at time zone 'utc'")
+                .IsConcurrencyToken();
+
             builder.Property(m => m.Status)
                 .HasConversion<int>()
                 .IsRequired();
+
+            // H2: Decimal precision on financial fields (BR-22 per-member deposit + BR-14 penalty).
+            builder.Property(m => m.PenaltyAmount).HasColumnType("numeric(18,2)");
+            builder.Property(m => m.DepositAppliedAmount).HasColumnType("numeric(18,2)");
 
             builder.HasOne(m => m.ActiveSession)
                 .WithMany(s => s.Members)

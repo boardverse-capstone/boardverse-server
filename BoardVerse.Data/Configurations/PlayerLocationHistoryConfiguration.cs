@@ -26,6 +26,11 @@ namespace BoardVerse.Data.Configurations
             builder.Property(h => h.RecordedAt)
                 .IsRequired();
 
+            builder.Property(h => h.ResolvedDistrict).HasMaxLength(200);
+            builder.Property(h => h.ResolvedCity).HasMaxLength(200);
+            builder.Property(h => h.ResolvedCountry).HasMaxLength(200);
+            builder.Property(h => h.ResolvedDisplayName).HasMaxLength(500);
+
             builder.HasOne(h => h.User)
                 .WithMany()
                 .HasForeignKey(h => h.UserId)

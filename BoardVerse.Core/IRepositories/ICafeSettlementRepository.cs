@@ -10,6 +10,10 @@ namespace BoardVerse.Core.IRepositories
 
         /// <summary>Get all settlements with Status=Failed (for retry job).</summary>
         Task<IReadOnlyList<CafeSettlement>> GetRetryableAsync(int maxAttempts, TimeSpan minRetryDelay);
+
+        /// <summary>W-06: Get settlement by Id for admin override.</summary>
+        Task<CafeSettlement?> GetByIdAsync(Guid settlementId);
+
         Task SaveChangesAsync();
     }
 }

@@ -23,5 +23,12 @@ namespace BoardVerse.Core.IRepositories
         Task AddKarmaLogAsync(KarmaLog log);
 
         Task SaveChangesAsync();
+
+        Task<PaginatedResponse<CoolingOffUserDto>> GetCoolingOffUsersAsync(PaginationParams pagination);
+
+        Task<Wallet?> GetWalletForUpdateAsync(Guid userId);
+
+        // A-03: BR-RISK-05 — Đọc lịch sử admin action.
+        Task<PaginatedResponse<PlayerActionHistoryDto>> GetPlayerActionHistoryAsync(PlayerActionHistoryQuery query);
     }
 }

@@ -18,6 +18,11 @@ namespace BoardVerse.Data.Configurations
             builder.Property(s => s.StartedAt).IsRequired();
             builder.Property(s => s.CreatedAt).IsRequired();
 
+            // C17: UpdatedAt as concurrency token for optimistic concurrency on financial updates.
+            builder.Property(s => s.UpdatedAt)
+                .HasDefaultValueSql("now() at time zone 'utc'")
+                .IsConcurrencyToken();
+
             // FK nullable: CafeTableId + CafeInventoryBoxId có thể null khi staff
             // attach game sau khi phiên đã chạy.
 
@@ -31,10 +36,17 @@ namespace BoardVerse.Data.Configurations
             builder.Property(s => s.TransferContent)
                 .HasMaxLength(100);
 
+            // C5: Decimal precision on financial fields (BR-15 per-member billing).
+            builder.Property(s => s.PenaltyAmount).HasColumnType("numeric(18,2)");
+            builder.Property(s => s.Subtotal).HasColumnType("numeric(18,2)");
+            builder.Property(s => s.DepositAppliedAmount).HasColumnType("numeric(18,2)");
+            builder.Property(s => s.TotalAmount).HasColumnType("numeric(18,2)");
+            builder.Property(s => s.SurchargeFine).HasColumnType("numeric(18,2)");
+
             builder.HasOne(s => s.Cafe)
                 .WithMany()
                 .HasForeignKey(s => s.CafeId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.Restrict); // H6: ActiveSession là financial record, không cascade từ Cafe.
 
             builder.HasOne(s => s.CafeTable)
                 .WithMany()
@@ -68,6 +80,12 @@ namespace BoardVerse.Data.Configurations
             builder.HasIndex(s => new { s.CafeId, s.GameTemplateId, s.Status });
             builder.HasIndex(s => s.HostId);
             builder.HasIndex(s => s.LobbyId);
+            builder.HasIndex(s => s.GameTemplateId).HasDatabaseName("IX_ActiveSessions_GameTemplateId"); // L7
+
+            // P3 Fix #18: Add unique index on OrderId where not null to prevent duplicates
+            builder.HasIndex(s => s.OrderId)
+                .IsUnique()
+                .HasFilter("\"OrderId\" IS NOT NULL");
 
             builder.HasMany(s => s.Games)
                 .WithOne(g => g.ActiveSession)

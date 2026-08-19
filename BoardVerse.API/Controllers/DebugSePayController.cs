@@ -1,6 +1,7 @@
 using BoardVerse.API.Infrastructure;
 using BoardVerse.Core.Data;
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services.Payments;
 using Microsoft.AspNetCore.Mvc;
@@ -46,11 +47,11 @@ public class DebugSePayController : ControllerBase
         var orderIdValue = orderId ?? $"TEST-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}";
         var amountValue = amount ?? 100m;
 
-        var masterAccount = await _sepayAccountService.GetMasterAccountAsync();
+        var masterAccount = await _sepayAccountService.GetRawMasterAccountAsync();
 
         var qrUrl = _vietQrClient.GenerateQrUrl(
             masterAccount.BankCode ?? string.Empty,
-            masterAccount.MaskedAccountNumber ?? string.Empty,
+            masterAccount.AccountNumber ?? string.Empty,  // raw cho QR URL
             amountValue,
             description: $"BoardVerse debug test - {orderIdValue}",
             accountHolder: masterAccount.AccountHolder);
@@ -70,9 +71,9 @@ public class DebugSePayController : ControllerBase
                 environment = masterAccount.Environment,
                 merchantId = masterAccount.MerchantId,
                 bankCode = masterAccount.BankCode,
-                accountNumber = masterAccount.MaskedAccountNumber,
+                accountNumber = MaskAccountNumber(masterAccount.AccountNumber),
                 accountHolder = masterAccount.AccountHolder,
-                webhookTokenSet = !string.IsNullOrWhiteSpace(masterAccount.MaskedAccountNumber)
+                webhookTokenSet = !string.IsNullOrWhiteSpace(masterAccount.WebhookToken)
             }
         });
     }
@@ -85,16 +86,16 @@ public class DebugSePayController : ControllerBase
     {
         if (!IsDebugEnabled()) return NotFound();
 
-        var masterAccount = await _sepayAccountService.GetMasterAccountAsync();
+        var masterAccount = await _sepayAccountService.GetRawMasterAccountAsync();
 
         return Ok(new
         {
             environment = masterAccount.Environment,
             merchantId = masterAccount.MerchantId,
-            webhookTokenSet = !string.IsNullOrWhiteSpace(masterAccount.MaskedAccountNumber),
+            webhookTokenSet = !string.IsNullOrWhiteSpace(masterAccount.WebhookToken),
             apiBaseUrl = masterAccount.ApiBaseUrl,
             bankCode = masterAccount.BankCode,
-            accountNumber = masterAccount.MaskedAccountNumber,
+            accountNumber = MaskAccountNumber(masterAccount.AccountNumber),
             accountHolder = masterAccount.AccountHolder,
             paymentMode = "VietQr_Static"
         });
@@ -111,11 +112,11 @@ public class DebugSePayController : ControllerBase
 
         var scope = HttpContext.RequestServices.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<BoardVerse.Data.BoardVerseDbContext>();
-        var masterAccount = await _sepayAccountService.GetMasterAccountAsync();
+        var masterAccount = await _sepayAccountService.GetRawMasterAccountAsync();
 
         var cafe = await db.Cafes.FirstOrDefaultAsync(c => c.Id == DevSeedConstants.DemoCafeId);
         if (cafe == null)
-            return BadRequest(new { error = $"Cafe {DevSeedConstants.DemoCafeId} not found. Run seeder first." });
+            return BadRequest(new { error = ApiErrorMessages.Payment.DebugSePayCafeNotFound(DevSeedConstants.DemoCafeId) });
 
         if (cafe.BasePrice == 0)
         {
@@ -141,20 +142,20 @@ public class DebugSePayController : ControllerBase
 
         await db.Database.ExecuteSqlRawAsync($@"
             INSERT INTO ""BookingDeposits""
-            (""Id"", ""ActiveSessionId"", ""Amount"", ""CafeId"", ""CafeManagerId"",
-             ""CreatedAt"", ""ForfeitedAt"", ""MasterAccountId"", ""OrderId"", ""PaidAt"",
+            (""Id"", ""ActiveSessionId"", ""Amount"", ""CafeId"", ""CafeManagerId"", ""UserId"",
+             ""CreatedAt"", ""ForfeitedAt"", ""OrderId"", ""PaidAt"",
              ""RefundPolicy"", ""RefundedAt"", ""ReleasedAt"", ""ScheduledAt"",
              ""SePayTransactionId"", ""SePayTransferId"", ""Status"", ""TransferContent"", ""UpdatedAt"")
             VALUES
             ('{depositId}', NULL, {depositAmount},
-             '{DevSeedConstants.DemoCafeId}', '{DevSeedConstants.ManagerUserId}',
+             '{DevSeedConstants.DemoCafeId}', '{DevSeedConstants.ManagerUserId}', '{DevSeedConstants.ManagerUserId}',
              '{now:O}', NULL, NULL, '{orderId}', NULL,
              {(int)DepositRefundPolicy.Full}, NULL, NULL, NULL,
              NULL, NULL, {(int)BookingDepositStatus.Pending}, '{transferContent}', '{now:O}')");
 
         var qrUrl = _vietQrClient.GenerateQrUrl(
             masterAccount.BankCode ?? string.Empty,
-            masterAccount.MaskedAccountNumber ?? string.Empty,
+            masterAccount.AccountNumber ?? string.Empty,  // raw cho QR URL
             depositAmount,
             description: transferContent,
             accountHolder: masterAccount.AccountHolder);
@@ -197,7 +198,7 @@ public class DebugSePayController : ControllerBase
         var orderId = body.TryGetProperty("orderId", out var o) ? o.GetString() : null;
         var status = body.TryGetProperty("status", out var s) ? s.GetString() : null;
         if (string.IsNullOrEmpty(orderId))
-            return BadRequest(new { error = "orderId is required" });
+            return BadRequest(new { error = ApiErrorMessages.Payment.SePayOrderIdRequired });
 
         var deposit = await db.BookingDeposits.FirstOrDefaultAsync(d => d.OrderId == orderId);
 
@@ -237,11 +238,11 @@ public class DebugSePayController : ControllerBase
 
         var scope = HttpContext.RequestServices.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<BoardVerse.Data.BoardVerseDbContext>();
-        var masterAccount = await _sepayAccountService.GetMasterAccountAsync();
+        var masterAccount = await _sepayAccountService.GetRawMasterAccountAsync();
 
         var cafe = await db.Cafes.FirstOrDefaultAsync(c => c.Id == DevSeedConstants.DemoCafeId);
         if (cafe == null)
-            return BadRequest(new { error = $"Cafe {DevSeedConstants.DemoCafeId} not found." });
+            return BadRequest(new { error = ApiErrorMessages.Payment.DebugSePayCafeNotFoundShort(DevSeedConstants.DemoCafeId) });
 
         if (cafe.BasePrice == 0)
         {
@@ -265,20 +266,20 @@ public class DebugSePayController : ControllerBase
 
         await db.Database.ExecuteSqlRawAsync($@"
             INSERT INTO ""BookingDeposits""
-            (""Id"", ""ActiveSessionId"", ""Amount"", ""CafeId"", ""CafeManagerId"",
-             ""CreatedAt"", ""ForfeitedAt"", ""MasterAccountId"", ""OrderId"", ""PaidAt"",
+            (""Id"", ""ActiveSessionId"", ""Amount"", ""CafeId"", ""CafeManagerId"", ""UserId"",
+             ""CreatedAt"", ""ForfeitedAt"", ""OrderId"", ""PaidAt"",
              ""RefundPolicy"", ""RefundedAt"", ""ReleasedAt"", ""ScheduledAt"",
              ""SePayTransactionId"", ""SePayTransferId"", ""Status"", ""TransferContent"", ""UpdatedAt"")
             VALUES
             ('{depositId}', NULL, {depositAmount},
-             '{DevSeedConstants.DemoCafeId}', '{DevSeedConstants.ManagerUserId}',
+             '{DevSeedConstants.DemoCafeId}', '{DevSeedConstants.ManagerUserId}', '{DevSeedConstants.ManagerUserId}',
              '{now:O}', NULL, NULL, '{orderId}', NULL,
              {(int)DepositRefundPolicy.Full}, NULL, NULL, NULL,
              NULL, NULL, {(int)BookingDepositStatus.Pending}, '{transferContent}', '{now:O}')");
 
         var qrUrl = _vietQrClient.GenerateQrUrl(
             masterAccount.BankCode ?? string.Empty,
-            masterAccount.MaskedAccountNumber ?? string.Empty,
+            masterAccount.AccountNumber ?? string.Empty,  // raw cho QR URL
             depositAmount,
             description: transferContent,
             accountHolder: masterAccount.AccountHolder);
@@ -290,10 +291,8 @@ public class DebugSePayController : ControllerBase
             WHERE ""Id"" = '{depositId}'");
 
         var bankCode = masterAccount.BankCode ?? string.Empty;
-        var accountNumber = masterAccount.MaskedAccountNumber ?? string.Empty;
-        var maskedAccount = accountNumber.Length > 4
-            ? new string('*', accountNumber.Length - 4) + accountNumber[^4..]
-            : accountNumber;
+        var accountNumber = masterAccount.AccountNumber ?? string.Empty;  // raw cho QR
+        var maskedAccount = MaskAccountNumber(accountNumber);
 
         var html = $@"<!DOCTYPE html>
 <html lang=""vi"">
@@ -423,7 +422,15 @@ public class DebugSePayController : ControllerBase
 
     private bool IsDebugEnabled()
     {
-        return _env.IsDevelopment()
-            || string.Equals(Environment.GetEnvironmentVariable("ENABLE_DEBUG"), "true", StringComparison.OrdinalIgnoreCase);
+        // C9: gate debug endpoint chỉ theo env Development, KHÔNG dùng env var override.
+        // ENABLE_DEBUG=true có thể bị bật nhầm trong production qua runtime config.
+        return _env.IsDevelopment();
+    }
+
+    private static string? MaskAccountNumber(string? accountNumber)
+    {
+        if (string.IsNullOrWhiteSpace(accountNumber) || accountNumber.Length <= 4)
+            return accountNumber;
+        return new string('*', accountNumber.Length - 4) + accountNumber[^4..];
     }
 }

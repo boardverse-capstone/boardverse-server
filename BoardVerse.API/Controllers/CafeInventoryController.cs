@@ -225,18 +225,19 @@ namespace BoardVerse.API.Controllers
         /// </summary>
         /// <param name="cafeId">Mã định danh quán cafe.</param>
         /// <param name="inventoryId">Mã mục kho cần xóa.</param>
-        /// <response code="200">Xóa mềm mục kho thành công.</response>
+        /// <response code="204">Xóa mềm mục kho thành công.</response>
         /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
         /// <response code="403">Không phải role Manager, hoặc Manager không phải chủ quán.</response>
         /// <response code="404">Không tìm thấy quán hoặc mục kho.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpDelete("{inventoryId:guid}")]
         [Authorize(Roles = "Manager")]
+        [ProducesResponseType(204)]
         public async Task<IActionResult> RemoveFromInventory(Guid cafeId, Guid inventoryId)
         {
             var managerId = GetUserIdFromClaims();
             await _inventoryService.RemoveFromInventoryAsync(cafeId, inventoryId, managerId);
-            return this.NewResponse(200, ApiSuccessMessages.Inventory.GameRemoved, null);
+            return NoContent();
         }
     }
 }

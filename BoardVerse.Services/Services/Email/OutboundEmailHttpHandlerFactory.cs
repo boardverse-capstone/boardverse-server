@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
+using BoardVerse.Core.Messages;
 
 namespace BoardVerse.Services.Services.Email
 {
@@ -47,7 +48,7 @@ namespace BoardVerse.Services.Services.Email
             var addresses = await Dns.GetHostAddressesAsync(dnsEndPoint.Host, AddressFamily.InterNetwork, cancellationToken);
             if (addresses.Length == 0)
             {
-                throw new IOException($"No IPv4 address resolved for {dnsEndPoint.Host}");
+                throw new IOException(ApiErrorMessages.System.IPv4ResolutionFailed(dnsEndPoint.Host));
             }
 
             return new IPEndPoint(addresses[0], dnsEndPoint.Port);

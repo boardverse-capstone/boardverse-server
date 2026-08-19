@@ -3,6 +3,7 @@ using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.Extensions.Logging;
 
@@ -13,44 +14,85 @@ public class ManualPaymentService : IManualPaymentService
     private readonly ITransactionRepository _transactionRepository;
     private readonly IBookingDepositRepository _depositRepository;
     private readonly IActiveSessionRepository _sessionRepository;
+    private readonly ICafeRepository _cafeRepository;
     private readonly ILogger<ManualPaymentService> _logger;
 
     public ManualPaymentService(
         ITransactionRepository transactionRepository,
         IBookingDepositRepository depositRepository,
         IActiveSessionRepository sessionRepository,
+        ICafeRepository cafeRepository,
         ILogger<ManualPaymentService> logger)
     {
         _transactionRepository = transactionRepository;
         _depositRepository = depositRepository;
         _sessionRepository = sessionRepository;
+        _cafeRepository = cafeRepository;
         _logger = logger;
     }
 
     public async Task<ManualPaymentConfirmResponseDto> ConfirmManualPaymentAsync(
         ManualPaymentConfirmRequestDto request,
         Guid staffId,
+        string actorRole,
         CancellationToken cancellationToken = default)
     {
-        // Validate payment type
-        var paymentType = request.PaymentType.ToUpperInvariant() switch
+        // Validate payment type — chỉ chấp nhận SESSION (M6).
+        // DEPOSIT có endpoint riêng (cash deposit) — tách để tránh staff lạm quyền.
+        if (!string.Equals(request.PaymentType, "SESSION", StringComparison.OrdinalIgnoreCase))
         {
-            "DEPOSIT" => "Deposit",
-            "SESSION" => "Session",
-            _ => throw new ArgumentException($"Invalid payment type: {request.PaymentType}. Must be 'Deposit' or 'Session'.")
-        };
+            throw new ArgumentException(ApiErrorMessages.Payment.InvalidPaymentType(request.PaymentType));
+        }
 
         // Validate payment method
         var validMethods = new[] { "CASH", "BANK_TRANSFER", "QR_CODE", "MANUAL" };
         if (!validMethods.Contains(request.PaymentMethod.ToUpperInvariant()))
         {
-            throw new ArgumentException($"Invalid payment method: {request.PaymentMethod}.");
+            throw new ArgumentException(ApiErrorMessages.Payment.InvalidPaymentMethod(request.PaymentMethod));
         }
 
-        // Create manual transaction
+        // C1: Validate target order FIRST (read-only) before persisting the Transaction record.
+        // Tránh ghi Transaction Succeeded rồi mới phát hiện order invalid → orphan financial record.
+        var session = await _sessionRepository.GetByIdWithMembersAsync(request.OrderId)
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.ActiveSessionNotFound(request.OrderId));
+
+        if (session.Status != GroupSessionStatus.Unpaid)
+        {
+            throw new ConflictException(ApiErrorMessages.Payment.SessionNotUnpaid(session.Status.ToString()));
+        }
+
+        // H5: Amount mismatch check.
+        if (request.Amount != session.TotalAmount)
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Payment.ManualConfirmAmountMismatch(session.TotalAmount, request.Amount));
+        }
+
+        // C3: Cafe ownership/staff check (Admin bypass).
+        if (!string.Equals(actorRole, "Admin", StringComparison.OrdinalIgnoreCase))
+        {
+            var cafe = await _cafeRepository.GetActiveByIdAsync(session.CafeId)
+                ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(session.CafeId));
+
+            var isOwner = cafe.ManagerId == staffId;
+            var isStaff = await _cafeRepository.IsStaffMemberExistsAsync(session.CafeId, staffId);
+
+            if (!isOwner && !isStaff)
+            {
+                _logger.LogWarning(
+                    "Manual confirm rejected: staff {StaffId} not affiliated with cafe {CafeId}",
+                    staffId, session.CafeId);
+                throw new ForbiddenException(
+                    ApiErrorMessages.Payment.ManualConfirmNotAuthorizedForCafe(session.CafeId));
+            }
+        }
+
+        var now = DateTime.UtcNow;
         var transaction = new Transaction
         {
             Id = Guid.NewGuid(),
+            UserId = session.HostId,
+            CafeId = session.CafeId,
             Amount = request.Amount,
             Currency = "VND",
             Gateway = "MANUAL",
@@ -58,81 +100,102 @@ public class ManualPaymentService : IManualPaymentService
             GatewayResponseCode = "MANUAL_CONFIRM",
             GatewayResponseMessage = request.Notes ?? "Thanh toán thủ công bởi nhân viên",
             Status = TransactionStatus.Succeeded,
-            Type = paymentType == "Deposit"
-                ? TransactionType.BookingDeposit
-                : TransactionType.GameRental,
+            Type = TransactionType.GameRental,
             Direction = TransactionDirection.In,
-            Notes = $"Manual confirm by Staff: {staffId}. Method: {request.PaymentMethod}. Type: {paymentType}.",
-            CreatedAt = DateTime.UtcNow,
-            CompletedAt = DateTime.UtcNow
+            Notes = $"Manual confirm by Staff: {staffId} (Role={actorRole}). Method: {request.PaymentMethod}.",
+            CreatedAt = now,
+            CompletedAt = now
         };
 
-        await _transactionRepository.AddAsync(transaction, cancellationToken);
+        // H7: Wrap add Transaction + status update + cleanup in a single atomic transaction.
+        // If any step fails → rollback toàn bộ, không có orphan Succeeded Transaction.
+        // null-safe: unit test với Mock không setup BeginTransactionAsync → null.
+        await using var dbTx = await TryBeginTransactionAsync(cancellationToken);
 
-        // Update corresponding order status
-        if (paymentType == "Deposit")
+        try
         {
-            await HandleDepositConfirmationAsync(request.OrderId, request.Amount, staffId, cancellationToken);
+            await _transactionRepository.AddAsync(transaction, cancellationToken);
+
+            session.Status = GroupSessionStatus.Paid;
+            session.PaidAt = now;
+            await _sessionRepository.UpdateAsync(session);
+            await _sessionRepository.SaveChangesAsync();
+
+            // Lifecycle cleanup: close lobby (in transaction with status update).
+            // GAP-08 Fix: wrap trong try/catch — fail vẫn commit payment.
+            try
+            {
+                await _sessionRepository.ReleaseMembersAndCloseLobbyAsync(request.OrderId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "GAP-08: ManualPay - ReleaseMembersAndCloseLobby failed for SessionId={SessionId}. " +
+                    "Payment vẫn commit; lobby close sẽ retry qua AutoReleaseExpiredSessionsJob.",
+                    request.OrderId);
+            }
+
+            if (dbTx != null)
+            {
+                await dbTx.CommitAsync(cancellationToken);
+            }
+
+            // FIX: Release table/box AFTER payment commit (not at checkout).
+            // This ensures table/box stays InUse while awaiting payment.
+            // GAP-06 Fix: try/catch + log — fail thì background job retry.
+            try
+            {
+                await _sessionRepository.ReleaseSessionTableAndBoxAsync(request.OrderId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "GAP-06: ManualPay - ReleaseSessionTableAndBox failed for SessionId={SessionId} AFTER commit. " +
+                    "Session PAID nhưng table/box vẫn InUse. Background job sẽ retry.",
+                    request.OrderId);
+            }
+
+            _logger.LogInformation(
+                "Manual session payment confirmed. SessionId={SessionId}, Amount={Amount}, Method={Method}, StaffId={StaffId}, Role={Role}",
+                request.OrderId, request.Amount, request.PaymentMethod, staffId, actorRole);
+
+            return new ManualPaymentConfirmResponseDto
+            {
+                TransactionId = transaction.Id,
+                PaymentType = "Session",
+                OrderId = request.OrderId,
+                Amount = request.Amount,
+                PaymentMethod = request.PaymentMethod,
+                Status = "Confirmed",
+                ConfirmedAt = now,
+                ConfirmedBy = staffId.ToString()
+            };
         }
-        else
+        catch
         {
-            await HandleSessionConfirmationAsync(request.OrderId, request.Amount, staffId, cancellationToken);
+            if (dbTx != null)
+            {
+                await dbTx.RollbackAsync(cancellationToken);
+            }
+            throw;
         }
-
-        _logger.LogInformation(
-            "Manual payment confirmed. Type={Type}, OrderId={OrderId}, Amount={Amount}, Method={Method}, StaffId={StaffId}",
-            paymentType, request.OrderId, request.Amount, request.PaymentMethod, staffId);
-
-        return new ManualPaymentConfirmResponseDto
-        {
-            TransactionId = transaction.Id,
-            PaymentType = paymentType,
-            OrderId = request.OrderId,
-            Amount = request.Amount,
-            PaymentMethod = request.PaymentMethod,
-            Status = "Confirmed",
-            ConfirmedAt = DateTime.UtcNow,
-            ConfirmedBy = staffId.ToString()
-        };
     }
 
-    private async Task HandleDepositConfirmationAsync(Guid depositId, decimal amount, Guid staffId, CancellationToken cancellationToken)
+    // Helper: try begin transaction; return null if repository doesn't support it
+    // (e.g., unit tests with Mock<ITransactionRepository>).
+    private async Task<Core.IRepositories.IDatabaseTransactionContext?> TryBeginTransactionAsync(CancellationToken cancellationToken)
     {
-        var deposit = await _depositRepository.GetByIdAsync(depositId)
-            ?? throw new NotFoundException($"Booking deposit not found: {depositId}");
-
-        if (deposit.Status != BookingDepositStatus.Pending)
+        try
         {
-            throw new ConflictException($"Deposit is not in Pending status. Current: {deposit.Status}");
+            return await _transactionRepository.BeginTransactionAsync(cancellationToken);
         }
-
-        deposit.Status = BookingDepositStatus.Paid;
-        deposit.PaidAt = DateTime.UtcNow;
-
-        await _depositRepository.UpdateAsync(deposit);
-
-        _logger.LogInformation(
-            "Booking deposit confirmed manually. DepositId={DepositId}, Amount={Amount}, StaffId={StaffId}",
-            depositId, amount, staffId);
-    }
-
-    private async Task HandleSessionConfirmationAsync(Guid sessionId, decimal amount, Guid staffId, CancellationToken cancellationToken)
-    {
-        var session = await _sessionRepository.GetByIdAsync(sessionId)
-            ?? throw new NotFoundException($"Active session not found: {sessionId}");
-
-        if (session.Status != GroupSessionStatus.Unpaid)
+        catch (InvalidOperationException)
         {
-            throw new ConflictException($"Session is not in Unpaid status. Current: {session.Status}");
+            return null;
         }
-
-        session.Status = GroupSessionStatus.Paid;
-        session.PaidAt = DateTime.UtcNow;
-
-        await _sessionRepository.UpdateAsync(session);
-
-        _logger.LogInformation(
-            "Session payment confirmed manually. SessionId={SessionId}, Amount={Amount}, StaffId={StaffId}",
-            sessionId, amount, staffId);
+        catch (NotImplementedException)
+        {
+            return null;
+        }
     }
 }

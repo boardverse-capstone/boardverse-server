@@ -47,6 +47,12 @@ namespace BoardVerse.Data.Repositories
                 .ToListAsync();
         }
 
+        /// <summary>W-06: Get settlement by Id for admin override.</summary>
+        public async Task<CafeSettlement?> GetByIdAsync(Guid settlementId)
+        {
+            return await _db.CafeSettlements.FirstOrDefaultAsync(s => s.Id == settlementId);
+        }
+
         public Task SaveChangesAsync()
         {
             return _db.SaveChangesAsync();

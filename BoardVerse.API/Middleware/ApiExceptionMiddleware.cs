@@ -73,6 +73,31 @@ namespace BoardVerse.API.Middleware
                 var payload = JsonSerializer.Serialize(response, jsonOptions);
                 await context.Response.WriteAsync(payload);
             }
+            catch (InvalidOperationException ex)
+            {
+                // InvalidOperationException is treated as an internal error because business
+                // validation errors MUST be expressed via AppException subclasses (NotFoundException,
+                // ConflictException, ForbiddenException, BadRequestException, InternalServerErrorException).
+                // Any code still throwing InvalidOperationException is a bug and should be logged so it can
+                // be migrated; do NOT leak message content or regex-match it for a status code.
+                _logger.LogError(ex,
+                    "Unexpected InvalidOperationException (should be AppException). Path: {Path}",
+                    context.Request.Path);
+
+                var response = new ApiResponse
+                {
+                    StatusCode = (int)HttpStatusCode.InternalServerError,
+                    Message = ApiErrorMessages.System.ConfigurationMissing,
+                    Data = null,
+                    Timestamp = DateTime.UtcNow,
+                    Path = context.Request.Path.Value ?? string.Empty
+                };
+
+                context.Response.ContentType = "application/json";
+                context.Response.StatusCode = response.StatusCode;
+                var payload = JsonSerializer.Serialize(response, jsonOptions);
+                await context.Response.WriteAsync(payload);
+            }
             catch (Exception ex)
             {
                 // Return a generic error message to clients. Detailed exception information is logged server-side.
@@ -95,6 +120,5 @@ namespace BoardVerse.API.Middleware
                 await context.Response.WriteAsync(payload);
             }
         }
-
     }
 }

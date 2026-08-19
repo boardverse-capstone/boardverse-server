@@ -73,6 +73,45 @@ public class FriendshipRepository : IFriendshipRepository
         return friends;
     }
 
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<Guid>>> GetFriendsForUsersAsync(
+        IReadOnlyCollection<Guid> userIds)
+    {
+        if (userIds == null || userIds.Count == 0)
+        {
+            return new Dictionary<Guid, IReadOnlyList<Guid>>();
+        }
+
+        // 1 query duy nhất: lấy tất cả friendships của các user trong userIds.
+        // Sau đó group in-memory.
+        var rows = await _db.Friendships
+            .Where(f => f.Status == FriendshipStatus.Accepted &&
+                        (userIds.Contains(f.RequesterId) || userIds.Contains(f.AddresseeId)))
+            .Select(f => new { f.RequesterId, f.AddresseeId })
+            .ToListAsync();
+
+        var result = new Dictionary<Guid, List<Guid>>();
+        foreach (var userId in userIds)
+        {
+            result[userId] = new List<Guid>();
+        }
+
+        foreach (var row in rows)
+        {
+            if (userIds.Contains(row.RequesterId) && !userIds.Contains(row.AddresseeId))
+            {
+                // Requester trong list, Addressee ngoài list → Addressee là friend của Requester.
+                result[row.RequesterId].Add(row.AddresseeId);
+            }
+            else if (userIds.Contains(row.AddresseeId) && !userIds.Contains(row.RequesterId))
+            {
+                result[row.AddresseeId].Add(row.RequesterId);
+            }
+            // Cả 2 trong list hoặc cả 2 ngoài list: skip (không quan tâm)
+        }
+
+        return result.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<Guid>)kv.Value);
+    }
+
     public async Task<int> CountMutualFriendsAsync(Guid userAId, Guid userBId)
     {
         var aFriends = (await GetFriendUserIdsAsync(userAId)).ToHashSet();
@@ -107,6 +146,19 @@ public class FriendshipRepository : IFriendshipRepository
             .Select(f => f.RequesterId == userId ? f.AddresseeId : f.RequesterId)
             .Distinct()
             .ToListAsync();
+    }
+
+    // M2: Kiểm tra user có phải bạn bè Accepted của bất kỳ candidate không — single query.
+    public async Task<bool> IsAcceptedFriendOfAnyAsync(Guid userId, IReadOnlyCollection<Guid> candidateUserIds)
+    {
+        if (candidateUserIds == null || candidateUserIds.Count == 0)
+        {
+            return false;
+        }
+        return await _db.Friendships
+            .AnyAsync(f => f.Status == FriendshipStatus.Accepted
+                && ((f.RequesterId == userId && candidateUserIds.Contains(f.AddresseeId))
+                    || (f.AddresseeId == userId && candidateUserIds.Contains(f.RequesterId))));
     }
 
     public async Task<IReadOnlyList<Friendship>> GetByDirectionAsync(

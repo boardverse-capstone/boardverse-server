@@ -12,6 +12,8 @@ namespace BoardVerse.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    // P0-Fix-#4: KHÔNG dùng class-level [AllowAnonymous] vì vô hiệu hóa [Authorize] ở action.
+    // Từng public action sẽ tự gắn [AllowAnonymous] riêng.
     public class AuthController : BaseApiController
     {
         private readonly IAuthService _authService;
@@ -25,15 +27,16 @@ namespace BoardVerse.API.Controllers
         /// Đăng ký tài khoản người dùng mới vào hệ thống BoardVerse. [Role: Public — không cần đăng nhập.]
         /// </summary>
         /// <param name="request">Thông tin đăng ký của người dùng.</param>
-        /// <response code="200">Đăng ký thành công.</response>
+        /// <response code="201">Đăng ký thành công.</response>
         /// <response code="400">Dữ liệu đầu vào không hợp lệ (email, username, password).</response>
         /// <response code="409">Email hoặc username đã tồn tại.</response>
         /// <response code="500">Lỗi hệ thống khi xử lý đăng ký.</response>
         [HttpPost("register")]
+        [AllowAnonymous]
         public async Task<IActionResult> Register([FromBody] RegisterRequestDto request)
         {
             var response = await _authService.RegisterAsync(request);
-            return this.NewResponse(200, ApiSuccessMessages.Auth.RegistrationSuccessful, response);
+            return this.NewResponse(201, ApiSuccessMessages.Auth.RegistrationSuccessful, response);
         }
 
         /// <summary>
@@ -46,6 +49,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="429">Vượt quá số lần đăng nhập cho phép.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("login")]
+        [AllowAnonymous]
         public async Task<IActionResult> Login([FromBody] LoginRequestDto request)
         {
             var response = await _authService.LoginAsync(request);
@@ -61,6 +65,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="403">Tài khoản bị chặn.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("google-login")]
+        [AllowAnonymous]
         public async Task<IActionResult> GoogleLogin([FromBody] GoogleAuthRequestDto request)
         {
             var response = await _authService.GoogleLoginAsync(request);
@@ -77,6 +82,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="404">Không tìm thấy người dùng tương ứng với refresh token.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("refresh-token")]
+        [AllowAnonymous]
         public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequestDto request)
         {
             var response = await _authService.ExchangeRefreshTokenAsync(request);
@@ -91,6 +97,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="400">Dữ liệu yêu cầu không hợp lệ.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("logout")]
+        [AllowAnonymous]
         public async Task<IActionResult> Logout([FromBody] RefreshTokenRequestDto request)
         {
             await _authService.RevokeRefreshTokenAsync(request.RefreshToken);
@@ -107,6 +114,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="404">Không tìm thấy người dùng theo email.</response>
         /// <response code="500">Không gửi được email (lỗi SMTP).</response>
         [HttpPost("send-email-verification")]
+        [AllowAnonymous]
         public async Task<IActionResult> SendEmailVerification([FromBody] SendEmailVerificationRequestDto request)
         {
             var message = await _authService.SendEmailVerificationAsync(request);
@@ -122,6 +130,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="403">Tài khoản bị chặn.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("verify-email")]
+        [AllowAnonymous]
         public async Task<IActionResult> VerifyEmail([FromBody] VerifyEmailRequestDto request)
         {
             await _authService.VerifyEmailAsync(request);
@@ -138,6 +147,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="404">Không tìm thấy người dùng theo email.</response>
         /// <response code="500">Không gửi được email (lỗi SMTP).</response>
         [HttpPost("request-password-reset")]
+        [AllowAnonymous]
         public async Task<IActionResult> RequestPasswordReset([FromBody] RequestPasswordResetDto request)
         {
             var message = await _authService.RequestPasswordResetAsync(request);
@@ -154,6 +164,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="403">Tài khoản bị chặn.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("reset-password")]
+        [AllowAnonymous]
         public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDto request)
         {
             await _authService.ResetPasswordAsync(request);
@@ -195,6 +206,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="404">Không tìm thấy tài khoản nội bộ để liên kết.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPost("link-google")]
+        [AllowAnonymous]
         public async Task<IActionResult> LinkGoogle([FromBody] LinkGoogleRequestDto request)
         {
             var response = await _authService.LinkGoogleAccountAsync(request);

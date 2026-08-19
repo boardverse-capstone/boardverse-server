@@ -1,4 +1,5 @@
 using BoardVerse.Core.DTOs.Payment;
+using BoardVerse.Core.DTOs.Session;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
@@ -15,32 +16,38 @@ public class PaymentService : IPaymentService
     private readonly IBookingDepositService _depositService;
     private readonly ICafeRepository _cafeRepository;
     private readonly ICafeSettlementRepository _settlementRepository;
-    private readonly IPaymentMasterAccountRepository _masterAccountRepository;
     private readonly IActiveSessionRepository _activeSessionRepository;
     private readonly IPaymentGatewayService _paymentGateway;
     private readonly ISePayClient _sePayClient;
     private readonly ISePayAccountService _sePayAccountService;
+    private readonly IWalletService _walletService; // BVC top-up webhook
+    private readonly IActiveSessionService _activeSessionService; // Webhook delegate PaySessionCore
+    private readonly IPaymentWebhookAuditRepository _webhookAuditRepository; // GAP-10
     private readonly ILogger<PaymentService> _logger;
 
     public PaymentService(
         IBookingDepositService depositService,
         ICafeRepository cafeRepository,
         ICafeSettlementRepository settlementRepository,
-        IPaymentMasterAccountRepository masterAccountRepository,
         IActiveSessionRepository activeSessionRepository,
         IPaymentGatewayService paymentGateway,
         ISePayClient sePayClient,
         ISePayAccountService sePayAccountService,
+        IWalletService walletService,
+        IActiveSessionService activeSessionService,
+        IPaymentWebhookAuditRepository webhookAuditRepository,
         ILogger<PaymentService> logger)
     {
         _depositService = depositService;
         _cafeRepository = cafeRepository;
         _settlementRepository = settlementRepository;
-        _masterAccountRepository = masterAccountRepository;
         _activeSessionRepository = activeSessionRepository;
         _paymentGateway = paymentGateway;
         _sePayClient = sePayClient;
         _sePayAccountService = sePayAccountService;
+        _walletService = walletService;
+        _activeSessionService = activeSessionService;
+        _webhookAuditRepository = webhookAuditRepository;
         _logger = logger;
     }
 
@@ -49,29 +56,49 @@ public class PaymentService : IPaymentService
         var deposit = await _depositService.GetByIdAsync(request.DepositId)
             ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
 
+        // C1: Verify deposit ownership - only the deposit owner can create payment for it.
+        if (deposit.UserId != userId)
+        {
+            throw new ForbiddenException(ApiErrorMessages.Payment.NotAuthorizedToViewDeposit);
+        }
+
         if (deposit.Status != BookingDepositStatus.Pending)
         {
-            throw new ConflictException("Đơn cọc đã được xử lý thanh toán trước đó.");
+            throw new ConflictException(ApiErrorMessages.Pos.DepositAlreadyProcessed);
+        }
+
+        // C2: Use server-side amount from deposit, never trust client-provided amount.
+        if (deposit.Amount <= 0)
+        {
+            throw new ConflictException(ApiErrorMessages.Pos.DepositAmountMustBePositive);
         }
 
         if (string.IsNullOrWhiteSpace(deposit.OrderId))
         {
-            deposit.OrderId = GenerateOrderId(deposit.Id);
+            // BUGFIX: OrderId phải KHỚP TransferContent để webhook SePay BankAPINotify
+            // parse ngược ra được. Trước đây: OrderId = "BV{D8}" (8 hex hash) còn
+            // TransferContent = "BV-{Guid:N}" (32 hex) → webhook lookup fail.
+            deposit.OrderId = BuildPaymentCode();
+            deposit.TransferContent = deposit.OrderId;
+        }
+        else if (string.IsNullOrWhiteSpace(deposit.TransferContent))
+        {
+            deposit.TransferContent = deposit.OrderId;
         }
 
-        // Sinh TransferContent ngẫu nhiên để khách nhập khi chuyển khoản ngân hàng
-        var transferContent = $"BV-{Guid.NewGuid():N}";
+        var transferContent = deposit.TransferContent;
 
         // Deposit payment: Lấy bank info từ DB (Master Account)
         var bankCode = string.Empty;
         var accountNumber = string.Empty;
         var accountHolder = string.Empty;
 
-        var masterAccount = await _sePayAccountService.GetMasterAccountAsync();
+        var masterAccount = await _sePayAccountService.GetRawMasterAccountAsync();
         if (masterAccount != null)
         {
             bankCode = masterAccount.BankCode ?? string.Empty;
-            accountNumber = masterAccount.MaskedAccountNumber ?? string.Empty;
+            // Dùng raw AccountNumber (không mask) cho VietQR — QR phải trỏ vào STK thật
+            accountNumber = masterAccount.AccountNumber ?? string.Empty;
             accountHolder = masterAccount.AccountHolder ?? string.Empty;
         }
 
@@ -83,12 +110,14 @@ public class PaymentService : IPaymentService
         var paymentRequest = new PaymentGatewayRequest
         {
             OrderId = deposit.OrderId,
-            Amount = request.Amount,
+            // C2: Use server-side deposit amount; never trust client-supplied amount.
+            Amount = deposit.Amount,
             CustomerEmail = request.CustomerEmail,
             Description = transferContent,
             Metadata = new Dictionary<string, string?>
             {
                 ["depositId"] = deposit.Id.ToString(),
+                ["bookingId"] = deposit.BookingId.ToString(),
                 ["activeSessionId"] = deposit.ActiveSessionId.ToString(),
                 ["userId"] = userId.ToString()
             },
@@ -104,16 +133,16 @@ public class PaymentService : IPaymentService
             _logger.LogError(
                 "Payment gateway failed. OrderId={OrderId}, Error={Error}",
                 deposit.OrderId, result.ErrorMessage);
-            throw new PaymentException($"Không thể tạo thanh toán: {result.ErrorMessage}");
+            throw new PaymentException(ApiErrorMessages.Payment.GatewayCannotCreatePaymentWithError(result.ErrorMessage));
         }
 
-        var paymentUrl = result.PaymentUrl ?? result.QrImageUrl ?? throw new PaymentException("Không nhận được QR URL từ gateway.");
+        var paymentUrl = result.PaymentUrl ?? result.QrImageUrl ?? throw new PaymentException(ApiErrorMessages.Payment.GatewayQrUrlMissing);
         // VietQR tĩnh không có expiry — QR luôn hợp lệ
         await _depositService.UpdateQrInfoAsync(deposit.Id, paymentUrl, null, transferContent);
 
         _logger.LogInformation(
             "Payment created. DepositId={DepositId}, OrderId={OrderId}, Amount={Amount}, QrUrl={QrUrl}",
-            deposit.Id, deposit.OrderId, request.Amount, paymentUrl);
+            deposit.Id, deposit.OrderId, deposit.Amount, paymentUrl);
 
         return new CreatePaymentResponseDto
         {
@@ -130,7 +159,7 @@ public class PaymentService : IPaymentService
     /// <summary>
     /// Tạo lại QR thanh toán cho đơn cọc PENDING.
     /// QR cũ sẽ bị đánh dấu expired (QR URL vẫn lưu để reference).
-    /// Không giới hạn số lần regenerate.
+    /// P2 Fix #11: Thêm rate limiting - không cho phép regenerate quá 1 lần trong 60 giây.
     /// Sử dụng fallback chain: SePay -> VietQR
     /// </summary>
     public async Task<RegenerateQrResponseDto> RegenerateDepositQrAsync(Guid depositId, Guid userId)
@@ -138,9 +167,25 @@ public class PaymentService : IPaymentService
         var deposit = await _depositService.GetByIdAsync(depositId)
             ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
 
+        // C1: Verify deposit ownership - only the deposit owner can regenerate QR.
+        if (deposit.UserId != userId)
+        {
+            throw new ForbiddenException(ApiErrorMessages.Payment.NotAuthorizedToViewDeposit);
+        }
+
         if (deposit.Status != BookingDepositStatus.Pending)
         {
-            throw new ConflictException($"Chỉ có thể tạo lại QR cho đơn cọc đang PENDING. Trạng thái hiện tại: '{deposit.Status}'.");
+            throw new ConflictException(ApiErrorMessages.Payment.QrRegenerateInvalidState(deposit.Status.ToString()));
+        }
+
+        // P2 Fix #11: Rate limiting - chỉ cho phép regenerate 1 lần mỗi 60 giây
+        if (deposit.LastQrRegeneratedAt.HasValue)
+        {
+            var elapsed = DateTime.UtcNow - deposit.LastQrRegeneratedAt.Value;
+            if (elapsed.TotalSeconds < 60)
+            {
+                throw new ConflictException(ApiErrorMessages.Payment.QrRegenerateRateLimited(60 - (int)elapsed.TotalSeconds));
+            }
         }
 
         // Deposit regeneration: Lấy bank info từ DB (Master Account)
@@ -148,11 +193,12 @@ public class PaymentService : IPaymentService
         var accountNumber = string.Empty;
         var accountHolder = string.Empty;
 
-        var masterAccount = await _sePayAccountService.GetMasterAccountAsync();
+        var masterAccount = await _sePayAccountService.GetRawMasterAccountAsync();
         if (masterAccount != null)
         {
             bankCode = masterAccount.BankCode ?? string.Empty;
-            accountNumber = masterAccount.MaskedAccountNumber ?? string.Empty;
+            // Dùng raw AccountNumber (không mask) cho VietQR — QR phải trỏ vào STK thật
+            accountNumber = masterAccount.AccountNumber ?? string.Empty;
             accountHolder = masterAccount.AccountHolder ?? string.Empty;
         }
 
@@ -161,8 +207,16 @@ public class PaymentService : IPaymentService
             throw new PaymentException(ApiErrorMessages.Payment.SePayMasterAccountNotFound);
         }
 
-        // Sinh TransferContent ngẫu nhiên mới cho mỗi lần tạo QR
-        var transferContent = $"BV-{Guid.NewGuid():N}";
+        // BUGFIX: Regenerate phải GIỮ NGUYÊN OrderId đã có trong DB — không sinh
+        // mới, vì khách đã có thể chuyển khoản theo QR cũ. Nếu legacy record (trước fix)
+        // có TransferContent lệch OrderId, đồng bộ theo OrderId hiện tại.
+        if (string.IsNullOrWhiteSpace(deposit.TransferContent)
+            || !string.Equals(deposit.TransferContent, deposit.OrderId, StringComparison.OrdinalIgnoreCase))
+        {
+            deposit.TransferContent = deposit.OrderId;
+        }
+
+        var transferContent = deposit.TransferContent;
 
         var paymentRequest = new PaymentGatewayRequest
         {
@@ -189,10 +243,10 @@ public class PaymentService : IPaymentService
             _logger.LogError(
                 "Payment gateway failed on regenerate. OrderId={OrderId}, Error={Error}",
                 deposit.OrderId, result.ErrorMessage);
-            throw new PaymentException($"Không thể tạo thanh toán: {result.ErrorMessage}");
+            throw new PaymentException(ApiErrorMessages.Payment.GatewayCannotCreatePaymentWithError(result.ErrorMessage));
         }
 
-        var paymentUrl = result.PaymentUrl ?? result.QrImageUrl ?? throw new PaymentException("Không nhận được QR URL từ gateway.");
+        var paymentUrl = result.PaymentUrl ?? result.QrImageUrl ?? throw new PaymentException(ApiErrorMessages.Payment.GatewayQrUrlMissing);
         // VietQR tĩnh không có expiry
         await _depositService.UpdateQrInfoAsync(depositId, paymentUrl, null, transferContent);
 
@@ -219,36 +273,78 @@ public class PaymentService : IPaymentService
     /// BR-15: TotalAmount = Subtotal + Penalty - DepositAppliedAmount
     /// Session payment dùng VietQR của từng cafe (bank info từ Cafe.SePayBankCode / SePayAccountNumber).
     /// </summary>
-    public async Task<CreateSessionPaymentResponseDto> CreateSessionPaymentAsync(CreateSessionPaymentRequestDto request)
+    public async Task<CreateSessionPaymentResponseDto> CreateSessionPaymentAsync(CreateSessionPaymentRequestDto request, Guid actorUserId, string actorRole)
     {
         var session = await _activeSessionRepository.GetByIdAsync(request.SessionId)
-            ?? throw new NotFoundException($"Không tìm thấy phiên chơi với ID: {request.SessionId}");
+            ?? throw new NotFoundException(ApiErrorMessages.Pos.ActiveSessionNotFound(request.SessionId));
 
         if (session.Status != GroupSessionStatus.Unpaid)
         {
-            throw new ConflictException("Phiên chơi phải ở trạng thái UNPAID để tạo thanh toán.");
-        }
-
-        var totalAmount = session.TotalAmount;
-        if (totalAmount <= 0)
-        {
-            throw new ConflictException("Số tiền thanh toán phải lớn hơn 0.");
-        }
-
-        if (string.IsNullOrWhiteSpace(session.OrderId))
-        {
-            session.OrderId = GenerateOrderId(session.Id);
-        }
-
-        // Sinh TransferContent ngẫu nhiên để khách nhập khi chuyển khoản
-        if (string.IsNullOrWhiteSpace(session.TransferContent))
-        {
-            session.TransferContent = $"BV-{Guid.NewGuid():N}";
+            throw new ConflictException(ApiErrorMessages.Pos.SessionPaymentInvalidState);
         }
 
         // Lấy cafe config
         var cafe = await _cafeRepository.GetByIdAsync(session.CafeId)
-            ?? throw new NotFoundException($"Không tìm thấy cafe với ID: {session.CafeId}");
+            ?? throw new NotFoundException(ApiErrorMessages.Cafe.CafeRecordNotFound(session.CafeId));
+
+        // C4: Validate cafe ownership. Manager: cafe.ManagerId == actorUserId.
+        // CafeStaff: phải có cafe trong StaffMembers. Admin bypasses.
+        await VerifyCafeOperatorAsync(cafe, actorUserId, actorRole);
+
+        var totalAmount = session.TotalAmount;
+
+        // BR-15: Nếu chưa checkout (TotalAmount=0), tính tiền tại đây
+        // (backup khi gọi CreateSessionPayment trước khi PaySessionAsync)
+        if (totalAmount <= 0)
+        {
+            var now = DateTime.UtcNow;
+            decimal totalMemberSubtotal = 0;
+
+            foreach (var member in session.Members)
+            {
+                var memberLeftAt = member.LeftAt ?? now;
+                var memberMinutes = Math.Max(0, (int)Math.Floor((memberLeftAt - member.JoinedAt).TotalMinutes));
+                member.TotalMinutesPlayed = memberMinutes;
+
+                decimal memberSubtotal = memberMinutes > 0
+                    ? (cafe.BillingModel == CafePartnerBillingModel.TimeBased
+                        ? CalculateRealtimeBilling(cafe, memberMinutes)
+                        : cafe.BasePrice)
+                    : 0m;
+                totalMemberSubtotal += Math.Max(0, memberSubtotal);
+            }
+
+            session.Subtotal = totalMemberSubtotal;
+            session.TotalMinutesPlayed = Math.Max(0, (int)Math.Floor((now - session.StartedAt).TotalMinutes));
+            totalAmount = session.Subtotal + session.PenaltyAmount;
+            session.TotalAmount = totalAmount;
+
+            await _activeSessionRepository.UpdateAsync(session);
+            await _activeSessionRepository.SaveChangesAsync();
+        }
+
+        if (totalAmount <= 0)
+        {
+            throw new ConflictException(ApiErrorMessages.Payment.SessionPaymentAmountMustBePositive);
+        }
+
+        if (string.IsNullOrWhiteSpace(session.OrderId))
+        {
+            // BUGFIX: OrderId phải KHỚP TransferContent để webhook SePay BankAPINotify
+            // (chỉ gửi content) parse ngược ra được OrderId lookup trong DB.
+            // Trước đây: OrderId = "BV88596434" (hash từ session.Id, 8 hex) còn
+            // TransferContent = "BV-{Guid:N}" (32 hex) → webhook lookup fail.
+            session.OrderId = BuildPaymentCode();
+            session.TransferContent = session.OrderId;
+        }
+        else if (string.IsNullOrWhiteSpace(session.TransferContent)
+                 || !string.Equals(session.TransferContent, session.OrderId, StringComparison.OrdinalIgnoreCase))
+        {
+            // Legacy record trước fix: OrderId đã có nhưng TransferContent lệch (hoặc rỗng).
+            // Đồng bộ TransferContent theo OrderId hiện tại — KHÔNG đổi OrderId vì QR
+            // cũ đã được in cho khách, webhook có thể đã gửi về theo code đó.
+            session.TransferContent = session.OrderId;
+        }
 
         var bankCode = string.Empty;
         var accountNumber = string.Empty;
@@ -256,17 +352,18 @@ public class PaymentService : IPaymentService
         // Lấy từ SePayAccount nếu cafe đã được configure
         if (cafe.SePayAccountId.HasValue)
         {
-            var sepayAccount = await _sePayAccountService.GetByIdAsync(cafe.SePayAccountId.Value);
+            var sepayAccount = await _sePayAccountService.GetRawByCafeIdAsync(cafe.Id);
             if (sepayAccount != null)
             {
                 bankCode = sepayAccount.BankCode ?? string.Empty;
-                accountNumber = sepayAccount.MaskedAccountNumber ?? string.Empty;
+                // Dùng raw AccountNumber cho VietQR
+                accountNumber = sepayAccount.AccountNumber ?? string.Empty;
             }
         }
 
         if (string.IsNullOrWhiteSpace(bankCode) || string.IsNullOrWhiteSpace(accountNumber))
         {
-            throw new PaymentException($"Cafe '{cafe.Name}' chưa được cấu hình SePay account.");
+            throw new PaymentException(ApiErrorMessages.Payment.PaymentCafeNotConfiguredSePay(cafe.Name));
         }
 
         var paymentRequest = new PaymentGatewayRequest
@@ -294,10 +391,10 @@ public class PaymentService : IPaymentService
             _logger.LogError(
                 "Payment gateway failed for session. SessionId={SessionId}, Error={Error}",
                 session.Id, result.ErrorMessage);
-            throw new PaymentException($"Không thể tạo thanh toán: {result.ErrorMessage}");
+            throw new PaymentException(ApiErrorMessages.Payment.GatewayCannotCreatePaymentWithError(result.ErrorMessage));
         }
 
-        var paymentUrl = result.PaymentUrl ?? result.QrImageUrl ?? throw new PaymentException("Không nhận được QR URL từ gateway.");
+        var paymentUrl = result.PaymentUrl ?? result.QrImageUrl ?? throw new PaymentException(ApiErrorMessages.Payment.GatewayQrUrlMissing);
 
         await _activeSessionRepository.UpdateAsync(session);
         await _activeSessionRepository.SaveChangesAsync();
@@ -323,19 +420,22 @@ public class PaymentService : IPaymentService
     /// <summary>
     /// Tạo lại QR thanh toán cho phiên chơi đang UNPAID.
     /// </summary>
-    public async Task<CreateSessionPaymentResponseDto> RegenerateSessionQrAsync(Guid sessionId)
+    public async Task<CreateSessionPaymentResponseDto> RegenerateSessionQrAsync(Guid sessionId, Guid actorUserId, string actorRole)
     {
         var session = await _activeSessionRepository.GetByIdAsync(sessionId)
-            ?? throw new NotFoundException($"Không tìm thấy phiên chơi với ID: {sessionId}");
+            ?? throw new NotFoundException(ApiErrorMessages.Pos.ActiveSessionNotFound(sessionId));
 
         if (session.Status != GroupSessionStatus.Unpaid)
         {
-            throw new ConflictException("Phiên chơi phải ở trạng thái UNPAID để tạo lại QR.");
+            throw new ConflictException(ApiErrorMessages.Pos.SessionPaymentInvalidState);
         }
 
         // Lấy cafe config
         var cafe = await _cafeRepository.GetByIdAsync(session.CafeId)
-            ?? throw new NotFoundException($"Không tìm thấy cafe với ID: {session.CafeId}");
+            ?? throw new NotFoundException(ApiErrorMessages.Cafe.CafeRecordNotFound(session.CafeId));
+
+        // C5: Validate cafe ownership (cùng pattern với CreateSessionPaymentAsync).
+        await VerifyCafeOperatorAsync(cafe, actorUserId, actorRole);
 
         var bankCode = string.Empty;
         var accountNumber = string.Empty;
@@ -343,34 +443,42 @@ public class PaymentService : IPaymentService
         // Lấy từ SePayAccount nếu cafe đã được configure
         if (cafe.SePayAccountId.HasValue)
         {
-            var sepayAccount = await _sePayAccountService.GetByIdAsync(cafe.SePayAccountId.Value);
+            var sepayAccount = await _sePayAccountService.GetRawByCafeIdAsync(cafe.Id);
             if (sepayAccount != null)
             {
                 bankCode = sepayAccount.BankCode ?? string.Empty;
-                accountNumber = sepayAccount.MaskedAccountNumber ?? string.Empty;
+                // Dùng raw AccountNumber cho VietQR
+                accountNumber = sepayAccount.AccountNumber ?? string.Empty;
             }
         }
 
         if (string.IsNullOrWhiteSpace(bankCode) || string.IsNullOrWhiteSpace(accountNumber))
         {
-            throw new PaymentException($"Cafe '{cafe.Name}' chưa được cấu hình SePay account.");
+            throw new PaymentException(ApiErrorMessages.Payment.PaymentCafeNotConfiguredSePay(cafe.Name));
         }
 
-        // Tạo order ID mới nếu chưa có
+        // BUGFIX: Regenerate phải dùng LẠI OrderId/TransferContent đã có trong DB
+        // (đã được sync khi CreateSessionPaymentAsync) — không được sinh mới, vì
+        // webhook SePay gửi về dựa trên QR trước đó sẽ lookup fail. Nếu legacy record
+        // chưa có (DB cũ trước fix), mới sinh mới và sync cả hai.
         if (string.IsNullOrWhiteSpace(session.OrderId))
         {
-            session.OrderId = GenerateOrderId(session.Id);
+            session.OrderId = BuildPaymentCode();
+            session.TransferContent = session.OrderId;
         }
-
-        // Sinh TransferContent ngẫu nhiên mới cho mỗi lần tạo QR
-        var transferContent = $"BV-{Guid.NewGuid():N}";
+        else if (string.IsNullOrWhiteSpace(session.TransferContent)
+                 || !string.Equals(session.TransferContent, session.OrderId, StringComparison.OrdinalIgnoreCase))
+        {
+            // Legacy record trước fix: đồng bộ TransferContent theo OrderId hiện tại.
+            session.TransferContent = session.OrderId;
+        }
 
         var paymentRequest = new PaymentGatewayRequest
         {
             OrderId = session.OrderId,
             Amount = session.TotalAmount,
             CustomerEmail = null,
-            Description = transferContent,
+            Description = session.TransferContent,
             Metadata = new Dictionary<string, string?>
             {
                 ["sessionId"] = session.Id.ToString(),
@@ -390,13 +498,13 @@ public class PaymentService : IPaymentService
             _logger.LogError(
                 "Payment gateway failed completely for session regenerate. SessionId={SessionId}, Error={Error}",
                 session.Id, result.ErrorMessage);
-            throw new PaymentException($"Không thể tạo thanh toán: {result.ErrorMessage}");
+            throw new PaymentException(ApiErrorMessages.Payment.GatewayCannotCreatePaymentWithError(result.ErrorMessage));
         }
 
-        var paymentUrl = result.PaymentUrl ?? result.QrImageUrl ?? throw new PaymentException("Không nhận được QR URL từ gateway.");
+        var paymentUrl = result.PaymentUrl ?? result.QrImageUrl ?? throw new PaymentException(ApiErrorMessages.Payment.GatewayQrUrlMissing);
 
-        // Lưu TransferContent mới vào DB
-        session.TransferContent = transferContent;
+        // TransferContent đã đồng bộ với OrderId ở đầu method — không tạo mới để tránh
+        // race với webhook SePay đã gửi về theo QR cũ.
         await _activeSessionRepository.UpdateAsync(session);
         await _activeSessionRepository.SaveChangesAsync();
 
@@ -410,7 +518,7 @@ public class PaymentService : IPaymentService
             PaymentUrl = paymentUrl,
             QrImageUrl = result.QrImageUrl,
             OrderId = session.OrderId,
-            TransferContent = transferContent,
+            TransferContent = session.TransferContent,
             Amount = session.TotalAmount,
             Status = "Pending",
             Gateway = result.Gateway.ToString(),
@@ -420,9 +528,12 @@ public class PaymentService : IPaymentService
 
     public async Task HandleSePayWebhookAsync(SePayWebhookDto webhook)
     {
+        // SePay BankAPINotify không gửi OrderId/Status riêng — đã được Normalize() tại
+        // Controller derive từ content + transferType. Nếu vẫn rỗng (legacy mock cũ hoặc
+        // payload lỗi) thì bỏ qua.
         if (string.IsNullOrWhiteSpace(webhook.OrderId) && string.IsNullOrWhiteSpace(webhook.GatewayTransactionId))
         {
-            _logger.LogWarning("SePay webhook missing order_id and gateway_transaction_id.");
+            _logger.LogWarning("SePay webhook missing order_id and gateway_transaction_id. Content={Content}", webhook.Content);
             return;
         }
 
@@ -435,6 +546,29 @@ public class PaymentService : IPaymentService
                 _logger.LogWarning("SePay webhook signature invalid. OrderId={OrderId}", webhook.OrderId);
                 return;
             }
+        }
+
+        // Phase 2 v2: BVC top-up với OrderId dạng 18 hex chars (BVC-{18hex} bị SePay strip '-').
+        // ExtractOrderId đã strip prefix → webhook.OrderId = 817488C746BE78FE58 (hex only).
+        // Dùng lookup DB (OrderId exact match 18 chars) thay vì regex Content vì Content
+        // có thể rỗng hoặc prefix thay đổi (MoMo/BVCTOPUP/BVC-...).
+        // BR-22 / BR § II.2: chỉ route sang top-up khi tìm thấy pending BvcTopUpRequest.
+        if (!string.IsNullOrWhiteSpace(webhook.OrderId)
+            && webhook.OrderId.Length == 18
+            && System.Text.RegularExpressions.Regex.IsMatch(webhook.OrderId, "^[0-9A-F]+$"))
+        {
+            var resolvedTopUpOrderId = await _walletService.FindPendingTopUpOrderIdAsync(webhook.OrderId);
+            if (!string.IsNullOrWhiteSpace(resolvedTopUpOrderId))
+            {
+                var bvcAmount = (long)(webhook.Amount / 1000m);
+                await _walletService.HandleTopUpWebhookAsync(
+                    orderId: resolvedTopUpOrderId,
+                    gatewayTransactionId: webhook.GatewayTransactionId ?? string.Empty,
+                    amountBvc: bvcAmount,
+                    status: webhook.Status);
+                return;
+            }
+            // Không có pending top-up với OrderId này → có thể là deposit/session (fallthrough).
         }
 
         BookingDeposit? deposit = null;
@@ -459,6 +593,11 @@ public class PaymentService : IPaymentService
         // Otherwise, try to process as session payment
         await ProcessSessionPaymentWebhookAsync(webhook);
     }
+
+    /// <summary>
+    /// Phase 2 v2: Process SePay webhook for deposit/session payment.
+    /// Top-up đã được route trước đó qua FindPendingTopUpOrderIdAsync lookup.
+    /// </summary>
 
     private async Task ProcessDepositWebhookAsync(SePayWebhookDto webhook, BookingDeposit deposit)
     {
@@ -492,8 +631,12 @@ public class PaymentService : IPaymentService
                 return;
             }
 
-            await _depositService.MarkAsRefundedAsync(deposit.Id);
-            _logger.LogInformation("Booking deposit refunded (payment failed/cancelled). DepositId={DepositId}", deposit.Id);
+            // BUGFIX (subagent audit #6): cancellation webhook when deposit is still Pending
+            // → MarkAsRefundedAsync only accepts Paid → throws. Use ExpireAsync for Pending.
+            // MarkAsRefundedAsync is for post-payment refunds (Paid → Refunded).
+            // Failed/cancelled gateway payment on Pending deposit should mark Expired.
+            await _depositService.ExpireAsync(deposit.Id);
+            _logger.LogInformation("Booking deposit expired (payment failed/cancelled). DepositId={DepositId}", deposit.Id);
         }
     }
 
@@ -505,17 +648,22 @@ public class PaymentService : IPaymentService
             return;
         }
 
+        // BUGFIX (subagent audit #3): không fallback sang GetAllUnpaidAsync() linear scan
+        // khi SessionId null. Phải lookup qua OrderId hoặc DB index.
+        // Trước đây: nếu SessionId null + OrderId lookup fail → quét toàn bộ unpaid sessions
+        // (O(N), race risk: 2 webhook cùng lookup có thể pick cùng session).
+        // Sau: dùng GetByOrderIdAsync (index-based) hoặc skip xử lý.
         var session = await _activeSessionRepository.GetByIdAsync(webhook.SessionId ?? Guid.Empty);
         if (session == null)
         {
-            // Try to find session by OrderId prefix
-            var sessions = await _activeSessionRepository.GetAllUnpaidAsync();
-            session = sessions.FirstOrDefault(s => s.OrderId == webhook.OrderId);
+            // Try OrderId lookup via dedicated index (1 query, no scan).
+            session = await _activeSessionRepository.GetByOrderIdAsync(webhook.OrderId);
         }
 
         if (session == null)
         {
             _logger.LogWarning("SePay webhook session payment not matched. OrderId={OrderId}", webhook.OrderId);
+            await RecordAuditAsync(webhook, null, "session_not_found", $"OrderId={webhook.OrderId} không match session nào");
             return;
         }
 
@@ -523,29 +671,144 @@ public class PaymentService : IPaymentService
 
         if (normalizedStatus is "success" or "paid")
         {
-            if (session.Status == GroupSessionStatus.Paid)
-            {
-                _logger.LogInformation("SePay webhook duplicate for already-paid session. SessionId={SessionId}", session.Id);
-                return;
-            }
-
-            if (webhook.Amount != session.TotalAmount)
+            // GAP-02 Fix: Validate currency trước khi xử lý amount. SePay VN chỉ thanh toán VND;
+            // nếu webhook mang currency khác → reject (có thể do gateway config sai hoặc attack).
+            if (!string.IsNullOrWhiteSpace(webhook.Currency)
+                && !webhook.Currency.Equals("VND", StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogWarning(
-                    "SePay webhook amount mismatch for session. Expected={Expected}, Received={Received}, SessionId={SessionId}",
-                    session.TotalAmount, webhook.Amount, session.Id);
+                    "SePay webhook currency not VND. Currency={Currency}, Expected=VND, SessionId={SessionId}, OrderId={OrderId}",
+                    webhook.Currency, session.Id, webhook.OrderId);
+                await RecordAuditAsync(webhook, session.Id, "currency_invalid",
+                    $"Currency={webhook.Currency} không phải VND");
                 return;
             }
 
-            session.Status = GroupSessionStatus.Paid;
-            session.PaidAt = DateTime.UtcNow;
-            await _activeSessionRepository.SaveChangesAsync();
+            // GAP-01 Fix: Validate amount với tolerance 1 VND (rounding của bank/decimal precision).
+            // Trước đây so sánh strict `!=` → reject nếu bank charge fee transfer lệch 1-2 VND.
+            // Tolerance 1 VND chấp nhận rounding noise; > 1 VND là thật sự mismatch.
+            const decimal AmountTolerance = 1m;
+            var amountDiff = webhook.Amount - session.TotalAmount;
+            if (Math.Abs(amountDiff) > AmountTolerance)
+            {
+                _logger.LogWarning(
+                    "SePay webhook amount mismatch > {Tolerance} VND. Expected={Expected}, Received={Received}, Diff={Diff}, SessionId={SessionId}",
+                    AmountTolerance, session.TotalAmount, webhook.Amount, amountDiff, session.Id);
+                await RecordAuditAsync(webhook, session.Id, "amount_mismatch",
+                    $"Expected={session.TotalAmount}, Received={webhook.Amount}, Diff={amountDiff}");
+                return;
+            }
 
-            _logger.LogInformation("Session payment completed via SePay. SessionId={SessionId}, Amount={Amount}", session.Id, session.TotalAmount);
+            // GAP-03 Fix: Nếu session đã closed (terminal) nhưng khách vẫn CK thành công
+            // (vd. staff đã đóng session nhưng khách vẫn ấn QR sau đó) → KHÔNG gọi PaySessionCore
+            // (sẽ throw 409). Tiền đã vào tài khoản SePay nhưng session không active để capture BVC.
+            // Log warning để staff xử lý refund manual qua POS.
+            // Closed = terminal (BR-END-05 auto-release, hoặc staff đã đóng phiên).
+            if (session.Status == GroupSessionStatus.Closed)
+            {
+                _logger.LogWarning(
+                    "SePay webhook success nhưng session đã Closed (terminal). Tiền đã vào SePay nhưng KHÔNG capture BVC, staff cần refund manual. SessionId={SessionId}, Amount={Amount}, OrderId={OrderId}",
+                    session.Id, webhook.Amount, webhook.OrderId);
+                await RecordAuditAsync(webhook, session.Id, "session_terminal",
+                    $"Session Status={session.Status} → staff cần refund manual");
+                return;
+            }
+
+            // DELEGATE: Gọi PaySessionCoreAsync để đảm bảo đầy đủ side-effects
+            // (capture BVC, release table/box, close lobby, WalkInWindow, member invoices).
+            // Trước đây webhook tự xử lý 3 việc → thiếu capture BVC + WalkInWindow + invoices.
+            // Idempotent: PaySessionCore re-check Status == Unpaid trong transaction (Fix #K)
+            // → nếu webhook trùng (status đã Paid) sẽ throw SessionMustBeUnpaidForPayment,
+            //   caller catch + log warning + return (không double-pay).
+            try
+            {
+                await _activeSessionService.PaySessionCoreAsync(
+                    cafeId: session.CafeId,
+                    sessionId: session.Id,
+                    request: new PaySessionRequestDto(),
+                    trigger: PayTrigger.SePayWebhook,
+                    ct: default);
+                await RecordAuditAsync(webhook, session.Id, "success", "Payment committed");
+            }
+            catch (ConflictException ex) when (ex.Message.Contains(ApiErrorMessages.Pos.SessionMustBeUnpaidForPayment))
+            {
+                // Đã pay trước đó (manual hoặc webhook khác) → idempotent, log + return.
+                _logger.LogInformation(
+                    "SePay webhook session already paid (idempotent skip). SessionId={SessionId}, OrderId={OrderId}",
+                    session.Id, webhook.OrderId);
+                await RecordAuditAsync(webhook, session.Id, "already_paid",
+                    "Session đã Paid trước đó (idempotent skip)");
+            }
+
+            return;
         }
-        else if (normalizedStatus is "failed" or "canceled" or "cancelled")
+
+        if (normalizedStatus is "failed" or "canceled" or "cancelled")
         {
-            _logger.LogInformation("Session payment failed/cancelled. SessionId={SessionId}, Status={Status}", session.Id, normalizedStatus);
+            // Webhook "failed" / "cancelled" cho session payment: không gọi PaySessionCore
+            // (vì không có amount mismatch valid). Chỉ log để audit.
+            // Staff sẽ xử lý thủ công trên POS (giữ session Unpaid, xử lý payment riêng).
+            _logger.LogInformation(
+                "Session payment webhook failed/cancelled (no auto-handler). SessionId={SessionId}, Status={Status}",
+                session.Id, normalizedStatus);
+            await RecordAuditAsync(webhook, session.Id, "failed_cancelled",
+                $"Status={normalizedStatus} - staff xử lý manual");
+        }
+    }
+
+    // GAP-10 Fix: Ghi audit record cho mỗi webhook nhận được.
+    // Best-effort: lỗi audit KHÔNG throw (không block webhook flow).
+    // Note: Dùng anonymous object phẳng thay vì serialize SePayWebhookDto trực tiếp
+    // (SnakeOrCamelConverter trên SePayWebhookDto gây stack overflow khi serialize).
+    private async Task RecordAuditAsync(
+        SePayWebhookDto webhook, Guid? sessionId, string result, string detail)
+    {
+        try
+        {
+            // Plain object — không qua JsonConverter nào.
+            var payloadObj = new
+            {
+                webhook.OrderId,
+                webhook.GatewayTransactionId,
+                webhook.Amount,
+                Currency = string.IsNullOrWhiteSpace(webhook.Currency) ? "VND" : webhook.Currency,
+                webhook.Status,
+                webhook.ReferenceCode,
+                webhook.SessionId,
+                webhook.Content,
+                webhook.TransferType
+            };
+            string payloadJson;
+            try
+            {
+                payloadJson = System.Text.Json.JsonSerializer.Serialize(payloadObj);
+            }
+            catch
+            {
+                payloadJson = $"{{ \"orderId\": \"{webhook.OrderId}\", \"status\": \"{webhook.Status}\", \"amount\": {webhook.Amount} }}";
+            }
+
+            await _webhookAuditRepository.AddAsync(new PaymentWebhookAudit
+            {
+                Id = Guid.NewGuid(),
+                OrderId = webhook.OrderId ?? string.Empty,
+                GatewayTransactionId = webhook.GatewayTransactionId,
+                SessionId = sessionId,
+                Amount = webhook.Amount,
+                Currency = string.IsNullOrWhiteSpace(webhook.Currency) ? "VND" : webhook.Currency,
+                Status = webhook.Status ?? string.Empty,
+                Result = result,
+                Detail = detail,
+                Payload = payloadJson,
+                ProcessedAt = DateTime.UtcNow
+            });
+        }
+        catch (Exception ex)
+        {
+            // Best-effort: log warning nhưng không throw để không block webhook flow.
+            _logger.LogWarning(ex,
+                "GAP-10: Failed to record PaymentWebhookAudit. OrderId={OrderId}, Result={Result}",
+                webhook.OrderId, result);
         }
     }
 
@@ -555,19 +818,31 @@ public class PaymentService : IPaymentService
     /// BR-18: Hoàn/phạt theo RefundPolicy khi hủy từ phía khách.
     /// Trả về RefundDepositResult gồm BookingDeposit (sau update) + số tiền thực tế hoàn cho khách.
     /// </summary>
-    public async Task<RefundDepositResult> RefundDepositAsync(Guid depositId, string reason)
+    public async Task<RefundDepositResult> RefundDepositAsync(Guid depositId, string reason, Guid actorUserId, string actorRole)
     {
         var deposit = await _depositService.GetByIdAsync(depositId)
             ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
 
+        // C3: Validate cafe ownership for Manager. Admin bypasses.
+        // Manager: chỉ được refund deposit thuộc quán do mình quản lý (deposit.CafeManagerId == actorUserId).
+        // Admin: xem tất cả.
+        if (actorRole == "Manager" && deposit.CafeManagerId != actorUserId)
+        {
+            throw new ForbiddenException(ApiErrorMessages.Payment.NotAuthorizedToViewDeposit);
+        }
+        else if (actorRole != "Admin" && actorRole != "Manager")
+        {
+            throw new ForbiddenException(ApiErrorMessages.Payment.NotAuthorizedToViewDeposit);
+        }
+
         if (deposit.Status != BookingDepositStatus.Paid)
         {
-            throw new ConflictException($"Không thể hoàn cọc: trạng thái hiện tại là '{deposit.Status}', cần 'Paid'.");
+            throw new ConflictException(ApiErrorMessages.Payment.RefundInvalidDepositStatus(deposit.Status.ToString()));
         }
 
         if (string.IsNullOrWhiteSpace(reason))
         {
-            throw new BadRequestException("Lý do hoàn cọc là bắt buộc để phục vụ audit. BR-18.");
+            throw new BadRequestException(ApiErrorMessages.Payment.RefundReasonRequired);
         }
 
         // Tính số tiền hoàn dự kiến theo policy TRƯỚC khi chuyển trạng thái.
@@ -609,5 +884,85 @@ public class PaymentService : IPaymentService
         var bytes = depositId.ToByteArray();
         var hash = BitConverter.ToUInt32(bytes, 0) % 100_000_000;
         return $"BV{hash:D8}";
+    }
+
+    /// <summary>
+    /// BUGFIX: Sinh payment code đồng nhất cho cả OrderId và TransferContent.
+    /// Format: BV-{16 hex char} (18 chars total). Được SePay BankAPINotify parse
+    /// ngược về qua regex `BV[A-Z0-9]{8,16}` (sau ToUpper) → lookup thẳng vào
+    /// ActiveSession.OrderId index. 16 hex cho collision rate ~ 1/2^64 — đủ unique
+    /// cho session payment.
+    ///
+    /// KHÔNG dùng Guid.NewGuid():N (32 hex) vì regex fallback chỉ chấp nhận 8-16
+    /// hex → trả về substring 16 đầu, lệch hoàn toàn với DB nếu lưu full 32.
+    /// </summary>
+    private static string BuildPaymentCode()
+    {
+        var hex = Guid.NewGuid().ToString("N").Substring(0, 16);
+        return ("BV-" + hex).ToUpperInvariant();
+    }
+
+    /// <summary>
+    /// C4/C5: Verify caller is allowed to operate on the cafe that owns the session.
+    /// - Admin: bypass.
+    /// - Manager: only the cafe's own manager (cafe.ManagerId == actorUserId).
+    /// - CafeStaff: must be linked to the cafe via CafeStaff row.
+    /// Throws ForbiddenException otherwise.
+    /// </summary>
+    private async Task VerifyCafeOperatorAsync(Cafe cafe, Guid actorUserId, string actorRole)
+    {
+        if (actorRole == "Admin")
+        {
+            return;
+        }
+
+        if (actorRole == "Manager")
+        {
+            if (cafe.ManagerId != actorUserId)
+            {
+                throw new ForbiddenException(ApiErrorMessages.Payment.NotAuthorizedToViewDeposit);
+            }
+            return;
+        }
+
+        if (actorRole == "CafeStaff")
+        {
+            var isStaff = await _cafeRepository.IsStaffMemberExistsAsync(cafe.Id, actorUserId);
+            if (!isStaff)
+            {
+                throw new ForbiddenException(ApiErrorMessages.Payment.NotAuthorizedToViewDeposit);
+            }
+            return;
+        }
+
+        throw new ForbiddenException(ApiErrorMessages.Payment.NotAuthorizedToViewDeposit);
+    }
+
+    private static decimal CalculateRealtimeBilling(Core.Entities.Cafe cafe, int elapsedMinutes)
+    {
+        if (elapsedMinutes <= 60)
+        {
+            return cafe.BasePrice;
+        }
+
+        // DEFENSIVE: TimeBased phải có TieredBlockRate
+        // Nếu null → fallback an toàn: tính như FlatEntry (chỉ giờ đầu)
+        if (!cafe.TieredBlockRate.HasValue || cafe.TieredBlockRate <= 0)
+        {
+            if (cafe.BillingModel == CafePartnerBillingModel.TimeBased)
+            {
+                // Log warning nhưng không throw để không block checkout
+                // Quay về tính như FlatEntry
+                return cafe.BasePrice;
+            }
+            return cafe.BasePrice;
+        }
+
+        var remainingMinutes = elapsedMinutes - 60;
+        var blockMinutes = cafe.TieredBlockMinutes;
+        var blockPrice = cafe.TieredBlockRate.Value;
+
+        var additionalBlocks = (int)Math.Ceiling((double)remainingMinutes / blockMinutes);
+        return cafe.BasePrice + (additionalBlocks * blockPrice);
     }
 }

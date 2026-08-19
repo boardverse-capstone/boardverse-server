@@ -161,4 +161,20 @@ public class LobbyInviteRepository : ILobbyInviteRepository
     {
         return _db.SaveChangesAsync();
     }
+
+    public async Task<int> CountPendingByInviteeSinceAsync(Guid inviteeId, DateTime since)
+    {
+        return await _db.LobbyInvites
+            .Where(i => i.InviteeId == inviteeId
+                && i.Status == LobbyInviteStatus.Pending
+                && i.CreatedAt >= since)
+            .CountAsync();
+    }
+
+    public async Task<int> CountSentByInviterSinceAsync(Guid inviterId, DateTime since)
+    {
+        return await _db.LobbyInvites
+            .Where(i => i.InviterId == inviterId && i.CreatedAt >= since)
+            .CountAsync();
+    }
 }

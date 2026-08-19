@@ -24,5 +24,12 @@ namespace BoardVerse.Services.IServices
             Guid adminUserId,
             Guid targetUserId,
             AdminAdjustKarmaRequestDto request);
+
+        Task<PaginatedResponse<CoolingOffUserDto>> GetCoolingOffUsersAsync(PaginationParams pagination);
+
+        Task<ReleaseCoolingOffResponseDto> ReleaseCoolingOffAsync(Guid adminUserId, Guid targetUserId, string reason);
+
+        // A-03: BR-RISK-05 — Liệt kê PlayerActionHistory của 1 user (audit log admin).
+        Task<PaginatedResponse<PlayerActionHistoryDto>> GetPlayerActionHistoryAsync(PlayerActionHistoryQuery query);
     }
 }

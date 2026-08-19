@@ -56,6 +56,11 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         entity.Property(t => t.CreatedAt)
             .HasDefaultValueSql("NOW()");
 
+        // H4: Concurrency token for webhook retry / status updates.
+        entity.Property(t => t.UpdatedAt)
+            .HasDefaultValueSql("NOW()")
+            .IsConcurrencyToken();
+
         // Indexes
         entity.HasIndex(t => t.GatewayTransactionId);
         entity.HasIndex(t => t.Status);

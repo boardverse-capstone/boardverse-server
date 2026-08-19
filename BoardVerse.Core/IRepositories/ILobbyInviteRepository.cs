@@ -43,6 +43,16 @@ public interface ILobbyInviteRepository
     /// </summary>
     Task<IReadOnlyList<LobbyInvite>> GetExpiredPendingAsync(DateTime now);
 
+    /// <summary>
+    /// BR-LOBBY-INVITE-10: Đếm số invite còn Pending trong ngày của invitee (chống spam nhận).
+    /// </summary>
+    Task<int> CountPendingByInviteeSinceAsync(Guid inviteeId, DateTime since);
+
+    /// <summary>
+    /// BR-LOBBY-INVITE-10: Đếm số invite đã gửi (cả status) trong ngày của inviter (chống spam gửi).
+    /// </summary>
+    Task<int> CountSentByInviterSinceAsync(Guid inviterId, DateTime since);
+
     Task AddAsync(LobbyInvite invite);
     Task SaveChangesAsync();
 }

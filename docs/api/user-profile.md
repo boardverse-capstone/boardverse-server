@@ -66,23 +66,45 @@ Lấy hồ sơ **của chính user đang đăng nhập** (không cần truyền 
   "data": {
     "userId": "guid",
     "username": "alice",
+    "phoneNumber": "+84901234567",
     "avatarUrl": null,
+    "avatarBorderUrl": null,
     "bio": "Board game fan",
+    "firstName": "Alice",
+    "lastName": "Nguyen",
+    "dateOfBirth": "1998-01-01",
     "karmaPoints": 0,
     "gamerTier": "Bronze",
     "globalElo": 1200,
     "level": 1,
-    "updatedAt": "2026-06-08T12:00:00Z"
+    "currentExp": 0,
+    "preferredPlayMode": "Group",
+    "lastActiveAt": "2026-06-08T12:00:00Z",
+    "updatedAt": "2026-06-08T12:00:00Z",
+    "hasProfile": true,
+    "isFriendListPublic": true,
+    "acceptFriendRequestsFrom": "Everyone",
+    "friendLimit": 0
   }
 }
 ```
 
 | Field | Mô tả |
 |-------|--------|
+| `phoneNumber` | Số điện thoại đã xác thực (nullable) |
+| `avatarBorderUrl` | URL viền avatar trang trí (nullable) |
+| `firstName`, `lastName` | Họ tên thật (BR-AUTH-11: identity matching) |
+| `dateOfBirth` | Ngày sinh (BR-AUTH-11: required ≥ 13 tuổi) |
 | `karmaPoints` | Điểm karma tích lũy |
 | `gamerTier` | Hạng (Bronze, Silver, …) theo karma |
 | `globalElo` | Điểm Elo toàn cục |
 | `level` | Cấp độ người chơi |
+| `currentExp` | Kinh nghiệm hiện tại trong level (0 → ngưỡng lên level sau) |
+| `lastActiveAt` | Lần cuối user mở app / thao tác (null nếu chưa từng) |
+| `hasProfile` | `true` nếu row `UserProfiles` đã tồn tại; `false` = user chỉ có tài khoản, chưa tạo profile |
+| `isFriendListPublic` | Public profile này hiển thị friend list cho người khác không (BR-FRIEND-PRIVACY-01) |
+| `acceptFriendRequestsFrom` | `Everyone` / `FriendsOfFriends` — ai được gửi lời mời kết bạn |
+| `friendLimit` | Giới hạn số bạn (`0` = không giới hạn) |
 
 **Lỗi:** `401` thiếu/sai token, `403` tài khoản bị chặn, `404` user trong token không tồn tại.
 
@@ -129,14 +151,15 @@ Cập nhật một phần — chỉ gửi field cần đổi.
   "level": 5,
   "firstName": "Alice",
   "lastName": "Tran",
-  "dateOfBirth": "1998-01-01T00:00:00Z"
+  "dateOfBirth": "1998-01-01T00:00:00Z",
+  "preferredPlayMode": "Group"
 }
 ```
 
 | Field | Ràng buộc |
 |-------|-----------|
 | `globalElo` | ≥ 0 |
-| `level` | ≥ 1 |
+| `preferredPlayMode` | `0` (Solo) hoặc `1` (Group) |
 
 **Response 200:** Profile đã cập nhật.
 
@@ -219,12 +242,17 @@ Vị trí **gần nhất** đã lưu trên server — **chỉ user đăng nhập
     "longitude": 106.700806,
     "updatedAt": "2026-06-14T10:00:00Z",
     "source": "Gps",
-    "hasLocation": true
+    "hasLocation": true,
+    "district": "Quận 1",
+    "city": "TP. Hồ Chí Minh",
+    "country": "Việt Nam",
+    "displayName": "Quận 1, TP. Hồ Chí Minh, Việt Nam",
+    "hasResolvedName": true
   }
 }
 ```
 
-Chưa từng lưu → `hasLocation: false`, các field tọa độ `null`.
+Chưa từng lưu → `hasLocation: false`, các field tọa độ `null`. Đã lưu lat/lng nhưng Nominatim chưa/hoặc không thể resolve → `hasLocation: true`, `hasResolvedName: false`, `district/city/country/displayName: null`.
 
 ---
 
@@ -233,6 +261,8 @@ Chưa từng lưu → `hasLocation: false`, các field tọa độ `null`.
 Cập nhật vị trí khi app mở map / lấy GPS. Backend:
 - Ghi **LastKnown** trên `UserProfiles` (đọc nhanh)
 - Append **PlayerLocationHistories** (audit)
+- **Reverse-geocode** sang tên Quận/Thành phố/Quốc gia qua Nominatim (OpenStreetMap) và persist label
+- Cache kết quả reverse-geocode trong `IDistributedCache` (Redis prod / in-memory dev) theo quantized lat/lng — tránh spam Nominatim khi GPS dao động
 
 **Body:**
 ```json
@@ -253,6 +283,8 @@ Cập nhật vị trí khi app mở map / lấy GPS. Backend:
 **Lỗi:** `400` tọa độ ngoài [-90,90] / [-180,180].
 
 **Luồng gợi ý:** App mở → `PUT me/location` → gọi `GET /api/cafes/nearby/me?gameTemplateId=...` hoặc `GET /api/cafes/nearby?latitude=...&longitude=...&gameTemplateId=...`.
+
+> **Lưu ý:** Nếu Nominatim không khả dụng (timeout, 5xx), backend vẫn lưu lat/lng nhưng `hasResolvedName` sẽ là `false`. UI có thể hiển thị fallback `"Vị trí: 10.776889, 106.700806"` khi `hasResolvedName = false`.
 
 ---
 

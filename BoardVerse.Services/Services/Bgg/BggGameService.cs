@@ -162,7 +162,7 @@ namespace BoardVerse.Services.Services.Bgg
                 CategoryCount = existing.Categories.Count,
                 PrimaryComponentSource = preview.HasCuratedComponents
                     ? GameComponentCatalogSource.CuratedCatalog
-                    : preview.Components.First().Source
+                    : preview.Components.FirstOrDefault()?.Source ?? GameComponentCatalogSource.Unknown
             };
         }
 

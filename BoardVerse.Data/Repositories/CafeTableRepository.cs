@@ -26,4 +26,15 @@ public class CafeTableRepository : ICafeTableRepository
             .OrderBy(t => t.SortOrder)
             .ToListAsync();
     }
+
+    public Task UpdateAsync(CafeTable table)
+    {
+        _db.CafeTables.Update(table);
+        return Task.CompletedTask;
+    }
+
+    public Task SaveChangesAsync()
+    {
+        return _db.SaveChangesAsync();
+    }
 }

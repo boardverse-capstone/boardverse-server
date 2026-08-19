@@ -17,14 +17,20 @@ public static class IntegrationTestFixtures
     public static Guid DemoKarmaLobbyId { get; internal set; }
     public static Guid DemoPosTableId { get; internal set; }
     public static Guid DemoCatanInventoryId { get; internal set; }
+    /// <summary>Catan GameTemplate.Id — used for GameId field in reservation/lobby requests.</summary>
+    public static Guid DemoCatanGameTemplateId { get; internal set; }
     public static Guid DemoBookingDepositId { get; internal set; }
     public static Guid SplendorGameTemplateId { get; internal set; }
+    /// <summary>Inventory ID cho Splendor box (seed bởi EnsureDemoSplendorInventoryAsync).</summary>
+    public static Guid DemoSplendorInventoryId { get; internal set; }
 
     /// <summary>Alias for DemoPlayer1UserId — used as the default demo user for booking deposits.</summary>
     public static Guid DemoUserId => DemoPlayer1UserId;
 
     public static string CatanBarcode { get; internal set; } = string.Empty;
     public static string PosBoxBarcode { get; internal set; } = string.Empty;
+    /// <summary>Barcode của hộp Splendor — dùng cho Exception 6 / AttachGame flow test.</summary>
+    public static string SplendorBarcode { get; internal set; } = string.Empty;
 
     // Constants that remain the same across all runs
     public const string ManagerEmail = "manager@boardverse.dev";
@@ -67,5 +73,6 @@ public static class IntegrationTestFixtures
         DemoBookingDepositId = Guid.Parse($"{prefix}-000C-000C-000C-00000000000C");
         SplendorGameTemplateId = Guid.Empty;  // Will be set by bootstrapper
         CatanBarcode = $"BV-TEST-{prefix[..8]}";
+        SplendorBarcode = string.Empty;
     }
 }

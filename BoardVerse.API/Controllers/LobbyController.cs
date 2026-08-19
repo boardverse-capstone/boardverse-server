@@ -7,6 +7,12 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace BoardVerse.API.Controllers
 {
+    /// <summary>
+    /// **SHARED — dùng cho CẢ Flow A (Reservation) và Flow B (Booking).**
+    /// Lobby là entity dùng chung cho 2 flow đặt chỗ. Mỗi Lobby có FK cả `ReservationId` (Flow A)
+    /// lẫn `BookingId` (Flow B, legacy). Endpoint `POST /api/v1/lobbies` đã deprecated —
+    /// Flow A tạo Lobby atomically qua `ReservationService.ConfirmAsync`, không qua đây.
+    /// </summary>
     [ApiController]
     [Route("api/v1/lobbies")]
     [Authorize]
@@ -27,21 +33,24 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Tạo phòng chờ mới. [Role: Player]
+        /// Endpoint cũ — DEPRECATED. Tạo lobby phải qua
+        /// <c>POST /api/v1/reservations/quote</c> + <c>POST /api/v1/reservations/confirm</c>
+        /// (BR §XXI-B.1). Endpoint này sẽ bị xóa sau khi mobile app rollout.
         /// </summary>
-        /// <param name="request">Thông tin phòng chờ: game, giờ chơi, sức chứa, visibility (public/private), description, cover image, cafeId, bookingId.</param>
-        /// <response code="201">Phòng chờ đã tạo (kèm share code cho cả public/private).</response>
-        /// <response code="400">Dữ liệu request không hợp lệ (vd: MaxMembers ngoài [GameTemplate.MinPlayers, MaxPlayers]).</response>
-        /// <response code="401">Thiếu token.</response>
-        /// <response code="403">Không có quyền dùng booking này.</response>
-        /// <response code="404">Không tìm thấy game hoặc booking.</response>
-        /// <response code="500">Lỗi hệ thống.</response>
+        /// <response code="410">Endpoint đã deprecated, dùng ReservationController.</response>
         [HttpPost]
-        public async Task<IActionResult> CreateLobby([FromBody] CreateLobbyRequestDto request)
+        [Obsolete("Dùng POST /api/v1/reservations/confirm thay thế. BR §XXI-B.1.")]
+        public IActionResult CreateLobby([FromBody] CreateLobbyRequestDto request)
         {
-            var userId = GetUserIdFromClaims();
-            var result = await _lobbyService.CreateLobbyAsync(userId, request);
-            return this.NewResponse(201, ApiSuccessMessages.Lobby.LobbyCreated, result);
+            return this.NewResponse(
+                410,
+                "EndpointDeprecated",
+                new
+                {
+                    message = "Tạo lobby phải qua flow reservation mới (BVC). Hãy dùng POST /api/v1/reservations/quote → POST /api/v1/reservations/confirm.",
+                    newEndpoint = "POST /api/v1/reservations/confirm",
+                    deprecatedAt = DateTime.UtcNow
+                });
         }
 
         /// <summary>
@@ -98,8 +107,9 @@ namespace BoardVerse.API.Controllers
 
         /// <summary>
         /// Tìm phòng chờ theo game + filter địa lý + karma. Private lobby bị ẩn khỏi search. [Role: Player]
+        /// BR-USER-LIMIT-02: excludeSelfOverlapping loại bỏ các lobby trùng lịch với user.
         /// </summary>
-        /// <param name="request">GameTemplateId bắt buộc; latitude/longitude/radiusKm tùy chọn; minKarmaScore tùy chọn.</param>
+        /// <param name="request">GameTemplateId bắt buộc; latitude/longitude/radiusKm tùy chọn; minKarmaScore tùy chọn; excludeSelfOverlapping.</param>
         /// <response code="200">Danh sách phòng chờ public phù hợp, có kèm DistanceKm khi search geo.</response>
         /// <response code="400">Thiếu gameTemplateId hoặc tham số không hợp lệ.</response>
         /// <response code="401">Thiếu token.</response>
@@ -107,7 +117,8 @@ namespace BoardVerse.API.Controllers
         [HttpPost("search")]
         public async Task<IActionResult> SearchLobbies([FromBody] SearchLobbiesRequestDto request)
         {
-            var result = await _lobbyService.SearchLobbiesAsync(request);
+            var userId = GetUserIdFromClaims();
+            var result = await _lobbyService.SearchLobbiesAsync(request, userId);
             return this.NewResponse(200, ApiSuccessMessages.Lobby.LobbiesRetrieved, result);
         }
 
@@ -115,12 +126,14 @@ namespace BoardVerse.API.Controllers
         /// Khám phá các lobby public đang mở (status=Open, IsPrivate=false) để player khác có thể thấy và join.
         /// Hỗ trợ filter optional theo game và khoảng cách địa lý.
         /// Đây là API dành cho màn hình "Browse lobbies" trên mobile — không bắt buộc gameTemplateId như /search. [Role: Player]
+        /// BR-USER-LIMIT-02: excludeSelfOverlapping loại bỏ các lobby trùng lịch với user.
         /// </summary>
         /// <param name="gameTemplateId">Optional: chỉ lấy lobby của game này.</param>
         /// <param name="latitude">Optional: latitude của user (kết hợp longitude + radiusKm).</param>
         /// <param name="longitude">Optional: longitude của user.</param>
         /// <param name="radiusKm">Optional: chỉ lấy lobby trong bán kính này (km).</param>
         /// <param name="limit">Số lobby tối đa trả về (1-100, default 50).</param>
+        /// <param name="excludeSelfOverlapping">Loại bỏ lobby trùng lịch với user (BR-USER-LIMIT-02).</param>
         /// <response code="200">Danh sách lobby public đang mở, có kèm DistanceKm khi filter theo geo.</response>
         /// <response code="401">Thiếu token.</response>
         /// <response code="500">Lỗi hệ thống.</response>
@@ -130,27 +143,29 @@ namespace BoardVerse.API.Controllers
             [FromQuery] double? latitude,
             [FromQuery] double? longitude,
             [FromQuery] double? radiusKm,
-            [FromQuery] int limit = 50)
+            [FromQuery] int limit = 50,
+            [FromQuery] bool excludeSelfOverlapping = false)
         {
             if (limit < 1 || limit > 100)
             {
-                throw new BadRequestException("Limit phải nằm trong khoảng 1-100.");
+                throw new BadRequestException(ApiErrorMessages.Validation.LobbySearchLimitRange);
             }
 
             // Nếu truyền 1 trong 3 tham số geo thì bắt buộc cả 3
             var geoProvided = new[] { latitude.HasValue, longitude.HasValue, radiusKm.HasValue };
             if (geoProvided.Any(x => x) && !geoProvided.All(x => x))
             {
-                throw new BadRequestException("latitude, longitude, radiusKm phải truyền đồng thời nếu muốn filter theo khu vực.");
+                throw new BadRequestException(ApiErrorMessages.Validation.LobbySearchGeoRequired);
             }
 
             if (radiusKm.HasValue && (radiusKm.Value <= 0 || radiusKm.Value > 500))
             {
-                throw new BadRequestException("radiusKm phải nằm trong khoảng (0, 500] km.");
+                throw new BadRequestException(ApiErrorMessages.Validation.LobbySearchRadiusRange);
             }
 
+            Guid? requestingUserId = excludeSelfOverlapping ? GetUserIdFromClaims() : null;
             var result = await _lobbyService.GetDiscoverableLobbiesAsync(
-                gameTemplateId, latitude, longitude, radiusKm, limit);
+                gameTemplateId, latitude, longitude, radiusKm, limit, requestingUserId);
             return this.NewResponse(200, ApiSuccessMessages.Lobby.LobbiesRetrieved, result);
         }
 
@@ -171,6 +186,27 @@ namespace BoardVerse.API.Controllers
             var userId = GetUserIdFromClaims();
             var result = await _lobbyService.CloseLobbyAsync(lobbyId, userId, request?.Reason);
             return this.NewResponse(200, ApiSuccessMessages.Lobby.LobbyClosed, result);
+        }
+
+        /// <summary>
+        /// Host giải tán lobby — hard delete toàn bộ records (Lobby + Members + Messages + Invites + Reports).
+        /// Chỉ host mới được gọi. Không áp dụng khi lobby đã check-in tại quán hoặc đã đóng/rating.
+        /// Giải phóng reservation về Holding để host tạo lobby mới cùng slot. [Role: Player — chỉ Host]
+        /// </summary>
+        /// <param name="lobbyId">Mã phòng chờ.</param>
+        /// <param name="request">Lý do giải tán (optional).</param>
+        /// <response code="200">Phòng chờ đã giải tán.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không phải Host.</response>
+        /// <response code="404">Không tìm thấy phòng chờ.</response>
+        /// <response code="409">Phòng đã đóng hoặc đang trong phiên chơi, không thể giải tán.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpDelete("{lobbyId:guid}")]
+        public async Task<IActionResult> DissolveLobby(Guid lobbyId, [FromBody] DissolveLobbyRequestDto? request)
+        {
+            var userId = GetUserIdFromClaims();
+            var result = await _lobbyService.DissolveLobbyAsync(lobbyId, userId, request?.Reason);
+            return this.NewResponse(200, "Phòng chờ đã được giải tán.", result);
         }
 
         /// <summary>
@@ -276,15 +312,18 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Member bấm Ready/Unready khi lobby FULL. Nếu tất cả member Ready → lobby chuyển InProgress. [Role: Player]
+        /// Member bấm Ready/Unready để xác nhận tham gia lobby. Cho phép Ready khi lobby còn
+        /// Open/Full/Viable (không bắt buộc phải Full). Nếu TẤT CẢ member Ready → lobby chuyển InProgress.
+        /// Khi lobby vừa đạt MaxMembers (chuyển sang Full), BR-LOBBY-READY-03 ghi nhận FullAt;
+        /// scheduler sẽ timeout nếu 20 phút sau vẫn chưa có ai Ready. [Role: Player]
         /// </summary>
         /// <param name="lobbyId">Mã phòng chờ.</param>
-        /// <param name="request">isReady = true/false.</param>
-        /// <response code="200">Trạng thái ready đã cập nhật.</response>
+        /// <param name="request">isReady = true (sẵn sàng) hoặc false (hủy).</param>
+        /// <response code="200">Trạng thái ready đã cập nhật. Trả về lobby dto với status mới nhất (Full/InProgress nếu đủ điều kiện).</response>
         /// <response code="401">Thiếu token.</response>
         /// <response code="403">Không phải member.</response>
         /// <response code="404">Không tìm thấy phòng chờ.</response>
-        /// <response code="409">Lobby chưa FULL hoặc member bị Kicked/Left.</response>
+        /// <response code="409">Lobby đã đóng (TimeoutFailed/HostCancelled/Closed) hoặc member đã bị Kicked/Left.</response>
         /// <response code="500">Lỗi hệ thống.</response>
         [HttpPost("{lobbyId:guid}/ready")]
         public async Task<IActionResult> SetReady(Guid lobbyId, [FromBody] SetReadyRequestDto request)
@@ -362,14 +401,14 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Lấy lịch sử chat trong lobby (cursor pagination). [Role: Player — chỉ active member]
+        /// Lấy lịch sử chat trong lobby (cursor pagination). [Role: Player — host hoặc active member]
         /// </summary>
         /// <param name="lobbyId">Mã phòng chờ.</param>
         /// <param name="beforeCursor">Lấy message trước thời điểm này (ISO 8601).</param>
         /// <param name="limit">Số lượng tối đa (1-200, default 50).</param>
         /// <response code="200">Danh sách tin nhắn sắp xếp tăng dần theo thời gian.</response>
         /// <response code="401">Thiếu token.</response>
-        /// <response code="403">Không phải member.</response>
+        /// <response code="403">Không phải host hoặc active member.</response>
         /// <response code="404">Không tìm thấy phòng chờ.</response>
         /// <response code="500">Lỗi hệ thống.</response>
         [HttpGet("{lobbyId:guid}/messages")]
@@ -377,16 +416,99 @@ namespace BoardVerse.API.Controllers
         {
             var userId = GetUserIdFromClaims();
             var lobby = await _lobbyService.GetLobbyAsync(lobbyId, userId);
-            if (!lobby.Members.Any(m => m.UserId == userId && m.IsActive))
+
+            // Allow host OR any active member
+            var canView = lobby.HostUserId == userId
+                || lobby.Members.Any(m => m.UserId == userId && m.IsActive);
+
+            if (!canView)
             {
-                return Forbid();
+                throw new ForbiddenException(ApiErrorMessages.Lobby.Message.NotLobbyMember);
             }
+
             var result = await _lobbyMessageService.GetMessagesAsync(lobbyId, beforeCursor, limit);
             return this.NewResponse(200, "Lấy lịch sử tin nhắn.", result);
+        }
+
+        /// <summary>
+        /// L-03: Host tạo lại mã chia sẻ (invalidate mã cũ, sinh mã mới unique).
+        /// Dùng khi mã bị leak hoặc muốn reset. Chỉ áp dụng khi lobby đang Open hoặc Full. [Role: Player — chỉ Host]
+        /// </summary>
+        /// <param name="lobbyId">Mã phòng chờ.</param>
+        /// <response code="200">Đã tạo mã chia sẻ mới, trả về thông tin lobby kèm ShareCode mới.</response>
+        /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+        /// <response code="403">Không phải Host.</response>
+        /// <response code="404">Không tìm thấy lobby.</response>
+        /// <response code="409">Lobby không trong trạng thái cho phép (Open/Full).</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpPost("{lobbyId:guid}/share-code/regenerate")]
+        public async Task<IActionResult> RegenerateShareCode(Guid lobbyId)
+        {
+            var userId = GetUserIdFromClaims();
+            var result = await _lobbyService.RegenerateShareCodeAsync(lobbyId, userId);
+            return this.NewResponse(200, ApiSuccessMessages.Lobby.ShareCodeRegenerated, result);
+        }
+
+        /// <summary>
+        /// BR-NEW-14 (b): Host đổi timeSlot và/hoặc preferred times của lobby.
+        /// Chỉ áp dụng khi lobby chưa check-in (status = Open/Viable/Full/PendingCafeApproval).
+        /// Recalculate RecruitmentDeadline theo newTimeSlot/preferredTimes. [Role: Player — chỉ Host]
+        /// BR-RES-07/08/09: preferredStartTime/EndTime phải nằm trong slot range.
+        /// </summary>
+        /// <param name="lobbyId">Mã phòng chờ.</param>
+        /// <param name="request">
+        /// - newTimeSlot: khung giờ mới (morning/afternoon/evening/night), nullable = giữ nguyên
+        /// - preferredStartTime: giờ bắt đầu ưu tiên (HH:mm), nullable = giữ nguyên
+        /// - preferredEndTime: giờ kết thúc ưu tiên (HH:mm), nullable = giữ nguyên
+        /// </param>
+        /// <response code="200">Đã cập nhật thành công.</response>
+        /// <response code="400">
+        /// - TimeSlot trùng với hiện tại (khi newTimeSlot = current)
+        /// - Buffer không đủ 60 phút
+        /// - preferredStartTime/EndTime nằm ngoài slot range
+        /// </response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không phải Host.</response>
+        /// <response code="404">Không tìm thấy lobby.</response>
+        /// <response code="409">Lobby đã đóng/đang chơi hoặc không thể cập nhật.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPost("{lobbyId:guid}/change-timeslot")]
+        public async Task<IActionResult> ChangeTimeSlot(Guid lobbyId, [FromBody] ChangeTimeSlotRequestDto request)
+        {
+            var userId = GetUserIdFromClaims();
+            var result = await _lobbyService.ChangeTimeSlotAsync(lobbyId, userId, request);
+            return this.NewResponse(200, "Đã cập nhật thời gian thành công.", result);
+        }
+
+        /// <summary>
+        /// BR-NEW-14 (d): Boost lobby — tăng visibility trong search/discovery.
+        /// Chỉ áp dụng khi lobby đang Open. Cooldown 6 giờ giữa các lần boost. [Role: Player — chỉ Host]
+        /// </summary>
+        /// <param name="lobbyId">Mã phòng chờ.</param>
+        /// <response code="200">Đã boost phòng chờ thành công.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không phải Host.</response>
+        /// <response code="404">Không tìm thấy lobby.</response>
+        /// <response code="409">Lobby không mở hoặc đang trong cooldown.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPost("{lobbyId:guid}/boost")]
+        public async Task<IActionResult> BoostLobby(Guid lobbyId)
+        {
+            var userId = GetUserIdFromClaims();
+            var result = await _lobbyService.BoostLobbyAsync(lobbyId, userId);
+            return this.NewResponse(200, "Đã boost phòng chờ. Phòng của bạn sẽ hiện ở vị trí cao hơn trong kết quả tìm kiếm!", result);
         }
     }
 
     public class CloseLobbyRequestDto
+    {
+        public string? Reason { get; set; }
+    }
+
+    /// <summary>
+    /// Request body cho dissolve lobby (DELETE /api/v1/lobbies/{lobbyId}).
+    /// </summary>
+    public class DissolveLobbyRequestDto
     {
         public string? Reason { get; set; }
     }

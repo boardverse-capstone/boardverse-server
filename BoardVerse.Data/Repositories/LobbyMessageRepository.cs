@@ -47,6 +47,12 @@ namespace BoardVerse.Data.Repositories
             return Task.CompletedTask;
         }
 
+        public async Task RemoveByLobbyAsync(Guid lobbyId)
+        {
+            var messages = await _db.LobbyMessages.Where(m => m.LobbyId == lobbyId).ToListAsync();
+            _db.LobbyMessages.RemoveRange(messages);
+        }
+
         public Task SaveChangesAsync()
         {
             return _db.SaveChangesAsync();

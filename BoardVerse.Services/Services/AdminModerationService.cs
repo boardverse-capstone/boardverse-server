@@ -7,17 +7,21 @@ using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
+using BoardVerse.Data;
 using BoardVerse.Services.IServices;
+using System.Text.Json;
 
 namespace BoardVerse.Services.Services
 {
     public class AdminModerationService : IAdminModerationService
     {
         private readonly IAdminModerationRepository _repository;
+        private readonly BoardVerseDbContext _db;
 
-        public AdminModerationService(IAdminModerationRepository repository)
+        public AdminModerationService(IAdminModerationRepository repository, BoardVerseDbContext db)
         {
             _repository = repository;
+            _db = db;
         }
 
         public Task<PaginatedResponse<KarmaLogDto>> GetKarmaLogsAsync(
@@ -30,6 +34,9 @@ namespace BoardVerse.Services.Services
 
         public Task<IReadOnlyList<UserKarmaAlertDto>> GetKarmaAlertsAsync() =>
             _repository.GetKarmaAlertsAsync(SystemConfigKeys.KarmaSafetyThreshold);
+
+        public Task<PaginatedResponse<PlayerActionHistoryDto>> GetPlayerActionHistoryAsync(PlayerActionHistoryQuery query) =>
+            _repository.GetPlayerActionHistoryAsync(query);
 
         public async Task<AdminPunishUserResponseDto> PunishUserAsync(
             Guid adminUserId,
@@ -67,6 +74,21 @@ namespace BoardVerse.Services.Services
                         IsAdminAdjustment = false,
                         CreatedAt = utcNow
                     });
+
+                    // BR-RISK-05: audit log ghi nhận Warning.
+                    _db.PlayerActionHistories.Add(new PlayerActionHistory
+                    {
+                        Id = Guid.NewGuid(),
+                        UserId = targetUserId,
+                        ActionType = AdminActionType.Warning,
+                        ActionBy = adminUserId,
+                        Reason = reason,
+                        Metadata = JsonSerializer.Serialize(new
+                        {
+                            previousStatus = user.AccountStatus.ToString()
+                        }),
+                        CreatedAt = utcNow
+                    });
                     break;
 
                 case AdminPunishmentActionType.Suspend:
@@ -75,19 +97,58 @@ namespace BoardVerse.Services.Services
                         throw new BadRequestException(ApiErrorMessages.AdminModeration.SuspendDurationRequired);
                     }
 
+                    var previousStatusBeforeSuspend = user.AccountStatus;
+                    var lockoutEnd = utcNow.AddDays(request.DurationDays.Value);
+
                     user.AccountStatus = UserAccountStatus.Suspended;
                     user.BlockReason = reason;
                     user.BlockedAt = utcNow;
-                    user.LockoutEndDate = utcNow.AddDays(request.DurationDays.Value);
+                    user.LockoutEndDate = lockoutEnd;
                     user.UpdatedAt = utcNow;
+
+                    // BR-RISK-05: audit log ghi nhận Suspend + expiresAt.
+                    _db.PlayerActionHistories.Add(new PlayerActionHistory
+                    {
+                        Id = Guid.NewGuid(),
+                        UserId = targetUserId,
+                        ActionType = AdminActionType.Suspend,
+                        ActionBy = adminUserId,
+                        Reason = reason,
+                        Metadata = JsonSerializer.Serialize(new
+                        {
+                            previousStatus = previousStatusBeforeSuspend.ToString(),
+                            newStatus = user.AccountStatus.ToString(),
+                            durationDays = request.DurationDays.Value
+                        }),
+                        CreatedAt = utcNow,
+                        ExpiresAt = lockoutEnd
+                    });
                     break;
 
                 case AdminPunishmentActionType.Ban:
+                    var previousStatusBeforeBan = user.AccountStatus;
+
                     user.AccountStatus = UserAccountStatus.Banned;
                     user.BlockReason = reason;
                     user.BlockedAt = utcNow;
                     user.LockoutEndDate = null;
                     user.UpdatedAt = utcNow;
+
+                    // BR-RISK-05: audit log ghi nhận Ban (vĩnh viễn).
+                    _db.PlayerActionHistories.Add(new PlayerActionHistory
+                    {
+                        Id = Guid.NewGuid(),
+                        UserId = targetUserId,
+                        ActionType = AdminActionType.Ban,
+                        ActionBy = adminUserId,
+                        Reason = reason,
+                        Metadata = JsonSerializer.Serialize(new
+                        {
+                            previousStatus = previousStatusBeforeBan.ToString(),
+                            newStatus = user.AccountStatus.ToString()
+                        }),
+                        CreatedAt = utcNow
+                    });
                     break;
 
                 default:
@@ -111,6 +172,12 @@ namespace BoardVerse.Services.Services
             Guid targetUserId,
             AdminAdjustKarmaRequestDto request)
         {
+            // K-07: Enforce karma adjustment range [-100, 100] at server-side.
+            if (request.Amount < -100 || request.Amount > 100)
+            {
+                throw new BadRequestException(ApiErrorMessages.AdminModeration.KarmaAdjustmentRange);
+            }
+
             if (request.Amount == 0)
             {
                 throw new BadRequestException(ApiErrorMessages.AdminModeration.KarmaAdjustmentZeroNotAllowed);
@@ -145,6 +212,26 @@ namespace BoardVerse.Services.Services
             };
 
             await _repository.AddKarmaLogAsync(log);
+
+            // BR-RISK-05: audit log ghi nhận admin adjust karma.
+            _db.PlayerActionHistories.Add(new PlayerActionHistory
+            {
+                Id = Guid.NewGuid(),
+                UserId = targetUserId,
+                ActionType = AdminActionType.AdminCredit,
+                ActionBy = adminUserId,
+                Reason = request.Reason.Trim(),
+                Metadata = JsonSerializer.Serialize(new
+                {
+                    karmaBefore,
+                    karmaAfter,
+                    delta = request.Amount,
+                    actualDelta,
+                    karmaLogId = log.Id
+                }),
+                CreatedAt = DateTime.UtcNow
+            });
+
             await _repository.SaveChangesAsync();
 
             return new AdminAdjustKarmaResponseDto
@@ -154,6 +241,50 @@ namespace BoardVerse.Services.Services
                 NewKarma = karmaAfter,
                 AdjustedAmount = request.Amount,
                 KarmaLogId = log.Id
+            };
+        }
+
+        public async Task<PaginatedResponse<CoolingOffUserDto>> GetCoolingOffUsersAsync(PaginationParams pagination)
+        {
+            return await _repository.GetCoolingOffUsersAsync(pagination);
+        }
+
+        public async Task<ReleaseCoolingOffResponseDto> ReleaseCoolingOffAsync(Guid adminUserId, Guid targetUserId, string reason)
+        {
+            var wallet = await _repository.GetWalletForUpdateAsync(targetUserId);
+            if (wallet == null)
+            {
+                throw new NotFoundException(ApiErrorMessages.AdminModeration.WalletNotFound(targetUserId));
+            }
+
+            if (!wallet.IsCoolingOff)
+            {
+                throw new ConflictException(ApiErrorMessages.AdminModeration.UserNotInCoolingOff);
+            }
+
+            var user = await _repository.GetUserWithProfileForUpdateAsync(targetUserId);
+            if (user == null)
+            {
+                throw new UserNotFoundException(ApiErrorMessages.AdminUsers.UserNotFound(targetUserId));
+            }
+
+            var previousCoolingOffExpiresAt = wallet.CoolingOffExpiresAt;
+
+            wallet.IsCoolingOff = false;
+            wallet.CoolingOffExpiresAt = null;
+            wallet.UpdatedAt = DateTime.UtcNow;
+
+            await _repository.SaveChangesAsync();
+
+            return new ReleaseCoolingOffResponseDto
+            {
+                UserId = targetUserId,
+                Username = user.Username,
+                WasCoolingOff = true,
+                PreviousCoolingOffExpiresAt = previousCoolingOffExpiresAt,
+                ReleaseReason = reason.Trim(),
+                ReleasedBy = adminUserId,
+                ReleasedAt = DateTime.UtcNow
             };
         }
     }

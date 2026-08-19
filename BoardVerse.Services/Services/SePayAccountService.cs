@@ -1,9 +1,11 @@
 using BoardVerse.Core.DTOs.Payment;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
+using BoardVerse.Services.Services.Payments;
 using Microsoft.Extensions.Logging;
 
 namespace BoardVerse.Services.Services;
@@ -14,17 +16,23 @@ public class SePayAccountService : ISePayAccountService
     private readonly ICafeRepository _cafeRepository;
     private readonly ILogger<SePayAccountService> _logger;
     private readonly ICurrentUserService _currentUserService;
+    private readonly IVietQrClient _vietQrClient;
+    private readonly IBookingDepositRepository _bookingDepositRepository;
 
     public SePayAccountService(
         ISePayAccountRepository repository,
         ICafeRepository cafeRepository,
         ILogger<SePayAccountService> logger,
-        ICurrentUserService currentUserService)
+        ICurrentUserService currentUserService,
+        IVietQrClient vietQrClient,
+        IBookingDepositRepository bookingDepositRepository)
     {
         _repository = repository;
         _cafeRepository = cafeRepository;
         _logger = logger;
         _currentUserService = currentUserService;
+        _vietQrClient = vietQrClient;
+        _bookingDepositRepository = bookingDepositRepository;
     }
 
     private Guid? GetCurrentUserId() => _currentUserService.GetCurrentUserId();
@@ -56,6 +64,16 @@ public class SePayAccountService : ISePayAccountService
         return account == null ? null : ToDto(account);
     }
 
+    public Task<SePayAccount?> GetRawMasterAccountAsync()
+    {
+        return _repository.GetMasterAccountAsync();
+    }
+
+    public async Task<SePayAccount?> GetRawByCafeIdAsync(Guid cafeId)
+    {
+        return await _repository.GetByCafeIdAsync(cafeId);
+    }
+
     public async Task<IReadOnlyList<SePayAccountDto>> GetAllAsync(SePayAccountQuery? query = null)
     {
         var accounts = await _repository.GetAllAsync(query);
@@ -65,27 +83,27 @@ public class SePayAccountService : ISePayAccountService
     public async Task<SePayAccountDto> CreateAsync(CreateSePayAccountRequestDto request)
     {
         // Validate CafeId if AccountType is Cafe
-        if (request.AccountType == SePayAccountType.Cafe)
-        {
-            if (!request.CafeId.HasValue)
-            {
-                throw new ArgumentException("CafeId is required for Cafe account type.");
-            }
+if (request.AccountType == SePayAccountType.Cafe)
+{
+if (!request.CafeId.HasValue)
+{
+throw new ArgumentException(ApiErrorMessages.Payment.SePayCafeIdRequired);
+}
 
-            var existing = await _repository.GetByCafeIdAsync(request.CafeId.Value);
-            if (existing != null)
-            {
-                throw new InvalidOperationException($"Cafe '{request.CafeId}' already has a SePay account.");
-            }
-        }
-        else if (request.AccountType == SePayAccountType.Master)
-        {
-            var existingMaster = await _repository.GetMasterAccountAsync();
-            if (existingMaster != null)
-            {
-                throw new InvalidOperationException("Master account already exists.");
-            }
-        }
+var existing = await _repository.GetByCafeIdAsync(request.CafeId.Value);
+if (existing != null)
+{
+throw new InvalidOperationException(ApiErrorMessages.Payment.SePayCafeAccountExists(request.CafeId.Value));
+}
+}
+else if (request.AccountType == SePayAccountType.Master)
+{
+var existingMaster = await _repository.GetMasterAccountAsync();
+if (existingMaster != null)
+{
+throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountExists);
+}
+}
 
         var account = new SePayAccount
         {
@@ -117,7 +135,7 @@ public class SePayAccountService : ISePayAccountService
     public async Task<SePayAccountDto> UpdateAsync(Guid id, UpdateSePayAccountRequestDto request)
     {
         var account = await _repository.GetByIdAsync(id)
-            ?? throw new KeyNotFoundException($"SePay account not found: {id}");
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.SePayAccountNotFound(id));
 
         if (request.MerchantId != null) account.MerchantId = request.MerchantId;
         if (request.ApiKey != null) account.ApiKey = request.ApiKey;
@@ -148,11 +166,11 @@ public class SePayAccountService : ISePayAccountService
         
         if (!validEnvironments.Contains(normalizedEnv))
         {
-            throw new ArgumentException($"Invalid environment. Must be 'Test' or 'Production'. Got: '{environment}'");
+            throw new ArgumentException(ApiErrorMessages.Payment.SePayInvalidEnvironment(environment));
         }
 
         var account = await _repository.GetByIdAsync(id)
-            ?? throw new KeyNotFoundException($"SePay account not found: {id}");
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.SePayAccountNotFound(id));
 
         var oldEnv = account.Environment;
         account.Environment = normalizedEnv;
@@ -172,7 +190,7 @@ public class SePayAccountService : ISePayAccountService
     public async Task DeleteAsync(Guid id)
     {
         var account = await _repository.GetByIdAsync(id)
-            ?? throw new KeyNotFoundException($"SePay account not found: {id}");
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.SePayAccountNotFound(id));
 
         await _repository.DeleteAsync(id);
         await _repository.SaveChangesAsync();
@@ -189,13 +207,127 @@ public class SePayAccountService : ISePayAccountService
         return account == null ? null : ToDto(account);
     }
 
+    public async Task<SePayAccountDto> CreateByManagerCafeAsync(CreateCafePaymentAccountRequestDto request)
+    {
+        // 1. Lấy cafe của Manager hiện tại
+        var cafeId = await GetCurrentUserCafeIdAsync()
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.ManagerHasNoCafe);
+
+        // 2. Validate 4 field bắt buộc — fail-fast với message rõ ràng
+        if (string.IsNullOrWhiteSpace(request.BankCode))
+            throw new ArgumentException(ApiErrorMessages.Payment.CafePaymentAccountBankCodeRequired);
+        if (string.IsNullOrWhiteSpace(request.AccountNumber))
+            throw new ArgumentException(ApiErrorMessages.Payment.CafePaymentAccountAccountNumberRequired);
+        if (string.IsNullOrWhiteSpace(request.AccountHolder))
+            throw new ArgumentException(ApiErrorMessages.Payment.CafePaymentAccountAccountHolderRequired);
+
+        // 3. Kiểm tra cafe chưa có payment account (mỗi cafe chỉ có 1)
+        var existing = await _repository.GetByCafeIdAsync(cafeId);
+        if (existing != null)
+            throw new InvalidOperationException(ApiErrorMessages.Payment.CafePaymentAccountAlreadyExists(cafeId));
+
+        // 4. Tạo SePayAccount với AccountType = Cafe, KHÔNG đụng SePay credentials
+        var account = new SePayAccount
+        {
+            AccountType = SePayAccountType.Cafe,
+            CafeId = cafeId,
+            // KHÔNG set MerchantId/ApiKey/SecretKey/WebhookToken — Manager không cần đăng ký SePay.
+            // Bank info là đủ để VietQR sinh QR và SePay detect giao dịch (bank_mode=all).
+            BankCode = request.BankCode.Trim(),
+            AccountNumber = request.AccountNumber.Trim(),
+            AccountHolder = request.AccountHolder.Trim(),
+            Environment = string.IsNullOrWhiteSpace(request.Environment) ? "Production" : NormalizeEnvironment(request.Environment!),
+            IsActive = true,
+            CreatedByUserId = GetCurrentUserId()
+        };
+
+        await _repository.AddAsync(account);
+        await _repository.SaveChangesAsync();
+
+        // 5. BUGFIX: Link Cafe.SePayAccountId → SePayAccount vừa tạo.
+        // Trước đây thiếu bước này khiến CreateSessionPaymentAsync ở PaymentService
+        // luôn check cafe.SePayAccountId.HasValue() == false → throw
+        // PaymentCafeNotConfiguredSePay ngay cả khi SePayAccount đã tồn tại.
+        var cafe = await _cafeRepository.GetByIdAsync(cafeId)
+            ?? throw new NotFoundException(ApiErrorMessages.Cafe.CafeRecordNotFound(cafeId));
+        cafe.SePayAccountId = account.Id;
+        cafe.UpdatedAt = DateTime.UtcNow;
+        await _cafeRepository.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "SePayAccount for cafe {CafeId} created by manager. Id={Id}, BankCode={BankCode}, ByUser={UserId}; Cafe.SePayAccountId linked.",
+            cafeId, account.Id, account.BankCode, account.CreatedByUserId);
+
+        return ToDto(account);
+    }
+
+    private static string NormalizeEnvironment(string environment)
+    {
+        var validEnvironments = new[] { "Test", "Production" };
+        var normalizedEnv = char.ToUpper(environment[0]) + environment[1..].ToLower();
+        if (!validEnvironments.Contains(normalizedEnv))
+            throw new ArgumentException(ApiErrorMessages.Payment.SePayInvalidEnvironment(environment));
+        return normalizedEnv;
+    }
+
+    public async Task<CafePaymentQrPreviewDto> GenerateTestQrByManagerCafeAsync()
+    {
+        // 1. Lấy cafe + payment account của Manager
+        var cafeId = await GetCurrentUserCafeIdAsync()
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.ManagerHasNoCafe);
+
+        var account = await _repository.GetByCafeIdAsync(cafeId)
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.CafeSePayAccountNotConfigured);
+
+        // 2. Validate bank info có đủ để gen QR
+        if (string.IsNullOrWhiteSpace(account.BankCode)
+            || string.IsNullOrWhiteSpace(account.AccountNumber)
+            || string.IsNullOrWhiteSpace(account.AccountHolder))
+        {
+            throw new InvalidOperationException(ApiErrorMessages.Payment.SePayBankInfoIncomplete);
+        }
+
+        // 3. Sinh transfer content unique để Manager dễ identify giao dịch test
+        var testContent = $"BV-TEST-{Guid.NewGuid():N}".Substring(0, 20);
+
+        // 4. Gen VietQR URL — số tiền test 10.000 VND
+        const decimal testAmount = 10_000m;
+        var qrUrl = _vietQrClient.GenerateQrUrl(
+            bankCode: account.BankCode,
+            accountNumber: account.AccountNumber,
+            amount: testAmount,
+            description: testContent,
+            accountHolder: account.AccountHolder,
+            template: "compact",
+            showInfo: true);
+
+        _logger.LogInformation(
+            "Test QR generated for cafe {CafeId}. Amount={Amount}, Content={Content}",
+            cafeId, testAmount, testContent);
+
+        return new CafePaymentQrPreviewDto
+        {
+            QrUrl = qrUrl,
+            TestAmount = testAmount,
+            TestTransferContent = testContent,
+            BankCode = account.BankCode,
+            MaskedAccountNumber = MaskAccountNumber(account.AccountNumber) ?? account.AccountNumber,
+            AccountHolder = account.AccountHolder,
+            Instructions =
+                "1. Mở app ngân hàng và quét QR trên.\n" +
+                "2. Xác nhận số tiền 10.000 VND và nội dung CK đúng như hiển thị.\n" +
+                "3. Sau khi CK thành công, SePay sẽ gửi webhook về BoardVerse trong vòng 1-2 phút.\n" +
+                "4. Nếu SePay KHÔNG detect được (không thấy log webhook), liên hệ admin để kiểm tra TK đã được link vào SePay company chưa."
+        };
+    }
+
     public async Task<SePayAccountDto> UpdateByManagerCafeAsync(UpdateSePayAccountRequestDto request)
     {
         var cafeId = await GetCurrentUserCafeIdAsync()
-            ?? throw new KeyNotFoundException("Bạn không quản lý cafe nào.");
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.ManagerHasNoCafe);
 
         var account = await _repository.GetByCafeIdAsync(cafeId)
-            ?? throw new KeyNotFoundException($"Cafe của bạn chưa được cấu hình SePay.");
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.CafeSePayAccountNotConfigured);
 
         if (request.MerchantId != null) account.MerchantId = request.MerchantId;
         if (request.ApiKey != null) account.ApiKey = request.ApiKey;
@@ -226,14 +358,14 @@ public class SePayAccountService : ISePayAccountService
 
         if (!validEnvironments.Contains(normalizedEnv))
         {
-            throw new ArgumentException($"Invalid environment. Must be 'Test' or 'Production'. Got: '{environment}'");
+            throw new ArgumentException(ApiErrorMessages.Payment.SePayInvalidEnvironment(environment));
         }
 
         var cafeId = await GetCurrentUserCafeIdAsync()
-            ?? throw new KeyNotFoundException("Bạn không quản lý cafe nào.");
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.ManagerHasNoCafe);
 
         var account = await _repository.GetByCafeIdAsync(cafeId)
-            ?? throw new KeyNotFoundException($"Cafe của bạn chưa được cấu hình SePay.");
+            ?? throw new NotFoundException(ApiErrorMessages.Payment.CafeSePayAccountNotConfigured);
 
         var oldEnv = account.Environment;
         account.Environment = normalizedEnv;
@@ -279,5 +411,49 @@ public class SePayAccountService : ISePayAccountService
             return accountNumber;
 
         return new string('*', accountNumber.Length - 4) + accountNumber[^4..];
+    }
+
+    /// <summary>
+    /// Admin: Tra cứu BookingDeposit theo SePayTransactionId. Trả null nếu không tìm thấy.
+    /// </summary>
+    public async Task<SePayTransactionLookupDto?> LookupBySePayTransactionIdAsync(string sePayTransactionId)
+    {
+        if (string.IsNullOrWhiteSpace(sePayTransactionId))
+        {
+            return null;
+        }
+
+        var deposit = await _bookingDepositRepository.GetBySePayTransactionIdAsync(sePayTransactionId);
+        if (deposit == null)
+        {
+            return null;
+        }
+
+        // Lookup cafe name (best-effort, fail silently).
+        string? cafeName = null;
+        if (deposit.CafeId != Guid.Empty)
+        {
+            var cafe = await _cafeRepository.GetByIdAsync(deposit.CafeId);
+            cafeName = cafe?.Name;
+        }
+
+        return new SePayTransactionLookupDto
+        {
+            DepositId = deposit.Id,
+            OrderId = deposit.OrderId ?? string.Empty,
+            BookingId = deposit.BookingId,
+            ActiveSessionId = deposit.ActiveSessionId,
+            CafeId = deposit.CafeId,
+            CafeName = cafeName,
+            UserId = deposit.UserId,
+            Amount = deposit.Amount,
+            Status = deposit.Status.ToString(),
+            SePayTransactionId = deposit.SePayTransactionId,
+            SePayTransferId = deposit.SePayTransferId,
+            PaidAt = deposit.PaidAt,
+            RefundedAt = deposit.RefundedAt,
+            ForfeitedAt = deposit.ForfeitedAt,
+            CreatedAt = deposit.CreatedAt
+        };
     }
 }

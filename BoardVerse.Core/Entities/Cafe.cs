@@ -97,6 +97,13 @@ namespace BoardVerse.Core.Entities
         /// </summary>
         public Guid? SePayAccountId { get; set; }
 
+        // === BR-18 / Task #12: Deposit Refund Policy ===
+        /// <summary>Chính sách hoàn cọc khi booking bị hủy. Manager cấu hình qua PATCH endpoint.</summary>
+        public DepositRefundPolicy RefundPolicy { get; set; } = DepositRefundPolicy.Partial;
+
+        /// <summary>JSON array các bậc hoàn cọc cho policy=Partial: [{"minHoursBeforeScheduled":24,"refundPercent":50}, ...].</summary>
+        public string RefundTiersJson { get; set; } = "[{\"minHoursBeforeScheduled\":24,\"refundPercent\":50},{\"minHoursBeforeScheduled\":12,\"refundPercent\":25},{\"minHoursBeforeScheduled\":0,\"refundPercent\":0}]";
+
         // === Audit ===
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? UpdatedAt { get; set; }

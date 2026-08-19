@@ -26,6 +26,13 @@ public interface IFriendshipRepository
     Task<IReadOnlyList<Guid>> GetFriendUserIdsAsync(Guid userId);
 
     /// <summary>
+    /// Batch query: lấy tập friends-of-friends cho nhiều userIds trong 1 round-trip DB.
+    /// Trả về Dictionary&lt;sourceUserId, list of friends&gt;. Dùng cho FriendService.GetFriendSuggestionsAsync
+    /// để tránh N+1 (loop qua từng friendId → 1 query per friend).
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, IReadOnlyList<Guid>>> GetFriendsForUsersAsync(IReadOnlyCollection<Guid> userIds);
+
+    /// <summary>
     /// Đếm số bạn chung giữa 2 user.
     /// </summary>
     Task<int> CountMutualFriendsAsync(Guid userAId, Guid userBId);
@@ -45,6 +52,13 @@ public interface IFriendshipRepository
     /// Dùng để filter khỏi Search/Suggestions (BR-FRIEND-SEARCH-BLOCK-FILTER).
     /// </summary>
     Task<IReadOnlyList<Guid>> GetBlockedUserIdsAsync(Guid userId);
+
+    /// <summary>
+    /// M2: Kiểm tra user có phải bạn bè Accepted của bất kỳ user nào trong candidateUserIds không.
+    /// Trả về true nếu tồn tại friendship Accepted giữa userId và bất kỳ candidate.
+    /// Dùng cho BR-LOBBY-PRIVACY-03 share-code join — tránh N+1 khi N = số member active.
+    /// </summary>
+    Task<bool> IsAcceptedFriendOfAnyAsync(Guid userId, IReadOnlyCollection<Guid> candidateUserIds);
 
     /// <summary>
     /// Lọc Friendship theo direction tính từ góc nhìn currentUser (BR-FRIEND-UI-DIRECTION-01).

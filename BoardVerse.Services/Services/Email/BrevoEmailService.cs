@@ -69,7 +69,7 @@ namespace BoardVerse.Services.Services.Email
             request.Headers.Add("api-key", _settings.ApiKey);
             request.Headers.UserAgent.ParseAdd("BoardVerse/1.0");
 
-            _logger.LogInformation("Sending email via Brevo API to {To} at {SendUri}", to, sendUri);
+            _logger.LogInformation("Sending email via Brevo API to {MaskedTo} at {SendUri}", MaskEmail(to), sendUri);
 
             HttpResponseMessage response;
             try
@@ -93,7 +93,7 @@ namespace BoardVerse.Services.Services.Email
 
                 if (response.IsSuccessStatusCode)
                 {
-                    _logger.LogInformation("Email sent via Brevo to {To}", to);
+                    _logger.LogInformation("Email sent via Brevo to {MaskedTo}", MaskEmail(to));
                     return;
                 }
 
@@ -117,10 +117,26 @@ namespace BoardVerse.Services.Services.Email
                 || uri.Scheme != Uri.UriSchemeHttps)
             {
                 throw new EmailSendingException(
-                    $"Invalid Brevo ApiBaseUrl '{apiBaseUrl}'. Use https://api.brevo.com");
+                    ApiErrorMessages.System.BrevoInvalidApiBaseUrl(apiBaseUrl));
             }
 
             return uri;
+        }
+
+        /// <summary>L1: Mask email để tránh log PII (GDPR).</summary>
+        private static string MaskEmail(string email)
+        {
+            if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
+            {
+                return "***";
+            }
+            var parts = email.Split('@', 2);
+            var local = parts[0];
+            var domain = parts[1];
+            var maskedLocal = local.Length <= 1
+                ? "*"
+                : $"{local[0]}***{local[^1]}";
+            return $"{maskedLocal}@{domain}";
         }
 
         private sealed class BrevoSendRequest

@@ -14,10 +14,11 @@ public class ManualPaymentServiceTests
     private readonly Mock<ITransactionRepository> _transactionRepo = new();
     private readonly Mock<IBookingDepositRepository> _depositRepo = new();
     private readonly Mock<IActiveSessionRepository> _sessionRepo = new();
+    private readonly Mock<ICafeRepository> _cafeRepo = new();
     private readonly Mock<ILogger<ManualPaymentService>> _logger = new();
 
     private ManualPaymentService CreateService() => new(
-        _transactionRepo.Object, _depositRepo.Object, _sessionRepo.Object, _logger.Object);
+        _transactionRepo.Object, _depositRepo.Object, _sessionRepo.Object, _cafeRepo.Object, _logger.Object);
 
     [Fact]
     public async Task ConfirmManualPaymentAsync_WithInvalidPaymentType_ThrowsArgument()
@@ -32,7 +33,8 @@ public class ManualPaymentServiceTests
                 Amount = 10000m,
                 PaymentMethod = "CASH"
             },
-            Guid.NewGuid()));
+            Guid.NewGuid(),
+            "Admin"));
     }
 
     [Fact]
@@ -43,120 +45,58 @@ public class ManualPaymentServiceTests
         await Assert.ThrowsAsync<ArgumentException>(() => svc.ConfirmManualPaymentAsync(
             new ManualPaymentConfirmRequestDto
             {
-                PaymentType = "Deposit",
+                PaymentType = "SESSION",
                 OrderId = Guid.NewGuid(),
                 Amount = 10000m,
                 PaymentMethod = "BITCOIN"
             },
-            Guid.NewGuid()));
+            Guid.NewGuid(),
+            "Admin"));
     }
 
     [Fact]
-    public async Task ConfirmManualPaymentAsync_DepositNotFound_ThrowsNotFound()
+    public async Task ConfirmManualPaymentAsync_DepositPaymentTypeRejected_ThrowsArgument()
     {
-        var depositId = Guid.NewGuid();
-        _depositRepo.Setup(r => r.GetByIdAsync(depositId)).ReturnsAsync((BookingDeposit?)null);
-
+        // M6: DEPOSIT payment is now rejected — staff must use a separate deposit endpoint.
         var svc = CreateService();
 
-        await Assert.ThrowsAsync<NotFoundException>(() => svc.ConfirmManualPaymentAsync(
-            new ManualPaymentConfirmRequestDto
-            {
-                PaymentType = "Deposit",
-                OrderId = depositId,
-                Amount = 10000m,
-                PaymentMethod = "CASH"
-            },
-            Guid.NewGuid()));
-    }
-
-    [Fact]
-    public async Task ConfirmManualPaymentAsync_DepositNotPending_ThrowsConflict()
-    {
-        var depositId = Guid.NewGuid();
-        _depositRepo.Setup(r => r.GetByIdAsync(depositId)).ReturnsAsync(new BookingDeposit
-        {
-            Id = depositId,
-            Status = BookingDepositStatus.Paid
-        });
-
-        var svc = CreateService();
-
-        await Assert.ThrowsAsync<ConflictException>(() => svc.ConfirmManualPaymentAsync(
-            new ManualPaymentConfirmRequestDto
-            {
-                PaymentType = "Deposit",
-                OrderId = depositId,
-                Amount = 10000m,
-                PaymentMethod = "CASH"
-            },
-            Guid.NewGuid()));
-    }
-
-    [Fact]
-    public async Task ConfirmManualPaymentAsync_DepositValid_SetsPaidAndCreatesTransaction()
-    {
-        var depositId = Guid.NewGuid();
-        var staffId = Guid.NewGuid();
-        var deposit = new BookingDeposit { Id = depositId, Status = BookingDepositStatus.Pending };
-
-        _depositRepo.Setup(r => r.GetByIdAsync(depositId)).ReturnsAsync(deposit);
-
-        Transaction? captured = null;
-        _transactionRepo.Setup(r => r.AddAsync(It.IsAny<Transaction>(), default))
-            .Callback<Transaction, CancellationToken>((t, _) => captured = t)
-            .ReturnsAsync((Transaction t, CancellationToken _) => t);
-
-        var svc = CreateService();
-
-        var result = await svc.ConfirmManualPaymentAsync(
+        await Assert.ThrowsAsync<ArgumentException>(() => svc.ConfirmManualPaymentAsync(
             new ManualPaymentConfirmRequestDto
             {
                 PaymentType = "DEPOSIT",
-                OrderId = depositId,
-                Amount = 50000m,
-                PaymentMethod = "CASH",
-                Notes = "Customer paid cash"
+                OrderId = Guid.NewGuid(),
+                Amount = 10000m,
+                PaymentMethod = "CASH"
             },
-            staffId);
-
-        Assert.Equal(BookingDepositStatus.Paid, deposit.Status);
-        Assert.NotNull(deposit.PaidAt);
-        _depositRepo.Verify(r => r.UpdateAsync(deposit), Times.Once);
-        Assert.NotNull(captured);
-        Assert.Equal(TransactionStatus.Succeeded, captured!.Status);
-        Assert.Equal(TransactionType.BookingDeposit, captured.Type);
-        Assert.Equal(50000m, captured.Amount);
-        Assert.Equal(depositId.ToString(), captured.GatewayTransactionId);
-        Assert.Equal("Confirmed", result.Status);
-        Assert.Equal(staffId.ToString(), result.ConfirmedBy);
-        Assert.Equal("Deposit", result.PaymentType);
+            Guid.NewGuid(),
+            "Admin"));
     }
 
     [Fact]
     public async Task ConfirmManualPaymentAsync_SessionNotFound_ThrowsNotFound()
     {
         var sessionId = Guid.NewGuid();
-        _sessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync((ActiveSession?)null);
+        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId)).ReturnsAsync((ActiveSession?)null);
 
         var svc = CreateService();
 
         await Assert.ThrowsAsync<NotFoundException>(() => svc.ConfirmManualPaymentAsync(
             new ManualPaymentConfirmRequestDto
             {
-                PaymentType = "Session",
+                PaymentType = "SESSION",
                 OrderId = sessionId,
                 Amount = 100000m,
                 PaymentMethod = "CASH"
             },
-            Guid.NewGuid()));
+            Guid.NewGuid(),
+            "Admin"));
     }
 
     [Fact]
     public async Task ConfirmManualPaymentAsync_SessionNotUnpaid_ThrowsConflict()
     {
         var sessionId = Guid.NewGuid();
-        _sessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(new ActiveSession
+        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId)).ReturnsAsync(new ActiveSession
         {
             Id = sessionId,
             Status = GroupSessionStatus.Paid
@@ -167,22 +107,92 @@ public class ManualPaymentServiceTests
         await Assert.ThrowsAsync<ConflictException>(() => svc.ConfirmManualPaymentAsync(
             new ManualPaymentConfirmRequestDto
             {
-                PaymentType = "Session",
+                PaymentType = "SESSION",
                 OrderId = sessionId,
                 Amount = 100000m,
                 PaymentMethod = "BANK_TRANSFER"
             },
-            Guid.NewGuid()));
+            Guid.NewGuid(),
+            "Admin"));
     }
 
     [Fact]
-    public async Task ConfirmManualPaymentAsync_SessionValid_SetsPaid()
+    public async Task ConfirmManualPaymentAsync_AmountMismatch_ThrowsConflict()
     {
+        // H5: Amount mismatch detected BEFORE any DB writes.
+        var sessionId = Guid.NewGuid();
+        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId)).ReturnsAsync(new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = Guid.NewGuid(),
+            Status = GroupSessionStatus.Unpaid,
+            TotalAmount = 200000m
+        });
+
+        var svc = CreateService();
+
+        await Assert.ThrowsAsync<ConflictException>(() => svc.ConfirmManualPaymentAsync(
+            new ManualPaymentConfirmRequestDto
+            {
+                PaymentType = "SESSION",
+                OrderId = sessionId,
+                Amount = 100000m,
+                PaymentMethod = "CASH"
+            },
+            Guid.NewGuid(),
+            "Admin"));
+    }
+
+    [Fact]
+    public async Task ConfirmManualPaymentAsync_NonAdminNotCafeOwnerOrStaff_ThrowsForbidden()
+    {
+        // C3: non-Admin caller who is neither Manager nor Staff of the cafe is forbidden.
+        var cafeId = Guid.NewGuid();
+        var sessionId = Guid.NewGuid();
+        var callerId = Guid.NewGuid();
+        var otherManagerId = Guid.NewGuid();
+
+        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId)).ReturnsAsync(new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Unpaid,
+            TotalAmount = 50000m
+        });
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(new Cafe { Id = cafeId, Name = "X", Address = "Y", ManagerId = otherManagerId });
+        _cafeRepo.Setup(r => r.IsStaffMemberExistsAsync(cafeId, callerId)).ReturnsAsync(false);
+
+        var svc = CreateService();
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => svc.ConfirmManualPaymentAsync(
+            new ManualPaymentConfirmRequestDto
+            {
+                PaymentType = "SESSION",
+                OrderId = sessionId,
+                Amount = 50000m,
+                PaymentMethod = "CASH"
+            },
+            callerId,
+            "Manager"));
+    }
+
+    [Fact]
+    public async Task ConfirmManualPaymentAsync_AdminBypassesCafeOwnership_Succeeds()
+    {
+        // C3: Admin role bypasses cafe ownership check.
+        var cafeId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
         var staffId = Guid.NewGuid();
-        var session = new ActiveSession { Id = sessionId, Status = GroupSessionStatus.Unpaid };
 
-        _sessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Unpaid,
+            TotalAmount = 50000m
+        };
+
+        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId)).ReturnsAsync(session);
         _transactionRepo.Setup(r => r.AddAsync(It.IsAny<Transaction>(), default))
             .ReturnsAsync((Transaction t, CancellationToken _) => t);
 
@@ -191,17 +201,145 @@ public class ManualPaymentServiceTests
         var result = await svc.ConfirmManualPaymentAsync(
             new ManualPaymentConfirmRequestDto
             {
-                PaymentType = "Session",
+                PaymentType = "SESSION",
+                OrderId = sessionId,
+                Amount = 50000m,
+                PaymentMethod = "CASH"
+            },
+            staffId,
+            "Admin");
+
+        Assert.Equal(GroupSessionStatus.Paid, session.Status);
+        Assert.NotNull(session.PaidAt);
+        Assert.Equal("Session", result.PaymentType);
+        Assert.Equal(staffId.ToString(), result.ConfirmedBy);
+    }
+
+    [Fact]
+    public async Task ConfirmManualPaymentAsync_CafeManagerOwner_Succeeds()
+    {
+        // C3: Manager who owns the cafe can confirm.
+        var cafeId = Guid.NewGuid();
+        var sessionId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Unpaid,
+            TotalAmount = 150000m
+        };
+
+        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId)).ReturnsAsync(session);
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(new Cafe { Id = cafeId, Name = "X", Address = "Y", ManagerId = staffId });
+        _transactionRepo.Setup(r => r.AddAsync(It.IsAny<Transaction>(), default))
+            .ReturnsAsync((Transaction t, CancellationToken _) => t);
+
+        var svc = CreateService();
+
+        var result = await svc.ConfirmManualPaymentAsync(
+            new ManualPaymentConfirmRequestDto
+            {
+                PaymentType = "SESSION",
                 OrderId = sessionId,
                 Amount = 150000m,
                 PaymentMethod = "QR_CODE"
             },
-            staffId);
+            staffId,
+            "Manager");
 
         Assert.Equal(GroupSessionStatus.Paid, session.Status);
         Assert.NotNull(session.PaidAt);
         _sessionRepo.Verify(r => r.UpdateAsync(session), Times.Once);
         Assert.Equal("Session", result.PaymentType);
-        Assert.Equal(staffId.ToString(), result.ConfirmedBy);
+    }
+
+    [Fact]
+    public async Task ConfirmManualPaymentAsync_SessionValid_ReleasesTableAndBox()
+    {
+        var sessionId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+        var cafeId = Guid.NewGuid();
+        var tableId = Guid.NewGuid();
+        var boxId = Guid.NewGuid();
+
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Unpaid,
+            TotalAmount = 150000m,
+            CafeTableId = tableId,
+            CafeInventoryBoxId = boxId
+        };
+
+        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId)).ReturnsAsync(session);
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(new Cafe { Id = cafeId, Name = "X", Address = "Y", ManagerId = staffId });
+        _transactionRepo.Setup(r => r.AddAsync(It.IsAny<Transaction>(), default))
+            .ReturnsAsync((Transaction t, CancellationToken _) => t);
+
+        var svc = CreateService();
+
+        await svc.ConfirmManualPaymentAsync(
+            new ManualPaymentConfirmRequestDto
+            {
+                PaymentType = "SESSION",
+                OrderId = sessionId,
+                Amount = 150000m,
+                PaymentMethod = "CASH"
+            },
+            staffId,
+            "Manager");
+
+        // Session marked Paid
+        Assert.Equal(GroupSessionStatus.Paid, session.Status);
+        Assert.NotNull(session.PaidAt);
+
+        // Cleanup delegated to repository
+        _sessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(sessionId), Times.Once);
+        _sessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(sessionId), Times.Once);
+        _sessionRepo.Verify(r => r.SaveChangesAsync(), Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public async Task ConfirmManualPaymentAsync_SessionValid_NoTableOrBox_DoesNotThrow()
+    {
+        var sessionId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+        var cafeId = Guid.NewGuid();
+
+        // Walk-in session: no table, no box
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Unpaid,
+            TotalAmount = 50000m,
+            CafeTableId = null,
+            CafeInventoryBoxId = null
+        };
+
+        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId)).ReturnsAsync(session);
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(new Cafe { Id = cafeId, Name = "X", Address = "Y", ManagerId = staffId });
+        _transactionRepo.Setup(r => r.AddAsync(It.IsAny<Transaction>(), default))
+            .ReturnsAsync((Transaction t, CancellationToken _) => t);
+
+        var svc = CreateService();
+
+        await svc.ConfirmManualPaymentAsync(
+            new ManualPaymentConfirmRequestDto
+            {
+                PaymentType = "SESSION",
+                OrderId = sessionId,
+                Amount = 50000m,
+                PaymentMethod = "CASH"
+            },
+            staffId,
+            "Manager");
+
+        Assert.Equal(GroupSessionStatus.Paid, session.Status);
+        _sessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(sessionId), Times.Once);
+        _sessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(sessionId), Times.Once);
     }
 }

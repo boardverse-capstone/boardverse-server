@@ -19,22 +19,122 @@
 ## GET /api/manager/my-cafes
 
 Trả danh sách cafe mà manager hiện tại là chủ (`Cafe.ManagerId`).
+Response trả về `ManagerCafeDto[]` — kế thừa `CafeDetailDto` + thêm các field chỉ manager thấy
+(SePay raw, hold duration, pricing model raw, schedule, audit timestamps, staff count).
 
 **Response 200:**
 ```json
 {
   "data": [
     {
-      "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
-      "name": "BoardVerse Demo Cafe",
-      "address": "123 Board Game Street, Ho Chi Minh City",
-      "phoneNumber": "0901234567",
-      "description": "...",
-      "createdAt": "2026-06-08T12:00:00Z"
+      "id": "a1aae9db-4f1b-44af-ac86-6038d085df94",
+      "name": "Boss cafe",
+      "address": "22 Lê Tấn Bê, An Lạc, Hồ Chí Minh 00700, Vietnam",
+      "latitude": 10.7249011,
+      "longitude": 106.6046094,
+      "phoneNumber": "0974993949",
+      "description": null,
+      "createdAt": "2026-08-01T05:23:53.639196Z",
+      "totalSeats": 200,
+      "billingModel": "TIME_BASED",
+      "basePrice": 80000,
+      "tieredBlockRate": null,
+      "tieredBlockMinutes": 15,
+      "depositPercentage": 0.5,
+      "isPricingLocked": false,
+      "hasSePayConfigured": false,
+
+      // === CafeDetailDto fields ===
+      "operationalStatus": "ACTIVE",
+      "operationalStatusReason": null,
+      "isCurrentlyOpen": true,
+      "refundPolicy": "Partial",
+      "refundTiers": [
+        { "minHoursBeforeScheduled": 24, "refundPercent": 50 },
+        { "minHoursBeforeScheduled": 12, "refundPercent": 25 },
+        { "minHoursBeforeScheduled": 0,  "refundPercent": 0 }
+      ],
+
+      // === Deposit defaults (BR-DEPOSIT-03 + BR-NEW-01) ===
+      "depositRatePerPerson": 10,
+      "minDeposit": {
+        "sameDay": 50000,
+        "oneDay": 50000,
+        "twoDays": 100000,
+        "threeToFourDays": 150000,
+        "fiveToSevenDays": 200000
+      },
+
+      // === CafeConfig defaults (BR-NEW-12) ===
+      "cafeConfig": {
+        "capacity": 200,
+        "maxLobbiesPerUserPerDay": 1,
+        "maxPlayersPerLobbySameDay": 30,
+        "maxPlayersPerLobby1Day": 20,
+        "maxPlayersPerLobby2Days": 15,
+        "maxPlayersPerLobby3To4Days": 10,
+        "maxPlayersPerLobby5To7Days": 6,
+        "requireApprovalForDistant": true,
+        "distantThresholdDays": 2,
+        "approvalTimeoutHours": 24,
+        "maxTotalDepositPerUser": 500000,
+        "recruitmentDeadlineBufferMinutes": 120,
+        "cancellationGraceMinutes": 15
+      },
+
+      "availableSeats": 200,
+      "heldSeats": 0,
+      "inUseSeats": 0,
+      "availableSeatsByTimeSlot": null,
+      "scheduleOverrides": [],
+      "numberOfTables": 0,
+      "numberOfPrivateRooms": 0,
+      "numberOfGamesOwned": 0,
+      "hasGameMaster": false,
+
+      // === ManagerCafeDto (manager-only) ===
+      "managerId": "79099361-...",
+      "sePayMerchantId": "...",
+      "sePayBankCode": "MBBank",
+      "sePayAccountNumber": "...",
+      "sePayReturnUrl": "...",
+      "defaultHoldDurationMinutes": 30,
+      "staffCount": 3,
+      "weekdayOpen": "09:00",
+      "weekdayClose": "22:00",
+      "weekendOpen": "10:00",
+      "weekendClose": "23:00",
+      "updatedAt": "2026-08-10T05:00:00Z",
+      "operationalProfileUpdatedAt": "2026-08-01T06:00:00Z"
     }
   ]
 }
 ```
+
+> **Lưu ý:**
+> - Staff endpoint `GET /api/staff/my-cafes` trả về cùng shape `ManagerCafeDto[]` nhưng `managerId`, `sePayMerchantId`, `sePayBankCode`, `sePayAccountNumber`, `sePayReturnUrl` luôn là `null/empty` (chỉ manager mới thấy SePay raw).
+> - Field `availableSeats`/`heldSeats`/`inUseSeats` cho biết tổng toàn quán; chi tiết theo `playDate + timeSlot` xem `availableSeatsByTimeSlot`.
+> - `RefundTiers` chỉ populate khi `refundPolicy = "Partial"`.
+> - Endpoint query **song song** các counter (staff / bookings / lobbies / seats / schedule / approval) qua `Task.WhenAll`. Nếu query fail (DB tạm không khả dụng), dashboard fallback 0/null để UI vẫn render.
+
+**Field counters (tính realtime tại thời điểm gọi API):**
+
+| Field | Nguồn | Ý nghĩa |
+|---|---|---|
+| `staffCount` | `Cafe.StaffMembers.Count` | Số nhân viên (CafeStaff) đang liên kết với cafe |
+| `upcomingBookingsCount` | `IBookingRepository.GetByCafeIdAsync(now, +7d)` filter `PendingDeposit/Confirmed/CheckedIn` | Booking active trong 7 ngày tới |
+| `activeLobbiesToday` | `IReservationRepository.GetActiveByCafePlayDateSlotAsync(cafe, today, slot)` × 4 slots | Lobby active (Holding/Confirmed) hôm nay |
+| `pendingCafeApprovalLobbiesCount` | `IReservationRepository.GetPendingCafeApprovalAsync(cafe)` | Lobby BR-NEW-11 chờ cafe duyệt |
+| `heldDepositTotal` | Tổng `DepositAmount` của Reservation `Holding/Confirmed` trong 4 slots hôm nay | Tổng BVC đang giữ trong ví player cho cafe này |
+| `availableSeats` / `heldSeats` / `inUseSeats` | `ICafeRepository.GetAvailableSeatsByTimeSlotAsync` + `CountHeldSeatsAsync` + `CountInUseSeatsAsync` | Seat inventory hôm nay |
+| `availableSeatsByTimeSlot` | `ICafeRepository.GetAvailableSeatsByTimeSlotAsync(cafeId, today)` | Dict `[timeSlot → availableSeats]` |
+| `scheduleOverrides` | `ICafeRepository.GetScheduleOverridesAsync(cafeId, today, today+30d)` | Override giờ mở cửa 30 ngày tới |
+| `cafeConfig` | **Hard-coded theo BR-NEW-12 defaults** (chưa có `CafeConfigEntity`) | Capacity/MaxLobbies/MinDeposit defaults |
+| `minDeposit` | **Hard-coded theo BR-NEW-01 defaults** (chưa có schema override) | Mức cọc tối thiểu theo khoảng cách playDate |
+| `depositRatePerPerson` | **Hard-coded theo BR-DEPOSIT-03** (`= 10`) | Tỷ lệ cọc theo người (BVC/người) |
+| `numberOfTables` / `numberOfPrivateRooms` / `numberOfGamesOwned` / `hasGameMaster` | `Cafe.NumberOfTables`/... | Số bàn / phòng riêng / game / có GameMaster |
+
+> **Lưu ý về hardcode:** `cafeConfig`, `minDeposit`, `depositRatePerPerson` hiện trả về giá trị mặc định theo BR (BoardVerse rule). Khi nào có bảng `CafeConfigEntity` riêng cho mỗi cafe, sẽ đọc từ DB thay vì hardcode.
 
 Dùng `id` từ response cho các API `/api/cafes/{cafeId}/...`.
 
@@ -86,9 +186,8 @@ curl.exe -X PUT http://localhost:5022/api/manager/cafes/me/operational-profile \
   -H "Content-Type: application/json" \
   -d '{
     "workingHours":{"weekdayStart":"09:00","weekdayEnd":"22:00","weekendStart":"10:00","weekendEnd":"23:00"},
-    "numberOfTables":8, "numberOfPrivateRooms":2,
+    "numberOfPrivateRooms":2,
     "spaceImageUrls":["https://..."],
-    "numberOfGamesOwned":45,
     "billingModel":"TIME_BASED", "basePrice":50000,
     "tieredBlockRate":3000, "tieredBlockMinutes":15
   }'

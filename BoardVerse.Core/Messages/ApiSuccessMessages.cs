@@ -32,15 +32,52 @@ namespace BoardVerse.Core.Messages
         public static class Cafe
         {
             public const string NearbyRetrieved = "Lấy danh sách quán gần bạn thành công.";
+            public const string ListRetrieved = "Lấy danh sách quán đang hoạt động thành công.";
             public const string Retrieved = "Lấy thông tin quán thành công.";
             public const string Updated = "Cập nhật quán thành công.";
             public const string StaffAdded = "Thêm nhân viên thành công.";
             public const string StaffPromoted = "Thăng cấp nhân viên quán thành công.";
             public const string StaffListRetrieved = "Lấy danh sách nhân viên thành công.";
             public const string StaffRemoved = "Xóa nhân viên thành công.";
-            public const string ListRetrieved = "Lấy danh sách quán thành công.";
             public const string OperationalStatusUpdated = "Cập nhật trạng thái vận hành quán thành công.";
+            public const string RevenueReportRetrieved = "Lấy báo cáo doanh thu thành công."; // P-02
         }
+
+        public static class CafeSchedule
+        {
+            public const string ScheduleRetrieved = "Lấy lịch cafe thành công.";
+            public const string OverrideUpserted = "Cập nhật override lịch cafe thành công.";
+            public const string OverrideDeleted = "Xóa override, cafe quay về dùng lịch mặc định thành công.";
+        }
+
+        public static class TimeSlot
+        {
+            public const string DefaultSlotsRetrieved = "Lấy danh sách khung giờ mặc định thành công.";
+            public const string CafeSlotsRetrieved = "Lấy danh sách khung giờ của quán thành công.";
+            public const string SlotRetrieved = "Lấy thông tin khung giờ thành công.";
+            public const string OverrideCreated = "Tạo override khung giờ cho quán thành công.";
+            public const string OverrideUpdated = "Cập nhật override khung giờ thành công.";
+            public const string OverrideDeleted = "Xóa override khung giờ thành công. Quán sẽ dùng lịch mặc định cho slot này.";
+        }
+
+        public static class CafeShift
+        {
+            public const string ShiftOpened = "Mở ca làm việc thành công.";
+            public const string ShiftClosed = "Đóng ca làm việc thành công.";
+            public const string ShiftHistoryRetrieved = "Lấy lịch sử ca làm việc thành công.";
+        }
+
+        public static class Payment
+        {
+            public const string SePayAccountsRetrieved = "Lấy danh sách tài khoản SePay thành công.";
+            public const string SePayAccountRetrieved = "Lấy thông tin tài khoản SePay thành công.";
+            public const string SePayMasterAccountRetrieved = "Lấy thông tin master account SePay thành công.";
+            public const string SePayAccountCreated = "Tạo tài khoản SePay thành công.";
+            public const string SePayAccountUpdated = "Cập nhật tài khoản SePay thành công.";
+public const string SePayEnvironmentUpdated = "Cập nhật môi trường SePay thành công.";
+
+public const string SePayQrPreviewGenerated = "Đã tạo QR test cho payment account của cafe.";
+}
 
         public static class Inventory
         {
@@ -61,8 +98,13 @@ namespace BoardVerse.Core.Messages
             public const string BoxesRetrieved = "Lấy danh sách hộp game thành công.";
             public const string BoxRetrieved = "Lấy thông tin hộp game thành công.";
             public const string SessionsRetrieved = "Lấy phiên chơi đang hoạt động thành công.";
+            public const string UnpaidSessionsRetrieved = "Lấy phiên chơi chờ thanh toán thành công.";
+            public const string PaidSessionsRetrieved = "Lấy danh sách phiên chơi đã thanh toán thành công.";
             public const string SessionStarted = "Bắt đầu phiên chơi thành công.";
             public const string SessionEnded = "Kết thúc phiên chơi thành công.";
+            public const string TableUpdated = "Cập nhật thông tin bàn thành công.";
+            public const string CheckInTokenCreated = "Tạo mã QR mời quét thành công.";
+            public const string PlayerCheckedInByToken = "Check-in bằng mã QR thành công.";
         }
 
         public static class Lobby
@@ -74,6 +116,7 @@ namespace BoardVerse.Core.Messages
             public const string LobbiesRetrieved = "Lấy danh sách phòng chờ thành công.";
             public const string LobbyClosed = "Đóng phòng chờ thành công.";
             public const string KarmaRatingWindowOpened = "Mở cửa sổ đánh giá karma thành công.";
+            public const string ShareCodeRegenerated = "Tạo mã chia sẻ mới thành công.";
         }
 
         public static class Session
@@ -84,6 +127,7 @@ namespace BoardVerse.Core.Messages
             public const string GuestSlotAdded = "Thêm khách vô danh thành công.";
             public const string PartialCheckoutRequested = "Yêu cầu thanh toán một phần thành công.";
             public const string DepositSettlementReleased = "Đã tạo bản ghi giải ngân deposit.";
+            public const string ReceiptGenerated = "Tạo receipt thành công."; // P-01
         }
 
         public static class Settlement
@@ -155,6 +199,8 @@ namespace BoardVerse.Core.Messages
             public const string KarmaAlertsRetrieved = "Lấy cảnh báo karma thành công.";
             public const string PunishmentApplied = "Áp dụng hình phạt thành công.";
             public const string KarmaAdjusted = "Điều chỉnh karma thành công.";
+            public const string CoolingOffUsersRetrieved = "Lấy danh sách user cooling-off thành công.";
+            public const string CoolingOffReleased = "Đã release cooling-off cho người dùng.";
         }
 
         public static class AdminCatalog
@@ -221,8 +267,11 @@ namespace BoardVerse.Core.Messages
             public const string InviteAccepted = "Đã chấp nhận lời mời tham gia lobby.";
             public const string InviteDeclined = "Đã từ chối lời mời tham gia lobby.";
             public const string InviteCancelled = "Đã hủy lời mời tham gia lobby.";
+            public const string InviteResent = "Đã gửi lại lời mời vào lobby thành công.";
             public const string InvitesRetrieved = "Lấy danh sách lời mời lobby thành công.";
+            public const string LobbyInvitesRetrieved = "Lấy lịch sử lời mời của lobby thành công.";
             public const string ShareInfoRetrieved = "Lấy thông tin chia sẻ lobby thành công.";
+            public const string InvitableFriendsRetrieved = "Lấy danh sách bạn bè có thể mời vào lobby thành công.";
         }
 
         public static class Tournament

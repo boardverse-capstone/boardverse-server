@@ -1,5 +1,6 @@
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
+using BoardVerse.Data.Converters;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -30,6 +31,21 @@ namespace BoardVerse.Data.Configurations
             builder.Property(l => l.Longitude).HasColumnType("double precision");
             builder.Property(l => l.ClosedReason).HasMaxLength(500);
 
+            // ===== BR-NEW-* §19.1 fields =====
+            builder.Property(l => l.PlayDate).HasColumnType("date");
+            builder.Property(l => l.TimeSlot).HasConversion<int>();
+            builder.Property(l => l.PreferredStartTime).HasColumnType("time");
+            builder.Property(l => l.PreferredEndTime).HasColumnType("time");
+            builder.Property(l => l.MinDeposit);
+            builder.Property(l => l.DepositSnapshot)
+                .HasColumnType("jsonb")
+                .HasConversion(new NullableDepositSnapshotConverter());
+            builder.Property(l => l.CafeRejectionReason).HasMaxLength(500);
+
+            // ===== BR-10: Karma filter =====
+            // Nullable: null = không yêu cầu tối thiểu. Range [0, 100] validated ở DTO/runtime.
+            builder.Property(l => l.MinKarmaScore);
+
             builder.HasOne(l => l.GameTemplate)
                 .WithMany()
                 .HasForeignKey(l => l.GameTemplateId)
@@ -44,6 +60,18 @@ namespace BoardVerse.Data.Configurations
                 .WithMany()
                 .HasForeignKey(l => l.BookingId)
                 .OnDelete(DeleteBehavior.SetNull);
+
+            // 1:1 Lobby↔Reservation — FK is on Reservation (ReservationConfiguration.cs).
+            // Do NOT re-declare here to avoid EF seeing the relationship as a cycle
+            // and generating INSERTs in the wrong order (LobbyMembers FK fails).
+            builder.HasIndex(l => l.ReservationId)
+                .HasDatabaseName("IX_Lobbies_ReservationId");
+
+            builder.HasIndex(l => l.PlayDate)
+                .HasDatabaseName("IX_Lobbies_PlayDate");
+
+            builder.HasIndex(l => l.RecruitmentDeadline)
+                .HasDatabaseName("IX_Lobbies_RecruitmentDeadline");
 
             builder.HasOne(l => l.ActiveSession)
                 .WithMany()
@@ -66,11 +94,14 @@ namespace BoardVerse.Data.Configurations
             builder.ToTable("LobbyMembers");
             builder.HasKey(m => m.Id);
             builder.Property(m => m.Id).ValueGeneratedNever();
-            builder.Property(m => m.JoinedAt).IsRequired();
+builder.Property(m => m.JoinedAt).IsRequired();
             builder.Property(m => m.IsActive).IsRequired().HasDefaultValue(true);
+            // BR-REQUIRED: DB column "Status" lưu dạng varchar (đã có data string sẵn).
+            // Phải dùng HasConversion<string>() để khớp schema, không dùng int.
             builder.Property(m => m.Status)
-                .HasConversion<int>()
-                .HasDefaultValue(LobbyMemberStatus.Joined);
+                 .HasConversion<string>()
+                 .HasMaxLength(20)
+                 .IsRequired();
 
             builder.HasOne(m => m.Lobby)
                 .WithMany(l => l.Members)

@@ -1,3 +1,4 @@
+using BoardVerse.Core.DTOs.Admin;
 using BoardVerse.Core.DTOs.Tournament;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
@@ -27,7 +28,15 @@ public interface ITournamentService
     // === Player: Register / Withdraw / Check-in ===
     Task<TournamentParticipantResponseDto> RegisterAsync(Guid tournamentId, Guid userId);
     Task<TournamentParticipantResponseDto> WithdrawRegistrationAsync(Guid tournamentId, Guid userId);
+
+    /// <summary>Manager xóa (kick) 1 participant khỏi tournament (BR-MGR-KICK-01).</summary>
+    Task<TournamentParticipantResponseDto> ManagerKickParticipantAsync(
+        Guid managerId, Guid tournamentId, Guid participantId, string reason);
+
     Task<IReadOnlyList<TournamentParticipantResponseDto>> GetParticipantsAsync(Guid tournamentId);
+
+    /// <summary>Manager/POS: Lấy danh sách participants cho check-in (validate tournament ownership).</summary>
+    Task<IReadOnlyList<TournamentParticipantResponseDto>> GetParticipantsForPosAsync(Guid managerId, Guid tournamentId);
 
     // === Player: Personal data ===
     /// <summary>
@@ -60,6 +69,17 @@ public interface ITournamentService
     // === Matches ===
     Task<IReadOnlyList<TournamentMatchResponseDto>> GetMatchesAsync(Guid tournamentId);
     Task<IReadOnlyList<TournamentMatchResponseDto>> GetRoundMatchesAsync(Guid tournamentId, int roundNumber);
+
+    /// <summary>
+    /// Manager POS: Lấy tất cả matches của tournament (đã validate manager owns cafe).
+    /// </summary>
+    Task<IReadOnlyList<TournamentMatchResponseDto>> GetMatchesForPosAsync(Guid managerId, Guid tournamentId);
+
+    /// <summary>
+    /// Manager POS: Lấy matches của 1 round cụ thể (đã validate manager owns cafe).
+    /// </summary>
+    Task<IReadOnlyList<TournamentMatchResponseDto>> GetRoundMatchesForPosAsync(Guid managerId, Guid tournamentId, int roundNumber);
+
     Task<TournamentMatchResponseDto> StartMatchAsync(Guid managerId, Guid matchId);
     Task<TournamentMatchResponseDto> RecordMatchResultAsync(Guid managerId, Guid matchId, RecordMatchResultRequestDto request);
     Task<TournamentMatchResponseDto> UpdateMatchResultAsync(Guid managerId, Guid matchId, UpdateMatchResultRequestDto request);
@@ -125,4 +145,22 @@ public interface ITournamentService
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Result chứa TournamentId và số no-show đã đánh dấu.</returns>
     Task<NoShowDetectionResult> AutoMarkNoShowsAsync(CancellationToken ct = default);
+
+    // === Admin: Tournament management ===
+    Task<AdminTournamentListResponseDto> GetAdminTournamentsAsync(
+        int page, int pageSize, string? searchTerm, string? status, Guid? cafeId);
+    Task<AdminTournamentDetailDto?> GetAdminTournamentDetailAsync(Guid tournamentId);
+    Task<TournamentResponseDto> AdminCreateTournamentAsync(
+        Guid adminUserId, AdminCreateTournamentRequestDto request);
+    Task<TournamentResponseDto> AdminUpdateTournamentAsync(
+        Guid adminUserId, Guid tournamentId, AdminUpdateTournamentRequestDto request);
+    Task AdminDeleteTournamentAsync(Guid adminUserId, Guid tournamentId);
+    Task<AdminTournamentParticipantsResponseDto> GetAdminTournamentParticipantsAsync(
+        Guid tournamentId, string? status);
+    Task<TournamentResponseDto> AdminOpenRegistrationAsync(Guid adminUserId, Guid tournamentId);
+    Task<TournamentResponseDto> AdminCloseRegistrationAsync(Guid adminUserId, Guid tournamentId);
+    Task<TournamentResponseDto> AdminStartTournamentAsync(Guid adminUserId, Guid tournamentId);
+    Task<TournamentResponseDto> AdminCompleteTournamentAsync(Guid adminUserId, Guid tournamentId);
+    Task<TournamentResponseDto> AdminCancelTournamentAsync(
+        Guid adminUserId, Guid tournamentId, string? reason);
 }

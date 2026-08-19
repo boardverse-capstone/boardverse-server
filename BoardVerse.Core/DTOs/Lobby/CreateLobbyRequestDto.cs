@@ -51,6 +51,15 @@ namespace BoardVerse.Core.DTOs.Lobby
         /// <summary>Số ghế (BR-07). Nếu có, members &lt;= SeatCount.</summary>
         [Range(1, 50)]
         public int? SeatCount { get; set; }
+
+        /// <summary>
+        /// BR-10: Điểm Karma tối thiểu của member để được join lobby (optional).
+        /// Null = không yêu cầu tối thiểu (mọi user có thể join).
+        /// Validate khi member join: <c>member.KarmaPoints &gt;= MinKarmaScore</c>.
+        /// Không dùng Elo vì Elo chỉ dùng trong phân hệ Giải đấu.
+        /// </summary>
+        [Range(0, 100)]
+        public int? MinKarmaScore { get; set; }
     }
 
     public class UpdateLobbyRequestDto
@@ -73,6 +82,16 @@ namespace BoardVerse.Core.DTOs.Lobby
 
         [Range(5, 1440)]
         public int? CancellationLeadTimeMinutes { get; set; }
+
+        /// <summary>
+        /// BR-10: Cập nhật yêu cầu Karma tối thiểu (optional).
+        /// Null = không thay đổi. Truyền một giá trị để set/update.
+        /// Để xóa requirement, host truyền một giá trị đặc biệt? — không hỗ trợ MVP.
+        /// MVP chỉ cho phép tăng/giảm MinKarmaScore; không thể set null khi đã có.
+        /// (Nếu cần "xóa" requirement, host tạo lobby mới.)
+        /// </summary>
+        [Range(0, 100)]
+        public int? MinKarmaScore { get; set; }
     }
 
     public class CreateLobbyReportDto

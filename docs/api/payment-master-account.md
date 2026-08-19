@@ -1,146 +1,39 @@
-# PaymentMasterAccountController
+# ⚠️ DEPRECATED: PaymentMasterAccountController
 
-**Base route:** `/api/admin/payment-master-accounts`  
-**Controller:** `PaymentMasterAccountController.cs`  
-**Role:** Admin
+**This controller has been deprecated and consolidated into `SePayAccount`.**
 
-API quản lý **tài khoản master** dùng để nhận và tạm giữ tiền cọc deposit. Tách bạch với `SePayAccount` (controller kia quản lý cả master + cafe + environment switching).
-
-> **Liên quan:** [settlement.md](./settlement.md), [sepay-account.md](./sepay-account.md).
+**Use:** [`sepay-account.md`](./sepay-account.md) for all payment account management.
 
 ---
 
-## Endpoints
+## Migration Guide
 
-| Endpoint | Method | Mô tả |
-|----------|--------|--------|
-| `/` | GET | Danh sách master account |
-| `/{id}` | GET | Chi tiết master account |
-| `/` | POST | Tạo master account mới |
-| `/{id}` | PUT | Cập nhật |
-| `/{id}` | DELETE | Xóa (soft delete) |
+All functionality has been moved to `SePayAccount` with `AccountType = Master`:
 
-**Header:** `Authorization: Bearer <admin-token>`
+| Old (PaymentMasterAccount) | New (SePayAccount) |
+|---------------------------|---------------------|
+| `POST /api/admin/payment-master-accounts` | `POST /api/admin/sepay-accounts` with `accountType: "Master"` |
+| `GET /api/admin/payment-master-accounts` | `GET /api/admin/sepay-accounts?accountType=Master` |
+| `GET /api/admin/payment-master-accounts/{id}` | `GET /api/admin/sepay-accounts/{id}` |
+| `PUT /api/admin/payment-master-accounts/{id}` | `PUT /api/admin/sepay-accounts/{id}` |
 
----
+### Example: Create Master Account (New API)
 
-## POST /api/admin/payment-master-accounts
+```http
+POST /api/admin/sepay-accounts
+Content-Type: application/json
 
-Tạo master account dùng để nhận và tạm giữ deposit.
-
-**Body:**
-```json
 {
-  "provider": "SePay",
-  "accountHolder": "BOARDVERSE MASTER",
-  "bankCode": "VCB",
-  "maskedAccountNumber": "0901234567",
-  "virtualAccountNumber": "0901234567",
-  "qrContent": "https://qr.sepay.vn/...",
-  "webhookSecret": "sepay_webhook_secret"
+  "accountType": "Master",
+  "bankCode": "TPBANK",
+  "accountNumber": "1234567890",
+  "accountHolder": "BoardVerse Master Account"
 }
 ```
 
-| Field | Ràng buộc |
-|-------|-----------|
-| `provider` | `SePay` / `VietQR` (mặc định: `SePay`) |
-| `accountHolder` | Tên chủ tài khoản |
-| `bankCode` | Mã ngân hàng (VCB, ACB, …) |
-| `maskedAccountNumber` | Số tài khoản masked (vd: `****5678`) |
-| `virtualAccountNumber` | VA cho từng booking |
-| `qrContent` | QR content (URL/text) |
-| `webhookSecret` | Secret verify HMAC |
+### Benefits of Consolidation
 
-**Response 201:** `{ "id": "<master-account-id>" }`
-
-**Response codes:**
-- `201` — Tạo thành công
-- `400` — Thiếu field bắt buộc
-- `401` — Thiếu/sai token
-- `403` — Không phải Admin
-- `500` — Lỗi hệ thống
-
----
-
-## GET /api/admin/payment-master-accounts
-
-**Response 200:**
-```json
-{
-  "data": {
-    "data": [
-      {
-        "id": "guid",
-        "provider": "SePay",
-        "accountHolder": "BOARDVERSE MASTER",
-        "bankCode": "VCB",
-        "maskedAccountNumber": "****5678",
-        "virtualAccountNumber": "VA-001",
-        "qrContent": "https://qr.sepay.vn/...",
-        "isActive": true,
-        "createdAt": "2026-07-01T..."
-      }
-    ]
-  }
-}
-```
-
----
-
-## GET /api/admin/payment-master-accounts/{id}
-
-**Response codes:**
-- `200` — `PaymentMasterAccountDto`
-- `404` — Không tìm thấy
-
----
-
-## PUT /api/admin/payment-master-accounts/{id}
-
-Partial update: `provider`, `accountHolder`, `bankCode`, `maskedAccountNumber`, `virtualAccountNumber`, `qrContent`, `isActive`.
-
-**Lưu ý:** `webhookSecret` **không** update qua endpoint này (chỉ set khi tạo).
-
-**Response codes:**
-- `200` — Cập nhật thành công
-- `404` — Không tìm thấy
-
----
-
-## DELETE /api/admin/payment-master-accounts/{id}
-
-Soft delete — đặt `isActive = false` hoặc xóa hẳn tùy implementation. Kiểm tra `IsActive` ở service layer trước khi xóa cứng.
-
-**Response codes:**
-- `200` — Xóa thành công
-- `404` — Không tìm thấy
-
----
-
-## Luồng sử dụng
-
-```powershell
-# 1. Login Admin
-$login = curl.exe -s -X POST http://localhost:5022/api/auth/login `
-  -H "Content-Type: application/json" `
-  -d '{"usernameOrEmail":"admin@example.com","password":"..."}' | ConvertFrom-Json
-$token = $login.data.token
-
-# 2. Tạo master account
-curl.exe -X POST http://localhost:5022/api/admin/payment-master-accounts `
-  -H "Authorization: Bearer $token" `
-  -H "Content-Type: application/json" `
-  -d '{
-    "provider":"SePay",
-    "accountHolder":"BOARDVERSE MASTER",
-    "bankCode":"VCB",
-    "maskedAccountNumber":"****5678",
-    "virtualAccountNumber":"VA-001",
-    "qrContent":"https://qr.sepay.vn/...",
-    "webhookSecret":"sepay_webhook_secret"
-  }'
-
-# 3. List
-curl.exe http://localhost:5022/api/admin/payment-master-accounts `
-  -H "Authorization: Bearer $token"
-```
+1. **Single source of truth** - One table (`SePayAccounts`) for all payment accounts
+2. **Environment switching** - Master accounts can use sandbox/production
+3. **Consistent API** - Same patterns for master and cafe accounts
+4. **Reduced complexity** - No duplicate entities or repositories

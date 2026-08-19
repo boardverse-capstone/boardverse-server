@@ -15,9 +15,15 @@ namespace BoardVerse.Core.IRepositories
 
         /// <summary>
         /// Tìm user theo username (case-insensitive contains) cho friend search.
-        /// Trả về tối đa limit users, loại trừ excludeUserId.
+        /// Trả về tối đa limit users, loại trừ excludeUserId và các blockedUserIds.
         /// </summary>
-        Task<IReadOnlyList<User>> SearchByUsernameAsync(string keyword, Guid excludeUserId, int limit = 20);
+        /// <param name="excludeUserId">User hiện tại (bỏ chính mình).</param>
+        /// <param name="blockedUserIds">Danh sách user đã chặn (cả 2 chiều) — null/empty thì bỏ qua.</param>
+        Task<IReadOnlyList<User>> SearchByUsernameAsync(
+            string keyword,
+            Guid excludeUserId,
+            int limit = 20,
+            IReadOnlyCollection<Guid>? blockedUserIds = null);
 
         /// <summary>
         /// Lấy danh sách user theo danh sách UserId (cho friend suggestions, mutual friends, activity).

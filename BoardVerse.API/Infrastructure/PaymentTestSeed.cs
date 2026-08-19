@@ -41,7 +41,7 @@ internal static class PaymentTestSeed
             await db.Database.ExecuteSqlRawAsync($@"
                 INSERT INTO ""BookingDeposits""
                 (""Id"", ""ActiveSessionId"", ""Amount"", ""CafeId"", ""CafeManagerId"",
-                 ""CreatedAt"", ""ForfeitedAt"", ""MasterAccountId"", ""OrderId"", ""PaidAt"",
+                 ""CreatedAt"", ""ForfeitedAt"", ""OrderId"", ""PaidAt"",
                  ""RefundPolicy"", ""RefundedAt"", ""ReleasedAt"", ""ScheduledAt"",
                  ""SePayTransactionId"", ""SePayTransferId"", ""Status"", ""TransferContent"", ""UpdatedAt"")
                 VALUES

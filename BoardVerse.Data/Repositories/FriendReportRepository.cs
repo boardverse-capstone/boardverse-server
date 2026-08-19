@@ -28,6 +28,25 @@ public class FriendReportRepository : IFriendReportRepository
             .OrderByDescending(r => r.CreatedAt)
             .ToListAsync();
 
+    public async Task<(IReadOnlyList<FriendReport> Items, int Total)> GetAllForAdminAsync(
+        string? status,
+        int offset,
+        int limit)
+    {
+        var query = _db.FriendReports.AsQueryable();
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            query = query.Where(r => r.Status == status);
+        }
+        var total = await query.CountAsync();
+        var items = await query
+            .OrderByDescending(r => r.CreatedAt)
+            .Skip(offset)
+            .Take(limit)
+            .ToListAsync();
+        return (items, total);
+    }
+
     public Task AddAsync(FriendReport report)
     {
         _db.FriendReports.Add(report);

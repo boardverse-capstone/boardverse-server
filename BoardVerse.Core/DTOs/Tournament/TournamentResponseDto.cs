@@ -24,6 +24,10 @@ public class TournamentResponseDto
     public int TotalRounds { get; set; }
     public int PreliminaryRounds { get; set; }
     public int FinalistCount { get; set; }
+
+    /// <summary>T-02: Có trận tranh hạng 3 hay không.</summary>
+    public bool HasThirdPlaceMatch { get; set; }
+
     public int CurrentRound { get; set; }
 
     /// <summary>

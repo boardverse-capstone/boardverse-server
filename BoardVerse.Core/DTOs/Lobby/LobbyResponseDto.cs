@@ -33,6 +33,13 @@ namespace BoardVerse.Core.DTOs.Lobby
 
         public int CancellationLeadTimeMinutes { get; set; }
 
+        /// <summary>
+        /// BR-10: Điểm Karma tối thiểu yêu cầu để join.
+        /// Null = không yêu cầu tối thiểu. Member có thể join nếu <c>Member.KarmaPoints &gt;= MinKarmaScore</c>.
+        /// Client hiển thị label "Yêu cầu Karma ≥ X" khi có giá trị.
+        /// </summary>
+        public int? MinKarmaScore { get; set; }
+
         public DateTime? ClosedAt { get; set; }
         public string? ClosedReason { get; set; }
 
@@ -40,5 +47,23 @@ namespace BoardVerse.Core.DTOs.Lobby
         public DateTime UpdatedAt { get; set; }
 
         public List<LobbyMemberDto> Members { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Response sau khi host giải tán lobby (hard delete).
+    /// </summary>
+    public class DissolveLobbyResponseDto
+    {
+        /// <summary>LobbyId đã bị xóa.</summary>
+        public Guid LobbyId { get; set; }
+
+        /// <summary>ReservationId liên kết (nếu có). Trạng thái reservation được chuyển về Holding.</summary>
+        public Guid? ReservationId { get; set; }
+
+        /// <summary>Lý do giải tán.</summary>
+        public string? Reason { get; set; }
+
+        /// <summary>Thời điểm giải tán.</summary>
+        public DateTime DissolvedAt { get; set; }
     }
 }
