@@ -580,7 +580,7 @@ public class ReservationService : IReservationService
         DateTime recruitmentDeadline,
         DateTime now)
     {
-        await using var tx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+        var (_, tx) = await BeginTransactionIfNeededAsync();
 
         try
         {
@@ -2922,35 +2922,29 @@ public class ReservationService : IReservationService
         return host.Username ?? string.Empty;
     }
 
+    // P2 Fix (2026-08-19): Shared helper for ambient transaction pattern.
+    // If already in a transaction (ambient), reuse it. Otherwise, create new transaction.
+    // Pattern: adopted from ExecuteCompleteAndCaptureTransactionAsync.
+    private async Task<(Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? OwnedTx, Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction Tx)> BeginTransactionIfNeededAsync(
+        CancellationToken ct = default)
+    {
+        var ambientTx = _db.Database.CurrentTransaction;
+        Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? ownedTx = null;
+        if (ambientTx == null)
+        {
+            ownedTx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+            return (ownedTx, ownedTx);
+        }
+        return (null, ambientTx);
+    }
+
     private async Task ExecuteCompleteAndCaptureTransactionAsync(
         Reservation reservation,
         Guid activeSessionId,
         DateTime now,
         CancellationToken ct)
     {
-        // CRITICAL FIX (2026-08-18): Reuse ambient transaction nếu đã có (avoid
-        // "The connection is already in a transaction and cannot participate in another transaction").
-        // Background: khi được gọi từ ActiveSessionService.PaySessionCoreAsync (line 587),
-        // caller đã mở 1 transaction với `await using var dbTx = await TryBeginTransactionAsync()`
-        // (H8 fix) để wrap billing + status + cleanup + capture trong 1 transaction nguyên tử.
-        // Stack trace:
-        //   fail: BoardVerse.API.Controllers.SePayWebhookController[0]
-        //         SePay webhook processing failed.
-        //         System.InvalidOperationException: The connection is already in a transaction
-        //         at BoardVerse.Services.Services.ReservationService.ExecuteCompleteAndCaptureTransactionAsync(...)
-        //         at BoardVerse.Services.Services.ReservationService.CompleteAndCaptureAsync(...)
-        //         at BoardVerse.Services.Services.ActiveSessionService.PaySessionCoreAsync(...)
-        //         at BoardVerse.Services.Services.PaymentService.ProcessSessionPaymentWebhookAsync(...)
-        // Trick: nếu đã có CurrentTransaction → skip BeginTransactionAsync; outer transaction
-        // sẽ commit/rollback cho cả 2 method. Nếu chưa có (gọi standalone qua background job) →
-        // mở transaction mới như cũ.
-        var ambientTx = _db.Database.CurrentTransaction;
-        Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? ownedTx = null;
-        if (ambientTx == null)
-        {
-            ownedTx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
-        }
-
+        var (ownedTx, tx) = await BeginTransactionIfNeededAsync(ct);
         try
         {
             // 1. Lock seat inventory + game inventory (BR §17.3).

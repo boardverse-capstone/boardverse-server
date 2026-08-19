@@ -2749,8 +2749,14 @@ public const string LobbyBoostOnlyWhenOpen =
  public static string CannotAdvanceRoundCurrentNotFinished(int currentRound) =>
  $"Vòng hiện tại (Round {currentRound}) chưa kết thúc toàn bộ các bàn đấu. Hãy ghi nhận kết quả các bàn trước khi chuyển vòng.";
 
- public static string CannotAdvanceRoundFinalAlreadyBuilt(Guid tournamentId) =>
- $"Giải đấu '{tournamentId}' đã có bàn chung kết. Không thể chuyển sang vòng khác.";
+public static string CannotAdvanceRoundFinalAlreadyBuilt(Guid tournamentId) =>
+    $"Giải đấu '{tournamentId}' đã có bàn chung kết. Không thể chuyển sang vòng khác.";
+
+    public static string CannotViewFutureRound(Guid tournamentId, int requestedRound, int currentRound) =>
+    $"Không thể xem vòng {requestedRound} của giải đấu '{tournamentId}'. Hiện tại đang ở Round {currentRound}. Vui lòng ghi nhận kết quả các bàn đấu hiện tại trước khi chuyển vòng.";
+
+    public static string CannotStartFutureRoundMatch(Guid matchId, int matchRound, int currentRound) =>
+    $"Không thể bắt đầu bàn đấu vòng {matchRound} (ID: '{matchId}'). Giải đấu hiện đang ở Round {currentRound}. Hãy hoàn thành các bàn đấu hiện tại trước.";
 
  public static string CannotWithdrawAfterCheckIn(TournamentParticipantStatus currentStatus)
  {

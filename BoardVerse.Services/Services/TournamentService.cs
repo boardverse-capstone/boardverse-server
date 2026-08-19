@@ -663,6 +663,16 @@ public class TournamentService : ITournamentService
             tournament.IsFinalEloSynced = true;
         }
 
+        // P2 Fix (2026-08-19): Mark all active participants as Finished.
+        // Before fix: RecordMatchResultAsync set Finished inside the record method (wrong layer).
+        // After fix: Only CompleteTournamentAsync marks participants as Finished (centralized).
+        foreach (var p in tournament.Participants
+            .Where(p => p.Status == TournamentParticipantStatus.Active))
+        {
+            p.Status = TournamentParticipantStatus.Finished;
+            p.UpdatedAt = DateTime.UtcNow;
+        }
+
         tournament.Status = TournamentStatus.Completed;
         tournament.UpdatedAt = DateTime.UtcNow;
 
@@ -1246,6 +1256,15 @@ public class TournamentService : ITournamentService
         await EnsureManagerOwnsCafeAsync(managerId, tournament.CafeId);
 
         var matches = await _tournamentRepository.GetMatchesByTournamentAsync(tournamentId);
+
+        // P2 Fix (2026-08-19): Filter out future round matches unless tournament is completed.
+        // Before fix: returned ALL matches including Round 4 when CurrentRound=3 (data leak).
+        // After fix: only visible rounds are shown (≤ CurrentRound, or all if tournament done).
+        if (tournament.Status != TournamentStatus.Completed && tournament.Status != TournamentStatus.Cancelled)
+        {
+            matches = matches.Where(m => m.RoundNumber <= tournament.CurrentRound).ToList();
+        }
+
         return matches.Select(MapMatchDto).ToList();
     }
 
@@ -1256,6 +1275,19 @@ public class TournamentService : ITournamentService
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
 
         await EnsureManagerOwnsCafeAsync(managerId, tournament.CafeId);
+
+        // P2 Fix (2026-08-19): Validate roundNumber ≤ CurrentRound.
+        // Before fix: no validation → FE could call GET /round/4 when CurrentRound=3,
+        // server returned Round 4 matches even though they shouldn't be visible yet.
+        // After fix: reject if trying to view future round.
+        // Exception: round 4 (Final) can be viewed when tournament.Status == OnGoing (Final is special
+        // — visible after AdvanceRoundAsync has been called, CurrentRound == TotalRounds).
+        if (roundNumber > tournament.CurrentRound
+            && !(roundNumber == tournament.TotalRounds && tournament.Status == TournamentStatus.OnGoing))
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Tournament.CannotViewFutureRound(tournamentId, roundNumber, tournament.CurrentRound));
+        }
 
         var matches = await _tournamentRepository.GetMatchesByRoundAsync(tournamentId, roundNumber);
         return matches.Select(MapMatchDto).ToList();
@@ -1270,6 +1302,16 @@ public class TournamentService : ITournamentService
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(match.TournamentId));
 
         await EnsureManagerOwnsCafeAsync(managerId, tournament.CafeId);
+
+        // P2 Fix (2026-08-19): Can only start matches for the CURRENT round.
+        // Before fix: any match (even Round 4) could be started when CurrentRound=3.
+        // After fix: reject if match.RoundNumber > CurrentRound (can't start future rounds early).
+        if (match.RoundNumber > tournament.CurrentRound)
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Tournament.CannotStartFutureRoundMatch(
+                    matchId, match.RoundNumber, tournament.CurrentRound));
+        }
 
         if (match.Status != TournamentMatchStatus.Scheduled)
         {
@@ -1423,22 +1465,16 @@ public class TournamentService : ITournamentService
         if (match.IsFinal)
         {
             AssignFinalRanks(tournament, match);
-            // Mark all participants Finished
-            foreach (var p in tournament.Participants
-                .Where(p => p.Status == TournamentParticipantStatus.Active))
-            {
-                p.Status = TournamentParticipantStatus.Finished;
-                p.UpdatedAt = DateTime.UtcNow;
-            }
+            // P2 Fix (2026-08-19): DO NOT set participant status to Finished here.
+            // Only CompleteTournamentAsync should mark participants as Finished and close the tournament.
+            // This prevents tournament being stuck in OnGoing state if CompleteTournamentAsync is never called.
         }
-        else if (tournament.CurrentRound >= tournament.PreliminaryRounds
-            && match.RoundNumber == tournament.PreliminaryRounds
-            && !tournament.Matches.Any(m => m.IsFinal))
-        {
-            // Just finished the last Swiss round â†’ build Final match (idempotent: skip if already exists)
-            await BuildFinalMatchAsync(tournament);
-            tournament.CurrentRound = tournament.TotalRounds; // advance to Final round
-        }
+        // P2 Fix (2026-08-19): MOVE Final match building OUT of RecordMatchResultAsync.
+            // Before: RecordMatchResultAsync called BuildFinalMatchAsync when last Swiss match completed,
+            // which auto-advances CurrentRound → FE reload sees Round 4 even though AdvanceRoundAsync not called.
+            // After: ONLY AdvanceRoundAsync is responsible for building Final and advancing CurrentRound.
+            // AdvanceRoundAsync has idempotent check (line 1890: throw if IsFinal already exists).
+            // RecordMatchResultAsync should NOT advance tournament state — just record the match result.
 
         tournament.UpdatedAt = DateTime.UtcNow;
         await _tournamentRepository.SaveChangesAsync();
