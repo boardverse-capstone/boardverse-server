@@ -2476,62 +2476,51 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
     private async Task BuildFinalMatchAsync(Tournament tournament)
     {
-        // Walk-in Ä‘Æ°á»£c vÃ o Final (hiá»ƒn thá»‹ tÃªn vá»›i ðŸš¶ prefix, khÃ´ng update Elo/Karma).
-        // BR-13 analogy: walk-in khÃ´ng cÃ³ UserId â†’ khÃ´ng nháº­n Elo/Karma rewards.
-        //
-        // PlayerNId = TournamentParticipant.Id (khÃ´ng pháº£i UserId).
-        // Walk-in cÃ³ Participant.Id nhÆ°ng UserId = null.
-        // DÃ¹ng ParticipantId Ä‘á»ƒ walk-in cÃ³ thá»ƒ tham gia Final.
-        // PlayerNId = User.Id (FK reference to Users table).
-        // Walk-in cã UserId = null → skip khõi Final slot (BR-13).
-        // Top theo Swiss score, chỉ lấy registered players.
-        var topParticipants = TournamentEloCalculator.RankBySwiss(
-            tournament.Participants.Where(p =>
-                p.Status == TournamentParticipantStatus.Active && p.UserId.HasValue),
-            tournament.FinalistCount).ToList();
+        // P2 Fix (2026-08-19): Swiss Pure Final format.
+        // All Active participants enter Final -> use SwissPairingHelper to create N Final tables.
+        // Example 8 players -> 2 Final tables x 4 players = 8 players.
 
-        if (topParticipants.Count < tournament.FinalistCount)
+        var allParticipants = tournament.Participants
+            .Where(p => p.Status == TournamentParticipantStatus.Active)
+            .ToList();
+
+        if (allParticipants.Count < 4)
         {
-            var activeCount = tournament.Participants
-                .Count(p => p.Status == TournamentParticipantStatus.Active);
+            var activeCount = allParticipants.Count;
             throw new ConflictException(
                 ApiErrorMessages.Tournament.FinalRequiresFourActiveParticipants(
-                    activeCount, tournament.FinalistCount));
+                    activeCount, 4));
         }
 
-        // Final match: top 2 participants. Player3Id/Player4Id = null (reserved for future expansion).
-            // ThirdPlaceMatch gets the remaining 2 from top 4 (see BuildThirdPlaceMatchAsync below).
+        var previousMatches = tournament.Matches
+            .Where(m => m.RoundNumber <= tournament.PreliminaryRounds)
+            .ToList();
+
+        var finalTables = SwissPairingHelper.BuildBalancedPairings(
+            allParticipants,
+            tournament.TotalRounds,
+            previousMatches);
+
+        var matchNumber = 1;
+        foreach (var table in finalTables)
+        {
             var finalMatch = new TournamentMatchBracket
             {
                 Id = Guid.NewGuid(),
                 TournamentId = tournament.Id,
                 RoundNumber = tournament.TotalRounds,
-                MatchNumber = 1,
+                MatchNumber = matchNumber++,
                 IsFinal = true,
                 MatchType = Core.Enum.MatchType.Final,
-                Player1Id = topParticipants.ElementAtOrDefault(0)?.UserId,
-                Player2Id = topParticipants.ElementAtOrDefault(1)?.UserId,
-                Player3Id = null, // Reserved for expansion; do NOT assign topParticipants[2] here
-                Player4Id = null, // — they belong to ThirdPlaceMatch
+                Player1Id = table.Count > 0 ? table[0].UserId : null,
+                Player2Id = table.Count > 1 ? table[1].UserId : null,
+                Player3Id = table.Count > 2 ? table[2].UserId : null,
+                Player4Id = table.Count > 3 ? table[3].UserId : null,
                 Status = TournamentMatchStatus.Scheduled,
                 CreatedAt = DateTime.UtcNow
             };
-
             await _tournamentRepository.AddMatchAsync(finalMatch);
-
-            // ThirdPlaceMatch: uses the REMAINING 2 from top N (NOT the same as Final).
-            // Before fix: used topParticipants[2] and topParticipants[3] — DUPLICATED with Final's Player3Id/Player4Id.
-            // After fix: uses topParticipants[2] and topParticipants[3] ONLY when FinalistCount > 2;
-            // for FinalistCount = 4 (the default), these are distinct from Final's top 2.
-            //
-            // Safe access: topParticipants always has >= FinalistCount items (enforced by guard above).
-            // When FinalistCount = 4: Final gets [0,1], ThirdPlace gets [2,3] — no overlap.
-            // When FinalistCount = 2 + HasThirdPlaceMatch=true: this branch is unreachable
-            //   (2 players can't fill a Final + ThirdPlace), but guard above throws anyway.
-            if (tournament.HasThirdPlaceMatch && topParticipants.Count >= 4)
-            {
-                await BuildThirdPlaceMatchAsync(tournament, topParticipants);
-            }
+        }
     }
 
     private async Task BuildThirdPlaceMatchAsync(Tournament tournament, List<TournamentParticipant> topParticipants)
