@@ -26,10 +26,10 @@ public static class ActiveSessionBillingCalculator
     /// </summary>
     /// <param name="cafe">Cafe config (BasePrice, BillingModel, TieredBlockMinutes/Rate).</param>
     /// <param name="elapsedMinutes">Số phút chơi. Phải ≥ 0.</param>
-    /// <returns>Subtotal VND. Tối thiểu = 0 nếu elapsedMinutes = 0.</returns>
+    /// <returns>Subtotal VND. Tối thiểu = BasePrice nếu elapsedMinutes = 0 (tính giờ đầu).</returns>
     public static decimal CalculateRealtimeBilling(Cafe cafe, int elapsedMinutes)
     {
-        if (elapsedMinutes <= 0)
+        if (elapsedMinutes < 0)
         {
             return 0m;
         }
