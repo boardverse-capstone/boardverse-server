@@ -449,6 +449,12 @@ public class ExceptionFlowIntegrationTests
             $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/{sessionId}/games",
             new { gameBarcode = splendorBarcode });
 
+        if (attachResponse.StatusCode != HttpStatusCode.OK)
+        {
+            var attachBody = await attachResponse.Content.ReadAsStringAsync();
+            throw new Exception(
+                $"Attach failed: status={attachResponse.StatusCode} body={attachBody}");
+        }
         Assert.Equal(HttpStatusCode.OK, attachResponse.StatusCode);
 
         // Assert: response chứa 2 games (Catan + Splendor).
@@ -569,6 +575,12 @@ public class ExceptionFlowIntegrationTests
         var attachResponse = await ApiTestClient.PostJsonAsync(_client,
             $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/pos/sessions/{sessionId}/games",
             new { gameBarcode = splendorBarcode });
+        if (attachResponse.StatusCode != HttpStatusCode.OK)
+        {
+            var attachBody = await attachResponse.Content.ReadAsStringAsync();
+            throw new Exception(
+                $"Attach failed: status={attachResponse.StatusCode} body={attachBody}");
+        }
         Assert.Equal(HttpStatusCode.OK, attachResponse.StatusCode);
 
         // Bước 3: End session → CHECKING (BR-12: bắt buộc kiểm kê trước khi về sớm / pay).

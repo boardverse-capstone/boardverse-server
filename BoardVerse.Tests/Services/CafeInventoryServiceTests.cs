@@ -6,6 +6,7 @@ using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.Services;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class CafeInventoryServiceTests
@@ -75,7 +76,7 @@ public class CafeInventoryServiceTests
         inventoryRepo.Setup(r => r.GetByCafeAndGameTemplateIncludingInactiveAsync(CafeId, GameTemplateId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((CafeGameInventory?)null);
         inventoryRepo.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Guid id) => new CafeGameInventory
+            .ReturnsAsync((Guid id, CancellationToken _) => new CafeGameInventory
             {
                 Id = id,
                 CafeId = CafeId,
@@ -108,7 +109,7 @@ public class CafeInventoryServiceTests
 
         Assert.Equal(GameTemplateId, result.GameTemplateId);
         inventoryRepo.Verify(r => r.AddAsync(It.IsAny<CafeGameInventory>(), It.IsAny<CancellationToken>()), Times.Once);
-        inventoryRepo.Verify(r => r.SyncInventoryBoxesAsync(It.IsAny<Guid>()), Times.Once);
-        inventoryRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        inventoryRepo.Verify(r => r.SyncInventoryBoxesAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Once);
+        inventoryRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 }

@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class UserProfileLocationServiceTests
@@ -119,8 +120,8 @@ public class UserProfileLocationServiceTests
         // Geocoding stub trả null → LastResolved* vẫn null
         Assert.Null(result.District);
         Assert.False(result.HasResolvedName);
-        repo.Verify(r => r.AddPlayerLocationHistoryAsync(It.IsAny<PlayerLocationHistory>()), Times.Once);
-        repo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        repo.Verify(r => r.AddPlayerLocationHistoryAsync(It.IsAny<PlayerLocationHistory>(), It.IsAny<CancellationToken>()), Times.Once);
+        repo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -229,7 +230,7 @@ public class UserProfileLocationServiceTests
         Assert.Null(profile.LastResolvedCity);
         Assert.Null(profile.LastResolvedDisplayName);
         Assert.Null(profile.LastResolvedAt);
-        repo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        repo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     private sealed class NoopCache : IMemoryCacheGeocoding

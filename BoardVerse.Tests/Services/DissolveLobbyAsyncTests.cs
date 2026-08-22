@@ -411,6 +411,8 @@ public class DissolveLobbyAsyncTests
             depositAmount: 50L,
             scheduledStart: DateTime.UtcNow.AddHours(48),
             playDate: playDate, cafeId: cafeId, gameId: gameId);
+        reservation.PreferredStartTime = new TimeOnly(17, 0);
+        reservation.PreferredEndTime = new TimeOnly(23, 0);
         reservation.SeatInventoryId = Guid.NewGuid();
         reservation.GameInventoryId = Guid.NewGuid();
 

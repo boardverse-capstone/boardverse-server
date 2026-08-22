@@ -60,17 +60,18 @@ namespace BoardVerse.Services.Services
             }
 
             var trimmed = raw.Trim();
-            return trimmed switch
+            return trimmed.ToLowerInvariant() switch
             {
-                var s when s.Equals("true", StringComparison.OrdinalIgnoreCase) => true,
-                var s when s.Equals("false", StringComparison.OrdinalIgnoreCase) => false,
-                var s when s.Equals("1", StringComparison.Ordinal) => true,
-                var s when s.Equals("0", StringComparison.Ordinal) => false,
-                var s when s.Equals("yes", StringComparison.OrdinalIgnoreCase) => true,
-                var s when s.Equals("no", StringComparison.OrdinalIgnoreCase) => false,
-                var s when s.Equals("on", StringComparison.OrdinalIgnoreCase) => true,
-                var s when s.Equals("off", StringComparison.OrdinalIgnoreCase) => false,
-                _ => bool.TryParse(trimmed, out var parsed) ? parsed : fallback
+                "true" => true,
+                "false" => false,
+                "1" => true,
+                "0" => false,
+                "yes" => true,
+                "no" => false,
+                "on" => true,
+                "off" => false,
+                var s when bool.TryParse(s, out var parsed) => parsed,
+                _ => fallback
             };
         }
 

@@ -8,6 +8,7 @@ using BoardVerse.Services.Services;
 using Microsoft.Extensions.Logging;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class FriendServiceTests
@@ -211,7 +212,7 @@ public class FriendServiceTests
 
         Friendship? captured = null;
         _friendshipRepo.Setup(r => r.AddAsync(It.IsAny<Friendship>(), It.IsAny<CancellationToken>()))
-            .Callback<Friendship>(f =>
+            .Callback<Friendship, CancellationToken>((f, _) =>
             {
                 captured = f;
                 f.Requester = BuildUser(requesterId, "requester");
@@ -232,7 +233,7 @@ public class FriendServiceTests
         Assert.Equal(addresseeId, captured.AddresseeId);
         Assert.Equal(FriendshipStatus.Pending, captured.Status);
         Assert.Equal("Chơi Catan nhé", captured.Message);
-        _friendshipRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _friendshipRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         Assert.Equal(FriendshipStatus.Pending.ToString(), result.Status);
         Assert.Equal(addresseeId, result.OtherUserId);
         Assert.True(result.IsRequester);
@@ -333,7 +334,7 @@ public class FriendServiceTests
 
         Assert.Equal(FriendshipStatus.Accepted, f.Status);
         Assert.NotNull(f.AcceptedAt);
-        _friendshipRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _friendshipRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         Assert.Equal(FriendshipStatus.Accepted.ToString(), result.Status);
     }
 
@@ -379,7 +380,7 @@ public class FriendServiceTests
         await svc.DeclineFriendRequestAsync(userId, f.Id);
 
         Assert.Equal(FriendshipStatus.Removed, f.Status);
-        _friendshipRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _friendshipRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -425,7 +426,7 @@ public class FriendServiceTests
         await svc.RemoveFriendshipAsync(userId, f.Id);
 
         Assert.Equal(FriendshipStatus.Removed, f.Status);
-        _friendshipRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _friendshipRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         _lobbyInviteRepo.Verify(r => r.CancelPendingBetweenAsync(userId, other, It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -483,7 +484,7 @@ public class FriendServiceTests
             f.RequesterId == userId &&
             f.AddresseeId == targetId &&
             f.Status == FriendshipStatus.Blocked), It.IsAny<CancellationToken>()), Times.Once);
-        _friendshipRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _friendshipRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -534,7 +535,7 @@ public class FriendServiceTests
 
         Assert.Equal(FriendshipStatus.Removed, f.Status);
         Assert.Null(f.BlockerUserId); // Sau unblock → clear BlockerUserId
-        _friendshipRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _friendshipRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -888,7 +889,7 @@ public class FriendServiceTests
         await svc.CancelFriendRequestAsync(meId, f.Id);
 
         Assert.Equal(FriendshipStatus.Removed, f.Status);
-        _friendshipRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _friendshipRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -1180,7 +1181,7 @@ public class FriendServiceTests
         Assert.False(me.Profile!.IsFriendListPublic);
         Assert.Equal("FriendsOfFriends", me.Profile!.AcceptFriendRequestsFrom);
         Assert.Equal(100, me.Profile!.FriendLimit);
-        _userRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _userRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -1225,7 +1226,7 @@ public class FriendServiceTests
         await svc.MarkRequestAsReadAsync(meId, f.Id);
 
         Assert.NotNull(f.AddresseeReadAt);
-        _friendshipRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _friendshipRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -1256,7 +1257,7 @@ public class FriendServiceTests
 
         Assert.Equal(1, count);
         Assert.Equal(FriendshipStatus.Removed, f.Status);
-        _friendshipRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _friendshipRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

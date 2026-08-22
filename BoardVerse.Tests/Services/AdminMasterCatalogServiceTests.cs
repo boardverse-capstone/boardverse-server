@@ -5,6 +5,7 @@ using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.Services;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class AdminMasterCatalogServiceTests
@@ -81,7 +82,7 @@ public class AdminMasterCatalogServiceTests
 
         Category? captured = null;
         _categoryRepo.Setup(r => r.AddAsync(It.IsAny<Category>(), It.IsAny<CancellationToken>()))
-            .Callback<Category>(c => captured = c)
+            .Callback<Category, CancellationToken>((c, _) => captured = c)
             .Returns(Task.CompletedTask);
 
         var svc = CreateService();
@@ -96,7 +97,7 @@ public class AdminMasterCatalogServiceTests
         Assert.Equal("chien-thuat", captured!.Slug);
         Assert.Equal("Chiến Thuật", captured.Name);
         Assert.True(captured.IsActive);
-        _categoryRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _categoryRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         Assert.Equal("chien-thuat", result.Slug);
     }
 
@@ -132,7 +133,7 @@ public class AdminMasterCatalogServiceTests
         Assert.Equal("Updated description", category.Description);
         Assert.Equal(10, category.SortOrder);
         Assert.False(category.IsActive);
-        _categoryRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _categoryRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -158,7 +159,7 @@ public class AdminMasterCatalogServiceTests
         await svc.DeleteCategoryAsync(id);
 
         Assert.False(category.IsActive);
-        _categoryRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _categoryRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -226,7 +227,7 @@ public class AdminMasterCatalogServiceTests
 
         GameComponentTemplate? captured = null;
         _componentRepo.Setup(r => r.AddAsync(It.IsAny<GameComponentTemplate>(), It.IsAny<CancellationToken>()))
-            .Callback<GameComponentTemplate>(c => captured = c)
+            .Callback<GameComponentTemplate, CancellationToken>((c, _) => captured = c)
             .Returns(Task.CompletedTask);
 
         var svc = CreateService();
@@ -240,7 +241,7 @@ public class AdminMasterCatalogServiceTests
         Assert.NotNull(captured);
         Assert.Equal("Dice", captured!.ComponentName);
         Assert.Equal(2, captured.DefaultQuantity);
-        _componentRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _componentRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         Assert.Equal("Dice", result.ComponentName);
     }
 
@@ -284,7 +285,7 @@ public class AdminMasterCatalogServiceTests
 
         Assert.Equal("New", component.ComponentName);
         Assert.Equal(20, component.DefaultQuantity);
-        _componentRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _componentRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -316,7 +317,7 @@ public class AdminMasterCatalogServiceTests
         await svc.DeleteGameComponentAsync(gameId, compId);
 
         _componentRepo.Verify(r => r.Remove(component), Times.Once);
-        _componentRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _componentRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -398,7 +399,7 @@ public class AdminMasterCatalogServiceTests
         });
 
         Assert.Equal(2, game.Categories.Count);
-        _gameRepo.Verify(r => r.SaveChangesAsync(), Times.AtLeastOnce);
+        _gameRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.AtLeastOnce);
     }
 
     [Fact]
@@ -442,7 +443,7 @@ public class AdminMasterCatalogServiceTests
         Assert.Equal(6, game.MaxPlayers);
         Assert.Equal(90, game.PlayTime);
         Assert.False(game.IsActive);
-        _gameRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _gameRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         Assert.Equal("New Name", result.Name);
     }
 
@@ -461,7 +462,7 @@ public class AdminMasterCatalogServiceTests
         });
 
         Assert.Equal("https://cdn.example/x.png", game.ThumbnailUrl);
-        _gameRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _gameRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         Assert.Equal("https://cdn.example/x.png", result.ThumbnailUrl);
     }
 

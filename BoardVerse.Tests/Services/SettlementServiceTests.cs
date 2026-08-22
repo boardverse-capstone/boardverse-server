@@ -426,7 +426,7 @@ public class SettlementServiceTests
         SettlementListQuery? captured = null;
         _mockSettlementRepo
             .Setup(r => r.GetPagedAsync(It.IsAny<SettlementListQuery>(), It.IsAny<CancellationToken>()))
-            .Callback<SettlementListQuery>(q => captured = q)
+            .Callback<SettlementListQuery, CancellationToken>((q, _) => captured = q)
             .ReturnsAsync(new PaginatedResponse<SettlementListItemDto>());
 
         await _service.GetPagedAsync(query);

@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class BookingDepositServiceTests
@@ -104,7 +105,7 @@ public class BookingDepositServiceTests
 
         _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
         _mockDepositRepo.Setup(r => r.AddAsync(It.IsAny<BookingDeposit>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        _mockDepositRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        _mockDepositRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var result = await _service.CreateAsync(
             userId: Guid.NewGuid(),
@@ -130,7 +131,7 @@ public class BookingDepositServiceTests
 
         _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
         _mockDepositRepo.Setup(r => r.AddAsync(It.IsAny<BookingDeposit>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        _mockDepositRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        _mockDepositRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var result = await _service.CreateAsync(
             userId: Guid.NewGuid(),
@@ -209,7 +210,7 @@ public class BookingDepositServiceTests
             });
         _mockDepositRepo.Setup(r => r.GetByIdAsync(depositId, It.IsAny<CancellationToken>())).ReturnsAsync(deposit);
         _mockDepositRepo.Setup(r => r.UpdateAsync(It.IsAny<BookingDeposit>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        _mockDepositRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        _mockDepositRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var result = await _service.MarkAsPaidAsync(depositId, sePayTxnId);
 
@@ -265,7 +266,7 @@ public class BookingDepositServiceTests
             });
         _mockDepositRepo.Setup(r => r.GetByIdAsync(depositId, It.IsAny<CancellationToken>())).ReturnsAsync(deposit);
         _mockDepositRepo.Setup(r => r.UpdateAsync(It.IsAny<BookingDeposit>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        _mockDepositRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        _mockDepositRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var result = await _service.MarkAsRefundedAsync(depositId);
 
@@ -340,7 +341,7 @@ public class BookingDepositServiceTests
             });
         _mockDepositRepo.Setup(r => r.GetByIdAsync(depositId, It.IsAny<CancellationToken>())).ReturnsAsync(deposit);
         _mockDepositRepo.Setup(r => r.UpdateAsync(It.IsAny<BookingDeposit>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        _mockDepositRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        _mockDepositRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var result = await _service.ForfeitAsync(depositId);
 
@@ -375,7 +376,7 @@ public class BookingDepositServiceTests
         _mockDepositRepo.Setup(r => r.TryExpireAsync(depositId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(1);
         _mockDepositRepo.Setup(r => r.GetByIdAsync(depositId, It.IsAny<CancellationToken>())).ReturnsAsync(deposit);
         _mockDepositRepo.Setup(r => r.UpdateAsync(It.IsAny<BookingDeposit>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        _mockDepositRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        _mockDepositRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         await _service.ExpireAsync(depositId);
 
@@ -408,7 +409,7 @@ public class BookingDepositServiceTests
         _mockDepositRepo.Setup(r => r.GetPendingExpiredAsync(It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<BookingDeposit> { deposit1, deposit2 });
         _mockDepositRepo.Setup(r => r.UpdateAsync(It.IsAny<BookingDeposit>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        _mockDepositRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        _mockDepositRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         await _service.ProcessExpiredDepositsAsync();
 
@@ -417,7 +418,7 @@ public class BookingDepositServiceTests
         Assert.NotNull(deposit1.RefundedAt);
         Assert.NotNull(deposit2.RefundedAt);
         _mockDepositRepo.Verify(r => r.UpdateAsync(It.IsAny<BookingDeposit>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
-        _mockDepositRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _mockDepositRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -426,7 +427,7 @@ public class BookingDepositServiceTests
         DateTime capturedCutoff = default;
 
         _mockDepositRepo.Setup(r => r.GetPendingExpiredAsync(It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .Callback<DateTime, int>((cutoff, _) => capturedCutoff = cutoff)
+            .Callback<DateTime, int, CancellationToken>((cutoff, _, _) => capturedCutoff = cutoff)
             .ReturnsAsync(new List<BookingDeposit>());
 
         await _service.ProcessExpiredDepositsAsync();

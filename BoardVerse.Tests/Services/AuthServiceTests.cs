@@ -10,6 +10,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class AuthServiceTests
@@ -76,8 +77,8 @@ public class AuthServiceTests
         _userRepo.Setup(r => r.UserExistsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
         User? captured = null;
-        _userRepo.Setup(r => r.AddUserAsync(It.IsAny<User>()))
-            .Callback<User>(u => captured = u)
+        _userRepo.Setup(r => r.AddUserAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()))
+            .Callback<User, CancellationToken>((u, _) => captured = u)
             .Returns(Task.CompletedTask);
         _userRepo.Setup(r => r.HasActiveProfileAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
@@ -265,7 +266,7 @@ public class AuthServiceTests
 
         await svc.RevokeRefreshTokenAsync("missing"); // does not throw
 
-        _userRepo.Verify(r => r.SaveChangesAsync(), Times.Never);
+        _userRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -280,7 +281,7 @@ public class AuthServiceTests
 
         Assert.True(rt.IsRevoked);
         Assert.NotNull(rt.RevokedAt);
-        _userRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _userRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -307,7 +308,7 @@ public class AuthServiceTests
 
         Assert.NotNull(user.EmailVerificationToken);
         Assert.NotNull(user.EmailVerificationTokenExpiresAt);
-        _emailService.Verify(s => s.SendEmailAsync(user.Email, It.IsAny<string>(), It.IsAny<string>(), false), Times.Once);
+        _emailService.Verify(s => s.SendEmailAsync(user.Email, It.IsAny<string>(), It.IsAny<string>(), false, It.IsAny<CancellationToken>()), Times.Once);
         Assert.False(string.IsNullOrWhiteSpace(result));
     }
 
@@ -388,7 +389,7 @@ public class AuthServiceTests
         await svc.RequestPasswordResetAsync(new RequestPasswordResetDto { Email = user.Email });
 
         Assert.NotNull(user.PasswordResetToken);
-        _emailService.Verify(s => s.SendEmailAsync(user.Email, It.IsAny<string>(), It.IsAny<string>(), false), Times.Once);
+        _emailService.Verify(s => s.SendEmailAsync(user.Email, It.IsAny<string>(), It.IsAny<string>(), false, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

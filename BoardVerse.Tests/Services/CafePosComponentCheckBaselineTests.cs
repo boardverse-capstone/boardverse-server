@@ -7,9 +7,11 @@ using BoardVerse.Data;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
 using BoardVerse.Tests.Helpers;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 /// <summary>
@@ -53,6 +55,8 @@ public class CafePosComponentCheckBaselineTests
             .ReturnsAsync(true);
     }
 
+    private static readonly MemoryCache MemoryCache = new(new MemoryCacheOptions());
+
     private CafePosService CreateService() => new(
         _posRepo.Object,
         _cafeRepo.Object,
@@ -66,6 +70,7 @@ public class CafePosComponentCheckBaselineTests
         _reservationService.Object,
         _reservationRepo.Object,
         _tokenRepo.Object,
+        MemoryCache,
         _logger.Object,
         _db);
 
@@ -177,9 +182,9 @@ public class CafePosComponentCheckBaselineTests
         _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
         _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
-        _posRepo.Setup(r => r.AddComponentCheckResultsAsync(It.IsAny<List<ComponentCheckResult>>()))
+        _posRepo.Setup(r => r.AddComponentCheckResultsAsync(It.IsAny<List<ComponentCheckResult>>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
-        _posRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        _posRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var staleBaseline = new List<ComponentCheckResult>
         {
@@ -232,9 +237,9 @@ public class CafePosComponentCheckBaselineTests
         _posRepo.Setup(r => r.GetComponentPenaltiesByCafeGameAsync(
                 It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<List<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<Guid, CafeGameComponentPenalty>());
-        _posRepo.Setup(r => r.AddComponentCheckResultsAsync(It.IsAny<List<ComponentCheckResult>>()))
+        _posRepo.Setup(r => r.AddComponentCheckResultsAsync(It.IsAny<List<ComponentCheckResult>>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
-        _posRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        _posRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var staleBaseline = new List<ComponentCheckResult>
         {

@@ -6,6 +6,7 @@ using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.Services;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class UserManagementServiceTests
@@ -66,7 +67,7 @@ public class UserManagementServiceTests
 
         Assert.Equal("new@test.dev", result.Email);
         Assert.Equal("Player", result.Role);
-        repo.Verify(r => r.AddUserAsync(It.IsAny<User>()), Times.Once);
-        repo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        repo.Verify(r => r.AddUserAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()), Times.Once);
+        repo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 }

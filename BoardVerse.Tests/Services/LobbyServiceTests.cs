@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class LobbyServiceTests
@@ -186,7 +187,7 @@ public class LobbyServiceTests
         Assert.Single(result.Members);
         Assert.True(result.Members[0].IsHost);
         lobbyRepo.Verify(r => r.AddAsync(It.IsAny<Lobby>(), It.IsAny<CancellationToken>()), Times.Once);
-        lobbyRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        lobbyRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -323,7 +324,7 @@ public class LobbyServiceTests
         var result = await service.JoinLobbyAsync(lobbyId, newUserId);
 
         Assert.Equal(2, result.Members.Count);
-        lobbyRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        lobbyRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -535,7 +536,7 @@ public class LobbyServiceTests
         var result = await service.LockLobbyAsync(lobbyId, hostId);
 
         Assert.Equal(LobbyStatus.Full, result.Status);
-        lobbyRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        lobbyRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -710,7 +711,7 @@ public class LobbyServiceTests
 
         var result = await service.OpenKarmaWindowAsync(lobbyId, hostId);
 
-        lobbyRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        lobbyRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -734,7 +735,7 @@ public class LobbyServiceTests
         var lobbyRepo = new Mock<ILobbyRepository>();
         Lobby? captured = null;
         lobbyRepo.Setup(r => r.AddAsync(It.IsAny<Lobby>(), It.IsAny<CancellationToken>()))
-            .Callback<Lobby>(l => captured = l)
+            .Callback<Lobby, CancellationToken>((l, _) => captured = l)
             .Returns(Task.CompletedTask);
 
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
@@ -771,7 +772,7 @@ public class LobbyServiceTests
         var lobbyRepo = new Mock<ILobbyRepository>();
         Lobby? captured = null;
         lobbyRepo.Setup(r => r.AddAsync(It.IsAny<Lobby>(), It.IsAny<CancellationToken>()))
-            .Callback<Lobby>(l => captured = l)
+            .Callback<Lobby, CancellationToken>((l, _) => captured = l)
             .Returns(Task.CompletedTask);
 
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
@@ -821,7 +822,7 @@ public class LobbyServiceTests
 
         Assert.Equal(85, lobby.MinKarmaScore);
         Assert.Equal(85, result.MinKarmaScore);
-        lobbyRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        lobbyRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

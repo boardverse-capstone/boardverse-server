@@ -1028,7 +1028,7 @@ public class ReservationService : IReservationService
             var hasMembers = members.Any(m => !m.IsHost && m.IsActive);
 
             var scheduledStart = reservation.ScheduledStartTime;
-            if (scheduledStart == default);
+            if (scheduledStart == default)
                 throw new InternalServerErrorException(
                     ApiErrorMessages.Reservation.CancelMissingScheduledStartTime);
             var refundPolicy = await ComputeRefundPolicyAsync(

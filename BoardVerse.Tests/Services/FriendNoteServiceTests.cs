@@ -6,6 +6,7 @@ using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.Services;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class FriendNoteServiceTests
@@ -60,7 +61,7 @@ public class FriendNoteServiceTests
 
         FriendNote? captured = null;
         _noteRepo.Setup(r => r.AddAsync(It.IsAny<FriendNote>(), It.IsAny<CancellationToken>()))
-            .Callback<FriendNote>(n => captured = n)
+            .Callback<FriendNote, CancellationToken>((n, _) => captured = n)
             .Returns(Task.CompletedTask);
         _noteRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((FriendNote?)null);
 
@@ -77,7 +78,7 @@ public class FriendNoteServiceTests
         Assert.Equal("alice-the-catan", captured!.Alias);
         Assert.Equal("chơi tốt", captured.Note);
         Assert.Equal("Catan,Wingman", captured.Tags);
-        _noteRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _noteRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         Assert.Equal(friendId, result.FriendUserId);
         Assert.Equal("alice-the-catan", result.Alias);
     }
@@ -116,7 +117,7 @@ public class FriendNoteServiceTests
         Assert.Equal("new-note", existing.Note);
         Assert.Equal("new", existing.Tags);
         _noteRepo.Verify(r => r.Update(existing), Times.Once);
-        _noteRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _noteRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         Assert.Equal("new-alias", result.Alias);
     }
 
@@ -156,7 +157,7 @@ public class FriendNoteServiceTests
         await svc.DeleteNoteAsync(meId, note.Id);
 
         _noteRepo.Verify(r => r.Remove(note), Times.Once);
-        _noteRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _noteRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

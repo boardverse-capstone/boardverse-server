@@ -8,6 +8,7 @@ using BoardVerse.Services.Services;
 using Microsoft.Extensions.Logging;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class CafePartnerApplicationServiceTests
@@ -38,9 +39,9 @@ public class CafePartnerApplicationServiceTests
         });
         applicationRepo.Setup(r => r.HasSevereDuplicateAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync(false);
         applicationRepo.Setup(r => r.AddAsync(It.IsAny<CafePartnerApplication>(), It.IsAny<CancellationToken>()))
-            .Callback<CafePartnerApplication>(app => app.Id = Guid.NewGuid());
+            .Callback<CafePartnerApplication, CancellationToken>((app, _) => app.Id = Guid.NewGuid());
         applicationRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Guid id) => new CafePartnerApplication
+            .ReturnsAsync((Guid id, CancellationToken _) => new CafePartnerApplication
             {
                 Id = id,
                 CafeName = "Unit Test Cafe",
@@ -54,7 +55,7 @@ public class CafePartnerApplicationServiceTests
                 SubmittedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             });
-        applicationRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        applicationRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var service = new CafePartnerApplicationService(
             applicationRepo.Object,
@@ -117,9 +118,9 @@ public class CafePartnerApplicationServiceTests
         });
         applicationRepo.Setup(r => r.HasSevereDuplicateAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync(false);
         applicationRepo.Setup(r => r.AddAsync(It.IsAny<CafePartnerApplication>(), It.IsAny<CancellationToken>()))
-            .Callback<CafePartnerApplication>(app => app.Id = Guid.NewGuid());
+            .Callback<CafePartnerApplication, CancellationToken>((app, _) => app.Id = Guid.NewGuid());
         applicationRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Guid id) => new CafePartnerApplication
+            .ReturnsAsync((Guid id, CancellationToken _) => new CafePartnerApplication
             {
                 Id = id,
                 CafeName = "Unit Test Cafe",
@@ -133,7 +134,7 @@ public class CafePartnerApplicationServiceTests
                 SubmittedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             });
-        applicationRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        applicationRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var service = new CafePartnerApplicationService(
             applicationRepo.Object,

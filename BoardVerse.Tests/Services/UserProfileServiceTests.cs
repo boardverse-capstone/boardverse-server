@@ -8,6 +8,7 @@ using BoardVerse.Services.Services;
 using BoardVerse.Services.Services.Geocoding;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class UserProfileServiceTests
@@ -171,8 +172,8 @@ public class UserProfileServiceTests
         _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         UserProfile? captured = null;
-        _profileRepo.Setup(r => r.AddUserProfileAsync(It.IsAny<UserProfile>()))
-            .Callback<UserProfile>(p => captured = p)
+        _profileRepo.Setup(r => r.AddUserProfileAsync(It.IsAny<UserProfile>(), It.IsAny<CancellationToken>()))
+            .Callback<UserProfile, CancellationToken>((p, _) => captured = p)
             .Returns(Task.CompletedTask);
 
         var svc = CreateService();
@@ -184,7 +185,7 @@ public class UserProfileServiceTests
         Assert.Equal("An", captured.FirstName);
         Assert.True(captured.IsActive);
         Assert.Equal(100, captured.KarmaPoints);
-        _profileRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _profileRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -217,7 +218,7 @@ public class UserProfileServiceTests
         Assert.Equal("New bio", user.Profile!.Bio);
         Assert.Equal("Bob", user.Profile.FirstName);
         Assert.Equal(200, user.Profile.KarmaPoints); // unchanged
-        _profileRepo.Verify(r => r.SaveChangesAsync(), Times.AtLeastOnce);
+        _profileRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.AtLeastOnce);
     }
 
     [Fact]
@@ -267,7 +268,7 @@ public class UserProfileServiceTests
 
         await svc.DeleteProfileAsync(Guid.NewGuid()); // does not throw
 
-        _profileRepo.Verify(r => r.SaveChangesAsync(), Times.Never);
+        _profileRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -282,7 +283,7 @@ public class UserProfileServiceTests
         await svc.DeleteProfileAsync(userId);
 
         Assert.False(profile.IsActive);
-        _profileRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _profileRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -297,8 +298,8 @@ public class UserProfileServiceTests
         _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         UserProfile? captured = null;
-        _profileRepo.Setup(r => r.AddUserProfileAsync(It.IsAny<UserProfile>()))
-            .Callback<UserProfile>(p => captured = p)
+        _profileRepo.Setup(r => r.AddUserProfileAsync(It.IsAny<UserProfile>(), It.IsAny<CancellationToken>()))
+            .Callback<UserProfile, CancellationToken>((p, _) => captured = p)
             .Returns(Task.CompletedTask);
 
         var svc = CreateService();
@@ -346,15 +347,15 @@ public class UserProfileServiceTests
         var userId = Guid.NewGuid();
         var user = new User { Id = userId, Username = "alice", Email = "a@b.test", Role = UserRole.Player };
         _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
-        _profileRepo.Setup(r => r.AddUserProfileAsync(It.IsAny<UserProfile>())).Returns(Task.CompletedTask);
+        _profileRepo.Setup(r => r.AddUserProfileAsync(It.IsAny<UserProfile>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var svc = CreateService();
 
         var result = await svc.CreateOrGetProfileAsync(userId);
 
         Assert.NotNull(result);
-        _profileRepo.Verify(r => r.AddUserProfileAsync(It.IsAny<UserProfile>()), Times.Once);
-        _profileRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _profileRepo.Verify(r => r.AddUserProfileAsync(It.IsAny<UserProfile>(), It.IsAny<CancellationToken>()), Times.Once);
+        _profileRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -369,8 +370,8 @@ public class UserProfileServiceTests
         var result = await svc.CreateOrGetProfileAsync(userId);
 
         Assert.NotNull(result);
-        _profileRepo.Verify(r => r.AddUserProfileAsync(It.IsAny<UserProfile>()), Times.Never);
-        _profileRepo.Verify(r => r.SaveChangesAsync(), Times.Never);
+        _profileRepo.Verify(r => r.AddUserProfileAsync(It.IsAny<UserProfile>(), It.IsAny<CancellationToken>()), Times.Never);
+        _profileRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     #endregion
@@ -408,8 +409,8 @@ public class UserProfileServiceTests
         _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         PlayerLocationHistory? capturedHistory = null;
-        _profileRepo.Setup(r => r.AddPlayerLocationHistoryAsync(It.IsAny<PlayerLocationHistory>()))
-            .Callback<PlayerLocationHistory>(h => capturedHistory = h)
+        _profileRepo.Setup(r => r.AddPlayerLocationHistoryAsync(It.IsAny<PlayerLocationHistory>(), It.IsAny<CancellationToken>()))
+            .Callback<PlayerLocationHistory, CancellationToken>((h, _) => capturedHistory = h)
             .Returns(Task.CompletedTask);
 
         var svc = CreateService();
@@ -426,7 +427,7 @@ public class UserProfileServiceTests
         Assert.Equal(106.660172, result.Longitude);
         Assert.NotNull(capturedHistory);
         Assert.Equal(userId, capturedHistory!.UserId);
-        _profileRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _profileRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -470,7 +471,7 @@ public class UserProfileServiceTests
 
         Assert.Null(profile.LastKnownLatitude);
         Assert.Null(profile.LastKnownLongitude);
-        _profileRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _profileRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion

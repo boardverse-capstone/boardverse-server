@@ -6,6 +6,7 @@ using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.Services;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class FriendReportServiceTests
@@ -154,7 +155,7 @@ public class FriendReportServiceTests
 
         FriendReport? captured = null;
         _reportRepo.Setup(r => r.AddAsync(It.IsAny<FriendReport>(), It.IsAny<CancellationToken>()))
-            .Callback<FriendReport>(rep => captured = rep)
+            .Callback<FriendReport, CancellationToken>((rep, _) => captured = rep)
             .Returns(Task.CompletedTask);
 
         var svc = CreateService();
@@ -172,7 +173,7 @@ public class FriendReportServiceTests
         Assert.Equal(FriendReportCategory.Harassment, captured.Category);
         Assert.Equal("Very rude during Catan game", captured.Reason);
         Assert.Equal("Pending", captured.Status);
-        _reportRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _reportRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
 
         Assert.Equal(targetId, result.TargetUserId);
         Assert.Equal("bob", result.TargetUsername);
@@ -192,7 +193,7 @@ public class FriendReportServiceTests
 
         FriendReport? captured = null;
         _reportRepo.Setup(r => r.AddAsync(It.IsAny<FriendReport>(), It.IsAny<CancellationToken>()))
-            .Callback<FriendReport>(rep => captured = rep)
+            .Callback<FriendReport, CancellationToken>((rep, _) => captured = rep)
             .Returns(Task.CompletedTask);
 
         var svc = CreateService();

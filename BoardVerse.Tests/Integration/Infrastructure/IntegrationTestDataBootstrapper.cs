@@ -1131,15 +1131,21 @@ internal static class IntegrationTestDataBootstrapper
             posTable.UpdatedAt = DateTime.UtcNow;
         }
 
-        // Clean up old sessions - handle both old and new schema gracefully
+        // Clean up old sessions - handle both old and new schema gracefully.
+        // Use CASCADE to handle any FK chain (ActiveSessionMembers, IndividualSessions, SessionGames).
         try
         {
-            // Delete members first (table may not exist in old schema)
             await db.Database.ExecuteSqlRawAsync(@"
                 DO $$
                 BEGIN
                     IF EXISTS (SELECT FROM pg_tables WHERE tablename = 'ActiveSessionMembers') THEN
                         DELETE FROM ""ActiveSessionMembers"" WHERE ""ActiveSessionId"" IN (SELECT ""Id"" FROM ""ActiveSessions"" WHERE ""CafeId"" = {0});
+                    END IF;
+                    IF EXISTS (SELECT FROM pg_tables WHERE tablename = 'IndividualSessions') THEN
+                        DELETE FROM ""IndividualSessions"" WHERE ""ActiveSessionId"" IN (SELECT ""Id"" FROM ""ActiveSessions"" WHERE ""CafeId"" = {0});
+                    END IF;
+                    IF EXISTS (SELECT FROM pg_tables WHERE tablename = 'SessionGames') THEN
+                        DELETE FROM ""SessionGames"" WHERE ""SessionId"" IN (SELECT ""Id"" FROM ""ActiveSessions"" WHERE ""CafeId"" = {0});
                     END IF;
                 END $$;
                 DELETE FROM ""ActiveSessions"" WHERE ""CafeId"" = {0};
@@ -1147,7 +1153,7 @@ internal static class IntegrationTestDataBootstrapper
         }
         catch
         {
-            // Schema might be incomplete, ignore
+            // Schema might be incomplete or FK chain unexpected, ignore
         }
 
         // Reset ALL boxes in demo cafe to Available - not just Catan

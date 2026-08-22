@@ -3,6 +3,7 @@ using BoardVerse.Core.DTOs.Session;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
@@ -938,31 +939,11 @@ public class PaymentService : IPaymentService
         throw new ForbiddenException(ApiErrorMessages.Payment.NotAuthorizedToViewDeposit);
     }
 
+    /// <summary>
+    /// Phase 5 / EC-11: chuyển sang pure helper để share với CafePosService + ActiveSessionService.
+    /// </summary>
     private static decimal CalculateRealtimeBilling(Core.Entities.Cafe cafe, int elapsedMinutes)
     {
-        if (elapsedMinutes <= 60)
-        {
-            return cafe.BasePrice;
-        }
-
-        // DEFENSIVE: TimeBased phải có TieredBlockRate
-        // Nếu null → fallback an toàn: tính như FlatEntry (chỉ giờ đầu)
-        if (!cafe.TieredBlockRate.HasValue || cafe.TieredBlockRate <= 0)
-        {
-            if (cafe.BillingModel == CafePartnerBillingModel.TimeBased)
-            {
-                // Log warning nhưng không throw để không block checkout
-                // Quay về tính như FlatEntry
-                return cafe.BasePrice;
-            }
-            return cafe.BasePrice;
-        }
-
-        var remainingMinutes = elapsedMinutes - 60;
-        var blockMinutes = cafe.TieredBlockMinutes;
-        var blockPrice = cafe.TieredBlockRate.Value;
-
-        var additionalBlocks = (int)Math.Ceiling((double)remainingMinutes / blockMinutes);
-        return cafe.BasePrice + (additionalBlocks * blockPrice);
+        return ActiveSessionBillingCalculator.CalculateRealtimeBilling(cafe, elapsedMinutes);
     }
 }

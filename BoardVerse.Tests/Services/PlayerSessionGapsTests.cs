@@ -63,7 +63,8 @@ public class PlayerSessionGapsTests
             {
                 new() { GameTemplate = new GameTemplate { Id = Guid.NewGuid(), Name = "Catan" } }
             },
-            Members = memberList
+            Members = memberList,
+            Cafe = new Cafe { Id = cafeId, Name = "Test Cafe", Address = "123 St", IsActive = true }
         };
     }
 
@@ -77,6 +78,8 @@ public class PlayerSessionGapsTests
     {
         sessionRepo ??= new Mock<IActiveSessionRepository>();
         cafeRepo ??= new Mock<ICafeRepository>();
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Cafe { Name = "Test Cafe", Address = "123 Test St", IsActive = true });
 
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
@@ -130,12 +133,15 @@ public class PlayerSessionGapsTests
         sessionRepo.Setup(r => r.GetByUserIdWithMembersAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(session);
         var (svc, extRepo) = CreateServiceWithExt(sessionRepo);
         extRepo.Setup(r => r.GetAllBySessionIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<SessionExtensionRequest>());
+        extRepo.Setup(r => r.GetPendingBySessionIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<SessionExtensionRequest>());
 
         var result = await svc.GetCurrentSessionAsync(userId);
 
         Assert.NotNull(result);
         Assert.Equal(TimeSpan.FromHours(7), result!.JoinedAtOffset.Offset);
-        Assert.Equal(joinedAt, result.JoinedAtOffset.UtcDateTime);
+        // UTC 5:00 = Vietnam 12:00 (5 + 7 = 12)
+        Assert.Equal(12, result.JoinedAtOffset.Hour);
+        Assert.Equal(0, result.JoinedAtOffset.Minute);
     }
 
     // ===== GAP-7/8: History pagination + date filter =====
@@ -252,6 +258,7 @@ public class PlayerSessionGapsTests
         sessionRepo.Setup(r => r.GetByUserIdWithMembersAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(session);
         var (svc, extRepo) = CreateServiceWithExt(sessionRepo);
         extRepo.Setup(r => r.GetAllBySessionIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<SessionExtensionRequest>());
+        extRepo.Setup(r => r.GetPendingBySessionIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<SessionExtensionRequest>());
 
         var ex = await Assert.ThrowsAsync<ConflictException>(() => svc.ExtendSessionAsync(userId, 30));
         Assert.Contains("tạm dừng", ex.Message);
@@ -306,6 +313,7 @@ public class PlayerSessionGapsTests
         sessionRepo.Setup(r => r.GetByUserIdWithMembersAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(session);
         var (svc, extRepo) = CreateServiceWithExt(sessionRepo);
         extRepo.Setup(r => r.GetAllBySessionIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<SessionExtensionRequest> { req });
+        extRepo.Setup(r => r.GetPendingBySessionIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<SessionExtensionRequest> { req });
 
         var result = await svc.GetCurrentSessionAsync(userId);
 

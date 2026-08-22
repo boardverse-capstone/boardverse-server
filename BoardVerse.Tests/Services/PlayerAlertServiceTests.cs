@@ -263,7 +263,7 @@ public class PlayerAlertServiceTests
 
         PlayerAlert? captured = null;
         repo.Setup(r => r.AddAsync(It.IsAny<PlayerAlert>(), It.IsAny<CancellationToken>()))
-            .Callback<PlayerAlert>(a => captured = a)
+            .Callback<PlayerAlert, CancellationToken>((a, _) => captured = a)
             .Returns(Task.CompletedTask);
 
         var service = new PlayerAlertService(repo.Object, new FakeDbContext(), NullLogger<PlayerAlertService>.Instance);

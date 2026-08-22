@@ -204,6 +204,145 @@ public class EligibilityValidatorTests
     }
 
     // ===== BR-DEMO-01: Demo mode bypass =====
+    // ===== BR-USER-LIMIT-03: Cap tổng heldBalance =====
+    // 500k thường / 1M VIP / 200k risk cao. Host phải tính được projected = held + finalDeposit.
+
+    [Fact]
+    public void ValidateHostCanCreate_Should_ThrowHeldCapExceeded_When_RegularUserExceeds500k()
+    {
+        // Arrange: regular user (IsVip=false, IsRiskMultiplierHigh=false) đã held 450k,
+        // finalDeposit = 60k → projected = 510k > 500k → vượt cap regular.
+        var ctx = BuildHostContext();
+        ctx.IsVip = false;
+        ctx.IsRiskMultiplierHigh = false;
+        ctx.WalletHeldBalance = 450_000;
+        ctx.FinalDeposit = 60_000;
+
+        // Act + Assert
+        var ex = Assert.Throws<ConflictException>(() => _validator.ValidateHostCanCreate(ctx));
+        Assert.Equal(ApiErrorMessages.Reservation.HeldDepositCapExceeded(450_000, 500_000, "thường"), ex.Message);
+    }
+
+    [Fact]
+    public void ValidateHostCanCreate_Should_NotThrow_When_RegularUserExactlyAtCap()
+    {
+        // Arrange: regular user held 440k + finalDeposit 60k = 500k = cap → không vượt, vẫn OK.
+        var ctx = BuildHostContext();
+        ctx.WalletHeldBalance = 440_000;
+        ctx.FinalDeposit = 60_000;
+
+        // Act + Assert: không throw
+        _validator.ValidateHostCanCreate(ctx);
+    }
+
+    [Fact]
+    public void ValidateHostCanCreate_Should_AllowVipUser_UpTo1MillionBvc()
+    {
+        // Arrange: VIP user held 950k + finalDeposit 50k = 1M = VIP cap → OK.
+        var ctx = BuildHostContext();
+        ctx.IsVip = true;
+        ctx.WalletHeldBalance = 950_000;
+        ctx.FinalDeposit = 50_000;
+
+        // Act + Assert: không throw vì projected = 1M = cap
+        _validator.ValidateHostCanCreate(ctx);
+    }
+
+    [Fact]
+    public void ValidateHostCanCreate_Should_ThrowHeldCapExceeded_When_VipUserExceeds1MillionBvc()
+    {
+        // Arrange: VIP user held 950k + finalDeposit 60k = 1.01M > 1M cap.
+        var ctx = BuildHostContext();
+        ctx.IsVip = true;
+        ctx.WalletHeldBalance = 950_000;
+        ctx.FinalDeposit = 60_000;
+
+        // Act + Assert
+        var ex = Assert.Throws<ConflictException>(() => _validator.ValidateHostCanCreate(ctx));
+        Assert.Equal(ApiErrorMessages.Reservation.HeldDepositCapExceeded(950_000, 1_000_000, "VIP"), ex.Message);
+    }
+
+    [Fact]
+    public void ValidateHostCanCreate_Should_ApplyRiskCap_When_RiskMultiplierHigh()
+    {
+        // Arrange: riskMultiplierHigh user → cap 200k. Held 150k + finalDeposit 60k = 210k > 200k.
+        var ctx = BuildHostContext();
+        ctx.IsVip = false;
+        ctx.IsRiskMultiplierHigh = true;
+        ctx.WalletHeldBalance = 150_000;
+        ctx.FinalDeposit = 60_000;
+
+        // Act + Assert
+        var ex = Assert.Throws<ConflictException>(() => _validator.ValidateHostCanCreate(ctx));
+        Assert.Equal(ApiErrorMessages.Reservation.HeldDepositCapExceeded(150_000, 200_000, "risk cao"), ex.Message);
+    }
+
+    [Fact]
+    public void ValidateHostCanCreate_Should_NotThrow_When_RiskMultiplierHigh_AtExact200kCap()
+    {
+        // Arrange: risk user held 140k + finalDeposit 60k = 200k = cap risk.
+        var ctx = BuildHostContext();
+        ctx.IsRiskMultiplierHigh = true;
+        ctx.WalletHeldBalance = 140_000;
+        ctx.FinalDeposit = 60_000;
+
+        // Act + Assert: không throw
+        _validator.ValidateHostCanCreate(ctx);
+    }
+
+    [Fact]
+    public void ValidateHostCanCreate_Should_PreferVipCap_OverRiskCap_When_BothFlags()
+    {
+        // BR-USER-LIMIT-03: ResolveTotalDepositCap kiểm tra IsVip trước IsRiskMultiplierHigh.
+        // Đây là data bug defensive — user không nên vừa VIP vừa risk cao,
+        // nhưng nếu có thì cap = 1M (VIP), không phải 200k (risk).
+        // Held 180k + finalDeposit 30k = 210k > 200k risk nhưng < 1M VIP → không throw.
+        var ctx = BuildHostContext();
+        ctx.IsVip = true;
+        ctx.IsRiskMultiplierHigh = true;
+        ctx.WalletHeldBalance = 180_000;
+        ctx.FinalDeposit = 30_000; // projected = 210k
+
+        // Act + Assert: KHÔNG throw vì IsVip=true → cap = 1M (VIP)
+        _validator.ValidateHostCanCreate(ctx);
+    }
+
+    // ===== BR-NEW-05: Max 5 lần tạo/hủy / playDate =====
+
+    [Fact]
+    public void ValidateHostCanCreate_Should_Throw_When_HostCreateOrCancelReachesLimit()
+    {
+        // Arrange: host đã tạo+hủy 5 lần cho cùng playDate.
+        var ctx = BuildHostContext();
+        ctx.HostCreateOrCancelCount = 5;
+
+        // Act + Assert
+        var ex = Assert.Throws<ConflictException>(() => _validator.ValidateHostCanCreate(ctx));
+        Assert.Equal(ApiErrorMessages.Reservation.HostCreatesCancelsLimitReached(5), ex.Message);
+    }
+
+    [Fact]
+    public void ValidateHostCanCreate_Should_Throw_When_HostCreateOrCancelExceedsLimit()
+    {
+        // Arrange: count > 5 (defensive — DB sum có thể trả > 5 nếu race).
+        var ctx = BuildHostContext();
+        ctx.HostCreateOrCancelCount = 7;
+
+        // Act + Assert: vẫn throw
+        Assert.Throws<ConflictException>(() => _validator.ValidateHostCanCreate(ctx));
+    }
+
+    [Fact]
+    public void ValidateHostCanCreate_Should_NotThrow_When_HostCreateOrCancelBelowLimit()
+    {
+        // Arrange: count = 4 → còn 1 lần nữa cho phép tạo.
+        var ctx = BuildHostContext();
+        ctx.HostCreateOrCancelCount = 4;
+
+        // Act + Assert: không throw
+        _validator.ValidateHostCanCreate(ctx);
+    }
+
     [Fact]
     public async Task ValidateHostCanCreateAsync_Should_BypassAllLimits_When_DemoModeOn()
     {

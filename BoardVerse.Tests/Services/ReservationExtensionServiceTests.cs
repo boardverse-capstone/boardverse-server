@@ -57,7 +57,7 @@ public class ReservationExtensionServiceTests : IDisposable
         _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(reservation);
         _windowRepoMock.Setup(r => r.GetOverlappingAsync(
-            reservation.CafeId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), default, It.IsAny<CancellationToken>()))
+            reservation.CafeId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<WalkInWindow>());
 
         // Act
@@ -123,7 +123,7 @@ public class ReservationExtensionServiceTests : IDisposable
         _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(reservation);
         _windowRepoMock.Setup(r => r.GetOverlappingAsync(
-            reservation.CafeId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), default, It.IsAny<CancellationToken>()))
+            reservation.CafeId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<WalkInWindow> { new WalkInWindow() });
 
         // Act
@@ -144,7 +144,7 @@ public class ReservationExtensionServiceTests : IDisposable
         _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(reservation);
         _windowRepoMock.Setup(r => r.GetOverlappingAsync(
-            reservation.CafeId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), default, It.IsAny<CancellationToken>()))
+            reservation.CafeId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<WalkInWindow>());
 
         // Act: ask for 90 min but only 60 remaining
@@ -169,7 +169,7 @@ public class ReservationExtensionServiceTests : IDisposable
         _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(reservation);
         _windowRepoMock.Setup(r => r.GetOverlappingAsync(
-            reservation.CafeId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), default, It.IsAny<CancellationToken>()))
+            reservation.CafeId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<WalkInWindow>());
         _resRepoMock.Setup(r => r.UpdateAsync(It.IsAny<Reservation>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
@@ -216,7 +216,7 @@ public class ReservationExtensionServiceTests : IDisposable
         _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(reservation);
         _windowRepoMock.Setup(r => r.GetOverlappingAsync(
-            reservation.CafeId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), default, It.IsAny<CancellationToken>()))
+            reservation.CafeId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<WalkInWindow>());
         _resRepoMock.Setup(r => r.UpdateAsync(It.IsAny<Reservation>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
@@ -384,6 +384,8 @@ public class ReservationExtensionServiceTests : IDisposable
             GameId = Guid.NewGuid(),
             PlayDate = playDate,
             TimeSlot = TimeSlot.Afternoon,
+            PreferredStartTime = new TimeOnly(12, 0),
+            PreferredEndTime = new TimeOnly(17, 0),
             ScheduledStartTime = playDate.ToDateTime(new TimeOnly(12, 0)),
             ScheduledEndTime = playDate.ToDateTime(new TimeOnly(17, 0)),
             Status = ReservationStatus.Confirmed,

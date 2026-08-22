@@ -6,6 +6,7 @@ using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.Services;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class KarmaRatingServiceTests
@@ -89,7 +90,7 @@ public class KarmaRatingServiceTests
         Assert.Equal(LobbyStatus.RatingOpen, lobby.Status);
         Assert.NotNull(lobby.RatingOpenedAt);
         Assert.Equal(2, result.MemberUserIds.Count);
-        repo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        repo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

@@ -13,6 +13,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class WalletServiceTests
@@ -40,6 +41,7 @@ public class WalletServiceTests
         _mockLogger = new Mock<ILogger<WalletService>>();
 
         var fakeDbContext = new FakeDbContext();
+        DbContext = fakeDbContext;
 
         // Default: QR proxy returns null — tests can override per-case.
         _mockQrProxy
@@ -80,7 +82,7 @@ public class WalletServiceTests
         Assert.Equal(250, dto.AvailableBalance);
         Assert.Equal(50, dto.HeldBalance);
         _mockWalletRepo.Verify(r => r.AddAsync(It.IsAny<Wallet>(), It.IsAny<CancellationToken>()), Times.Never);
-        _mockWalletRepo.Verify(r => r.SaveChangesAsync(), Times.Never);
+        _mockWalletRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -102,7 +104,7 @@ public class WalletServiceTests
         Assert.Equal(RiskLevel.Low, dto.RiskLevel);
         Assert.Equal(AccountStatus.Active, dto.AccountStatus);
         _mockWalletRepo.Verify(r => r.AddAsync(It.IsAny<Wallet>(), It.IsAny<CancellationToken>()), Times.Once);
-        _mockWalletRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _mockWalletRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -440,7 +442,7 @@ public class WalletServiceTests
             .ReturnsAsync(topUp);
         BvcTopUpRequest? captured = null;
         _mockTopUpRepo.Setup(r => r.UpdateAsync(It.IsAny<BvcTopUpRequest>(), It.IsAny<CancellationToken>()))
-            .Callback<BvcTopUpRequest>(r => captured = r)
+            .Callback<BvcTopUpRequest, CancellationToken>((r, _) => captured = r)
             .Returns(Task.CompletedTask);
 
         await _service.CancelTopUpAsync(topUpId, userId);

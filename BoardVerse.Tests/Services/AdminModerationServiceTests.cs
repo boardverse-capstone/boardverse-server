@@ -8,6 +8,7 @@ using BoardVerse.Services.Services;
 using BoardVerse.Tests.Helpers;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class AdminModerationServiceTests
@@ -34,8 +35,8 @@ public class AdminModerationServiceTests
         repo.Verify(r => r.AddKarmaLogAsync(It.Is<KarmaLog>(l =>
             l.ViolationCategory == KarmaViolationCategory.AdminWarning &&
             l.KarmaPointsChange == 0 &&
-            l.KarmaBefore == 85)), Times.Once);
-        repo.Verify(r => r.SaveChangesAsync(), Times.Once);
+            l.KarmaBefore == 85), It.IsAny<CancellationToken>()), Times.Once);
+        repo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -110,7 +111,7 @@ public class AdminModerationServiceTests
         Assert.Equal(95, result.NewKarma);
         repo.Verify(r => r.AddKarmaLogAsync(It.Is<KarmaLog>(l =>
             l.IsAdminAdjustment &&
-            l.KarmaPointsChange == -5)), Times.Once);
+            l.KarmaPointsChange == -5), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

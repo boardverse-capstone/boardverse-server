@@ -171,28 +171,27 @@ public class ActiveSessionBillingCalculatorTests
     // ===== Edge cases =====
 
     [Fact]
-    public void CalculateRealtimeBilling_Should_ReturnZero_When_ElapsedIsZero()
+    public void CalculateRealtimeBilling_Should_ChargeBasePrice_When_ElapsedIsZero_AntiAbuse()
     {
-        // Arrange: cả TimeBased và FlatEntry với elapsed = 0 → 0.
-        var timeBasedCafe = CreateTimeBasedCafe();
-        var flatEntryCafe = CreateFlatEntryCafe();
+        // Arrange: cả TimeBased và FlatEntry với elapsed = 0 → vẫn trả BasePrice.
+        // Lý do: chống player mở bàn rồi nghỉ (BR-09 / §time-slot-fixed-end v3.0 anti-abuse).
+        var timeBasedCafe = CreateTimeBasedCafe(basePrice: 60000m);
+        var flatEntryCafe = CreateFlatEntryCafe(basePrice: 80000m);
 
         // Act + Assert
-        Assert.Equal(0m, ActiveSessionBillingCalculator.CalculateRealtimeBilling(timeBasedCafe, 0));
-        Assert.Equal(0m, ActiveSessionBillingCalculator.CalculateRealtimeBilling(flatEntryCafe, 0));
+        Assert.Equal(60000m, ActiveSessionBillingCalculator.CalculateRealtimeBilling(timeBasedCafe, 0));
+        Assert.Equal(80000m, ActiveSessionBillingCalculator.CalculateRealtimeBilling(flatEntryCafe, 0));
     }
 
     [Fact]
-    public void CalculateRealtimeBilling_Should_ReturnZero_When_ElapsedIsNegative()
+    public void CalculateRealtimeBilling_Should_Throw_When_ElapsedIsNegative()
     {
-        // Arrange: defensive — elapsed < 0 → 0.
+        // Arrange: defensive — elapsed < 0 → throw để caller biết tính sai.
         var cafe = CreateTimeBasedCafe();
 
-        // Act
-        var subtotal = ActiveSessionBillingCalculator.CalculateRealtimeBilling(cafe, -10);
-
-        // Assert
-        Assert.Equal(0m, subtotal);
+        // Act + Assert
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => ActiveSessionBillingCalculator.CalculateRealtimeBilling(cafe, -10));
     }
 
     [Fact]
@@ -206,5 +205,43 @@ public class ActiveSessionBillingCalculatorTests
 
         // Assert
         Assert.Equal(200000m, subtotal); // 60000 + 28*5000
+    }
+
+    // ===== Anti-abuse scenarios (chống player mở bàn rồi nghỉ) =====
+
+    [Theory]
+    [InlineData(0)]   // Player mở bàn rồi bỏ đi ngay
+    [InlineData(1)]   // Chỉ ngồi 1 phút
+    [InlineData(5)]   // Chỉ ngồi 5 phút
+    public void CalculateRealtimeBilling_Should_ChargeAtLeastBasePrice_For_AbandonedSession(int elapsedMinutes)
+    {
+        // Arrange: Player mở bàn nhưng rời đi rất sớm → vẫn phải trả giờ đầu.
+        // Trước đây helper trả 0 cho elapsed = 0 → bị abuse (mở bàn miễn phí).
+        // TimeBased và FlatEntry đều áp dụng rule này (giờ đầu là đơn vị cơ bản).
+        var timeBasedCafe = CreateTimeBasedCafe(basePrice: 60000m);
+        var flatEntryCafe = CreateFlatEntryCafe(basePrice: 80000m);
+
+        // Act
+        var timeBasedSubtotal = ActiveSessionBillingCalculator.CalculateRealtimeBilling(timeBasedCafe, elapsedMinutes);
+        var flatEntrySubtotal = ActiveSessionBillingCalculator.CalculateRealtimeBilling(flatEntryCafe, elapsedMinutes);
+
+        // Assert: subtotal >= BasePrice (không bao giờ = 0 cho session opened).
+        Assert.True(timeBasedSubtotal >= timeBasedCafe.BasePrice,
+            $"TimeBased subtotal {timeBasedSubtotal} phải >= BasePrice {timeBasedCafe.BasePrice} khi elapsed = {elapsedMinutes}");
+        Assert.True(flatEntrySubtotal >= flatEntryCafe.BasePrice,
+            $"FlatEntry subtotal {flatEntrySubtotal} phải >= BasePrice {flatEntryCafe.BasePrice} khi elapsed = {elapsedMinutes}");
+    }
+
+    [Fact]
+    public void CalculateRealtimeBilling_Should_NotExceedBasePricePlusBlocks_For_AbandonedSession()
+    {
+        // Arrange: Player mở bàn, ngồi 30 phút rồi bỏ → chỉ trả giờ đầu, KHÔNG cộng block lũy tiến.
+        var cafe = CreateTimeBasedCafe(basePrice: 60000m, blockMinutes: 15, blockRate: 5000m);
+
+        // Act
+        var subtotal = ActiveSessionBillingCalculator.CalculateRealtimeBilling(cafe, 30);
+
+        // Assert: elapsed = 30 ≤ 60 → không có block lũy tiến, chỉ giờ đầu.
+        Assert.Equal(60000m, subtotal);
     }
 }

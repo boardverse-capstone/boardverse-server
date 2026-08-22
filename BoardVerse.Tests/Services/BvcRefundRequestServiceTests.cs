@@ -289,7 +289,7 @@ public class BvcRefundRequestServiceTests
         var otherUser = Guid.NewGuid();
 
         _mockRefundRepo
-            .Setup(r => r.GetByIdAsync(requestId, It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetByIdForUpdateAsync(requestId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new BvcRefundRequest
             {
                 Id = requestId,
@@ -310,7 +310,7 @@ public class BvcRefundRequestServiceTests
         var userId = Guid.NewGuid();
 
         _mockRefundRepo
-            .Setup(r => r.GetByIdAsync(requestId, It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetByIdForUpdateAsync(requestId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new BvcRefundRequest
             {
                 Id = requestId,
@@ -339,7 +339,7 @@ public class BvcRefundRequestServiceTests
         };
 
         _mockRefundRepo
-            .Setup(r => r.GetByIdAsync(requestId, It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetByIdForUpdateAsync(requestId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(pending);
 
         await _service.CancelAsync(requestId, userId);

@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 /// <summary>
@@ -144,8 +145,8 @@ public class PlayerRiskScoreServiceTests
         // BR-RISK-11: append RiskScoreHistory cho mỗi recompute.
         var riskRepo = new Mock<IPlayerRiskScoreRepository>();
         riskRepo.Setup(r => r.GetByUserIdAsync(UserId, It.IsAny<CancellationToken>())).ReturnsAsync((PlayerRiskScore?)null);
-        riskRepo.Setup(r => r.UpsertAsync(It.IsAny<PlayerRiskScore>())).Returns(Task.CompletedTask);
-        riskRepo.Setup(r => r.AppendHistoryAsync(It.IsAny<RiskScoreHistory>())).Returns(Task.CompletedTask);
+        riskRepo.Setup(r => r.UpsertAsync(It.IsAny<PlayerRiskScore>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        riskRepo.Setup(r => r.AppendHistoryAsync(It.IsAny<RiskScoreHistory>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var lobbyRepo = new Mock<ILobbyRepository>();
         lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(UserId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), LobbyStatus.TimeoutFailed, It.IsAny<CancellationToken>()))
@@ -164,8 +165,8 @@ public class PlayerRiskScoreServiceTests
         Assert.NotNull(result);
         Assert.Equal(30, result!.RiskScore); // SIG-01=2 × 15
         Assert.Equal(RiskLevel.Medium, result.RiskLevel);
-        riskRepo.Verify(r => r.UpsertAsync(It.IsAny<PlayerRiskScore>()), Times.Once);
-        riskRepo.Verify(r => r.AppendHistoryAsync(It.IsAny<RiskScoreHistory>()), Times.Once);
+        riskRepo.Verify(r => r.UpsertAsync(It.IsAny<PlayerRiskScore>(), It.IsAny<CancellationToken>()), Times.Once);
+        riskRepo.Verify(r => r.AppendHistoryAsync(It.IsAny<RiskScoreHistory>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -181,8 +182,8 @@ public class PlayerRiskScoreServiceTests
             Signals = "{}"
         };
         riskRepo.Setup(r => r.GetByUserIdAsync(UserId, It.IsAny<CancellationToken>())).ReturnsAsync(existing);
-        riskRepo.Setup(r => r.UpsertAsync(It.IsAny<PlayerRiskScore>())).Returns(Task.CompletedTask);
-        riskRepo.Setup(r => r.AppendHistoryAsync(It.IsAny<RiskScoreHistory>())).Returns(Task.CompletedTask);
+        riskRepo.Setup(r => r.UpsertAsync(It.IsAny<PlayerRiskScore>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        riskRepo.Setup(r => r.AppendHistoryAsync(It.IsAny<RiskScoreHistory>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var lobbyRepo = new Mock<ILobbyRepository>();
         lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(UserId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), LobbyStatus.TimeoutFailed, It.IsAny<CancellationToken>()))
@@ -199,7 +200,7 @@ public class PlayerRiskScoreServiceTests
 
         // Verify alert được trigger
         alertService.Verify(a => a.EnsureAlertForSignalsAsync(
-            UserId, It.IsAny<int>(), RiskLevel.Critical, RiskLevel.Medium, It.IsAny<string?>()), Times.Once);
+            UserId, It.IsAny<int>(), RiskLevel.Critical, RiskLevel.Medium, It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -215,8 +216,8 @@ public class PlayerRiskScoreServiceTests
             Signals = "{}"
         };
         riskRepo.Setup(r => r.GetByUserIdAsync(UserId, It.IsAny<CancellationToken>())).ReturnsAsync(existing);
-        riskRepo.Setup(r => r.UpsertAsync(It.IsAny<PlayerRiskScore>())).Returns(Task.CompletedTask);
-        riskRepo.Setup(r => r.AppendHistoryAsync(It.IsAny<RiskScoreHistory>())).Returns(Task.CompletedTask);
+        riskRepo.Setup(r => r.UpsertAsync(It.IsAny<PlayerRiskScore>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        riskRepo.Setup(r => r.AppendHistoryAsync(It.IsAny<RiskScoreHistory>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var lobbyRepo = new Mock<ILobbyRepository>();
         lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(UserId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<LobbyStatus?>(), It.IsAny<CancellationToken>())).ReturnsAsync(6);
@@ -231,7 +232,7 @@ public class PlayerRiskScoreServiceTests
         await svc.RecomputeForUserAsync(UserId, DateTime.UtcNow);
 
         alertService.Verify(a => a.EnsureAlertForSignalsAsync(
-            It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<RiskLevel>(), It.IsAny<RiskLevel>(), It.IsAny<string?>()), Times.Never);
+            It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<RiskLevel>(), It.IsAny<RiskLevel>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     #endregion

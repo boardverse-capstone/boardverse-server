@@ -7,6 +7,7 @@ using BoardVerse.Services.Services;
 using Microsoft.Extensions.Logging;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class ManualPaymentServiceTests
@@ -193,7 +194,7 @@ public class ManualPaymentServiceTests
         };
 
         _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
-        _transactionRepo.Setup(r => r.AddAsync(It.IsAny<Transaction>(), default, It.IsAny<CancellationToken>()))
+        _transactionRepo.Setup(r => r.AddAsync(It.IsAny<Transaction>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Transaction t, CancellationToken _) => t);
 
         var svc = CreateService();
@@ -233,7 +234,7 @@ public class ManualPaymentServiceTests
 
         _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
         _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(new Cafe { Id = cafeId, Name = "X", Address = "Y", ManagerId = staffId });
-        _transactionRepo.Setup(r => r.AddAsync(It.IsAny<Transaction>(), default, It.IsAny<CancellationToken>()))
+        _transactionRepo.Setup(r => r.AddAsync(It.IsAny<Transaction>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Transaction t, CancellationToken _) => t);
 
         var svc = CreateService();
@@ -276,7 +277,7 @@ public class ManualPaymentServiceTests
 
         _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
         _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(new Cafe { Id = cafeId, Name = "X", Address = "Y", ManagerId = staffId });
-        _transactionRepo.Setup(r => r.AddAsync(It.IsAny<Transaction>(), default, It.IsAny<CancellationToken>()))
+        _transactionRepo.Setup(r => r.AddAsync(It.IsAny<Transaction>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Transaction t, CancellationToken _) => t);
 
         var svc = CreateService();
@@ -297,9 +298,9 @@ public class ManualPaymentServiceTests
         Assert.NotNull(session.PaidAt);
 
         // Cleanup delegated to repository
-        _sessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(sessionId), Times.Once);
-        _sessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(sessionId), Times.Once);
-        _sessionRepo.Verify(r => r.SaveChangesAsync(), Times.AtLeastOnce);
+        _sessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(sessionId, It.IsAny<CancellationToken>()), Times.Once);
+        _sessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(sessionId, It.IsAny<CancellationToken>()), Times.Once);
+        _sessionRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.AtLeastOnce);
     }
 
     [Fact]
@@ -322,7 +323,7 @@ public class ManualPaymentServiceTests
 
         _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
         _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(new Cafe { Id = cafeId, Name = "X", Address = "Y", ManagerId = staffId });
-        _transactionRepo.Setup(r => r.AddAsync(It.IsAny<Transaction>(), default, It.IsAny<CancellationToken>()))
+        _transactionRepo.Setup(r => r.AddAsync(It.IsAny<Transaction>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Transaction t, CancellationToken _) => t);
 
         var svc = CreateService();
@@ -339,7 +340,7 @@ public class ManualPaymentServiceTests
             "Manager");
 
         Assert.Equal(GroupSessionStatus.Paid, session.Status);
-        _sessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(sessionId), Times.Once);
-        _sessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(sessionId), Times.Once);
+        _sessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(sessionId, It.IsAny<CancellationToken>()), Times.Once);
+        _sessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(sessionId, It.IsAny<CancellationToken>()), Times.Once);
     }
 }

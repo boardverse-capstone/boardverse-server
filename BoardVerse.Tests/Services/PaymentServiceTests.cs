@@ -10,6 +10,7 @@ using BoardVerse.Services.Services.Payments;
 using Microsoft.Extensions.Logging;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class PaymentServiceTests
@@ -118,7 +119,7 @@ public class PaymentServiceTests
         var qrUrl = "https://vietqr.app/img?bank=MBBank&acc=0855199924&amount=40000";
 
         _mockDepositService.Setup(s => s.GetByIdAsync(depositId, It.IsAny<CancellationToken>())).ReturnsAsync(deposit);
-        _mockDepositService.Setup(s => s.UpdateQrInfoAsync(depositId, It.IsAny<string?>(), It.IsAny<DateTime?>(), It.IsAny<string?>())).Returns(Task.CompletedTask);
+        _mockDepositService.Setup(s => s.UpdateQrInfoAsync(depositId, It.IsAny<string?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         _mockGateway.Setup(g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), default))
             .ReturnsAsync(new PaymentGatewayResult
             {
@@ -158,7 +159,7 @@ public class PaymentServiceTests
         };
 
         _mockDepositService.Setup(s => s.GetByIdAsync(depositId, It.IsAny<CancellationToken>())).ReturnsAsync(deposit);
-        _mockDepositService.Setup(s => s.UpdateQrInfoAsync(depositId, It.IsAny<string?>(), It.IsAny<DateTime?>(), It.IsAny<string?>())).Returns(Task.CompletedTask);
+        _mockDepositService.Setup(s => s.UpdateQrInfoAsync(depositId, It.IsAny<string?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         _mockGateway.Setup(g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), default))
             .ReturnsAsync(new PaymentGatewayResult
             {
@@ -358,7 +359,7 @@ public class PaymentServiceTests
 
         await _service.HandleSePayWebhookAsync(webhook);
 
-        _mockDepositService.Verify(s => s.ExpireAsync(depositId), Times.Once);
+        _mockDepositService.Verify(s => s.ExpireAsync(depositId, It.IsAny<CancellationToken>()), Times.Once);
         _mockDepositService.Verify(s => s.MarkAsRefundedAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -437,10 +438,10 @@ public class PaymentServiceTests
             r => r.TryUpdateStatusAsync(It.IsAny<Guid>(), It.IsAny<GroupSessionStatus>(), It.IsAny<GroupSessionStatus>(), It.IsAny<CancellationToken>()),
             Times.Never);
         _mockSessionRepo.Verify(
-            r => r.ReleaseMembersAndCloseLobbyAsync(It.IsAny<Guid>()),
+            r => r.ReleaseMembersAndCloseLobbyAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()),
             Times.Never);
         _mockSessionRepo.Verify(
-            r => r.ReleaseSessionTableAndBoxAsync(It.IsAny<Guid>()),
+            r => r.ReleaseSessionTableAndBoxAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -475,8 +476,8 @@ public class PaymentServiceTests
         await _service.HandleSePayWebhookAsync(webhook);
 
         _mockSessionRepo.Verify(r => r.TryUpdateStatusAsync(It.IsAny<Guid>(), It.IsAny<GroupSessionStatus>(), It.IsAny<GroupSessionStatus>(), It.IsAny<CancellationToken>()), Times.Never);
-        _mockSessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(It.IsAny<Guid>()), Times.Never);
-        _mockSessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(It.IsAny<Guid>()), Times.Never);
+        _mockSessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        _mockSessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -524,8 +525,8 @@ public class PaymentServiceTests
         await _service.HandleSePayWebhookAsync(webhook);
 
         // Verify KHÔNG trực tiếp cleanup (delegate đã throw, webhook swallow).
-        _mockSessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(It.IsAny<Guid>()), Times.Never);
-        _mockSessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(It.IsAny<Guid>()), Times.Never);
+        _mockSessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        _mockSessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -547,8 +548,8 @@ public class PaymentServiceTests
 
         await _service.HandleSePayWebhookAsync(webhook);
 
-        _mockSessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(It.IsAny<Guid>()), Times.Never);
-        _mockSessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(It.IsAny<Guid>()), Times.Never);
+        _mockSessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        _mockSessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     #endregion
@@ -620,11 +621,11 @@ public class PaymentServiceTests
     [Fact]
     public async Task ProcessExpiredDepositsAsync_DelegatesToDepositService()
     {
-        _mockDepositService.Setup(s => s.ProcessExpiredDepositsAsync()).Returns(Task.CompletedTask);
+        _mockDepositService.Setup(s => s.ProcessExpiredDepositsAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         await _service.ProcessExpiredDepositsAsync();
 
-        _mockDepositService.Verify(s => s.ProcessExpiredDepositsAsync(), Times.Once);
+        _mockDepositService.Verify(s => s.ProcessExpiredDepositsAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -674,7 +675,7 @@ public class PaymentServiceTests
                 RequiresManualConfirmation = true
             });
         _mockSessionRepo.Setup(r => r.UpdateAsync(It.IsAny<ActiveSession>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        _mockSessionRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        _mockSessionRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var request = new CreateSessionPaymentRequestDto { SessionId = sessionId, CustomerEmail = "x@y.z" };
         var actorUserId = cafe.ManagerId;
@@ -743,7 +744,7 @@ public class PaymentServiceTests
                 QrImageUrl = "https://vietqr.app/img?x=1"
             });
         _mockSessionRepo.Setup(r => r.UpdateAsync(It.IsAny<ActiveSession>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        _mockSessionRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        _mockSessionRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var request = new CreateSessionPaymentRequestDto { SessionId = sessionId };
         var result = await _service.CreateSessionPaymentAsync(request, cafe.ManagerId, "Manager");

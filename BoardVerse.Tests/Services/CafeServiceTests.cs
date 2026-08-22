@@ -10,6 +10,7 @@ using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class CafeServiceTests
@@ -67,7 +68,7 @@ public class CafeServiceTests
 
         Assert.Null(result.EmptyResultMessage);
         Assert.Empty(result.AlternativeSuggestions);
-        cafeRepo.Verify(r => r.EnrichNearbyWithGameWaitAsync(It.IsAny<IList<NearbyCafeDto>>(), GameTemplateId), Times.Once);
+        cafeRepo.Verify(r => r.EnrichNearbyWithGameWaitAsync(It.IsAny<IList<NearbyCafeDto>>(), GameTemplateId, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

@@ -8,6 +8,7 @@ using BoardVerse.Services.Services;
 using Microsoft.Extensions.Logging;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 /// <summary>
@@ -149,7 +150,7 @@ public class BookingRatingServiceAggregationTests
             && log.KarmaAfter == 110
             && log.Source == KarmaLogSource.PlayerCrossRating
             && log.ViolationCategory == KarmaViolationCategory.CrossRating
-        )), Times.Once);
+        ), It.IsAny<CancellationToken>()), Times.Once);
 
         Assert.True(ratingRow.IsAggregated);
         _mockRatingRepo.Verify(r => r.UpdateAsync(ratingRow, It.IsAny<CancellationToken>()), Times.Once);
@@ -294,7 +295,7 @@ public class BookingRatingServiceAggregationTests
             && log.KarmaPointsChange == -10
             && log.Source == KarmaLogSource.SystemAutomatic
             && log.ViolationCategory == KarmaViolationCategory.NoShow
-        )), Times.Once);
+        ), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -328,7 +329,7 @@ public class BookingRatingServiceAggregationTests
 
         Assert.Empty(result.NoShowConfirmedMembers);
         Assert.False(result.KarmaDeltaByUser.ContainsKey(suspect));
-        _mockKarmaRepo.Verify(k => k.AddKarmaLogAsync(It.IsAny<KarmaLog>()), Times.Never);
+        _mockKarmaRepo.Verify(k => k.AddKarmaLogAsync(It.IsAny<KarmaLog>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -377,7 +378,7 @@ public class BookingRatingServiceAggregationTests
         _mockDepositRepo.Verify(r => r.UpdateAsync(deposit, It.IsAny<CancellationToken>()), Times.Once);
 
         // 2 KarmaLog rows: no-show penalty + deposit forfeit audit.
-        _mockKarmaRepo.Verify(k => k.AddKarmaLogAsync(It.IsAny<KarmaLog>()), Times.Exactly(2));
+        _mockKarmaRepo.Verify(k => k.AddKarmaLogAsync(It.IsAny<KarmaLog>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
     [Fact]
@@ -424,7 +425,7 @@ public class BookingRatingServiceAggregationTests
         Assert.Empty(result.ForfeitedDepositIds);
         _mockDepositRepo.Verify(r => r.UpdateAsync(It.IsAny<BookingDeposit>(), It.IsAny<CancellationToken>()), Times.Never);
         // Chỉ 1 KarmaLog row (no-show penalty), không có audit log cho forfeit.
-        _mockKarmaRepo.Verify(k => k.AddKarmaLogAsync(It.IsAny<KarmaLog>()), Times.Once);
+        _mockKarmaRepo.Verify(k => k.AddKarmaLogAsync(It.IsAny<KarmaLog>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // ===========================================================================
@@ -452,7 +453,7 @@ public class BookingRatingServiceAggregationTests
         Assert.Empty(result.KarmaDeltaByUser);
         Assert.Empty(result.NoShowConfirmedMembers);
         Assert.Equal(0m, result.TotalKarmaDelta);
-        _mockKarmaRepo.Verify(k => k.AddKarmaLogAsync(It.IsAny<KarmaLog>()), Times.Never);
+        _mockKarmaRepo.Verify(k => k.AddKarmaLogAsync(It.IsAny<KarmaLog>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // ===========================================================================
@@ -493,9 +494,9 @@ public class BookingRatingServiceAggregationTests
 
         await _service.AggregateBookingOutcomesAsync(bookingId);
 
-        _mockKarmaRepo.Verify(k => k.SaveChangesAsync(), Times.Once);
-        _mockRatingRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
-        _mockDepositRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _mockKarmaRepo.Verify(k => k.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _mockRatingRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _mockDepositRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // ===========================================================================

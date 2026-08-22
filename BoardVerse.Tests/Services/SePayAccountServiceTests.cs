@@ -10,6 +10,7 @@ using BoardVerse.Services.Services.Payments;
 using Microsoft.Extensions.Logging;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class SePayAccountServiceTests
@@ -426,7 +427,7 @@ public class SePayAccountServiceTests
         _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Cafe> { cafe });
         _mockCafeRepo.Setup(r => r.GetByIdAsync(TestCafeId, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
-        _mockCafeRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        _mockCafeRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId, It.IsAny<CancellationToken>())).ReturnsAsync((SePayAccount?)null);
         _mockRepo.Setup(r => r.AddAsync(It.IsAny<SePayAccount>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
@@ -557,7 +558,7 @@ public class SePayAccountServiceTests
         _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Cafe> { cafe });
         _mockCafeRepo.Setup(r => r.GetByIdAsync(TestCafeId, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
-        _mockCafeRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        _mockCafeRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId, It.IsAny<CancellationToken>())).ReturnsAsync((SePayAccount?)null);
         _mockRepo.Setup(r => r.AddAsync(It.IsAny<SePayAccount>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 

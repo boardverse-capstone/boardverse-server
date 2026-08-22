@@ -8,6 +8,7 @@ using BoardVerse.Services.Services;
 using Microsoft.Extensions.Logging;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class ActiveSessionServiceTests
@@ -641,7 +642,7 @@ public class ActiveSessionServiceTests
 
         var repo = new Mock<IActiveSessionRepository>();
         repo.Setup(r => r.GetByIdAsync(sourceSessionId, It.IsAny<CancellationToken>())).ReturnsAsync(sourceSession);
-        repo.SetupSequence(r => r.GetByIdAsync(targetSessionId))
+        repo.SetupSequence(r => r.GetByIdAsync(targetSessionId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(targetSession)
             .ReturnsAsync(targetSession);
         repo.Setup(r => r.GetMemberByIdAsync(memberId, It.IsAny<CancellationToken>())).ReturnsAsync(member);
@@ -659,7 +660,7 @@ public class ActiveSessionServiceTests
         Assert.Equal(memberId, result.MemberId);
         Assert.Equal(sourceSessionId, result.SourceSessionId);
         Assert.Equal(targetSessionId, result.TargetSessionId);
-        repo.Verify(r => r.UpdateMemberAsync(It.Is<ActiveSessionMember>(m => m.Status == IndividualSessionStatus.Playing)), Times.AtLeastOnce);
+        repo.Verify(r => r.UpdateMemberAsync(It.Is<ActiveSessionMember>(m => m.Status == IndividualSessionStatus.Playing), It.IsAny<CancellationToken>()), Times.AtLeastOnce);
     }
 
     #endregion
@@ -806,7 +807,7 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.SetupSequence(r => r.GetByIdAsync(sessionId))
+        repo.SetupSequence(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(session)
             .ReturnsAsync(session)
             .ReturnsAsync(session);
@@ -874,7 +875,7 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.SetupSequence(r => r.GetByIdAsync(sessionId))
+        repo.SetupSequence(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(session)
             .ReturnsAsync(session);
 
@@ -937,7 +938,7 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.SetupSequence(r => r.GetByIdAsync(sessionId))
+        repo.SetupSequence(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(session)
             .ReturnsAsync(session);
 
@@ -1012,7 +1013,7 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.SetupSequence(r => r.GetByIdAsync(sessionId))
+        repo.SetupSequence(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(session)
             .ReturnsAsync(session)
             .ReturnsAsync(session);
@@ -1063,6 +1064,7 @@ public class ActiveSessionServiceTests
             Status = GroupSessionStatus.Unpaid,
             StartedAt = DateTime.UtcNow.AddHours(-1),
             Subtotal = 60_000m, // Set by CheckoutAsync before PaySessionAsync
+            PenaltyAmount = 15_000m, // Single source of truth from Checkout (CompleteCheckoutAsync)
             Members = new List<ActiveSessionMember> { member },
             Games = new List<ActiveSessionGame>(),
             GameTemplate = new GameTemplate { Id = Guid.NewGuid(), Name = "Catan", PlayTime = 60 },
@@ -1082,7 +1084,7 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.SetupSequence(r => r.GetByIdAsync(sessionId))
+        repo.SetupSequence(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(session)
             .ReturnsAsync(session)
             .ReturnsAsync(session);
@@ -1183,6 +1185,7 @@ public class ActiveSessionServiceTests
             Status = GroupSessionStatus.Unpaid,
             StartedAt = DateTime.UtcNow.AddHours(-1),
             Subtotal = 60_000m, // Set by CheckoutAsync before PaySessionAsync
+            PenaltyAmount = 5_000m, // Single source of truth from Checkout (sum of sessionGame.TotalPenaltyAmount)
             Members = new List<ActiveSessionMember> { member },
             Games = new List<ActiveSessionGame> { sessionGame },
             GameTemplate = new GameTemplate { Id = gameTemplateId, Name = "Catan", PlayTime = 60 }
@@ -1200,7 +1203,7 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.SetupSequence(r => r.GetByIdAsync(sessionId))
+        repo.SetupSequence(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(session)
             .ReturnsAsync(session)
             .ReturnsAsync(session);
@@ -1299,6 +1302,7 @@ public class ActiveSessionServiceTests
             Status = GroupSessionStatus.Unpaid,
             StartedAt = DateTime.UtcNow.AddHours(-1),
             Subtotal = 60_000m, // Set by CheckoutAsync before PaySessionAsync
+            PenaltyAmount = 5_000m, // Single source of truth from Checkout (sum of sessionGame.TotalPenaltyAmount)
             Members = new List<ActiveSessionMember> { member },
             Games = new List<ActiveSessionGame> { sessionGame },
             GameTemplate = new GameTemplate { Id = gameTemplateId, Name = "Catan", PlayTime = 60 }
@@ -1310,11 +1314,13 @@ public class ActiveSessionServiceTests
             Name = "Test Cafe",
             Address = "123 St",
             BillingModel = CafePartnerBillingModel.TimeBased,
-            BasePrice = 60_000m
+            BasePrice = 60_000m,
+            TieredBlockMinutes = 15,
+            TieredBlockRate = 10_000m
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.SetupSequence(r => r.GetByIdAsync(sessionId))
+        repo.SetupSequence(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(session)
             .ReturnsAsync(session)
             .ReturnsAsync(session);
@@ -1419,7 +1425,7 @@ public class ActiveSessionServiceTests
 
         var repo = new Mock<IActiveSessionRepository>();
         repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
-        repo.SetupSequence(r => r.GetByIdAsync(sessionId))
+        repo.SetupSequence(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(session)
             .ReturnsAsync(session);
 
@@ -1435,7 +1441,7 @@ public class ActiveSessionServiceTests
 
         var result = await service.AttachGameAsync(cafeId, sessionId, request);
 
-        repo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        repo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -1523,7 +1529,7 @@ public class ActiveSessionServiceTests
 
         var repo = new Mock<IActiveSessionRepository>();
         repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
-        repo.SetupSequence(r => r.GetByIdAsync(sessionId))
+        repo.SetupSequence(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(session)
             .ReturnsAsync(session);
 
@@ -1537,7 +1543,7 @@ public class ActiveSessionServiceTests
 
         var result = await service.AddLateMemberAsync(cafeId, sessionId, request);
 
-        repo.Verify(r => r.AddMemberAsync(It.Is<ActiveSessionMember>(m => m.UserId == newUserId)), Times.Once);
+        repo.Verify(r => r.AddMemberAsync(It.Is<ActiveSessionMember>(m => m.UserId == newUserId), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -1746,7 +1752,7 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.SetupSequence(r => r.GetByIdAsync(sessionId))
+        repo.SetupSequence(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(session)
             .ReturnsAsync(session)
             .ReturnsAsync(session);
@@ -1767,8 +1773,8 @@ public class ActiveSessionServiceTests
         await service.PaySessionAsync(cafeId, sessionId, request);
 
         // Lifecycle cleanup is delegated to the repository.
-        repo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(sessionId), Times.Once);
-        repo.Verify(r => r.ReleaseSessionTableAndBoxAsync(sessionId), Times.Once);
+        repo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(sessionId, It.IsAny<CancellationToken>()), Times.Once);
+        repo.Verify(r => r.ReleaseSessionTableAndBoxAsync(sessionId, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -1804,7 +1810,7 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.SetupSequence(r => r.GetByIdAsync(sessionId))
+        repo.SetupSequence(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(session)
             .ReturnsAsync(session)
             .ReturnsAsync(session);
@@ -1822,8 +1828,8 @@ public class ActiveSessionServiceTests
 
         await service.PaySessionAsync(cafeId, sessionId, new PaySessionRequestDto());
 
-        repo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(sessionId), Times.Once);
-        repo.Verify(r => r.ReleaseSessionTableAndBoxAsync(sessionId), Times.Once);
+        repo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(sessionId, It.IsAny<CancellationToken>()), Times.Once);
+        repo.Verify(r => r.ReleaseSessionTableAndBoxAsync(sessionId, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

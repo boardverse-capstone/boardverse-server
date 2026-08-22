@@ -941,9 +941,11 @@ namespace BoardVerse.Services.Services
             return BvcCaptureStatus.Pending;
         }
 
+        /// <summary>
+        /// Phase 5 / EC-11: chuyển sang pure helper để share với CafePosService + PaymentService.
+        /// </summary>
         private static decimal CalculateRealtimeBilling(Core.Entities.Cafe cafe, int elapsedMinutes)
         {
-            // Phase 5 / EC-11: chuyển sang pure helper để share với CafePosService.OverridePlayedTimeAsync.
             return ActiveSessionBillingCalculator.CalculateRealtimeBilling(cafe, elapsedMinutes);
         }
 
@@ -1774,7 +1776,7 @@ namespace BoardVerse.Services.Services
                     RequestedAtUtc = lastRequest.CreatedAt,
                     ProcessedAt = lastRequest.ProcessedAt,
                     ProcessedAtOffset = lastRequest.ProcessedAt.HasValue
-                        ? new DateTimeOffset(lastRequest.ProcessedAt.Value, TimeSpan.FromHours(7))
+                        ? new DateTimeOffset(lastRequest.ProcessedAt.Value, TimeSpan.Zero).ToOffset(TimeSpan.FromHours(7))
                         : null
                 }
                 : null;
@@ -1791,7 +1793,7 @@ namespace BoardVerse.Services.Services
                 MemberStatus = member.Status,
                 SessionStatus = session.Status,
                 JoinedAt = member.JoinedAt,
-                JoinedAtOffset = new DateTimeOffset(member.JoinedAt, vnTimezone),
+                JoinedAtOffset = new DateTimeOffset(member.JoinedAt, TimeSpan.Zero).ToOffset(vnTimezone),
                 ElapsedMinutes = elapsedMinutes,
                 TotalMinutesPlayed = member.TotalMinutesPlayed > 0 ? member.TotalMinutesPlayed : elapsedMinutes,
                 CostEstimate = costEstimate,
@@ -2248,11 +2250,12 @@ namespace BoardVerse.Services.Services
                     CafeId = session.CafeId,
                     LobbyId = session.LobbyId,
                     GameName = gameName,
+                    SessionStatus = session.Status,
                     JoinedAt = member.JoinedAt,
-                    JoinedAtOffset = new DateTimeOffset(member.JoinedAt, vnTz),
+                    JoinedAtOffset = new DateTimeOffset(member.JoinedAt, TimeSpan.Zero).ToOffset(vnTz),
                     PaidAt = session.PaidAt,
                     PaidAtOffset = session.PaidAt.HasValue
-                        ? new DateTimeOffset(session.PaidAt.Value, vnTz)
+                        ? new DateTimeOffset(session.PaidAt.Value, TimeSpan.Zero).ToOffset(vnTz)
                         : null,
                     TotalMinutesPlayed = member.TotalMinutesPlayed,
                     TotalAmountDue = member.Subtotal + member.PenaltyAmount - member.DepositAppliedAmount,

@@ -3521,7 +3521,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         {
             Id = Guid.NewGuid(),
             CafeId = request.CafeId,
-            CreatedByManagerId = Guid.Empty, // Admin doesn't have manager ID
+            CreatedByManagerId = cafe.ManagerId, // Admin creates on behalf of the cafe manager
             Title = request.Title.Trim(),
             Description = request.Description?.Trim(),
             GameTemplateId = request.GameTemplateId,

@@ -8,6 +8,7 @@ using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class LobbyInviteServiceTests
@@ -205,7 +206,7 @@ public class LobbyInviteServiceTests
 
         LobbyInvite? captured = null;
         _inviteRepo.Setup(r => r.AddAsync(It.IsAny<LobbyInvite>(), It.IsAny<CancellationToken>()))
-            .Callback<LobbyInvite>(i => captured = i)
+            .Callback<LobbyInvite, CancellationToken>((i, _) => captured = i)
             .Returns(Task.CompletedTask);
 
         var svc = CreateService();
@@ -221,7 +222,7 @@ public class LobbyInviteServiceTests
         Assert.Equal(inviteeId, captured.InviteeId);
         Assert.Equal(LobbyInviteStatus.Pending, captured.Status);
         Assert.Equal("Join Catan at 7pm", captured.Message);
-        _inviteRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _inviteRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         Assert.Equal(LobbyInviteStatus.Pending.ToString(), result.Status);
     }
 
@@ -280,7 +281,7 @@ public class LobbyInviteServiceTests
         var result = await svc.SendInviteAsync(lobbyId, inviterId, new SendLobbyInviteRequestDto { InviteeId = inviteeId });
 
         Assert.Equal(LobbyInviteStatus.Pending.ToString(), result.Status);
-        _inviteRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _inviteRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -482,7 +483,7 @@ public class LobbyInviteServiceTests
         Assert.Equal(LobbyInviteStatus.Accepted, invite.Status);
         Assert.NotNull(invite.RespondedAt);
         _lobbyService.Verify(s => s.JoinLobbyAsync(lobbyId, inviteeId, It.IsAny<CancellationToken>()), Times.Once);
-        _inviteRepo.Verify(r => r.SaveChangesAsync(), Times.AtLeastOnce);
+        _inviteRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.AtLeastOnce);
         Assert.Equal(LobbyInviteStatus.Accepted.ToString(), result.Status);
     }
 
@@ -529,7 +530,7 @@ public class LobbyInviteServiceTests
 
         Assert.Equal(LobbyInviteStatus.Declined, invite.Status);
         Assert.NotNull(invite.RespondedAt);
-        _inviteRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _inviteRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -575,7 +576,7 @@ public class LobbyInviteServiceTests
 
         Assert.Equal(LobbyInviteStatus.Cancelled, invite.Status);
         Assert.NotNull(invite.RespondedAt);
-        _inviteRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _inviteRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion

@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 /// <summary>
@@ -225,7 +226,7 @@ public class CoolingOffServiceTests
         // Assert
         Assert.Equal(0, activated);
         Assert.False(wallet.IsCoolingOff);
-        _walletRepo.Verify(r => r.SaveChangesAsync(), Times.Never);
+        _walletRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -298,7 +299,7 @@ public class CoolingOffServiceTests
         Assert.Null(wallet1.CoolingOffExpiresAt);
         Assert.False(wallet2.IsCoolingOff);
         Assert.Null(wallet2.CoolingOffExpiresAt);
-        _walletRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _walletRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -313,7 +314,7 @@ public class CoolingOffServiceTests
 
         // Assert
         Assert.Equal(0, deactivated);
-        _walletRepo.Verify(r => r.SaveChangesAsync(), Times.Never);
+        _walletRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // ===== EscalateAsync =====
@@ -372,7 +373,7 @@ public class CoolingOffServiceTests
 
         // Act + Assert: không throw, không save.
         await _sut.EscalateAsync(userId, "test");
-        _walletRepo.Verify(r => r.SaveChangesAsync(), Times.Never);
+        _walletRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -387,6 +388,6 @@ public class CoolingOffServiceTests
         // Act + Assert: không thay đổi gì.
         await _sut.EscalateAsync(userId, "test");
         Assert.False(wallet.IsCoolingOff);
-        _walletRepo.Verify(r => r.SaveChangesAsync(), Times.Never);
+        _walletRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 }

@@ -8,9 +8,11 @@ using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
 using BoardVerse.Tests.Helpers;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 /// <summary>
@@ -60,11 +62,13 @@ public class CafePosComponentCheckGapTests
             .ReturnsAsync(true);
     }
 
+    private static readonly MemoryCache MemoryCache = new(new MemoryCacheOptions());
+
     private CafePosService CreateService() => new(
         _posRepo.Object, _cafeRepo.Object, _depositRepo.Object, _bookingRepo.Object,
         _activeSessionRepo.Object, _activeSessionService.Object, _posHubService.Object,
         _lobbyRepo.Object, _userProfileRepo.Object, _reservationService.Object,
-        _reservationRepo.Object, _tokenRepo.Object, _logger.Object, _db);
+        _reservationRepo.Object, _tokenRepo.Object, MemoryCache, _logger.Object, _db);
 
     private static Cafe BuildCafe() => new()
     {
@@ -142,11 +146,11 @@ public class CafePosComponentCheckGapTests
             .ReturnsAsync(sessionGame);
 
         // SaveChangesAsync ném DbUpdateException mô phỏng Postgres 23505 unique violation.
-        _posRepo.Setup(r => r.AddComponentCheckResultsAsync(It.IsAny<List<ComponentCheckResult>>()))
+        _posRepo.Setup(r => r.AddComponentCheckResultsAsync(It.IsAny<List<ComponentCheckResult>>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
         _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<Guid, ComponentCheckResult>());
-        _posRepo.Setup(r => r.SaveChangesAsync())
+        _posRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()))
             .ThrowsAsync(new DbUpdateException(
                 "duplicate key value violates unique constraint \"IX_ComponentCheckResults_ActiveSessionGameId_GameComponentTemplateId\"",
                 new MockPostgresUniqueViolationException()));
@@ -251,9 +255,9 @@ var memberX = new ActiveSessionMember
         _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
         _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
-        _posRepo.Setup(r => r.AddComponentCheckResultsAsync(It.IsAny<List<ComponentCheckResult>>()))
+        _posRepo.Setup(r => r.AddComponentCheckResultsAsync(It.IsAny<List<ComponentCheckResult>>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
-        _posRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        _posRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         _posRepo.Setup(r => r.GetComponentPenaltiesByCafeGameAsync(
                 It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<List<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<Guid, CafeGameComponentPenalty>());

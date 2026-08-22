@@ -6,6 +6,7 @@ using BoardVerse.Data;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
 using BoardVerse.Tests.Helpers;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Moq;
 
@@ -53,6 +54,8 @@ public class CafePosCreateCheckInTokenTests
         _cafeRepo.Setup(r => r.GetByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
     }
 
+    private static readonly MemoryCache MemoryCache = new(new MemoryCacheOptions());
+
     private CafePosService CreateService() => new(
         _posRepo.Object,
         _cafeRepo.Object,
@@ -66,6 +69,7 @@ public class CafePosCreateCheckInTokenTests
         _reservationService.Object,
         _reservationRepo.Object,
         _tokenRepo.Object,
+        MemoryCache,
         _logger.Object,
         _db);
 
@@ -120,7 +124,7 @@ public class CafePosCreateCheckInTokenTests
 
         PosCheckInToken? captured = null;
         _tokenRepo.Setup(r => r.AddAsync(It.IsAny<PosCheckInToken>(), It.IsAny<CancellationToken>()))
-            .Callback<PosCheckInToken>(t => captured = t)
+            .Callback<PosCheckInToken, CancellationToken>((t, _) => captured = t)
             .Returns(Task.CompletedTask);
 
         var beforeCall = DateTime.UtcNow;
@@ -182,7 +186,7 @@ public class CafePosCreateCheckInTokenTests
 
         PosCheckInToken? captured = null;
         _tokenRepo.Setup(r => r.AddAsync(It.IsAny<PosCheckInToken>(), It.IsAny<CancellationToken>()))
-            .Callback<PosCheckInToken>(t => captured = t)
+            .Callback<PosCheckInToken, CancellationToken>((t, _) => captured = t)
             .Returns(Task.CompletedTask);
 
         var svc = CreateService();
