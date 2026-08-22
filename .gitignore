@@ -24,6 +24,9 @@ BoardVerse.Tests/appsettings.Testing.json
 *.http
 *.sql
 *.mdc
+*.py
+*.ps1
+*.txt
 
 # Firebase service account JSON - contains private keys, NEVER commit
 **/*firebase-adminsdk-*.json
@@ -51,3 +54,4 @@ temp_*.txt
 temp_*.py
 temp_insert_boxes/
 temp_seed_boxes/
+agent1_assist.txt
