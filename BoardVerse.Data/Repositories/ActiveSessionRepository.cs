@@ -429,7 +429,7 @@ namespace BoardVerse.Data.Repositories
                 "OR (\"EndedAt\" IS NULL AND \"StartedAt\" + INTERVAL '30 minutes' < {1})) " +
                 "FOR UPDATE SKIP LOCKED";
             return await _db.ActiveSessions
-                .FromSqlRaw(sql, GroupSessionStatus.Active.ToString(), cutoff)
+                .FromSqlRaw(sql, (int)GroupSessionStatus.Active, cutoff)
                 .AsNoTracking()
                 .ToListAsync(ct);
         }
