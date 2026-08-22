@@ -217,7 +217,7 @@ public class EligibilityValidatorTests
 
         var configProvider = new Mock<ISystemConfigurationProvider>();
         configProvider
-            .Setup(p => p.GetStringAsync("demo_loosen_lobby_constraints", "false"))
+            .Setup(p => p.GetStringAsync("demo_loosen_lobby_constraints", "false", It.IsAny<CancellationToken>()))
             .ReturnsAsync("true");
 
         // Act + Assert: KHÔNG throw
@@ -238,7 +238,7 @@ public class EligibilityValidatorTests
 
         var configProvider = new Mock<ISystemConfigurationProvider>();
         configProvider
-            .Setup(p => p.GetStringAsync("demo_loosen_lobby_constraints", "false"))
+            .Setup(p => p.GetStringAsync("demo_loosen_lobby_constraints", "false", It.IsAny<CancellationToken>()))
             .ReturnsAsync("true");
 
         // Act + Assert: KHÔNG throw
@@ -257,7 +257,7 @@ public class EligibilityValidatorTests
 
         var configProvider = new Mock<ISystemConfigurationProvider>();
         configProvider
-            .Setup(p => p.GetStringAsync("demo_loosen_lobby_constraints", "false"))
+            .Setup(p => p.GetStringAsync("demo_loosen_lobby_constraints", "false", It.IsAny<CancellationToken>()))
             .ReturnsAsync("false");
 
         // Act + Assert

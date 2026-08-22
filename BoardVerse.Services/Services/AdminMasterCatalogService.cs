@@ -27,13 +27,13 @@ namespace BoardVerse.Services.Services
             _gameTemplateRepository = gameTemplateRepository;
         }
 
-        public async Task<List<AdminCategoryResponseDto>> GetCategoriesAsync(bool includeInactive)
+        public async Task<List<AdminCategoryResponseDto>> GetCategoriesAsync(bool includeInactive, CancellationToken cancellationToken = default)
         {
             var categories = await _categoryRepository.GetAllAsync(includeInactive);
             return categories.Select(MapCategory).ToList();
         }
 
-        public async Task<AdminCategoryResponseDto> CreateCategoryAsync(AdminCreateCategoryRequestDto request)
+        public async Task<AdminCategoryResponseDto> CreateCategoryAsync(AdminCreateCategoryRequestDto request, CancellationToken cancellationToken = default)
         {
             var name = request.Name.Trim();
             if (string.IsNullOrWhiteSpace(name))
@@ -63,7 +63,7 @@ namespace BoardVerse.Services.Services
 
         public async Task<AdminCategoryResponseDto> UpdateCategoryAsync(
             Guid id,
-            AdminUpdateCategoryRequestDto request)
+            AdminUpdateCategoryRequestDto request, CancellationToken cancellationToken = default)
         {
             var category = await _categoryRepository.GetByIdAsync(id);
             if (category == null)
@@ -96,7 +96,7 @@ namespace BoardVerse.Services.Services
             return MapCategory(category);
         }
 
-        public async Task<AdminCategoryResponseDto> DeleteCategoryAsync(Guid id)
+        public async Task<AdminCategoryResponseDto> DeleteCategoryAsync(Guid id, CancellationToken cancellationToken = default)
         {
             var category = await _categoryRepository.GetByIdAsync(id);
             if (category == null)
@@ -108,7 +108,7 @@ namespace BoardVerse.Services.Services
             return MapCategory(category);
         }
 
-        public async Task<List<GameComponentTemplateDto>> GetGameComponentsAsync(Guid gameTemplateId)
+        public async Task<List<GameComponentTemplateDto>> GetGameComponentsAsync(Guid gameTemplateId, CancellationToken cancellationToken = default)
         {
             await EnsureGameTemplateExistsAsync(gameTemplateId);
             var components = await _componentRepository.GetByGameTemplateIdAsync(gameTemplateId);
@@ -117,7 +117,7 @@ namespace BoardVerse.Services.Services
 
         public async Task<GameComponentTemplateDto> CreateGameComponentAsync(
             Guid gameTemplateId,
-            AdminCreateGameComponentRequestDto request)
+            AdminCreateGameComponentRequestDto request, CancellationToken cancellationToken = default)
         {
             await EnsureGameTemplateExistsAsync(gameTemplateId);
             ValidateComponentKind(request.ComponentKind);
@@ -141,7 +141,7 @@ namespace BoardVerse.Services.Services
         public async Task<GameComponentTemplateDto> UpdateGameComponentAsync(
             Guid gameTemplateId,
             Guid componentId,
-            AdminUpdateGameComponentRequestDto request)
+            AdminUpdateGameComponentRequestDto request, CancellationToken cancellationToken = default)
         {
             await EnsureGameTemplateExistsAsync(gameTemplateId);
             ValidateComponentKind(request.ComponentKind);
@@ -195,7 +195,7 @@ namespace BoardVerse.Services.Services
 
         public async Task<List<CategoryDto>> SetGameCategoriesAsync(
             Guid gameTemplateId,
-            AdminSetGameCategoriesRequestDto request)
+            AdminSetGameCategoriesRequestDto request, CancellationToken cancellationToken = default)
         {
             var game = await _gameTemplateRepository.GetByIdWithCategoriesForUpdateAsync(gameTemplateId);
             if (game == null)
@@ -231,7 +231,7 @@ namespace BoardVerse.Services.Services
 
         public async Task<AdminBoardGameResponseDto> UpdateBoardGameAsync(
             Guid gameTemplateId,
-            AdminUpdateBoardGameRequestDto request)
+            AdminUpdateBoardGameRequestDto request, CancellationToken cancellationToken = default)
         {
             var game = await _gameTemplateRepository.GetByIdForUpdateAsync(gameTemplateId);
             if (game == null)
@@ -272,7 +272,7 @@ namespace BoardVerse.Services.Services
 
         public async Task<AdminBoardGameResponseDto> UpdateThumbnailAsync(
             Guid gameTemplateId,
-            AdminUpdateThumbnailRequestDto request)
+            AdminUpdateThumbnailRequestDto request, CancellationToken cancellationToken = default)
         {
             var game = await _gameTemplateRepository.GetByIdForUpdateAsync(gameTemplateId);
             if (game == null)

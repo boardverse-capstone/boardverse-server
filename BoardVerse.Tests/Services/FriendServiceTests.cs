@@ -23,7 +23,7 @@ public class FriendServiceTests
     {
         // Default: không có user bị chặn — áp dụng cho tất cả test trừ khi override.
         _friendshipRepo
-            .Setup(r => r.GetBlockedUserIdsAsync(It.IsAny<Guid>()))
+            .Setup(r => r.GetBlockedUserIdsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Guid>());
     }
 
@@ -99,7 +99,7 @@ public class FriendServiceTests
     {
         var requesterId = Guid.NewGuid();
         var addresseeId = Guid.NewGuid();
-        _userRepo.Setup(r => r.GetByIdAsync(addresseeId)).ReturnsAsync((User?)null);
+        _userRepo.Setup(r => r.GetByIdAsync(addresseeId, It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         var svc = CreateService();
 
@@ -112,8 +112,8 @@ public class FriendServiceTests
     {
         var requesterId = Guid.NewGuid();
         var addresseeId = Guid.NewGuid();
-        _userRepo.Setup(r => r.GetByIdAsync(addresseeId)).ReturnsAsync(BuildUser(addresseeId, active: false));
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(addresseeId)).ReturnsAsync(BuildUser(addresseeId, active: false));
+        _userRepo.Setup(r => r.GetByIdAsync(addresseeId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser(addresseeId, active: false));
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(addresseeId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser(addresseeId, active: false));
 
         var svc = CreateService();
 
@@ -128,11 +128,11 @@ public class FriendServiceTests
         var addresseeId = Guid.NewGuid();
         var existing = BuildFriendship(Guid.NewGuid(), requesterId, addresseeId, FriendshipStatus.Accepted);
 
-        _userRepo.Setup(r => r.GetByIdAsync(addresseeId)).ReturnsAsync(BuildUser(addresseeId));
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(addresseeId)).ReturnsAsync(BuildUser(addresseeId));
-        _friendshipRepo.Setup(r => r.GetByUserAsync(requesterId, FriendshipStatus.Pending)).ReturnsAsync(new List<Friendship>());
-        _friendshipRepo.Setup(r => r.GetFriendUserIdsAsync(requesterId)).ReturnsAsync(new List<Guid>());
-        _friendshipRepo.Setup(r => r.GetByPairAsync(requesterId, addresseeId)).ReturnsAsync(existing);
+        _userRepo.Setup(r => r.GetByIdAsync(addresseeId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser(addresseeId));
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(addresseeId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser(addresseeId));
+        _friendshipRepo.Setup(r => r.GetByUserAsync(requesterId, FriendshipStatus.Pending, It.IsAny<CancellationToken>())).ReturnsAsync(new List<Friendship>());
+        _friendshipRepo.Setup(r => r.GetFriendUserIdsAsync(requesterId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<Guid>());
+        _friendshipRepo.Setup(r => r.GetByPairAsync(requesterId, addresseeId, It.IsAny<CancellationToken>())).ReturnsAsync(existing);
 
         var svc = CreateService();
 
@@ -147,11 +147,11 @@ public class FriendServiceTests
         var addresseeId = Guid.NewGuid();
         var existing = BuildFriendship(Guid.NewGuid(), requesterId, addresseeId, FriendshipStatus.Pending);
 
-        _userRepo.Setup(r => r.GetByIdAsync(addresseeId)).ReturnsAsync(BuildUser(addresseeId));
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(addresseeId)).ReturnsAsync(BuildUser(addresseeId));
-        _friendshipRepo.Setup(r => r.GetByUserAsync(requesterId, FriendshipStatus.Pending)).ReturnsAsync(new List<Friendship>());
-        _friendshipRepo.Setup(r => r.GetFriendUserIdsAsync(requesterId)).ReturnsAsync(new List<Guid>());
-        _friendshipRepo.Setup(r => r.GetByPairAsync(requesterId, addresseeId)).ReturnsAsync(existing);
+        _userRepo.Setup(r => r.GetByIdAsync(addresseeId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser(addresseeId));
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(addresseeId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser(addresseeId));
+        _friendshipRepo.Setup(r => r.GetByUserAsync(requesterId, FriendshipStatus.Pending, It.IsAny<CancellationToken>())).ReturnsAsync(new List<Friendship>());
+        _friendshipRepo.Setup(r => r.GetFriendUserIdsAsync(requesterId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<Guid>());
+        _friendshipRepo.Setup(r => r.GetByPairAsync(requesterId, addresseeId, It.IsAny<CancellationToken>())).ReturnsAsync(existing);
 
         var svc = CreateService();
 
@@ -166,9 +166,9 @@ public class FriendServiceTests
         var addresseeId = Guid.NewGuid();
         var sent = Enumerable.Range(0, 20).Select(_ => BuildFriendship(Guid.NewGuid(), requesterId, Guid.NewGuid(), FriendshipStatus.Pending, DateTime.UtcNow.AddMinutes(-5))).ToList();
 
-        _userRepo.Setup(r => r.GetByIdAsync(addresseeId)).ReturnsAsync(BuildUser(addresseeId));
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(addresseeId)).ReturnsAsync(BuildUser(addresseeId));
-        _friendshipRepo.Setup(r => r.GetByUserAsync(requesterId, FriendshipStatus.Pending)).ReturnsAsync(sent);
+        _userRepo.Setup(r => r.GetByIdAsync(addresseeId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser(addresseeId));
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(addresseeId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser(addresseeId));
+        _friendshipRepo.Setup(r => r.GetByUserAsync(requesterId, FriendshipStatus.Pending, It.IsAny<CancellationToken>())).ReturnsAsync(sent);
 
         var svc = CreateService();
 
@@ -184,12 +184,12 @@ public class FriendServiceTests
         var addressee = BuildUser(addresseeId);
         addressee.Profile!.AcceptFriendRequestsFrom = "FriendsOfFriends";
 
-        _userRepo.Setup(r => r.GetByIdAsync(addresseeId)).ReturnsAsync(addressee);
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(addresseeId)).ReturnsAsync(addressee);
-        _friendshipRepo.Setup(r => r.GetByUserAsync(requesterId, FriendshipStatus.Pending)).ReturnsAsync(new List<Friendship>());
-        _friendshipRepo.Setup(r => r.GetFriendUserIdsAsync(requesterId)).ReturnsAsync(new List<Guid>());
-        _friendshipRepo.Setup(r => r.GetByPairAsync(requesterId, addresseeId)).ReturnsAsync((Friendship?)null);
-        _friendshipRepo.Setup(r => r.GetFriendUserIdsAsync(It.IsAny<Guid>())).ReturnsAsync(new List<Guid>());
+        _userRepo.Setup(r => r.GetByIdAsync(addresseeId, It.IsAny<CancellationToken>())).ReturnsAsync(addressee);
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(addresseeId, It.IsAny<CancellationToken>())).ReturnsAsync(addressee);
+        _friendshipRepo.Setup(r => r.GetByUserAsync(requesterId, FriendshipStatus.Pending, It.IsAny<CancellationToken>())).ReturnsAsync(new List<Friendship>());
+        _friendshipRepo.Setup(r => r.GetFriendUserIdsAsync(requesterId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<Guid>());
+        _friendshipRepo.Setup(r => r.GetByPairAsync(requesterId, addresseeId, It.IsAny<CancellationToken>())).ReturnsAsync((Friendship?)null);
+        _friendshipRepo.Setup(r => r.GetFriendUserIdsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<Guid>());
 
         var svc = CreateService();
 
@@ -203,14 +203,14 @@ public class FriendServiceTests
         var requesterId = Guid.NewGuid();
         var addresseeId = Guid.NewGuid();
         var addressee = BuildUser(addresseeId, "alice");
-        _userRepo.Setup(r => r.GetByIdAsync(addresseeId)).ReturnsAsync(addressee);
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(addresseeId)).ReturnsAsync(addressee);
-        _friendshipRepo.Setup(r => r.GetByUserAsync(requesterId, FriendshipStatus.Pending)).ReturnsAsync(new List<Friendship>());
-        _friendshipRepo.Setup(r => r.GetFriendUserIdsAsync(requesterId)).ReturnsAsync(new List<Guid>());
-        _friendshipRepo.Setup(r => r.GetByPairAsync(requesterId, addresseeId)).ReturnsAsync((Friendship?)null);
+        _userRepo.Setup(r => r.GetByIdAsync(addresseeId, It.IsAny<CancellationToken>())).ReturnsAsync(addressee);
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(addresseeId, It.IsAny<CancellationToken>())).ReturnsAsync(addressee);
+        _friendshipRepo.Setup(r => r.GetByUserAsync(requesterId, FriendshipStatus.Pending, It.IsAny<CancellationToken>())).ReturnsAsync(new List<Friendship>());
+        _friendshipRepo.Setup(r => r.GetFriendUserIdsAsync(requesterId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<Guid>());
+        _friendshipRepo.Setup(r => r.GetByPairAsync(requesterId, addresseeId, It.IsAny<CancellationToken>())).ReturnsAsync((Friendship?)null);
 
         Friendship? captured = null;
-        _friendshipRepo.Setup(r => r.AddAsync(It.IsAny<Friendship>()))
+        _friendshipRepo.Setup(r => r.AddAsync(It.IsAny<Friendship>(), It.IsAny<CancellationToken>()))
             .Callback<Friendship>(f =>
             {
                 captured = f;
@@ -246,7 +246,7 @@ public class FriendServiceTests
     public async Task AcceptFriendRequestAsync_WhenFriendshipNotFound_ThrowsNotFound()
     {
         var userId = Guid.NewGuid();
-        _friendshipRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((Friendship?)null);
+        _friendshipRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((Friendship?)null);
 
         var svc = CreateService();
 
@@ -259,7 +259,7 @@ public class FriendServiceTests
         var userId = Guid.NewGuid();
         var other = Guid.NewGuid();
         var f = BuildFriendship(Guid.NewGuid(), Guid.NewGuid(), other);
-        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id, It.IsAny<CancellationToken>())).ReturnsAsync(f);
 
         var svc = CreateService();
 
@@ -272,7 +272,7 @@ public class FriendServiceTests
         var userId = Guid.NewGuid();
         var requesterId = Guid.NewGuid();
         var f = BuildFriendship(Guid.NewGuid(), requesterId, userId, FriendshipStatus.Accepted);
-        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id, It.IsAny<CancellationToken>())).ReturnsAsync(f);
 
         var svc = CreateService();
 
@@ -286,8 +286,8 @@ public class FriendServiceTests
         var requesterId = Guid.NewGuid();
         var f = BuildFriendship(Guid.NewGuid(), requesterId, userId);
         f.Requester = BuildUser(requesterId, active: false);
-        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
-        _userRepo.Setup(r => r.GetByIdAsync(requesterId)).ReturnsAsync(BuildUser(requesterId, active: false));
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id, It.IsAny<CancellationToken>())).ReturnsAsync(f);
+        _userRepo.Setup(r => r.GetByIdAsync(requesterId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser(requesterId, active: false));
 
         var svc = CreateService();
 
@@ -302,12 +302,12 @@ public class FriendServiceTests
         var f = BuildFriendship(Guid.NewGuid(), requesterId, userId);
         var me = BuildUser(userId, "me");
         me.Profile!.FriendLimit = 100;
-        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
-        _userRepo.Setup(r => r.GetByIdAsync(requesterId)).ReturnsAsync(BuildUser(requesterId, active: true));
-        _userRepo.Setup(r => r.GetByIdAsync(userId)).ReturnsAsync(me);
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(userId)).ReturnsAsync(me);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(userId, requesterId)).ReturnsAsync((Friendship?)null);
-        _friendshipRepo.Setup(r => r.CountFriendsAsync(userId)).ReturnsAsync(100);
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id, It.IsAny<CancellationToken>())).ReturnsAsync(f);
+        _userRepo.Setup(r => r.GetByIdAsync(requesterId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser(requesterId, active: true));
+        _userRepo.Setup(r => r.GetByIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(me);
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(me);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(userId, requesterId, It.IsAny<CancellationToken>())).ReturnsAsync((Friendship?)null);
+        _friendshipRepo.Setup(r => r.CountFriendsAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(100);
 
         var svc = CreateService();
 
@@ -320,12 +320,12 @@ public class FriendServiceTests
         var userId = Guid.NewGuid();
         var requesterId = Guid.NewGuid();
         var f = BuildFriendship(Guid.NewGuid(), requesterId, userId);
-        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
-        _userRepo.Setup(r => r.GetByIdAsync(requesterId)).ReturnsAsync(BuildUser(requesterId, active: true));
-        _userRepo.Setup(r => r.GetByIdAsync(userId)).ReturnsAsync(BuildUser(userId, "me"));
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(userId)).ReturnsAsync(BuildUser(userId, "me"));
-        _friendshipRepo.Setup(r => r.GetByPairAsync(userId, requesterId)).ReturnsAsync((Friendship?)null);
-        _friendshipRepo.Setup(r => r.CountFriendsAsync(userId)).ReturnsAsync(0);
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id, It.IsAny<CancellationToken>())).ReturnsAsync(f);
+        _userRepo.Setup(r => r.GetByIdAsync(requesterId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser(requesterId, active: true));
+        _userRepo.Setup(r => r.GetByIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser(userId, "me"));
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser(userId, "me"));
+        _friendshipRepo.Setup(r => r.GetByPairAsync(userId, requesterId, It.IsAny<CancellationToken>())).ReturnsAsync((Friendship?)null);
+        _friendshipRepo.Setup(r => r.CountFriendsAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(0);
 
         var svc = CreateService();
 
@@ -346,7 +346,7 @@ public class FriendServiceTests
     {
         var userId = Guid.NewGuid();
         var f = BuildFriendship(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
-        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id, It.IsAny<CancellationToken>())).ReturnsAsync(f);
 
         var svc = CreateService();
 
@@ -359,7 +359,7 @@ public class FriendServiceTests
         var userId = Guid.NewGuid();
         var requesterId = Guid.NewGuid();
         var f = BuildFriendship(Guid.NewGuid(), requesterId, userId, FriendshipStatus.Accepted);
-        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id, It.IsAny<CancellationToken>())).ReturnsAsync(f);
 
         var svc = CreateService();
 
@@ -372,7 +372,7 @@ public class FriendServiceTests
         var userId = Guid.NewGuid();
         var requesterId = Guid.NewGuid();
         var f = BuildFriendship(Guid.NewGuid(), requesterId, userId, FriendshipStatus.Pending);
-        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id, It.IsAny<CancellationToken>())).ReturnsAsync(f);
 
         var svc = CreateService();
 
@@ -391,7 +391,7 @@ public class FriendServiceTests
     {
         var userId = Guid.NewGuid();
         var f = BuildFriendship(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), FriendshipStatus.Accepted);
-        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id, It.IsAny<CancellationToken>())).ReturnsAsync(f);
 
         var svc = CreateService();
 
@@ -404,7 +404,7 @@ public class FriendServiceTests
         var userId = Guid.NewGuid();
         var other = Guid.NewGuid();
         var f = BuildFriendship(Guid.NewGuid(), userId, other, FriendshipStatus.Pending);
-        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id, It.IsAny<CancellationToken>())).ReturnsAsync(f);
 
         var svc = CreateService();
 
@@ -417,8 +417,8 @@ public class FriendServiceTests
         var userId = Guid.NewGuid();
         var other = Guid.NewGuid();
         var f = BuildFriendship(Guid.NewGuid(), userId, other, FriendshipStatus.Accepted);
-        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
-        _lobbyInviteRepo.Setup(r => r.CancelPendingBetweenAsync(userId, other)).ReturnsAsync(new List<LobbyInvite> { new() { Id = Guid.NewGuid() } });
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id, It.IsAny<CancellationToken>())).ReturnsAsync(f);
+        _lobbyInviteRepo.Setup(r => r.CancelPendingBetweenAsync(userId, other, It.IsAny<CancellationToken>())).ReturnsAsync(new List<LobbyInvite> { new() { Id = Guid.NewGuid() } });
 
         var svc = CreateService();
 
@@ -426,7 +426,7 @@ public class FriendServiceTests
 
         Assert.Equal(FriendshipStatus.Removed, f.Status);
         _friendshipRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
-        _lobbyInviteRepo.Verify(r => r.CancelPendingBetweenAsync(userId, other), Times.Once);
+        _lobbyInviteRepo.Verify(r => r.CancelPendingBetweenAsync(userId, other, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -438,7 +438,7 @@ public class FriendServiceTests
     {
         var userId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
-        _userRepo.Setup(r => r.GetByIdAsync(targetId)).ReturnsAsync((User?)null);
+        _userRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         var svc = CreateService();
 
@@ -450,7 +450,7 @@ public class FriendServiceTests
     {
         var userId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
-        _userRepo.Setup(r => r.GetByIdAsync(targetId)).ReturnsAsync(BuildUser(targetId, "admin", UserRole.Admin));
+        _userRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser(targetId, "admin", UserRole.Admin));
 
         var svc = CreateService();
 
@@ -472,8 +472,8 @@ public class FriendServiceTests
     {
         var userId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
-        _userRepo.Setup(r => r.GetByIdAsync(targetId)).ReturnsAsync(BuildUser(targetId));
-        _friendshipRepo.Setup(r => r.GetByPairAsync(userId, targetId)).ReturnsAsync((Friendship?)null);
+        _userRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser(targetId));
+        _friendshipRepo.Setup(r => r.GetByPairAsync(userId, targetId, It.IsAny<CancellationToken>())).ReturnsAsync((Friendship?)null);
 
         var svc = CreateService();
 
@@ -482,7 +482,7 @@ public class FriendServiceTests
         _friendshipRepo.Verify(r => r.AddAsync(It.Is<Friendship>(f =>
             f.RequesterId == userId &&
             f.AddresseeId == targetId &&
-            f.Status == FriendshipStatus.Blocked)), Times.Once);
+            f.Status == FriendshipStatus.Blocked), It.IsAny<CancellationToken>()), Times.Once);
         _friendshipRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
     }
 
@@ -491,7 +491,7 @@ public class FriendServiceTests
     {
         var userId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
-        _friendshipRepo.Setup(r => r.GetByPairAsync(userId, targetId)).ReturnsAsync((Friendship?)null);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(userId, targetId, It.IsAny<CancellationToken>())).ReturnsAsync((Friendship?)null);
 
         var svc = CreateService();
 
@@ -505,7 +505,7 @@ public class FriendServiceTests
         var blockerId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
         var f = new Friendship { Id = Guid.NewGuid(), RequesterId = blockerId, AddresseeId = userId, Status = FriendshipStatus.Blocked };
-        _friendshipRepo.Setup(r => r.GetByPairAsync(userId, targetId)).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(userId, targetId, It.IsAny<CancellationToken>())).ReturnsAsync(f);
 
         var svc = CreateService();
 
@@ -526,7 +526,7 @@ public class FriendServiceTests
             BlockerUserId = userId,
             Status = FriendshipStatus.Blocked
         };
-        _friendshipRepo.Setup(r => r.GetByPairAsync(userId, targetId)).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(userId, targetId, It.IsAny<CancellationToken>())).ReturnsAsync(f);
 
         var svc = CreateService();
 
@@ -559,7 +559,7 @@ public class FriendServiceTests
                 Addressee = BuildUser(friendId, "bob")
             }
         };
-        _friendshipRepo.Setup(r => r.GetFriendsAsync(userId)).ReturnsAsync(friendships);
+        _friendshipRepo.Setup(r => r.GetFriendsAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(friendships);
 
         var svc = CreateService();
 
@@ -577,9 +577,9 @@ public class FriendServiceTests
         var otherId = Guid.NewGuid();
         var found = new List<User> { BuildUser(otherId, "alice") };
 
-        _userRepo.Setup(r => r.SearchByUsernameAsync("ali", meId, 20, It.IsAny<IReadOnlyCollection<Guid>?>())).ReturnsAsync(found);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, otherId)).ReturnsAsync((Friendship?)null);
-        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, otherId)).ReturnsAsync(3);
+        _userRepo.Setup(r => r.SearchByUsernameAsync("ali", meId, 20, It.IsAny<IReadOnlyCollection<Guid>?>(), It.IsAny<CancellationToken>())).ReturnsAsync(found);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, otherId, It.IsAny<CancellationToken>())).ReturnsAsync((Friendship?)null);
+        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, otherId, It.IsAny<CancellationToken>())).ReturnsAsync(3);
 
         var svc = CreateService();
 
@@ -600,8 +600,8 @@ public class FriendServiceTests
         var otherId = Guid.NewGuid();
         var found = new List<User> { BuildUser(otherId, "jonny") };
 
-        _userRepo.Setup(r => r.SearchByUsernameAsync("jon", meId, 20, It.IsAny<IReadOnlyCollection<Guid>?>())).ReturnsAsync(found);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, otherId))
+        _userRepo.Setup(r => r.SearchByUsernameAsync("jon", meId, 20, It.IsAny<IReadOnlyCollection<Guid>?>(), It.IsAny<CancellationToken>())).ReturnsAsync(found);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, otherId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Friendship
             {
                 Id = Guid.NewGuid(),
@@ -611,7 +611,7 @@ public class FriendServiceTests
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             });
-        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, otherId)).ReturnsAsync(0);
+        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, otherId, It.IsAny<CancellationToken>())).ReturnsAsync(0);
 
         var svc = CreateService();
         var result = await svc.SearchUsersAsync(meId, "jon", 20);
@@ -628,8 +628,8 @@ public class FriendServiceTests
         var otherId = Guid.NewGuid();
         var found = new List<User> { BuildUser(otherId, "jonny") };
 
-        _userRepo.Setup(r => r.SearchByUsernameAsync("jon", meId, 20, It.IsAny<IReadOnlyCollection<Guid>?>())).ReturnsAsync(found);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, otherId))
+        _userRepo.Setup(r => r.SearchByUsernameAsync("jon", meId, 20, It.IsAny<IReadOnlyCollection<Guid>?>(), It.IsAny<CancellationToken>())).ReturnsAsync(found);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, otherId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Friendship
             {
                 Id = Guid.NewGuid(),
@@ -639,7 +639,7 @@ public class FriendServiceTests
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             });
-        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, otherId)).ReturnsAsync(0);
+        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, otherId, It.IsAny<CancellationToken>())).ReturnsAsync(0);
 
         var svc = CreateService();
         var result = await svc.SearchUsersAsync(meId, "jon", 20);
@@ -654,8 +654,8 @@ public class FriendServiceTests
         var otherId = Guid.NewGuid();
         var found = new List<User> { BuildUser(otherId, "alice") };
 
-        _userRepo.Setup(r => r.SearchByUsernameAsync("ali", meId, 20, It.IsAny<IReadOnlyCollection<Guid>?>())).ReturnsAsync(found);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, otherId))
+        _userRepo.Setup(r => r.SearchByUsernameAsync("ali", meId, 20, It.IsAny<IReadOnlyCollection<Guid>?>(), It.IsAny<CancellationToken>())).ReturnsAsync(found);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, otherId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Friendship
             {
                 Id = Guid.NewGuid(),
@@ -665,7 +665,7 @@ public class FriendServiceTests
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             });
-        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, otherId)).ReturnsAsync(0);
+        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, otherId, It.IsAny<CancellationToken>())).ReturnsAsync(0);
 
         var svc = CreateService();
         var result = await svc.SearchUsersAsync(meId, "ali", 20);
@@ -681,8 +681,8 @@ public class FriendServiceTests
         var otherId = Guid.NewGuid();
         var found = new List<User> { BuildUser(otherId, "alice") };
 
-        _userRepo.Setup(r => r.SearchByUsernameAsync("ali", meId, 20, It.IsAny<IReadOnlyCollection<Guid>?>())).ReturnsAsync(found);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, otherId))
+        _userRepo.Setup(r => r.SearchByUsernameAsync("ali", meId, 20, It.IsAny<IReadOnlyCollection<Guid>?>(), It.IsAny<CancellationToken>())).ReturnsAsync(found);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, otherId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Friendship
             {
                 Id = Guid.NewGuid(),
@@ -693,7 +693,7 @@ public class FriendServiceTests
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             });
-        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, otherId)).ReturnsAsync(0);
+        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, otherId, It.IsAny<CancellationToken>())).ReturnsAsync(0);
 
         var svc = CreateService();
         var result = await svc.SearchUsersAsync(meId, "ali", 20);
@@ -709,8 +709,8 @@ public class FriendServiceTests
         var otherId = Guid.NewGuid();
         var found = new List<User> { BuildUser(otherId, "alice") };
 
-        _userRepo.Setup(r => r.SearchByUsernameAsync("ali", meId, 20, It.IsAny<IReadOnlyCollection<Guid>?>())).ReturnsAsync(found);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, otherId))
+        _userRepo.Setup(r => r.SearchByUsernameAsync("ali", meId, 20, It.IsAny<IReadOnlyCollection<Guid>?>(), It.IsAny<CancellationToken>())).ReturnsAsync(found);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, otherId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Friendship
             {
                 Id = Guid.NewGuid(),
@@ -721,7 +721,7 @@ public class FriendServiceTests
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             });
-        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, otherId)).ReturnsAsync(0);
+        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, otherId, It.IsAny<CancellationToken>())).ReturnsAsync(0);
 
         var svc = CreateService();
         var result = await svc.SearchUsersAsync(meId, "ali", 20);
@@ -736,8 +736,8 @@ public class FriendServiceTests
         var otherId = Guid.NewGuid();
         var found = new List<User> { BuildUser(otherId, "alice") };
 
-        _userRepo.Setup(r => r.SearchByUsernameAsync("ali", meId, 20, It.IsAny<IReadOnlyCollection<Guid>?>())).ReturnsAsync(found);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, otherId))
+        _userRepo.Setup(r => r.SearchByUsernameAsync("ali", meId, 20, It.IsAny<IReadOnlyCollection<Guid>?>(), It.IsAny<CancellationToken>())).ReturnsAsync(found);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, otherId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Friendship
             {
                 Id = Guid.NewGuid(),
@@ -747,7 +747,7 @@ public class FriendServiceTests
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             });
-        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, otherId)).ReturnsAsync(0);
+        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, otherId, It.IsAny<CancellationToken>())).ReturnsAsync(0);
 
         var svc = CreateService();
         var result = await svc.SearchUsersAsync(meId, "ali", 20);
@@ -766,7 +766,7 @@ public class FriendServiceTests
         var result = await svc.GetByDirectionAsync(meId, FriendshipRelationshipDirection.None, 50);
 
         Assert.Empty(result);
-        _friendshipRepo.Verify(r => r.GetByDirectionAsync(It.IsAny<Guid>(), It.IsAny<FriendshipRelationshipDirection>(), It.IsAny<int>()), Times.Never);
+        _friendshipRepo.Verify(r => r.GetByDirectionAsync(It.IsAny<Guid>(), It.IsAny<FriendshipRelationshipDirection>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -787,7 +787,7 @@ public class FriendServiceTests
                 Requester = BuildUser(otherId, "bob")
             }
         };
-        _friendshipRepo.Setup(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.IncomingRequest, 50))
+        _friendshipRepo.Setup(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.IncomingRequest, 50, It.IsAny<CancellationToken>()))
             .ReturnsAsync(pending);
 
         var svc = CreateService();
@@ -816,7 +816,7 @@ public class FriendServiceTests
                 Addressee = BuildUser(otherId, "alice")
             }
         };
-        _friendshipRepo.Setup(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.OutgoingRequest, 20))
+        _friendshipRepo.Setup(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.OutgoingRequest, 20, It.IsAny<CancellationToken>()))
             .ReturnsAsync(pending);
 
         var svc = CreateService();
@@ -844,7 +844,7 @@ public class FriendServiceTests
                 Addressee = BuildUser(Guid.NewGuid(), "alice")
             }
         };
-        _friendshipRepo.Setup(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.Accepted, 50))
+        _friendshipRepo.Setup(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.Accepted, 50, It.IsAny<CancellationToken>()))
             .ReturnsAsync(friendships);
 
         var svc = CreateService();
@@ -858,7 +858,7 @@ public class FriendServiceTests
     public async Task GetByDirectionAsync_NoMatch_ReturnsEmptyList()
     {
         var meId = Guid.NewGuid();
-        _friendshipRepo.Setup(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.BlockedByMe, 50))
+        _friendshipRepo.Setup(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.BlockedByMe, 50, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Friendship>());
 
         var svc = CreateService();
@@ -882,7 +882,7 @@ public class FriendServiceTests
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
-        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id, It.IsAny<CancellationToken>())).ReturnsAsync(f);
 
         var svc = CreateService();
         await svc.CancelFriendRequestAsync(meId, f.Id);
@@ -902,7 +902,7 @@ public class FriendServiceTests
             AddresseeId = meId,
             Status = FriendshipStatus.Pending
         };
-        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id, It.IsAny<CancellationToken>())).ReturnsAsync(f);
 
         var svc = CreateService();
 
@@ -921,7 +921,7 @@ public class FriendServiceTests
             AddresseeId = Guid.NewGuid(),
             Status = FriendshipStatus.Accepted
         };
-        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id, It.IsAny<CancellationToken>())).ReturnsAsync(f);
 
         var svc = CreateService();
 
@@ -945,7 +945,7 @@ public class FriendServiceTests
             Message = "Hi!",
             Requester = BuildUser(senderId, "bob")
         };
-        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id, It.IsAny<CancellationToken>())).ReturnsAsync(f);
 
         var svc = CreateService();
         var result = await svc.GetFriendRequestByIdAsync(meId, f.Id);
@@ -966,7 +966,7 @@ public class FriendServiceTests
             AddresseeId = Guid.NewGuid(),
             Status = FriendshipStatus.Pending
         };
-        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id, It.IsAny<CancellationToken>())).ReturnsAsync(f);
 
         var svc = CreateService();
 
@@ -987,7 +987,7 @@ public class FriendServiceTests
             Status = FriendshipStatus.Blocked,
             BlockerUserId = otherId // bị addressee chặn
         };
-        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id, It.IsAny<CancellationToken>())).ReturnsAsync(f);
 
         var svc = CreateService();
 
@@ -1001,28 +1001,28 @@ public class FriendServiceTests
     public async Task GetBlockedUsersAsync_CallsRepoWithBlockedByMe()
     {
         var meId = Guid.NewGuid();
-        _friendshipRepo.Setup(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.BlockedByMe, 100))
+        _friendshipRepo.Setup(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.BlockedByMe, 100, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Friendship>());
 
         var svc = CreateService();
         var result = await svc.GetBlockedUsersAsync(meId);
 
         Assert.Empty(result);
-        _friendshipRepo.Verify(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.BlockedByMe, 100), Times.Once);
+        _friendshipRepo.Verify(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.BlockedByMe, 100, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
     public async Task GetBlockedByUsersAsync_CallsRepoWithBlockedByThem()
     {
         var meId = Guid.NewGuid();
-        _friendshipRepo.Setup(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.BlockedByThem, 100))
+        _friendshipRepo.Setup(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.BlockedByThem, 100, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Friendship>());
 
         var svc = CreateService();
         var result = await svc.GetBlockedByUsersAsync(meId);
 
         Assert.Empty(result);
-        _friendshipRepo.Verify(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.BlockedByThem, 100), Times.Once);
+        _friendshipRepo.Verify(r => r.GetByDirectionAsync(meId, FriendshipRelationshipDirection.BlockedByThem, 100, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // ===== SearchUsers/Suggestions filter blocked =====
@@ -1040,14 +1040,14 @@ public class FriendServiceTests
         var friendId = Guid.NewGuid();
         var blockedId = Guid.NewGuid();
 
-        _friendshipRepo.Setup(r => r.GetFriendUserIdsAsync(meId))
+        _friendshipRepo.Setup(r => r.GetFriendUserIdsAsync(meId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Guid> { friendId });
-        _friendshipRepo.Setup(r => r.GetBlockedUserIdsAsync(meId))
+        _friendshipRepo.Setup(r => r.GetBlockedUserIdsAsync(meId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Guid> { blockedId });
         // Friend-of-friend chỉ trả blocked user — phải bị filter.
-        _friendshipRepo.Setup(r => r.GetFriendUserIdsAsync(friendId))
+        _friendshipRepo.Setup(r => r.GetFriendUserIdsAsync(friendId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Guid> { blockedId });
-        _lobbyMemberRepo.Setup(r => r.GetRecentMemberUserIdsAsync(meId, It.IsAny<int>(), It.IsAny<int>()))
+        _lobbyMemberRepo.Setup(r => r.GetRecentMemberUserIdsAsync(meId, It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Guid>());
 
         var svc = CreateService();
@@ -1073,7 +1073,7 @@ public class FriendServiceTests
                 Requester = BuildUser(Guid.NewGuid(), "bob")
             }
         };
-        _friendshipRepo.Setup(r => r.GetByUserAsync(meId, FriendshipStatus.Pending)).ReturnsAsync(pending);
+        _friendshipRepo.Setup(r => r.GetByUserAsync(meId, FriendshipStatus.Pending, It.IsAny<CancellationToken>())).ReturnsAsync(pending);
 
         var svc = CreateService();
 
@@ -1100,7 +1100,7 @@ public class FriendServiceTests
                 Addressee = BuildUser(Guid.NewGuid(), "alice")
             }
         };
-        _friendshipRepo.Setup(r => r.GetByUserAsync(meId, FriendshipStatus.Pending)).ReturnsAsync(pending);
+        _friendshipRepo.Setup(r => r.GetByUserAsync(meId, FriendshipStatus.Pending, It.IsAny<CancellationToken>())).ReturnsAsync(pending);
 
         var svc = CreateService();
 
@@ -1118,9 +1118,9 @@ public class FriendServiceTests
         var mutualIds = new List<Guid> { Guid.NewGuid(), Guid.NewGuid() };
         var users = mutualIds.Select((id, i) => BuildUser(id, $"user{i}")).ToList();
 
-        _friendshipRepo.Setup(r => r.GetMutualFriendIdsAsync(meId, otherId)).ReturnsAsync(mutualIds);
-        _userRepo.Setup(r => r.GetByIdsAsync(mutualIds)).ReturnsAsync(users);
-        _friendshipRepo.Setup(r => r.GetFriendsAsync(meId)).ReturnsAsync(users.Select(u => new Friendship
+        _friendshipRepo.Setup(r => r.GetMutualFriendIdsAsync(meId, otherId, It.IsAny<CancellationToken>())).ReturnsAsync(mutualIds);
+        _userRepo.Setup(r => r.GetByIdsAsync(mutualIds, It.IsAny<CancellationToken>())).ReturnsAsync(users);
+        _friendshipRepo.Setup(r => r.GetFriendsAsync(meId, It.IsAny<CancellationToken>())).ReturnsAsync(users.Select(u => new Friendship
         {
             Id = Guid.NewGuid(),
             RequesterId = meId,
@@ -1144,7 +1144,7 @@ public class FriendServiceTests
         var otherId = Guid.NewGuid();
         var other = BuildUser(otherId, "private-guy");
         other.Profile!.IsFriendListPublic = false;
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(otherId)).ReturnsAsync(other);
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(otherId, It.IsAny<CancellationToken>())).ReturnsAsync(other);
 
         var svc = CreateService();
 
@@ -1166,7 +1166,7 @@ public class FriendServiceTests
     {
         var meId = Guid.NewGuid();
         var me = BuildUser(meId);
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(meId)).ReturnsAsync(me);
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(meId, It.IsAny<CancellationToken>())).ReturnsAsync(me);
 
         var svc = CreateService();
 
@@ -1188,9 +1188,9 @@ public class FriendServiceTests
     {
         var meId = Guid.NewGuid();
         var suggestedId = Guid.NewGuid();
-        _friendshipRepo.Setup(r => r.GetFriendUserIdsAsync(meId)).ReturnsAsync(new List<Guid>());
-        _lobbyMemberRepo.Setup(r => r.GetRecentMemberUserIdsAsync(meId, It.IsAny<int>(), It.IsAny<int>())).ReturnsAsync(new List<Guid> { suggestedId });
-        _userRepo.Setup(r => r.GetByIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>())).ReturnsAsync(new List<User> { BuildUser(suggestedId, "suggested") });
+        _friendshipRepo.Setup(r => r.GetFriendUserIdsAsync(meId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<Guid>());
+        _lobbyMemberRepo.Setup(r => r.GetRecentMemberUserIdsAsync(meId, It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<Guid> { suggestedId });
+        _userRepo.Setup(r => r.GetByIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<User> { BuildUser(suggestedId, "suggested") });
 
         var svc = CreateService();
 
@@ -1205,7 +1205,7 @@ public class FriendServiceTests
     {
         var meId = Guid.NewGuid();
         var f = BuildFriendship(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
-        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id, It.IsAny<CancellationToken>())).ReturnsAsync(f);
 
         var svc = CreateService();
 
@@ -1218,7 +1218,7 @@ public class FriendServiceTests
         var meId = Guid.NewGuid();
         var requesterId = Guid.NewGuid();
         var f = BuildFriendship(Guid.NewGuid(), requesterId, meId);
-        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id)).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.GetByIdAsync(f.Id, It.IsAny<CancellationToken>())).ReturnsAsync(f);
 
         var svc = CreateService();
 
@@ -1235,7 +1235,7 @@ public class FriendServiceTests
     [Fact]
     public async Task ExpireOldPendingRequestsAsync_WhenNoneExpired_ReturnsZero()
     {
-        _friendshipRepo.Setup(r => r.GetExpiredPendingAsync(It.IsAny<DateTime>())).ReturnsAsync(new List<Friendship>());
+        _friendshipRepo.Setup(r => r.GetExpiredPendingAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<Friendship>());
 
         var svc = CreateService();
 
@@ -1248,7 +1248,7 @@ public class FriendServiceTests
     public async Task ExpireOldPendingRequestsAsync_ExpiresAndSaves()
     {
         var f = BuildFriendship(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), FriendshipStatus.Pending, DateTime.UtcNow.AddDays(-45));
-        _friendshipRepo.Setup(r => r.GetExpiredPendingAsync(It.IsAny<DateTime>())).ReturnsAsync(new List<Friendship> { f });
+        _friendshipRepo.Setup(r => r.GetExpiredPendingAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<Friendship> { f });
 
         var svc = CreateService();
 
@@ -1262,14 +1262,14 @@ public class FriendServiceTests
     [Fact]
     public async Task ExpireOldPendingRequestsAsync_NegativeDays_FallsBackTo30()
     {
-        _friendshipRepo.Setup(r => r.GetExpiredPendingAsync(It.IsAny<DateTime>())).ReturnsAsync(new List<Friendship>());
+        _friendshipRepo.Setup(r => r.GetExpiredPendingAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<Friendship>());
 
         var svc = CreateService();
 
         var count = await svc.ExpireOldPendingRequestsAsync(-5);
 
         Assert.Equal(0, count);
-        _friendshipRepo.Verify(r => r.GetExpiredPendingAsync(It.Is<DateTime>(d => (DateTime.UtcNow - d).TotalDays >= 29)), Times.Once);
+        _friendshipRepo.Verify(r => r.GetExpiredPendingAsync(It.Is<DateTime>(d => (DateTime.UtcNow - d).TotalDays >= 29), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -1291,7 +1291,7 @@ public class FriendServiceTests
     {
         var meId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync((User?)null);
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         var svc = CreateService();
 
@@ -1304,7 +1304,7 @@ public class FriendServiceTests
         var meId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
         var target = BuildUser(targetId, "inactive-guy", active: false);
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(target);
 
         var svc = CreateService();
 
@@ -1319,7 +1319,7 @@ public class FriendServiceTests
         var targetId = Guid.NewGuid();
         var target = BuildUser(targetId, "banned-guy");
         target.AccountStatus = UserAccountStatus.Banned;
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(target);
 
         var svc = CreateService();
 
@@ -1340,9 +1340,9 @@ public class FriendServiceTests
         target.Profile!.Level = 7;
         target.Profile!.LastActiveAt = lastActive;
 
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync((Friendship?)null);
-        _friendshipRepo.Setup(r => r.CountFriendsAsync(targetId)).ReturnsAsync(42);
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(target);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId, It.IsAny<CancellationToken>())).ReturnsAsync((Friendship?)null);
+        _friendshipRepo.Setup(r => r.CountFriendsAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(42);
 
         var svc = CreateService();
 
@@ -1374,8 +1374,8 @@ public class FriendServiceTests
         f.Message = "hi friend";
 
         var target = BuildUser(targetId, "pending-out");
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync(f);
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(target);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId, It.IsAny<CancellationToken>())).ReturnsAsync(f);
 
         var svc = CreateService();
 
@@ -1398,8 +1398,8 @@ public class FriendServiceTests
         var f = BuildFriendship(Guid.NewGuid(), targetId, meId, FriendshipStatus.Pending);
 
         var target = BuildUser(targetId, "pending-in");
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync(f);
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(target);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId, It.IsAny<CancellationToken>())).ReturnsAsync(f);
 
         var svc = CreateService();
 
@@ -1421,10 +1421,10 @@ public class FriendServiceTests
         f.AcceptedAt = since;
 
         var target = BuildUser(targetId, "bestie");
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync(f);
-        _friendshipRepo.Setup(r => r.CountFriendsAsync(targetId)).ReturnsAsync(10);
-        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, targetId)).ReturnsAsync(3);
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(target);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId, It.IsAny<CancellationToken>())).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.CountFriendsAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(10);
+        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, targetId, It.IsAny<CancellationToken>())).ReturnsAsync(3);
 
         var svc = CreateService();
 
@@ -1450,9 +1450,9 @@ public class FriendServiceTests
         var f = BuildFriendship(Guid.NewGuid(), meId, targetId, FriendshipStatus.Blocked, blockerUserId: meId);
 
         var target = BuildUser(targetId, "blocked-target");
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync(f);
-        _friendshipRepo.Setup(r => r.CountFriendsAsync(targetId)).ReturnsAsync(0);
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(target);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId, It.IsAny<CancellationToken>())).ReturnsAsync(f);
+        _friendshipRepo.Setup(r => r.CountFriendsAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(0);
 
         var svc = CreateService();
 
@@ -1476,8 +1476,8 @@ public class FriendServiceTests
         var f = BuildFriendship(Guid.NewGuid(), targetId, meId, FriendshipStatus.Blocked, blockerUserId: targetId);
 
         var target = BuildUser(targetId, "blocker");
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync(f);
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(target);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId, It.IsAny<CancellationToken>())).ReturnsAsync(f);
 
         var svc = CreateService();
 
@@ -1494,8 +1494,8 @@ public class FriendServiceTests
         var f = BuildFriendship(Guid.NewGuid(), meId, targetId, FriendshipStatus.Blocked, blockerUserId: targetId);
 
         var target = BuildUser(targetId, "mutual-blocker");
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync(f);
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(target);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId, It.IsAny<CancellationToken>())).ReturnsAsync(f);
 
         var svc = CreateService();
 
@@ -1510,8 +1510,8 @@ public class FriendServiceTests
         var target = BuildUser(targetId, "privacy-strict");
         target.Profile!.IsFriendListPublic = false;
 
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync((Friendship?)null);
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(target);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId, It.IsAny<CancellationToken>())).ReturnsAsync((Friendship?)null);
 
         var svc = CreateService();
 
@@ -1519,9 +1519,9 @@ public class FriendServiceTests
 
         Assert.Equal(0, result.FriendsCount);
         // friendsCount phải 0 → CountFriendsAsync KHÔNG được gọi.
-        _friendshipRepo.Verify(r => r.CountFriendsAsync(It.IsAny<Guid>()), Times.Never);
+        _friendshipRepo.Verify(r => r.CountFriendsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
         // Status None → không cần mutual.
-        _friendshipRepo.Verify(r => r.CountMutualFriendsAsync(It.IsAny<Guid>(), It.IsAny<Guid>()), Times.Never);
+        _friendshipRepo.Verify(r => r.CountMutualFriendsAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -1530,16 +1530,16 @@ public class FriendServiceTests
         var meId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
         var target = BuildUser(targetId, "open-book"); // mặc định IsFriendListPublic=true
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync((Friendship?)null);
-        _friendshipRepo.Setup(r => r.CountFriendsAsync(targetId)).ReturnsAsync(99);
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(target);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId, It.IsAny<CancellationToken>())).ReturnsAsync((Friendship?)null);
+        _friendshipRepo.Setup(r => r.CountFriendsAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(99);
 
         var svc = CreateService();
 
         var result = await svc.GetPlayerProfileAsync(meId, targetId);
 
         Assert.Equal(99, result.FriendsCount);
-        _friendshipRepo.Verify(r => r.CountFriendsAsync(targetId), Times.Once);
+        _friendshipRepo.Verify(r => r.CountFriendsAsync(targetId, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Theory]
@@ -1557,9 +1557,9 @@ public class FriendServiceTests
             ? DateTime.UtcNow.AddMinutes(minutesAgo.Value)
             : (DateTime?)null;
 
-        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId)).ReturnsAsync(target);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync((Friendship?)null);
-        _friendshipRepo.Setup(r => r.CountFriendsAsync(targetId)).ReturnsAsync(0);
+        _userRepo.Setup(r => r.GetByIdWithProfileAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(target);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId, It.IsAny<CancellationToken>())).ReturnsAsync((Friendship?)null);
+        _friendshipRepo.Setup(r => r.CountFriendsAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(0);
 
         var svc = CreateService();
 

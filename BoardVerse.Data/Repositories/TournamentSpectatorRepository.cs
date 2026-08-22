@@ -14,14 +14,14 @@ public class TournamentSpectatorRepository : ITournamentSpectatorRepository
         _context = context;
     }
 
-    public async Task<TournamentSpectator?> GetByIdAsync(Guid id)
+    public async Task<TournamentSpectator?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _context.TournamentSpectators
             .Include(s => s.User)
             .FirstOrDefaultAsync(s => s.Id == id);
     }
 
-    public async Task<TournamentSpectator?> GetByUserAsync(Guid tournamentId, Guid userId)
+    public async Task<TournamentSpectator?> GetByUserAsync(Guid tournamentId, Guid userId, CancellationToken cancellationToken = default)
     {
         return await _context.TournamentSpectators
             .FirstOrDefaultAsync(s =>
@@ -29,7 +29,7 @@ public class TournamentSpectatorRepository : ITournamentSpectatorRepository
                 s.UserId == userId);
     }
 
-    public async Task<IReadOnlyList<TournamentSpectator>> GetByTournamentAsync(Guid tournamentId)
+    public async Task<IReadOnlyList<TournamentSpectator>> GetByTournamentAsync(Guid tournamentId, CancellationToken cancellationToken = default)
     {
         return await _context.TournamentSpectators
             .Include(s => s.User)
@@ -38,26 +38,26 @@ public class TournamentSpectatorRepository : ITournamentSpectatorRepository
             .ToListAsync();
     }
 
-    public async Task AddAsync(TournamentSpectator spectator)
+    public async Task AddAsync(TournamentSpectator spectator, CancellationToken cancellationToken = default)
     {
         _context.TournamentSpectators.Add(spectator);
         await Task.CompletedTask;
     }
 
-    public Task UpdateAsync(TournamentSpectator spectator)
+    public Task UpdateAsync(TournamentSpectator spectator, CancellationToken cancellationToken = default)
     {
         _context.TournamentSpectators.Update(spectator);
         return Task.CompletedTask;
     }
 
-    public async Task DeleteAsync(Guid id)
+    public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var spectator = await _context.TournamentSpectators.FindAsync(id);
         if (spectator != null)
             _context.TournamentSpectators.Remove(spectator);
     }
 
-    public async Task SaveChangesAsync()
+    public async Task SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         await _context.SaveChangesAsync();
     }

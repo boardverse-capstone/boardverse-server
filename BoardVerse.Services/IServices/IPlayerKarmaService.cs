@@ -1,5 +1,6 @@
 using BoardVerse.Core.Entities;
 
+using System.Threading;
 namespace BoardVerse.Services.IServices;
 
 /// <summary>
@@ -27,7 +28,7 @@ public interface IPlayerKarmaService
     /// <summary>
     /// BR §21A.9: Ghi nhận no-show (host không check-in sau grace 30 phút).
     /// </summary>
-    Task<bool> RecordNoShowAsync(Guid reservationId, Guid hostId, CancellationToken ct = default);
+    Task<bool> RecordNoShowAsync(Guid reservationId, Guid hostId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// BR-KARMA-01 §4.3: Ghi nhận early-checkout (playedRatio 50-90%).
@@ -42,5 +43,5 @@ public interface IPlayerKarmaService
     /// <summary>
     /// ID của record gần nhất (dùng cho query debug).
     /// </summary>
-    Task<KarmaShortPlayRecord?> GetLatestByUserAsync(Guid userId, CancellationToken ct = default);
+    Task<KarmaShortPlayRecord?> GetLatestByUserAsync(Guid userId, CancellationToken cancellationToken = default);
 }

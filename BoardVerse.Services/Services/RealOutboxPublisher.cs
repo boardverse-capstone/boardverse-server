@@ -196,9 +196,15 @@ public class RealOutboxPublisher : IOutboxEventPublisher
         }
         else if (evt.LobbyId.HasValue)
         {
-            // Fallback: chỉ có lobbyId (event cũ chưa có sessionId trong payload) → dùng
-            // NotifySessionCompleted cũ (group session:{lobbyId} sai tên nhưng đã có FE subscribe).
-            await posHub.NotifySessionCompleted(evt.LobbyId.Value);
+            // Fallback: chỉ có lobbyId (event cũ chưa có sessionId trong payload).
+            // GAP-R6-RT-03: không thể lookup sessionId từ lobbyId ở đây (subagent khuyến cáo
+            // không thêm query DB vào publisher). Caller (ActiveSessionService.CompleteAndPayAsync)
+            // phải ghi sessionId vào payload — fallback path chỉ để log + best-effort broadcast
+            // về lobby:{lobbyId} để FE cũ vẫn có thể nhận (legacy back-compat).
+            _logger.LogWarning(
+                "[Outbox] SessionCompleted event {EventId} lobbyId={LobbyId} nhưng thiếu sessionId trong payload — " +
+                "FE legacy vẫn có thể nhận lobby:{LobbyId} group, nhưng PosHub.JoinSession group sẽ miss.",
+                evt.Id, evt.LobbyId.Value, evt.LobbyId.Value);
         }
         else
         {
@@ -213,13 +219,16 @@ public class RealOutboxPublisher : IOutboxEventPublisher
         }
 
         // Push notification (giữ nguyên logic cũ — chỉ push khi có UserId).
-        if (evt.UserId.HasValue)
+        // GAP-R4-A10 Fix: walk-in session có LobbyId = null + HostId = staff.UserId.
+        // Push "phiên chơi của bạn đã kết thúc" cho staff là misleading.
+        // Skip push khi sessionId không có (không có session thật để navigate tới).
+        if (evt.UserId.HasValue && sessionId.HasValue)
         {
                 await pushService.SendAsync(evt.UserId.Value, "Phiên chơi đã kết thúc",
                     "Cảm ơn bạn đã sử dụng BoardVerse! Hãy đánh giá các thành viên nhé.",
                 new Dictionary<string, string>
                 {
-                    ["sessionId"] = sessionId?.ToString() ?? evt.LobbyId?.ToString() ?? "",
+                    ["sessionId"] = sessionId.Value.ToString(),
                     ["event"] = "SessionCompleted"
                 });
         }

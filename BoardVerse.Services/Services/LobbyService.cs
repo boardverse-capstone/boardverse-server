@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using BoardVerse.Core.DTOs.Lobby;
 using BoardVerse.Core.DTOs.Reservation;
 using BoardVerse.Core.Entities;
@@ -102,7 +103,7 @@ ILogger<LobbyService> logger,
             _httpContextAccessor = httpContextAccessor;
         }
 
-        public async Task<LobbyResponseDto> CreateLobbyAsync(Guid hostUserId, CreateLobbyRequestDto request)
+        public async Task<LobbyResponseDto> CreateLobbyAsync(Guid hostUserId, CreateLobbyRequestDto request, CancellationToken cancellationToken = default)
         {
             if (request.ScheduledStartTime < DateTime.UtcNow.AddMinutes(5))
             {
@@ -213,7 +214,7 @@ ILogger<LobbyService> logger,
             return MapLobbyDto(lobby, null);
         }
 
-        public async Task<LobbyResponseDto> JoinLobbyAsync(Guid lobbyId, Guid userId)
+        public async Task<LobbyResponseDto> JoinLobbyAsync(Guid lobbyId, Guid userId, CancellationToken cancellationToken = default)
         {
             // H4: SELECT ... FOR UPDATE để chống race condition khi nhiều request JoinLobby đồng thời.
             // Trước đây: chỉ check count trên snapshot không lock → có thể vượt MaxMembers (BR-07).
@@ -518,7 +519,7 @@ ILogger<LobbyService> logger,
             }
         }
 
-        public async Task<LobbyResponseDto> LeaveLobbyAsync(Guid lobbyId, Guid userId)
+        public async Task<LobbyResponseDto> LeaveLobbyAsync(Guid lobbyId, Guid userId, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -603,7 +604,7 @@ ILogger<LobbyService> logger,
             return MapLobbyDto(lobby, null);
         }
 
-        public async Task<LobbyResponseDto> GetLobbyAsync(Guid lobbyId, Guid? requestingUserId = null)
+        public async Task<LobbyResponseDto> GetLobbyAsync(Guid lobbyId, Guid? requestingUserId = null, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -638,7 +639,7 @@ ILogger<LobbyService> logger,
             return MapLobbyDto(lobby, distanceKm);
         }
 
-        public async Task<IReadOnlyList<LobbyResponseDto>> SearchLobbiesAsync(SearchLobbiesRequestDto request, Guid? requestingUserId = null)
+        public async Task<IReadOnlyList<LobbyResponseDto>> SearchLobbiesAsync(SearchLobbiesRequestDto request, Guid? requestingUserId = null, CancellationToken cancellationToken = default)
         {
             // BR-10: Filter by game, geo proximity, and karma (NOT Elo)
             // Private lobby bị loại khỏi kết quả search
@@ -700,7 +701,7 @@ ILogger<LobbyService> logger,
             double? longitude,
             double? radiusKm,
             int limit = 50,
-            Guid? requestingUserId = null)
+            Guid? requestingUserId = null, CancellationToken cancellationToken = default)
         {
             // BR-10: Lobby phải là public + status Open. Private bị ẩn hoàn toàn.
             // BR-USER-LIMIT-02: Loại bỏ các lobby trùng lịch với user (excludeSelfOverlapping)
@@ -741,10 +742,11 @@ ILogger<LobbyService> logger,
             // M1: lọc dựa trên `lobbies` (raw Lobby entities) thay vì re-fetch qua GetByIdAsync.
             // Trước đây: lobbyIds.Select → GetByIdAsync → N+1 round-trips.
             // (Tránh nhầm với `result` là List<LobbyResponseDto> không có PlayDate/TimeSlot.)
+            // GAP-03 fix (2026-08-21): Dùng PreferredStartTime.HasValue thay vì TimeSlot.HasValue
             if (requestingUserId.HasValue)
             {
                 var loadedLobbies = lobbies
-                    .Where(l => l.PlayDate.HasValue && l.TimeSlot.HasValue)
+                    .Where(l => l.PlayDate.HasValue && l.PreferredStartTime.HasValue)
                     .ToList();
                 var filteredLobbies = await FilterOverlappingLobbiesAsync(loadedLobbies, requestingUserId.Value);
                 var filteredIds = filteredLobbies.Select(l => l.Id).ToHashSet();
@@ -815,20 +817,6 @@ ILogger<LobbyService> logger,
             return lobby.ScheduledStartTime ?? DateTime.MinValue;
         }
 
-        /// <summary>
-        /// Tính scheduledTime từ PlayDate + PreferredStartTime (BR-NEW-15).
-        /// Dùng cho legacy TimeSlot-based lobby khi PreferredStartTime chưa có.
-        /// </summary>
-        private static DateTime GetScheduledTimeFromPreferred(Lobby lobby)
-        {
-            if (lobby.PlayDate.HasValue && lobby.PreferredStartTime.HasValue)
-                return lobby.PlayDate.Value.ToDateTime(lobby.PreferredStartTime.Value);
-
-            if (lobby.PlayDate.HasValue && lobby.TimeSlot.HasValue)
-                return lobby.PlayDate.Value.ToDateTime(lobby.TimeSlot.Value.GetStartTime());
-
-            return lobby.ScheduledStartTime ?? DateTime.MinValue;
-        }
 
         public async Task<LobbyResponseDto> CloseLobbyAsync(Guid lobbyId, Guid hostUserId, string? reason)
         {
@@ -895,7 +883,7 @@ ILogger<LobbyService> logger,
         /// Idempotent (BR §XVII.1): refund/forfeit dùng key "dissolve-refund-{lobbyId}" và
         /// "dissolve-forfeit-{lobbyId}" — replay sẽ được wallet chặn tự động.
         /// </summary>
-        public async Task<DissolveLobbyResponseDto> DissolveLobbyAsync(Guid lobbyId, Guid hostUserId, string? reason = null)
+        public async Task<DissolveLobbyResponseDto> DissolveLobbyAsync(Guid lobbyId, Guid hostUserId, string? reason = null, CancellationToken cancellationToken = default)
         {
             const int MaxRetries = 3;
 
@@ -1285,12 +1273,11 @@ ILogger<LobbyService> logger,
 
         private static bool IsSerializationFailure(DbUpdateException ex)
         {
-            // Postgres SQLSTATE 40001 = serialization_failure, 40P01 = deadlock_detected.
-            var msg = ex.InnerException?.Message ?? ex.Message;
-            return msg.Contains("40001", StringComparison.Ordinal)
-                || msg.Contains("40P01", StringComparison.Ordinal)
-                || msg.Contains("could not serialize", StringComparison.OrdinalIgnoreCase)
-                || msg.Contains("deadlock", StringComparison.OrdinalIgnoreCase);
+            // GAP-R4-N1 Fix: Dùng Npgsql.PostgresException.SqlState thay vì string-contains.
+            // String-contains có thể false-positive nếu message user hoặc data chứa '40001'.
+            // SqlState là API chính thức từ Postgres driver, không có ambiguity.
+            return ex.InnerException is Npgsql.PostgresException pg
+                && (pg.SqlState == "40001" || pg.SqlState == "40P01");
         }
 
         // ===== Outbox payload serializers cho DissolveLobbyAsync (Gap #2) =====
@@ -1312,7 +1299,9 @@ ILogger<LobbyService> logger,
                 cafeId = lobby.CafeId,
                 gameTemplateId = lobby.GameTemplateId,
                 playDate = lobby.PlayDate?.ToString(),
-                timeSlot = lobby.TimeSlot.HasValue ? (int)lobby.TimeSlot.Value : 0,
+                // GAP-10 fix (2026-08-21): dùng PreferredStartTime/PreferredEndTime thay vì TimeSlot int
+                preferredStartTime = lobby.PreferredStartTime?.ToString(),
+                preferredEndTime = lobby.PreferredEndTime?.ToString(),
                 lobbyStatus = lobby.Status.ToString(),
                 terminalReason = "host_dissolved",
                 refundPolicyApplied = policyName,
@@ -1344,7 +1333,7 @@ ILogger<LobbyService> logger,
             });
         }
 
-        public async Task<LobbyResponseDto> LockLobbyAsync(Guid lobbyId, Guid hostUserId)
+        public async Task<LobbyResponseDto> LockLobbyAsync(Guid lobbyId, Guid hostUserId, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -1379,7 +1368,7 @@ ILogger<LobbyService> logger,
             return MapLobbyDto(lobby, null);
         }
 
-        public async Task<LobbyResponseDto> OpenKarmaWindowAsync(Guid lobbyId, Guid hostUserId)
+        public async Task<LobbyResponseDto> OpenKarmaWindowAsync(Guid lobbyId, Guid hostUserId, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -1398,7 +1387,7 @@ ILogger<LobbyService> logger,
             return MapLobbyDto(lobby, null);
         }
 
-        public async Task<LobbyResponseDto> TransitionToInProgressAsync(Guid lobbyId, Guid? activeSessionId)
+        public async Task<LobbyResponseDto> TransitionToInProgressAsync(Guid lobbyId, Guid? activeSessionId, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -1417,7 +1406,7 @@ ILogger<LobbyService> logger,
             return MapLobbyDto(lobby, null);
         }
 
-        public async Task<LobbyResponseDto> JoinLobbyByShareCodeAsync(string shareCode, Guid userId)
+        public async Task<LobbyResponseDto> JoinLobbyByShareCodeAsync(string shareCode, Guid userId, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(shareCode))
             {
@@ -1449,7 +1438,7 @@ ILogger<LobbyService> logger,
             return await JoinLobbyAsync(lobby.Id, userId);
         }
 
-        public async Task<LobbyResponseDto> TransitionToClosedAsync(Guid lobbyId)
+        public async Task<LobbyResponseDto> TransitionToClosedAsync(Guid lobbyId, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -1484,7 +1473,7 @@ ILogger<LobbyService> logger,
 
         // ============================ P1 Features ============================
 
-        public async Task<LobbyResponseDto> TransferHostAsync(Guid lobbyId, Guid currentHostUserId, Guid newHostUserId)
+        public async Task<LobbyResponseDto> TransferHostAsync(Guid lobbyId, Guid currentHostUserId, Guid newHostUserId, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -1552,7 +1541,7 @@ ILogger<LobbyService> logger,
         /// L-03: Host tạo mã chia sẻ mới, invalidate mã cũ.
         /// Logic: Generate new code, update DB, old code becomes invalid immediately.
         /// </summary>
-        public async Task<LobbyResponseDto> RegenerateShareCodeAsync(Guid lobbyId, Guid hostUserId)
+        public async Task<LobbyResponseDto> RegenerateShareCodeAsync(Guid lobbyId, Guid hostUserId, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -1599,7 +1588,7 @@ ILogger<LobbyService> logger,
         public async Task<LobbyResponseDto> ChangeTimeAsync(
             Guid lobbyId,
             Guid hostUserId,
-            Core.DTOs.Lobby.ChangeTimeSlotRequestDto request)
+            Core.DTOs.Lobby.ChangeTimeSlotRequestDto request, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -1718,7 +1707,7 @@ ILogger<LobbyService> logger,
         /// Chỉ áp dụng khi lobby đang Open và chưa được boost trong 6 giờ gần nhất.
         /// Action: bump CreatedAt để lobby hiện lên đầu search results.
         /// </summary>
-        public async Task<LobbyResponseDto> BoostLobbyAsync(Guid lobbyId, Guid hostUserId)
+        public async Task<LobbyResponseDto> BoostLobbyAsync(Guid lobbyId, Guid hostUserId, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -1761,7 +1750,7 @@ ILogger<LobbyService> logger,
             return MapLobbyDto(lobby, null);
         }
 
-        public async Task<LobbyResponseDto> KickMemberAsync(Guid lobbyId, Guid hostUserId, Guid targetUserId, string? reason)
+        public async Task<LobbyResponseDto> KickMemberAsync(Guid lobbyId, Guid hostUserId, Guid targetUserId, string? reason, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -1815,7 +1804,7 @@ ILogger<LobbyService> logger,
             return MapLobbyDto(lobby, null);
         }
 
-        public async Task<LobbyResponseDto> UpdateLobbyAsync(Guid lobbyId, Guid hostUserId, UpdateLobbyRequestDto request)
+        public async Task<LobbyResponseDto> UpdateLobbyAsync(Guid lobbyId, Guid hostUserId, UpdateLobbyRequestDto request, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -1907,7 +1896,7 @@ ILogger<LobbyService> logger,
             return MapLobbyDto(lobby, null);
         }
 
-        public async Task<LobbyResponseDto> SetMemberReadyAsync(Guid lobbyId, Guid userId, bool isReady)
+        public async Task<LobbyResponseDto> SetMemberReadyAsync(Guid lobbyId, Guid userId, bool isReady, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -1988,13 +1977,13 @@ ILogger<LobbyService> logger,
             return MapLobbyDto(lobby, null);
         }
 
-        public async Task<IReadOnlyList<LobbyResponseDto>> GetLobbiesByHostAsync(Guid hostUserId)
+        public async Task<IReadOnlyList<LobbyResponseDto>> GetLobbiesByHostAsync(Guid hostUserId, CancellationToken cancellationToken = default)
         {
             var lobbies = await _lobbyRepository.GetLobbiesByHostAsync(hostUserId);
             return lobbies.Select(l => MapLobbyDto(l, null)).ToList();
         }
 
-        public async Task<IReadOnlyList<LobbyResponseDto>> GetMyLobbiesAsync(Guid userId)
+        public async Task<IReadOnlyList<LobbyResponseDto>> GetMyLobbiesAsync(Guid userId, CancellationToken cancellationToken = default)
         {
             _logger.LogDebug("GetMyLobbiesAsync called. UserId={UserId}", userId);
             var lobbies = await _lobbyRepository.GetMyLobbiesAsync(userId);
@@ -2002,7 +1991,7 @@ ILogger<LobbyService> logger,
             return lobbies.Select(l => MapLobbyDto(l, null)).ToList();
         }
 
-        public async Task<LobbyResponseDto> ReportLobbyAsync(Guid lobbyId, Guid reporterId, CreateLobbyReportDto request)
+        public async Task<LobbyResponseDto> ReportLobbyAsync(Guid lobbyId, Guid reporterId, CreateLobbyReportDto request, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -2035,7 +2024,7 @@ ILogger<LobbyService> logger,
         public async Task<CafeLobbiesResponseDto> GetCafeLobbiesAsync(
             Guid cafeManagerUserId,
             Guid cafeId,
-            CafeLobbiesRequestDto request)
+            CafeLobbiesRequestDto request, CancellationToken cancellationToken = default)
         {
             // Validate user có quyền xem cafe này (Manager hoặc CafeStaff)
             var hasAccess = await _cafeRepository.IsManagerOrStaffAsync(cafeId, cafeManagerUserId);
@@ -2089,25 +2078,30 @@ ILogger<LobbyService> logger,
 
         // ============================ Helpers ============================
 
-        private static readonly Random _secureRng = new();
-
+        /// <summary>
+        /// GAP-R4-A8 Fix: Dùng <see cref="RandomNumberGenerator"/> (cryptographically secure)
+        /// thay vì <see cref="Random"/> để chống brute-force attack vào ShareCode.
+        /// ShareCode 6-char từ alphabet 32 ký tự = ~1B combinations. Rate Limit 5/15min/IP chống
+        /// được naive attack, nhưng với cryptographically-secure RNG + đủ entropy thì attacker
+        /// không thể đoán code dựa trên timing hoặc pattern.
+        /// </summary>
         private async Task<string> GenerateUniqueShareCodeAsync()
         {
             const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
-            // P1 Fix #6: Use static Random (not instantiated per-call) for better randomness
-            // Also use GUID fallback to avoid predictability
             for (var attempt = 0; attempt < 5; attempt++)
             {
-                var code = new string(
-                    Enumerable.Range(0, 6)
-                        .Select(_ => chars[_secureRng.Next(chars.Length)])
-                        .ToArray());
+                var code = new char[6];
+                for (var i = 0; i < 6; i++)
+                {
+                    code[i] = chars[RandomNumberGenerator.GetInt32(0, chars.Length)];
+                }
+                var codeStr = new string(code);
 
-                var existing = await _lobbyRepository.GetByShareCodeAsync(code);
+                var existing = await _lobbyRepository.GetByShareCodeAsync(codeStr);
                 if (existing == null)
                 {
-                    return code;
+                    return codeStr;
                 }
             }
 

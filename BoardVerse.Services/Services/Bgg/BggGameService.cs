@@ -28,7 +28,7 @@ namespace BoardVerse.Services.Services.Bgg
             _logger = logger;
         }
 
-        public Task<IReadOnlyList<BggComponentCatalogItemDto>> GetComponentCatalogAsync()
+        public Task<IReadOnlyList<BggComponentCatalogItemDto>> GetComponentCatalogAsync(CancellationToken cancellationToken = default)
         {
             var items = ComponentCatalog.GetAll()
                 .Select(d => new BggComponentCatalogItemDto
@@ -44,7 +44,7 @@ namespace BoardVerse.Services.Services.Bgg
             return Task.FromResult<IReadOnlyList<BggComponentCatalogItemDto>>(items);
         }
 
-        public async Task<IReadOnlyList<BggSearchResultItemDto>> SearchGamesAsync(string query)
+        public async Task<IReadOnlyList<BggSearchResultItemDto>> SearchGamesAsync(string query, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(query) || query.Trim().Length < 2)
                 throw new BadRequestException(ApiErrorMessages.Bgg.SearchQueryTooShort);
@@ -68,14 +68,14 @@ namespace BoardVerse.Services.Services.Bgg
             }
         }
 
-        public async Task<BggGamePreviewDto> GetGamePreviewAsync(int bggId, bool curatedComponentsOnly = false)
+        public async Task<BggGamePreviewDto> GetGamePreviewAsync(int bggId, bool curatedComponentsOnly = false, CancellationToken cancellationToken = default)
         {
             ValidatePreviewBggId(bggId);
             var thing = await FetchThingForPreviewAsync(bggId);
             return MapPreview(thing, curatedComponentsOnly);
         }
 
-        public async Task<ImportGameFromBggResponseDto> ImportGameAsync(ImportGameFromBggRequestDto request)
+        public async Task<ImportGameFromBggResponseDto> ImportGameAsync(ImportGameFromBggRequestDto request, CancellationToken cancellationToken = default)
         {
             ValidateImportBggId(request.BggId);
             var thing = await FetchThingForImportAsync(request.BggId);

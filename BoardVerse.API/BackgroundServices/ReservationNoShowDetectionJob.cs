@@ -41,6 +41,11 @@ public class ReservationNoShowDetectionJob : BackgroundService
             {
                 await RunDetectionAsync(stoppingToken);
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("ReservationNoShowDetectionJob stopped (host shutdown).");
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "ReservationNoShowDetectionJob: error during detection");

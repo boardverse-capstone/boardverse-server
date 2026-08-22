@@ -15,24 +15,24 @@ namespace BoardVerse.Data.Repositories
             _context = context;
         }
 
-        public async Task<bool> CanOperateCafeAsync(Guid cafeId, Guid userId, string userRole)
+        public async Task<bool> CanOperateCafeAsync(Guid cafeId, Guid userId, string userRole, CancellationToken cancellationToken = default)
         {
             if (userRole == UserRole.Manager.ToString())
             {
                 return await _context.Cafes.AnyAsync(c =>
-                    c.Id == cafeId && c.ManagerId == userId && c.IsActive);
+                    c.Id == cafeId && c.ManagerId == userId && c.IsActive, cancellationToken);
             }
 
             if (userRole == UserRole.CafeStaff.ToString())
             {
                 return await _context.CafeStaffs.AnyAsync(cs =>
-                    cs.CafeId == cafeId && cs.UserId == userId && cs.User.IsActive);
+                    cs.CafeId == cafeId && cs.UserId == userId && cs.User.IsActive, cancellationToken);
             }
 
             return false;
         }
 
-        public async Task<IReadOnlyList<CafeTable>> GetActiveTablesAsync(Guid cafeId, bool includeInactive = false)
+        public async Task<IReadOnlyList<CafeTable>> GetActiveTablesAsync(Guid cafeId, bool includeInactive = false, CancellationToken cancellationToken = default)
         {
             var query = _context.CafeTables
                 .AsNoTracking()
@@ -43,20 +43,20 @@ namespace BoardVerse.Data.Repositories
                 query = query.Where(t => t.IsActive);
             }
 
-            return await query.ToListAsync();
+            return await query.ToListAsync(cancellationToken);
         }
 
-        public async Task<CafeTable?> GetTableAsync(Guid cafeId, Guid tableId) =>
+        public async Task<CafeTable?> GetTableAsync(Guid cafeId, Guid tableId, CancellationToken cancellationToken = default) =>
             await _context.CafeTables
-                .FirstOrDefaultAsync(t => t.CafeId == cafeId && t.Id == tableId && t.IsActive);
+                .FirstOrDefaultAsync(t => t.CafeId == cafeId && t.Id == tableId && t.IsActive, cancellationToken);
 
-        public Task UpdateTableAsync(CafeTable table)
+        public Task UpdateTableAsync(CafeTable table, CancellationToken cancellationToken = default)
         {
             _context.CafeTables.Update(table);
             return Task.CompletedTask;
         }
 
-        public async Task<bool> HasActiveSessionForTableAsync(Guid cafeId, Guid tableId)
+        public async Task<bool> HasActiveSessionForTableAsync(Guid cafeId, Guid tableId, CancellationToken cancellationToken = default)
         {
             return await _context.ActiveSessions
                 .AsNoTracking()
@@ -65,10 +65,10 @@ namespace BoardVerse.Data.Repositories
                     s.CafeTableId == tableId &&
                     (s.Status == GroupSessionStatus.Active
                      || s.Status == GroupSessionStatus.Checking
-                     || s.Status == GroupSessionStatus.Unpaid));
+                     || s.Status == GroupSessionStatus.Unpaid), cancellationToken);
         }
 
-        public async Task<CafeInventoryBox?> GetBoxByBarcodeAsync(Guid cafeId, string barcode) =>
+        public async Task<CafeInventoryBox?> GetBoxByBarcodeAsync(Guid cafeId, string barcode, CancellationToken cancellationToken = default) =>
             await _context.CafeInventoryBoxes
                 .Include(b => b.CafeGameInventory)
                     .ThenInclude(i => i.GameTemplate)
@@ -76,9 +76,9 @@ namespace BoardVerse.Data.Repositories
                     b.IsActive
                     && b.Barcode == barcode
                     && b.CafeGameInventory.IsActive
-                    && b.CafeGameInventory.CafeId == cafeId);
+                    && b.CafeGameInventory.CafeId == cafeId, cancellationToken);
 
-        public async Task<IReadOnlyList<CafeInventoryBox>> GetBoxesAsync(Guid cafeId, Guid? gameTemplateId)
+        public async Task<IReadOnlyList<CafeInventoryBox>> GetBoxesAsync(Guid cafeId, Guid? gameTemplateId, CancellationToken cancellationToken = default)
         {
             var query = _context.CafeInventoryBoxes
                 .AsNoTracking()
@@ -98,10 +98,10 @@ namespace BoardVerse.Data.Repositories
             return await query
                 .OrderBy(b => b.CafeGameInventory.GameTemplate!.Name)
                 .ThenBy(b => b.Barcode)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
         }
 
-        public async Task<ActiveSession?> GetActiveSessionByIdAsync(Guid cafeId, Guid sessionId)
+        public async Task<ActiveSession?> GetActiveSessionByIdAsync(Guid cafeId, Guid sessionId, CancellationToken cancellationToken = default)
         {
             var session = await _context.ActiveSessions
                 .Include(s => s.CafeTable)
@@ -116,21 +116,21 @@ namespace BoardVerse.Data.Repositories
                     .ThenInclude(g => g.CafeInventoryBox)
                 .Include(s => s.Games)
                     .ThenInclude(g => g.GameTemplate)
-                .FirstOrDefaultAsync(s => s.Id == sessionId && s.CafeId == cafeId && s.Status != GroupSessionStatus.Paid);
+                .FirstOrDefaultAsync(s => s.Id == sessionId && s.CafeId == cafeId && s.Status != GroupSessionStatus.Paid, cancellationToken);
 
             return session;
         }
 
-        public async Task<ActiveSession?> GetActiveSessionByBoxIdAsync(Guid boxId) =>
+        public async Task<ActiveSession?> GetActiveSessionByBoxIdAsync(Guid boxId, CancellationToken cancellationToken = default) =>
             await _context.ActiveSessions
-                .FirstOrDefaultAsync(s => s.CafeInventoryBoxId == boxId && s.Status != GroupSessionStatus.Paid);
+                .FirstOrDefaultAsync(s => s.CafeInventoryBoxId == boxId && s.Status != GroupSessionStatus.Paid, cancellationToken);
 
         // Lightweight check: chỉ trả true/false — session có tồn tại VÀ thuộc cafe này không.
         // Dùng cho cross-cafe guard khi truyền optional sessionId (không load navigation).
-        public async Task<bool> ActiveSessionExistsInCafeAsync(Guid sessionId, Guid cafeId) =>
+        public async Task<bool> ActiveSessionExistsInCafeAsync(Guid sessionId, Guid cafeId, CancellationToken cancellationToken = default) =>
             await _context.ActiveSessions
                 .AsNoTracking()
-                .AnyAsync(s => s.Id == sessionId && s.CafeId == cafeId);
+                .AnyAsync(s => s.Id == sessionId && s.CafeId == cafeId, cancellationToken);
 
         /// <summary>
         /// Gap-Fix: Đảm bảo sơ đồ bàn POS phản ánh đúng trạng thái "đang có phiên chơi hoạt động".
@@ -147,7 +147,7 @@ namespace BoardVerse.Data.Repositories
         ///
         /// Service sẽ overlay kết quả này lên <c>CafeTables.Status</c> để render ra POS UI.
         /// </summary>
-        public async Task<IReadOnlyDictionary<Guid, GroupSessionStatus>> GetBusyTableIdsByCafeAsync(Guid cafeId)
+        public async Task<IReadOnlyDictionary<Guid, GroupSessionStatus>> GetBusyTableIdsByCafeAsync(Guid cafeId, CancellationToken cancellationToken = default)
         {
             // Lấy (CafeTableId, Status) của các session chưa thanh toán.
             // Dùng AsNoTracking vì chỉ đọc.
@@ -159,7 +159,7 @@ namespace BoardVerse.Data.Repositories
                                 || s.Status == GroupSessionStatus.Checking
                                 || s.Status == GroupSessionStatus.Unpaid))
                 .Select(s => new { s.CafeTableId, s.Status })
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             if (all.Count == 0)
             {
@@ -177,7 +177,7 @@ namespace BoardVerse.Data.Repositories
             return result;
         }
 
-        public async Task<IReadOnlyList<ActiveSession>> GetActiveSessionsAsync(Guid cafeId, Guid? gameTemplateId)
+        public async Task<IReadOnlyList<ActiveSession>> GetActiveSessionsAsync(Guid cafeId, Guid? gameTemplateId, CancellationToken cancellationToken = default)
         {
             var sessionQuery = _context.ActiveSessions
                 .Where(s => s.CafeId == cafeId && s.Status != GroupSessionStatus.Paid);
@@ -203,7 +203,7 @@ namespace BoardVerse.Data.Repositories
                     s.CreatedAt
                 })
                 .AsNoTracking()
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             if (!sessions.Any())
             {
@@ -221,28 +221,28 @@ namespace BoardVerse.Data.Repositories
             var tables = await _context.CafeTables
                 .Where(t => tableIds.Contains(t.Id))
                 .AsNoTracking()
-                .ToDictionaryAsync(t => t.Id);
+                .ToDictionaryAsync(t => t.Id, cancellationToken);
 
             var boxes = await _context.CafeInventoryBoxes
                 .Where(b => boxIds.Contains(b.Id))
                 .AsNoTracking()
-                .ToDictionaryAsync(b => b.Id);
+                .ToDictionaryAsync(b => b.Id, cancellationToken);
 
             var gameTemplates = await _context.GameTemplates
                 .Where(g => gameTemplateIds.Contains(g.Id))
                 .AsNoTracking()
-                .ToDictionaryAsync(g => g.Id);
+                .ToDictionaryAsync(g => g.Id, cancellationToken);
 
             var hosts = await _context.Users
                 .Where(u => hostIds.Contains(u.Id))
                 .AsNoTracking()
-                .ToDictionaryAsync(u => u.Id);
+                .ToDictionaryAsync(u => u.Id, cancellationToken);
 
             var members = await _context.ActiveSessionMembers
                 .Include(m => m.User)
                 .Where(m => sessionIds.Contains(m.ActiveSessionId))
                 .AsNoTracking()
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             var membersBySession = members.GroupBy(m => m.ActiveSessionId)
                 .ToDictionary(g => g.Key, g => g.ToList());
@@ -254,7 +254,7 @@ namespace BoardVerse.Data.Repositories
                     .Include(l => l.Reservation)
                     .Where(l => lobbyIds.Contains(l.Id))
                     .AsNoTracking()
-                    .ToDictionaryAsync(l => l.Id);
+                    .ToDictionaryAsync(l => l.Id, cancellationToken);
 
             return sessions.Select(s => new ActiveSession
             {
@@ -287,7 +287,7 @@ namespace BoardVerse.Data.Repositories
         /// - Nếu sessionId != null → trả về session cụ thể đó (nếu đang UNPAID).
         /// - Nếu sessionId == null → trả về tất cả UNPAID, sắp xếp lâu nhất lên đầu.
         /// </summary>
-        public async Task<IReadOnlyList<ActiveSession>> GetUnpaidSessionsAsync(Guid cafeId, Guid? sessionId = null)
+        public async Task<IReadOnlyList<ActiveSession>> GetUnpaidSessionsAsync(Guid cafeId, Guid? sessionId = null, CancellationToken cancellationToken = default)
         {
             // Bug #1 fix: Unpaid chỉ xảy ra SAU End-game (checkout), nên EndedAt LUÔN có value.
             // Bỏ dead-code filter `!s.EndedAt.HasValue` (trước đó accept cả session ACTIVE lỡ dừng giữa chừng
@@ -332,7 +332,7 @@ namespace BoardVerse.Data.Repositories
                     s.TotalAmount
                 })
                 .AsNoTracking()
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             if (!sessions.Any())
             {
@@ -348,23 +348,23 @@ namespace BoardVerse.Data.Repositories
             var tables = await _context.CafeTables
                 .Where(t => tableIds.Contains(t.Id))
                 .AsNoTracking()
-                .ToDictionaryAsync(t => t.Id);
+                .ToDictionaryAsync(t => t.Id, cancellationToken);
 
             var games = await _context.GameTemplates
                 .Where(g => gameTemplateIds.Contains(g.Id))
                 .AsNoTracking()
-                .ToDictionaryAsync(g => g.Id);
+                .ToDictionaryAsync(g => g.Id, cancellationToken);
 
             var hosts = await _context.Users
                 .Where(u => hostIds.Contains(u.Id))
                 .AsNoTracking()
-                .ToDictionaryAsync(u => u.Id);
+                .ToDictionaryAsync(u => u.Id, cancellationToken);
 
             var memberCounts = await _context.ActiveSessionMembers
                 .Where(m => sessionIds.Contains(m.ActiveSessionId))
                 .GroupBy(m => m.ActiveSessionId)
                 .Select(g => new { SessionId = g.Key, Count = g.Count() })
-                .ToDictionaryAsync(x => x.SessionId, x => x.Count);
+                .ToDictionaryAsync(x => x.SessionId, x => x.Count, cancellationToken);
 
             return sessions.Select(s => new ActiveSession
             {
@@ -400,7 +400,8 @@ namespace BoardVerse.Data.Repositories
             Guid? gameTemplateId,
             Guid? staffId,
             int pageNumber,
-            int pageSize)
+            int pageSize,
+            CancellationToken cancellationToken = default)
         {
             var fromUtc = fromDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
             // ToDate inclusive: lấy đến cuối ngày (23:59:59.999).
@@ -421,7 +422,7 @@ namespace BoardVerse.Data.Repositories
             // staffId chưa được track trên ActiveSession (BR-22 / audit phase 2).
             // Để forward-compat: nếu cần, sẽ thêm PaidByStaffId column hoặc join BookingPayment audit log.
 
-            var totalCount = await query.CountAsync();
+            var totalCount = await query.CountAsync(cancellationToken);
 
             var sessions = await query
                 .OrderByDescending(s => s.PaidAt)
@@ -446,7 +447,7 @@ namespace BoardVerse.Data.Repositories
                     s.TotalMinutesPlayed
                 })
                 .AsNoTracking()
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             if (!sessions.Any())
             {
@@ -461,23 +462,23 @@ namespace BoardVerse.Data.Repositories
             var tables = await _context.CafeTables
                 .Where(t => tableIds.Contains(t.Id))
                 .AsNoTracking()
-                .ToDictionaryAsync(t => t.Id);
+                .ToDictionaryAsync(t => t.Id, cancellationToken);
 
             var games = await _context.GameTemplates
                 .Where(g => gameTemplateIds.Contains(g.Id))
                 .AsNoTracking()
-                .ToDictionaryAsync(g => g.Id);
+                .ToDictionaryAsync(g => g.Id, cancellationToken);
 
             var hosts = await _context.Users
                 .Where(u => hostIds.Contains(u.Id))
                 .AsNoTracking()
-                .ToDictionaryAsync(u => u.Id);
+                .ToDictionaryAsync(u => u.Id, cancellationToken);
 
             var memberCounts = await _context.ActiveSessionMembers
                 .Where(m => sessionIds.Contains(m.ActiveSessionId))
                 .GroupBy(m => m.ActiveSessionId)
                 .Select(g => new { SessionId = g.Key, Count = g.Count() })
-                .ToDictionaryAsync(x => x.SessionId, x => x.Count);
+                .ToDictionaryAsync(x => x.SessionId, x => x.Count, cancellationToken);
 
             var items = sessions.Select(s => new ActiveSession
             {
@@ -515,7 +516,8 @@ namespace BoardVerse.Data.Repositories
         /// </summary>
         public async Task<IReadOnlyDictionary<Guid, int>> GetActiveSessionMemberCountsAsync(
             Guid cafeId,
-            IReadOnlyCollection<Guid> sessionIds)
+            IReadOnlyCollection<Guid> sessionIds,
+            CancellationToken cancellationToken = default)
         {
             if (sessionIds.Count == 0)
             {
@@ -526,16 +528,16 @@ namespace BoardVerse.Data.Repositories
                 .Where(m => sessionIds.Contains(m.ActiveSessionId))
                 .GroupBy(m => m.ActiveSessionId)
                 .Select(g => new { SessionId = g.Key, Count = g.Count() })
-                .ToDictionaryAsync(x => x.SessionId, x => x.Count);
+                .ToDictionaryAsync(x => x.SessionId, x => x.Count, cancellationToken);
         }
 
-        public Task AddSessionAsync(ActiveSession session)
+        public Task AddSessionAsync(ActiveSession session, CancellationToken cancellationToken = default)
         {
             _context.ActiveSessions.Add(session);
             return Task.CompletedTask;
         }
 
-        public Task AddSessionMemberAsync(ActiveSessionMember member)
+        public Task AddSessionMemberAsync(ActiveSessionMember member, CancellationToken cancellationToken = default)
         {
             _context.ActiveSessionMembers.Add(member);
             return Task.CompletedTask;
@@ -545,55 +547,56 @@ namespace BoardVerse.Data.Repositories
         /// BR-12: Auto-create ActiveSessionGame when starting session so SubmitComponentCheck
         /// has a valid target immediately when session enters CHECKING state.
         /// </summary>
-        public Task AddSessionGameAsync(ActiveSessionGame sessionGame)
+        public Task AddSessionGameAsync(ActiveSessionGame sessionGame, CancellationToken cancellationToken = default)
         {
             _context.ActiveSessionGames.Add(sessionGame);
             return Task.CompletedTask;
         }
 
-        public Task AddComponentLossReportAsync(ComponentLossReport report)
+        public Task AddComponentLossReportAsync(ComponentLossReport report, CancellationToken cancellationToken = default)
         {
             _context.ComponentLossReports.Add(report);
             return Task.CompletedTask;
         }
 
-        public async Task AddComponentCheckResultsAsync(IEnumerable<ComponentCheckResult> results)
+        public async Task AddComponentCheckResultsAsync(IEnumerable<ComponentCheckResult> results, CancellationToken cancellationToken = default)
         {
-            await _context.ComponentCheckResults.AddRangeAsync(results);
+            await _context.ComponentCheckResults.AddRangeAsync(results, cancellationToken);
         }
 
-        public async Task DeleteComponentCheckResultsAsync(Guid activeSessionGameId)
+        public async Task DeleteComponentCheckResultsAsync(Guid activeSessionGameId, CancellationToken cancellationToken = default)
         {
             var existing = await _context.ComponentCheckResults
                 .Where(r => r.ActiveSessionGameId == activeSessionGameId)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
             if (existing.Count > 0)
             {
                 _context.ComponentCheckResults.RemoveRange(existing);
             }
         }
 
-        public Task UpdateDepositAsync(BookingDeposit deposit)
+        public Task UpdateDepositAsync(BookingDeposit deposit, CancellationToken cancellationToken = default)
         {
             _context.BookingDeposits.Update(deposit);
             return Task.CompletedTask;
         }
 
-        public async Task<IReadOnlyList<ActiveSessionGame>> GetSessionGamesAsync(Guid sessionId) =>
+        public async Task<IReadOnlyList<ActiveSessionGame>> GetSessionGamesAsync(Guid sessionId, CancellationToken cancellationToken = default) =>
             await _context.ActiveSessionGames
                 .Include(g => g.CafeInventoryBox)
                     .ThenInclude(b => b.CafeGameInventory)
                 .Include(g => g.GameTemplate)
                     .ThenInclude(t => t.Components)
                 .Where(g => g.ActiveSessionId == sessionId)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
         // Box history #1: query lịch sử thiếu linh kiện của 1 hộp, kèm navigation
         // ComponentCheckResults → GameComponentTemplate, Staff (User), ActiveSession → Members.
         // sessionId optional: nếu truyền → chỉ lấy incidents của phiên đó; null → tất cả incidents.
         public async Task<IReadOnlyList<ActiveSessionGame>> GetMissingComponentIncidentsByBoxAsync(
             Guid boxId,
-            Guid? sessionId = null) =>
+            Guid? sessionId = null,
+            CancellationToken cancellationToken = default) =>
             await _context.ActiveSessionGames
                 .Where(g => g.CafeInventoryBoxId == boxId
                     && g.CheckStatus == ComponentCheckStatus.MissingComponents
@@ -606,7 +609,7 @@ namespace BoardVerse.Data.Repositories
                 .Include(g => g.ActiveSession)
                     .ThenInclude(s => s.Members)
                 .OrderByDescending(g => g.CheckedAt ?? DateTime.MinValue)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
         /// <summary>
         /// FIX Bug "ComponentChecklist luôn trả đầy đủ dù hộp đã bị mất":
@@ -615,7 +618,7 @@ namespace BoardVerse.Data.Repositories
         /// để tra nhanh. Dùng cho GetComponentChecklistAsync: lần kiểm kê tiếp theo sẽ
         /// lấy ActualQuantity gần nhất làm ExpectedQuantity (snapshot baseline mới).
         /// </summary>
-        public async Task<IReadOnlyDictionary<Guid, ComponentCheckResult>> GetLatestComponentCheckByBoxAsync(Guid boxId)
+        public async Task<IReadOnlyDictionary<Guid, ComponentCheckResult>> GetLatestComponentCheckByBoxAsync(Guid boxId, CancellationToken cancellationToken = default)
         {
             // Lấy tất cả ActiveSessionGame của box, kèm ComponentCheckResults.
             // Sắp xếp theo CheckedAt DESC để lấy bản ghi mới nhất cho mỗi component.
@@ -624,7 +627,7 @@ namespace BoardVerse.Data.Repositories
                     && g.CheckStatus != ComponentCheckStatus.NotChecked)
                 .Include(g => g.ComponentCheckResults)
                 .OrderByDescending(g => g.CheckedAt ?? DateTime.MinValue)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             // Với mỗi componentId, lấy ComponentCheckResult mới nhất (qua game mới nhất
             // có chứa component đó — trong cùng 1 session game, mỗi component chỉ có 1 dòng).
@@ -647,11 +650,11 @@ namespace BoardVerse.Data.Repositories
         /// BR-12: Kiểm tra tất cả game trong session đã được kiểm tra đủ linh kiện.
         /// Returns true only if ALL session games have CheckStatus != NotChecked.
         /// </summary>
-        public async Task<bool> IsSessionFullyCheckedAsync(Guid sessionId)
+        public async Task<bool> IsSessionFullyCheckedAsync(Guid sessionId, CancellationToken cancellationToken = default)
         {
             var games = await _context.ActiveSessionGames
                 .Where(g => g.ActiveSessionId == sessionId)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             // If no games attached, no checklist needed
             if (games.Count == 0)
@@ -661,31 +664,31 @@ namespace BoardVerse.Data.Repositories
             return games.All(g => g.CheckStatus != ComponentCheckStatus.NotChecked);
         }
 
-        public async Task<ActiveSessionGame?> GetActiveSessionGameByIdAsync(Guid sessionGameId) =>
+        public async Task<ActiveSessionGame?> GetActiveSessionGameByIdAsync(Guid sessionGameId, CancellationToken cancellationToken = default) =>
             await _context.ActiveSessionGames
                 .Include(g => g.CafeInventoryBox)
                     .ThenInclude(b => b.CafeGameInventory)
                 .Include(g => g.GameTemplate)
                     .ThenInclude(t => t.Components)
                 .Include(g => g.ActiveSession)
-                .FirstOrDefaultAsync(g => g.Id == sessionGameId);
+                .FirstOrDefaultAsync(g => g.Id == sessionGameId, cancellationToken);
 
-        public async Task<GameTemplate?> GetGameTemplateWithComponentsAsync(Guid gameTemplateId) =>
+        public async Task<GameTemplate?> GetGameTemplateWithComponentsAsync(Guid gameTemplateId, CancellationToken cancellationToken = default) =>
             await _context.GameTemplates
                 .Include(t => t.Components)
-                .FirstOrDefaultAsync(t => t.Id == gameTemplateId);
+                .FirstOrDefaultAsync(t => t.Id == gameTemplateId, cancellationToken);
 
-        public async Task<CafeGameComponentPenalty?> GetComponentPenaltyAsync(Guid cafeId, Guid gameTemplateId, Guid componentId) =>
+        public async Task<CafeGameComponentPenalty?> GetComponentPenaltyAsync(Guid cafeId, Guid gameTemplateId, Guid componentId, CancellationToken cancellationToken = default) =>
             await _context.CafeGameComponentPenalties
                 .Include(p => p.CafeGameInventory)
                 .Include(p => p.GameComponentTemplate)
                 .FirstOrDefaultAsync(p =>
                     p.CafeGameInventory.CafeId == cafeId &&
                     p.CafeGameInventory.GameTemplateId == gameTemplateId &&
-                    p.GameComponentTemplateId == componentId);
+                    p.GameComponentTemplateId == componentId, cancellationToken);
 
         public async Task<IReadOnlyDictionary<Guid, CafeGameComponentPenalty>> GetComponentPenaltiesByCafeGameAsync(
-            Guid cafeId, Guid gameTemplateId, IReadOnlyCollection<Guid> componentIds)
+            Guid cafeId, Guid gameTemplateId, IReadOnlyCollection<Guid> componentIds, CancellationToken cancellationToken = default)
         {
             if (componentIds.Count == 0)
             {
@@ -699,30 +702,30 @@ namespace BoardVerse.Data.Repositories
                     p.CafeGameInventory.CafeId == cafeId &&
                     p.CafeGameInventory.GameTemplateId == gameTemplateId &&
                     componentIds.Contains(p.GameComponentTemplateId))
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             return list.ToDictionary(p => p.GameComponentTemplateId);
         }
 
-        public async Task<CafeInventoryBox?> GetInventoryBoxByIdAsync(Guid boxId) =>
+        public async Task<CafeInventoryBox?> GetInventoryBoxByIdAsync(Guid boxId, CancellationToken cancellationToken = default) =>
             await _context.CafeInventoryBoxes
                 .Include(b => b.CafeGameInventory)
                     .ThenInclude(i => i.GameTemplate)
                         .ThenInclude(t => t.Components)
                 .Include(b => b.CafeGameInventory)
                     .ThenInclude(i => i.ComponentPenalties)
-                .FirstOrDefaultAsync(b => b.Id == boxId && b.IsActive);
+                .FirstOrDefaultAsync(b => b.Id == boxId && b.IsActive, cancellationToken);
 
-        public async Task UpdateInventoryBoxAsync(CafeInventoryBox box)
+        public async Task UpdateInventoryBoxAsync(CafeInventoryBox box, CancellationToken cancellationToken = default)
         {
             _context.CafeInventoryBoxes.Update(box);
         }
 
-        public Task SaveChangesAsync() => _context.SaveChangesAsync();
+        public async Task SaveChangesAsync(CancellationToken cancellationToken = default) => await _context.SaveChangesAsync(cancellationToken);
 
         // GAP-1/GAP-37 Fix: Idempotency + Nonce tracking
         // These methods check if IdempotencyKey/Nonce tables exist; if not, they log warning and allow the operation.
-        public async Task<ActiveSession?> GetSessionByIdempotencyKeyAsync(string idempotencyKey)
+        public async Task<ActiveSession?> GetSessionByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -738,7 +741,7 @@ namespace BoardVerse.Data.Repositories
             }
         }
 
-        public async Task SaveIdempotencyKeyAsync(Guid sessionId, string idempotencyKey)
+        public async Task SaveIdempotencyKeyAsync(Guid sessionId, string idempotencyKey, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -751,7 +754,7 @@ namespace BoardVerse.Data.Repositories
             }
         }
 
-        public async Task<bool> IsNonceUsedAsync(string nonce)
+        public async Task<bool> IsNonceUsedAsync(string nonce, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -766,7 +769,7 @@ namespace BoardVerse.Data.Repositories
             }
         }
 
-        public async Task MarkNonceUsedAsync(string nonce)
+        public async Task MarkNonceUsedAsync(string nonce, CancellationToken cancellationToken = default)
         {
             try
             {

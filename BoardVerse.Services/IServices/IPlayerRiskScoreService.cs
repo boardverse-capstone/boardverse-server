@@ -1,6 +1,7 @@
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 
+using System.Threading;
 namespace BoardVerse.Services.IServices;
 
 /// <summary>
@@ -21,8 +22,8 @@ public interface IPlayerRiskScoreService
     Task<int> RecomputeBatchAsync(int batchSize, DateTime now, CancellationToken ct = default);
 
     /// <summary>Đọc snapshot hiện tại (admin view).</summary>
-    Task<PlayerRiskScore?> GetCurrentAsync(Guid userId);
+    Task<PlayerRiskScore?> GetCurrentAsync(Guid userId, CancellationToken cancellationToken = default);
 
     /// <summary>Đọc history cho chart trend.</summary>
-    Task<IReadOnlyList<RiskScoreHistory>> GetHistoryAsync(Guid userId, DateOnly fromDate, DateOnly toDate);
+    Task<IReadOnlyList<RiskScoreHistory>> GetHistoryAsync(Guid userId, DateOnly fromDate, DateOnly toDate, CancellationToken cancellationToken = default);
 }

@@ -44,7 +44,7 @@ public class CafeBookingService : ICafeBookingService
         Guid cafeId,
         DateTime scheduledStartTime,
         DateTime scheduleEndTime,
-        int seatCount)
+        int seatCount, CancellationToken cancellationToken = default)
     {
         if (scheduleEndTime <= scheduledStartTime)
         {
@@ -102,7 +102,8 @@ public class CafeBookingService : ICafeBookingService
         DateTime startTime,
         DateTime endTime,
         int seatCount,
-        Guid? gameTemplateId)
+        Guid? gameTemplateId,
+        CancellationToken cancellationToken = default)
     {
         if (endTime <= startTime)
         {
@@ -114,19 +115,27 @@ public class CafeBookingService : ICafeBookingService
             seatCount = 1;
         }
 
-        var cafe = await _cafeRepository.GetActiveByIdAsync(cafeId)
+        var cafe = await _cafeRepository.GetActiveByIdAsync(cafeId, cancellationToken)
             ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
 
         // TotalSeats: tổng SeatCount của các bàn active.
-        var tables = (await _cafeTableRepository.GetByCafeIdAsync(cafeId))
+        var tables = (await _cafeTableRepository.GetByCafeIdAsync(cafeId, cancellationToken))
             .Where(t => t.IsActive)
             .ToList();
         var totalSeats = tables.Sum(t => t.SeatCount);
+        var duration = endTime - startTime;
 
         // Overlap từ Booking (Confirmed/CheckedIn chưa cancel) + ActiveSession (Active/Checking).
         var overlappingBookings = await _bookingRepository.GetOverlappingBookingsAsync(
-            cafeId, startTime, endTime);
-        var activeSessions = await _activeSessionRepository.GetActiveSessionsAsync(cafeId, null);
+            cafeId, startTime, endTime, cancellationToken);
+
+        // GAP-R4-A12 Fix: Pre-fetch sessions cho cả range bao gồm alternative slots
+        // (4 slot × 30min = max 2 giờ sau startTime). Trước đây mỗi slot gọi GetActiveSessionsAsync
+        // riêng → 4 queries. Bây giờ 1 query duy nhất, filter in-memory theo slot.
+        var altSlotsEndTime = startTime.Add(duration).AddMinutes(30 * 4);
+        var allSessionsInRange = await _activeSessionRepository.GetActiveSessionsInRangeAsync(
+            cafeId, startTime.AddMinutes(-duration.TotalMinutes), altSlotsEndTime, cancellationToken);
+        var activeSessions = FilterSessionsByRange(allSessionsInRange, startTime, endTime);
 
         var bookedSeats = overlappingBookings.Sum(b => b.PlayerQuantity);
         var sessionSeats = activeSessions
@@ -136,7 +145,7 @@ public class CafeBookingService : ICafeBookingService
         // Flow A — Reservation: giữ ghế qua SeatInventory.HeldSeats (đã được ReservationService
         // trừ khi ConfirmAsync), không liên quan tới CafeTable. Đếm overlap từ Reservation entity.
         var overlappingReservations = await _reservationRepository.GetOverlappingReservationsAsync(
-            cafeId, startTime, endTime);
+            cafeId, startTime, endTime, cancellationToken);
         var reservationHeldSeats = overlappingReservations
             .Where(r => r.Status == ReservationStatus.Holding
                      || r.Status == ReservationStatus.Confirmed
@@ -145,7 +154,7 @@ public class CafeBookingService : ICafeBookingService
 
         // WalkIn giữ ghế qua WalkInWindow.HeldSeats.
         var overlappingWindows = await _walkInWindowRepository.GetOverlappingAsync(
-            cafeId, startTime, endTime);
+            cafeId, startTime, endTime, cancellationToken);
         var walkInHeldSeats = overlappingWindows
             .Where(w => w.Status == WalkInWindowStatus.Available || w.Status == WalkInWindowStatus.Full)
             .Sum(w => w.HeldSeats);
@@ -159,7 +168,7 @@ public class CafeBookingService : ICafeBookingService
         NearbyCafeGameAvailabilityStatus? gameStatus = null;
         if (gameTemplateId.HasValue)
         {
-            var boxes = await _posRepository.GetBoxesAsync(cafeId, gameTemplateId);
+            var boxes = await _posRepository.GetBoxesAsync(cafeId, gameTemplateId, cancellationToken);
             availableGameBoxCount = boxes.Count;
             gameStatus = availableGameBoxCount > 0
                 ? NearbyCafeGameAvailabilityStatus.GameAvailable
@@ -167,18 +176,18 @@ public class CafeBookingService : ICafeBookingService
         }
 
         // Alternative slots: khảo sát 4 slot kế tiếp (mỗi slot cách 30 phút).
+        // GAP-R4-A12 Fix: Dùng pre-fetched sessions + filter in-memory thay vì query mỗi slot.
         var altSlots = new List<CafeAvailabilitySlotDto>();
-        var duration = endTime - startTime;
         for (int i = 1; i <= 4 && altSlots.Count < 2; i++)
         {
             var altStart = startTime.AddMinutes(30 * i);
             var altEnd = altStart.Add(duration);
-            var altBookings = await _bookingRepository.GetOverlappingBookingsAsync(cafeId, altStart, altEnd);
-            var altSessions = await _activeSessionRepository.GetActiveSessionsAsync(cafeId, null);
+            var altBookings = await _bookingRepository.GetOverlappingBookingsAsync(cafeId, altStart, altEnd, cancellationToken);
+            var altSessions = FilterSessionsByRange(allSessionsInRange, altStart, altEnd);
             var altReservations = await _reservationRepository.GetOverlappingReservationsAsync(
-                cafeId, altStart, altEnd);
+                cafeId, altStart, altEnd, cancellationToken);
             var altWindows = await _walkInWindowRepository.GetOverlappingAsync(
-                cafeId, altStart, altEnd);
+                cafeId, altStart, altEnd, cancellationToken);
 
             var altBookedSeats = altBookings.Sum(b => b.PlayerQuantity);
             var altSessionSeats = altSessions
@@ -219,5 +228,17 @@ public class CafeBookingService : ICafeBookingService
             SelectedGameAvailabilityStatus = gameStatus,
             AlternativeSlots = altSlots
         };
+    }
+
+    /// <summary>
+    /// GAP-R4-A12 Fix: Filter active sessions overlap với [start, end] từ pre-fetched list.
+    /// </summary>
+    private static List<ActiveSession> FilterSessionsByRange(
+        List<ActiveSession> sessions, DateTime start, DateTime end)
+    {
+        return sessions
+            .Where(s => s.StartedAt < end
+                && (!s.EndedAt.HasValue || s.EndedAt.Value > start))
+            .ToList();
     }
 }

@@ -35,6 +35,11 @@ public class WalkInWindowCleanupJob : BackgroundService
             {
                 await RunCleanupAsync(stoppingToken);
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("WalkInWindowCleanupJob stopped (host shutdown).");
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "WalkInWindowCleanupJob: Error during cleanup");

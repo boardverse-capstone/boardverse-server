@@ -36,6 +36,11 @@ public class FriendRequestExpiryJob : BackgroundService
                     _logger.LogInformation("FriendRequestExpiryJob: expired {Count} pending requests.", expired);
                 }
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("FriendRequestExpiryJob stopped (host shutdown).");
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in FriendRequestExpiryJob");

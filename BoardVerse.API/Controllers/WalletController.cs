@@ -4,6 +4,7 @@ using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace BoardVerse.API.Controllers;
 
@@ -75,6 +76,9 @@ public class WalletController : BaseApiController
     [ProducesResponseType(401)]
     [ProducesResponseType(typeof(object), 403)]
     [ProducesResponseType(500)]
+    // GAP-R6-WAL-04 Fix: 5 attempts/user/5min — chống abuse tạo payment order liên tục
+    // (mỗi order ghi outbox + DB transaction cost).
+    [EnableRateLimiting("TopUpPolicy")]
     public async Task<IActionResult> CreateTopUp([FromBody] TopUpRequestDto request)
     {
         var userId = GetUserIdFromClaims();
@@ -245,6 +249,8 @@ public class WalletController : BaseApiController
     [ProducesResponseType(typeof(object), 404)]
     [ProducesResponseType(typeof(object), 409)]
     [ProducesResponseType(500)]
+    // GAP-R6-WAL-05 Fix: 3 refund-requests/user/day — chống abuse spam refund.
+    [EnableRateLimiting("RefundPolicy")]
     public async Task<IActionResult> CreateRefundRequest(
         [FromBody] CreateRefundRequestDto request,
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey)

@@ -25,7 +25,7 @@ public class TournamentSpectatorService : ITournamentSpectatorService
         _logger = logger;
     }
 
-    public async Task<TournamentSpectatorDto> SpectateAsync(Guid userId, Guid tournamentId)
+    public async Task<TournamentSpectatorDto> SpectateAsync(Guid userId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -67,7 +67,7 @@ public class TournamentSpectatorService : ITournamentSpectatorService
         return MapToDto(spectator);
     }
 
-    public async Task LeaveSpectateAsync(Guid userId, Guid tournamentId)
+    public async Task LeaveSpectateAsync(Guid userId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var spectator = await _spectatorRepository.GetByUserAsync(tournamentId, userId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.Spectator.NotSpectating);
@@ -81,13 +81,13 @@ public class TournamentSpectatorService : ITournamentSpectatorService
             userId, tournamentId);
     }
 
-    public async Task<TournamentSpectatorDto?> GetMySpectatorEntryAsync(Guid userId, Guid tournamentId)
+    public async Task<TournamentSpectatorDto?> GetMySpectatorEntryAsync(Guid userId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var spectator = await _spectatorRepository.GetByUserAsync(tournamentId, userId);
         return spectator != null ? MapToDto(spectator) : null;
     }
 
-    public async Task<IReadOnlyList<TournamentSpectatorDto>> GetSpectatorsAsync(Guid tournamentId)
+    public async Task<IReadOnlyList<TournamentSpectatorDto>> GetSpectatorsAsync(Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var spectators = await _spectatorRepository.GetByTournamentAsync(tournamentId);
         return spectators.Select(MapToDto).ToList();

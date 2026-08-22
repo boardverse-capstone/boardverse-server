@@ -1,5 +1,6 @@
 using BoardVerse.Core.Entities;
 
+using System.Threading;
 namespace BoardVerse.Core.IRepositories;
 
 /// <summary>
@@ -10,11 +11,14 @@ namespace BoardVerse.Core.IRepositories;
 /// </summary>
 public interface IDeviceTokenRepository
 {
-    Task AddAsync(DeviceToken token);
-    Task<DeviceToken?> GetByTokenAsync(string token);
-    Task<IReadOnlyList<DeviceToken>> GetByUserIdAsync(Guid userId);
-    Task<IReadOnlyList<DeviceToken>> GetActiveTokensByUserIdsAsync(IReadOnlyCollection<Guid> userIds);
-    Task UpdateAsync(DeviceToken token);
-    Task DeleteAsync(Guid id);
-    Task SaveChangesAsync();
+    Task AddAsync(DeviceToken token, CancellationToken cancellationToken = default);
+    Task<DeviceToken?> GetByTokenAsync(string token, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<DeviceToken>> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<DeviceToken>> GetActiveTokensByUserIdsAsync(IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default);
+    Task UpdateAsync(DeviceToken token, CancellationToken cancellationToken = default);
+    Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);
+
+    Task<int> DeleteStaleTokensAsync(DateTime staleCutoff, CancellationToken cancellationToken = default);
+
+    Task SaveChangesAsync(CancellationToken cancellationToken = default);
 }

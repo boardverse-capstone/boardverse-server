@@ -24,7 +24,7 @@ public class CafeScheduleService : ICafeScheduleService
         _cafeRepository = cafeRepository;
     }
 
-    public async Task<CafeScheduleResponseDto> GetScheduleAsync(Guid cafeId)
+    public async Task<CafeScheduleResponseDto> GetScheduleAsync(Guid cafeId, CancellationToken cancellationToken = default)
     {
         var cafe = await _cafeRepository.GetByIdAsync(cafeId);
         if (cafe == null)
@@ -42,7 +42,7 @@ public class CafeScheduleService : ICafeScheduleService
     }
 
     public async Task<CafeScheduleOverrideResponseDto> UpsertOverrideAsync(
-        Guid cafeId, Guid managerUserId, UpsertCafeScheduleOverrideRequestDto request)
+        Guid cafeId, Guid managerUserId, UpsertCafeScheduleOverrideRequestDto request, CancellationToken cancellationToken = default)
     {
         await EnsureCafeExistsAsync(cafeId);
         await EnsureCafeManagerAsync(cafeId, managerUserId);

@@ -16,7 +16,8 @@ namespace BoardVerse.Core.DTOs.Pos;
 public class BoxComponentHistoryDto
 {
     public Guid BoxId { get; set; }
-    public string? BoxLabel { get; set; }
+    /// <summary>GAP-R4-A26: Barcode trước đây đặt tên "BoxLabel" gây nhầm lẫn với human-readable label. Đổi sang BoxBarcode cho khớp semantic.</summary>
+    public string? BoxBarcode { get; set; }
     public string? Barcode { get; set; }
     public Guid GameTemplateId { get; set; }
     public string GameName { get; set; } = string.Empty;

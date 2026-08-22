@@ -1,5 +1,6 @@
 using BoardVerse.Core.DTOs.Lobby;
 
+using System.Threading;
 namespace BoardVerse.Services.IServices;
 
 /// <summary>
@@ -10,20 +11,20 @@ public interface ILobbyMessageService
     /// <summary>
     /// Member gửi tin nhắn chat (1-1000 ký tự). Phải là active member của lobby.
     /// </summary>
-    Task<LobbyMessageDto> SendMessageAsync(Guid lobbyId, Guid senderId, string content);
+    Task<LobbyMessageDto> SendMessageAsync(Guid lobbyId, Guid senderId, string content, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lấy lịch sử chat (cursor pagination).
     /// </summary>
-    Task<IReadOnlyList<LobbyMessageDto>> GetMessagesAsync(Guid lobbyId, DateTime? beforeCursor, int limit = 50);
+    Task<IReadOnlyList<LobbyMessageDto>> GetMessagesAsync(Guid lobbyId, DateTime? beforeCursor, int limit = 50, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Hệ thống tự thêm message (vd: "Alice joined the lobby").
     /// </summary>
-    Task AddSystemMessageAsync(Guid lobbyId, string content);
+    Task AddSystemMessageAsync(Guid lobbyId, string content, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Hệ thống tự thêm member-joined message (vd: "Alice đã tham gia").
     /// </summary>
-    Task AddMemberJoinedMessageAsync(Guid lobbyId, Guid userId);
+    Task AddMemberJoinedMessageAsync(Guid lobbyId, Guid userId, CancellationToken cancellationToken = default);
 }

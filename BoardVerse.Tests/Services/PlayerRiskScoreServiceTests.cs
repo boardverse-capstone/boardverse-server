@@ -143,16 +143,16 @@ public class PlayerRiskScoreServiceTests
     {
         // BR-RISK-11: append RiskScoreHistory cho mỗi recompute.
         var riskRepo = new Mock<IPlayerRiskScoreRepository>();
-        riskRepo.Setup(r => r.GetByUserIdAsync(UserId)).ReturnsAsync((PlayerRiskScore?)null);
+        riskRepo.Setup(r => r.GetByUserIdAsync(UserId, It.IsAny<CancellationToken>())).ReturnsAsync((PlayerRiskScore?)null);
         riskRepo.Setup(r => r.UpsertAsync(It.IsAny<PlayerRiskScore>())).Returns(Task.CompletedTask);
         riskRepo.Setup(r => r.AppendHistoryAsync(It.IsAny<RiskScoreHistory>())).Returns(Task.CompletedTask);
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(UserId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), LobbyStatus.TimeoutFailed))
+        lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(UserId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), LobbyStatus.TimeoutFailed, It.IsAny<CancellationToken>()))
             .ReturnsAsync(2); // SIG-01 = 2
 
         var ledgerRepo = new Mock<IBvcLedgerEntryRepository>();
-        ledgerRepo.Setup(r => r.SumForfeitAsync(UserId, It.IsAny<DateTime>()))
+        ledgerRepo.Setup(r => r.SumForfeitAsync(UserId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
 
         var alertService = new Mock<IPlayerAlertService>();
@@ -180,16 +180,16 @@ public class PlayerRiskScoreServiceTests
             RiskLevel = RiskLevel.Medium,
             Signals = "{}"
         };
-        riskRepo.Setup(r => r.GetByUserIdAsync(UserId)).ReturnsAsync(existing);
+        riskRepo.Setup(r => r.GetByUserIdAsync(UserId, It.IsAny<CancellationToken>())).ReturnsAsync(existing);
         riskRepo.Setup(r => r.UpsertAsync(It.IsAny<PlayerRiskScore>())).Returns(Task.CompletedTask);
         riskRepo.Setup(r => r.AppendHistoryAsync(It.IsAny<RiskScoreHistory>())).Returns(Task.CompletedTask);
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(UserId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), LobbyStatus.TimeoutFailed))
+        lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(UserId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), LobbyStatus.TimeoutFailed, It.IsAny<CancellationToken>()))
             .ReturnsAsync(6); // SIG-01=6 → 90 điểm → Critical
 
         var ledgerRepo = new Mock<IBvcLedgerEntryRepository>();
-        ledgerRepo.Setup(r => r.SumForfeitAsync(UserId, It.IsAny<DateTime>())).ReturnsAsync(0);
+        ledgerRepo.Setup(r => r.SumForfeitAsync(UserId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(0);
 
         var alertService = new Mock<IPlayerAlertService>();
         var db = CreateInMemoryDbContext();
@@ -214,15 +214,15 @@ public class PlayerRiskScoreServiceTests
             RiskLevel = RiskLevel.Critical,
             Signals = "{}"
         };
-        riskRepo.Setup(r => r.GetByUserIdAsync(UserId)).ReturnsAsync(existing);
+        riskRepo.Setup(r => r.GetByUserIdAsync(UserId, It.IsAny<CancellationToken>())).ReturnsAsync(existing);
         riskRepo.Setup(r => r.UpsertAsync(It.IsAny<PlayerRiskScore>())).Returns(Task.CompletedTask);
         riskRepo.Setup(r => r.AppendHistoryAsync(It.IsAny<RiskScoreHistory>())).Returns(Task.CompletedTask);
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(UserId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<LobbyStatus?>())).ReturnsAsync(6);
+        lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(UserId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<LobbyStatus?>(), It.IsAny<CancellationToken>())).ReturnsAsync(6);
 
         var ledgerRepo = new Mock<IBvcLedgerEntryRepository>();
-        ledgerRepo.Setup(r => r.SumForfeitAsync(UserId, It.IsAny<DateTime>())).ReturnsAsync(0);
+        ledgerRepo.Setup(r => r.SumForfeitAsync(UserId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(0);
 
         var alertService = new Mock<IPlayerAlertService>();
         var db = CreateInMemoryDbContext();

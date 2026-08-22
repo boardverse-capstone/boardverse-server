@@ -199,7 +199,7 @@ public class WalkInService : IWalkInService
         // Default: window tồn tại trong 30 phút kể từ windowStart
         var expiresAt = windowStart.AddMinutes(30);
         var windowEnd = reservation.ScheduledEndTime;
-        if (windowEnd == default)
+        if (windowEnd == default);
             throw new InternalServerErrorException(
                 ApiErrorMessages.WalkIn.ReservationMissingScheduledEndTime);
 

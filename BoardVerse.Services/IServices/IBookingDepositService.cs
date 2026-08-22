@@ -1,6 +1,7 @@
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 
+using System.Threading;
 namespace BoardVerse.Services.IServices;
 
 public interface IBookingDepositService
@@ -16,7 +17,7 @@ public interface IBookingDepositService
         decimal amount,
         DepositRefundPolicy refundPolicy,
         DateTime? scheduledAt = null,
-        Guid? bookingId = null);
+        Guid? bookingId = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Đánh dấu đơn cọc là đã thanh toán thành công.
@@ -28,42 +29,42 @@ public interface IBookingDepositService
     /// Đánh dấu đơn cọc là đã hoàn tiền (full hoặc partial).
     /// BR-18: Hoàn theo chính sách của quán.
     /// </summary>
-    Task<BookingDeposit> MarkAsRefundedAsync(Guid depositId);
+    Task<BookingDeposit> MarkAsRefundedAsync(Guid depositId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Đánh dấu đơn cọc bị tịch thu (no-refund policy).
     /// BR-18: Khi khách hủy với chính sách None.
     /// </summary>
-    Task<BookingDeposit> ForfeitAsync(Guid depositId);
+    Task<BookingDeposit> ForfeitAsync(Guid depositId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Đánh dấu đơn cọc đã hết hạn (quá 5 phút không thanh toán).
     /// </summary>
-    Task ExpireAsync(Guid depositId);
+    Task ExpireAsync(Guid depositId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Xử lý hàng loạt các đơn cọc PENDING quá hạn.
     /// Được gọi bởi BookingDepositExpiryJob.
     /// </summary>
-    Task ProcessExpiredDepositsAsync();
+    Task ProcessExpiredDepositsAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lấy đơn cọc theo ID.
     /// </summary>
-    Task<BookingDeposit?> GetByIdAsync(Guid depositId);
+    Task<BookingDeposit?> GetByIdAsync(Guid depositId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lấy đơn cọc theo OrderId.
     /// </summary>
-    Task<BookingDeposit?> GetByOrderIdAsync(string orderId);
+    Task<BookingDeposit?> GetByOrderIdAsync(string orderId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lấy đơn cọc theo SePay Transaction ID.
     /// </summary>
-    Task<BookingDeposit?> GetBySePayTransactionIdAsync(string sePayTransactionId);
+    Task<BookingDeposit?> GetBySePayTransactionIdAsync(string sePayTransactionId, CancellationToken cancellationToken = default);
 
     /// <summary>BR-05: Lấy đơn cọc theo BookingId.</summary>
-    Task<BookingDeposit?> GetByBookingIdAsync(Guid bookingId);
+    Task<BookingDeposit?> GetByBookingIdAsync(Guid bookingId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Tính số tiền hoàn cọc theo BR-18 và thời gian đã trôi qua kể từ khi tạo đơn.
@@ -80,5 +81,5 @@ public interface IBookingDepositService
     /// qrExpiresAt = null khi dùng VietQR tĩnh (QR không hết hạn).
     /// transferContent = nội dung CK dùng trên QR, random unique để webhook match đúng đơn.
     /// </summary>
-    Task UpdateQrInfoAsync(Guid depositId, string qrUrl, DateTime? qrExpiresAt, string? transferContent = null);
+    Task UpdateQrInfoAsync(Guid depositId, string qrUrl, DateTime? qrExpiresAt, string? transferContent = null, CancellationToken cancellationToken = default);
 }

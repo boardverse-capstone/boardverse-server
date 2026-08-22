@@ -40,6 +40,11 @@ public class LobbyAtRiskWarningJob : BackgroundService
             {
                 await CheckAtRiskLobbiesAsync(stoppingToken);
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("LobbyAtRiskWarningJob stopped (host shutdown).");
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in LobbyAtRiskWarningJob");

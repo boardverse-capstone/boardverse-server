@@ -2,6 +2,7 @@ using BoardVerse.Core.DTOs.Wallet;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 
+using System.Threading;
 namespace BoardVerse.Services.IServices;
 
 public interface IWalletService
@@ -10,19 +11,19 @@ public interface IWalletService
     /// Auto-create wallet cho user nếu chưa có, return wallet hiện tại.
     /// Idempotent — nhiều lần gọi trả về cùng instance.
     /// </summary>
-    Task<WalletDto> GetOrCreateWalletAsync(Guid userId, bool includeHeld);
+    Task<WalletDto> GetOrCreateWalletAsync(Guid userId, bool includeHeld, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lấy số dư ví (không auto-create). Trả NotFound nếu user chưa có ví.
     /// </summary>
-    Task<WalletDto> GetWalletAsync(Guid userId, bool includeHeld);
+    Task<WalletDto> GetWalletAsync(Guid userId, bool includeHeld, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Tạo đơn top-up BVC. Phase 1: trả quote (amount BVC = amountVnd/1000)
     /// và PaymentUrl từ SePay master. Webhook xử lý ở phase sau.
     /// Idempotent theo IdempotencyKey (BR § XVII.1).
     /// </summary>
-    Task<TopUpResponseDto> CreateTopUpAsync(Guid userId, TopUpRequestDto request);
+    Task<TopUpResponseDto> CreateTopUpAsync(Guid userId, TopUpRequestDto request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Player chủ động hủy đơn top-up BVC đang Pending (chưa thanh toán).
@@ -206,7 +207,7 @@ public interface IWalletService
         int pageSize,
         string? searchTerm = null,
         AccountStatus? statusFilter = null,
-        RiskLevel? riskLevelFilter = null);
+        RiskLevel? riskLevelFilter = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lấy chi tiết wallet của một user (bao gồm thông tin user).
@@ -219,7 +220,7 @@ public interface IWalletService
     Task<AdminUserTransactionsPageDto> GetUserTransactionsAsync(
         Guid userId,
         int page,
-        int pageSize);
+        int pageSize, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Admin thay đổi AccountStatus của user (lock/unlock/suspend/ban).

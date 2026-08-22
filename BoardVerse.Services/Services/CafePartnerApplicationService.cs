@@ -47,7 +47,7 @@ namespace BoardVerse.Services.Services
 
         public async Task<CafePartnerApplicationResponseDto> SubmitAsync(
             SubmitCafePartnerApplicationRequestDto request,
-            Guid? submittedByUserId = null)
+            Guid? submittedByUserId = null, CancellationToken cancellationToken = default)
         {
             ValidatePhase1Request(request);
 
@@ -101,11 +101,11 @@ namespace BoardVerse.Services.Services
             return MapApplicationDto(await GetApplicationOrThrowAsync(application.Id));
         }
 
-        public async Task<CafePartnerApplicationResponseDto> GetByIdAsync(Guid id) =>
+        public async Task<CafePartnerApplicationResponseDto> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
             MapApplicationDto(await GetApplicationOrThrowAsync(id));
 
         public async Task<PaginatedResponse<CafePartnerApplicationResponseDto>> GetAllForAdminAsync(
-            AdminCafePartnerApplicationQueryDto query)
+            AdminCafePartnerApplicationQueryDto query, CancellationToken cancellationToken = default)
         {
             var result = await _applicationRepository.GetPagedAsync(query);
             return new PaginatedResponse<CafePartnerApplicationResponseDto>
@@ -115,7 +115,7 @@ namespace BoardVerse.Services.Services
             };
         }
 
-        public async Task<OnboardPartnerResultDto> ApproveAsync(Guid id, Guid adminId)
+        public async Task<OnboardPartnerResultDto> ApproveAsync(Guid id, Guid adminId, CancellationToken cancellationToken = default)
         {
             var application = await GetApplicationOrThrowAsync(id);
             if (application.Status != CafePartnerApplicationStatus.PendingApproval)
@@ -243,7 +243,7 @@ namespace BoardVerse.Services.Services
         public async Task<CafePartnerApplicationResponseDto> RejectAsync(
             Guid id,
             Guid adminId,
-            RejectCafePartnerApplicationRequestDto request)
+            RejectCafePartnerApplicationRequestDto request, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(request.Reason))
             {
@@ -273,7 +273,7 @@ namespace BoardVerse.Services.Services
             return MapApplicationDto(await GetApplicationOrThrowAsync(id));
         }
 
-        public async Task<ManagerCafeProfileResponseDto> GetMyPartnerProfileAsync(Guid managerUserId)
+        public async Task<ManagerCafeProfileResponseDto> GetMyPartnerProfileAsync(Guid managerUserId, CancellationToken cancellationToken = default)
         {
             var cafe = await GetPartnerCafeForManagerOrThrowAsync(managerUserId);
             if (cafe.PartnerApplication == null)
@@ -286,7 +286,7 @@ namespace BoardVerse.Services.Services
 
         public async Task<ManagerCafeProfileResponseDto> UpdateOperationalProfileAsync(
             Guid managerUserId,
-            UpdateOperationalProfileRequestDto request)
+            UpdateOperationalProfileRequestDto request, CancellationToken cancellationToken = default)
         {
             ValidatePhase2Request(request);
 
@@ -328,7 +328,7 @@ namespace BoardVerse.Services.Services
             return MapManagerCafeProfile(cafe.PartnerApplication!, cafe);
         }
 
-        public async Task<ManagerCafeProfileResponseDto> ActivateAsync(Guid managerUserId)
+        public async Task<ManagerCafeProfileResponseDto> ActivateAsync(Guid managerUserId, CancellationToken cancellationToken = default)
         {
             var cafe = await GetPartnerCafeForManagerOrThrowAsync(managerUserId);
             var application = cafe.PartnerApplication!;
@@ -346,7 +346,7 @@ namespace BoardVerse.Services.Services
             return await SetCafeActiveAsync(cafe, application);
         }
 
-        public async Task<ManagerCafeProfileResponseDto> ReopenAsync(Guid managerUserId)
+        public async Task<ManagerCafeProfileResponseDto> ReopenAsync(Guid managerUserId, CancellationToken cancellationToken = default)
         {
             var cafe = await GetPartnerCafeForManagerOrThrowAsync(managerUserId);
             var application = cafe.PartnerApplication!;
@@ -396,7 +396,7 @@ namespace BoardVerse.Services.Services
             return MapManagerCafeProfile(application, cafe);
         }
 
-        public async Task<ManagerCafeProfileResponseDto> DeactivateAsync(Guid managerUserId)
+        public async Task<ManagerCafeProfileResponseDto> DeactivateAsync(Guid managerUserId, CancellationToken cancellationToken = default)
         {
             var cafe = await GetPartnerCafeForManagerOrThrowAsync(managerUserId);
 
@@ -427,7 +427,7 @@ namespace BoardVerse.Services.Services
             return MapManagerCafeProfile(cafe.PartnerApplication!, cafe);
         }
 
-        public async Task<ManagerCafeProfileResponseDto> ClosePermanentlyAsync(Guid managerUserId)
+        public async Task<ManagerCafeProfileResponseDto> ClosePermanentlyAsync(Guid managerUserId, CancellationToken cancellationToken = default)
         {
             var cafe = await GetPartnerCafeForManagerOrThrowAsync(managerUserId);
 

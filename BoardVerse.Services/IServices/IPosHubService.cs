@@ -24,7 +24,7 @@ public interface IPosHubService
     Task NotifySessionUpdateAsync(Guid sessionId, string eventType, object? data = null);
 
     /// <summary>BR-REQUIRED §17.5: POS đóng phiên → SessionCompleted.</summary>
-    Task NotifySessionCompleted(Guid lobbyId);
+    Task NotifySessionCompleted(Guid sessionId, Guid? lobbyId = null);
 
     /// <summary>
     /// GAP-XX: Push SignalR khi ActiveSession PAID (cả Manual lẫn SePay webhook).
@@ -32,4 +32,10 @@ public interface IPosHubService
     /// hiển thị "Đã thanh toán". Walk-in session (LobbyId = null) vẫn nhận được event này.
     /// </summary>
     Task NotifySessionPaidAsync(Guid sessionId, Guid cafeId, Guid? lobbyId, decimal totalAmount, DateTime paidAt);
+
+    Task NotifySessionExtensionRequestedAsync(Guid sessionId, Guid cafeId, Guid requestedByUserId, int requestedMinutes, decimal estimatedAdditionalCostVnd);
+
+    Task NotifySessionExtensionApprovedAsync(Guid sessionId, Guid cafeId, Guid approvedByUserId, int approvedMinutes);
+
+    Task NotifySessionExtensionRejectedAsync(Guid sessionId, Guid cafeId, Guid rejectedByUserId, string? reason);
 }

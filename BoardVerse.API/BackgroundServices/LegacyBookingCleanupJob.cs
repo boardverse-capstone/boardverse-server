@@ -43,6 +43,11 @@ public class LegacyBookingCleanupJob : BackgroundService
                 var service = scope.ServiceProvider.GetRequiredService<LegacyBookingCleanupService>();
                 await service.RunOnceAsync(DateTime.UtcNow, stoppingToken);
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("LegacyBookingCleanupJob stopped (host shutdown).");
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "LegacyBookingCleanupJob: error during cleanup tick");

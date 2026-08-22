@@ -89,6 +89,15 @@ Admin cộng/trừ thủ công:
 
 **Header bắt buộc:** `Authorization: Bearer <token>`
 
+**Rate limit (GAP-R6-WAL-04/05 Fix, cập nhật 2026-08-22):**
+
+| Endpoint | Policy | Quy tắc | Mục đích |
+|----------|--------|---------|----------|
+| `POST /api/v1/wallet/topup` | `TopUpPolicy` | 5 attempts / user / 5 phút | Chống abuse tạo payment order liên tục (mỗi order ghi outbox + DB transaction cost) |
+| `POST /api/v1/wallet/refund-requests` | `RefundPolicy` | 3 requests / user / ngày | Chống spam refund |
+
+Vượt quá trả `429` với `{ code: "RATE_LIMIT_EXCEEDED", retryAfterSeconds }`.
+
 ---
 
 ## GET `/api/v1/wallet`

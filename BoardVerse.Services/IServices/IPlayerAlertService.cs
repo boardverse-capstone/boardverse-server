@@ -4,6 +4,7 @@ using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
 
+using System.Threading;
 namespace BoardVerse.Services.IServices;
 
 /// <summary>
@@ -11,13 +12,13 @@ namespace BoardVerse.Services.IServices;
 /// </summary>
 public interface IPlayerAlertService
 {
-    Task<PaginatedResponse<PlayerAlertDto>> GetPagedAsync(PlayerAlertQuery query);
+    Task<PaginatedResponse<PlayerAlertDto>> GetPagedAsync(PlayerAlertQuery query, CancellationToken cancellationToken = default);
 
-    Task<PlayerAlertDto> AcknowledgeAsync(Guid alertId, Guid adminUserId);
+    Task<PlayerAlertDto> AcknowledgeAsync(Guid alertId, Guid adminUserId, CancellationToken cancellationToken = default);
 
-    Task<PlayerAlertDto> ResolveAsync(Guid alertId, Guid adminUserId, string note);
+    Task<PlayerAlertDto> ResolveAsync(Guid alertId, Guid adminUserId, string note, CancellationToken cancellationToken = default);
 
-    Task<PlayerAlertDto> DismissAsync(Guid alertId, Guid adminUserId, string note);
+    Task<PlayerAlertDto> DismissAsync(Guid alertId, Guid adminUserId, string note, CancellationToken cancellationToken = default);
 
     /// <summary>Signal-driven create (gọi từ risk score recompute job).</summary>
     Task EnsureAlertForSignalsAsync(
@@ -25,10 +26,10 @@ public interface IPlayerAlertService
         int riskScore,
         RiskLevel newLevel,
         RiskLevel previousLevel,
-        string? signalsJson);
+        string? signalsJson, CancellationToken cancellationToken = default);
 
     /// <summary>Alert dashboard metrics.</summary>
-    Task<PlayerAlertMetricsDto> GetMetricsAsync();
+    Task<PlayerAlertMetricsDto> GetMetricsAsync(CancellationToken cancellationToken = default);
 
     Task<int> DismissStaleAlertsAsync(int maxAgeDays, int batchSize);
 }

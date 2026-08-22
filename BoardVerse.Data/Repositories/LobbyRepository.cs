@@ -15,7 +15,7 @@ namespace BoardVerse.Data.Repositories
             _db = db;
         }
 
-        public async Task<Lobby?> GetByIdAsync(Guid lobbyId)
+        public async Task<Lobby?> GetByIdAsync(Guid lobbyId, CancellationToken cancellationToken = default)
         {
             return await _db.Lobbies
                 .Include(l => l.Members)
@@ -33,7 +33,7 @@ namespace BoardVerse.Data.Repositories
         /// để chống race condition khi nhiều request join đồng thời vượt MaxMembers (BR-07).
         /// Caller phải đang trong một transaction (BeginTransactionAsync đã được gọi).
         /// </summary>
-        public async Task<Lobby?> GetByIdForUpdateAsync(Guid lobbyId)
+        public async Task<Lobby?> GetByIdForUpdateAsync(Guid lobbyId, CancellationToken cancellationToken = default)
         {
             return await _db.Lobbies
                 .FromSqlRaw("SELECT * FROM \"Lobbies\" WHERE \"Id\" = {0} FOR UPDATE", lobbyId)
@@ -53,7 +53,7 @@ namespace BoardVerse.Data.Repositories
             return new EfTransactionContextAdapter(tx);
         }
 
-        public async Task<Lobby?> GetByActiveSessionIdAsync(Guid activeSessionId)
+        public async Task<Lobby?> GetByActiveSessionIdAsync(Guid activeSessionId, CancellationToken cancellationToken = default)
         {
             return await _db.Lobbies
                 .Include(l => l.Members)
@@ -61,7 +61,7 @@ namespace BoardVerse.Data.Repositories
                 .FirstOrDefaultAsync(l => l.ActiveSessionId == activeSessionId);
         }
 
-        public async Task<Lobby?> GetByIdWithMembersAsync(Guid lobbyId)
+        public async Task<Lobby?> GetByIdWithMembersAsync(Guid lobbyId, CancellationToken cancellationToken = default)
         {
             // AsNoTracking: tránh EF cache trả entity cũ với Members rỗng khi caller
             // (vd CafePosService) vừa load lobby ở transaction khác cùng DbContext.
@@ -73,7 +73,7 @@ namespace BoardVerse.Data.Repositories
                 .FirstOrDefaultAsync(l => l.Id == lobbyId);
         }
 
-        public async Task<Lobby?> GetByShareCodeAsync(string shareCode)
+        public async Task<Lobby?> GetByShareCodeAsync(string shareCode, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(shareCode))
                 return null;
@@ -88,13 +88,13 @@ namespace BoardVerse.Data.Repositories
         /// <summary>
         /// Tìm lobby theo ReservationId — dùng để self-heal orphan reservation (R-Bug-029).
         /// </summary>
-        public async Task<Lobby?> GetByReservationIdAsync(Guid reservationId)
+        public async Task<Lobby?> GetByReservationIdAsync(Guid reservationId, CancellationToken cancellationToken = default)
         {
             return await _db.Lobbies
                 .FirstOrDefaultAsync(l => l.ReservationId == reservationId);
         }
 
-        public async Task<IReadOnlyList<Lobby>> GetActiveLobbiesForGameAsync(Guid gameTemplateId, Guid? excludeLobbyId)
+        public async Task<IReadOnlyList<Lobby>> GetActiveLobbiesForGameAsync(Guid gameTemplateId, Guid? excludeLobbyId, CancellationToken cancellationToken = default)
         {
             var query = _db.Lobbies
                 .Include(l => l.Members)
@@ -120,7 +120,7 @@ namespace BoardVerse.Data.Repositories
             double? latitude,
             double? longitude,
             double? radiusKm,
-            int limit)
+            int limit, CancellationToken cancellationToken = default)
         {
             var query = _db.Lobbies
                 .Include(l => l.Members)
@@ -175,7 +175,7 @@ namespace BoardVerse.Data.Repositories
             double latitude,
             double longitude,
             double radiusKm,
-            int? minKarmaScore)
+            int? minKarmaScore, CancellationToken cancellationToken = default)
         {
             // LOBBY-P0-FIX-9: Clamp at high latitudes where cos(lat) → 0
             var latRad = latitude * Math.PI / 180.0;
@@ -234,7 +234,7 @@ namespace BoardVerse.Data.Repositories
             return lobbies;
         }
 
-        public async Task<IReadOnlyList<Lobby>> GetLobbiesByHostAsync(Guid hostUserId)
+        public async Task<IReadOnlyList<Lobby>> GetLobbiesByHostAsync(Guid hostUserId, CancellationToken cancellationToken = default)
         {
             return await _db.Lobbies
                 .Include(l => l.Members)
@@ -246,7 +246,7 @@ namespace BoardVerse.Data.Repositories
                 .ToListAsync();
         }
 
-        public async Task<IReadOnlyList<Lobby>> GetMyLobbiesAsync(Guid userId)
+        public async Task<IReadOnlyList<Lobby>> GetMyLobbiesAsync(Guid userId, CancellationToken cancellationToken = default)
         {
             return await _db.Lobbies
                 .Include(l => l.Members)
@@ -272,7 +272,7 @@ namespace BoardVerse.Data.Repositories
             LobbyStatus.InProgress
         };
 
-        public async Task<IReadOnlyList<Lobby>> GetActiveLobbiesByHostAsync(Guid hostUserId)
+        public async Task<IReadOnlyList<Lobby>> GetActiveLobbiesByHostAsync(Guid hostUserId, CancellationToken cancellationToken = default)
         {
             return await _db.Lobbies
                 .Include(l => l.Members)
@@ -280,7 +280,7 @@ namespace BoardVerse.Data.Repositories
                 .ToListAsync();
         }
 
-        public async Task<IReadOnlyList<Lobby>> GetActiveLobbiesByMemberAsync(Guid userId)
+        public async Task<IReadOnlyList<Lobby>> GetActiveLobbiesByMemberAsync(Guid userId, CancellationToken cancellationToken = default)
         {
             return await _db.Lobbies
                 .Include(l => l.Members)
@@ -290,7 +290,7 @@ namespace BoardVerse.Data.Repositories
         }
 
         public async Task<IReadOnlyList<Lobby>> GetActiveLobbiesByCafeDateSlotAsync(
-            Guid cafeId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime)
+            Guid cafeId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime, CancellationToken cancellationToken = default)
         {
             // BR-NEW-15: Query by TimeOnly range instead of TimeSlot enum.
             return await _db.Lobbies
@@ -302,7 +302,7 @@ namespace BoardVerse.Data.Repositories
                 .ToListAsync();
         }
 
-        public async Task<IReadOnlyList<Lobby>> GetActiveLobbiesByHostAsync(Guid hostUserId, DateOnly playDate)
+        public async Task<IReadOnlyList<Lobby>> GetActiveLobbiesByHostAsync(Guid hostUserId, DateOnly playDate, CancellationToken cancellationToken = default)
         {
             return await _db.Lobbies
                 .Include(l => l.Members)
@@ -313,7 +313,7 @@ namespace BoardVerse.Data.Repositories
         }
 
         public async Task<IReadOnlyList<Lobby>> GetActiveLobbiesByCafeDateSlotAsync(
-            Guid userId, Guid cafeId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime)
+            Guid userId, Guid cafeId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime, CancellationToken cancellationToken = default)
         {
             // BR-NEW-15: Query by TimeOnly range instead of TimeSlot enum.
             return await _db.Lobbies
@@ -327,21 +327,21 @@ namespace BoardVerse.Data.Repositories
                 .ToListAsync();
         }
 
-        public async Task<IReadOnlyList<LobbyMember>> GetMembersAsync(Guid lobbyId)
+        public async Task<IReadOnlyList<LobbyMember>> GetMembersAsync(Guid lobbyId, CancellationToken cancellationToken = default)
         {
             return await _db.LobbyMembers
                 .Where(m => m.LobbyId == lobbyId)
                 .ToListAsync();
         }
 
-        public async Task<bool> IsUserLobbyMemberAsync(Guid lobbyId, Guid userId)
+        public async Task<bool> IsUserLobbyMemberAsync(Guid lobbyId, Guid userId, CancellationToken cancellationToken = default)
         {
             return await _db.LobbyMembers
                 .AsNoTracking()
                 .AnyAsync(m => m.LobbyId == lobbyId && m.UserId == userId);
         }
 
-        public async Task<bool> IsUserBookingParticipantAsync(Guid bookingId, Guid userId)
+        public async Task<bool> IsUserBookingParticipantAsync(Guid bookingId, Guid userId, CancellationToken cancellationToken = default)
         {
             // Booking has no direct HostUserId — host is determined via the linked Lobby.
             // Participant = BookingDeposits.UserId (BR-22 per-member deposit) for this booking.
@@ -355,7 +355,7 @@ namespace BoardVerse.Data.Repositories
             DateOnly playDate,
             TimeOnly newScheduledStartTime,
             TimeOnly newScheduledEndTime,
-            DateTime newRecruitmentDeadline)
+            DateTime newRecruitmentDeadline, CancellationToken cancellationToken = default)
         {
             // BR-USER-LIMIT-02: 2 lobby/booking overlap nếu có intersection (cộng 30 phút đệm).
             // BR-NEW-15: Dùng TimeOnly PreferredStartTime/PreferredEndTime thay vì TimeSlot enum.
@@ -389,44 +389,44 @@ namespace BoardVerse.Data.Repositories
             return await query.ToListAsync();
         }
 
-        public async Task<int> CountActiveOrTerminalByHostPlayDateAsync(Guid hostUserId, DateOnly playDate)
+        public async Task<int> CountActiveOrTerminalByHostPlayDateAsync(Guid hostUserId, DateOnly playDate, CancellationToken cancellationToken = default)
         {
             return await _db.Lobbies
                 .Where(l => l.HostUserId == hostUserId && l.PlayDate == playDate)
                 .CountAsync();
         }
 
-        public async Task<BookingDeposit?> GetBookingByIdAsync(Guid bookingId)
+        public async Task<BookingDeposit?> GetBookingByIdAsync(Guid bookingId, CancellationToken cancellationToken = default)
         {
             return await _db.BookingDeposits.FirstOrDefaultAsync(b => b.Id == bookingId);
         }
 
-        public Task AddAsync(Lobby lobby)
+        public Task AddAsync(Lobby lobby, CancellationToken cancellationToken = default)
         {
             _db.Lobbies.Add(lobby);
             return Task.CompletedTask;
         }
 
-        public Task AddMemberAsync(LobbyMember member)
+        public Task AddMemberAsync(LobbyMember member, CancellationToken cancellationToken = default)
         {
             _db.LobbyMembers.Add(member);
             return Task.CompletedTask;
         }
 
-        public Task AddReportAsync(LobbyReport report)
+        public Task AddReportAsync(LobbyReport report, CancellationToken cancellationToken = default)
         {
             _db.LobbyReports.Add(report);
             return Task.CompletedTask;
         }
 
-        public Task UpdateAsync(Lobby lobby)
+        public Task UpdateAsync(Lobby lobby, CancellationToken cancellationToken = default)
         {
             lobby.UpdatedAt = DateTime.UtcNow;
             _db.Lobbies.Update(lobby);
             return Task.CompletedTask;
         }
 
-        public async Task RemoveAsync(Lobby lobby)
+        public async Task RemoveAsync(Lobby lobby, CancellationToken cancellationToken = default)
         {
             _db.LobbyMembers.RemoveRange(lobby.Members);
             _db.LobbyMessages.Where(m => m.LobbyId == lobby.Id);
@@ -439,7 +439,7 @@ namespace BoardVerse.Data.Repositories
             _db.Lobbies.Remove(lobby);
         }
 
-        public Task SaveChangesAsync()
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default)
         {
             return _db.SaveChangesAsync();
         }
@@ -448,7 +448,7 @@ namespace BoardVerse.Data.Repositories
 
         public async Task<int> CountFailuresByTypeAsync(
             DateTime? fromUtc, DateTime? toUtc,
-            LobbyStatus? failureType)
+            LobbyStatus? failureType, CancellationToken cancellationToken = default)
         {
             var query = _db.Lobbies.AsQueryable();
 
@@ -488,7 +488,7 @@ namespace BoardVerse.Data.Repositories
         public async Task<int> CountFailuresByTypeForHostAsync(
             Guid hostUserId,
             DateTime? fromUtc, DateTime? toUtc,
-            LobbyStatus? failureType)
+            LobbyStatus? failureType, CancellationToken cancellationToken = default)
         {
             var query = _db.Lobbies
                 .Where(l => l.HostUserId == hostUserId);
@@ -514,7 +514,7 @@ namespace BoardVerse.Data.Repositories
         public async Task<int> CountQuickCreateCancelAsync(
             Guid hostUserId,
             DateTime fromUtc,
-            TimeSpan maxGap)
+            TimeSpan maxGap, CancellationToken cancellationToken = default)
         {
             // BR-RISK-01 (SIG-08): Host cancel trong khoảng (UpdatedAt - CreatedAt) < maxGap.
             // Lobby.Status is stored as varchar (string), not int — use string literals.
@@ -540,7 +540,7 @@ namespace BoardVerse.Data.Repositories
         public async Task<(IReadOnlyList<Lobby> Items, int TotalCount)> GetAdminLobbyFailuresAsync(
             int page, int pageSize,
             DateTime? fromUtc, DateTime? toUtc,
-            LobbyStatus? failureType)
+            LobbyStatus? failureType, CancellationToken cancellationToken = default)
         {
             var query = _db.Lobbies
                 .Include(l => l.GameTemplate)
@@ -595,7 +595,7 @@ namespace BoardVerse.Data.Repositories
             DateOnly? playDate,
             List<LobbyStatus>? statuses,
             int page,
-            int pageSize)
+            int pageSize, CancellationToken cancellationToken = default)
         {
             var query = _db.Lobbies
                 .Include(l => l.GameTemplate)

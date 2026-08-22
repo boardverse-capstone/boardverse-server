@@ -49,7 +49,7 @@ public class FriendReportServiceTests
     {
         var meId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
-        _userRepo.Setup(r => r.GetByIdAsync(targetId)).ReturnsAsync((User?)null);
+        _userRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         var svc = CreateService();
 
@@ -67,7 +67,7 @@ public class FriendReportServiceTests
     {
         var meId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
-        _userRepo.Setup(r => r.GetByIdAsync(targetId)).ReturnsAsync(BuildUser(targetId, "admin", UserRole.Admin));
+        _userRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser(targetId, "admin", UserRole.Admin));
 
         var svc = CreateService();
 
@@ -85,8 +85,8 @@ public class FriendReportServiceTests
     {
         var meId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
-        _userRepo.Setup(r => r.GetByIdAsync(targetId)).ReturnsAsync(BuildUser(targetId, "bob"));
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId)).ReturnsAsync((Friendship?)null);
+        _userRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser(targetId, "bob"));
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId, It.IsAny<CancellationToken>())).ReturnsAsync((Friendship?)null);
 
         var svc = CreateService();
 
@@ -104,8 +104,8 @@ public class FriendReportServiceTests
     {
         var meId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
-        _userRepo.Setup(r => r.GetByIdAsync(targetId)).ReturnsAsync(BuildUser(targetId, "bob"));
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId))
+        _userRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser(targetId, "bob"));
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Friendship { Id = Guid.NewGuid(), RequesterId = meId, AddresseeId = targetId, Status = FriendshipStatus.Pending });
 
         var svc = CreateService();
@@ -124,10 +124,10 @@ public class FriendReportServiceTests
     {
         var meId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
-        _userRepo.Setup(r => r.GetByIdAsync(targetId)).ReturnsAsync(BuildUser(targetId, "bob"));
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId))
+        _userRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser(targetId, "bob"));
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Friendship { Id = Guid.NewGuid(), RequesterId = meId, AddresseeId = targetId, Status = FriendshipStatus.Accepted });
-        _reportRepo.Setup(r => r.GetPendingByReporterAndTargetAsync(meId, targetId))
+        _reportRepo.Setup(r => r.GetPendingByReporterAndTargetAsync(meId, targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new FriendReport { Id = Guid.NewGuid() });
 
         var svc = CreateService();
@@ -147,13 +147,13 @@ public class FriendReportServiceTests
         var meId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
         var target = BuildUser(targetId, "bob");
-        _userRepo.Setup(r => r.GetByIdAsync(targetId)).ReturnsAsync(target);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId))
+        _userRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(target);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Friendship { Id = Guid.NewGuid(), RequesterId = meId, AddresseeId = targetId, Status = FriendshipStatus.Accepted });
-        _reportRepo.Setup(r => r.GetPendingByReporterAndTargetAsync(meId, targetId)).ReturnsAsync((FriendReport?)null);
+        _reportRepo.Setup(r => r.GetPendingByReporterAndTargetAsync(meId, targetId, It.IsAny<CancellationToken>())).ReturnsAsync((FriendReport?)null);
 
         FriendReport? captured = null;
-        _reportRepo.Setup(r => r.AddAsync(It.IsAny<FriendReport>()))
+        _reportRepo.Setup(r => r.AddAsync(It.IsAny<FriendReport>(), It.IsAny<CancellationToken>()))
             .Callback<FriendReport>(rep => captured = rep)
             .Returns(Task.CompletedTask);
 
@@ -185,13 +185,13 @@ public class FriendReportServiceTests
     {
         var meId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
-        _userRepo.Setup(r => r.GetByIdAsync(targetId)).ReturnsAsync(BuildUser(targetId, "bob"));
-        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId))
+        _userRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser(targetId, "bob"));
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Friendship { Id = Guid.NewGuid(), RequesterId = meId, AddresseeId = targetId, Status = FriendshipStatus.Accepted });
-        _reportRepo.Setup(r => r.GetPendingByReporterAndTargetAsync(meId, targetId)).ReturnsAsync((FriendReport?)null);
+        _reportRepo.Setup(r => r.GetPendingByReporterAndTargetAsync(meId, targetId, It.IsAny<CancellationToken>())).ReturnsAsync((FriendReport?)null);
 
         FriendReport? captured = null;
-        _reportRepo.Setup(r => r.AddAsync(It.IsAny<FriendReport>()))
+        _reportRepo.Setup(r => r.AddAsync(It.IsAny<FriendReport>(), It.IsAny<CancellationToken>()))
             .Callback<FriendReport>(rep => captured = rep)
             .Returns(Task.CompletedTask);
 
@@ -212,7 +212,7 @@ public class FriendReportServiceTests
     public async Task GetMyReportsAsync_WhenEmpty_ReturnsEmpty()
     {
         var meId = Guid.NewGuid();
-        _reportRepo.Setup(r => r.GetByReporterAsync(meId)).ReturnsAsync(new List<FriendReport>());
+        _reportRepo.Setup(r => r.GetByReporterAsync(meId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<FriendReport>());
 
         var svc = CreateService();
 
@@ -240,8 +240,8 @@ public class FriendReportServiceTests
             }
         };
         var users = new List<User> { BuildUser(targetId, "bob") };
-        _reportRepo.Setup(r => r.GetByReporterAsync(meId)).ReturnsAsync(reports);
-        _userRepo.Setup(r => r.GetByIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>())).ReturnsAsync(users);
+        _reportRepo.Setup(r => r.GetByReporterAsync(meId, It.IsAny<CancellationToken>())).ReturnsAsync(reports);
+        _userRepo.Setup(r => r.GetByIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(users);
 
         var svc = CreateService();
 
@@ -271,8 +271,8 @@ public class FriendReportServiceTests
                 CreatedAt = DateTime.UtcNow
             }
         };
-        _reportRepo.Setup(r => r.GetByReporterAsync(meId)).ReturnsAsync(reports);
-        _userRepo.Setup(r => r.GetByIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>())).ReturnsAsync(new List<User>());
+        _reportRepo.Setup(r => r.GetByReporterAsync(meId, It.IsAny<CancellationToken>())).ReturnsAsync(reports);
+        _userRepo.Setup(r => r.GetByIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<User>());
 
         var svc = CreateService();
 

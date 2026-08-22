@@ -17,44 +17,54 @@ public class CafeScheduleOverrideRepository : ICafeScheduleOverrideRepository
         _db = db;
     }
 
-    public Task<CafeScheduleOverride?> GetByApplyDateAsync(Guid cafeId, DateOnly applyDate)
+    public Task<CafeScheduleOverride?> GetByApplyDateAsync(Guid cafeId, DateOnly applyDate, CancellationToken cancellationToken = default)
     {
         return _db.CafeScheduleOverrides
             .FirstOrDefaultAsync(o => o.CafeId == cafeId && o.ApplyDate == applyDate);
     }
 
-    public async Task<IReadOnlyList<CafeScheduleOverride>> ListByCafeAsync(Guid cafeId)
+    public async Task<IReadOnlyList<CafeScheduleOverride>> ListByCafeAsync(Guid cafeId, CancellationToken cancellationToken = default)
     {
         return await _db.CafeScheduleOverrides
             .Where(o => o.CafeId == cafeId)
             .OrderBy(o => o.ApplyDate)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
-    public Task AddAsync(CafeScheduleOverride overrideEntity)
+    public Task AddAsync(CafeScheduleOverride overrideEntity, CancellationToken cancellationToken = default)
     {
         _db.CafeScheduleOverrides.Add(overrideEntity);
         return Task.CompletedTask;
     }
 
-    public Task UpdateAsync(CafeScheduleOverride overrideEntity)
+    public Task UpdateAsync(CafeScheduleOverride overrideEntity, CancellationToken cancellationToken = default)
     {
         overrideEntity.UpdatedAt = DateTime.UtcNow;
         return Task.CompletedTask;
     }
 
-    public async Task DeleteByIdAsync(Guid overrideId)
+    public async Task DeleteAsync(Guid cafeId, DateOnly applyDate, CancellationToken cancellationToken = default)
     {
         var existing = await _db.CafeScheduleOverrides
-            .FirstOrDefaultAsync(o => o.Id == overrideId);
+            .FirstOrDefaultAsync(o => o.CafeId == cafeId && o.ApplyDate == applyDate, cancellationToken);
         if (existing != null)
         {
             _db.CafeScheduleOverrides.Remove(existing);
         }
     }
 
-    public Task SaveChangesAsync()
+    public async Task DeleteByIdAsync(Guid overrideId, CancellationToken cancellationToken = default)
     {
-        return _db.SaveChangesAsync();
+        var existing = await _db.CafeScheduleOverrides
+            .FirstOrDefaultAsync(o => o.Id == overrideId, cancellationToken);
+        if (existing != null)
+        {
+            _db.CafeScheduleOverrides.Remove(existing);
+        }
+    }
+
+    public Task SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        return _db.SaveChangesAsync(cancellationToken);
     }
 }

@@ -1,6 +1,7 @@
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 
+using System.Threading;
 namespace BoardVerse.Core.IRepositories;
 
 /// <summary>
@@ -9,18 +10,18 @@ namespace BoardVerse.Core.IRepositories;
 /// </summary>
 public interface IGameInventoryRepository
 {
-    Task<GameInventory?> GetAsync(Guid cafeId, Guid gameId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime);
+    Task<GameInventory?> GetAsync(Guid cafeId, Guid gameId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime, CancellationToken cancellationToken = default);
 
-    Task<GameInventory?> GetForUpdateAsync(Guid cafeId, Guid gameId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime);
+    Task<GameInventory?> GetForUpdateAsync(Guid cafeId, Guid gameId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Load by FK ID (dùng cho ReleaseInventoriesAsync khi đã có GameInventoryId).
     /// </summary>
-    Task<GameInventory?> GetByIdForUpdateAsync(Guid id);
+    Task<GameInventory?> GetByIdForUpdateAsync(Guid id, CancellationToken cancellationToken = default);
 
-    Task EnsureRowAsync(Guid cafeId, Guid gameId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime, int totalCopies);
+    Task EnsureRowAsync(Guid cafeId, Guid gameId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime, int totalCopies, CancellationToken cancellationToken = default);
 
-    Task UpdateAsync(GameInventory gameInventory);
+    Task UpdateAsync(GameInventory gameInventory, CancellationToken cancellationToken = default);
 
-    Task SaveChangesAsync();
+    Task SaveChangesAsync(CancellationToken cancellationToken = default);
 }

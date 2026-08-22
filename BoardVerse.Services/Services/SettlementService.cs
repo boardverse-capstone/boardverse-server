@@ -61,7 +61,7 @@ public class SettlementService : ISettlementService
     public async Task<CafeSettlement> ReleaseSessionDepositAsync(
         Guid cafeId,
         Guid sessionId,
-        Guid activeSessionId)
+        Guid activeSessionId, CancellationToken cancellationToken = default)
     {
         var cafe = await _cafeRepository.GetActiveByIdAsync(cafeId)
             ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
@@ -224,14 +224,14 @@ public class SettlementService : ISettlementService
     /// <summary>
     /// W-06: Admin list settlements với filter + phân trang.
     /// </summary>
-    public Task<PaginatedResponse<SettlementListItemDto>> GetPagedAsync(SettlementListQuery query) =>
+    public Task<PaginatedResponse<SettlementListItemDto>> GetPagedAsync(SettlementListQuery query, CancellationToken cancellationToken = default) =>
         _settlementRepository.GetPagedAsync(query);
 
     /// <summary>
     /// W-06: Admin manually override a failed settlement after retry exhaustion.
     /// Sets Status = Overridden, OverrideBy = adminId, OverrideAt = now.
     /// </summary>
-    public async Task<CafeSettlement> OverrideSettlementAsync(Guid settlementId, Guid adminUserId)
+    public async Task<CafeSettlement> OverrideSettlementAsync(Guid settlementId, Guid adminUserId, CancellationToken cancellationToken = default)
     {
         var settlement = await _settlementRepository.GetByIdAsync(settlementId)
             ?? throw new NotFoundException(ApiErrorMessages.Settlement.NotFound(settlementId));

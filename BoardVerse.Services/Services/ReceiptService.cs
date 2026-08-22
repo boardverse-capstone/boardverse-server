@@ -22,7 +22,7 @@ namespace BoardVerse.Services.Services
             _logger = logger;
         }
 
-        public async Task<SessionReceiptDto> GenerateSessionReceiptAsync(Guid sessionId)
+        public async Task<SessionReceiptDto> GenerateSessionReceiptAsync(Guid sessionId, CancellationToken cancellationToken = default)
         {
             var session = await _dbContext.ActiveSessions
                 .Include(s => s.Cafe)
@@ -86,7 +86,7 @@ namespace BoardVerse.Services.Services
             Guid cafeId,
             DateOnly startDate,
             DateOnly endDate,
-            string granularity)
+            string granularity, CancellationToken cancellationToken = default)
         {
             var cafe = await _dbContext.Cafes.FirstOrDefaultAsync(c => c.Id == cafeId);
             if (cafe == null)

@@ -30,7 +30,7 @@ namespace BoardVerse.Services.Services
         public async Task<CafeInventoryResponseDto> AddToInventoryAsync(
             Guid cafeId,
             Guid managerId,
-            AddCafeInventoryRequestDto dto)
+            AddCafeInventoryRequestDto dto, CancellationToken cancellationToken = default)
         {
             await EnsureManagerOwnsCafeAsync(cafeId, managerId);
 
@@ -84,7 +84,7 @@ namespace BoardVerse.Services.Services
             Guid cafeId,
             Guid? viewerId,
             string? viewerRole,
-            GetCafeInventoryQuery query)
+            GetCafeInventoryQuery query, CancellationToken cancellationToken = default)
         {
             await EnsureCafeIsBrowsableAsync(cafeId);
             var canViewFull = await CanViewFullInventoryAsync(cafeId, viewerId, viewerRole);
@@ -110,7 +110,7 @@ namespace BoardVerse.Services.Services
         public async Task<PaginatedResponse<CafeInventoryResponseDto>> GetDeletedInventoryAsync(
             Guid cafeId,
             Guid managerId,
-            GetCafeInventoryQuery query)
+            GetCafeInventoryQuery query, CancellationToken cancellationToken = default)
         {
             await EnsureManagerOwnsCafeAsync(cafeId, managerId);
 
@@ -127,7 +127,7 @@ namespace BoardVerse.Services.Services
             Guid cafeId,
             Guid inventoryId,
             Guid? viewerId,
-            string? viewerRole)
+            string? viewerRole, CancellationToken cancellationToken = default)
         {
             await EnsureCafeIsBrowsableAsync(cafeId);
             var canViewFull = await CanViewFullInventoryAsync(cafeId, viewerId, viewerRole);
@@ -145,7 +145,7 @@ namespace BoardVerse.Services.Services
             Guid cafeId,
             Guid inventoryId,
             Guid managerId,
-            UpdateCafeInventoryRequestDto dto)
+            UpdateCafeInventoryRequestDto dto, CancellationToken cancellationToken = default)
         {
             await EnsureManagerOwnsCafeAsync(cafeId, managerId);
 

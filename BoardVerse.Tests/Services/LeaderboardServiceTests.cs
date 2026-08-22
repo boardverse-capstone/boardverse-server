@@ -60,8 +60,8 @@ public class LeaderboardServiceTests
     public async Task GetKarmaLeaderboardPagedAsync_FirstPage_ReturnsRank1Based()
     {
         var rows = KarmaRows(startKarma: 200, count: 5);
-        _repo.Setup(r => r.GetKarmaLeaderboardAsync(0, 5)).ReturnsAsync(rows);
-        _repo.Setup(r => r.CountActiveKarmaUsersAsync()).ReturnsAsync(50L);
+        _repo.Setup(r => r.GetKarmaLeaderboardAsync(0, 5, It.IsAny<CancellationToken>())).ReturnsAsync(rows);
+        _repo.Setup(r => r.CountActiveKarmaUsersAsync(It.IsAny<CancellationToken>())).ReturnsAsync(50L);
 
         var sut = CreateSut();
         var result = await sut.GetKarmaLeaderboardPagedAsync(0, 5, viewerUserId: null);
@@ -82,8 +82,8 @@ public class LeaderboardServiceTests
     public async Task GetKarmaLeaderboardPagedAsync_OffsetPage_RanksContinue()
     {
         var rows = KarmaRows(startKarma: 100, count: 3);
-        _repo.Setup(r => r.GetKarmaLeaderboardAsync(5, 3)).ReturnsAsync(rows);
-        _repo.Setup(r => r.CountActiveKarmaUsersAsync()).ReturnsAsync(20L);
+        _repo.Setup(r => r.GetKarmaLeaderboardAsync(5, 3, It.IsAny<CancellationToken>())).ReturnsAsync(rows);
+        _repo.Setup(r => r.CountActiveKarmaUsersAsync(It.IsAny<CancellationToken>())).ReturnsAsync(20L);
 
         var sut = CreateSut();
         var result = await sut.GetKarmaLeaderboardPagedAsync(5, 3, viewerUserId: null);
@@ -109,10 +109,10 @@ public class LeaderboardServiceTests
         var rows = KarmaRows(startKarma: 300, count: 5); // ranks 1..5
         rows.Insert(2, viewer); // now at position 3 (rank 3)
 
-        _repo.Setup(r => r.GetKarmaLeaderboardAsync(0, 10)).ReturnsAsync(rows);
-        _repo.Setup(r => r.GetKarmaLeaderboardAsync(0, 1000)).ReturnsAsync(rows); // cursor scan
-        _repo.Setup(r => r.CountActiveKarmaUsersAsync()).ReturnsAsync(10L);
-        _repo.Setup(r => r.GetUserRankAsync(viewer.UserId, LeaderboardMetric.Karma))
+        _repo.Setup(r => r.GetKarmaLeaderboardAsync(0, 10, It.IsAny<CancellationToken>())).ReturnsAsync(rows);
+        _repo.Setup(r => r.GetKarmaLeaderboardAsync(0, 1000, It.IsAny<CancellationToken>())).ReturnsAsync(rows); // cursor scan
+        _repo.Setup(r => r.CountActiveKarmaUsersAsync(It.IsAny<CancellationToken>())).ReturnsAsync(10L);
+        _repo.Setup(r => r.GetUserRankAsync(viewer.UserId, LeaderboardMetric.Karma, It.IsAny<CancellationToken>()))
             .ReturnsAsync(viewer);
 
         var sut = CreateSut();
@@ -129,11 +129,11 @@ public class LeaderboardServiceTests
     {
         // Service calls GetKarmaLeaderboardAsync(0, 10) for the main page…
         var rows = KarmaRows(startKarma: 200, count: 10);
-        _repo.Setup(r => r.GetKarmaLeaderboardAsync(0, 10)).ReturnsAsync(rows);
-        _repo.Setup(r => r.CountActiveKarmaUsersAsync()).ReturnsAsync(100L);
+        _repo.Setup(r => r.GetKarmaLeaderboardAsync(0, 10, It.IsAny<CancellationToken>())).ReturnsAsync(rows);
+        _repo.Setup(r => r.CountActiveKarmaUsersAsync(It.IsAny<CancellationToken>())).ReturnsAsync(100L);
 
         // …then re-scans the top 1000 to find the viewer's rank.
-        _repo.Setup(r => r.GetKarmaLeaderboardAsync(0, 1000)).ReturnsAsync(rows);
+        _repo.Setup(r => r.GetKarmaLeaderboardAsync(0, 1000, It.IsAny<CancellationToken>())).ReturnsAsync(rows);
 
         // Viewer exists in DB but falls beyond rank 10 — the cursor scan returns no match.
         var viewer = new LeaderboardRankRow
@@ -142,7 +142,7 @@ public class LeaderboardServiceTests
             Username = "lowrank",
             KarmaPoints = 50
         };
-        _repo.Setup(r => r.GetUserRankAsync(viewer.UserId, LeaderboardMetric.Karma))
+        _repo.Setup(r => r.GetUserRankAsync(viewer.UserId, LeaderboardMetric.Karma, It.IsAny<CancellationToken>()))
             .ReturnsAsync(viewer);
 
         var sut = CreateSut();
@@ -155,23 +155,23 @@ public class LeaderboardServiceTests
     public async Task GetKarmaLeaderboardPagedAsync_CacheHit_DoesNotCallRepoTwice()
     {
         var rows = KarmaRows(startKarma: 200, count: 3);
-        _repo.Setup(r => r.GetKarmaLeaderboardAsync(0, 3)).ReturnsAsync(rows);
-        _repo.Setup(r => r.CountActiveKarmaUsersAsync()).ReturnsAsync(10L);
+        _repo.Setup(r => r.GetKarmaLeaderboardAsync(0, 3, It.IsAny<CancellationToken>())).ReturnsAsync(rows);
+        _repo.Setup(r => r.CountActiveKarmaUsersAsync(It.IsAny<CancellationToken>())).ReturnsAsync(10L);
 
         var sut = CreateSut();
         await sut.GetKarmaLeaderboardPagedAsync(0, 3, viewerUserId: null);
         await sut.GetKarmaLeaderboardPagedAsync(0, 3, viewerUserId: null);
 
-        _repo.Verify(r => r.GetKarmaLeaderboardAsync(0, 3), Times.Once);
-        _repo.Verify(r => r.CountActiveKarmaUsersAsync(), Times.Once);
+        _repo.Verify(r => r.GetKarmaLeaderboardAsync(0, 3, It.IsAny<CancellationToken>()), Times.Once);
+        _repo.Verify(r => r.CountActiveKarmaUsersAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
     public async Task GetEloLeaderboardPagedAsync_OrdersByGlobalEloDesc()
     {
         var rows = EloRows(startElo: 2400, count: 4);
-        _repo.Setup(r => r.GetEloLeaderboardAsync(0, 4)).ReturnsAsync(rows);
-        _repo.Setup(r => r.CountActiveEloUsersAsync()).ReturnsAsync(100L);
+        _repo.Setup(r => r.GetEloLeaderboardAsync(0, 4, It.IsAny<CancellationToken>())).ReturnsAsync(rows);
+        _repo.Setup(r => r.CountActiveEloUsersAsync(It.IsAny<CancellationToken>())).ReturnsAsync(100L);
 
         var sut = CreateSut();
         var result = await sut.GetEloLeaderboardPagedAsync(0, 4, viewerUserId: null);
@@ -188,8 +188,8 @@ public class LeaderboardServiceTests
     public async Task GetEloLeaderboardPagedAsync_EloEntryDoesNotExposeGamerTier()
     {
         var rows = EloRows(startElo: 2400, count: 1);
-        _repo.Setup(r => r.GetEloLeaderboardAsync(0, 1)).ReturnsAsync(rows);
-        _repo.Setup(r => r.CountActiveEloUsersAsync()).ReturnsAsync(1L);
+        _repo.Setup(r => r.GetEloLeaderboardAsync(0, 1, It.IsAny<CancellationToken>())).ReturnsAsync(rows);
+        _repo.Setup(r => r.CountActiveEloUsersAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1L);
 
         var sut = CreateSut();
         var result = await sut.GetEloLeaderboardPagedAsync(0, 1, viewerUserId: null);
@@ -215,10 +215,10 @@ public class LeaderboardServiceTests
         };
         rows.Add(viewer); // rank 4
 
-        _repo.Setup(r => r.GetEloLeaderboardAsync(0, 10)).ReturnsAsync(rows);
-        _repo.Setup(r => r.GetEloLeaderboardAsync(0, 1000)).ReturnsAsync(rows); // cursor scan
-        _repo.Setup(r => r.CountActiveEloUsersAsync()).ReturnsAsync(50L);
-        _repo.Setup(r => r.GetUserRankAsync(viewer.UserId, LeaderboardMetric.Elo))
+        _repo.Setup(r => r.GetEloLeaderboardAsync(0, 10, It.IsAny<CancellationToken>())).ReturnsAsync(rows);
+        _repo.Setup(r => r.GetEloLeaderboardAsync(0, 1000, It.IsAny<CancellationToken>())).ReturnsAsync(rows); // cursor scan
+        _repo.Setup(r => r.CountActiveEloUsersAsync(It.IsAny<CancellationToken>())).ReturnsAsync(50L);
+        _repo.Setup(r => r.GetUserRankAsync(viewer.UserId, LeaderboardMetric.Elo, It.IsAny<CancellationToken>()))
             .ReturnsAsync(viewer);
 
         var sut = CreateSut();
@@ -234,8 +234,8 @@ public class LeaderboardServiceTests
     public async Task GetKarmaLeaderboardAsync_LegacyOverload_DelegatesToPaged()
     {
         var rows = KarmaRows(startKarma: 150, count: 2);
-        _repo.Setup(r => r.GetKarmaLeaderboardAsync(0, 2)).ReturnsAsync(rows);
-        _repo.Setup(r => r.CountActiveKarmaUsersAsync()).ReturnsAsync(10L);
+        _repo.Setup(r => r.GetKarmaLeaderboardAsync(0, 2, It.IsAny<CancellationToken>())).ReturnsAsync(rows);
+        _repo.Setup(r => r.CountActiveKarmaUsersAsync(It.IsAny<CancellationToken>())).ReturnsAsync(10L);
 
         var sut = CreateSut();
         var result = await sut.GetKarmaLeaderboardAsync(2);
@@ -248,8 +248,8 @@ public class LeaderboardServiceTests
     public async Task GetEloLeaderboardAsync_LegacyOverload_DelegatesToPaged()
     {
         var rows = EloRows(startElo: 2000, count: 2);
-        _repo.Setup(r => r.GetEloLeaderboardAsync(0, 2)).ReturnsAsync(rows);
-        _repo.Setup(r => r.CountActiveEloUsersAsync()).ReturnsAsync(10L);
+        _repo.Setup(r => r.GetEloLeaderboardAsync(0, 2, It.IsAny<CancellationToken>())).ReturnsAsync(rows);
+        _repo.Setup(r => r.CountActiveEloUsersAsync(It.IsAny<CancellationToken>())).ReturnsAsync(10L);
 
         var sut = CreateSut();
         var result = await sut.GetEloLeaderboardAsync(2);
@@ -261,8 +261,8 @@ public class LeaderboardServiceTests
     [Fact]
     public async Task GetKarmaLeaderboardPagedAsync_OffsetNegative_ClampsToZero()
     {
-        _repo.Setup(r => r.GetKarmaLeaderboardAsync(0, 10)).ReturnsAsync(KarmaRows(200, 2));
-        _repo.Setup(r => r.CountActiveKarmaUsersAsync()).ReturnsAsync(2L);
+        _repo.Setup(r => r.GetKarmaLeaderboardAsync(0, 10, It.IsAny<CancellationToken>())).ReturnsAsync(KarmaRows(200, 2));
+        _repo.Setup(r => r.CountActiveKarmaUsersAsync(It.IsAny<CancellationToken>())).ReturnsAsync(2L);
 
         var sut = CreateSut();
         var result = await sut.GetKarmaLeaderboardPagedAsync(-5, 10, viewerUserId: null);
@@ -273,8 +273,8 @@ public class LeaderboardServiceTests
     [Fact]
     public async Task GetKarmaLeaderboardPagedAsync_LimitZero_FallsBackToDefault50()
     {
-        _repo.Setup(r => r.GetKarmaLeaderboardAsync(0, 50)).ReturnsAsync(KarmaRows(200, 1));
-        _repo.Setup(r => r.CountActiveKarmaUsersAsync()).ReturnsAsync(1L);
+        _repo.Setup(r => r.GetKarmaLeaderboardAsync(0, 50, It.IsAny<CancellationToken>())).ReturnsAsync(KarmaRows(200, 1));
+        _repo.Setup(r => r.CountActiveKarmaUsersAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1L);
 
         var sut = CreateSut();
         var result = await sut.GetKarmaLeaderboardPagedAsync(0, 0, viewerUserId: null);
@@ -285,8 +285,8 @@ public class LeaderboardServiceTests
     [Fact]
     public async Task GetKarmaLeaderboardPagedAsync_LimitTooLarge_ClampsTo500()
     {
-        _repo.Setup(r => r.GetKarmaLeaderboardAsync(0, 500)).ReturnsAsync(KarmaRows(200, 1));
-        _repo.Setup(r => r.CountActiveKarmaUsersAsync()).ReturnsAsync(1L);
+        _repo.Setup(r => r.GetKarmaLeaderboardAsync(0, 500, It.IsAny<CancellationToken>())).ReturnsAsync(KarmaRows(200, 1));
+        _repo.Setup(r => r.CountActiveKarmaUsersAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1L);
 
         var sut = CreateSut();
         var result = await sut.GetKarmaLeaderboardPagedAsync(0, 9999, viewerUserId: null);

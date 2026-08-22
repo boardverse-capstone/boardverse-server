@@ -46,7 +46,7 @@ public class UserProfileServiceTests
     [Fact]
     public async Task GetPublicProfileAsync_WhenUserMissing_ThrowsUserNotFound()
     {
-        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(It.IsAny<Guid>())).ReturnsAsync((User?)null);
+        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         var svc = CreateService();
 
@@ -68,7 +68,7 @@ public class UserProfileServiceTests
             Level = 5,
             IsActive = true
         });
-        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId)).ReturnsAsync(user);
+        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var svc = CreateService();
 
@@ -87,7 +87,7 @@ public class UserProfileServiceTests
         var userId = Guid.NewGuid();
         var user = BuildUser(userId, role: UserRole.Admin);
         user.Profile!.IsActive = false;
-        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId)).ReturnsAsync(user);
+        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var svc = CreateService();
 
@@ -108,7 +108,7 @@ public class UserProfileServiceTests
         var userId = Guid.NewGuid();
         var user = BuildUser(userId);
         user.Profile!.IsActive = false;
-        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId)).ReturnsAsync(user);
+        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var svc = CreateService();
 
@@ -123,7 +123,7 @@ public class UserProfileServiceTests
         user.Profile!.FirstName = "An";
         user.Profile.LastName = "Nguyen";
         user.Profile.DateOfBirth = new DateOnly(2000, 1, 1);
-        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId)).ReturnsAsync(user);
+        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var svc = CreateService();
 
@@ -141,7 +141,7 @@ public class UserProfileServiceTests
     [Fact]
     public async Task CreateProfileAsync_WhenUserMissing_ThrowsUserNotFound()
     {
-        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(It.IsAny<Guid>())).ReturnsAsync((User?)null);
+        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         var svc = CreateService();
 
@@ -155,7 +155,7 @@ public class UserProfileServiceTests
         var userId = Guid.NewGuid();
         var user = BuildUser(userId);
         user.Profile!.IsActive = true;
-        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId)).ReturnsAsync(user);
+        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var svc = CreateService();
 
@@ -168,7 +168,7 @@ public class UserProfileServiceTests
     {
         var userId = Guid.NewGuid();
         var user = new User { Id = userId, Username = "alice", Email = "a@b.test", Role = UserRole.Player, IsActive = true, AccountStatus = UserAccountStatus.Active };
-        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId)).ReturnsAsync(user);
+        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         UserProfile? captured = null;
         _profileRepo.Setup(r => r.AddUserProfileAsync(It.IsAny<UserProfile>()))
@@ -194,7 +194,7 @@ public class UserProfileServiceTests
     [Fact]
     public async Task UpdateProfileAsync_WhenUserMissing_Throws()
     {
-        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(It.IsAny<Guid>())).ReturnsAsync((User?)null);
+        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         var svc = CreateService();
 
@@ -208,7 +208,7 @@ public class UserProfileServiceTests
         var userId = Guid.NewGuid();
         var user = BuildUser(userId);
         user.Profile!.KarmaPoints = 200;
-        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId)).ReturnsAsync(user);
+        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var svc = CreateService();
 
@@ -226,7 +226,7 @@ public class UserProfileServiceTests
         var userId = Guid.NewGuid();
         var user = BuildUser(userId);
         user.Profile!.KarmaPoints = 0;
-        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId)).ReturnsAsync(user);
+        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var svc = CreateService();
 
@@ -244,7 +244,7 @@ public class UserProfileServiceTests
     {
         var userId = Guid.NewGuid();
         var user = BuildUser(userId);
-        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId)).ReturnsAsync(user);
+        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var svc = CreateService();
 
@@ -261,7 +261,7 @@ public class UserProfileServiceTests
     [Fact]
     public async Task DeleteProfileAsync_WhenNoProfile_NoOp()
     {
-        _profileRepo.Setup(r => r.GetProfileByUserIdAsync(It.IsAny<Guid>())).ReturnsAsync((UserProfile?)null);
+        _profileRepo.Setup(r => r.GetProfileByUserIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((UserProfile?)null);
 
         var svc = CreateService();
 
@@ -275,7 +275,7 @@ public class UserProfileServiceTests
     {
         var userId = Guid.NewGuid();
         var profile = new UserProfile { UserId = userId, IsActive = true };
-        _profileRepo.Setup(r => r.GetProfileByUserIdAsync(userId)).ReturnsAsync(profile);
+        _profileRepo.Setup(r => r.GetProfileByUserIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
 
         var svc = CreateService();
 
@@ -294,7 +294,7 @@ public class UserProfileServiceTests
     {
         var userId = Guid.NewGuid();
         var user = new User { Id = userId, Username = "alice", Email = "a@b.test", Role = UserRole.Player, IsActive = true, AccountStatus = UserAccountStatus.Active };
-        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId)).ReturnsAsync(user);
+        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         UserProfile? captured = null;
         _profileRepo.Setup(r => r.AddUserProfileAsync(It.IsAny<UserProfile>()))
@@ -312,7 +312,7 @@ public class UserProfileServiceTests
     [Fact]
     public async Task GetKarmaStateAsync_WhenUserMissing_Throws()
     {
-        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(It.IsAny<Guid>())).ReturnsAsync((User?)null);
+        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         var svc = CreateService();
 
@@ -324,8 +324,8 @@ public class UserProfileServiceTests
     {
         var userId = Guid.NewGuid();
         var user = new User { Id = userId, Username = "alice", Email = "a@b.test", Role = UserRole.Player };
-        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId)).ReturnsAsync(user);
-        _profileRepo.Setup(r => r.GetKarmaLogsAsync(userId, It.IsAny<int>()))
+        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _profileRepo.Setup(r => r.GetKarmaLogsAsync(userId, It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<KarmaLog>());
 
         var svc = CreateService();
@@ -345,7 +345,7 @@ public class UserProfileServiceTests
     {
         var userId = Guid.NewGuid();
         var user = new User { Id = userId, Username = "alice", Email = "a@b.test", Role = UserRole.Player };
-        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId)).ReturnsAsync(user);
+        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
         _profileRepo.Setup(r => r.AddUserProfileAsync(It.IsAny<UserProfile>())).Returns(Task.CompletedTask);
 
         var svc = CreateService();
@@ -362,7 +362,7 @@ public class UserProfileServiceTests
     {
         var userId = Guid.NewGuid();
         var user = BuildUser(userId);
-        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId)).ReturnsAsync(user);
+        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var svc = CreateService();
 
@@ -380,7 +380,7 @@ public class UserProfileServiceTests
     [Fact]
     public async Task GetCurrentLocationAsync_WhenUserMissing_Throws()
     {
-        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(It.IsAny<Guid>())).ReturnsAsync((User?)null);
+        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         var svc = CreateService();
 
@@ -392,7 +392,7 @@ public class UserProfileServiceTests
     {
         var userId = Guid.NewGuid();
         var user = BuildUser(userId);
-        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId)).ReturnsAsync(user);
+        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var svc = CreateService();
 
@@ -405,7 +405,7 @@ public class UserProfileServiceTests
     {
         var userId = Guid.NewGuid();
         var user = BuildUser(userId);
-        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId)).ReturnsAsync(user);
+        _profileRepo.Setup(r => r.GetByIdWithProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         PlayerLocationHistory? capturedHistory = null;
         _profileRepo.Setup(r => r.AddPlayerLocationHistoryAsync(It.IsAny<PlayerLocationHistory>()))
@@ -432,7 +432,7 @@ public class UserProfileServiceTests
     [Fact]
     public async Task ClearCurrentLocationAsync_WhenNoProfile_ThrowsProfileNotFound()
     {
-        _profileRepo.Setup(r => r.GetProfileByUserIdAsync(It.IsAny<Guid>())).ReturnsAsync((UserProfile?)null);
+        _profileRepo.Setup(r => r.GetProfileByUserIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((UserProfile?)null);
 
         var svc = CreateService();
 
@@ -443,7 +443,7 @@ public class UserProfileServiceTests
     public async Task ClearCurrentLocationAsync_WhenNoSavedLocation_ThrowsNotFound()
     {
         var userId = Guid.NewGuid();
-        _profileRepo.Setup(r => r.GetProfileByUserIdAsync(userId)).ReturnsAsync(new UserProfile { UserId = userId });
+        _profileRepo.Setup(r => r.GetProfileByUserIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(new UserProfile { UserId = userId });
 
         var svc = CreateService();
 
@@ -462,7 +462,7 @@ public class UserProfileServiceTests
             LastLocationSource = PlayerLocationSource.Gps,
             LastLocationUpdatedAt = DateTime.UtcNow
         };
-        _profileRepo.Setup(r => r.GetProfileByUserIdAsync(userId)).ReturnsAsync(profile);
+        _profileRepo.Setup(r => r.GetProfileByUserIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
 
         var svc = CreateService();
 

@@ -96,7 +96,7 @@ public class BvcRefundRequestRepository : IBvcRefundRequestRepository
         await _db.BvcRefundRequests.AddAsync(request, cancellationToken);
     }
 
-    public Task UpdateAsync(BvcRefundRequest request)
+    public Task UpdateAsync(BvcRefundRequest request, CancellationToken cancellationToken = default)
     {
         request.UpdatedAt = DateTime.UtcNow;
         _db.BvcRefundRequests.Update(request);

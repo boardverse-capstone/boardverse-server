@@ -13,16 +13,16 @@ public class LobbyMemberRepository : ILobbyMemberRepository
         _db = db;
     }
 
-    public Task<LobbyMember?> GetByLobbyAndUserAsync(Guid lobbyId, Guid userId)
+    public Task<LobbyMember?> GetByLobbyAndUserAsync(Guid lobbyId, Guid userId, CancellationToken cancellationToken = default)
         => _db.LobbyMembers.FirstOrDefaultAsync(m => m.LobbyId == lobbyId && m.UserId == userId);
 
-    public async Task<IReadOnlyList<LobbyMember>> GetByLobbyAsync(Guid lobbyId)
+    public async Task<IReadOnlyList<LobbyMember>> GetByLobbyAsync(Guid lobbyId, CancellationToken cancellationToken = default)
         => await _db.LobbyMembers.Where(m => m.LobbyId == lobbyId).ToListAsync();
 
-    public async Task<IReadOnlyList<LobbyMember>> GetActiveByLobbyAsync(Guid lobbyId)
+    public async Task<IReadOnlyList<LobbyMember>> GetActiveByLobbyAsync(Guid lobbyId, CancellationToken cancellationToken = default)
         => await _db.LobbyMembers.Where(m => m.LobbyId == lobbyId && m.IsActive).ToListAsync();
 
-    public async Task<IReadOnlyList<Guid>> GetRecentMemberUserIdsAsync(Guid userId, int daysBack = 30, int maxLobbies = 50)
+    public async Task<IReadOnlyList<Guid>> GetRecentMemberUserIdsAsync(Guid userId, int daysBack = 30, int maxLobbies = 50, CancellationToken cancellationToken = default)
     {
         var cutoff = DateTime.UtcNow.AddDays(-daysBack);
 

@@ -41,11 +41,11 @@ public class CafeBookingServiceTests
 
         // Default MockBehavior.Loose → trả default value cho các call chưa setup
         // (null cho reference, 0 cho int). Đảm bảo Sum() không crash vì null IEnumerable.
-        _bookingRepo.Setup(r => r.GetOverlappingBookingsAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>()))
+        _bookingRepo.Setup(r => r.GetOverlappingBookingsAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Booking>());
-        _sessionRepo.Setup(r => r.GetActiveSessionsAsync(It.IsAny<Guid>(), It.IsAny<Guid?>()))
+        _sessionRepo.Setup(r => r.GetActiveSessionsAsync(It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<ActiveSession>());
-        _reservationRepo.Setup(r => r.GetOverlappingReservationsAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>()))
+        _reservationRepo.Setup(r => r.GetOverlappingReservationsAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Reservation>());
         _walkInRepo.Setup(r => r.GetOverlappingAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<WalkInWindow>());
@@ -164,20 +164,20 @@ public class CafeBookingServiceTests
         var start = new DateTime(2026, 8, 20, 13, 0, 0);
         var end = new DateTime(2026, 8, 20, 15, 0, 0);
 
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId))
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateCafe(cafeId, totalSeats: 20));
-        _tableRepo.Setup(r => r.GetByCafeIdAsync(cafeId))
+        _tableRepo.Setup(r => r.GetByCafeIdAsync(cafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<CafeTable> { CreateTable(cafeId, 20) });
-        _bookingRepo.Setup(r => r.GetOverlappingBookingsAsync(cafeId, start, end))
+        _bookingRepo.Setup(r => r.GetOverlappingBookingsAsync(cafeId, start, end, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Booking>());
-        _sessionRepo.Setup(r => r.GetActiveSessionsAsync(cafeId, null))
+        _sessionRepo.Setup(r => r.GetActiveSessionsAsync(cafeId, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<ActiveSession>());
-        _reservationRepo.Setup(r => r.GetOverlappingReservationsAsync(cafeId, start, end))
+        _reservationRepo.Setup(r => r.GetOverlappingReservationsAsync(cafeId, start, end, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Reservation>
             {
                 CreateReservation(cafeId, 4, start, end, ReservationStatus.Holding)
             });
-        _walkInRepo.Setup(r => r.GetOverlappingAsync(cafeId, start, end, default))
+        _walkInRepo.Setup(r => r.GetOverlappingAsync(cafeId, start, end, default, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<WalkInWindow>());
 
         // Act
@@ -195,20 +195,20 @@ public class CafeBookingServiceTests
         var start = new DateTime(2026, 8, 20, 13, 0, 0);
         var end = new DateTime(2026, 8, 20, 15, 0, 0);
 
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId))
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateCafe(cafeId, totalSeats: 20));
-        _tableRepo.Setup(r => r.GetByCafeIdAsync(cafeId))
+        _tableRepo.Setup(r => r.GetByCafeIdAsync(cafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<CafeTable> { CreateTable(cafeId, 20) });
-        _bookingRepo.Setup(r => r.GetOverlappingBookingsAsync(cafeId, start, end))
+        _bookingRepo.Setup(r => r.GetOverlappingBookingsAsync(cafeId, start, end, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Booking>());
-        _sessionRepo.Setup(r => r.GetActiveSessionsAsync(cafeId, null))
+        _sessionRepo.Setup(r => r.GetActiveSessionsAsync(cafeId, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<ActiveSession>());
-        _reservationRepo.Setup(r => r.GetOverlappingReservationsAsync(cafeId, start, end))
+        _reservationRepo.Setup(r => r.GetOverlappingReservationsAsync(cafeId, start, end, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Reservation>
             {
                 CreateReservation(cafeId, 6, start, end, ReservationStatus.Confirmed)
             });
-        _walkInRepo.Setup(r => r.GetOverlappingAsync(cafeId, start, end, default))
+        _walkInRepo.Setup(r => r.GetOverlappingAsync(cafeId, start, end, default, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<WalkInWindow>());
 
         var result = await _service.GetAvailabilityAsync(cafeId, start, end, 1, null);
@@ -224,17 +224,17 @@ public class CafeBookingServiceTests
         var start = new DateTime(2026, 8, 20, 13, 0, 0);
         var end = new DateTime(2026, 8, 20, 15, 0, 0);
 
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId))
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateCafe(cafeId, totalSeats: 20));
-        _tableRepo.Setup(r => r.GetByCafeIdAsync(cafeId))
+        _tableRepo.Setup(r => r.GetByCafeIdAsync(cafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<CafeTable> { CreateTable(cafeId, 20) });
-        _bookingRepo.Setup(r => r.GetOverlappingBookingsAsync(cafeId, start, end))
+        _bookingRepo.Setup(r => r.GetOverlappingBookingsAsync(cafeId, start, end, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Booking>());
-        _sessionRepo.Setup(r => r.GetActiveSessionsAsync(cafeId, null))
+        _sessionRepo.Setup(r => r.GetActiveSessionsAsync(cafeId, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<ActiveSession>());
-        _reservationRepo.Setup(r => r.GetOverlappingReservationsAsync(cafeId, start, end))
+        _reservationRepo.Setup(r => r.GetOverlappingReservationsAsync(cafeId, start, end, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Reservation>());
-        _walkInRepo.Setup(r => r.GetOverlappingAsync(cafeId, start, end, default))
+        _walkInRepo.Setup(r => r.GetOverlappingAsync(cafeId, start, end, default, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<WalkInWindow>
             {
                 CreateWalkInWindow(cafeId, heldSeats: 3, start: start, end: end, status: WalkInWindowStatus.Available)
@@ -254,31 +254,31 @@ public class CafeBookingServiceTests
         var start = new DateTime(2026, 8, 20, 13, 0, 0);
         var end = new DateTime(2026, 8, 20, 15, 0, 0);
 
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId))
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateCafe(cafeId, totalSeats: 30));
         var table = CreateTable(cafeId, 10);
         table.Id = tableId;
-        _tableRepo.Setup(r => r.GetByCafeIdAsync(cafeId))
+        _tableRepo.Setup(r => r.GetByCafeIdAsync(cafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<CafeTable> { table, CreateTable(cafeId, 20) });
         // Booking overlap = 4, Session inUse = 10 (1 table fully occupied)
-        _bookingRepo.Setup(r => r.GetOverlappingBookingsAsync(cafeId, start, end))
+        _bookingRepo.Setup(r => r.GetOverlappingBookingsAsync(cafeId, start, end, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Booking>
             {
                 CreateBooking(cafeId, 4, start, end)
             });
-        _sessionRepo.Setup(r => r.GetActiveSessionsAsync(cafeId, null))
+        _sessionRepo.Setup(r => r.GetActiveSessionsAsync(cafeId, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<ActiveSession>
             {
                 CreateActiveSession(cafeId, tableId, GroupSessionStatus.Active)
             });
         // Reservation Held = 5
-        _reservationRepo.Setup(r => r.GetOverlappingReservationsAsync(cafeId, start, end))
+        _reservationRepo.Setup(r => r.GetOverlappingReservationsAsync(cafeId, start, end, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Reservation>
             {
                 CreateReservation(cafeId, 5, start, end, ReservationStatus.Holding)
             });
         // WalkIn Held = 2
-        _walkInRepo.Setup(r => r.GetOverlappingAsync(cafeId, start, end, default))
+        _walkInRepo.Setup(r => r.GetOverlappingAsync(cafeId, start, end, default, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<WalkInWindow>
             {
                 CreateWalkInWindow(cafeId, heldSeats: 2, start: start, end: end, status: WalkInWindowStatus.Full)
@@ -302,22 +302,22 @@ public class CafeBookingServiceTests
         var start = new DateTime(2026, 8, 20, 13, 0, 0);
         var end = new DateTime(2026, 8, 20, 15, 0, 0);
 
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId))
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateCafe(cafeId, totalSeats: 20));
-        _tableRepo.Setup(r => r.GetByCafeIdAsync(cafeId))
+        _tableRepo.Setup(r => r.GetByCafeIdAsync(cafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<CafeTable> { CreateTable(cafeId, 20) });
-        _bookingRepo.Setup(r => r.GetOverlappingBookingsAsync(cafeId, start, end))
+        _bookingRepo.Setup(r => r.GetOverlappingBookingsAsync(cafeId, start, end, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Booking>());
-        _sessionRepo.Setup(r => r.GetActiveSessionsAsync(cafeId, null))
+        _sessionRepo.Setup(r => r.GetActiveSessionsAsync(cafeId, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<ActiveSession>());
-        _reservationRepo.Setup(r => r.GetOverlappingReservationsAsync(cafeId, start, end))
+        _reservationRepo.Setup(r => r.GetOverlappingReservationsAsync(cafeId, start, end, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Reservation>
             {
                 CreateReservation(cafeId, 5, start, end, ReservationStatus.CancelledByPlayer),
                 CreateReservation(cafeId, 3, start, end, ReservationStatus.Expired),
                 CreateReservation(cafeId, 2, start, end, ReservationStatus.Holding) // active
             });
-        _walkInRepo.Setup(r => r.GetOverlappingAsync(cafeId, start, end, default))
+        _walkInRepo.Setup(r => r.GetOverlappingAsync(cafeId, start, end, default, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<WalkInWindow>());
 
         var result = await _service.GetAvailabilityAsync(cafeId, start, end, 1, null);
@@ -334,17 +334,17 @@ public class CafeBookingServiceTests
         var start = new DateTime(2026, 8, 20, 13, 0, 0);
         var end = new DateTime(2026, 8, 20, 15, 0, 0);
 
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId))
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateCafe(cafeId, totalSeats: 20));
-        _tableRepo.Setup(r => r.GetByCafeIdAsync(cafeId))
+        _tableRepo.Setup(r => r.GetByCafeIdAsync(cafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<CafeTable> { CreateTable(cafeId, 20) });
-        _bookingRepo.Setup(r => r.GetOverlappingBookingsAsync(cafeId, start, end))
+        _bookingRepo.Setup(r => r.GetOverlappingBookingsAsync(cafeId, start, end, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Booking>());
-        _sessionRepo.Setup(r => r.GetActiveSessionsAsync(cafeId, null))
+        _sessionRepo.Setup(r => r.GetActiveSessionsAsync(cafeId, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<ActiveSession>());
-        _reservationRepo.Setup(r => r.GetOverlappingReservationsAsync(cafeId, start, end))
+        _reservationRepo.Setup(r => r.GetOverlappingReservationsAsync(cafeId, start, end, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Reservation>());
-        _walkInRepo.Setup(r => r.GetOverlappingAsync(cafeId, start, end, default))
+        _walkInRepo.Setup(r => r.GetOverlappingAsync(cafeId, start, end, default, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<WalkInWindow>
             {
                 CreateWalkInWindow(cafeId, heldSeats: 4, start: start, end: end, status: WalkInWindowStatus.Closed)
@@ -363,20 +363,20 @@ public class CafeBookingServiceTests
         var start = new DateTime(2026, 8, 20, 13, 0, 0);
         var end = new DateTime(2026, 8, 20, 15, 0, 0);
 
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId))
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateCafe(cafeId, totalSeats: 5));
-        _tableRepo.Setup(r => r.GetByCafeIdAsync(cafeId))
+        _tableRepo.Setup(r => r.GetByCafeIdAsync(cafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<CafeTable> { CreateTable(cafeId, 5) });
-        _bookingRepo.Setup(r => r.GetOverlappingBookingsAsync(cafeId, start, end))
+        _bookingRepo.Setup(r => r.GetOverlappingBookingsAsync(cafeId, start, end, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Booking>());
-        _sessionRepo.Setup(r => r.GetActiveSessionsAsync(cafeId, null))
+        _sessionRepo.Setup(r => r.GetActiveSessionsAsync(cafeId, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<ActiveSession>());
-        _reservationRepo.Setup(r => r.GetOverlappingReservationsAsync(cafeId, start, end))
+        _reservationRepo.Setup(r => r.GetOverlappingReservationsAsync(cafeId, start, end, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Reservation>
             {
                 CreateReservation(cafeId, 10, start, end, ReservationStatus.Holding)
             });
-        _walkInRepo.Setup(r => r.GetOverlappingAsync(cafeId, start, end, default))
+        _walkInRepo.Setup(r => r.GetOverlappingAsync(cafeId, start, end, default, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<WalkInWindow>());
 
         var result = await _service.GetAvailabilityAsync(cafeId, start, end, 1, null);
@@ -396,31 +396,31 @@ public class CafeBookingServiceTests
         var altStart = start.AddMinutes(30);
         var altEnd = altStart.Add(end - start);
 
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId))
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateCafe(cafeId, totalSeats: 10));
-        _tableRepo.Setup(r => r.GetByCafeIdAsync(cafeId))
+        _tableRepo.Setup(r => r.GetByCafeIdAsync(cafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<CafeTable> { CreateTable(cafeId, 10) });
 
         // Main slot: trống
-        _bookingRepo.Setup(r => r.GetOverlappingBookingsAsync(cafeId, start, end))
+        _bookingRepo.Setup(r => r.GetOverlappingBookingsAsync(cafeId, start, end, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Booking>());
-        _reservationRepo.Setup(r => r.GetOverlappingReservationsAsync(cafeId, start, end))
+        _reservationRepo.Setup(r => r.GetOverlappingReservationsAsync(cafeId, start, end, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Reservation>());
-        _walkInRepo.Setup(r => r.GetOverlappingAsync(cafeId, start, end, default))
+        _walkInRepo.Setup(r => r.GetOverlappingAsync(cafeId, start, end, default, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<WalkInWindow>());
 
         // Alt slot +30p: có 1 reservation holding 4 ghế
-        _bookingRepo.Setup(r => r.GetOverlappingBookingsAsync(cafeId, altStart, altEnd))
+        _bookingRepo.Setup(r => r.GetOverlappingBookingsAsync(cafeId, altStart, altEnd, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Booking>());
-        _reservationRepo.Setup(r => r.GetOverlappingReservationsAsync(cafeId, altStart, altEnd))
+        _reservationRepo.Setup(r => r.GetOverlappingReservationsAsync(cafeId, altStart, altEnd, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Reservation>
             {
                 CreateReservation(cafeId, 4, altStart, altEnd, ReservationStatus.Holding)
             });
-        _walkInRepo.Setup(r => r.GetOverlappingAsync(cafeId, altStart, altEnd, default))
+        _walkInRepo.Setup(r => r.GetOverlappingAsync(cafeId, altStart, altEnd, default, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<WalkInWindow>());
 
-        _sessionRepo.Setup(r => r.GetActiveSessionsAsync(cafeId, null))
+        _sessionRepo.Setup(r => r.GetActiveSessionsAsync(cafeId, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<ActiveSession>());
 
         var result = await _service.GetAvailabilityAsync(cafeId, start, end, 3, null);
@@ -449,7 +449,7 @@ public class CafeBookingServiceTests
     public async Task GetAvailabilityAsync_Should_ThrowNotFound_WhenCafeMissing()
     {
         var cafeId = Guid.NewGuid();
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId))
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((Cafe?)null);
 
         await Assert.ThrowsAsync<NotFoundException>(async () =>

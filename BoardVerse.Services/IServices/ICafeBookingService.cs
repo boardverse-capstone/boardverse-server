@@ -1,5 +1,6 @@
 using BoardVerse.Core.DTOs.Booking;
 
+using System.Threading;
 namespace BoardVerse.Services.IServices;
 
 /// <summary>
@@ -17,7 +18,7 @@ public interface ICafeBookingService
         Guid cafeId,
         DateTime scheduledStartTime,
         DateTime scheduleEndTime,
-        int seatCount);
+        int seatCount, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Khảo sát capacity quán trong 1 khung giờ và đề xuất các slot thay thế.
@@ -27,5 +28,6 @@ public interface ICafeBookingService
         DateTime startTime,
         DateTime endTime,
         int seatCount,
-        Guid? gameTemplateId);
+        Guid? gameTemplateId,
+        CancellationToken cancellationToken = default);
 }

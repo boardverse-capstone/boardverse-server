@@ -17,7 +17,7 @@ namespace BoardVerse.Services.Services
             _context = context;
         }
 
-        public async Task SeedGamesFromCatalogAsync(List<string>? slugs = null)
+        public async Task SeedGamesFromCatalogAsync(List<string>? slugs = null, CancellationToken cancellationToken = default)
         {
             var targetSlugs = slugs ?? GameCatalog.PopularGameSlugs.ToList();
             Console.WriteLine($"Seeding {targetSlugs.Count} games from master catalog...");
@@ -37,7 +37,7 @@ namespace BoardVerse.Services.Services
             Console.WriteLine("Catalog seeding completed!");
         }
 
-        public async Task SeedSingleGameAsync(string slug)
+        public async Task SeedSingleGameAsync(string slug, CancellationToken cancellationToken = default)
         {
             var catalogEntry = GameCatalog.GetBySlug(slug);
             if (catalogEntry == null)

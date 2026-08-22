@@ -1,5 +1,6 @@
 using BoardVerse.Core.Entities;
 
+using System.Threading;
 namespace BoardVerse.Core.IRepositories;
 
 /// <summary>
@@ -7,15 +8,15 @@ namespace BoardVerse.Core.IRepositories;
 /// </summary>
 public interface IPlayerRiskScoreRepository
 {
-    Task<PlayerRiskScore?> GetByUserIdAsync(Guid userId);
+    Task<PlayerRiskScore?> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default);
 
-    Task UpsertAsync(PlayerRiskScore snapshot);
+    Task UpsertAsync(PlayerRiskScore snapshot, CancellationToken cancellationToken = default);
 
-    Task AppendHistoryAsync(RiskScoreHistory history);
+    Task AppendHistoryAsync(RiskScoreHistory history, CancellationToken cancellationToken = default);
 
     /// <summary>Lấy tất cả users đang có Wallet → batch process.</summary>
-    Task<IReadOnlyList<Guid>> GetAllActiveUserIdsAsync(int batchSize, int skip);
+    Task<IReadOnlyList<Guid>> GetAllActiveUserIdsAsync(int batchSize, int skip, CancellationToken cancellationToken = default);
 
     /// <summary>Snapshot lịch sử riskScore trong khoảng ngày (cho chart trend).</summary>
-    Task<IReadOnlyList<RiskScoreHistory>> GetHistoryByUserIdAndDateRangeAsync(Guid userId, DateOnly fromDate, DateOnly toDate);
+    Task<IReadOnlyList<RiskScoreHistory>> GetHistoryByUserIdAndDateRangeAsync(Guid userId, DateOnly fromDate, DateOnly toDate, CancellationToken cancellationToken = default);
 }

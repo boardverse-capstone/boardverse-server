@@ -38,6 +38,7 @@ public class TournamentReminderJob : BackgroundService
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
+                _logger.LogInformation("TournamentReminderJob stopped (host shutdown).");
                 break;
             }
             catch (Exception ex)

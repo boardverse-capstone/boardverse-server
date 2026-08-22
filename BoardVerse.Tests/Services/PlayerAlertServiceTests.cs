@@ -57,7 +57,7 @@ public class PlayerAlertServiceTests
         // BR-RISK-02: admin xem alert → status = Acknowledged, ghi AcknowledgedBy/At.
         var repo = new Mock<IPlayerAlertRepository>();
         var alert = BuildAlert(PlayerAlertStatus.Open);
-        repo.Setup(r => r.GetByIdAsync(AlertId)).ReturnsAsync(alert);
+        repo.Setup(r => r.GetByIdAsync(AlertId, It.IsAny<CancellationToken>())).ReturnsAsync(alert);
 
         var service = new PlayerAlertService(repo.Object, new FakeDbContext(), NullLogger<PlayerAlertService>.Instance);
         var result = await service.AcknowledgeAsync(AlertId, AdminId);
@@ -72,7 +72,7 @@ public class PlayerAlertServiceTests
     public async Task AcknowledgeAsync_AlertNotFound_ThrowsNotFound()
     {
         var repo = new Mock<IPlayerAlertRepository>();
-        repo.Setup(r => r.GetByIdAsync(AlertId)).ReturnsAsync((PlayerAlert?)null);
+        repo.Setup(r => r.GetByIdAsync(AlertId, It.IsAny<CancellationToken>())).ReturnsAsync((PlayerAlert?)null);
 
         var service = new PlayerAlertService(repo.Object, new FakeDbContext(), NullLogger<PlayerAlertService>.Instance);
 
@@ -85,7 +85,7 @@ public class PlayerAlertServiceTests
         // BR-RISK-02: chỉ alert Open mới acknowledge được.
         var repo = new Mock<IPlayerAlertRepository>();
         var alert = BuildAlert(PlayerAlertStatus.Acknowledged);
-        repo.Setup(r => r.GetByIdAsync(AlertId)).ReturnsAsync(alert);
+        repo.Setup(r => r.GetByIdAsync(AlertId, It.IsAny<CancellationToken>())).ReturnsAsync(alert);
 
         var service = new PlayerAlertService(repo.Object, new FakeDbContext(), NullLogger<PlayerAlertService>.Instance);
 
@@ -98,7 +98,7 @@ public class PlayerAlertServiceTests
         // Regression: alert đã Resolved cũng không được acknowledge.
         var repo = new Mock<IPlayerAlertRepository>();
         var alert = BuildAlert(PlayerAlertStatus.Resolved);
-        repo.Setup(r => r.GetByIdAsync(AlertId)).ReturnsAsync(alert);
+        repo.Setup(r => r.GetByIdAsync(AlertId, It.IsAny<CancellationToken>())).ReturnsAsync(alert);
 
         var service = new PlayerAlertService(repo.Object, new FakeDbContext(), NullLogger<PlayerAlertService>.Instance);
 
@@ -110,7 +110,7 @@ public class PlayerAlertServiceTests
     {
         var repo = new Mock<IPlayerAlertRepository>();
         var alert = BuildAlert(PlayerAlertStatus.Dismissed);
-        repo.Setup(r => r.GetByIdAsync(AlertId)).ReturnsAsync(alert);
+        repo.Setup(r => r.GetByIdAsync(AlertId, It.IsAny<CancellationToken>())).ReturnsAsync(alert);
 
         var service = new PlayerAlertService(repo.Object, new FakeDbContext(), NullLogger<PlayerAlertService>.Instance);
 
@@ -127,7 +127,7 @@ public class PlayerAlertServiceTests
         // BR-RISK-02 + BR-RISK-05: resolve phải ghi PlayerActionHistory audit log.
         var repo = new Mock<IPlayerAlertRepository>();
         var alert = BuildAlert(PlayerAlertStatus.Open);
-        repo.Setup(r => r.GetByIdAsync(AlertId)).ReturnsAsync(alert);
+        repo.Setup(r => r.GetByIdAsync(AlertId, It.IsAny<CancellationToken>())).ReturnsAsync(alert);
 
         var fakeDb = CreateInMemoryDbContext();
         var service = new PlayerAlertService(repo.Object, fakeDb, NullLogger<PlayerAlertService>.Instance);
@@ -146,7 +146,7 @@ public class PlayerAlertServiceTests
     public async Task ResolveAsync_AlertNotFound_ThrowsNotFound()
     {
         var repo = new Mock<IPlayerAlertRepository>();
-        repo.Setup(r => r.GetByIdAsync(AlertId)).ReturnsAsync((PlayerAlert?)null);
+        repo.Setup(r => r.GetByIdAsync(AlertId, It.IsAny<CancellationToken>())).ReturnsAsync((PlayerAlert?)null);
 
         var service = new PlayerAlertService(repo.Object, new FakeDbContext(), NullLogger<PlayerAlertService>.Instance);
 
@@ -160,7 +160,7 @@ public class PlayerAlertServiceTests
         // Regression: không cho resolve 2 lần.
         var repo = new Mock<IPlayerAlertRepository>();
         var alert = BuildAlert(PlayerAlertStatus.Resolved);
-        repo.Setup(r => r.GetByIdAsync(AlertId)).ReturnsAsync(alert);
+        repo.Setup(r => r.GetByIdAsync(AlertId, It.IsAny<CancellationToken>())).ReturnsAsync(alert);
 
         var service = new PlayerAlertService(repo.Object, new FakeDbContext(), NullLogger<PlayerAlertService>.Instance);
 
@@ -174,7 +174,7 @@ public class PlayerAlertServiceTests
         // UX: whitespace phải được trim.
         var repo = new Mock<IPlayerAlertRepository>();
         var alert = BuildAlert(PlayerAlertStatus.Open);
-        repo.Setup(r => r.GetByIdAsync(AlertId)).ReturnsAsync(alert);
+        repo.Setup(r => r.GetByIdAsync(AlertId, It.IsAny<CancellationToken>())).ReturnsAsync(alert);
 
         var service = new PlayerAlertService(repo.Object, CreateInMemoryDbContext(), NullLogger<PlayerAlertService>.Instance);
         await service.ResolveAsync(AlertId, AdminId, "  some note  ");
@@ -192,7 +192,7 @@ public class PlayerAlertServiceTests
         // BR-RISK-02: dismiss = false positive → ghi audit "dismissed: <note>".
         var repo = new Mock<IPlayerAlertRepository>();
         var alert = BuildAlert(PlayerAlertStatus.Open);
-        repo.Setup(r => r.GetByIdAsync(AlertId)).ReturnsAsync(alert);
+        repo.Setup(r => r.GetByIdAsync(AlertId, It.IsAny<CancellationToken>())).ReturnsAsync(alert);
 
         var fakeDb = CreateInMemoryDbContext();
         var service = new PlayerAlertService(repo.Object, fakeDb, NullLogger<PlayerAlertService>.Instance);
@@ -213,7 +213,7 @@ public class PlayerAlertServiceTests
         var repo = new Mock<IPlayerAlertRepository>();
         var alert = BuildAlert(PlayerAlertStatus.Dismissed);
         alert.ResolutionNote = "old reason";
-        repo.Setup(r => r.GetByIdAsync(AlertId)).ReturnsAsync(alert);
+        repo.Setup(r => r.GetByIdAsync(AlertId, It.IsAny<CancellationToken>())).ReturnsAsync(alert);
 
         var service = new PlayerAlertService(repo.Object, CreateInMemoryDbContext(), NullLogger<PlayerAlertService>.Instance);
         await service.DismissAsync(AlertId, AdminId, "new reason");
@@ -225,7 +225,7 @@ public class PlayerAlertServiceTests
     public async Task DismissAsync_AlertNotFound_ThrowsNotFound()
     {
         var repo = new Mock<IPlayerAlertRepository>();
-        repo.Setup(r => r.GetByIdAsync(AlertId)).ReturnsAsync((PlayerAlert?)null);
+        repo.Setup(r => r.GetByIdAsync(AlertId, It.IsAny<CancellationToken>())).ReturnsAsync((PlayerAlert?)null);
 
         var service = new PlayerAlertService(repo.Object, new FakeDbContext(), NullLogger<PlayerAlertService>.Instance);
 
@@ -243,13 +243,13 @@ public class PlayerAlertServiceTests
         // BR-RISK-02: MVP chỉ trigger cho Critical. Low/Medium/High → no-op.
         var repo = new Mock<IPlayerAlertRepository>();
         repo.Setup(r => r.ShouldCreateAutoAlertAsync(It.IsAny<Guid>(), It.IsAny<PlayerAlertType>(),
-                It.IsAny<string>(), It.IsAny<int>()))
+                It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
         var service = new PlayerAlertService(repo.Object, new FakeDbContext(), NullLogger<PlayerAlertService>.Instance);
         await service.EnsureAlertForSignalsAsync(UserId, 35, RiskLevel.Medium, RiskLevel.Low, "{\"SIG-01\":2}");
 
-        repo.Verify(r => r.AddAsync(It.IsAny<PlayerAlert>()), Times.Never);
+        repo.Verify(r => r.AddAsync(It.IsAny<PlayerAlert>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -258,11 +258,11 @@ public class PlayerAlertServiceTests
         // BR-RISK-02: critical riskScore (>=75) → tạo PlayerAlert severity=Critical.
         var repo = new Mock<IPlayerAlertRepository>();
         repo.Setup(r => r.ShouldCreateAutoAlertAsync(UserId, PlayerAlertType.AutoThresholdCrossed,
-                "{\"SIG-01\":3}", It.IsAny<int>()))
+                "{\"SIG-01\":3}", It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
         PlayerAlert? captured = null;
-        repo.Setup(r => r.AddAsync(It.IsAny<PlayerAlert>()))
+        repo.Setup(r => r.AddAsync(It.IsAny<PlayerAlert>(), It.IsAny<CancellationToken>()))
             .Callback<PlayerAlert>(a => captured = a)
             .Returns(Task.CompletedTask);
 
@@ -283,13 +283,13 @@ public class PlayerAlertServiceTests
         // BR-RISK-02: nếu ShouldCreateAutoAlertAsync return false (đã có alert trùng signals trong 24h) → no-op.
         var repo = new Mock<IPlayerAlertRepository>();
         repo.Setup(r => r.ShouldCreateAutoAlertAsync(It.IsAny<Guid>(), It.IsAny<PlayerAlertType>(),
-                It.IsAny<string>(), It.IsAny<int>()))
+                It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
 
         var service = new PlayerAlertService(repo.Object, new FakeDbContext(), NullLogger<PlayerAlertService>.Instance);
         await service.EnsureAlertForSignalsAsync(UserId, 85, RiskLevel.Critical, RiskLevel.High, "{\"SIG-01\":3}");
 
-        repo.Verify(r => r.AddAsync(It.IsAny<PlayerAlert>()), Times.Never);
+        repo.Verify(r => r.AddAsync(It.IsAny<PlayerAlert>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -298,13 +298,13 @@ public class PlayerAlertServiceTests
         // Edge case: signalsJson null → signalsKey phải là string.Empty (không phải null) cho query.
         var repo = new Mock<IPlayerAlertRepository>();
         repo.Setup(r => r.ShouldCreateAutoAlertAsync(UserId, PlayerAlertType.AutoThresholdCrossed,
-                string.Empty, It.IsAny<int>()))
+                string.Empty, It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
         var service = new PlayerAlertService(repo.Object, new FakeDbContext(), NullLogger<PlayerAlertService>.Instance);
         await service.EnsureAlertForSignalsAsync(UserId, 80, RiskLevel.Critical, RiskLevel.Medium, signalsJson: null);
 
-        repo.Verify(r => r.AddAsync(It.IsAny<PlayerAlert>()), Times.Once);
+        repo.Verify(r => r.AddAsync(It.IsAny<PlayerAlert>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -340,7 +340,7 @@ public class PlayerAlertServiceTests
     public async Task GetPagedAsync_PassesThroughToRepository()
     {
         var repo = new Mock<IPlayerAlertRepository>();
-        repo.Setup(r => r.GetPagedAsync(It.IsAny<PlayerAlertQuery>()))
+        repo.Setup(r => r.GetPagedAsync(It.IsAny<PlayerAlertQuery>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new BoardVerse.Core.Common.PaginatedResponse<BoardVerse.Core.DTOs.Admin.PlayerAlertDto>
             {
                 Data = new List<BoardVerse.Core.DTOs.Admin.PlayerAlertDto>(),
@@ -353,7 +353,7 @@ public class PlayerAlertServiceTests
 
         Assert.Equal(1, result.Meta.CurrentPage);
         Assert.Equal(20, result.Meta.PageSize);
-        repo.Verify(r => r.GetPagedAsync(It.IsAny<PlayerAlertQuery>()), Times.Once);
+        repo.Verify(r => r.GetPagedAsync(It.IsAny<PlayerAlertQuery>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -370,7 +370,7 @@ public class PlayerAlertServiceTests
             new PlayerAlert { Id = Guid.NewGuid(), UserId = UserId, AlertType = PlayerAlertType.AutoThresholdCrossed, Severity = PlayerAlertSeverity.Warning, Status = PlayerAlertStatus.Open, RiskScoreSnapshot = 60, CreatedAt = DateTime.UtcNow.AddDays(-45) },
             new PlayerAlert { Id = Guid.NewGuid(), UserId = UserId, AlertType = PlayerAlertType.AutoThresholdCrossed, Severity = PlayerAlertSeverity.Warning, Status = PlayerAlertStatus.Acknowledged, RiskScoreSnapshot = 60, CreatedAt = DateTime.UtcNow.AddDays(-31) }
         };
-        repo.Setup(r => r.GetStaleAlertsForDismissalAsync(30, 100)).ReturnsAsync(staleAlerts);
+        repo.Setup(r => r.GetStaleAlertsForDismissalAsync(30, 100, It.IsAny<CancellationToken>())).ReturnsAsync(staleAlerts);
 
         var fakeDb = CreateInMemoryDbContext();
         var service = new PlayerAlertService(repo.Object, fakeDb, NullLogger<PlayerAlertService>.Instance);
@@ -388,7 +388,7 @@ public class PlayerAlertServiceTests
     public async Task DismissStaleAlertsAsync_NoStale_ReturnsZero()
     {
         var repo = new Mock<IPlayerAlertRepository>();
-        repo.Setup(r => r.GetStaleAlertsForDismissalAsync(It.IsAny<int>(), It.IsAny<int>()))
+        repo.Setup(r => r.GetStaleAlertsForDismissalAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<PlayerAlert>());
 
         var fakeDb = CreateInMemoryDbContext();

@@ -47,6 +47,14 @@ API vận hành quầy: bàn, kho hộp game, phiên chơi, kiểm kê, khách v
 | `/sessions/{sessionId}/partial-checkout` | POST | Thanh toán một phần khi có người về sớm (BR-12, BR-14) | `CafePosController` |
 | `/sessions/{sessionId}/pay` | POST | Thanh toán hóa đơn tổng (BR-15, BR-09) | `CafePosController` |
 | `/sessions/{sourceSessionId}/merge` | POST | Ghép thành viên sang nhóm mới (Exception 4) | `CafePosController` |
+| `/sessions/{sessionId}/pause` | POST | **Tạm dừng phiên** (L-05) — timer ngừng đếm | `CafePosController` |
+| `/sessions/{sessionId}/resume-pause` | POST | **Tiếp tục phiên** (L-05) — timer chạy lại | `CafePosController` |
+| `/sessions/dispute-played-time` | POST | Mở audit ticket khi player khiếu nại giờ chơi (Phase 4 / EC-11) | `CafePosController` |
+| `/sessions/override-played-time` | POST | Manager override played time sau khi review dispute (Phase 5 / EC-11) | `CafePosController` |
+| `/extension-requests/pending` | GET | Danh sách yêu cầu gia hạn đang chờ (POS staff approve/reject) | `CafePosController` |
+| `/extension-requests/{requestId}/approve` | POST | POS staff duyệt yêu cầu gia hạn | `CafePosController` |
+| `/extension-requests/{requestId}/reject` | POST | POS staff từ chối yêu cầu gia hạn | `CafePosController` |
+| `/inventory-loss/pre-session` | POST | Ghi nhận hao hụt linh kiện TRƯỚC phiên (shift handoff, P-04) | `CafePosController` |
 
 ---
 
@@ -532,6 +540,289 @@ Kết thúc phiên chơi — trả hộp game và giải phóng bàn nếu khôn
 **Response 200:** Phiên đã đóng; hộp về Available/Maintenance; bàn về Available khi không còn session trên bàn đó.
 
 **Lỗi:** `404` không tìm thấy phiên; `500` lỗi hệ thống.
+
+---
+
+## POST /api/cafes/{cafeId}/pos/sessions/{sessionId}/pause
+
+Tạm dừng phiên chơi — timer ngừng đếm (L-05).
+
+| Aspect | Detail |
+|---|---|
+| **Role** | Manager, CafeStaff |
+| **Điều kiện** | Phiên đang `ACTIVE` và `IsPaused = false` |
+
+### Response 200
+
+Trả `ActiveSessionDto` đã cập nhật (`IsPaused = true`).
+
+### Lỗi
+
+| Code | Mô tả |
+|------|-------|
+| 404 | Không tìm thấy phiên chơi. |
+| 409 | Phiên không ở trạng thái `ACTIVE` hoặc đã bị tạm dừng. |
+
+---
+
+## POST /api/cafes/{cafeId}/pos/sessions/{sessionId}/resume-pause
+
+Tiếp tục lại phiên đang bị tạm dừng — timer chạy lại (L-05).
+
+| Aspect | Detail |
+|---|---|
+| **Role** | Manager, CafeStaff |
+| **Điều kiện** | Phiên đang `ACTIVE` và `IsPaused = true` |
+
+### Response 200
+
+Trả `ActiveSessionDto` đã cập nhật (`IsPaused = false`).
+
+### Lỗi
+
+| Code | Mô tả |
+|------|-------|
+| 404 | Không tìm thấy phiên chơi. |
+| 409 | Phiên không bị tạm dừng. |
+
+---
+
+## POST /api/cafes/{cafeId}/pos/sessions/dispute-played-time
+
+Mở audit ticket khi player khiếu nại về giờ chơi (`StartedAt` / `EndedAt`). Endpoint **chỉ audit**, không tự ý sửa hóa đơn — manager sẽ review và dùng [`override-played-time`](#post-apicafescafeidpossessionsoverride-played-time) để sửa nếu cần.
+
+| Aspect | Detail |
+|---|---|
+| **Role** | Manager, CafeStaff |
+| **Reference** | Phase 4 / EC-11 — `docs/time-slot-fixed-end-design.md` §7.2 |
+
+### Request body — `DisputePlayedTimeRequestDto`
+
+```json
+{
+  "sessionId": "guid",
+  "disputeType": "WrongStartTime",
+  "playerClaim": "Tôi bắt đầu chơi lúc 19:15 chứ không phải 19:30 như POS ghi."
+}
+```
+
+- `disputeType`: `WrongStartTime` | `WrongEndTime` | `WrongElapsedMinutes` | `Other`.
+- `playerClaim`: 20–500 ký tự.
+
+### Response 201 — đã mở audit ticket
+
+```json
+{
+  "statusCode": 201,
+  "message": "Đã mở audit ticket cho khiếu nại giờ chơi.",
+  "data": {
+    "auditId": "guid",
+    "sessionStartedAt": "2026-08-15T12:00:00Z",
+    "sessionEndedAt": "2026-08-15T13:30:00Z",
+    "currentTotalMinutes": 90,
+    "disputeStatus": "Open"
+  }
+}
+```
+
+### Lỗi
+
+| Code | Mô tả |
+|------|-------|
+| 400 | `playerClaim` quá ngắn/dài. |
+| 404 | Session không tồn tại hoặc không thuộc quán. |
+
+---
+
+## POST /api/cafes/{cafeId}/pos/sessions/override-played-time
+
+Manager override played time sau khi review dispute audit. Recalculate `Subtotal` + `TotalAmount` dựa trên `NewTotalMinutesPlayed`. Ghi audit log với `ActionType = PlayedTimeOverridden` (=41).
+
+| Aspect | Detail |
+|---|---|
+| **Role** | **Manager only** (Staff chỉ được mở dispute, không override) |
+| **Reference** | Phase 5 / EC-11, BR-REFUND-07 |
+
+### Điều kiện
+
+- Session chưa ở trạng thái `Paid` / `Closed`.
+- Phải có ít nhất 1 dispute audit (`PlayedTimeDisputed`) cho session trước đó.
+
+### Request body — `OverridePlayedTimeRequestDto`
+
+```json
+{
+  "sessionId": "guid",
+  "newTotalMinutesPlayed": 75,
+  "overrideReason": "Sau khi review camera, khách thực tế chơi 75 phút (bắt đầu 19:15)."
+}
+```
+
+- `newTotalMinutesPlayed`: 0–1440.
+- `overrideReason`: ≥ 20 ký tự (audit trail).
+
+### Response 200 — override thành công
+
+```json
+{
+  "statusCode": 200,
+  "message": "Manager override played time thành công.",
+  "data": {
+    "sessionId": "guid",
+    "previousTotalMinutesPlayed": 90,
+    "newTotalMinutesPlayed": 75,
+    "previousSubtotal": 90000,
+    "newSubtotal": 75000,
+    "subtotalDelta": -15000,
+    "previousTotalAmount": 90000,
+    "newTotalAmount": 75000,
+    "totalAmountDelta": -15000,
+    "auditId": "guid",
+    "overriddenAt": "2026-08-15T14:00:00Z",
+    "overriddenBy": "guid"
+  }
+}
+```
+
+### Lỗi
+
+| Code | Mô tả |
+|------|-------|
+| 400 | `NewTotalMinutesPlayed` ngoài khoảng, `OverrideReason` quá ngắn. |
+| 403 | Không phải Manager hoặc không thuộc quán. |
+| 404 | Session không tồn tại hoặc không thuộc quán. |
+| 409 | Session đã thanh toán hoặc chưa có dispute audit. |
+
+---
+
+## Extension Requests
+
+POS staff xem và approve/reject các yêu cầu gia hạn thời gian chơi từ player (player gọi [`POST /api/v1/sessions/me/extend`](./player-session.md#2-post-apiv1sessionsmeextend)).
+
+### GET /api/cafes/{cafeId}/pos/extension-requests/pending
+
+Lấy danh sách yêu cầu gia hạn đang ở trạng thái `Pending` của quán.
+
+| Aspect | Detail |
+|---|---|
+| **Role** | Manager, CafeStaff |
+| **TTL** | Request tự động `Expired` sau **10 phút** không staff xử lý (xem `SessionExtensionRequestExpiryJob`) |
+
+### Response 200 — `PendingExtensionRequestsResponseDto`
+
+```json
+{
+  "statusCode": 200,
+  "message": "Danh sach yeu cau gia han dang cho.",
+  "data": {
+    "totalCount": 2,
+    "requests": [
+      {
+        "requestId": "guid",
+        "sessionId": "guid",
+        "playerId": "guid",
+        "playerName": "Nguyen Van A",
+        "requestedMinutes": 30,
+        "estimatedAdditionalCostVnd": 30000,
+        "requestedAt": "2026-08-22T10:30:00Z",
+        "minutesUntilExpiry": 7
+      }
+    ]
+  }
+}
+```
+
+### POST /api/cafes/{cafeId}/pos/extension-requests/{requestId}/approve
+
+POS staff duyệt yêu cầu — cộng thêm thời gian vào phiên chơi. Số phút approve có thể khác với `requestedMinutes` (staff thương lượng với player).
+
+| Aspect | Detail |
+|---|---|
+| **Role** | Manager, CafeStaff |
+
+### Request body — `ApproveExtensionRequestDto`
+
+```json
+{ "approvedMinutes": 30 }
+```
+
+### Response 200 — `ExtensionRequestProcessedDto`
+
+```json
+{
+  "statusCode": 200,
+  "message": "Da duyet yeu cau gia han.",
+  "data": {
+    "requestId": "guid",
+    "status": "Approved",
+    "approvedMinutes": 30,
+    "processedAt": "2026-08-22T10:35:00Z",
+    "message": "Yêu cầu gia hạn đã được duyệt.",
+    "newEndTime": "2026-08-22T12:05:00Z"
+  }
+}
+```
+
+POS approve → notify player qua SignalR `SessionExtensionApproved` (group `user:{playerId}`).
+
+### POST /api/cafes/{cafeId}/pos/extension-requests/{requestId}/reject
+
+POS staff từ chối yêu cầu gia hạn.
+
+| Aspect | Detail |
+|---|---|
+| **Role** | Manager, CafeStaff |
+
+### Request body — `RejectExtensionRequestDto`
+
+```json
+{ "reason": "Quán sắp đóng cửa, không thể gia hạn." }
+```
+
+- `reason`: optional, nhưng khuyến nghị ≥ 10 ký tự để player hiểu lý do.
+
+### Response 200 — `ExtensionRequestProcessedDto`
+
+```json
+{
+  "statusCode": 200,
+  "message": "Da tu choi yeu cau gia han.",
+  "data": {
+    "requestId": "guid",
+    "status": "Rejected",
+    "approvedMinutes": 0,
+    "processedAt": "2026-08-22T10:35:00Z",
+    "message": "Yêu cầu gia hạn đã bị từ chối."
+  }
+}
+```
+
+Notify player qua SignalR `SessionExtensionRejected` (group `user:{playerId}`).
+
+### Lỗi chung
+
+| Code | Mô tả |
+|------|-------|
+| 404 | Yêu cầu gia hạn không tồn tại. |
+| 409 | Yêu cầu đã được xử lý trước đó (Approved/Rejected/Expired). |
+
+---
+
+## POST /api/cafes/{cafeId}/pos/inventory-loss/pre-session
+
+Ghi nhận hao hụt linh kiện TRƯỚC KHI có phiên chơi — dùng cho shift handoff (P-04). Endpoint này không cần `sessionId`, chỉ cần `cafeId` + `gameInventoryBoxId`.
+
+| Aspect | Detail |
+|---|---|
+| **Role** | Manager, CafeStaff |
+| **Use case** | Ca chiều phát hiện hộp game bị thiếu linh kiện từ ca sáng → ghi audit trước khi giao cho khách mới |
+
+### Lỗi
+
+| Code | Mô tả |
+|------|-------|
+| 400 | Dữ liệu không hợp lệ. |
+| 404 | Game box không tồn tại. |
 
 ---
 

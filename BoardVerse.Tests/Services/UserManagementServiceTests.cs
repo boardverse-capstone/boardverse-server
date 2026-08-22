@@ -24,7 +24,7 @@ public class UserManagementServiceTests
     public async Task GetAsync_UserNotFound_ThrowsUserNotFound()
     {
         var repo = new Mock<IUserManagementRepository>();
-        repo.Setup(r => r.GetByIdWithProfileAsync(It.IsAny<Guid>())).ReturnsAsync((User?)null);
+        repo.Setup(r => r.GetByIdWithProfileAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         var service = new UserManagementService(repo.Object);
 
@@ -36,7 +36,7 @@ public class UserManagementServiceTests
     public async Task CreateAsync_DuplicateEmail_ThrowsUserAlreadyExists()
     {
         var repo = new Mock<IUserManagementRepository>();
-        repo.Setup(r => r.UserExistsAsync("dup@test.dev", "dupuser")).ReturnsAsync(true);
+        repo.Setup(r => r.UserExistsAsync("dup@test.dev", "dupuser", It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
         var service = new UserManagementService(repo.Object);
 
@@ -53,7 +53,7 @@ public class UserManagementServiceTests
     public async Task CreateAsync_ValidRequest_CreatesUser()
     {
         var repo = new Mock<IUserManagementRepository>();
-        repo.Setup(r => r.UserExistsAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(false);
+        repo.Setup(r => r.UserExistsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
         var service = new UserManagementService(repo.Object);
         var result = await service.CreateAsync(new AdminCreateUserDto

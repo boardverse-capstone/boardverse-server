@@ -6,9 +6,11 @@ using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
+using BoardVerse.Data;
 using BoardVerse.Services.IServices;
 using Microsoft.Extensions.Logging;
 using System.Linq;
+using System.Text.Json;
 
 namespace BoardVerse.Services.Services
 {
@@ -27,6 +29,16 @@ namespace BoardVerse.Services.Services
         private readonly IWalkInService _walkInService;
         // BR-REQUIRED §17.5: Outbox event cho SignalR push khi session paid (cả Manual lẫn Webhook).
         private readonly IOutboxRepository _outboxRepository;
+        // Player-facing: inject để trừ BVC khi player thanh toán trên app.
+        private readonly IWalletService _walletService;
+        // Player-facing: inject để notify POS khi session paid hoặc player yêu cầu gia hạn.
+        private readonly IPosHubService _posHubService;
+        // GAP-1: inject để lưu extension request vào DB.
+        private readonly ISessionExtensionRequestRepository _extensionRequestRepository;
+        // Player-facing: inject để push notification tới staff khi player yêu cầu gia hạn.
+        private readonly IPushNotificationService _pushNotificationService;
+        // GAP-3 Fix: inject để ambient transaction cho BVC capture + member update.
+        private readonly BoardVerseDbContext _db;
         private readonly ILogger<ActiveSessionService> _logger;
 
         public ActiveSessionService(
@@ -40,6 +52,11 @@ namespace BoardVerse.Services.Services
             IReservationRepository reservationRepository,
             IWalkInService walkInService,
             IOutboxRepository outboxRepository,
+            IWalletService walletService,
+            IPosHubService posHubService,
+            ISessionExtensionRequestRepository extensionRequestRepository,
+            IPushNotificationService pushNotificationService,
+            BoardVerseDbContext db,
             ILogger<ActiveSessionService> logger)
         {
             _cafeRepository = cafeRepository;
@@ -52,7 +69,48 @@ namespace BoardVerse.Services.Services
             _reservationRepository = reservationRepository;
             _walkInService = walkInService;
             _outboxRepository = outboxRepository;
+            _walletService = walletService;
+            _posHubService = posHubService;
+            _extensionRequestRepository = extensionRequestRepository;
+            _pushNotificationService = pushNotificationService;
+            _db = db;
             _logger = logger;
+        }
+
+        /// <summary>
+        /// Backward-compatible constructor dùng cho unit tests cũ không pass đầy đủ 16 params.
+        /// Production code path sử dụng constructor 16 params phía trên.
+        /// </summary>
+        public ActiveSessionService(
+            ICafeRepository cafeRepository,
+            IActiveSessionRepository activeSessionRepository,
+            ICafePosRepository posRepository,
+            IBookingDepositRepository depositRepository,
+            ISettlementService settlementService,
+            IReservationService reservationService,
+            ILobbyRepository lobbyRepository,
+            IReservationRepository reservationRepository,
+            IWalkInService walkInService,
+            IOutboxRepository outboxRepository,
+            ILogger<ActiveSessionService> logger)
+            : this(
+                cafeRepository,
+                activeSessionRepository,
+                posRepository,
+                depositRepository,
+                settlementService,
+                reservationService,
+                lobbyRepository,
+                reservationRepository,
+                walkInService,
+                outboxRepository,
+                walletService: null!,
+                posHubService: null!,
+                extensionRequestRepository: null!,
+                pushNotificationService: null!,
+                db: null!,
+                logger: logger)
+        {
         }
 
         public async Task<ActiveSessionResponseDto> StartSessionAsync(Guid cafeId, Guid hostUserId, StartSessionRequestDto request, CancellationToken ct = default)
@@ -245,6 +303,17 @@ namespace BoardVerse.Services.Services
                     ApiErrorMessages.Pos.PartialCheckoutInvalidMemberStatuses(invalidStatuses));
             }
 
+            // BR-14 Fix: Guest Slot không chịu trách nhiệm tài sản độc lập (BR-13).
+            // Cấm partial checkout cho guest slot — guest phải trả tiền mặt hoặc gộp vào host
+            // tại kiểm kê trung gian, không checkout riêng.
+            var guestSlotsInRequest = session.Members
+                .Where(m => request.MemberIds.Contains(m.Id) && m.IsGuestSlot)
+                .ToList();
+            if (guestSlotsInRequest.Count > 0)
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.GuestSlotCannotPartialCheckout);
+            }
+
             // Mark selected members as SUSPENDED_MUTATION (waiting for inventory check)
             // BR-12: They cannot be charged until inventory is verified
             foreach (var member in session.Members.Where(m => request.MemberIds.Contains(m.Id)))
@@ -281,6 +350,17 @@ namespace BoardVerse.Services.Services
             if ((session.Games == null || session.Games.Count == 0) && !session.CafeInventoryBoxId.HasValue)
             {
                 throw new ConflictException(ApiErrorMessages.Pos.SessionNoGamesForEndGame);
+            }
+
+            // GAP-R3-03 Fix: BR-12 yêu cầu nhóm đang chơi thực sự. Nếu không còn ai ở trạng thái Playing
+            // (đã SuspendedMutation/Finshed/Guest rồi) → billing = 0 → staff phải xác nhận thay vì EndGame mù.
+            // Cho phép nếu có ít nhất 1 Playing HOẶC 1 Guest Slot (BR-13 — guest slot fee = 0 vẫn cần kiểm kê).
+            var hasPlayingMembers = session.Members?.Any(m =>
+                m.Status == IndividualSessionStatus.Playing
+                || (m.IsGuestSlot && m.Status == IndividualSessionStatus.Playing)) ?? false;
+            if (!hasPlayingMembers)
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.NoPlayingMembersToEndGame);
             }
 
             var now = DateTime.UtcNow;
@@ -1201,10 +1281,11 @@ namespace BoardVerse.Services.Services
             var now = DateTime.UtcNow;
             foreach (var userId in request.MemberUserIds)
             {
-                var existing = session.Members.FirstOrDefault(m => m.UserId == userId && m.Status == IndividualSessionStatus.Playing);
+                // GAP-18 Fix: Kiểm tra user đã từng trong phiên ở BẤT KỲ trạng thái nào — không re-add duplicate
+                var existing = session.Members.FirstOrDefault(m => m.UserId == userId);
                 if (existing != null)
                 {
-                    continue;
+                    throw new ConflictException($"Nguoi choi {userId} da ton tai trong phien choi.");
                 }
 
                 await _activeSessionRepository.AddMemberAsync(new ActiveSessionMember
@@ -1399,8 +1480,13 @@ namespace BoardVerse.Services.Services
         /// GAP-1 Fix: Cho phép revert từ CHECKING về ACTIVE nếu nhân viên bấm nhầm.
         /// Chỉ cho phép khi chưa có thành viên nào được checkout (chưa có member trong trạng thái FINISHED).
         /// </summary>
-        public async Task<ActiveSessionResponseDto> ResumeSessionAsync(Guid cafeId, Guid sessionId, CancellationToken ct = default)
+        public async Task<ActiveSessionResponseDto> ResumeSessionAsync(Guid cafeId, Guid staffUserId, Guid sessionId, CancellationToken ct = default)
         {
+            // GAP-R2-16 Fix: IDOR prevention — verify caller is staff of this cafe BEFORE any other action.
+            var isStaff = await _cafeRepository.IsManagerOrStaffAsync(cafeId, staffUserId);
+            if (!isStaff)
+                throw new ForbiddenException($"User {staffUserId} does not have POS access to cafe {cafeId}.");
+
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
 
@@ -1423,6 +1509,13 @@ namespace BoardVerse.Services.Services
                 throw new ConflictException(ApiErrorMessages.Pos.SessionCannotResumeHasCheckedOutMembers);
             }
 
+            // GAP-R3-02: Bảo vệ audit trail BR-12 — không cho resume khi linh kiện đang bị đánh dấu missing.
+            // Staff phải clear flag bằng cách checkout (xử lý penalty) hoặc mark "không mất thực sự" qua component-check.
+            if (session.HasMissingComponents)
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.CannotResumeWithMissingComponents);
+            }
+
             // Revert session to ACTIVE
             session.Status = GroupSessionStatus.Active;
             session.EndedAt = null; // Clear the ended time to resume billing
@@ -1443,6 +1536,21 @@ namespace BoardVerse.Services.Services
             }
 
             await _activeSessionRepository.SaveChangesAsync();
+
+            // GAP-16 Fix: Notify player app via SignalR — timer phải tiếp tục khi session resumed từ CHECKING
+            try
+            {
+                await _posHubService.NotifySessionUpdateAsync(sessionId, "SessionResumedFromChecking", new
+                {
+                    sessionId,
+                    resumedAt = DateTime.UtcNow,
+                    message = "Nhan vien da tiep tuc phien choi. Thoi gian tiep tuc dem."
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to notify players about session {SessionId} resumed from checking", sessionId);
+            }
 
             _logger.LogInformation(
                 "Session resumed from CHECKING to ACTIVE. SessionId={SessionId}, CafeId={CafeId}",
@@ -1480,6 +1588,21 @@ namespace BoardVerse.Services.Services
             session.UpdatedAt = DateTime.UtcNow;
 
             await _activeSessionRepository.SaveChangesAsync();
+
+            // GAP-9 Fix: Notify player app via SignalR — timer phải dừng khi session paused
+            try
+            {
+                await _posHubService.NotifySessionUpdateAsync(sessionId, "SessionPaused", new
+                {
+                    sessionId,
+                    pausedAt = session.PausedAt,
+                    message = "Nhan vien da tam dung phien choi. Thoi gian tam ngung dem."
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to notify players about session {SessionId} paused", sessionId);
+            }
 
             _logger.LogInformation(
                 "Session paused. SessionId={SessionId}, CafeId={CafeId}, PausedAt={PausedAt}",
@@ -1520,6 +1643,21 @@ namespace BoardVerse.Services.Services
 
             await _activeSessionRepository.SaveChangesAsync();
 
+            // GAP-9 Fix: Notify player app via SignalR — timer phải tiếp tục khi session resumed
+            try
+            {
+                await _posHubService.NotifySessionUpdateAsync(sessionId, "SessionResumed", new
+                {
+                    sessionId,
+                    resumedAt = DateTime.UtcNow,
+                    message = "Nhan vien da tiep tuc phien choi. Thoi gian tiep tuc dem."
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to notify players about session {SessionId} resumed", sessionId);
+            }
+
             _logger.LogInformation(
                 "Session resumed from PAUSED. SessionId={SessionId}, CafeId={CafeId}",
                 sessionId, cafeId);
@@ -1545,6 +1683,832 @@ namespace BoardVerse.Services.Services
             {
                 return null;
             }
+        }
+
+        // ============ PLAYER-FACING APIs ============
+
+        /// <summary>
+        /// Player xem phiên chơi hiện tại của mình.
+        /// GAP-9 Fix: Trả phiên ngay cả khi member đã Finished (trạng thái đã thanh toán).
+        /// GET /api/v1/sessions/me/current
+        /// </summary>
+        public async Task<GetCurrentSessionResponseDto?> GetCurrentSessionAsync(Guid userId, CancellationToken ct = default)
+        {
+            // GAP-9 Fix: Tìm phiên chơi mà user tham gia — BAO GỒM cả khi đã Finished.
+            var session = await _activeSessionRepository.GetByUserIdWithMembersAsync(userId);
+            if (session == null)
+            {
+                throw new NotFoundException(ApiErrorMessages.Session.PlayerNoActiveSession);
+            }
+
+            // GAP-9 Fix: Lấy member — không filter Finished nữa để hiển thị trạng thái đã thanh toán.
+            var member = session.Members.FirstOrDefault(m => m.UserId == userId);
+            if (member == null)
+            {
+                throw new NotFoundException(ApiErrorMessages.Session.PlayerNotInSession);
+            }
+
+            // GAP-9 Fix: Kiểm tra đã thanh toán chưa
+            var isPaid = member.Status == IndividualSessionStatus.Finished;
+            var isActiveSession = !isPaid;
+
+            // Tính elapsed minutes
+            var now = DateTime.UtcNow;
+            int elapsedMinutes;
+            if (isPaid)
+            {
+                elapsedMinutes = member.TotalMinutesPlayed > 0
+                    ? member.TotalMinutesPlayed
+                    : member.LeftAt.HasValue
+                        ? (int)Math.Floor((member.LeftAt.Value - member.JoinedAt).TotalMinutes)
+                        : 0;
+            }
+            else
+            {
+                elapsedMinutes = session.IsPaused && session.PausedAt.HasValue
+                    ? (int)Math.Floor((session.PausedAt.Value - member.JoinedAt).TotalMinutes)
+                    : (int)Math.Floor((now - member.JoinedAt).TotalMinutes);
+            }
+
+            // Tính cost estimate — dùng ActiveSessionBillingCalculator cho độ chính xác với cafe config
+            var cafe = session.Cafe ?? await _cafeRepository.GetActiveByIdAsync(session.CafeId);
+            // GAP-21 Fix: Nếu cafe vẫn null sau cả 2 nguồn → bug nghiêm trọng, throw rõ ràng
+            if (cafe == null)
+            {
+                throw new InternalServerErrorException($"Cafe {session.CafeId} not found for session {session.Id}. This is a data integrity issue.");
+            }
+
+            var subtotal = ActiveSessionBillingCalculator.CalculateRealtimeBilling(cafe, elapsedMinutes);
+
+            var depositApplied = member.DepositAppliedAmount;
+
+            var costEstimate = new PlayerCostEstimateDto
+            {
+                BaseMinutes = elapsedMinutes,
+                Subtotal = subtotal,
+                PenaltyAmount = member.PenaltyAmount,
+                DepositApplied = depositApplied,
+                TotalDue = subtotal + member.PenaltyAmount - depositApplied,
+                Currency = "VND"
+            };
+
+            // GAP-R2-30 Fix: Null-safe Games navigation (nếu lazy load chưa trigger)
+            var gameName = session.Games?.FirstOrDefault()?.GameTemplate?.Name ?? "Unknown Game";
+
+            // GAP-9 Fix: Lấy yêu cầu gia hạn gần nhất của player trong session này
+            var allRequests = await _extensionRequestRepository.GetAllBySessionIdAsync(session.Id, ct);
+            var lastRequest = allRequests
+                .Where(r => r.RequestedByUserId == userId)
+                .OrderByDescending(r => r.CreatedAt)
+                .FirstOrDefault();
+            LastExtensionRequestDto? lastExtension = lastRequest != null
+                ? new LastExtensionRequestDto
+                {
+                    RequestId = lastRequest.Id,
+                    RequestedMinutes = lastRequest.RequestedMinutes,
+                    ApprovedMinutes = lastRequest.ApprovedMinutes,
+                    EstimatedAdditionalCostVnd = lastRequest.EstimatedAdditionalCostVnd,
+                    Status = lastRequest.Status.ToString(),
+                    RejectionReason = lastRequest.RejectionReason,
+                    RequestedAt = lastRequest.CreatedAt.ToString("O"),
+                    RequestedAtUtc = lastRequest.CreatedAt,
+                    ProcessedAt = lastRequest.ProcessedAt,
+                    ProcessedAtOffset = lastRequest.ProcessedAt.HasValue
+                        ? new DateTimeOffset(lastRequest.ProcessedAt.Value, TimeSpan.FromHours(7))
+                        : null
+                }
+                : null;
+
+            // GAP-3 Fix: Timezone VN (UTC+7) — embed DateTimeOffset
+            var vnTimezone = TimeSpan.FromHours(7);
+
+            return new GetCurrentSessionResponseDto
+            {
+                SessionId = session.Id,
+                CafeName = cafe.Name,
+                CafeId = session.CafeId,
+                LobbyId = session.LobbyId,
+                MemberStatus = member.Status,
+                SessionStatus = session.Status,
+                JoinedAt = member.JoinedAt,
+                JoinedAtOffset = new DateTimeOffset(member.JoinedAt, vnTimezone),
+                ElapsedMinutes = elapsedMinutes,
+                TotalMinutesPlayed = member.TotalMinutesPlayed > 0 ? member.TotalMinutesPlayed : elapsedMinutes,
+                CostEstimate = costEstimate,
+                GameName = gameName,
+                TotalGroupMembers = session.Members.Count,
+                CanExtend = isActiveSession && session.Status == GroupSessionStatus.Active,
+                CanPay = isActiveSession && session.Status == GroupSessionStatus.Unpaid,
+                IsPaid = isPaid,
+                LastExtensionRequest = lastExtension
+            };
+        }
+
+        /// <summary>
+        /// Player gia hạn thêm thời gian chơi.
+        /// GAP-1 Fix: Tạo SessionExtensionRequest, notify POS qua SignalR.
+        /// POST /api/v1/sessions/me/extend
+        /// </summary>
+        public async Task<ExtendSessionResponseDto> ExtendSessionAsync(Guid userId, int extensionMinutes, CancellationToken ct = default)
+        {
+            // Validate extension minutes
+            if (extensionMinutes <= 0)
+            {
+                throw new BadRequestException(ApiErrorMessages.Session.InvalidExtensionMinutes);
+            }
+
+            if (extensionMinutes > 240) // Max 4 hours
+            {
+                throw new BadRequestException(ApiErrorMessages.Session.ExtensionTooLong);
+            }
+
+            // Tìm phiên của user
+            var session = await _activeSessionRepository.GetByUserIdWithMembersAsync(userId)
+                ?? throw new NotFoundException(ApiErrorMessages.Session.PlayerNoActiveSession);
+
+            // GAP-2 Fix: Check session status trước — cho error message cụ thể hơn
+            if (session.Status == GroupSessionStatus.Paid)
+            {
+                throw new ConflictException(ApiErrorMessages.Session.AlreadyPaidCannotExtend);
+            }
+
+            if (session.Status == GroupSessionStatus.Unpaid)
+            {
+                throw new ConflictException(ApiErrorMessages.Session.UnpaidCannotExtend);
+            }
+
+            var member = session.Members.FirstOrDefault(m =>
+                m.UserId == userId &&
+                m.Status != IndividualSessionStatus.Finished &&
+                m.Status != IndividualSessionStatus.SuspendedMutation &&
+                m.LeftAt == null); // GAP-13 Fix: loại member đã rời
+            if (member == null)
+            {
+                throw new NotFoundException(ApiErrorMessages.Session.PlayerNotInSession);
+            }
+
+            // Chỉ cho phép extend khi session đang Active
+            if (session.Status != GroupSessionStatus.Active)
+            {
+                throw new ConflictException(ApiErrorMessages.Session.CannotExtendSessionStatus(session.Status.ToString()));
+            }
+
+            // GAP-16 Fix: Kiểm tra yêu cầu gia hạn đang chờ — không tạo duplicate
+            var existingPending = await _extensionRequestRepository.GetPendingBySessionIdAsync(session.Id);
+            var userPending = existingPending.FirstOrDefault(r => r.RequestedByUserId == userId);
+            if (userPending != null)
+            {
+                return new ExtendSessionResponseDto
+                {
+                    RequestId = userPending.Id,
+                    SessionId = session.Id,
+                    RequestedMinutes = userPending.RequestedMinutes,
+                    EstimatedAdditionalCostVnd = userPending.EstimatedAdditionalCostVnd,
+                    Status = "Pending",
+                    Message = "Yeu cau gia han dang cho xu ly. Vui long doi nhan vien duyet."
+                };
+            }
+
+            // Tính additional cost
+            var cafe = session.Cafe ?? await _cafeRepository.GetActiveByIdAsync(session.CafeId);
+
+            // GAP-12 Fix: Phiên đang tạm dừng → không thể gia hạn
+            if (session.IsPaused)
+            {
+                throw new ConflictException(ApiErrorMessages.Session.SessionPausedCannotExtend);
+            }
+
+            var pricePerMinute = cafe?.BillingModel == CafePartnerBillingModel.TimeBased
+                ? (cafe?.BasePrice ?? 0) / 60m
+                : 0;
+            var additionalCost = pricePerMinute * extensionMinutes;
+
+            // GAP-5 Fix: Pre-check BVC balance — warn player nếu không đủ trước khi staff approve
+            var estimatedBvcRequired = (long)Math.Ceiling(additionalCost / 1000m);
+            var wallet = await _walletService.GetWalletAsync(userId, includeHeld: false);
+            var insufficientBalance = wallet.AvailableBalance < estimatedBvcRequired;
+
+            // GAP-1 Fix: Lưu yêu cầu gia hạn vào DB
+            var extensionRequest = new SessionExtensionRequest
+            {
+                Id = Guid.NewGuid(),
+                SessionId = session.Id,
+                RequestedByUserId = userId,
+                RequestedMinutes = extensionMinutes,
+                EstimatedAdditionalCostVnd = additionalCost,
+                Status = SessionExtensionRequestStatus.Pending,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _extensionRequestRepository.AddAsync(extensionRequest);
+            await _extensionRequestRepository.SaveChangesAsync();
+
+            // GAP-8 Fix: Await SignalR notification trực tiếp — không dùng Task.Run fire-and-forget.
+            // Staff POS phải nhận notification để approve/reject. Nếu fail → log nhưng vẫn return thành công.
+            try
+            {
+                await _posHubService.NotifySessionExtensionRequestedAsync(
+                    session.Id,
+                    session.CafeId,
+                    userId,
+                    extensionMinutes,
+                    additionalCost);
+            }
+            catch (Exception ex)
+            {
+                // Non-blocking: session đã tạo request thành công rồi, notification là enhancement
+                _logger.LogWarning(ex,
+                    "Failed to notify POS about extension request for session {SessionId}",
+                    session.Id);
+            }
+
+            // Calculate total minutes booked
+            var totalMinutesBooked = member.TotalMinutesPlayed + extensionMinutes;
+
+            return new ExtendSessionResponseDto
+            {
+                Success = true,
+                Message = insufficientBalance
+                    ? ApiErrorMessages.Session.InsufficientBvcForExtension
+                    : $"Yêu cầu gia hạn {extensionMinutes} phút đã được gửi tới nhân viên. Vui lòng chờ xác nhận.",
+                NewEndTime = null, // POS sẽ update sau khi duyệt
+                TotalMinutesBooked = totalMinutesBooked,
+                EstimatedAdditionalCost = additionalCost
+            };
+        }
+
+        /// <summary>
+        /// Player thanh toán invoice bằng BVC.
+        /// POST /api/v1/sessions/me/pay
+        /// </summary>
+        public async Task<PlayerPaySessionResponseDto> PlayerPaySessionAsync(Guid userId, Guid sessionId, CancellationToken ct = default)
+        {
+            var session = await _activeSessionRepository.GetByIdAsync(sessionId)
+                ?? throw new NotFoundException(ApiErrorMessages.Session.SessionNotFoundById(sessionId));
+
+            // Validate user là member của session
+            var member = session.Members.FirstOrDefault(m => m.UserId == userId);
+            if (member == null)
+            {
+                throw new ForbiddenException(ApiErrorMessages.Session.PlayerNotInSession);
+            }
+
+            // GAP-2 Fix: SuspendedMutation members cannot pay directly — staff handles their checkout at POS
+            if (member.Status == IndividualSessionStatus.SuspendedMutation)
+            {
+                throw new ConflictException(ApiErrorMessages.Session.CannotPayWhileSuspendedMutation);
+            }
+
+            // Validate member chưa thanh toán
+            if (member.Status == IndividualSessionStatus.Finished)
+            {
+                throw new ConflictException(ApiErrorMessages.Session.AlreadyPaid);
+            }
+
+            // GAP-NEW-5 Fix: Guest slots cannot pay via BVC — staff handles guest payment at POS
+            if (member.IsGuestSlot)
+            {
+                throw new BadRequestException(ApiErrorMessages.Session.GuestCannotPayViaApp);
+            }
+
+            // Validate session đang ở trạng thái Unpaid
+            if (session.Status != GroupSessionStatus.Unpaid)
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.SessionMustBeUnpaidForPayment);
+            }
+
+            // GAP-11 Fix: Load cafe cho invoice line items
+            var cafe = session.Cafe ?? await _cafeRepository.GetActiveByIdAsync(session.CafeId);
+
+            // Tính invoice
+            var subtotal = member.Subtotal > 0 ? member.Subtotal : session.Subtotal / session.Members.Count(m => !m.IsGuestSlot);
+            var penaltyAmount = member.PenaltyAmount;
+            var depositApplied = member.DepositAppliedAmount;
+            var totalDue = subtotal + penaltyAmount - depositApplied;
+
+            // Convert VND sang BVC (1 BVC = 1000 VND)
+            var totalBvcDue = (long)Math.Ceiling(totalDue / 1000m);
+
+            // GAP-R2-02 Fix: Nếu totalBvcDue <= 0 (deposit >= subtotal + penalty hoặc zero-cost session),
+            // skip BVC capture để tránh BadRequestException rollback → player kẹt mãi ở Unpaid.
+            // Member vẫn được mark Finished + session vẫn chuyển Paid như bình thường.
+            var skipBvcCapture = totalBvcDue <= 0;
+
+            if (skipBvcCapture && session.LobbyId.HasValue)
+            {
+                _logger.LogInformation(
+                    "PlayerPaySessionAsync: totalBvcDue={TotalBvcDue} (<=0) for session {SessionId}, user {UserId} — skipping BVC capture, deposit fully covers cost",
+                    totalBvcDue, sessionId, userId);
+            }
+
+            // Lấy số dư trước khi trừ
+            var wallet = await _walletService.GetWalletAsync(userId, includeHeld: false);
+            var currentBalance = wallet.AvailableBalance;
+
+            // GAP-R2-02 Fix: Validate đủ BVC — chỉ kiểm tra khi thực sự phải trừ
+            if (!skipBvcCapture && currentBalance < totalBvcDue)
+            {
+                throw new InsufficientBvcBalanceException(currentBalance, totalBvcDue);
+            }
+
+            // GAP-3 FIX: Ambient transaction — wrap cả BVC capture và member update
+            // để đảm bảo atomicity (rollback cả 2 nếu bất kỳ step nào fail).
+            var ambientTx = _db.Database.CurrentTransaction;
+            IDatabaseTransactionContext? ownedTx = null;
+            if (ambientTx == null)
+            {
+                ownedTx = await _activeSessionRepository.BeginTransactionAsync(ct);
+            }
+
+            // GAP-2 FIX: Nếu tất cả members đã finished -> update session → Paid
+            bool allFinished;
+            try
+            {
+                // GAP-15 Fix: Walk-in session (không có LobbyId) không có cọc lobby để capture.
+                // Chỉ capture khi có LobbyId — lobby session mới có DEPOSIT_HOLD từ BR-09.
+                // GAP-R2-02 Fix: Chỉ capture BVC khi totalBvcDue > 0. Nếu deposit cover hết cost,
+                // không cần trừ BVC — tránh BadRequestException rollback → member kẹt ở Unpaid.
+                if (session.LobbyId.HasValue && !skipBvcCapture)
+                {
+                    // Trừ BVC: capture cọc lobby về doanh thu.
+                    // Ledger entry type: DEPOSIT_CAPTURE. Idempotent qua idempotencyKey.
+                    await _walletService.CaptureDepositAsync(
+                        userId,
+                        totalBvcDue,
+                        relatedLobbyId: session.LobbyId,
+                        relatedReservationId: null,
+                        idempotencyKey: $"player-pay-{sessionId}-{userId}",
+                        ct);
+                }
+                else if (session.LobbyId.HasValue)
+                {
+                    _logger.LogInformation(
+                        "PlayerPaySessionAsync: Skip BVC capture for session {SessionId} — totalBvcDue={TotalBvcDue} (deposit covers cost)",
+                        sessionId, totalBvcDue);
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "PlayerPaySessionAsync: Walk-in session {SessionId}, no LobbyId — skipping BVC capture",
+                        sessionId);
+                }
+
+                // Update member status
+                member.Status = IndividualSessionStatus.Finished;
+                member.LeftAt = DateTime.UtcNow;
+                member.TotalMinutesPlayed = member.TotalMinutesPlayed > 0
+                    ? member.TotalMinutesPlayed
+                    : (int)Math.Floor((member.LeftAt.Value - member.JoinedAt).TotalMinutes);
+
+                allFinished = session.Members.All(m => m.Status == IndividualSessionStatus.Finished || m.IsGuestSlot);
+                if (allFinished)
+                {
+                    session.Status = GroupSessionStatus.Paid;
+                    session.PaidAt = DateTime.UtcNow;
+                }
+
+                await _activeSessionRepository.SaveChangesAsync();
+
+                // GAP-19 Fix: Ghi audit log khi member thay đổi status (BR-RISK-05)
+                var auditMetadata = JsonSerializer.Serialize(new Dictionary<string, object?>
+                {
+                    ["sessionId"] = session.Id,
+                    ["cafeId"] = session.CafeId,
+                    ["lobbyId"] = session.LobbyId,
+                    ["subtotal"] = subtotal,
+                    ["penaltyAmount"] = penaltyAmount,
+                    ["depositApplied"] = depositApplied,
+                    ["totalDue"] = totalDue,
+                    ["bvcDeducted"] = totalBvcDue,
+                    ["sessionPaidCompletely"] = allFinished,
+                    ["paymentMethod"] = "BVC"
+                });
+
+                _db.PlayerActionHistories.Add(new PlayerActionHistory
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = userId,
+                    ActionType = AdminActionType.SessionPaymentBvc,
+                    ActionBy = userId, // self-payment (no admin)
+                    Reason = allFinished
+                        ? "Player thanh toán phiên chơi bằng BVC (toàn bộ nhóm hoàn tất)"
+                        : "Player thanh toán phần cá nhân bằng BVC",
+                    Metadata = auditMetadata,
+                    CreatedAt = DateTime.UtcNow
+                });
+                await _db.SaveChangesAsync();
+
+                if (ownedTx != null)
+                {
+                    await ownedTx.CommitAsync(ct);
+                }
+            }
+            catch
+            {
+                if (ownedTx != null)
+                {
+                    await ownedTx.RollbackAsync(ct);
+                }
+                throw;
+            }
+            finally
+            {
+                if (ownedTx != null)
+                {
+                    await ownedTx.DisposeAsync();
+                }
+            }
+
+            // GAP-2 FIX: Notify POS sau khi commit — tất cả members đã paid.
+            if (allFinished)
+            {
+                var totalAmount = session.Members
+                    .Where(m => !m.IsGuestSlot)
+                    .Sum(m => m.Subtotal + m.PenaltyAmount - m.DepositAppliedAmount);
+
+                // GAP-R2-19 Fix: Await trực tiếp thay vì Task.Run fire-and-forget (inconsistent với ExtendSessionAsync đã fix ở GAP-8 round 1).
+                // FE phải nhận notification trước khi render UI payment success.
+                try
+                {
+                    await _posHubService.NotifySessionPaidAsync(
+                        session.Id,
+                        session.CafeId,
+                        session.LobbyId,
+                        totalAmount,
+                        session.PaidAt ?? DateTime.UtcNow);
+                }
+                catch (Exception ex)
+                {
+                    // Non-blocking: payment đã commit, notification là enhancement.
+                    _logger.LogWarning(ex,
+                        "Failed to notify POS about session {SessionId} paid",
+                        session.Id);
+                }
+            }
+
+            // Lấy số dư sau khi trừ
+            var updatedWallet = await _walletService.GetWalletAsync(userId, includeHeld: false);
+
+            // GAP-11 Fix: Build invoice line items chi tiết
+            var lineItems = new List<InvoiceLineItemDto>();
+
+            // Base hourly fee (giờ đầu tiên)
+            if (cafe != null && member.TotalMinutesPlayed > 0)
+            {
+                lineItems.Add(new InvoiceLineItemDto
+                {
+                    Type = "BaseHourly",
+                    Description = "Phí giờ chơi",
+                    Minutes = member.TotalMinutesPlayed,
+                    RatePerMinute = cafe.BasePrice > 0 ? cafe.BasePrice / 60m : null,
+                    Amount = subtotal
+                });
+            }
+
+            // Penalty (nếu có)
+            if (penaltyAmount > 0)
+            {
+                lineItems.Add(new InvoiceLineItemDto
+                {
+                    Type = "Penalty",
+                    Description = "Phí đền bù linh kiện",
+                    Amount = penaltyAmount
+                });
+            }
+
+            // Deposit applied (luôn 0 theo BR-09 nhưng vẫn trả để UI hiển thị)
+            if (depositApplied > 0)
+            {
+                lineItems.Add(new InvoiceLineItemDto
+                {
+                    Type = "DepositApplied",
+                    Description = "Đã trừ cọc (theo BR-09 = 0, deposit là phí giữ chỗ)",
+                    Amount = -depositApplied
+                });
+            }
+
+            return new PlayerPaySessionResponseDto
+            {
+                Success = true,
+                Message = allFinished
+                    ? "Thanh toán thành công. Phiên chơi đã hoàn tất."
+                    : "Thanh toán thành công cho thành viên này.",
+                Invoice = new PlayerInvoiceDto
+                {
+                    SessionId = session.Id,
+                    TotalMinutes = member.TotalMinutesPlayed,
+                    Subtotal = subtotal,
+                    PenaltyAmount = penaltyAmount,
+                    DepositApplied = depositApplied,
+                    TotalDue = totalDue,
+                    Currency = "VND",
+                    LineItems = lineItems
+                },
+                BvcDeducted = totalBvcDue,
+                RemainingBvcBalance = updatedWallet.AvailableBalance,
+                PaymentMethod = "BVC"
+            };
+        }
+
+        /// <summary>
+        /// GAP-8 + GAP-2 + GAP-7 Fix: Lịch sử phiên đã chơi (bao gồm walk-in) + cursor pagination + date range filter.
+        /// </summary>
+        public async Task<IReadOnlyList<SessionHistoryResponseDto>> GetSessionHistoryAsync(
+            Guid userId,
+            int limit = 20,
+            DateTime? beforePaidAt = null,
+            DateTime? fromDate = null,
+            DateTime? toDate = null,
+            CancellationToken ct = default)
+        {
+            var sessions = await _activeSessionRepository.GetHistoryByUserIdAsync(
+                userId, limit, beforePaidAt, fromDate, toDate, ct);
+
+            var result = new List<SessionHistoryResponseDto>();
+            foreach (var session in sessions)
+            {
+                var member = session.Members.FirstOrDefault(m => m.UserId == userId);
+                if (member == null) continue;
+
+                var cafe = session.Cafe ?? await _cafeRepository.GetActiveByIdAsync(session.CafeId);
+                if (cafe == null)
+                {
+                    _logger.LogWarning("Cafe {CafeId} not found for session {SessionId} in history", session.CafeId, session.Id);
+                    continue; // Skip sessions with missing cafe data
+                }
+                var gameName = session.Games.FirstOrDefault()?.GameTemplate?.Name ?? "Unknown Game";
+
+                // GAP-3 Fix: VN timezone offset
+                var vnTz = TimeSpan.FromHours(7);
+
+                result.Add(new SessionHistoryResponseDto
+                {
+                    SessionId = session.Id,
+                    CafeName = cafe.Name,
+                    CafeId = session.CafeId,
+                    LobbyId = session.LobbyId,
+                    GameName = gameName,
+                    JoinedAt = member.JoinedAt,
+                    JoinedAtOffset = new DateTimeOffset(member.JoinedAt, vnTz),
+                    PaidAt = session.PaidAt,
+                    PaidAtOffset = session.PaidAt.HasValue
+                        ? new DateTimeOffset(session.PaidAt.Value, vnTz)
+                        : null,
+                    TotalMinutesPlayed = member.TotalMinutesPlayed,
+                    TotalAmountDue = member.Subtotal + member.PenaltyAmount - member.DepositAppliedAmount,
+                    MemberStatus = member.Status,
+                    Currency = "VND"
+                });
+            }
+
+            return result;
+        }
+
+        // ===== POS Extension Request APIs (GAP-NEW-1) =====
+
+        /// <summary>
+        /// Lấy danh sách yêu cầu gia hạn đang chờ của một quán.
+        /// </summary>
+        public async Task<IReadOnlyList<PendingExtensionRequestDto>> GetPendingExtensionRequestsAsync(
+            Guid cafeId,
+            CancellationToken ct = default)
+        {
+            var requests = await _extensionRequestRepository.GetPendingByCafeIdAsync(cafeId);
+
+            return requests.Select(r => new PendingExtensionRequestDto
+            {
+                RequestId = r.Id,
+                SessionId = r.SessionId,
+                PlayerId = r.RequestedByUserId,
+                PlayerName = r.RequestedByUser?.Username ?? "Unknown Player",
+                RequestedMinutes = r.RequestedMinutes,
+                EstimatedAdditionalCostVnd = r.EstimatedAdditionalCostVnd,
+                RequestedAt = r.CreatedAt,
+                MinutesUntilExpiry = Math.Max(0, 10 - (int)(DateTime.UtcNow - r.CreatedAt).TotalMinutes)
+            }).ToList();
+        }
+
+        /// <summary>
+        /// POS staff duyệt yêu cầu gia hạn.
+        /// - Validate request tồn tại + Pending + thuộc cafe.
+        /// - Cập nhật Session: cộng thêm approvedMinutes vào EndedAt.
+        /// - Cập nhật request status = Approved + processed info.
+        /// </summary>
+        public async Task<ExtensionRequestProcessedDto> ApproveExtensionRequestAsync(
+            Guid cafeId,
+            Guid staffUserId,
+            Guid requestId,
+            int approvedMinutes,
+            CancellationToken ct = default)
+        {
+            if (approvedMinutes <= 0)
+                throw new BadRequestException(ApiErrorMessages.Session.InvalidExtensionMinutes);
+
+            // GAP-5 Fix: Cap max 8 giờ (480 phút) để ngăn staff approve quá nhiều
+            if (approvedMinutes > 480)
+                throw new BadRequestException(ApiErrorMessages.Session.ApprovedMinutesTooLong);
+
+            var request = await _extensionRequestRepository.GetByIdWithSessionAsync(requestId);
+            if (request == null)
+                throw new NotFoundException(ApiErrorMessages.Session.ExtensionRequestNotFound);
+
+            if (request.Session?.CafeId != cafeId)
+                throw new NotFoundException(ApiErrorMessages.Session.ExtensionRequestNotFound);
+
+            // GAP-9 Fix: Verify staff has POS access to this cafe
+            var isStaff = await _cafeRepository.IsManagerOrStaffAsync(cafeId, staffUserId);
+            if (!isStaff)
+                throw new ForbiddenException($"User {staffUserId} does not have POS access to cafe {cafeId}.");
+
+            if (request.Status != SessionExtensionRequestStatus.Pending)
+                throw new ConflictException(ApiErrorMessages.Session.ExtensionRequestAlreadyProcessed);
+
+            var session = request.Session;
+            if (session == null)
+                throw new NotFoundException(ApiErrorMessages.Session.ExtensionRequestNotFound);
+
+            // GAP-R2-04 Fix: Session phải Active HOẶC Checking (allow extension khi đang kiểm kê)
+            if (session.Status != GroupSessionStatus.Active &&
+                session.Status != GroupSessionStatus.Checking)
+            {
+                throw new ConflictException(ApiErrorMessages.Session.CannotApproveExtensionSessionNotActive);
+            }
+
+            // Cộng thêm thời gian vào EndedAt của phiên
+            // GAP-1 Fix: Nếu EndedAt null → dùng ScheduledEndTime (từ Reservation) hoặc EndedAt là null.
+            // Logic đúng: Session chưa kết thúc → EndedAt = DateTime.UtcNow + approvedMinutes.
+            // Khi billing, timer tính: max(EndedAt, EstimatedEndTime) để biết giờ kết thúc.
+            if (session.EndedAt.HasValue)
+            {
+                session.EndedAt = session.EndedAt.Value.AddMinutes(approvedMinutes);
+            }
+            else
+            {
+                // Session đang chạy (chưa có EndedAt) → đặt EndedAt = now + approvedMinutes.
+                // Đây là thời điểm DỰ KIẾN kết thúc sau khi extension được approve.
+                session.EndedAt = DateTime.UtcNow.AddMinutes(approvedMinutes);
+            }
+
+            // GAP-3 Fix: Session update + request update phải trong cùng transaction
+            var ambientTx = _db.Database.CurrentTransaction;
+            Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? ownedTx = null;
+            if (ambientTx == null)
+            {
+                ownedTx = await _db.Database.BeginTransactionAsync(ct);
+            }
+
+            try
+            {
+                // Cập nhật session: EndedAt đã được update ở trên
+                await _activeSessionRepository.SaveChangesAsync();
+
+                // Cập nhật request
+                request.Status = SessionExtensionRequestStatus.Approved;
+                request.ProcessedByUserId = staffUserId;
+                request.ProcessedAt = DateTime.UtcNow;
+                // GAP-R2-03 Fix: Persist approvedMinutes để audit
+                request.ApprovedMinutes = approvedMinutes;
+                await _extensionRequestRepository.UpdateAsync(request);
+                await _extensionRequestRepository.SaveChangesAsync();
+
+                if (ownedTx != null)
+                    await ownedTx.CommitAsync(ct);
+            }
+            catch
+            {
+                if (ownedTx != null)
+                    await ownedTx.RollbackAsync(ct);
+                throw;
+            }
+            finally
+            {
+                if (ownedTx != null)
+                    await ownedTx.DisposeAsync();
+            }
+
+            // Notify player via SignalR
+            try
+            {
+                await _posHubService.NotifySessionExtensionApprovedAsync(
+                    session.CafeId,
+                    requestId,
+                    request.RequestedByUserId,
+                    approvedMinutes);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to notify player {UserId} about extension approval",
+                    request.RequestedByUserId);
+            }
+
+            return new ExtensionRequestProcessedDto
+            {
+                RequestId = requestId,
+                Status = "Approved",
+                ApprovedMinutes = approvedMinutes,
+                ProcessedAt = request.ProcessedAt.Value,
+                NewEndTime = session.EndedAt,
+                Message = $"Da duyet gia han {approvedMinutes} phut."
+            };
+        }
+
+        /// <summary>
+        /// POS staff từ chối yêu cầu gia hạn.
+        /// </summary>
+        public async Task<ExtensionRequestProcessedDto> RejectExtensionRequestAsync(
+            Guid cafeId,
+            Guid staffUserId,
+            Guid requestId,
+            string? reason,
+            CancellationToken ct = default)
+        {
+            if (!string.IsNullOrWhiteSpace(reason) && reason.Length < 10)
+                throw new BadRequestException(ApiErrorMessages.Session.RejectionReasonTooShort);
+
+            var request = await _extensionRequestRepository.GetByIdWithSessionAsync(requestId);
+            if (request == null)
+                throw new NotFoundException(ApiErrorMessages.Session.ExtensionRequestNotFound);
+
+            if (request.Session?.CafeId != cafeId)
+                throw new NotFoundException(ApiErrorMessages.Session.ExtensionRequestNotFound);
+
+            // GAP-9 Fix: Verify staff has POS access to this cafe
+            var isStaffReject = await _cafeRepository.IsManagerOrStaffAsync(cafeId, staffUserId);
+            if (!isStaffReject)
+                throw new ForbiddenException($"User {staffUserId} does not have POS access to cafe {cafeId}.");
+
+            if (request.Status != SessionExtensionRequestStatus.Pending)
+                throw new ConflictException(ApiErrorMessages.Session.ExtensionRequestAlreadyProcessed);
+
+            // GAP-R2-04 Fix: Session đã Paid/Closed → reject không còn ý nghĩa.
+            var sessionReject = request.Session;
+            if (sessionReject != null &&
+                sessionReject.Status != GroupSessionStatus.Active &&
+                sessionReject.Status != GroupSessionStatus.Checking)
+            {
+                throw new ConflictException(string.Format(
+                    ApiErrorMessages.Session.ExtensionSessionNotExtendable,
+                    sessionReject.Status.ToString()));
+            }
+
+            // GAP-4 Fix: Request update phải trong transaction
+            var ambientTx = _db.Database.CurrentTransaction;
+            Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? ownedTx = null;
+            if (ambientTx == null)
+            {
+                ownedTx = await _db.Database.BeginTransactionAsync(ct);
+            }
+
+            try
+            {
+                request.Status = SessionExtensionRequestStatus.Rejected;
+                request.ProcessedByUserId = staffUserId;
+                request.ProcessedAt = DateTime.UtcNow;
+                request.RejectionReason = reason;
+
+                await _extensionRequestRepository.UpdateAsync(request);
+                await _extensionRequestRepository.SaveChangesAsync();
+
+                if (ownedTx != null)
+                    await ownedTx.CommitAsync(ct);
+            }
+            catch
+            {
+                if (ownedTx != null)
+                    await ownedTx.RollbackAsync(ct);
+                throw;
+            }
+            finally
+            {
+                if (ownedTx != null)
+                    await ownedTx.DisposeAsync();
+            }
+
+            // Notify player via SignalR
+            try
+            {
+                await _posHubService.NotifySessionExtensionRejectedAsync(
+                    request.Session.CafeId,
+                    requestId,
+                    request.RequestedByUserId,
+                    reason);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to notify player {UserId} about extension rejection",
+                    request.RequestedByUserId);
+            }
+
+            return new ExtensionRequestProcessedDto
+            {
+                RequestId = requestId,
+                Status = "Rejected",
+                ApprovedMinutes = 0,
+                ProcessedAt = request.ProcessedAt.Value,
+                Message = string.IsNullOrWhiteSpace(reason)
+                    ? "Yeu cau gia han da bi tu choi."
+                    : $"Yeu cau gia han bi tu choi. Ly do: {reason}"
+            };
         }
     }
 }

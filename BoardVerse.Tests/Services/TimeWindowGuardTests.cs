@@ -29,7 +29,7 @@ public class TimeWindowGuardTests
     public async Task ShouldBypass_ReturnsFalse_WhenNoHeaderNoQueryConfigFalse()
     {
         _configProvider
-            .Setup(p => p.GetStringAsync(SystemConfigKeys.BypassTimeWindowValidations, "false"))
+            .Setup(p => p.GetStringAsync(SystemConfigKeys.BypassTimeWindowValidations, "false", It.IsAny<CancellationToken>()))
             .ReturnsAsync("false");
 
         var result = await TimeWindowGuard.ShouldBypassAsync(
@@ -43,7 +43,7 @@ public class TimeWindowGuardTests
     public async Task ShouldBypass_ReturnsTrue_WhenHeaderTrue()
     {
         _configProvider
-            .Setup(p => p.GetStringAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .Setup(p => p.GetStringAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("false");
 
         var result = await TimeWindowGuard.ShouldBypassAsync(
@@ -57,7 +57,7 @@ public class TimeWindowGuardTests
     public async Task ShouldBypass_ReturnsTrue_WhenQueryTrue()
     {
         _configProvider
-            .Setup(p => p.GetStringAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .Setup(p => p.GetStringAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("false");
 
         var result = await TimeWindowGuard.ShouldBypassAsync(
@@ -72,7 +72,7 @@ public class TimeWindowGuardTests
     {
         // Header false = explicit "don't bypass"
         _configProvider
-            .Setup(p => p.GetStringAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .Setup(p => p.GetStringAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("true");
 
         var result = await TimeWindowGuard.ShouldBypassAsync(
@@ -92,7 +92,7 @@ public class TimeWindowGuardTests
         Assert.True(result);
         // Khi header đã override, không nên gọi DB.
         _configProvider.Verify(
-            p => p.GetStringAsync(SystemConfigKeys.BypassTimeWindowValidations, It.IsAny<string>()),
+            p => p.GetStringAsync(SystemConfigKeys.BypassTimeWindowValidations, It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -100,7 +100,7 @@ public class TimeWindowGuardTests
     public async Task ShouldBypass_ReturnsTrue_WhenDbConfigTrue()
     {
         _configProvider
-            .Setup(p => p.GetStringAsync(SystemConfigKeys.BypassTimeWindowValidations, "false"))
+            .Setup(p => p.GetStringAsync(SystemConfigKeys.BypassTimeWindowValidations, "false", It.IsAny<CancellationToken>()))
             .ReturnsAsync("true");
 
         var result = await TimeWindowGuard.ShouldBypassAsync(
@@ -114,7 +114,7 @@ public class TimeWindowGuardTests
     public async Task ShouldBypass_AcceptsOneAsTrue()
     {
         _configProvider
-            .Setup(p => p.GetStringAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .Setup(p => p.GetStringAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("false");
 
         var result = await TimeWindowGuard.ShouldBypassAsync(
@@ -128,7 +128,7 @@ public class TimeWindowGuardTests
     public async Task ShouldBypass_AcceptsZeroAsFalse()
     {
         _configProvider
-            .Setup(p => p.GetStringAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .Setup(p => p.GetStringAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("true");
 
         var result = await TimeWindowGuard.ShouldBypassAsync(
@@ -142,7 +142,7 @@ public class TimeWindowGuardTests
     public async Task ShouldBypass_OverloadWithoutHttpContext_UsesDbConfig()
     {
         _configProvider
-            .Setup(p => p.GetStringAsync(SystemConfigKeys.BypassTimeWindowValidations, "false"))
+            .Setup(p => p.GetStringAsync(SystemConfigKeys.BypassTimeWindowValidations, "false", It.IsAny<CancellationToken>()))
             .ReturnsAsync("true");
 
         var result = await TimeWindowGuard.ShouldBypassAsync(
@@ -156,7 +156,7 @@ public class TimeWindowGuardTests
     public async Task ShouldBypass_ReturnsFalse_WhenHeaderGarbage()
     {
         _configProvider
-            .Setup(p => p.GetStringAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .Setup(p => p.GetStringAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("false");
 
         // Header không parse được → fallthrough xuống DB config (false).

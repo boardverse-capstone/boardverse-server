@@ -15,7 +15,7 @@ public class BookingRepository : IBookingRepository
         _db = db;
     }
 
-    public async Task<Booking?> GetByIdAsync(Guid bookingId, bool includeRelations = false)
+    public async Task<Booking?> GetByIdAsync(Guid bookingId, bool includeRelations = false, CancellationToken cancellationToken = default)
     {
         var query = _db.Bookings.AsQueryable();
 
@@ -31,10 +31,10 @@ public class BookingRepository : IBookingRepository
                 .Include(b => b.BookingDeposit);
         }
 
-        return await query.FirstOrDefaultAsync(b => b.Id == bookingId);
+        return await query.FirstOrDefaultAsync(b => b.Id == bookingId, cancellationToken);
     }
 
-    public async Task<Booking?> GetByLobbyIdAsync(Guid lobbyId, bool includeRelations = true)
+    public async Task<Booking?> GetByLobbyIdAsync(Guid lobbyId, bool includeRelations = true, CancellationToken cancellationToken = default)
     {
         var query = _db.Bookings.AsQueryable();
 
@@ -50,13 +50,14 @@ public class BookingRepository : IBookingRepository
                 .Include(b => b.BookingDeposit);
         }
 
-        return await query.FirstOrDefaultAsync(b => b.LobbyId == lobbyId);
+        return await query.FirstOrDefaultAsync(b => b.LobbyId == lobbyId, cancellationToken);
     }
 
     public async Task<IReadOnlyList<Booking>> GetByCafeIdAsync(
         Guid cafeId,
         DateTime? fromDate = null,
-        DateTime? toDate = null)
+        DateTime? toDate = null,
+        CancellationToken cancellationToken = default)
     {
         var query = _db.Bookings.Where(b => b.CafeId == cafeId);
 
@@ -71,15 +72,15 @@ public class BookingRepository : IBookingRepository
             .Include(b => b.Lobby)
                 .ThenInclude(l => l!.Members)
             .OrderBy(b => b.ScheduledStartTime)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Booking>> GetByCafeTableIdAsync(Guid cafeTableId)
+    public async Task<IReadOnlyList<Booking>> GetByCafeTableIdAsync(Guid cafeTableId, CancellationToken cancellationToken = default)
     {
         return await _db.Bookings
             .Where(b => b.CafeTableId == cafeTableId)
             .OrderBy(b => b.ScheduledStartTime)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
     /// <summary>
@@ -87,14 +88,14 @@ public class BookingRepository : IBookingRepository
     /// Dùng cho mobile availability/available-tables (read-only, không lock).
     /// </summary>
     public async Task<IReadOnlyList<Booking>> GetOverlappingBookingsAsync(
-        Guid cafeId, DateTime startTime, DateTime endTime)
+        Guid cafeId, DateTime startTime, DateTime endTime, CancellationToken cancellationToken = default)
     {
         return await _db.Bookings
             .Where(b => b.CafeId == cafeId
                 && b.Status != BookingStatus.Cancelled
                 && b.ScheduledStartTime < endTime
                 && b.ScheduleEndTime > startTime)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
     /// <summary>
@@ -102,7 +103,7 @@ public class BookingRepository : IBookingRepository
     /// Uses raw SQL with FOR UPDATE to lock rows during transaction.
     /// </summary>
     public async Task<IReadOnlyList<Booking>> GetConflictingBookingsWithLockAsync(
-        Guid cafeTableId, DateTime startTime, DateTime endTime)
+        Guid cafeTableId, DateTime startTime, DateTime endTime, CancellationToken cancellationToken = default)
     {
         // Use raw SQL with FOR UPDATE SKIP LOCKED for pessimistic locking
         // This prevents race conditions when multiple bookings are created simultaneously
@@ -119,20 +120,20 @@ public class BookingRepository : IBookingRepository
                 (int)BookingStatus.Cancelled,
                 endTime,
                 startTime)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         return conflictingBookings;
     }
 
-    public async Task<IReadOnlyList<Booking>> GetByStatusAsync(BookingStatus status)
+    public async Task<IReadOnlyList<Booking>> GetByStatusAsync(BookingStatus status, CancellationToken cancellationToken = default)
     {
         return await _db.Bookings
             .Where(b => b.Status == status)
             .OrderBy(b => b.ScheduledStartTime)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Booking>> GetUpcomingAsync(DateTime cutoff, int limit = 50)
+    public async Task<IReadOnlyList<Booking>> GetUpcomingAsync(DateTime cutoff, int limit = 50, CancellationToken cancellationToken = default)
     {
         return await _db.Bookings
             .Where(b => b.ScheduledStartTime >= DateTime.UtcNow &&
@@ -141,27 +142,27 @@ public class BookingRepository : IBookingRepository
                         b.Status == BookingStatus.Confirmed)
             .OrderBy(b => b.ScheduledStartTime)
             .Take(limit)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
-    public async Task AddAsync(Booking booking)
+    public async Task AddAsync(Booking booking, CancellationToken cancellationToken = default)
     {
-        await _db.Bookings.AddAsync(booking);
+        await _db.Bookings.AddAsync(booking, cancellationToken);
     }
 
-    public async Task UpdateAsync(Booking booking)
+    public async Task UpdateAsync(Booking booking, CancellationToken cancellationToken = default)
     {
         _db.Bookings.Update(booking);
     }
 
-    public async Task SaveChangesAsync()
+    public async Task SaveChangesAsync(CancellationToken cancellationToken = default)
     {
-        await _db.SaveChangesAsync();
+        await _db.SaveChangesAsync(cancellationToken);
     }
 
     // === Admin: Reports ===
 
-    public async Task<int> CountByStatusAsync(BookingStatus status, DateTime? fromUtc, DateTime? toUtc)
+    public async Task<int> CountByStatusAsync(BookingStatus status, DateTime? fromUtc, DateTime? toUtc, CancellationToken cancellationToken = default)
     {
         var query = _db.Bookings.Where(b => b.Status == status);
 
@@ -175,10 +176,10 @@ public class BookingRepository : IBookingRepository
             query = query.Where(b => b.CreatedAt <= toUtc.Value);
         }
 
-        return await query.CountAsync();
+        return await query.CountAsync(cancellationToken);
     }
 
-    public async Task<int> CountAllAsync(DateTime? fromUtc, DateTime? toUtc)
+    public async Task<int> CountAllAsync(DateTime? fromUtc, DateTime? toUtc, CancellationToken cancellationToken = default)
     {
         var query = _db.Bookings.AsQueryable();
 
@@ -192,6 +193,6 @@ public class BookingRepository : IBookingRepository
             query = query.Where(b => b.CreatedAt <= toUtc.Value);
         }
 
-        return await query.CountAsync();
+        return await query.CountAsync(cancellationToken);
     }
 }

@@ -45,7 +45,7 @@ public class BookingRatingServiceAggregationTests
 
         // M5: GetProfilesByUserIdsAsync returns empty by default — tests that need profiles override.
         _mockUserProfileRepo
-            .Setup(r => r.GetProfilesByUserIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>()))
+            .Setup(r => r.GetProfilesByUserIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<Guid, UserProfile>());
 
         _service = new BookingRatingService(
@@ -67,7 +67,7 @@ public class BookingRatingServiceAggregationTests
     public async Task Aggregate_BookingPendingDeposit_ThrowsConflict()
     {
         var bookingId = Guid.NewGuid();
-        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true))
+        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildBooking(bookingId, BookingStatus.PendingDeposit));
 
         await Assert.ThrowsAsync<ConflictException>(
@@ -78,7 +78,7 @@ public class BookingRatingServiceAggregationTests
     public async Task Aggregate_BookingCancelled_ThrowsConflict()
     {
         var bookingId = Guid.NewGuid();
-        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true))
+        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildBooking(bookingId, BookingStatus.Cancelled));
 
         await Assert.ThrowsAsync<ConflictException>(
@@ -89,7 +89,7 @@ public class BookingRatingServiceAggregationTests
     public async Task Aggregate_BookingNotFound_ThrowsNotFound()
     {
         var bookingId = Guid.NewGuid();
-        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true))
+        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync((Booking?)null);
 
         await Assert.ThrowsAsync<NotFoundException>(
@@ -110,9 +110,9 @@ public class BookingRatingServiceAggregationTests
         var member2 = Guid.NewGuid();
 
         var booking = BuildBooking(bookingId, BookingStatus.CheckedIn, lobbyId);
-        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true)).ReturnsAsync(booking);
+        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true, It.IsAny<CancellationToken>())).ReturnsAsync(booking);
 
-        _mockLobbyRepo.Setup(r => r.GetByIdWithMembersAsync(lobbyId))
+        _mockLobbyRepo.Setup(r => r.GetByIdWithMembersAsync(lobbyId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(lobbyId, host, member1, member2));
 
         // Voter host rates member1 với avg=4.0 → delta = (4-3)*10 = +10.
@@ -127,13 +127,13 @@ public class BookingRatingServiceAggregationTests
             }),
             IsAggregated = false
         };
-        _mockRatingRepo.Setup(r => r.GetUnaggregatedByBookingAsync(bookingId))
+        _mockRatingRepo.Setup(r => r.GetUnaggregatedByBookingAsync(bookingId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<BookingRating> { ratingRow });
-        _mockNoShowRepo.Setup(r => r.GetByBookingAsync(bookingId))
+        _mockNoShowRepo.Setup(r => r.GetByBookingAsync(bookingId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<BookingNoShowVote>());
 
         var profile = new UserProfile { UserId = member1, KarmaPoints = 100 };
-        _mockKarmaRepo.Setup(k => k.GetProfileForUpdateAsync(member1)).ReturnsAsync(profile);
+        _mockKarmaRepo.Setup(k => k.GetProfileForUpdateAsync(member1, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
 
         var result = await _service.AggregateBookingOutcomesAsync(bookingId);
 
@@ -152,7 +152,7 @@ public class BookingRatingServiceAggregationTests
         )), Times.Once);
 
         Assert.True(ratingRow.IsAggregated);
-        _mockRatingRepo.Verify(r => r.UpdateAsync(ratingRow), Times.Once);
+        _mockRatingRepo.Verify(r => r.UpdateAsync(ratingRow, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -164,8 +164,8 @@ public class BookingRatingServiceAggregationTests
         var target = Guid.NewGuid();
 
         var booking = BuildBooking(bookingId, BookingStatus.CheckedIn, lobbyId);
-        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true)).ReturnsAsync(booking);
-        _mockLobbyRepo.Setup(r => r.GetByIdWithMembersAsync(lobbyId))
+        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true, It.IsAny<CancellationToken>())).ReturnsAsync(booking);
+        _mockLobbyRepo.Setup(r => r.GetByIdWithMembersAsync(lobbyId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(lobbyId, host, target));
 
         // avg = (2+2+2)/3 = 2.0 → delta = (2-3)*10 = -10.
@@ -180,13 +180,13 @@ public class BookingRatingServiceAggregationTests
             }),
             IsAggregated = false
         };
-        _mockRatingRepo.Setup(r => r.GetUnaggregatedByBookingAsync(bookingId))
+        _mockRatingRepo.Setup(r => r.GetUnaggregatedByBookingAsync(bookingId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<BookingRating> { ratingRow });
-        _mockNoShowRepo.Setup(r => r.GetByBookingAsync(bookingId))
+        _mockNoShowRepo.Setup(r => r.GetByBookingAsync(bookingId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<BookingNoShowVote>());
 
         var profile = new UserProfile { UserId = target, KarmaPoints = 100 };
-        _mockKarmaRepo.Setup(k => k.GetProfileForUpdateAsync(target)).ReturnsAsync(profile);
+        _mockKarmaRepo.Setup(k => k.GetProfileForUpdateAsync(target, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
 
         var result = await _service.AggregateBookingOutcomesAsync(bookingId);
 
@@ -205,8 +205,8 @@ public class BookingRatingServiceAggregationTests
         var target = Guid.NewGuid();
 
         var booking = BuildBooking(bookingId, BookingStatus.CheckedIn, lobbyId);
-        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true)).ReturnsAsync(booking);
-        _mockLobbyRepo.Setup(r => r.GetByIdWithMembersAsync(lobbyId))
+        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true, It.IsAny<CancellationToken>())).ReturnsAsync(booking);
+        _mockLobbyRepo.Setup(r => r.GetByIdWithMembersAsync(lobbyId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(lobbyId, v1, v2, target));
 
         // v1 votes 4.0 (5+4+3)/3, v2 votes 2.0 (2+2+2)/3 → mean = 3.0 → delta = 0.
@@ -235,12 +235,12 @@ public class BookingRatingServiceAggregationTests
                 IsAggregated = false
             }
         };
-        _mockRatingRepo.Setup(r => r.GetUnaggregatedByBookingAsync(bookingId)).ReturnsAsync(rows);
-        _mockNoShowRepo.Setup(r => r.GetByBookingAsync(bookingId))
+        _mockRatingRepo.Setup(r => r.GetUnaggregatedByBookingAsync(bookingId, It.IsAny<CancellationToken>())).ReturnsAsync(rows);
+        _mockNoShowRepo.Setup(r => r.GetByBookingAsync(bookingId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<BookingNoShowVote>());
 
         var profile = new UserProfile { UserId = target, KarmaPoints = 50 };
-        _mockKarmaRepo.Setup(k => k.GetProfileForUpdateAsync(target)).ReturnsAsync(profile);
+        _mockKarmaRepo.Setup(k => k.GetProfileForUpdateAsync(target, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
 
         var result = await _service.AggregateBookingOutcomesAsync(bookingId);
 
@@ -263,11 +263,11 @@ public class BookingRatingServiceAggregationTests
         var noShowMember = Guid.NewGuid();
 
         var booking = BuildBooking(bookingId, BookingStatus.CheckedIn, lobbyId);
-        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true)).ReturnsAsync(booking);
-        _mockLobbyRepo.Setup(r => r.GetByIdWithMembersAsync(lobbyId))
+        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true, It.IsAny<CancellationToken>())).ReturnsAsync(booking);
+        _mockLobbyRepo.Setup(r => r.GetByIdWithMembersAsync(lobbyId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(lobbyId, v1, v2, noShowMember));
 
-        _mockRatingRepo.Setup(r => r.GetUnaggregatedByBookingAsync(bookingId))
+        _mockRatingRepo.Setup(r => r.GetUnaggregatedByBookingAsync(bookingId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<BookingRating>());
 
         // 2/3 voters vote noShowMember absent → threshold = 3/2 = 1 → 2 > 1 → confirmed.
@@ -276,11 +276,11 @@ public class BookingRatingServiceAggregationTests
             new() { BookingId = bookingId, VoterUserId = v1, AbsentMemberIdsJson = JsonSerializer.Serialize(new List<Guid> { noShowMember }) },
             new() { BookingId = bookingId, VoterUserId = v2, AbsentMemberIdsJson = JsonSerializer.Serialize(new List<Guid> { noShowMember }) }
         };
-        _mockNoShowRepo.Setup(r => r.GetByBookingAsync(bookingId)).ReturnsAsync(votes);
-        _mockDepositRepo.Setup(r => r.GetByBookingIdAsync(bookingId)).ReturnsAsync((BookingDeposit?)null);
+        _mockNoShowRepo.Setup(r => r.GetByBookingAsync(bookingId, It.IsAny<CancellationToken>())).ReturnsAsync(votes);
+        _mockDepositRepo.Setup(r => r.GetByBookingIdAsync(bookingId, It.IsAny<CancellationToken>())).ReturnsAsync((BookingDeposit?)null);
 
         var profile = new UserProfile { UserId = noShowMember, KarmaPoints = 100 };
-        _mockKarmaRepo.Setup(k => k.GetProfileForUpdateAsync(noShowMember)).ReturnsAsync(profile);
+        _mockKarmaRepo.Setup(k => k.GetProfileForUpdateAsync(noShowMember, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
 
         var result = await _service.AggregateBookingOutcomesAsync(bookingId);
 
@@ -309,11 +309,11 @@ public class BookingRatingServiceAggregationTests
         var suspect = Guid.NewGuid();
 
         var booking = BuildBooking(bookingId, BookingStatus.CheckedIn, lobbyId);
-        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true)).ReturnsAsync(booking);
-        _mockLobbyRepo.Setup(r => r.GetByIdWithMembersAsync(lobbyId))
+        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true, It.IsAny<CancellationToken>())).ReturnsAsync(booking);
+        _mockLobbyRepo.Setup(r => r.GetByIdWithMembersAsync(lobbyId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(lobbyId, v1, v2, v3, v4, suspect));
 
-        _mockRatingRepo.Setup(r => r.GetUnaggregatedByBookingAsync(bookingId))
+        _mockRatingRepo.Setup(r => r.GetUnaggregatedByBookingAsync(bookingId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<BookingRating>());
 
         // 2/5 voters vote suspect absent → threshold = 5/2 = 2 → 2 > 2 is false → not confirmed.
@@ -322,7 +322,7 @@ public class BookingRatingServiceAggregationTests
             new() { BookingId = bookingId, VoterUserId = v1, AbsentMemberIdsJson = JsonSerializer.Serialize(new List<Guid> { suspect }) },
             new() { BookingId = bookingId, VoterUserId = v2, AbsentMemberIdsJson = JsonSerializer.Serialize(new List<Guid> { suspect }) }
         };
-        _mockNoShowRepo.Setup(r => r.GetByBookingAsync(bookingId)).ReturnsAsync(votes);
+        _mockNoShowRepo.Setup(r => r.GetByBookingAsync(bookingId, It.IsAny<CancellationToken>())).ReturnsAsync(votes);
 
         var result = await _service.AggregateBookingOutcomesAsync(bookingId);
 
@@ -341,11 +341,11 @@ public class BookingRatingServiceAggregationTests
         var noShowMember = Guid.NewGuid();
 
         var booking = BuildBooking(bookingId, BookingStatus.CheckedIn, lobbyId);
-        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true)).ReturnsAsync(booking);
-        _mockLobbyRepo.Setup(r => r.GetByIdWithMembersAsync(lobbyId))
+        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true, It.IsAny<CancellationToken>())).ReturnsAsync(booking);
+        _mockLobbyRepo.Setup(r => r.GetByIdWithMembersAsync(lobbyId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(lobbyId, v1, v2, noShowMember));
 
-        _mockRatingRepo.Setup(r => r.GetUnaggregatedByBookingAsync(bookingId))
+        _mockRatingRepo.Setup(r => r.GetUnaggregatedByBookingAsync(bookingId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<BookingRating>());
 
         // 2/3 voters vote noShowMember absent → threshold = 3/2 = 1 → 2 > 1 → confirmed.
@@ -354,7 +354,7 @@ public class BookingRatingServiceAggregationTests
             new() { BookingId = bookingId, VoterUserId = v1, AbsentMemberIdsJson = JsonSerializer.Serialize(new List<Guid> { noShowMember }) },
             new() { BookingId = bookingId, VoterUserId = v2, AbsentMemberIdsJson = JsonSerializer.Serialize(new List<Guid> { noShowMember }) }
         };
-        _mockNoShowRepo.Setup(r => r.GetByBookingAsync(bookingId)).ReturnsAsync(votes);
+        _mockNoShowRepo.Setup(r => r.GetByBookingAsync(bookingId, It.IsAny<CancellationToken>())).ReturnsAsync(votes);
 
         var deposit = new BookingDeposit
         {
@@ -365,16 +365,16 @@ public class BookingRatingServiceAggregationTests
             RefundPolicy = DepositRefundPolicy.None,
             Amount = 50_000m
         };
-        _mockDepositRepo.Setup(r => r.GetByBookingIdAsync(bookingId)).ReturnsAsync(deposit);
+        _mockDepositRepo.Setup(r => r.GetByBookingIdAsync(bookingId, It.IsAny<CancellationToken>())).ReturnsAsync(deposit);
 
         var profile = new UserProfile { UserId = noShowMember, KarmaPoints = 80 };
-        _mockKarmaRepo.Setup(k => k.GetProfileForUpdateAsync(noShowMember)).ReturnsAsync(profile);
+        _mockKarmaRepo.Setup(k => k.GetProfileForUpdateAsync(noShowMember, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
 
         var result = await _service.AggregateBookingOutcomesAsync(bookingId);
 
         Assert.Equal(BookingDepositStatus.Forfeited, deposit.Status);
         Assert.Contains(deposit.Id, result.ForfeitedDepositIds);
-        _mockDepositRepo.Verify(r => r.UpdateAsync(deposit), Times.Once);
+        _mockDepositRepo.Verify(r => r.UpdateAsync(deposit, It.IsAny<CancellationToken>()), Times.Once);
 
         // 2 KarmaLog rows: no-show penalty + deposit forfeit audit.
         _mockKarmaRepo.Verify(k => k.AddKarmaLogAsync(It.IsAny<KarmaLog>()), Times.Exactly(2));
@@ -390,11 +390,11 @@ public class BookingRatingServiceAggregationTests
         var noShowMember = Guid.NewGuid();
 
         var booking = BuildBooking(bookingId, BookingStatus.CheckedIn, lobbyId);
-        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true)).ReturnsAsync(booking);
-        _mockLobbyRepo.Setup(r => r.GetByIdWithMembersAsync(lobbyId))
+        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true, It.IsAny<CancellationToken>())).ReturnsAsync(booking);
+        _mockLobbyRepo.Setup(r => r.GetByIdWithMembersAsync(lobbyId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(lobbyId, v1, v2, noShowMember));
 
-        _mockRatingRepo.Setup(r => r.GetUnaggregatedByBookingAsync(bookingId))
+        _mockRatingRepo.Setup(r => r.GetUnaggregatedByBookingAsync(bookingId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<BookingRating>());
 
         var votes = new List<BookingNoShowVote>
@@ -402,7 +402,7 @@ public class BookingRatingServiceAggregationTests
             new() { BookingId = bookingId, VoterUserId = v1, AbsentMemberIdsJson = JsonSerializer.Serialize(new List<Guid> { noShowMember }) },
             new() { BookingId = bookingId, VoterUserId = v2, AbsentMemberIdsJson = JsonSerializer.Serialize(new List<Guid> { noShowMember }) }
         };
-        _mockNoShowRepo.Setup(r => r.GetByBookingAsync(bookingId)).ReturnsAsync(votes);
+        _mockNoShowRepo.Setup(r => r.GetByBookingAsync(bookingId, It.IsAny<CancellationToken>())).ReturnsAsync(votes);
 
         var deposit = new BookingDeposit
         {
@@ -413,16 +413,16 @@ public class BookingRatingServiceAggregationTests
             RefundPolicy = DepositRefundPolicy.Full,
             Amount = 50_000m
         };
-        _mockDepositRepo.Setup(r => r.GetByBookingIdAsync(bookingId)).ReturnsAsync(deposit);
+        _mockDepositRepo.Setup(r => r.GetByBookingIdAsync(bookingId, It.IsAny<CancellationToken>())).ReturnsAsync(deposit);
 
         var profile = new UserProfile { UserId = noShowMember, KarmaPoints = 80 };
-        _mockKarmaRepo.Setup(k => k.GetProfileForUpdateAsync(noShowMember)).ReturnsAsync(profile);
+        _mockKarmaRepo.Setup(k => k.GetProfileForUpdateAsync(noShowMember, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
 
         var result = await _service.AggregateBookingOutcomesAsync(bookingId);
 
         Assert.Equal(BookingDepositStatus.Paid, deposit.Status);
         Assert.Empty(result.ForfeitedDepositIds);
-        _mockDepositRepo.Verify(r => r.UpdateAsync(It.IsAny<BookingDeposit>()), Times.Never);
+        _mockDepositRepo.Verify(r => r.UpdateAsync(It.IsAny<BookingDeposit>(), It.IsAny<CancellationToken>()), Times.Never);
         // Chỉ 1 KarmaLog row (no-show penalty), không có audit log cho forfeit.
         _mockKarmaRepo.Verify(k => k.AddKarmaLogAsync(It.IsAny<KarmaLog>()), Times.Once);
     }
@@ -437,13 +437,13 @@ public class BookingRatingServiceAggregationTests
         var bookingId = Guid.NewGuid();
         var lobbyId = Guid.NewGuid();
         var booking = BuildBooking(bookingId, BookingStatus.CheckedIn, lobbyId);
-        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true)).ReturnsAsync(booking);
-        _mockLobbyRepo.Setup(r => r.GetByIdWithMembersAsync(lobbyId))
+        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true, It.IsAny<CancellationToken>())).ReturnsAsync(booking);
+        _mockLobbyRepo.Setup(r => r.GetByIdWithMembersAsync(lobbyId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(lobbyId, Guid.NewGuid()));
 
-        _mockRatingRepo.Setup(r => r.GetUnaggregatedByBookingAsync(bookingId))
+        _mockRatingRepo.Setup(r => r.GetUnaggregatedByBookingAsync(bookingId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<BookingRating>());
-        _mockNoShowRepo.Setup(r => r.GetByBookingAsync(bookingId))
+        _mockNoShowRepo.Setup(r => r.GetByBookingAsync(bookingId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<BookingNoShowVote>());
 
         var result = await _service.AggregateBookingOutcomesAsync(bookingId);
@@ -468,8 +468,8 @@ public class BookingRatingServiceAggregationTests
         var target = Guid.NewGuid();
 
         var booking = BuildBooking(bookingId, BookingStatus.CheckedIn, lobbyId);
-        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true)).ReturnsAsync(booking);
-        _mockLobbyRepo.Setup(r => r.GetByIdWithMembersAsync(lobbyId))
+        _mockBookingRepo.Setup(r => r.GetByIdAsync(bookingId, true, It.IsAny<CancellationToken>())).ReturnsAsync(booking);
+        _mockLobbyRepo.Setup(r => r.GetByIdWithMembersAsync(lobbyId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(lobbyId, v1, target));
 
         var ratingRow = new BookingRating
@@ -483,13 +483,13 @@ public class BookingRatingServiceAggregationTests
             }),
             IsAggregated = false
         };
-        _mockRatingRepo.Setup(r => r.GetUnaggregatedByBookingAsync(bookingId))
+        _mockRatingRepo.Setup(r => r.GetUnaggregatedByBookingAsync(bookingId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<BookingRating> { ratingRow });
-        _mockNoShowRepo.Setup(r => r.GetByBookingAsync(bookingId))
+        _mockNoShowRepo.Setup(r => r.GetByBookingAsync(bookingId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<BookingNoShowVote>());
 
         var profile = new UserProfile { UserId = target, KarmaPoints = 100 };
-        _mockKarmaRepo.Setup(k => k.GetProfileForUpdateAsync(target)).ReturnsAsync(profile);
+        _mockKarmaRepo.Setup(k => k.GetProfileForUpdateAsync(target, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
 
         await _service.AggregateBookingOutcomesAsync(bookingId);
 

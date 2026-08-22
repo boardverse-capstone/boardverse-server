@@ -80,12 +80,12 @@ public class TournamentServiceTests
             TournamentMinPlayersPerTable = 2
         };
 
-        gameRepo.Setup(r => r.GetByNameAsync("Splendor")).ReturnsAsync(splendor);
-        gameRepo.Setup(r => r.GetByIdAsync(SplendorId)).ReturnsAsync(splendor);
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.AddAsync(It.IsAny<Tournament>())).Returns(Task.CompletedTask);
+        gameRepo.Setup(r => r.GetByNameAsync("Splendor", It.IsAny<CancellationToken>())).ReturnsAsync(splendor);
+        gameRepo.Setup(r => r.GetByIdAsync(SplendorId, It.IsAny<CancellationToken>())).ReturnsAsync(splendor);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.AddAsync(It.IsAny<Tournament>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>()))
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildRegistrationOpenTournament());
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
@@ -104,7 +104,7 @@ public class TournamentServiceTests
         // Assert
         Assert.NotNull(result);
         tournamentRepo.Verify(r => r.AddAsync(It.Is<Tournament>(
-            t => t.Status == TournamentStatus.Draft && t.MaxParticipants == 8)), Times.Once);
+            t => t.Status == TournamentStatus.Draft && t.MaxParticipants == 8), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -118,7 +118,7 @@ public class TournamentServiceTests
         var configRepo = BuildConfigRepo();
         var karmaRepo = BuildKarmaRepo();
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(false);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -138,8 +138,8 @@ public class TournamentServiceTests
         var configRepo = BuildConfigRepo();
         var karmaRepo = BuildKarmaRepo();
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        gameRepo.Setup(r => r.GetByNameAsync("Splendor")).ReturnsAsync((GameTemplate?)null);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        gameRepo.Setup(r => r.GetByNameAsync("Splendor", It.IsAny<CancellationToken>())).ReturnsAsync((GameTemplate?)null);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -174,13 +174,13 @@ public class TournamentServiceTests
             TournamentMaxScorePerPlayer = 15,
             TournamentMinPlayersPerTable = 2
         };
-        gameRepo.Setup(r => r.GetByNameAsync("Splendor")).ReturnsAsync(splendor);
-        gameRepo.Setup(r => r.GetByIdAsync(SplendorId)).ReturnsAsync(splendor);
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
+        gameRepo.Setup(r => r.GetByNameAsync("Splendor", It.IsAny<CancellationToken>())).ReturnsAsync(splendor);
+        gameRepo.Setup(r => r.GetByIdAsync(SplendorId, It.IsAny<CancellationToken>())).ReturnsAsync(splendor);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
         // Capture tournament khi AddAsync được gọi để verify ClampPenalty.
         Tournament? capturedTournament = null;
-        tournamentRepo.Setup(r => r.AddAsync(It.IsAny<Tournament>()))
+        tournamentRepo.Setup(r => r.AddAsync(It.IsAny<Tournament>(), It.IsAny<CancellationToken>()))
             .Callback<Tournament>(t => capturedTournament = t)
             .Returns(Task.CompletedTask);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
@@ -188,7 +188,7 @@ public class TournamentServiceTests
         // BuildResponseAsync lấy từ GetByIdWithDetailsAsync — tạo entity tươi NoShowKarmaPenalty = 0.
         var responseEntity = BuildRegistrationOpenTournament();
         responseEntity.NoShowKarmaPenalty = 0; // explicit
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>()))
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(responseEntity);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
@@ -225,12 +225,12 @@ public class TournamentServiceTests
             TournamentMaxScorePerPlayer = 15,
             TournamentMinPlayersPerTable = 2
         };
-        gameRepo.Setup(r => r.GetByNameAsync("Splendor")).ReturnsAsync(splendor);
-        gameRepo.Setup(r => r.GetByIdAsync(SplendorId)).ReturnsAsync(splendor);
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.AddAsync(It.IsAny<Tournament>())).Returns(Task.CompletedTask);
+        gameRepo.Setup(r => r.GetByNameAsync("Splendor", It.IsAny<CancellationToken>())).ReturnsAsync(splendor);
+        gameRepo.Setup(r => r.GetByIdAsync(SplendorId, It.IsAny<CancellationToken>())).ReturnsAsync(splendor);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.AddAsync(It.IsAny<Tournament>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>()))
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildRegistrationOpenTournament());
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
@@ -265,14 +265,14 @@ public class TournamentServiceTests
             TournamentMaxScorePerPlayer = 15,
             TournamentMinPlayersPerTable = 2
         };
-        gameRepo.Setup(r => r.GetByNameAsync("Splendor")).ReturnsAsync(splendor);
-        gameRepo.Setup(r => r.GetByIdAsync(SplendorId)).ReturnsAsync(splendor);
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.AddAsync(It.IsAny<Tournament>())).Returns(Task.CompletedTask);
+        gameRepo.Setup(r => r.GetByNameAsync("Splendor", It.IsAny<CancellationToken>())).ReturnsAsync(splendor);
+        gameRepo.Setup(r => r.GetByIdAsync(SplendorId, It.IsAny<CancellationToken>())).ReturnsAsync(splendor);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.AddAsync(It.IsAny<Tournament>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
         var responseEntity = BuildRegistrationOpenTournament();
         responseEntity.NoShowKarmaPenalty = -50; // reflect request after clamping
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>()))
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(responseEntity);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
@@ -298,7 +298,7 @@ public class TournamentServiceTests
         var configRepo = BuildConfigRepo();
         var karmaRepo = BuildKarmaRepo();
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
         var splendor = new GameTemplate
         {
             Id = SplendorId,
@@ -308,7 +308,7 @@ public class TournamentServiceTests
             TournamentMaxScorePerPlayer = 15,
             TournamentMinPlayersPerTable = 2
         };
-        gameRepo.Setup(r => r.GetByNameAsync("Splendor")).ReturnsAsync(splendor);
+        gameRepo.Setup(r => r.GetByNameAsync("Splendor", It.IsAny<CancellationToken>())).ReturnsAsync(splendor);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -336,16 +336,16 @@ public class TournamentServiceTests
         var karmaRepo = BuildKarmaRepo();
 
         var tournament = BuildRegistrationOpenTournament();
-        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId)).ReturnsAsync(tournament);
-        tournamentRepo.Setup(r => r.GetParticipantAsync(TournamentId, UserId))
+        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
+        tournamentRepo.Setup(r => r.GetParticipantAsync(TournamentId, UserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((TournamentParticipant?)null);
-        tournamentRepo.Setup(r => r.CountActiveParticipantsAsync(TournamentId)).ReturnsAsync(2);
-        userRepo.Setup(r => r.GetByIdWithProfileAsync(UserId))
+        tournamentRepo.Setup(r => r.CountActiveParticipantsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(2);
+        userRepo.Setup(r => r.GetByIdWithProfileAsync(UserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildUserWithProfile(UserId, karma: 100));
         tournamentRepo.Setup(r => r.AddParticipantAsync(It.IsAny<TournamentParticipant>()))
             .Returns(Task.CompletedTask);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
-        tournamentRepo.Setup(r => r.GetParticipantByIdAsync(It.IsAny<Guid>()))
+        tournamentRepo.Setup(r => r.GetParticipantByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Guid id) => new TournamentParticipant
             {
                 Id = id,
@@ -383,11 +383,11 @@ public class TournamentServiceTests
 
         var tournament = BuildRegistrationOpenTournament();
         tournament.MinKarmaRequirement = 80;
-        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId)).ReturnsAsync(tournament);
-        tournamentRepo.Setup(r => r.GetParticipantAsync(TournamentId, UserId))
+        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
+        tournamentRepo.Setup(r => r.GetParticipantAsync(TournamentId, UserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((TournamentParticipant?)null);
-        tournamentRepo.Setup(r => r.CountActiveParticipantsAsync(TournamentId)).ReturnsAsync(2);
-        userRepo.Setup(r => r.GetByIdWithProfileAsync(UserId))
+        tournamentRepo.Setup(r => r.CountActiveParticipantsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(2);
+        userRepo.Setup(r => r.GetByIdWithProfileAsync(UserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildUserWithProfile(UserId, karma: 50)); // below 80
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
@@ -409,8 +409,8 @@ public class TournamentServiceTests
         var karmaRepo = BuildKarmaRepo();
 
         var tournament = BuildRegistrationOpenTournament();
-        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId)).ReturnsAsync(tournament);
-        tournamentRepo.Setup(r => r.GetParticipantAsync(TournamentId, UserId))
+        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
+        tournamentRepo.Setup(r => r.GetParticipantAsync(TournamentId, UserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TournamentParticipant { UserId = UserId, Status = TournamentParticipantStatus.Registered });
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
@@ -433,7 +433,7 @@ public class TournamentServiceTests
 
         var tournament = BuildRegistrationOpenTournament();
         tournament.RegistrationDeadline = DateTime.UtcNow.AddHours(-1);
-        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId)).ReturnsAsync(tournament);
+        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -460,8 +460,8 @@ public class TournamentServiceTests
             UserId = UserId,
             Status = TournamentParticipantStatus.Withdrawn
         };
-        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId)).ReturnsAsync(tournament);
-        tournamentRepo.Setup(r => r.GetParticipantAsync(TournamentId, UserId)).ReturnsAsync(participant);
+        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
+        tournamentRepo.Setup(r => r.GetParticipantAsync(TournamentId, UserId, It.IsAny<CancellationToken>())).ReturnsAsync(participant);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -488,8 +488,8 @@ public class TournamentServiceTests
             UserId = UserId,
             Status = TournamentParticipantStatus.Active
         };
-        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId)).ReturnsAsync(tournament);
-        tournamentRepo.Setup(r => r.GetParticipantAsync(TournamentId, UserId)).ReturnsAsync(participant);
+        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
+        tournamentRepo.Setup(r => r.GetParticipantAsync(TournamentId, UserId, It.IsAny<CancellationToken>())).ReturnsAsync(participant);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -516,8 +516,8 @@ public class TournamentServiceTests
             UserId = UserId,
             Status = TournamentParticipantStatus.CheckedIn
         };
-        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId)).ReturnsAsync(tournament);
-        tournamentRepo.Setup(r => r.GetParticipantAsync(TournamentId, UserId)).ReturnsAsync(participant);
+        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
+        tournamentRepo.Setup(r => r.GetParticipantAsync(TournamentId, UserId, It.IsAny<CancellationToken>())).ReturnsAsync(participant);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -544,8 +544,8 @@ public class TournamentServiceTests
             UserId = UserId,
             Status = TournamentParticipantStatus.Finished
         };
-        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId)).ReturnsAsync(tournament);
-        tournamentRepo.Setup(r => r.GetParticipantAsync(TournamentId, UserId)).ReturnsAsync(participant);
+        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
+        tournamentRepo.Setup(r => r.GetParticipantAsync(TournamentId, UserId, It.IsAny<CancellationToken>())).ReturnsAsync(participant);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -573,8 +573,8 @@ public class TournamentServiceTests
             UserId = UserId,
             Status = TournamentParticipantStatus.Withdrawn
         };
-        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId)).ReturnsAsync(tournament);
-        tournamentRepo.Setup(r => r.GetParticipantAsync(TournamentId, UserId)).ReturnsAsync(participant);
+        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
+        tournamentRepo.Setup(r => r.GetParticipantAsync(TournamentId, UserId, It.IsAny<CancellationToken>())).ReturnsAsync(participant);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -627,9 +627,9 @@ public class TournamentServiceTests
             Status = TournamentMatchStatus.OnGoing
         };
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetMatchByIdAsync(match.Id)).ReturnsAsync(match);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetMatchByIdAsync(match.Id, It.IsAny<CancellationToken>())).ReturnsAsync(match);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -686,10 +686,10 @@ public class TournamentServiceTests
             Status = TournamentMatchStatus.OnGoing
         };
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetMatchByIdAsync(match.Id)).ReturnsAsync(match);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
-        configRepo.Setup(r => r.GetIntAsync(SystemConfigKeys.EloKFactor, 32)).ReturnsAsync(32);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetMatchByIdAsync(match.Id, It.IsAny<CancellationToken>())).ReturnsAsync(match);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
+        configRepo.Setup(r => r.GetIntAsync(SystemConfigKeys.EloKFactor, 32, It.IsAny<CancellationToken>())).ReturnsAsync(32);
         tournamentRepo.Setup(r => r.UpdateMatchAsync(It.IsAny<TournamentMatchBracket>())).Returns(Task.CompletedTask);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
 
@@ -765,10 +765,10 @@ public class TournamentServiceTests
             Status = TournamentMatchStatus.OnGoing
         };
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetMatchByIdAsync(match.Id)).ReturnsAsync(match);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
-        configRepo.Setup(r => r.GetIntAsync(SystemConfigKeys.EloKFactor, 32)).ReturnsAsync(32);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetMatchByIdAsync(match.Id, It.IsAny<CancellationToken>())).ReturnsAsync(match);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
+        configRepo.Setup(r => r.GetIntAsync(SystemConfigKeys.EloKFactor, 32, It.IsAny<CancellationToken>())).ReturnsAsync(32);
         tournamentRepo.Setup(r => r.AddEloContributionAsync(It.IsAny<TournamentMatchEloContribution>())).Returns(Task.CompletedTask);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
 
@@ -841,15 +841,15 @@ public class TournamentServiceTests
             new() { Id = Guid.NewGuid(), RoundNumber = 3, Status = TournamentMatchStatus.Completed }
         };
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
 
         TournamentMatchBracket? createdMatch = null;
         tournamentRepo.Setup(r => r.AddMatchAsync(It.IsAny<TournamentMatchBracket>()))
             .Callback<TournamentMatchBracket>(m => createdMatch = m)
             .Returns(Task.CompletedTask);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
-        gameRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>()))
+        gameRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new GameTemplate
             {
                 Id = SplendorId,
@@ -920,15 +920,15 @@ public class TournamentServiceTests
             new() { Id = Guid.NewGuid(), RoundNumber = 3, Status = TournamentMatchStatus.Completed }
         };
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
 
         var allCreatedMatches = new List<TournamentMatchBracket>();
         tournamentRepo.Setup(r => r.AddMatchAsync(It.IsAny<TournamentMatchBracket>()))
             .Callback<TournamentMatchBracket>(m => allCreatedMatches.Add(m))
             .Returns(Task.CompletedTask);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
-        gameRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>()))
+        gameRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new GameTemplate
             {
                 Id = SplendorId,
@@ -1005,10 +1005,10 @@ public class TournamentServiceTests
 
         var profile = new UserProfile { UserId = UserId, KarmaPoints = 100 };
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId)).ReturnsAsync(tournament);
-        tournamentRepo.Setup(r => r.GetParticipantByIdAsync(ParticipantId)).ReturnsAsync(participant);
-        userRepo.Setup(r => r.GetProfileByUserIdAsync(UserId)).ReturnsAsync(profile);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
+        tournamentRepo.Setup(r => r.GetParticipantByIdAsync(ParticipantId, It.IsAny<CancellationToken>())).ReturnsAsync(participant);
+        userRepo.Setup(r => r.GetProfileByUserIdAsync(UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
         karmaRepo.Setup(r => r.AddKarmaLogAsync(It.IsAny<KarmaLog>())).Returns(Task.CompletedTask);
         karmaRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
@@ -1049,9 +1049,9 @@ public class TournamentServiceTests
             Status = TournamentParticipantStatus.Finished
         };
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId)).ReturnsAsync(BuildOnGoingTournament());
-        tournamentRepo.Setup(r => r.GetParticipantByIdAsync(ParticipantId)).ReturnsAsync(participant);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildOnGoingTournament());
+        tournamentRepo.Setup(r => r.GetParticipantByIdAsync(ParticipantId, It.IsAny<CancellationToken>())).ReturnsAsync(participant);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -1076,9 +1076,9 @@ public class TournamentServiceTests
         var karmaRepo = BuildKarmaRepo();
 
         var tournament = BuildRegistrationOpenTournament();
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
-        tournamentRepo.Setup(r => r.CountActiveParticipantsAsync(TournamentId)).ReturnsAsync(3);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
+        tournamentRepo.Setup(r => r.CountActiveParticipantsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(3);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -1101,8 +1101,8 @@ public class TournamentServiceTests
         var tournament = BuildOnGoingTournament();
         tournament.Status = TournamentStatus.Completed;
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -1135,11 +1135,11 @@ public class TournamentServiceTests
         var m2 = new TournamentMatchBracket { Id = Guid.NewGuid(), RoundNumber = 1, Status = TournamentMatchStatus.Completed };
         tournament.Matches = new List<TournamentMatchBracket> { m0, m1, m2 };
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
-        tournamentRepo.Setup(r => r.CountActiveParticipantsAsync(TournamentId)).ReturnsAsync(3);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
+        tournamentRepo.Setup(r => r.CountActiveParticipantsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(3);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
-        gameRepo.Setup(r => r.GetByIdAsync(SplendorId)).ReturnsAsync(new GameTemplate { Id = SplendorId, Name = "Splendor" });
+        gameRepo.Setup(r => r.GetByIdAsync(SplendorId, It.IsAny<CancellationToken>())).ReturnsAsync(new GameTemplate { Id = SplendorId, Name = "Splendor" });
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -1176,8 +1176,8 @@ public class TournamentServiceTests
         var karmaRepo = BuildKarmaRepo();
 
         var tournament = BuildRegistrationOpenTournament();
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -1206,8 +1206,8 @@ public class TournamentServiceTests
             new() { Id = Guid.NewGuid(), RoundNumber = 1, Status = TournamentMatchStatus.Scheduled }
         };
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -1247,12 +1247,12 @@ public class TournamentServiceTests
                 RegisteredAt = DateTime.UtcNow.AddMinutes(-60)
             }).ToList();
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
         tournamentRepo.Setup(r => r.AddMatchesAsync(It.IsAny<IEnumerable<TournamentMatchBracket>>()))
             .Returns(Task.CompletedTask);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
-        gameRepo.Setup(r => r.GetByIdAsync(SplendorId)).ReturnsAsync(new GameTemplate { Id = SplendorId, Name = "Splendor" });
+        gameRepo.Setup(r => r.GetByIdAsync(SplendorId, It.IsAny<CancellationToken>())).ReturnsAsync(new GameTemplate { Id = SplendorId, Name = "Splendor" });
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -1293,7 +1293,7 @@ public class TournamentServiceTests
             new() { UserId = Guid.NewGuid(), Status = TournamentParticipantStatus.CheckedIn }
         };
 
-        tournamentRepo.Setup(r => r.GetUpcomingForClosingAsync(It.IsAny<DateTime>()))
+        tournamentRepo.Setup(r => r.GetUpcomingForClosingAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Tournament> { t1, t2 });
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
 
@@ -1336,7 +1336,7 @@ public class TournamentServiceTests
             }
         };
 
-        tournamentRepo.Setup(r => r.GetUpcomingForClosingAsync(It.IsAny<DateTime>()))
+        tournamentRepo.Setup(r => r.GetUpcomingForClosingAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Tournament> { emptyT, fullT });
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
 
@@ -1373,11 +1373,11 @@ public class TournamentServiceTests
         var tournament = BuildRegistrationOpenTournament();
         tournament.Participants = new List<TournamentParticipant>();
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
         tournamentRepo.Setup(r => r.AddParticipantAsync(It.IsAny<TournamentParticipant>())).Returns(Task.CompletedTask);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
-        tournamentRepo.Setup(r => r.GetParticipantByIdAsync(It.IsAny<Guid>()))
+        tournamentRepo.Setup(r => r.GetParticipantByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Guid id) => new TournamentParticipant
             {
                 Id = id,
@@ -1440,11 +1440,11 @@ public class TournamentServiceTests
             }
         };
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
         tournamentRepo.Setup(r => r.AddParticipantAsync(It.IsAny<TournamentParticipant>())).Returns(Task.CompletedTask);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
-        tournamentRepo.Setup(r => r.GetParticipantByIdAsync(It.IsAny<Guid>()))
+        tournamentRepo.Setup(r => r.GetParticipantByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Guid id) => new TournamentParticipant
             {
                 Id = id,
@@ -1509,8 +1509,8 @@ public class TournamentServiceTests
             }
         };
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -1548,8 +1548,8 @@ public class TournamentServiceTests
             }
         };
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -1586,8 +1586,8 @@ public class TournamentServiceTests
             }
         };
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -1625,8 +1625,8 @@ public class TournamentServiceTests
             }
         };
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -1654,8 +1654,8 @@ public class TournamentServiceTests
             new() { UserId = UserId, Status = TournamentParticipantStatus.Registered }
         };
 
-        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId)).ReturnsAsync(tournament);
-        gameRepo.Setup(r => r.GetByIdAsync(SplendorId)).ReturnsAsync(new GameTemplate { Id = SplendorId, Name = "Splendor" });
+        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
+        gameRepo.Setup(r => r.GetByIdAsync(SplendorId, It.IsAny<CancellationToken>())).ReturnsAsync(new GameTemplate { Id = SplendorId, Name = "Splendor" });
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -1680,7 +1680,7 @@ public class TournamentServiceTests
         var configRepo = BuildConfigRepo();
         var karmaRepo = BuildKarmaRepo();
 
-        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId)).ReturnsAsync((Tournament?)null);
+        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync((Tournament?)null);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -1713,7 +1713,7 @@ public class TournamentServiceTests
                 FinalElo = 1500
             }
         };
-        tournamentRepo.Setup(r => r.GetParticipantsAsync(TournamentId)).ReturnsAsync(participants);
+        tournamentRepo.Setup(r => r.GetParticipantsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(participants);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -1750,7 +1750,7 @@ public class TournamentServiceTests
         var configRepo = BuildConfigRepo();
         var karmaRepo = BuildKarmaRepo();
 
-        tournamentRepo.Setup(r => r.GetParticipantsByUserAsync(UserId))
+        tournamentRepo.Setup(r => r.GetParticipantsByUserAsync(UserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<TournamentParticipant>());
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
@@ -1774,7 +1774,7 @@ public class TournamentServiceTests
             IsActive = true,
             IsTournamentSupported = true
         };
-        gameRepo.Setup(r => r.GetByIdAsync(SplendorId)).ReturnsAsync(splendor);
+        gameRepo.Setup(r => r.GetByIdAsync(SplendorId, It.IsAny<CancellationToken>())).ReturnsAsync(splendor);
     }
 
     [Fact]
@@ -1794,7 +1794,7 @@ public class TournamentServiceTests
         t3.Id = Guid.NewGuid();
         t3.Status = TournamentStatus.Completed;
 
-        tournamentRepo.Setup(r => r.GetAllByStatusAsync(null))
+        tournamentRepo.Setup(r => r.GetAllByStatusAsync(null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[] { t1, t2, t3 });
         SetupGameRepoForBuildResponse(gameRepo);
 
@@ -1803,7 +1803,7 @@ public class TournamentServiceTests
         var result = await svc.GetTournamentsAsync(UserId, status: null);
 
         Assert.Equal(3, result.Count);
-        tournamentRepo.Verify(r => r.GetAllByStatusAsync(null), Times.Once);
+        tournamentRepo.Verify(r => r.GetAllByStatusAsync(null, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -1816,7 +1816,7 @@ public class TournamentServiceTests
         var configRepo = BuildConfigRepo();
         var karmaRepo = BuildKarmaRepo();
 
-        tournamentRepo.Setup(r => r.GetAllByStatusAsync(null))
+        tournamentRepo.Setup(r => r.GetAllByStatusAsync(null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Tournament> { BuildRegistrationOpenTournament() });
         SetupGameRepoForBuildResponse(gameRepo);
 
@@ -1826,7 +1826,7 @@ public class TournamentServiceTests
 
         Assert.Single(result);
         // Verify repo được gọi với status = null (không filter).
-        tournamentRepo.Verify(r => r.GetAllByStatusAsync(null), Times.Once);
+        tournamentRepo.Verify(r => r.GetAllByStatusAsync(null, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -1839,7 +1839,7 @@ public class TournamentServiceTests
         var configRepo = BuildConfigRepo();
         var karmaRepo = BuildKarmaRepo();
 
-        tournamentRepo.Setup(r => r.GetAllByStatusAsync(TournamentStatus.OnGoing))
+        tournamentRepo.Setup(r => r.GetAllByStatusAsync(TournamentStatus.OnGoing, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Tournament> { BuildOnGoingTournament() });
         SetupGameRepoForBuildResponse(gameRepo);
 
@@ -1849,7 +1849,7 @@ public class TournamentServiceTests
         var result = await svc.GetTournamentsAsync(UserId, status: "ongoing");
 
         Assert.Single(result);
-        tournamentRepo.Verify(r => r.GetAllByStatusAsync(TournamentStatus.OnGoing), Times.Once);
+        tournamentRepo.Verify(r => r.GetAllByStatusAsync(TournamentStatus.OnGoing, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -1862,7 +1862,7 @@ public class TournamentServiceTests
         var configRepo = BuildConfigRepo();
         var karmaRepo = BuildKarmaRepo();
 
-        tournamentRepo.Setup(r => r.GetAllByStatusAsync(null))
+        tournamentRepo.Setup(r => r.GetAllByStatusAsync(null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Tournament> { BuildRegistrationOpenTournament() });
         SetupGameRepoForBuildResponse(gameRepo);
 
@@ -1871,7 +1871,7 @@ public class TournamentServiceTests
         var result = await svc.GetTournamentsAsync(UserId, status: "  ");
 
         Assert.Single(result);
-        tournamentRepo.Verify(r => r.GetAllByStatusAsync(null), Times.Once);
+        tournamentRepo.Verify(r => r.GetAllByStatusAsync(null, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -1891,7 +1891,7 @@ public class TournamentServiceTests
 
         // Verify repo KHÔNG được gọi (validation fail trước khi query DB).
         tournamentRepo.Verify(
-            r => r.GetAllByStatusAsync(It.IsAny<TournamentStatus?>()),
+            r => r.GetAllByStatusAsync(It.IsAny<TournamentStatus?>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -1905,7 +1905,7 @@ public class TournamentServiceTests
         var configRepo = BuildConfigRepo();
         var karmaRepo = BuildKarmaRepo();
 
-        userRepo.Setup(r => r.GetByIdWithProfileAsync(UserId)).ReturnsAsync((User?)null);
+        userRepo.Setup(r => r.GetByIdWithProfileAsync(UserId, It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -1924,9 +1924,9 @@ public class TournamentServiceTests
         var karmaRepo = BuildKarmaRepo();
 
         // topCount = 999 → normalized to 100 internally
-        tournamentRepo.Setup(r => r.GetTopEloProfilesAsync(100, null))
+        tournamentRepo.Setup(r => r.GetTopEloProfilesAsync(100, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<UserProfile>());
-        tournamentRepo.Setup(r => r.GetAggregatedTournamentStatsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), null))
+        tournamentRepo.Setup(r => r.GetAggregatedTournamentStatsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), null, It.IsAny<CancellationToken>()))
             .ReturnsAsync((IReadOnlyDictionary<Guid, (int, int)>)new Dictionary<Guid, (int, int)>());
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
@@ -1934,7 +1934,7 @@ public class TournamentServiceTests
         var result = await svc.GetLeaderboardAsync(999);
 
         Assert.Equal(0, result.TotalPlayers);
-        tournamentRepo.Verify(r => r.GetTopEloProfilesAsync(100, null), Times.Once);
+        tournamentRepo.Verify(r => r.GetTopEloProfilesAsync(100, null, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // ============================================
@@ -1962,8 +1962,8 @@ public class TournamentServiceTests
             RegisteredAt = DateTime.UtcNow
         }).ToList();
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -1990,8 +1990,8 @@ public class TournamentServiceTests
             new ManualPairingDto { MatchNumber = 1, PlayerIds = new List<Guid> { Guid.NewGuid(), Guid.NewGuid() } }
         });
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -2021,8 +2021,8 @@ public class TournamentServiceTests
             Status = TournamentParticipantStatus.CheckedIn
         }).ToList();
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -2056,8 +2056,8 @@ public class TournamentServiceTests
             new() { Id = Guid.NewGuid(), TournamentId = TournamentId, UserId = user4, Status = TournamentParticipantStatus.CheckedIn }
         };
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
@@ -2099,8 +2099,8 @@ public class TournamentServiceTests
             new() { Id = Guid.NewGuid(), TournamentId = TournamentId, UserId = user2, Status = TournamentParticipantStatus.CheckedIn }
         };
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -2137,8 +2137,8 @@ public class TournamentServiceTests
             new() { Id = Guid.NewGuid(), TournamentId = TournamentId, UserId = registeredUser, Status = TournamentParticipantStatus.CheckedIn }
         };
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -2173,8 +2173,8 @@ public class TournamentServiceTests
 
         var tournament = BuildRegistrationOpenTournament();
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -2207,8 +2207,8 @@ public class TournamentServiceTests
             new() { Id = Guid.NewGuid(), TournamentId = TournamentId, RoundNumber = 1, MatchNumber = 1 }
         };
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -2237,8 +2237,8 @@ public class TournamentServiceTests
 
         var tournament = BuildRegistrationOpenTournament();
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -2268,11 +2268,11 @@ public class TournamentServiceTests
         var tournament = BuildRegistrationOpenTournament();
         tournament.Status = TournamentStatus.Draft;
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId)).ReturnsAsync(tournament);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
-        gameRepo.Setup(r => r.GetByIdAsync(SplendorId)).ReturnsAsync(new GameTemplate { Id = SplendorId, Name = "Splendor" });
+        gameRepo.Setup(r => r.GetByIdAsync(SplendorId, It.IsAny<CancellationToken>())).ReturnsAsync(new GameTemplate { Id = SplendorId, Name = "Splendor" });
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -2298,8 +2298,8 @@ public class TournamentServiceTests
             new() { Id = Guid.NewGuid(), TournamentId = TournamentId, RoundNumber = 1, MatchNumber = 1, Status = TournamentMatchStatus.OnGoing }
         };
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
@@ -2322,10 +2322,10 @@ public class TournamentServiceTests
         var tournament = BuildRegistrationOpenTournament();
         tournament.Round1PairingsJson = "[{\"MatchNumber\":1,\"PlayerIds\":[]}]";
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId)).ReturnsAsync(tournament);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
-        tournamentRepo.Setup(r => r.GetMatchesByTournamentAsync(TournamentId))
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
+        tournamentRepo.Setup(r => r.GetMatchesByTournamentAsync(TournamentId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<TournamentMatchBracket>());
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
 
@@ -2418,12 +2418,12 @@ public class TournamentServiceTests
             TournamentMinPlayersPerTable = 2
         };
 
-        gameRepo.Setup(r => r.GetByNameAsync("Splendor")).ReturnsAsync(splendor);
-        gameRepo.Setup(r => r.GetByIdAsync(SplendorId)).ReturnsAsync(splendor);
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.AddAsync(It.IsAny<Tournament>())).Returns(Task.CompletedTask);
+        gameRepo.Setup(r => r.GetByNameAsync("Splendor", It.IsAny<CancellationToken>())).ReturnsAsync(splendor);
+        gameRepo.Setup(r => r.GetByIdAsync(SplendorId, It.IsAny<CancellationToken>())).ReturnsAsync(splendor);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.AddAsync(It.IsAny<Tournament>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>()))
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildRegistrationOpenTournament());
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
@@ -2438,7 +2438,7 @@ public class TournamentServiceTests
 
         // Assert: MinParticipants = 2 (từ GameTemplate), không phải hardcoded 4
         tournamentRepo.Verify(r => r.AddAsync(It.Is<Tournament>(
-            t => t.MinParticipants == 2)), Times.Once);
+            t => t.MinParticipants == 2), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -2460,12 +2460,12 @@ public class TournamentServiceTests
             TournamentMinPlayersPerTable = 2
         };
 
-        gameRepo.Setup(r => r.GetByNameAsync("Splendor")).ReturnsAsync(splendor);
-        gameRepo.Setup(r => r.GetByIdAsync(SplendorId)).ReturnsAsync(splendor);
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.AddAsync(It.IsAny<Tournament>())).Returns(Task.CompletedTask);
+        gameRepo.Setup(r => r.GetByNameAsync("Splendor", It.IsAny<CancellationToken>())).ReturnsAsync(splendor);
+        gameRepo.Setup(r => r.GetByIdAsync(SplendorId, It.IsAny<CancellationToken>())).ReturnsAsync(splendor);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.AddAsync(It.IsAny<Tournament>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>()))
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildRegistrationOpenTournament());
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
@@ -2481,7 +2481,7 @@ public class TournamentServiceTests
 
         // Assert: MinParticipants = max(template, override) = 8
         tournamentRepo.Verify(r => r.AddAsync(It.Is<Tournament>(
-            t => t.MinParticipants == 8)), Times.Once);
+            t => t.MinParticipants == 8), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -2503,12 +2503,12 @@ public class TournamentServiceTests
             TournamentMinPlayersPerTable = 4
         };
 
-        gameRepo.Setup(r => r.GetByNameAsync("Splendor")).ReturnsAsync(splendor);
-        gameRepo.Setup(r => r.GetByIdAsync(SplendorId)).ReturnsAsync(splendor);
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.AddAsync(It.IsAny<Tournament>())).Returns(Task.CompletedTask);
+        gameRepo.Setup(r => r.GetByNameAsync("Splendor", It.IsAny<CancellationToken>())).ReturnsAsync(splendor);
+        gameRepo.Setup(r => r.GetByIdAsync(SplendorId, It.IsAny<CancellationToken>())).ReturnsAsync(splendor);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.AddAsync(It.IsAny<Tournament>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>()))
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildRegistrationOpenTournament());
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
@@ -2524,7 +2524,7 @@ public class TournamentServiceTests
 
         // Assert: clamped lên 4 (template config thắng)
         tournamentRepo.Verify(r => r.AddAsync(It.Is<Tournament>(
-            t => t.MinParticipants == 4)), Times.Once);
+            t => t.MinParticipants == 4), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // ============================================
@@ -2546,11 +2546,11 @@ public class TournamentServiceTests
         tournament.CurrentRound = 1;
         tournament.Matches = new List<TournamentMatchBracket>(); // chưa build matches
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
         // BuildResponseAsync gọi GetByIdAsync để lấy GameTemplate
-        gameRepo.Setup(r => r.GetByIdAsync(SplendorId))
+        gameRepo.Setup(r => r.GetByIdAsync(SplendorId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new GameTemplate { Id = SplendorId, Name = "Splendor" });
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
@@ -2578,8 +2578,8 @@ public class TournamentServiceTests
             new() { Id = Guid.NewGuid(), TournamentId = TournamentId, RoundNumber = 1, MatchNumber = 1, Status = TournamentMatchStatus.OnGoing }
         };
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
@@ -2606,14 +2606,14 @@ public class TournamentServiceTests
 
         var tournament = BuildRegistrationOpenTournament();
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
         TournamentParticipant? added = null;
         tournamentRepo.Setup(r => r.AddParticipantAsync(It.IsAny<TournamentParticipant>()))
             .Callback<TournamentParticipant>(p => added = p)
             .Returns(Task.CompletedTask);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
-        tournamentRepo.Setup(r => r.GetParticipantByIdAsync(It.IsAny<Guid>()))
+        tournamentRepo.Setup(r => r.GetParticipantByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => added);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
@@ -2640,14 +2640,14 @@ public class TournamentServiceTests
         var tournament = BuildRegistrationOpenTournament();
         tournament.Status = TournamentStatus.RegistrationClosed;
 
-        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager")).ReturnsAsync(true);
-        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId)).ReturnsAsync(tournament);
+        cafeRepo.Setup(r => r.CanOperateCafeAsync(CafeId, ManagerId, "Manager", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        tournamentRepo.Setup(r => r.GetByIdWithDetailsAsync(TournamentId, It.IsAny<CancellationToken>())).ReturnsAsync(tournament);
         TournamentParticipant? added = null;
         tournamentRepo.Setup(r => r.AddParticipantAsync(It.IsAny<TournamentParticipant>()))
             .Callback<TournamentParticipant>(p => added = p)
             .Returns(Task.CompletedTask);
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
-        tournamentRepo.Setup(r => r.GetParticipantByIdAsync(It.IsAny<Guid>()))
+        tournamentRepo.Setup(r => r.GetParticipantByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => added);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
@@ -2679,7 +2679,7 @@ public class TournamentServiceTests
         var tournament = BuildRegistrationOpenTournament();
         tournament.Participants = new List<TournamentParticipant>(); // 0 participants
 
-        tournamentRepo.Setup(r => r.GetUpcomingForClosingAsync(It.IsAny<DateTime>()))
+        tournamentRepo.Setup(r => r.GetUpcomingForClosingAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Tournament> { tournament });
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
@@ -2706,7 +2706,7 @@ public class TournamentServiceTests
             new() { Status = TournamentParticipantStatus.Registered }
         };
 
-        tournamentRepo.Setup(r => r.GetUpcomingForClosingAsync(It.IsAny<DateTime>()))
+        tournamentRepo.Setup(r => r.GetUpcomingForClosingAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Tournament> { tournament });
         tournamentRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
 

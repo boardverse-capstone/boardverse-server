@@ -1,5 +1,6 @@
 using BoardVerse.Core.Entities;
 
+using System.Threading;
 namespace BoardVerse.Core.IRepositories;
 
 /// <summary>
@@ -7,9 +8,9 @@ namespace BoardVerse.Core.IRepositories;
 /// </summary>
 public interface IBookingNoShowVoteRepository
 {
-    Task<BookingNoShowVote?> GetByBookingAndVoterAsync(Guid bookingId, Guid voterUserId);
-    Task<IReadOnlyList<BookingNoShowVote>> GetByBookingAsync(Guid bookingId);
-    Task AddAsync(BookingNoShowVote vote);
-    Task UpdateAsync(BookingNoShowVote vote);
-    Task SaveChangesAsync();
+    Task<BookingNoShowVote?> GetByBookingAndVoterAsync(Guid bookingId, Guid voterUserId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<BookingNoShowVote>> GetByBookingAsync(Guid bookingId, CancellationToken cancellationToken = default);
+    Task AddAsync(BookingNoShowVote vote, CancellationToken cancellationToken = default);
+    Task UpdateAsync(BookingNoShowVote vote, CancellationToken cancellationToken = default);
+    Task SaveChangesAsync(CancellationToken cancellationToken = default);
 }

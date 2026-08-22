@@ -16,26 +16,26 @@ namespace BoardVerse.Data.Repositories
             _db = db;
         }
 
-        public async Task<SePayAccount?> GetByIdAsync(Guid id)
+        public async Task<SePayAccount?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
         {
             return await _db.SePayAccounts
                 .Include(x => x.Cafe)
                 .FirstOrDefaultAsync(x => x.Id == id);
         }
 
-        public async Task<SePayAccount?> GetByCafeIdAsync(Guid cafeId)
+        public async Task<SePayAccount?> GetByCafeIdAsync(Guid cafeId, CancellationToken cancellationToken = default)
         {
             return await _db.SePayAccounts
                 .FirstOrDefaultAsync(x => x.CafeId == cafeId && x.AccountType == SePayAccountType.Cafe);
         }
 
-        public async Task<SePayAccount?> GetMasterAccountAsync()
+        public async Task<SePayAccount?> GetMasterAccountAsync(CancellationToken cancellationToken = default)
         {
             return await _db.SePayAccounts
                 .FirstOrDefaultAsync(x => x.AccountType == SePayAccountType.Master && x.IsActive);
         }
 
-        public async Task<IReadOnlyList<SePayAccount>> GetAllAsync(SePayAccountQuery? query = null)
+        public async Task<IReadOnlyList<SePayAccount>> GetAllAsync(SePayAccountQuery? query = null, CancellationToken cancellationToken = default)
         {
             var queryable = _db.SePayAccounts
                 .Include(x => x.Cafe)
@@ -56,20 +56,20 @@ namespace BoardVerse.Data.Repositories
             return await queryable.OrderBy(x => x.AccountType).ThenBy(x => x.CreatedAt).ToListAsync();
         }
 
-        public Task AddAsync(SePayAccount account)
+        public Task AddAsync(SePayAccount account, CancellationToken cancellationToken = default)
         {
             _db.SePayAccounts.Add(account);
             return Task.CompletedTask;
         }
 
-        public Task UpdateAsync(SePayAccount account)
+        public Task UpdateAsync(SePayAccount account, CancellationToken cancellationToken = default)
         {
             account.UpdatedAt = DateTime.UtcNow;
             _db.SePayAccounts.Update(account);
             return Task.CompletedTask;
         }
 
-        public async Task DeleteAsync(Guid id)
+        public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
         {
             var account = await _db.SePayAccounts.FindAsync(id);
             if (account != null)
@@ -78,7 +78,7 @@ namespace BoardVerse.Data.Repositories
             }
         }
 
-        public Task SaveChangesAsync()
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default)
         {
             return _db.SaveChangesAsync();
         }

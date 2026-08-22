@@ -51,7 +51,7 @@ public class PaymentService : IPaymentService
         _logger = logger;
     }
 
-    public async Task<CreatePaymentResponseDto> CreateDepositPaymentAsync(CreatePaymentRequestDto request, Guid userId)
+    public async Task<CreatePaymentResponseDto> CreateDepositPaymentAsync(CreatePaymentRequestDto request, Guid userId, CancellationToken cancellationToken = default)
     {
         var deposit = await _depositService.GetByIdAsync(request.DepositId)
             ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
@@ -162,7 +162,7 @@ public class PaymentService : IPaymentService
     /// P2 Fix #11: Thêm rate limiting - không cho phép regenerate quá 1 lần trong 60 giây.
     /// Sử dụng fallback chain: SePay -> VietQR
     /// </summary>
-    public async Task<RegenerateQrResponseDto> RegenerateDepositQrAsync(Guid depositId, Guid userId)
+    public async Task<RegenerateQrResponseDto> RegenerateDepositQrAsync(Guid depositId, Guid userId, CancellationToken cancellationToken = default)
     {
         var deposit = await _depositService.GetByIdAsync(depositId)
             ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
@@ -273,7 +273,7 @@ public class PaymentService : IPaymentService
     /// BR-15: TotalAmount = Subtotal + Penalty - DepositAppliedAmount
     /// Session payment dùng VietQR của từng cafe (bank info từ Cafe.SePayBankCode / SePayAccountNumber).
     /// </summary>
-    public async Task<CreateSessionPaymentResponseDto> CreateSessionPaymentAsync(CreateSessionPaymentRequestDto request, Guid actorUserId, string actorRole)
+    public async Task<CreateSessionPaymentResponseDto> CreateSessionPaymentAsync(CreateSessionPaymentRequestDto request, Guid actorUserId, string actorRole, CancellationToken cancellationToken = default)
     {
         var session = await _activeSessionRepository.GetByIdAsync(request.SessionId)
             ?? throw new NotFoundException(ApiErrorMessages.Pos.ActiveSessionNotFound(request.SessionId));
@@ -420,7 +420,7 @@ public class PaymentService : IPaymentService
     /// <summary>
     /// Tạo lại QR thanh toán cho phiên chơi đang UNPAID.
     /// </summary>
-    public async Task<CreateSessionPaymentResponseDto> RegenerateSessionQrAsync(Guid sessionId, Guid actorUserId, string actorRole)
+    public async Task<CreateSessionPaymentResponseDto> RegenerateSessionQrAsync(Guid sessionId, Guid actorUserId, string actorRole, CancellationToken cancellationToken = default)
     {
         var session = await _activeSessionRepository.GetByIdAsync(sessionId)
             ?? throw new NotFoundException(ApiErrorMessages.Pos.ActiveSessionNotFound(sessionId));
@@ -526,7 +526,7 @@ public class PaymentService : IPaymentService
         };
     }
 
-    public async Task HandleSePayWebhookAsync(SePayWebhookDto webhook)
+    public async Task HandleSePayWebhookAsync(SePayWebhookDto webhook, CancellationToken cancellationToken = default)
     {
         // SePay BankAPINotify không gửi OrderId/Status riêng — đã được Normalize() tại
         // Controller derive từ content + transferType. Nếu vẫn rỗng (legacy mock cũ hoặc
@@ -818,7 +818,7 @@ public class PaymentService : IPaymentService
     /// BR-18: Hoàn/phạt theo RefundPolicy khi hủy từ phía khách.
     /// Trả về RefundDepositResult gồm BookingDeposit (sau update) + số tiền thực tế hoàn cho khách.
     /// </summary>
-    public async Task<RefundDepositResult> RefundDepositAsync(Guid depositId, string reason, Guid actorUserId, string actorRole)
+    public async Task<RefundDepositResult> RefundDepositAsync(Guid depositId, string reason, Guid actorUserId, string actorRole, CancellationToken cancellationToken = default)
     {
         var deposit = await _depositService.GetByIdAsync(depositId)
             ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
@@ -874,7 +874,7 @@ public class PaymentService : IPaymentService
     /// Xử lý đơn cọc PENDING quá hạn thanh toán (5 phút).
     /// Được gọi bởi BookingDepositExpiryJob.
     /// </summary>
-    public async Task ProcessExpiredDepositsAsync()
+    public async Task ProcessExpiredDepositsAsync(CancellationToken cancellationToken = default)
     {
         await _depositService.ProcessExpiredDepositsAsync();
     }

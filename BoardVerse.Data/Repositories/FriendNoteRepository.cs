@@ -13,20 +13,20 @@ public class FriendNoteRepository : IFriendNoteRepository
         _db = db;
     }
 
-    public Task<FriendNote?> GetByIdAsync(Guid id)
+    public Task<FriendNote?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
         => _db.FriendNotes.Include(n => n.Friend).ThenInclude(u => u.Profile).FirstOrDefaultAsync(n => n.Id == id);
 
-    public Task<FriendNote?> GetByOwnerAndFriendAsync(Guid ownerUserId, Guid friendUserId)
+    public Task<FriendNote?> GetByOwnerAndFriendAsync(Guid ownerUserId, Guid friendUserId, CancellationToken cancellationToken = default)
         => _db.FriendNotes.FirstOrDefaultAsync(n => n.OwnerUserId == ownerUserId && n.FriendUserId == friendUserId);
 
-    public async Task<IReadOnlyList<FriendNote>> GetByOwnerAsync(Guid ownerUserId)
+    public async Task<IReadOnlyList<FriendNote>> GetByOwnerAsync(Guid ownerUserId, CancellationToken cancellationToken = default)
         => await _db.FriendNotes
             .Include(n => n.Friend).ThenInclude(u => u.Profile)
             .Where(n => n.OwnerUserId == ownerUserId)
             .OrderByDescending(n => n.UpdatedAt)
             .ToListAsync();
 
-    public Task AddAsync(FriendNote note)
+    public Task AddAsync(FriendNote note, CancellationToken cancellationToken = default)
     {
         _db.FriendNotes.Add(note);
         return Task.CompletedTask;
@@ -36,5 +36,5 @@ public class FriendNoteRepository : IFriendNoteRepository
 
     public void Remove(FriendNote note) => _db.FriendNotes.Remove(note);
 
-    public Task SaveChangesAsync() => _db.SaveChangesAsync();
+    public Task SaveChangesAsync(CancellationToken cancellationToken = default) => _db.SaveChangesAsync();
 }

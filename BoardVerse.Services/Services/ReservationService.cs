@@ -117,7 +117,7 @@ public class ReservationService : IReservationService
 
     // ===== 21A.2 QUOTE =====
 
-    public async Task<ReservationQuoteDto> CreateQuoteAsync(Guid hostId, ReservationQuoteRequestDto request)
+    public async Task<ReservationQuoteDto> CreateQuoteAsync(Guid hostId, ReservationQuoteRequestDto request, CancellationToken cancellationToken = default)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         ValidatePlayDate(request.PlayDate, now);
@@ -244,7 +244,7 @@ public class ReservationService : IReservationService
 
     // ===== 21A.3 CONFIRM =====
 
-    public async Task<ReservationConfirmResponseDto> ConfirmAsync(Guid hostId, ReservationConfirmRequestDto request)
+    public async Task<ReservationConfirmResponseDto> ConfirmAsync(Guid hostId, ReservationConfirmRequestDto request, CancellationToken cancellationToken = default)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
 
@@ -957,7 +957,7 @@ public class ReservationService : IReservationService
     /// Idempotency: cancellation idempotency key dựa trên reservationId (stable).
     /// Nếu cancel bị retry, idempotency ở wallet layer (refund-{reservationId}) chặn double-refund.
     /// </summary>
-    public async Task<CancelReservationResponseDto> CancelAsync(Guid hostId, CancelReservationRequestDto request)
+    public async Task<CancelReservationResponseDto> CancelAsync(Guid hostId, CancelReservationRequestDto request, CancellationToken cancellationToken = default)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
 
@@ -1028,7 +1028,7 @@ public class ReservationService : IReservationService
             var hasMembers = members.Any(m => !m.IsHost && m.IsActive);
 
             var scheduledStart = reservation.ScheduledStartTime;
-            if (scheduledStart == default)
+            if (scheduledStart == default);
                 throw new InternalServerErrorException(
                     ApiErrorMessages.Reservation.CancelMissingScheduledStartTime);
             var refundPolicy = await ComputeRefundPolicyAsync(
@@ -1118,7 +1118,7 @@ public class ReservationService : IReservationService
     /// </summary>
     public async Task<CancelAfterCheckinResponseDto> CancelAfterCheckinAsync(
         Guid hostId,
-        CancelAfterCheckinRequestDto request)
+        CancelAfterCheckinRequestDto request, CancellationToken cancellationToken = default)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
 
@@ -1356,7 +1356,7 @@ public class ReservationService : IReservationService
     /// </summary>
     public async Task<CafeApprovalResponseDto> HandleCafeApprovalAsync(
         Guid cafeManagerUserId,
-        CafeApprovalRequestDto request)
+        CafeApprovalRequestDto request, CancellationToken cancellationToken = default)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
 
@@ -1497,14 +1497,28 @@ public class ReservationService : IReservationService
 
         var reservations = await _reservationRepository.GetDueForDeadlineAsync(cutoff, batchSize);
         var processed = 0;
+        var failed = 0;
 
         try
         {
             foreach (var reservation in reservations)
             {
                 ct.ThrowIfCancellationRequested();
-                await ProcessSingleDeadlineAsync(reservation, cutoff);
-                processed++;
+
+                // Per-reservation try/catch: 1 reservation fail KHÔNG rollback toàn batch.
+                try
+                {
+                    await ProcessSingleDeadlineAsync(reservation, cutoff);
+                    processed++;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    _logger.LogError(ex,
+                        "[Deadline] ReservationId={ReservationId} failed. Continuing with next reservation.",
+                        reservation.Id);
+                    _db.ChangeTracker.Clear();
+                }
             }
 
             await batchTx.CommitAsync(ct);
@@ -1513,6 +1527,13 @@ public class ReservationService : IReservationService
         {
             await batchTx.RollbackAsync(ct);
             throw;
+        }
+
+        if (failed > 0)
+        {
+            _logger.LogWarning(
+                "[Deadline] Batch completed with {Failed} failures out of {Total} reservations.",
+                failed, reservations.Count);
         }
 
         return processed;
@@ -1634,14 +1655,28 @@ public class ReservationService : IReservationService
 
         var reservations = await _reservationRepository.GetDueForCafeApprovalExpiryAsync(cutoff, batchSize);
         var processed = 0;
+        var failed = 0;
 
         try
         {
             foreach (var reservation in reservations)
             {
                 ct.ThrowIfCancellationRequested();
-                await ProcessSingleCafeApprovalExpiryAsync(reservation, cutoff);
-                processed++;
+
+                // Per-reservation try/catch: 1 reservation fail KHÔNG rollback toàn batch.
+                try
+                {
+                    await ProcessSingleCafeApprovalExpiryAsync(reservation, cutoff);
+                    processed++;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    _logger.LogError(ex,
+                        "[CafeApprovalExpiry] ReservationId={ReservationId} failed. Continuing with next reservation.",
+                        reservation.Id);
+                    _db.ChangeTracker.Clear();
+                }
             }
 
             await batchTx.CommitAsync(ct);
@@ -1650,6 +1685,13 @@ public class ReservationService : IReservationService
         {
             await batchTx.RollbackAsync(ct);
             throw;
+        }
+
+        if (failed > 0)
+        {
+            _logger.LogWarning(
+                "[CafeApprovalExpiry] Batch completed with {Failed} failures out of {Total} reservations.",
+                failed, reservations.Count);
         }
 
         return processed;
@@ -1725,14 +1767,32 @@ public class ReservationService : IReservationService
 
         var reservations = await _reservationRepository.GetDueForNoShowAsync(cutoff, batchSize);
         var processed = 0;
+        var failed = 0;
 
         try
         {
             foreach (var reservation in reservations)
             {
                 ct.ThrowIfCancellationRequested();
-                await ProcessSingleNoShowAsync(reservation, cutoff);
-                processed++;
+
+                // Per-reservation try/catch: 1 reservation fail KHÔNG rollback toàn batch
+                // (trước đây outer catch rollback → mất hết công sức các reservation OK khác).
+                // Trước fix: stack trace 956-967 — `Cần 0 BVC nhưng chỉ có 50 BVC`
+                // khiến toàn bộ batch rollback, retry mãi → log spam.
+                try
+                {
+                    await ProcessSingleNoShowAsync(reservation, cutoff);
+                    processed++;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    _logger.LogError(ex,
+                        "[NoShow] ReservationId={ReservationId} failed. Continuing with next reservation.",
+                        reservation.Id);
+                    // Detach để EF không track entity này nữa trong batch tx.
+                    _db.ChangeTracker.Clear();
+                }
             }
 
             await batchTx.CommitAsync(ct);
@@ -1741,6 +1801,13 @@ public class ReservationService : IReservationService
         {
             await batchTx.RollbackAsync(ct);
             throw;
+        }
+
+        if (failed > 0)
+        {
+            _logger.LogWarning(
+                "[NoShow] Batch completed with {Failed} failures out of {Total} reservations.",
+                failed, reservations.Count);
         }
 
         return processed;
@@ -1765,6 +1832,13 @@ public class ReservationService : IReservationService
             return;
         }
 
+        // GAP-R6-RT-NEW fix v3: LobbyRepository.GetByIdAsync include Lobby.Reservation
+        // navigation → Reservation instance đã tracked qua nav. Input `reservation`
+        // parameter là instance khác (cùng Id) — gọi _db.Reservations.Update()/Entry().State
+        // đều throw identity conflict. Lấy instance đã tracked từ lobby.Reservation nav
+        // và apply thay đổi trên đó. Nếu nav null (lobby không include), dùng input.
+        var trackedReservation = lobby.Reservation ?? reservation;
+
         const int MaxRetries = 3;
         for (var attempt = 1; attempt <= MaxRetries; attempt++)
         {
@@ -1774,33 +1848,50 @@ public class ReservationService : IReservationService
                 // Idempotency key dựa trên reservationId (stable).
                 var forfeitIdempotencyKey = $"no-show-{reservation.Id:N}";
 
-                reservation.Status = ReservationStatus.NoShow;
+                trackedReservation.Status = ReservationStatus.NoShow;
+                trackedReservation.UpdatedAt = now;
                 lobby.Status = LobbyStatus.Closed;
                 lobby.ClosedAt = now;
                 lobby.ClosedReason = "No-show (không check-in sau grace period).";
                 lobby.UpdatedAt = now;
                 MarkLobbyMembersInactive(lobby, now);
 
-                await _reservationRepository.UpdateAsync(reservation);
+                await _reservationRepository.UpdateAsync(trackedReservation);
                 await _lobbyRepository.UpdateAsync(lobby);
 
                 // BR-REFUND-03: no-show forfeit 100%. Nếu DepositAmount = 0
                 // (test edge case hoặc quote đặc biệt) thì bỏ qua — không có gì để forfeit.
-                if (reservation.DepositAmount > 0)
+                if (trackedReservation.DepositAmount > 0)
                 {
-                    await _walletService.ForfeitDepositAsync(
-                        reservation.HostId,
-                        reservation.DepositAmount,
-                        lobby.Id,
-                        reservation.Id,
-                        forfeitIdempotencyKey);
+                    try
+                    {
+                        await _walletService.ForfeitDepositAsync(
+                            trackedReservation.HostId,
+                            trackedReservation.DepositAmount,
+                            lobby.Id,
+                            trackedReservation.Id,
+                            forfeitIdempotencyKey);
+                    }
+                    catch (BadRequestException forfeitEx)
+                    {
+                        // GAP-R6-RT-NEW fix v4: data inconsistency defense. Nếu wallet
+                        // HeldBalance < DepositAmount (vd. đã release bởi timeout job,
+                        // manual refund, partial refund trước đó), KHÔNG fail cả
+                        // no-show pipeline — vẫn commit status change. Log warning để
+                        // admin investigate data drift.
+                        _logger.LogWarning(
+                            "[NoShow] Forfeit skipped due to wallet data inconsistency. " +
+                            "ReservationId={ReservationId}, DepositAmount={DepositAmount}, " +
+                            "Reason={Reason}. Status change vẫn được commit.",
+                            trackedReservation.Id, trackedReservation.DepositAmount, forfeitEx.Message);
+                    }
                 }
 
                 await _reservationRepository.SaveChangesAsync();
 
                 _logger.LogInformation(
                     "Reservation no-show. ReservationId={ReservationId}, ForfeitBvc={ForfeitBvc}",
-                    reservation.Id, reservation.DepositAmount);
+                    trackedReservation.Id, trackedReservation.DepositAmount);
                 return;
             }
             catch (DbUpdateException ex) when (IsSerializationFailure(ex) && attempt < MaxRetries)
@@ -2227,7 +2318,7 @@ public class ReservationService : IReservationService
             HostCreateOrCancelCount = hostCreateOrCancelCount,
             OverlapOtherDeadline = firstOverlap?.RecruitmentDeadline,
             OverlapOtherStart = firstOverlap?.ScheduledStartTime,
-            CoolingOffExpiresAt = wallet.IsCoolingOff ? (DateTime?)null : null
+            CoolingOffExpiresAt = wallet.IsCoolingOff ? wallet.CoolingOffExpiresAt : null
         };
     }
 
@@ -2664,7 +2755,7 @@ public class ReservationService : IReservationService
 
     // ===== GET LIST / DETAIL =====
 
-    public async Task<ReservationDetailDto?> GetByIdAsync(Guid userId, Guid reservationId)
+    public async Task<ReservationDetailDto?> GetByIdAsync(Guid userId, Guid reservationId, CancellationToken cancellationToken = default)
     {
         var reservation = await _reservationRepository.GetByIdAsync(reservationId, includeRelations: true);
         if (reservation == null)
@@ -2729,7 +2820,7 @@ public class ReservationService : IReservationService
         };
     }
 
-    public async Task<ReservationListResponseDto> GetListAsync(Guid userId, ReservationListRequestDto request)
+    public async Task<ReservationListResponseDto> GetListAsync(Guid userId, ReservationListRequestDto request, CancellationToken cancellationToken = default)
     {
         var page = Math.Max(1, request.Page);
         var pageSize = Math.Clamp(request.PageSize, 1, 100);
@@ -2783,7 +2874,7 @@ public class ReservationService : IReservationService
     /// </summary>
     public async Task<LobbyPendingApprovalItemDto?> GetPendingCafeApprovalDetailAsync(
         Guid managerUserId,
-        Guid reservationId)
+        Guid reservationId, CancellationToken cancellationToken = default)
     {
         // Lấy danh sách cafe mà manager này quản lý
         var managedCafes = await _cafeRepository.GetCafesByManagerIdAsync(managerUserId);
@@ -2840,7 +2931,7 @@ public class ReservationService : IReservationService
     /// </summary>
     public async Task<LobbyPendingApprovalListResponseDto> GetPendingCafeApprovalAsync(
         Guid managerUserId,
-        LobbyPendingApprovalRequestDto request)
+        LobbyPendingApprovalRequestDto request, CancellationToken cancellationToken = default)
     {
         var page = Math.Max(1, request.Page);
         var pageSize = Math.Clamp(request.PageSize, 1, 100);
@@ -3167,7 +3258,7 @@ public class ReservationService : IReservationService
         Guid adminUserId,
         Guid reservationId,
         AdminOverrideRefundRequestDto request,
-        string idempotencyKey)
+        string idempotencyKey, CancellationToken cancellationToken = default)
     {
         // 1. Idempotency check — nếu đã xử lý rồi thì trả kết quả cũ.
         var existingEntry = await _db.BvcLedgerEntries
@@ -3348,7 +3439,7 @@ public class ReservationService : IReservationService
     /// </summary>
     public async Task<EndReservationResponseDto> EndAndSettleAsync(
         Guid staffUserId,
-        EndReservationRequestDto request)
+        EndReservationRequestDto request, CancellationToken cancellationToken = default)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var actualEnd = request.ActualEndAt ?? now;
@@ -3480,7 +3571,7 @@ public class ReservationService : IReservationService
     public async Task<CafeReservationsResponseDto> GetCafeReservationsAsync(
         Guid cafeManagerUserId,
         Guid cafeId,
-        CafeReservationsRequestDto request)
+        CafeReservationsRequestDto request, CancellationToken cancellationToken = default)
     {
         // Validate user có quyền xem cafe này (Manager hoặc CafeStaff)
         var hasAccess = await _cafeRepository.IsManagerOrStaffAsync(cafeId, cafeManagerUserId);

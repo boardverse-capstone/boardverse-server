@@ -109,17 +109,17 @@ public class CafeScheduleResolverTests
 
     private sealed class NullOverrideRepository : ICafeScheduleOverrideRepository
     {
-        public Task<CafeScheduleOverride?> GetByApplyDateAsync(Guid cafeId, DateOnly applyDate)
+        public Task<CafeScheduleOverride?> GetByApplyDateAsync(Guid cafeId, DateOnly applyDate, CancellationToken cancellationToken = default)
             => Task.FromResult<CafeScheduleOverride?>(null);
 
-        public Task<IReadOnlyList<CafeScheduleOverride>> ListByCafeAsync(Guid cafeId)
+        public Task<IReadOnlyList<CafeScheduleOverride>> ListByCafeAsync(Guid cafeId, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<CafeScheduleOverride>>(Array.Empty<CafeScheduleOverride>());
 
-        public Task AddAsync(CafeScheduleOverride overrideEntity) => Task.CompletedTask;
-        public Task UpdateAsync(CafeScheduleOverride overrideEntity) => Task.CompletedTask;
-        public Task DeleteAsync(Guid cafeId, DateOnly applyDate) => Task.CompletedTask;
-        public Task DeleteByIdAsync(Guid overrideId) => Task.CompletedTask;
-        public Task SaveChangesAsync() => Task.CompletedTask;
+        public Task AddAsync(CafeScheduleOverride overrideEntity, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task UpdateAsync(CafeScheduleOverride overrideEntity, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task DeleteAsync(Guid cafeId, DateOnly applyDate, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task DeleteByIdAsync(Guid overrideId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private sealed class FixedOverrideRepository : ICafeScheduleOverrideRepository
@@ -131,7 +131,7 @@ public class CafeScheduleResolverTests
             _entry = entry;
         }
 
-        public Task<CafeScheduleOverride?> GetByApplyDateAsync(Guid cafeId, DateOnly applyDate)
+        public Task<CafeScheduleOverride?> GetByApplyDateAsync(Guid cafeId, DateOnly applyDate, CancellationToken cancellationToken = default)
         {
             if (_entry.CafeId != cafeId || _entry.ApplyDate != applyDate)
             {
@@ -141,13 +141,13 @@ public class CafeScheduleResolverTests
             return Task.FromResult<CafeScheduleOverride?>(_entry);
         }
 
-        public Task<IReadOnlyList<CafeScheduleOverride>> ListByCafeAsync(Guid cafeId)
+        public Task<IReadOnlyList<CafeScheduleOverride>> ListByCafeAsync(Guid cafeId, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<CafeScheduleOverride>>(new[] { _entry });
 
-        public Task AddAsync(CafeScheduleOverride overrideEntity) => Task.CompletedTask;
-        public Task UpdateAsync(CafeScheduleOverride overrideEntity) => Task.CompletedTask;
-        public Task DeleteAsync(Guid cafeId, DateOnly applyDate) => Task.CompletedTask;
-        public Task DeleteByIdAsync(Guid overrideId) => Task.CompletedTask;
-        public Task SaveChangesAsync() => Task.CompletedTask;
+        public Task AddAsync(CafeScheduleOverride overrideEntity, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task UpdateAsync(CafeScheduleOverride overrideEntity, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task DeleteAsync(Guid cafeId, DateOnly applyDate, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task DeleteByIdAsync(Guid overrideId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

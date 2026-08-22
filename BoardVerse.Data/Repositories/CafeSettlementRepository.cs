@@ -16,20 +16,20 @@ namespace BoardVerse.Data.Repositories
             _db = db;
         }
 
-        public Task AddAsync(CafeSettlement settlement)
+        public Task AddAsync(CafeSettlement settlement, CancellationToken cancellationToken = default)
         {
             _db.CafeSettlements.Add(settlement);
             return Task.CompletedTask;
         }
 
-        public Task UpdateAsync(CafeSettlement settlement)
+        public Task UpdateAsync(CafeSettlement settlement, CancellationToken cancellationToken = default)
         {
             settlement.UpdatedAt = DateTime.UtcNow;
             _db.CafeSettlements.Update(settlement);
             return Task.CompletedTask;
         }
 
-        public async Task<IReadOnlyList<CafeSettlement>> GetPendingAsync(Guid cafeId)
+        public async Task<IReadOnlyList<CafeSettlement>> GetPendingAsync(Guid cafeId, CancellationToken cancellationToken = default)
         {
             return await _db.CafeSettlements
                 .Where(s => s.CafeId == cafeId && s.Status == Core.Enum.CafeSettlementStatus.Pending)
@@ -37,7 +37,7 @@ namespace BoardVerse.Data.Repositories
                 .ToListAsync();
         }
 
-        public async Task<IReadOnlyList<CafeSettlement>> GetRetryableAsync(int maxAttempts, TimeSpan minRetryDelay)
+        public async Task<IReadOnlyList<CafeSettlement>> GetRetryableAsync(int maxAttempts, TimeSpan minRetryDelay, CancellationToken cancellationToken = default)
         {
             var cutoff = DateTime.UtcNow - minRetryDelay;
             return await _db.CafeSettlements
@@ -50,7 +50,7 @@ namespace BoardVerse.Data.Repositories
         }
 
         /// <summary>W-06: Get settlement by Id for admin override.</summary>
-        public async Task<CafeSettlement?> GetByIdAsync(Guid settlementId)
+        public async Task<CafeSettlement?> GetByIdAsync(Guid settlementId, CancellationToken cancellationToken = default)
         {
             return await _db.CafeSettlements.FirstOrDefaultAsync(s => s.Id == settlementId);
         }
@@ -59,7 +59,7 @@ namespace BoardVerse.Data.Repositories
         /// W-06: Admin list settlements với filter + phân trang, kèm CafeName join để admin dễ nhận diện.
         /// Sort mặc định theo UpdatedAt DESC để Failed mới nhất nằm trên (partial index tối ưu).
         /// </summary>
-        public async Task<PaginatedResponse<SettlementListItemDto>> GetPagedAsync(SettlementListQuery q)
+        public async Task<PaginatedResponse<SettlementListItemDto>> GetPagedAsync(SettlementListQuery q, CancellationToken cancellationToken = default)
         {
             var query = _db.CafeSettlements.AsNoTracking().AsQueryable();
 
@@ -115,9 +115,9 @@ namespace BoardVerse.Data.Repositories
             };
         }
 
-        public Task SaveChangesAsync()
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default)
         {
-            return _db.SaveChangesAsync();
+            return _db.SaveChangesAsync(cancellationToken);
         }
     }
 }

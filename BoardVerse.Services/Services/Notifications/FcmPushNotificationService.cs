@@ -36,7 +36,8 @@ public class FcmPushNotificationService : IPushNotificationService, IDisposable
 
     public async Task<int> SendToUsersAsync(
         IReadOnlyCollection<Guid> userIds,
-        PushNotificationPayload payload)
+        PushNotificationPayload payload,
+        CancellationToken cancellationToken = default)
     {
         if (!_settings.Enabled)
         {
@@ -92,13 +93,17 @@ public class FcmPushNotificationService : IPushNotificationService, IDisposable
         }
         catch (Exception ex)
         {
+            // GAP-R6-RT-04 Fix: re-throw thay vì return 0 silently.
+            // Trước đây: catch + return 0 → caller (RealOutboxPublisher) không biết FCM fail
+            // → mark Processed → silent data loss. FCM push lỗi nhưng client không bao giờ nhận lại.
+            // Sau: throw → caller bubble up → OutboxPublisherHostedService.MarkFailed → retry.
             _logger.LogError(ex, "[FCM] Send failed for type={Type} count={Count}",
                 payload.Type, tokens.Count);
-            return 0;
+            throw;
         }
     }
 
-    public async Task InvalidateTokenAsync(string token)
+    public async Task InvalidateTokenAsync(string token, CancellationToken cancellationToken = default)
     {
         var existing = await _deviceTokenRepository.GetByTokenAsync(token);
         if (existing == null || existing.IsInvalidated)
@@ -111,7 +116,7 @@ public class FcmPushNotificationService : IPushNotificationService, IDisposable
         _logger.LogInformation("[FCM] Invalidated device token id={TokenId}", existing.Id);
     }
 
-    public async Task<int> SendAsync(Guid userId, string title, string body, Dictionary<string, string>? data = null)
+    public async Task<int> SendAsync(Guid userId, string title, string body, Dictionary<string, string>? data = null, CancellationToken cancellationToken = default)
     {
         var payload = new PushNotificationPayload
         {

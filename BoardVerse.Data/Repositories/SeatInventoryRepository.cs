@@ -13,7 +13,7 @@ public class SeatInventoryRepository : ISeatInventoryRepository
         _db = db;
     }
 
-    public Task<SeatInventory?> GetAsync(Guid cafeId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime)
+    public Task<SeatInventory?> GetAsync(Guid cafeId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime, CancellationToken cancellationToken = default)
     {
         return _db.SeatInventories
             .FirstOrDefaultAsync(s => s.CafeId == cafeId
@@ -22,7 +22,7 @@ public class SeatInventoryRepository : ISeatInventoryRepository
                 && s.ScheduledEndTime == scheduledEndTime);
     }
 
-    public Task<SeatInventory?> GetForUpdateAsync(Guid cafeId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime)
+    public Task<SeatInventory?> GetForUpdateAsync(Guid cafeId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime, CancellationToken cancellationToken = default)
     {
         return _db.SeatInventories.FromSqlRaw(
             @"SELECT * FROM ""SeatInventories""
@@ -32,7 +32,7 @@ public class SeatInventoryRepository : ISeatInventoryRepository
             .FirstOrDefaultAsync();
     }
 
-    public Task<SeatInventory?> GetByIdForUpdateAsync(Guid id)
+    public Task<SeatInventory?> GetByIdForUpdateAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return _db.SeatInventories.FromSqlRaw(
             @"SELECT * FROM ""SeatInventories"" WHERE ""Id"" = {0} FOR UPDATE",
@@ -40,14 +40,14 @@ public class SeatInventoryRepository : ISeatInventoryRepository
             .FirstOrDefaultAsync();
     }
 
-    public async Task<IReadOnlyList<SeatInventory>> GetByCafeAsync(Guid cafeId, DateOnly fromDate, DateOnly toDate)
+    public async Task<IReadOnlyList<SeatInventory>> GetByCafeAsync(Guid cafeId, DateOnly fromDate, DateOnly toDate, CancellationToken cancellationToken = default)
     {
         return await _db.SeatInventories
             .Where(s => s.CafeId == cafeId && s.PlayDate >= fromDate && s.PlayDate <= toDate)
             .ToListAsync();
     }
 
-    public async Task EnsureRowAsync(Guid cafeId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime, int totalSeats)
+    public async Task EnsureRowAsync(Guid cafeId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime, int totalSeats, CancellationToken cancellationToken = default)
     {
         var existing = await GetAsync(cafeId, playDate, scheduledStartTime, scheduledEndTime);
         if (existing == null)
@@ -69,13 +69,13 @@ public class SeatInventoryRepository : ISeatInventoryRepository
         }
     }
 
-    public Task AddAsync(SeatInventory seatInventory)
+    public Task AddAsync(SeatInventory seatInventory, CancellationToken cancellationToken = default)
     {
         _db.SeatInventories.Add(seatInventory);
         return Task.CompletedTask;
     }
 
-    public Task UpdateAsync(SeatInventory seatInventory)
+    public Task UpdateAsync(SeatInventory seatInventory, CancellationToken cancellationToken = default)
     {
         seatInventory.UpdatedAt = DateTime.UtcNow;
         seatInventory.RowVersion++;
@@ -83,7 +83,7 @@ public class SeatInventoryRepository : ISeatInventoryRepository
         return Task.CompletedTask;
     }
 
-    public Task SaveChangesAsync()
+    public Task SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         return _db.SaveChangesAsync();
     }

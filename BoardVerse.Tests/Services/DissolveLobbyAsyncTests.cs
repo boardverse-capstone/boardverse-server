@@ -55,7 +55,7 @@ public class DissolveLobbyAsyncTests
     private static IOutboxRepository SetupOutboxRepository()
     {
         var outboxRepo = new Mock<IOutboxRepository>();
-        outboxRepo.Setup(r => r.AddAsync(It.IsAny<OutboxEvent>()))
+        outboxRepo.Setup(r => r.AddAsync(It.IsAny<OutboxEvent>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
         return outboxRepo.Object;
     }
@@ -72,7 +72,7 @@ public class DissolveLobbyAsyncTests
         Mock<IGameInventoryRepository> gameRepo)
     {
         var outboxRepo = new Mock<IOutboxRepository>();
-        outboxRepo.Setup(r => r.AddAsync(It.IsAny<OutboxEvent>()))
+        outboxRepo.Setup(r => r.AddAsync(It.IsAny<OutboxEvent>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         var service = new LobbyService(
@@ -163,9 +163,9 @@ public class DissolveLobbyAsyncTests
             scheduledStart: DateTime.UtcNow.AddHours(2));
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
         var reservationRepo = new Mock<IReservationRepository>();
-        reservationRepo.Setup(r => r.GetByIdAsync(reservationId, It.IsAny<bool>())).ReturnsAsync(reservation);
+        reservationRepo.Setup(r => r.GetByIdAsync(reservationId, It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(reservation);
 
         var walletService = new Mock<IWalletService>();
         walletService.Setup(w => w.ReleaseDepositAsync(It.IsAny<Guid>(), It.IsAny<long>(),
@@ -212,9 +212,9 @@ public class DissolveLobbyAsyncTests
             scheduledStart: DateTime.UtcNow.AddHours(48));
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
         var reservationRepo = new Mock<IReservationRepository>();
-        reservationRepo.Setup(r => r.GetByIdAsync(reservationId, It.IsAny<bool>())).ReturnsAsync(reservation);
+        reservationRepo.Setup(r => r.GetByIdAsync(reservationId, It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(reservation);
 
         var walletService = new Mock<IWalletService>();
         walletService.Setup(w => w.ReleaseDepositAsync(It.IsAny<Guid>(), It.IsAny<long>(),
@@ -252,9 +252,9 @@ public class DissolveLobbyAsyncTests
             scheduledStart: DateTime.UtcNow.AddHours(12));
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
         var reservationRepo = new Mock<IReservationRepository>();
-        reservationRepo.Setup(r => r.GetByIdAsync(reservationId, It.IsAny<bool>())).ReturnsAsync(reservation);
+        reservationRepo.Setup(r => r.GetByIdAsync(reservationId, It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(reservation);
 
         var walletService = new Mock<IWalletService>();
         walletService.Setup(w => w.ReleaseDepositAsync(It.IsAny<Guid>(), It.IsAny<long>(),
@@ -295,9 +295,9 @@ public class DissolveLobbyAsyncTests
             scheduledStart: DateTime.UtcNow.AddHours(3));
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
         var reservationRepo = new Mock<IReservationRepository>();
-        reservationRepo.Setup(r => r.GetByIdAsync(reservationId, It.IsAny<bool>())).ReturnsAsync(reservation);
+        reservationRepo.Setup(r => r.GetByIdAsync(reservationId, It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(reservation);
 
         var walletService = new Mock<IWalletService>();
         walletService.Setup(w => w.ForfeitDepositAsync(It.IsAny<Guid>(), It.IsAny<long>(),
@@ -331,7 +331,7 @@ public class DissolveLobbyAsyncTests
             createdAt: DateTime.UtcNow.AddMinutes(-30));
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var service = BuildService(lobbyRepo,
             new Mock<IReservationRepository>(), new Mock<IWalletService>(),
@@ -350,7 +350,7 @@ public class DissolveLobbyAsyncTests
             createdAt: DateTime.UtcNow.AddMinutes(-30));
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var service = BuildService(lobbyRepo,
             new Mock<IReservationRepository>(), new Mock<IWalletService>(),
@@ -370,7 +370,7 @@ public class DissolveLobbyAsyncTests
             createdAt: DateTime.UtcNow.AddMinutes(-5));
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var service = BuildService(lobbyRepo,
             new Mock<IReservationRepository>(), new Mock<IWalletService>(),
@@ -385,7 +385,7 @@ public class DissolveLobbyAsyncTests
     {
         var lobbyId = Guid.NewGuid();
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync((Lobby?)null);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync((Lobby?)null);
 
         var service = BuildService(lobbyRepo,
             new Mock<IReservationRepository>(), new Mock<IWalletService>(),
@@ -441,15 +441,15 @@ public class DissolveLobbyAsyncTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
         var reservationRepo = new Mock<IReservationRepository>();
-        reservationRepo.Setup(r => r.GetByIdAsync(reservationId, It.IsAny<bool>())).ReturnsAsync(reservation);
+        reservationRepo.Setup(r => r.GetByIdAsync(reservationId, It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(reservation);
 
         var seatRepo = new Mock<ISeatInventoryRepository>();
-        seatRepo.Setup(r => r.GetForUpdateAsync(cafeId, playDate, new TimeOnly(17, 0), new TimeOnly(23, 0)))
+        seatRepo.Setup(r => r.GetForUpdateAsync(cafeId, playDate, new TimeOnly(17, 0), new TimeOnly(23, 0), It.IsAny<CancellationToken>()))
             .ReturnsAsync(seatInv);
         var gameRepo = new Mock<IGameInventoryRepository>();
-        gameRepo.Setup(r => r.GetForUpdateAsync(cafeId, gameId, playDate, new TimeOnly(17, 0), new TimeOnly(23, 0)))
+        gameRepo.Setup(r => r.GetForUpdateAsync(cafeId, gameId, playDate, new TimeOnly(17, 0), new TimeOnly(23, 0), It.IsAny<CancellationToken>()))
             .ReturnsAsync(gameInv);
 
         var walletService = new Mock<IWalletService>();
@@ -464,8 +464,8 @@ public class DissolveLobbyAsyncTests
         Assert.Equal(0, seatInv.HeldSeats);
         Assert.Equal(0, gameInv.HeldCopies);
 
-        seatRepo.Verify(r => r.UpdateAsync(seatInv), Times.Once);
-        gameRepo.Verify(r => r.UpdateAsync(gameInv), Times.Once);
+        seatRepo.Verify(r => r.UpdateAsync(seatInv, It.IsAny<CancellationToken>()), Times.Once);
+        gameRepo.Verify(r => r.UpdateAsync(gameInv, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -477,7 +477,7 @@ public class DissolveLobbyAsyncTests
             createdAt: DateTime.UtcNow.AddMinutes(-5));
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var service = BuildService(lobbyRepo,
             new Mock<IReservationRepository>(), new Mock<IWalletService>(),
@@ -505,9 +505,9 @@ public class DissolveLobbyAsyncTests
             scheduledStart: DateTime.UtcNow.AddHours(48));
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
         var reservationRepo = new Mock<IReservationRepository>();
-        reservationRepo.Setup(r => r.GetByIdAsync(reservationId, It.IsAny<bool>())).ReturnsAsync(reservation);
+        reservationRepo.Setup(r => r.GetByIdAsync(reservationId, It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(reservation);
         var walletService = new Mock<IWalletService>();
         walletService.Setup(w => w.ReleaseDepositAsync(It.IsAny<Guid>(), It.IsAny<long>(),
             It.IsAny<Guid?>(), It.IsAny<Guid?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -519,7 +519,7 @@ public class DissolveLobbyAsyncTests
         await service.DissolveLobbyAsync(lobbyId, hostId);
 
         Assert.Equal(ReservationStatus.CancelledByPlayer, reservation.Status);
-        reservationRepo.Verify(r => r.UpdateAsync(reservation), Times.Once);
+        reservationRepo.Verify(r => r.UpdateAsync(reservation, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // ===== Gap #5: ShareCode + IsPrivate nullify =====
@@ -535,7 +535,7 @@ public class DissolveLobbyAsyncTests
         lobby.ShareCode = "ABC123";
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var service = BuildService(lobbyRepo,
             new Mock<IReservationRepository>(), new Mock<IWalletService>(),
@@ -563,9 +563,9 @@ public class DissolveLobbyAsyncTests
             scheduledStart: DateTime.UtcNow.AddHours(48)); // Cancel-24h → 100% refund
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
         var reservationRepo = new Mock<IReservationRepository>();
-        reservationRepo.Setup(r => r.GetByIdAsync(reservationId, It.IsAny<bool>())).ReturnsAsync(reservation);
+        reservationRepo.Setup(r => r.GetByIdAsync(reservationId, It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(reservation);
 
         var walletService = new Mock<IWalletService>();
         walletService.Setup(w => w.ReleaseDepositAsync(It.IsAny<Guid>(), It.IsAny<long>(),
@@ -580,7 +580,7 @@ public class DissolveLobbyAsyncTests
 
         // Capture tất cả OutboxEvent được AddAsync.
         var addedEvents = new List<OutboxEvent>();
-        outboxRepo.Verify(r => r.AddAsync(It.IsAny<OutboxEvent>()), Times.Exactly(2));
+        outboxRepo.Verify(r => r.AddAsync(It.IsAny<OutboxEvent>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
         outboxRepo.Invocations
             .Where(i => i.Method.Name == nameof(IOutboxRepository.AddAsync))
             .ToList()
@@ -623,9 +623,9 @@ public class DissolveLobbyAsyncTests
             scheduledStart: DateTime.UtcNow.AddHours(3)); // <6h → 100% forfeit
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
         var reservationRepo = new Mock<IReservationRepository>();
-        reservationRepo.Setup(r => r.GetByIdAsync(reservationId, It.IsAny<bool>())).ReturnsAsync(reservation);
+        reservationRepo.Setup(r => r.GetByIdAsync(reservationId, It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(reservation);
 
         var walletService = new Mock<IWalletService>();
         walletService.Setup(w => w.ForfeitDepositAsync(It.IsAny<Guid>(), It.IsAny<long>(),
@@ -677,9 +677,9 @@ public class DissolveLobbyAsyncTests
             scheduledStart: DateTime.UtcNow.AddHours(12)); // 6-24h → 50/50
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
         var reservationRepo = new Mock<IReservationRepository>();
-        reservationRepo.Setup(r => r.GetByIdAsync(reservationId, It.IsAny<bool>())).ReturnsAsync(reservation);
+        reservationRepo.Setup(r => r.GetByIdAsync(reservationId, It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(reservation);
 
         var walletService = new Mock<IWalletService>();
         walletService.Setup(w => w.ReleaseDepositAsync(It.IsAny<Guid>(), It.IsAny<long>(),
@@ -702,7 +702,7 @@ public class DissolveLobbyAsyncTests
             .ForEach(i => addedEvents.Add((OutboxEvent)i.Arguments[0]!));
 
         // 6-24h → cả Released lẫn Captured đều emit.
-        outboxRepo.Verify(r => r.AddAsync(It.IsAny<OutboxEvent>()), Times.Exactly(3));
+        outboxRepo.Verify(r => r.AddAsync(It.IsAny<OutboxEvent>(), It.IsAny<CancellationToken>()), Times.Exactly(3));
         Assert.Contains(addedEvents, e => e.EventType == OutboxEventType.LobbyCancelledByHost);
         Assert.Contains(addedEvents, e => e.EventType == OutboxEventType.DepositReleased);
         Assert.Contains(addedEvents, e => e.EventType == OutboxEventType.DepositCaptured);

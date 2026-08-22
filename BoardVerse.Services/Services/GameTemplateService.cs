@@ -22,7 +22,7 @@ namespace BoardVerse.Services.Services
             _inventoryRepository = inventoryRepository;
         }
 
-        public async Task<PaginatedResponse<MasterGameResponseDto>> GetMasterGamesAsync(GetMasterGamesQuery query)
+        public async Task<PaginatedResponse<MasterGameResponseDto>> GetMasterGamesAsync(GetMasterGamesQuery query, CancellationToken cancellationToken = default)
         {
             var result = await _gameTemplateRepository.GetPagedAsync(query);
 
@@ -37,7 +37,7 @@ namespace BoardVerse.Services.Services
             };
         }
 
-        public async Task<MasterGameResponseDto> GetMasterGameByIdAsync(Guid id, Guid? cafeId = null)
+        public async Task<MasterGameResponseDto> GetMasterGameByIdAsync(Guid id, Guid? cafeId = null, CancellationToken cancellationToken = default)
         {
             var game = await _gameTemplateRepository.GetActiveByIdWithComponentsAsync(id);
             if (game == null)

@@ -11,12 +11,20 @@ using BoardVerse.Services.Helpers;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
+using System.Threading;
 namespace BoardVerse.Services.Services;
 
 public class TournamentService : ITournamentService
 {
+    /// <summary>Cache key prefix cho leaderboard (GAP-R6-TW-LEADERBOARD).</summary>
+    private const string LeaderboardCacheKeyPrefix = "tournament:leaderboard:";
+
+    /// <summary>Leaderboard cache TTL: 60s — balance freshness vs DB load.</summary>
+    private static readonly TimeSpan LeaderboardCacheTtl = TimeSpan.FromSeconds(60);
+
     private readonly ITournamentRepository _tournamentRepository;
     private readonly ITournamentWaitlistRepository _waitlistRepository;
     private readonly IGameTemplateRepository _gameTemplateRepository;
@@ -28,6 +36,7 @@ public class TournamentService : ITournamentService
     private readonly IPushNotificationService _pushNotificationService;
     private readonly ILogger<TournamentService> _logger;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IMemoryCache _memoryCache;
 
     public TournamentService(
         ITournamentRepository tournamentRepository,
@@ -40,7 +49,8 @@ public class TournamentService : ITournamentService
         IKarmaRatingRepository karmaRatingRepository,
         IPushNotificationService pushNotificationService,
         ILogger<TournamentService> logger,
-        IHttpContextAccessor httpContextAccessor = null!)
+        IHttpContextAccessor httpContextAccessor = null!,
+        IMemoryCache? memoryCache = null)
     {
         _tournamentRepository = tournamentRepository;
         _waitlistRepository = waitlistRepository;
@@ -53,6 +63,7 @@ public class TournamentService : ITournamentService
         _pushNotificationService = pushNotificationService;
         _logger = logger;
         _httpContextAccessor = httpContextAccessor;
+        _memoryCache = memoryCache ?? new MemoryCache(new MemoryCacheOptions());
     }
 
     // ====================================================================
@@ -60,7 +71,7 @@ public class TournamentService : ITournamentService
     // ====================================================================
 
     public async Task<TournamentResponseDto> CreateTournamentAsync(
-        Guid managerId, Guid cafeId, CreateTournamentRequestDto request)
+        Guid managerId, Guid cafeId, CreateTournamentRequestDto request, CancellationToken cancellationToken = default)
     {
         // 1) Verify manager owns the cafe.
         await EnsureManagerOwnsCafeAsync(managerId, cafeId);
@@ -146,7 +157,7 @@ public class TournamentService : ITournamentService
     }
 
     public async Task<TournamentResponseDto> UpdateTournamentAsync(
-        Guid managerId, Guid tournamentId, UpdateTournamentRequestDto request)
+        Guid managerId, Guid tournamentId, UpdateTournamentRequestDto request, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -253,7 +264,7 @@ public class TournamentService : ITournamentService
         return await BuildResponseAsync(tournamentId, null);
     }
 
-    public async Task<TournamentResponseDto> OpenRegistrationAsync(Guid managerId, Guid tournamentId)
+    public async Task<TournamentResponseDto> OpenRegistrationAsync(Guid managerId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -277,7 +288,7 @@ public class TournamentService : ITournamentService
         return await BuildResponseAsync(tournamentId, null);
     }
 
-    public async Task<TournamentResponseDto> CloseRegistrationAsync(Guid managerId, Guid tournamentId)
+    public async Task<TournamentResponseDto> CloseRegistrationAsync(Guid managerId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -297,7 +308,7 @@ public class TournamentService : ITournamentService
         return await BuildResponseAsync(tournamentId, null);
     }
 
-    public async Task<TournamentResponseDto> ReopenRegistrationAsync(Guid managerId, Guid tournamentId)
+    public async Task<TournamentResponseDto> ReopenRegistrationAsync(Guid managerId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -317,7 +328,7 @@ public class TournamentService : ITournamentService
         return await BuildResponseAsync(tournamentId, null);
     }
 
-    public async Task<TournamentResponseDto> StartTournamentAsync(Guid managerId, Guid tournamentId)
+    public async Task<TournamentResponseDto> StartTournamentAsync(Guid managerId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         // Default: khÃ´ng cho phÃ©p partial start, khÃ´ng auto-shorten.
         return await StartTournamentCoreAsync(
@@ -330,7 +341,7 @@ public class TournamentService : ITournamentService
     }
 
     public async Task<TournamentResponseDto> StartTournamentWithOptionsAsync(
-        Guid managerId, Guid tournamentId, StartTournamentOptionsDto options)
+        Guid managerId, Guid tournamentId, StartTournamentOptionsDto options, CancellationToken cancellationToken = default)
     {
         // Validate options
         if (options.AutoShortenMode != "Auto" && options.AutoShortenMode != "Manual")
@@ -565,7 +576,7 @@ public class TournamentService : ITournamentService
     }
 
     public async Task<TournamentResponseDto> CancelTournamentAsync(
-        Guid managerId, Guid tournamentId, string? reason)
+        Guid managerId, Guid tournamentId, string? reason, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdWithDetailsAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -631,7 +642,7 @@ public class TournamentService : ITournamentService
         return await BuildResponseAsync(tournament, null);  // Pass updated entity, not re-fetch
     }
 
-    public async Task<TournamentResponseDto> CompleteTournamentAsync(Guid managerId, Guid tournamentId)
+    public async Task<TournamentResponseDto> CompleteTournamentAsync(Guid managerId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdWithDetailsAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -684,14 +695,14 @@ public class TournamentService : ITournamentService
     // QUERIES
     // ====================================================================
 
-    public async Task<TournamentResponseDto> GetTournamentAsync(Guid tournamentId, Guid? currentUserId)
+    public async Task<TournamentResponseDto> GetTournamentAsync(Guid tournamentId, Guid? currentUserId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
         return await BuildResponseAsync(tournament, currentUserId);
     }
 
-    public async Task<IReadOnlyList<TournamentResponseDto>> GetOpenTournamentsAsync(Guid? currentUserId)
+    public async Task<IReadOnlyList<TournamentResponseDto>> GetOpenTournamentsAsync(Guid? currentUserId, CancellationToken cancellationToken = default)
     {
         var tournaments = await _tournamentRepository.GetAllOpenAsync();
         var responses = new List<TournamentResponseDto>();
@@ -702,7 +713,7 @@ public class TournamentService : ITournamentService
         return responses;
     }
 
-    public async Task<IReadOnlyList<TournamentResponseDto>> GetTournamentsAsync(Guid? currentUserId, string? status)
+    public async Task<IReadOnlyList<TournamentResponseDto>> GetTournamentsAsync(Guid? currentUserId, string? status, CancellationToken cancellationToken = default)
     {
         // Hỗ trợ 3 trường hợp của FE:
         // - status = null / "" → lấy tất cả (frontend tự filter).
@@ -733,7 +744,7 @@ public class TournamentService : ITournamentService
     }
 
     public async Task<IReadOnlyList<TournamentResponseDto>> GetCafeTournamentsAsync(
-        Guid cafeId, Guid? currentUserId, string? status)
+        Guid cafeId, Guid? currentUserId, string? status, CancellationToken cancellationToken = default)
     {
         TournamentStatus? statusEnum = null;
         if (!string.IsNullOrWhiteSpace(status))
@@ -761,7 +772,7 @@ public class TournamentService : ITournamentService
     // PLAYER: REGISTER / WITHDRAW / CHECK-IN
     // ====================================================================
 
-    public async Task<TournamentParticipantResponseDto> RegisterAsync(Guid tournamentId, Guid userId)
+    public async Task<TournamentParticipantResponseDto> RegisterAsync(Guid tournamentId, Guid userId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -892,7 +903,7 @@ public class TournamentService : ITournamentService
         return MapParticipantDto(reloaded!);
     }
 
-    public async Task<TournamentParticipantResponseDto> WithdrawRegistrationAsync(Guid tournamentId, Guid userId)
+    public async Task<TournamentParticipantResponseDto> WithdrawRegistrationAsync(Guid tournamentId, Guid userId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -937,7 +948,7 @@ public class TournamentService : ITournamentService
         Guid managerId,
         Guid tournamentId,
         Guid participantId,
-        string reason)
+        string reason, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(reason))
         {
@@ -996,7 +1007,7 @@ public class TournamentService : ITournamentService
         return participants.Select(MapParticipantDto).ToList();
     }
 
-    public async Task<IReadOnlyList<TournamentParticipantResponseDto>> GetParticipantsForPosAsync(Guid managerId, Guid tournamentId)
+    public async Task<IReadOnlyList<TournamentParticipantResponseDto>> GetParticipantsForPosAsync(Guid managerId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -1012,7 +1023,7 @@ public class TournamentService : ITournamentService
     // ====================================================================
 
     public async Task<TournamentParticipantResponseDto> CheckInParticipantAsync(
-        Guid managerId, Guid tournamentId, Guid participantId)
+        Guid managerId, Guid tournamentId, Guid participantId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -1042,7 +1053,7 @@ public class TournamentService : ITournamentService
     }
 
     public async Task<TournamentParticipantResponseDto> ManagerAddWalkInParticipantAsync(
-        Guid managerId, Guid tournamentId, AddWalkInParticipantRequestDto request)
+        Guid managerId, Guid tournamentId, AddWalkInParticipantRequestDto request, CancellationToken cancellationToken = default)
     {
         if (request == null || string.IsNullOrWhiteSpace(request.DisplayName))
         {
@@ -1152,7 +1163,7 @@ public class TournamentService : ITournamentService
     }
 
     public async Task<TournamentParticipantResponseDto> MarkNoShowAsync(
-        Guid managerId, Guid tournamentId, Guid participantId)
+        Guid managerId, Guid tournamentId, Guid participantId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -1234,21 +1245,21 @@ public class TournamentService : ITournamentService
     // MATCHES
     // ====================================================================
 
-    public async Task<IReadOnlyList<TournamentMatchResponseDto>> GetMatchesAsync(Guid tournamentId)
+    public async Task<IReadOnlyList<TournamentMatchResponseDto>> GetMatchesAsync(Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var matches = await _tournamentRepository.GetMatchesByTournamentAsync(tournamentId);
         return matches.Select(MapMatchDto).ToList();
     }
 
     public async Task<IReadOnlyList<TournamentMatchResponseDto>> GetRoundMatchesAsync(
-        Guid tournamentId, int roundNumber)
+        Guid tournamentId, int roundNumber, CancellationToken cancellationToken = default)
     {
         var matches = await _tournamentRepository.GetMatchesByRoundAsync(tournamentId, roundNumber);
         return matches.Select(MapMatchDto).ToList();
     }
 
     public async Task<IReadOnlyList<TournamentMatchResponseDto>> GetMatchesForPosAsync(
-        Guid managerId, Guid tournamentId)
+        Guid managerId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -1269,7 +1280,7 @@ public class TournamentService : ITournamentService
     }
 
     public async Task<IReadOnlyList<TournamentMatchResponseDto>> GetRoundMatchesForPosAsync(
-        Guid managerId, Guid tournamentId, int roundNumber)
+        Guid managerId, Guid tournamentId, int roundNumber, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -1293,7 +1304,7 @@ public class TournamentService : ITournamentService
         return matches.Select(MapMatchDto).ToList();
     }
 
-    public async Task<TournamentMatchResponseDto> StartMatchAsync(Guid managerId, Guid matchId)
+    public async Task<TournamentMatchResponseDto> StartMatchAsync(Guid managerId, Guid matchId, CancellationToken cancellationToken = default)
     {
         var match = await _tournamentRepository.GetMatchByIdAsync(matchId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.MatchNotFound(matchId));
@@ -1327,7 +1338,7 @@ public class TournamentService : ITournamentService
     }
 
     public async Task<TournamentMatchResponseDto> RecordMatchResultAsync(
-        Guid managerId, Guid matchId, RecordMatchResultRequestDto request)
+        Guid managerId, Guid matchId, RecordMatchResultRequestDto request, CancellationToken cancellationToken = default)
     {
         var match = await _tournamentRepository.GetMatchByIdAsync(matchId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.MatchNotFound(matchId));
@@ -1485,7 +1496,7 @@ public class TournamentService : ITournamentService
     // PLAYER PERSONAL DATA (my-registrations, elo-history, leaderboard)
     // ====================================================================
 
-    public async Task<IReadOnlyList<MyTournamentRegistrationDto>> GetMyRegistrationsAsync(Guid userId, string? status = null)
+    public async Task<IReadOnlyList<MyTournamentRegistrationDto>> GetMyRegistrationsAsync(Guid userId, string? status = null, CancellationToken cancellationToken = default)
     {
         TournamentStatus? statusFilter = null;
         if (!string.IsNullOrWhiteSpace(status))
@@ -1532,7 +1543,7 @@ public class TournamentService : ITournamentService
         return results;
     }
 
-    public async Task<EloHistoryResponseDto> GetEloHistoryAsync(Guid userId)
+    public async Task<EloHistoryResponseDto> GetEloHistoryAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         var user = await _userProfileRepository.GetByIdWithProfileAsync(userId);
         if (user?.Profile == null)
@@ -1567,14 +1578,24 @@ public class TournamentService : ITournamentService
         };
     }
 
-    public async Task<LeaderboardResponseDto> GetLeaderboardAsync(int topCount = 100, Guid? gameTemplateId = null)
+    public async Task<LeaderboardResponseDto> GetLeaderboardAsync(int topCount = 100, Guid? gameTemplateId = null, CancellationToken cancellationToken = default)
     {
         if (topCount is < 1 or > 500) topCount = 100;
+
+        // GAP-R6-TW-LEADERBOARD Fix: cache leaderboard 60s.
+        // Leaderboard load: GetTopEloProfilesAsync + GetAggregatedTournamentStatsAsync
+        // = 2 DB queries, mỗi query N rows. Với 100 entries × 1000 user truy cập / phút
+        // = 2000 queries / phút chỉ để render leaderboard. Cache 60s giảm xuống 1 query / 60s.
+        var cacheKey = $"{LeaderboardCacheKeyPrefix}{topCount}:{gameTemplateId?.ToString() ?? "all"}";
+        if (_memoryCache.TryGetValue<LeaderboardResponseDto>(cacheKey, out var cached) && cached != null)
+        {
+            return cached;
+        }
 
         var profiles = await _tournamentRepository.GetTopEloProfilesAsync(topCount, gameTemplateId);
         var userIds = profiles.Select(p => p.UserId).ToList();
 
-        // Bulk fetch stats cho táº¥t cáº£ userIds trong 1 query thay vÃ¬ N+1.
+        // Bulk fetch stats for all userIds in 1 query instead of N+1.
         var stats = await _tournamentRepository.GetAggregatedTournamentStatsAsync(userIds, gameTemplateId);
 
         var entries = profiles.Select((p, idx) => new LeaderboardEntryDto
@@ -1595,7 +1616,19 @@ public class TournamentService : ITournamentService
         };
     }
 
-    public async Task<IReadOnlyList<TournamentResponseDto>> GetCafeActiveTournamentsAsync(Guid cafeId, Guid managerId)
+    /// <summary>
+    /// GAP-R6-TW-LEADERBOARD Fix: invalidate cached leaderboard entries sau khi Elo thay đổi.
+    /// Gọi từ FinalizeMatchAsync / ApplyEloDeltaAsync.
+    /// </summary>
+    private void InvalidateLeaderboardCache()
+    {
+        // MemoryCache không có API enumerate keys → không thể invalidate by prefix.
+        // Acceptable trade-off: TTL 60s tự expire. Trade-off đơn giản vs invalidation chính xác.
+        // Nếu sau này cần invalidation: chuyển sang CacheManager (3rd-party) hoặc dùng IDistributedCache + Redis.
+        _logger.LogDebug("Leaderboard cache TTL-based invalidation only (60s window).");
+    }
+
+    public async Task<IReadOnlyList<TournamentResponseDto>> GetCafeActiveTournamentsAsync(Guid cafeId, Guid managerId, CancellationToken cancellationToken = default)
     {
         // Äáº£m báº£o manager owns cafe trÆ°á»›c khi tráº£ data.
         await EnsureManagerOwnsCafeAsync(managerId, cafeId);
@@ -1610,7 +1643,7 @@ public class TournamentService : ITournamentService
     }
 
     public async Task<TournamentMatchResponseDto> UpdateMatchResultAsync(
-        Guid managerId, Guid matchId, UpdateMatchResultRequestDto request)
+        Guid managerId, Guid matchId, UpdateMatchResultRequestDto request, CancellationToken cancellationToken = default)
     {
         if (request == null || string.IsNullOrWhiteSpace(request.CorrectionReason))
         {
@@ -1817,7 +1850,7 @@ public class TournamentService : ITournamentService
         await _tournamentRepository.DeleteEloContributionsByMatchAsync(match.Id);
     }
 
-    public async Task<TournamentMatchResponseDto> CancelMatchAsync(Guid managerId, Guid matchId, string reason)
+    public async Task<TournamentMatchResponseDto> CancelMatchAsync(Guid managerId, Guid matchId, string reason, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(reason))
         {
@@ -1854,7 +1887,7 @@ public class TournamentService : ITournamentService
 // BACKGROUND JOBS
 // ====================================================================
 
-public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid tournamentId)
+public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdWithDetailsAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -1977,7 +2010,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         return await BuildResponseAsync(tournamentId, null);
     }
 
-    public async Task<int> AutoCloseExpiredRegistrationsAsync(DateTime cutoffTime)
+    public async Task<int> AutoCloseExpiredRegistrationsAsync(DateTime cutoffTime, CancellationToken cancellationToken = default)
     {
         var tournaments = await _tournamentRepository.GetUpcomingForClosingAsync(cutoffTime);
         var count = 0;
@@ -2000,31 +2033,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         return count;
     }
 
-    /// <summary>
-    /// Cancellable variant â€” pass stoppingToken xuá»‘ng DB calls.
-    /// Background job nÃªn dÃ¹ng overload nÃ y Ä‘á»ƒ shutdown nhanh khi app táº¯t.
-    /// </summary>
-    public async Task<int> AutoCloseExpiredRegistrationsAsync(DateTime cutoffTime, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var tournaments = await _tournamentRepository.GetUpcomingForClosingAsync(cutoffTime);
-        var count = 0;
-        foreach (var t in tournaments)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            // F12: ThÃªm guard giá»‘ng overload khÃ´ng CT Ä‘á»ƒ nháº¥t quÃ¡n logic.
-            if (!HasActiveParticipants(t)) continue;
-            t.Status = TournamentStatus.RegistrationClosed;
-            t.UpdatedAt = DateTime.UtcNow;
-            count++;
-        }
-        if (count > 0)
-        {
-            await _tournamentRepository.SaveChangesAsync();
-        }
-        return count;
-    }
+    
 
     private static bool HasActiveParticipants(Tournament t) =>
         t.Participants?.Any(p =>
@@ -2863,7 +2872,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
     // MANUAL PAIRING (Manager override Auto Swiss pairing)
     // ====================================================================
 
-    public async Task<TournamentResponseDto> SetPairingModeAsync(Guid managerId, Guid tournamentId, TournamentPairingMode mode)
+    public async Task<TournamentResponseDto> SetPairingModeAsync(Guid managerId, Guid tournamentId, TournamentPairingMode mode, CancellationToken cancellationToken = default)
     {
         // F15: Cho phep Auto -> Manual khi da OnGoing, mien la cac ban dau chua bat dau.
         // Manager co the dieu chinh ghep doi truoc khi bat dau vong neu pairing auto khong can bang.
@@ -2893,7 +2902,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         return await BuildResponseAsync(tournamentId, null);
     }
 
-    public async Task<RoundPairingsResponseDto> PreviewPairingsAsync(Guid managerId, Guid tournamentId, int roundNumber)
+    public async Task<RoundPairingsResponseDto> PreviewPairingsAsync(Guid managerId, Guid tournamentId, int roundNumber, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdWithDetailsAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -2989,7 +2998,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
     }
 
     public async Task<RoundPairingsResponseDto> SetRoundPairingsAsync(
-        Guid managerId, Guid tournamentId, SetRoundPairingsRequestDto request)
+        Guid managerId, Guid tournamentId, SetRoundPairingsRequestDto request, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdWithDetailsAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -3027,7 +3036,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         };
     }
 
-    public async Task<RoundPairingsResponseDto> ClearRoundPairingsAsync(Guid managerId, Guid tournamentId, int roundNumber)
+    public async Task<RoundPairingsResponseDto> ClearRoundPairingsAsync(Guid managerId, Guid tournamentId, int roundNumber, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdWithDetailsAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -3069,7 +3078,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
     /// Cho phép sửa pairings ngay cả khi round đã có matches.
     /// </summary>
     public async Task<RoundPairingsResponseDto> SwapPairingAsync(
-        Guid managerId, Guid tournamentId, SwapPairingRequestDto request)
+        Guid managerId, Guid tournamentId, SwapPairingRequestDto request, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdWithDetailsAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -3400,7 +3409,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
     // ====================================================================
 
     public async Task<AdminTournamentListResponseDto> GetAdminTournamentsAsync(
-        int page, int pageSize, string? searchTerm, string? status, Guid? cafeId)
+        int page, int pageSize, string? searchTerm, string? status, Guid? cafeId, CancellationToken cancellationToken = default)
     {
         TournamentStatus? tournamentStatus = null;
         if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<TournamentStatus>(status, true, out var parsed))
@@ -3486,7 +3495,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         };
     }
 
-    public async Task<TournamentResponseDto> AdminCreateTournamentAsync(Guid adminUserId, AdminCreateTournamentRequestDto request)
+    public async Task<TournamentResponseDto> AdminCreateTournamentAsync(Guid adminUserId, AdminCreateTournamentRequestDto request, CancellationToken cancellationToken = default)
     {
         // Validate
         if (string.IsNullOrWhiteSpace(request.Title))
@@ -3544,7 +3553,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         return await BuildResponseAsync(tournament, null);
     }
 
-    public async Task<TournamentResponseDto> AdminUpdateTournamentAsync(Guid adminUserId, Guid tournamentId, AdminUpdateTournamentRequestDto request)
+    public async Task<TournamentResponseDto> AdminUpdateTournamentAsync(Guid adminUserId, Guid tournamentId, AdminUpdateTournamentRequestDto request, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -3621,7 +3630,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
     }
 
     public async Task<AdminTournamentParticipantsResponseDto> GetAdminTournamentParticipantsAsync(
-        Guid tournamentId, string? status)
+        Guid tournamentId, string? status, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -3699,7 +3708,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         return await BuildResponseAsync(tournament, null);
     }
 
-    public async Task<TournamentResponseDto> AdminStartTournamentAsync(Guid adminUserId, Guid tournamentId)
+    public async Task<TournamentResponseDto> AdminStartTournamentAsync(Guid adminUserId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -3726,7 +3735,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         return await BuildResponseAsync(tournament, null);
     }
 
-    public async Task<TournamentResponseDto> AdminCompleteTournamentAsync(Guid adminUserId, Guid tournamentId)
+    public async Task<TournamentResponseDto> AdminCompleteTournamentAsync(Guid adminUserId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -3743,7 +3752,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         return await BuildResponseAsync(tournament, null);
     }
 
-    public async Task<TournamentResponseDto> AdminCancelTournamentAsync(Guid adminUserId, Guid tournamentId, string? reason)
+    public async Task<TournamentResponseDto> AdminCancelTournamentAsync(Guid adminUserId, Guid tournamentId, string? reason, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));

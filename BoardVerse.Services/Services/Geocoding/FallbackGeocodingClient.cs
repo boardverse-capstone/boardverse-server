@@ -55,7 +55,7 @@ namespace BoardVerse.Services.Services.Geocoding
                     return null;
                 }
                 return await response.Content.ReadAsStringAsync(cancellationToken);
-            }, cancellationToken);
+            }, cancellationToken, latitude, longitude);
 
             if (!string.IsNullOrWhiteSpace(photonRaw))
             {
@@ -83,7 +83,7 @@ namespace BoardVerse.Services.Services.Geocoding
                     return null;
                 }
                 return await response.Content.ReadAsStringAsync(cancellationToken);
-            }, cancellationToken);
+            }, cancellationToken, latitude, longitude);
 
             if (string.IsNullOrWhiteSpace(nominatimRaw))
             {
@@ -97,7 +97,9 @@ namespace BoardVerse.Services.Services.Geocoding
         private async Task<string?> TryCallAsync(
             string httpClientName,
             Func<HttpClient, Task<string?>> action,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            double latitude = 0,
+            double longitude = 0)
         {
             try
             {
@@ -110,12 +112,14 @@ namespace BoardVerse.Services.Services.Geocoding
                 ex is OperationCanceledException ||
                 ex is InvalidOperationException)
             {
+                // GAP-R4-A6 Fix: truyền lat/lng thật vào log để SRE debug được production errors
+                // (trước đây hardcode 0,0 → không reproduce được user report).
                 _logger.LogWarning(
                     ex,
                     "Geocoder {ClientName} threw for ({Lat}, {Lng})",
                     httpClientName,
-                    0,
-                    0); // giữ đơn giản — log đầy đủ qua path trên
+                    latitude,
+                    longitude);
                 return null;
             }
         }

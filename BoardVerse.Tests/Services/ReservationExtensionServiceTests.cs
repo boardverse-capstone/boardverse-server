@@ -54,10 +54,10 @@ public class ReservationExtensionServiceTests : IDisposable
     {
         // Arrange
         var reservation = CreateConfirmedReservation();
-        _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true))
+        _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(reservation);
         _windowRepoMock.Setup(r => r.GetOverlappingAsync(
-            reservation.CafeId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), default))
+            reservation.CafeId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), default, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<WalkInWindow>());
 
         // Act
@@ -73,7 +73,7 @@ public class ReservationExtensionServiceTests : IDisposable
     {
         // Arrange
         var fakeId = Guid.NewGuid();
-        _resRepoMock.Setup(r => r.GetByIdAsync(fakeId, true))
+        _resRepoMock.Setup(r => r.GetByIdAsync(fakeId, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync((Reservation?)null);
 
         // Act & Assert
@@ -87,7 +87,7 @@ public class ReservationExtensionServiceTests : IDisposable
         // Arrange
         var reservation = CreateConfirmedReservation();
         reservation.Status = ReservationStatus.Holding;
-        _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true))
+        _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(reservation);
 
         // Act
@@ -104,7 +104,7 @@ public class ReservationExtensionServiceTests : IDisposable
         // Arrange
         var reservation = CreateConfirmedReservation();
         reservation.ExtensionCount = 2; // Max reached
-        _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true))
+        _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(reservation);
 
         // Act
@@ -120,10 +120,10 @@ public class ReservationExtensionServiceTests : IDisposable
     {
         // Arrange
         var reservation = CreateConfirmedReservation();
-        _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true))
+        _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(reservation);
         _windowRepoMock.Setup(r => r.GetOverlappingAsync(
-            reservation.CafeId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), default))
+            reservation.CafeId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), default, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<WalkInWindow> { new WalkInWindow() });
 
         // Act
@@ -141,10 +141,10 @@ public class ReservationExtensionServiceTests : IDisposable
         // Arrange
         var reservation = CreateConfirmedReservation();
         reservation.ExtensionCount = 1; // Already used 60 min, remaining = 60
-        _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true))
+        _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(reservation);
         _windowRepoMock.Setup(r => r.GetOverlappingAsync(
-            reservation.CafeId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), default))
+            reservation.CafeId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), default, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<WalkInWindow>());
 
         // Act: ask for 90 min but only 60 remaining
@@ -166,12 +166,12 @@ public class ReservationExtensionServiceTests : IDisposable
         var reservation = CreateConfirmedReservation();
         var userId = reservation.HostId;
 
-        _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true))
+        _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(reservation);
         _windowRepoMock.Setup(r => r.GetOverlappingAsync(
-            reservation.CafeId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), default))
+            reservation.CafeId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), default, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<WalkInWindow>());
-        _resRepoMock.Setup(r => r.UpdateAsync(It.IsAny<Reservation>()))
+        _resRepoMock.Setup(r => r.UpdateAsync(It.IsAny<Reservation>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         var request = new ExtendReservationRequestDto
@@ -213,12 +213,12 @@ public class ReservationExtensionServiceTests : IDisposable
         };
         var userId = reservation.HostId;
 
-        _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true))
+        _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(reservation);
         _windowRepoMock.Setup(r => r.GetOverlappingAsync(
-            reservation.CafeId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), default))
+            reservation.CafeId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), default, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<WalkInWindow>());
-        _resRepoMock.Setup(r => r.UpdateAsync(It.IsAny<Reservation>()))
+        _resRepoMock.Setup(r => r.UpdateAsync(It.IsAny<Reservation>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         var request = new ExtendReservationRequestDto
@@ -243,7 +243,7 @@ public class ReservationExtensionServiceTests : IDisposable
         var reservation = CreateConfirmedReservation();
         var nonHostId = Guid.NewGuid();
 
-        _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true))
+        _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(reservation);
 
         var request = new ExtendReservationRequestDto
@@ -264,7 +264,7 @@ public class ReservationExtensionServiceTests : IDisposable
         var reservation = CreateConfirmedReservation();
         reservation.ExtensionCount = 2;
 
-        _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true))
+        _resRepoMock.Setup(r => r.GetByIdAsync(reservation.Id, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(reservation);
 
         var request = new ExtendReservationRequestDto

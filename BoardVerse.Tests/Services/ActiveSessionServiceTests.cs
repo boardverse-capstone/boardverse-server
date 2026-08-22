@@ -45,10 +45,10 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
 
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(new Cafe
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(new Cafe
         {
             Id = cafeId,
             Name = "Test Cafe",
@@ -59,8 +59,8 @@ public class ActiveSessionServiceTests
 
         var posRepo = new Mock<ICafePosRepository>();
         // BR-12: Mock IsSessionFullyCheckedAsync to return true
-        posRepo.Setup(r => r.IsSessionFullyCheckedAsync(sessionId)).ReturnsAsync(true);
-        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame>());
+        posRepo.Setup(r => r.IsSessionFullyCheckedAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<ActiveSessionGame>());
 
         var depositRepo = new Mock<IBookingDepositRepository>();
         var settlementService = new Mock<ISettlementService>();
@@ -99,7 +99,7 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
 
         var posRepo = new Mock<ICafePosRepository>();
         var cafeRepo = new Mock<ICafeRepository>();
@@ -139,12 +139,12 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
 
         var posRepo = new Mock<ICafePosRepository>();
         // BR-12: Mock IsSessionFullyCheckedAsync to return false
-        posRepo.Setup(r => r.IsSessionFullyCheckedAsync(sessionId)).ReturnsAsync(false);
-        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame>
+        posRepo.Setup(r => r.IsSessionFullyCheckedAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<ActiveSessionGame>
         {
             new ActiveSessionGame { Id = gameId, CheckStatus = ComponentCheckStatus.NotChecked }
         });
@@ -199,10 +199,10 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
 
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(new Cafe
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(new Cafe
         {
             Id = cafeId,
             Name = "Test Cafe",
@@ -241,7 +241,7 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
 
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
@@ -275,7 +275,7 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
 
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
@@ -305,7 +305,7 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
 
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
@@ -344,7 +344,7 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
 
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
@@ -386,7 +386,7 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
 
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
@@ -433,9 +433,9 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sourceSessionId)).ReturnsAsync(sourceSession);
-        repo.Setup(r => r.GetByIdAsync(targetSessionId)).ReturnsAsync(targetSession);
-        repo.Setup(r => r.GetMemberByIdAsync(memberId)).ReturnsAsync((ActiveSessionMember?)null);
+        repo.Setup(r => r.GetByIdAsync(sourceSessionId, It.IsAny<CancellationToken>())).ReturnsAsync(sourceSession);
+        repo.Setup(r => r.GetByIdAsync(targetSessionId, It.IsAny<CancellationToken>())).ReturnsAsync(targetSession);
+        repo.Setup(r => r.GetMemberByIdAsync(memberId, It.IsAny<CancellationToken>())).ReturnsAsync((ActiveSessionMember?)null);
 
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
@@ -484,9 +484,9 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sourceSessionId)).ReturnsAsync(sourceSession);
-        repo.Setup(r => r.GetByIdAsync(targetSessionId)).ReturnsAsync(targetSession);
-        repo.Setup(r => r.GetMemberByIdAsync(memberId)).ReturnsAsync(member);
+        repo.Setup(r => r.GetByIdAsync(sourceSessionId, It.IsAny<CancellationToken>())).ReturnsAsync(sourceSession);
+        repo.Setup(r => r.GetByIdAsync(targetSessionId, It.IsAny<CancellationToken>())).ReturnsAsync(targetSession);
+        repo.Setup(r => r.GetMemberByIdAsync(memberId, It.IsAny<CancellationToken>())).ReturnsAsync(member);
 
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
@@ -535,9 +535,9 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sourceSessionId)).ReturnsAsync(sourceSession);
-        repo.Setup(r => r.GetByIdAsync(targetSessionId)).ReturnsAsync(targetSession);
-        repo.Setup(r => r.GetMemberByIdAsync(memberId)).ReturnsAsync(member);
+        repo.Setup(r => r.GetByIdAsync(sourceSessionId, It.IsAny<CancellationToken>())).ReturnsAsync(sourceSession);
+        repo.Setup(r => r.GetByIdAsync(targetSessionId, It.IsAny<CancellationToken>())).ReturnsAsync(targetSession);
+        repo.Setup(r => r.GetMemberByIdAsync(memberId, It.IsAny<CancellationToken>())).ReturnsAsync(member);
 
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
@@ -586,9 +586,9 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sourceSessionId)).ReturnsAsync(sourceSession);
-        repo.Setup(r => r.GetByIdAsync(targetSessionId)).ReturnsAsync(targetSession);
-        repo.Setup(r => r.GetMemberByIdAsync(memberId)).ReturnsAsync(member);
+        repo.Setup(r => r.GetByIdAsync(sourceSessionId, It.IsAny<CancellationToken>())).ReturnsAsync(sourceSession);
+        repo.Setup(r => r.GetByIdAsync(targetSessionId, It.IsAny<CancellationToken>())).ReturnsAsync(targetSession);
+        repo.Setup(r => r.GetMemberByIdAsync(memberId, It.IsAny<CancellationToken>())).ReturnsAsync(member);
 
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
@@ -640,11 +640,11 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sourceSessionId)).ReturnsAsync(sourceSession);
+        repo.Setup(r => r.GetByIdAsync(sourceSessionId, It.IsAny<CancellationToken>())).ReturnsAsync(sourceSession);
         repo.SetupSequence(r => r.GetByIdAsync(targetSessionId))
             .ReturnsAsync(targetSession)
             .ReturnsAsync(targetSession);
-        repo.Setup(r => r.GetMemberByIdAsync(memberId)).ReturnsAsync(member);
+        repo.Setup(r => r.GetMemberByIdAsync(memberId, It.IsAny<CancellationToken>())).ReturnsAsync(member);
 
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
@@ -682,7 +682,7 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
 
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
@@ -725,11 +725,11 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
-        repo.Setup(r => r.GetMemberByIdAsync(guestMemberId)).ReturnsAsync(guestMember);
+        repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
+        repo.Setup(r => r.GetMemberByIdAsync(guestMemberId, It.IsAny<CancellationToken>())).ReturnsAsync(guestMember);
 
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(new Cafe
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(new Cafe
         {
             Id = cafeId,
             Name = "Test Cafe",
@@ -812,12 +812,12 @@ public class ActiveSessionServiceTests
             .ReturnsAsync(session);
 
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(cafe);
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
 
         var posRepo = new Mock<ICafePosRepository>();
-        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame>());
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<ActiveSessionGame>());
         var depositRepo = new Mock<IBookingDepositRepository>();
-        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
+        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync((BookingDeposit?)null);
 
         var settlementService = new Mock<ISettlementService>();
         var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object, new Mock<IReservationService>().Object, new Mock<ILobbyRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalkInService>().Object, new Mock<IOutboxRepository>().Object, new Mock<ILogger<ActiveSessionService>>().Object);
@@ -879,12 +879,12 @@ public class ActiveSessionServiceTests
             .ReturnsAsync(session);
 
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(cafe);
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
 
         var posRepo = new Mock<ICafePosRepository>();
-        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame>());
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<ActiveSessionGame>());
         var depositRepo = new Mock<IBookingDepositRepository>();
-        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
+        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync((BookingDeposit?)null);
 
         var settlementService = new Mock<ISettlementService>();
         var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object, new Mock<IReservationService>().Object, new Mock<ILobbyRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalkInService>().Object, new Mock<IOutboxRepository>().Object, new Mock<ILogger<ActiveSessionService>>().Object);
@@ -942,12 +942,12 @@ public class ActiveSessionServiceTests
             .ReturnsAsync(session);
 
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(cafe);
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
 
         var posRepo = new Mock<ICafePosRepository>();
-        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame>());
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<ActiveSessionGame>());
         var depositRepo = new Mock<IBookingDepositRepository>();
-        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
+        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync((BookingDeposit?)null);
 
         var settlementService = new Mock<ISettlementService>();
         var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object, new Mock<IReservationService>().Object, new Mock<ILobbyRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalkInService>().Object, new Mock<IOutboxRepository>().Object, new Mock<ILogger<ActiveSessionService>>().Object);
@@ -1018,12 +1018,12 @@ public class ActiveSessionServiceTests
             .ReturnsAsync(session);
 
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(cafe);
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
 
         var posRepo = new Mock<ICafePosRepository>();
-        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame>());
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<ActiveSessionGame>());
         var depositRepo = new Mock<IBookingDepositRepository>();
-        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync(deposit);
+        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(deposit);
 
         var settlementService = new Mock<ISettlementService>();
         var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object, new Mock<IReservationService>().Object, new Mock<ILobbyRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalkInService>().Object, new Mock<IOutboxRepository>().Object, new Mock<ILogger<ActiveSessionService>>().Object);
@@ -1088,12 +1088,12 @@ public class ActiveSessionServiceTests
             .ReturnsAsync(session);
 
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(cafe);
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
 
         var posRepo = new Mock<ICafePosRepository>();
-        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame>());
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<ActiveSessionGame>());
         var depositRepo = new Mock<IBookingDepositRepository>();
-        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
+        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync((BookingDeposit?)null);
 
         var settlementService = new Mock<ISettlementService>();
         var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object, new Mock<IReservationService>().Object, new Mock<ILobbyRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalkInService>().Object, new Mock<IOutboxRepository>().Object, new Mock<ILogger<ActiveSessionService>>().Object);
@@ -1206,13 +1206,13 @@ public class ActiveSessionServiceTests
             .ReturnsAsync(session);
 
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(cafe);
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
 
         var posRepo = new Mock<ICafePosRepository>();
-        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame> { sessionGame });
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<ActiveSessionGame> { sessionGame });
 
         var depositRepo = new Mock<IBookingDepositRepository>();
-        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
+        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync((BookingDeposit?)null);
 
         var settlementService = new Mock<ISettlementService>();
         var service = new ActiveSessionService(
@@ -1320,13 +1320,13 @@ public class ActiveSessionServiceTests
             .ReturnsAsync(session);
 
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(cafe);
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
 
         var posRepo = new Mock<ICafePosRepository>();
-        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame> { sessionGame });
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<ActiveSessionGame> { sessionGame });
 
         var depositRepo = new Mock<IBookingDepositRepository>();
-        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
+        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync((BookingDeposit?)null);
 
         var settlementService = new Mock<ISettlementService>();
         var service = new ActiveSessionService(
@@ -1371,10 +1371,10 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
 
         var posRepo = new Mock<ICafePosRepository>();
-        posRepo.Setup(r => r.GetBoxByBarcodeAsync(cafeId, "BV-EXTRA")).ReturnsAsync(box);
+        posRepo.Setup(r => r.GetBoxByBarcodeAsync(cafeId, "BV-EXTRA", It.IsAny<CancellationToken>())).ReturnsAsync(box);
 
         var cafeRepo = new Mock<ICafeRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
@@ -1418,13 +1418,13 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
         repo.SetupSequence(r => r.GetByIdAsync(sessionId))
             .ReturnsAsync(session)
             .ReturnsAsync(session);
 
         var posRepo = new Mock<ICafePosRepository>();
-        posRepo.Setup(r => r.GetBoxByBarcodeAsync(cafeId, "BV-EXTRA")).ReturnsAsync(box);
+        posRepo.Setup(r => r.GetBoxByBarcodeAsync(cafeId, "BV-EXTRA", It.IsAny<CancellationToken>())).ReturnsAsync(box);
 
         var cafeRepo = new Mock<ICafeRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
@@ -1458,7 +1458,7 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
 
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
@@ -1488,7 +1488,7 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
 
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
@@ -1522,7 +1522,7 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
         repo.SetupSequence(r => r.GetByIdAsync(sessionId))
             .ReturnsAsync(session)
             .ReturnsAsync(session);
@@ -1564,7 +1564,7 @@ public class ActiveSessionServiceTests
 
         var repo = new Mock<IActiveSessionRepository>();
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetNearbyCafesAsync(cafeId, 10)).ReturnsAsync(new List<Cafe> { cafe });
+        cafeRepo.Setup(r => r.GetNearbyCafesAsync(cafeId, 10, It.IsAny<CancellationToken>())).ReturnsAsync(new List<Cafe> { cafe });
 
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
@@ -1595,7 +1595,7 @@ public class ActiveSessionServiceTests
 
         var repo = new Mock<IActiveSessionRepository>();
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetNearbyCafesAsync(cafeId, 10)).ReturnsAsync(new List<Cafe> { cafe });
+        cafeRepo.Setup(r => r.GetNearbyCafesAsync(cafeId, 10, It.IsAny<CancellationToken>())).ReturnsAsync(new List<Cafe> { cafe });
 
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
@@ -1627,7 +1627,7 @@ public class ActiveSessionServiceTests
 
         var repo = new Mock<IActiveSessionRepository>();
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetNearbyCafesAsync(cafeId, 10)).ReturnsAsync(new List<Cafe> { cafe });
+        cafeRepo.Setup(r => r.GetNearbyCafesAsync(cafeId, 10, It.IsAny<CancellationToken>())).ReturnsAsync(new List<Cafe> { cafe });
 
         var posRepo = new Mock<ICafePosRepository>();
         var depositRepo = new Mock<IBookingDepositRepository>();
@@ -1659,7 +1659,7 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
 
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
@@ -1694,7 +1694,7 @@ public class ActiveSessionServiceTests
         };
 
         var repo = new Mock<IActiveSessionRepository>();
-        repo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
 
         var cafeRepo = new Mock<ICafeRepository>();
         var posRepo = new Mock<ICafePosRepository>();
@@ -1752,12 +1752,12 @@ public class ActiveSessionServiceTests
             .ReturnsAsync(session);
 
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(cafe);
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
 
         var posRepo = new Mock<ICafePosRepository>();
-        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame>());
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<ActiveSessionGame>());
         var depositRepo = new Mock<IBookingDepositRepository>();
-        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
+        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync((BookingDeposit?)null);
 
         var settlementService = new Mock<ISettlementService>();
         var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object, new Mock<IReservationService>().Object, new Mock<ILobbyRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalkInService>().Object, new Mock<IOutboxRepository>().Object, new Mock<ILogger<ActiveSessionService>>().Object);
@@ -1810,12 +1810,12 @@ public class ActiveSessionServiceTests
             .ReturnsAsync(session);
 
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(cafe);
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
 
         var posRepo = new Mock<ICafePosRepository>();
-        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame>());
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<ActiveSessionGame>());
         var depositRepo = new Mock<IBookingDepositRepository>();
-        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
+        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync((BookingDeposit?)null);
 
         var settlementService = new Mock<ISettlementService>();
         var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object, new Mock<IReservationService>().Object, new Mock<ILobbyRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalkInService>().Object, new Mock<IOutboxRepository>().Object, new Mock<ILogger<ActiveSessionService>>().Object);
@@ -1918,7 +1918,7 @@ public class ActiveSessionServiceTests
 
         // Setup mocks
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(new Cafe
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(new Cafe
         {
             Id = cafeId,
             Name = "Test Cafe",
@@ -1928,20 +1928,20 @@ public class ActiveSessionServiceTests
         });
 
         var sessionRepo = new Mock<IActiveSessionRepository>();
-        sessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        sessionRepo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
         sessionRepo.Setup(r => r.BeginTransactionAsync(It.IsAny<CancellationToken>())).Returns(Task.FromResult<Core.IRepositories.IDatabaseTransactionContext?>(null));
 
         var posRepo = new Mock<ICafePosRepository>();
-        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame>());
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<ActiveSessionGame>());
 
         var depositRepo = new Mock<IBookingDepositRepository>();
-        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
+        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync((BookingDeposit?)null);
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var reservationRepo = new Mock<IReservationRepository>();
-        reservationRepo.Setup(r => r.GetByLobbyIdAsync(lobbyId)).ReturnsAsync(reservation);
+        reservationRepo.Setup(r => r.GetByLobbyIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(reservation);
 
         var settlementService = new Mock<ISettlementService>();
         var reservationService = new Mock<IReservationService>();
@@ -2015,7 +2015,7 @@ public class ActiveSessionServiceTests
 
         // Setup mocks
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(new Cafe
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(new Cafe
         {
             Id = cafeId,
             Name = "Test Cafe",
@@ -2025,20 +2025,20 @@ public class ActiveSessionServiceTests
         });
 
         var sessionRepo = new Mock<IActiveSessionRepository>();
-        sessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        sessionRepo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
         sessionRepo.Setup(r => r.BeginTransactionAsync(It.IsAny<CancellationToken>())).Returns(Task.FromResult<Core.IRepositories.IDatabaseTransactionContext?>(null));
 
         var posRepo = new Mock<ICafePosRepository>();
-        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame>());
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<ActiveSessionGame>());
 
         var depositRepo = new Mock<IBookingDepositRepository>();
-        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
+        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync((BookingDeposit?)null);
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var reservationRepo = new Mock<IReservationRepository>();
-        reservationRepo.Setup(r => r.GetByLobbyIdAsync(lobbyId)).ReturnsAsync(reservation);
+        reservationRepo.Setup(r => r.GetByLobbyIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(reservation);
 
         var settlementService = new Mock<ISettlementService>();
         var reservationService = new Mock<IReservationService>();
@@ -2085,7 +2085,7 @@ public class ActiveSessionServiceTests
         };
 
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(new Cafe
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(new Cafe
         {
             Id = cafeId,
             Name = "Test Cafe",
@@ -2095,13 +2095,13 @@ public class ActiveSessionServiceTests
         });
 
         var sessionRepo = new Mock<IActiveSessionRepository>();
-        sessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        sessionRepo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
 
         var posRepo = new Mock<ICafePosRepository>();
-        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId)).ReturnsAsync(new List<ActiveSessionGame>());
+        posRepo.Setup(r => r.GetSessionGamesAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<ActiveSessionGame>());
 
         var depositRepo = new Mock<IBookingDepositRepository>();
-        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
+        depositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync((BookingDeposit?)null);
 
         var settlementService = new Mock<ISettlementService>();
         var reservationService = new Mock<IReservationService>();

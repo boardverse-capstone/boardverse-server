@@ -2,6 +2,7 @@ using BoardVerse.Core.DTOs.Wallet;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
 using BoardVerse.Data;
@@ -62,7 +63,7 @@ public class WalletService : IWalletService
         _db = db;
     }
 
-    public async Task<WalletDto> GetOrCreateWalletAsync(Guid userId, bool includeHeld)
+    public async Task<WalletDto> GetOrCreateWalletAsync(Guid userId, bool includeHeld, CancellationToken cancellationToken = default)
     {
         var wallet = await _walletRepository.GetByUserIdAsync(userId);
         if (wallet == null)
@@ -96,7 +97,7 @@ public class WalletService : IWalletService
         return MapToDto(wallet, includeHeld);
     }
 
-    public async Task<WalletDto> GetWalletAsync(Guid userId, bool includeHeld)
+    public async Task<WalletDto> GetWalletAsync(Guid userId, bool includeHeld, CancellationToken cancellationToken = default)
     {
         var wallet = await _walletRepository.GetByUserIdAsync(userId)
             ?? throw new NotFoundException(ApiErrorMessages.Wallet.NotFound(userId));
@@ -104,7 +105,7 @@ public class WalletService : IWalletService
         return MapToDto(wallet, includeHeld);
     }
 
-    public async Task<TopUpResponseDto> CreateTopUpAsync(Guid userId, TopUpRequestDto request)
+    public async Task<TopUpResponseDto> CreateTopUpAsync(Guid userId, TopUpRequestDto request, CancellationToken cancellationToken = default)
     {
         ValidateTopUpRequest(request);
 
@@ -128,51 +129,62 @@ public class WalletService : IWalletService
         // Idempotency theo key — BR § XVII.1.
         // Ưu tiên lookup theo BvcTopUpRequest (chứa OrderId + Status tracking) trước,
         // fallback ledger cho backward-compat với data cũ.
-        var existingTopUp = await _topUpRequestRepository.GetByIdempotencyKeyAsync(request.IdempotencyKey);
-        if (existingTopUp != null)
+        //
+        // GAP-R4-A2 Fix: Race condition giữa idempotency check và INSERT.
+        // 2 request cùng IdempotencyKey đến đồng thời (double-tap, 2 thiết bị) sẽ cùng pass lookup,
+        // cùng gọi SePay gateway → 2 OrderId, 2 QR, 2 INSERT → user bị SePay charge 2 lần.
+        // Wrap toàn bộ trong Serializable transaction + dùng unique-violation catch
+        // để biết request thứ 2 đã xử lý.
+        await using var topUpTx = await _db.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, default);
+        try
         {
-            _logger.LogInformation(
-                "Top-up idempotent hit (BvcTopUpRequest). UserId={UserId}, Key={Key}, Bvc={Bvc}, Status={Status}",
-                userId, request.IdempotencyKey, existingTopUp.ExpectedBvc, existingTopUp.Status);
-
-            // Reconstruct VietQR URL từ master account để proxy lại QR cho client
-            // (OrderId đã được lưu lúc tạo, nhưng QrUrl không persist → build lại từ master).
-            string? qrUrlForReplay = null;
-            try
+            var existingTopUp = await _topUpRequestRepository.GetByIdempotencyKeyAsync(request.IdempotencyKey);
+            if (existingTopUp != null)
             {
-                var masterForReplay = await _sePayAccountService.GetRawMasterAccountAsync();
-                if (masterForReplay != null && masterForReplay.IsActive
-                    && !string.IsNullOrWhiteSpace(masterForReplay.BankCode)
-                    && !string.IsNullOrWhiteSpace(masterForReplay.AccountNumber))
+                _logger.LogInformation(
+                    "Top-up idempotent hit (BvcTopUpRequest). UserId={UserId}, Key={Key}, Bvc={Bvc}, Status={Status}",
+                    userId, request.IdempotencyKey, existingTopUp.ExpectedBvc, existingTopUp.Status);
+
+                // Reconstruct VietQR URL từ master account để proxy lại QR cho client
+                // (OrderId đã được lưu lúc tạo, nhưng QrUrl không persist → build lại từ master).
+                string? qrUrlForReplay = null;
+                try
                 {
-                    qrUrlForReplay = BuildVietQrUrl(
-                        masterForReplay,
-                        existingTopUp.AmountVnd,
-                        $"BVC-{existingTopUp.OrderId}");
+                    var masterForReplay = await _sePayAccountService.GetRawMasterAccountAsync();
+                    if (masterForReplay != null && masterForReplay.IsActive
+                        && !string.IsNullOrWhiteSpace(masterForReplay.BankCode)
+                        && !string.IsNullOrWhiteSpace(masterForReplay.AccountNumber))
+                    {
+                        qrUrlForReplay = BuildVietQrUrl(
+                            masterForReplay,
+                            existingTopUp.AmountVnd,
+                            $"BVC-{existingTopUp.OrderId}");
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex,
-                    "Failed to reconstruct VietQR URL for idempotent replay. UserId={UserId}, OrderId={OrderId}",
-                    userId, existingTopUp.OrderId);
-            }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Failed to reconstruct VietQR URL for idempotent replay. UserId={UserId}, OrderId={OrderId}",
+                        userId, existingTopUp.OrderId);
+                }
 
-            var replayBase64 = string.IsNullOrEmpty(qrUrlForReplay)
-                ? null
-                : await TryFetchQrBase64Async(qrUrlForReplay, userId, existingTopUp.OrderId);
+                var replayBase64 = string.IsNullOrEmpty(qrUrlForReplay)
+                    ? null
+                    : await TryFetchQrBase64Async(qrUrlForReplay, userId, existingTopUp.OrderId);
 
-            return new TopUpResponseDto
-            {
-                PaymentUrl = existingTopUp.OrderId,
-                QrUrl = qrUrlForReplay,
-                QrImageBase64 = replayBase64,
-                OrderId = existingTopUp.OrderId,
-                ExpectedBvc = existingTopUp.ExpectedBvc,
-                ExpiresAt = existingTopUp.ExpiresAt,
-                IdempotencyKey = request.IdempotencyKey
-            };
-        }
+                await topUpTx.CommitAsync(default);
+                return new TopUpResponseDto
+                {
+                    PaymentUrl = existingTopUp.OrderId,
+                    QrUrl = qrUrlForReplay,
+                    QrImageBase64 = replayBase64,
+                    OrderId = existingTopUp.OrderId,
+                    ExpectedBvc = existingTopUp.ExpectedBvc,
+                    ExpiresAt = existingTopUp.ExpiresAt,
+                    IdempotencyKey = request.IdempotencyKey
+                };
+            }
 
         var bvcAmount = request.AmountVnd / BvcVndRate;
         if (bvcAmount <= 0)
@@ -244,7 +256,25 @@ public class WalletService : IWalletService
             ExpiresAt = now.AddMinutes(TopUpQrExpiryMinutes)
         };
         await _topUpRequestRepository.AddAsync(topUpRequest);
-        await _topUpRequestRepository.SaveChangesAsync();
+
+        // GAP-R4-A2: Catch unique-violation race — request thứ 2 với cùng IdempotencyKey
+        // đã được insert bởi request thứ 1 trong transaction Serializable. DB reject duplicate
+        // → replay response từ request thứ 1 (đã được process).
+        try
+        {
+            await _topUpRequestRepository.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+        {
+            _logger.LogWarning(
+                "Top-up duplicate IdempotencyKey race detected. UserId={UserId}, Key={Key}",
+                userId, request.IdempotencyKey);
+            await topUpTx.RollbackAsync(default);
+            // Replay existing request
+            return await CreateTopUpAsync(userId, request);
+        }
+
+        await topUpTx.CommitAsync(default);
 
         _logger.LogInformation(
             "Top-up quote created. UserId={UserId}, BvcAmount={Bvc}, OrderId={OrderId}, TopUpRequestId={TopUpRequestId}",
@@ -264,6 +294,23 @@ public class WalletService : IWalletService
             ExpiresAt = topUpRequest.ExpiresAt,
             IdempotencyKey = request.IdempotencyKey
         };
+        }
+        catch (Exception ex) when (ex is not PaymentException and not BadRequestException and not ForbiddenException)
+        {
+            // GAP-R4-A2: Rollback khi có lỗi không mong đợi trong Serializable transaction.
+            _logger.LogError(ex, "Top-up failed. UserId={UserId}, Key={Key}", userId, request.IdempotencyKey);
+            await topUpTx.RollbackAsync(default);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// GAP-R4-A2: Detect Postgres unique-violation để replay idempotent request.
+    /// SqlState 23505 = unique_violation.
+    /// </summary>
+    private static bool IsUniqueViolation(DbUpdateException ex)
+    {
+        return ex.InnerException is Npgsql.PostgresException pg && pg.SqlState == "23505";
     }
 
     /// <summary>
@@ -1291,7 +1338,9 @@ public class WalletService : IWalletService
             RelatedReservationId = entry.RelatedReservationId,
             RelatedPaymentRef = entry.RelatedPaymentRef,
             BalanceSnapshot = entry.BalanceSnapshot,
-            Note = entry.Note,
+            // GAP-R6-WAL-PII Fix: redact PII (email/phone) in Note before returning to client.
+            // Ledger có thể chứa raw email/phone từ các integration cũ. Truncate email local-part + mask phone.
+            Note = PiiMasker.MaskNote(entry.Note),
             CreatedAt = entry.CreatedAt
         };
     }
@@ -1305,7 +1354,7 @@ public class WalletService : IWalletService
         int pageSize,
         string? searchTerm = null,
         AccountStatus? statusFilter = null,
-        RiskLevel? riskLevelFilter = null)
+        RiskLevel? riskLevelFilter = null, CancellationToken cancellationToken = default)
     {
         if (page < 1) page = 1;
         if (pageSize < 1) pageSize = 20;
@@ -1361,7 +1410,7 @@ public class WalletService : IWalletService
         };
     }
 
-    public async Task<AdminUserTransactionsPageDto> GetUserTransactionsAsync(Guid userId, int page, int pageSize)
+    public async Task<AdminUserTransactionsPageDto> GetUserTransactionsAsync(Guid userId, int page, int pageSize, CancellationToken cancellationToken = default)
     {
         if (page < 1) page = 1;
         if (pageSize < 1) pageSize = 20;
@@ -1493,9 +1542,14 @@ public class WalletService : IWalletService
 
     /// <summary>
     /// W-05: Verify SUM(ledger entries) = wallet.availableBalance.
-    /// Credits: TopUp + AdminCredit.
-    /// Debits: DepositHold + AdminDebit + DepositCapture + DepositForfeit.
+    /// Credits: TopUp + AdminCredit + DepositRelease (release từ held về available).
+    /// Debits:  DepositHold + AdminDebit + DepositCapture + DepositForfeit.
     /// </summary>
+    /// <remarks>
+    /// GAP-R6-WAL-01 Fix: trước đây <c>DepositRelease</c> bị bỏ sót khỏi creditTypes,
+    /// khiến wallet/ledger drift khi player cancel lobby → BVC refund về available.
+    /// Đã thêm DepositRelease vì release làm tăng available (HeldBalance → AvailableBalance).
+    /// </remarks>
     public async Task<WalletReconcileResultDto> ReconcileWalletAsync(Guid userId)
     {
         var wallet = await _walletRepository.GetByUserIdAsync(userId);
@@ -1504,8 +1558,21 @@ public class WalletService : IWalletService
             throw new NotFoundException(ApiErrorMessages.Wallet.NotFound(userId));
         }
 
-        var creditTypes = new[] { LedgerEntryType.TopUp, LedgerEntryType.AdminCredit };
-        var debitTypes = new[] { LedgerEntryType.DepositHold, LedgerEntryType.AdminDebit, LedgerEntryType.DepositCapture, LedgerEntryType.DepositForfeit };
+        // GAP-R6-WAL-01: DepositRelease là credit — nó hoàn tiền từ held về available
+        // (HeldBalance giảm, AvailableBalance tăng). Bỏ sót → reconcile luôn mismatch.
+        var creditTypes = new[]
+        {
+            LedgerEntryType.TopUp,
+            LedgerEntryType.AdminCredit,
+            LedgerEntryType.DepositRelease,
+        };
+        var debitTypes = new[]
+        {
+            LedgerEntryType.DepositHold,
+            LedgerEntryType.AdminDebit,
+            LedgerEntryType.DepositCapture,
+            LedgerEntryType.DepositForfeit,
+        };
 
         var credits = await _ledgerRepository.SumAmountByTypesAsync(userId, creditTypes);
         var debits = await _ledgerRepository.SumAmountByTypesAsync(userId, debitTypes);

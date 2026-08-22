@@ -28,7 +28,7 @@ public class TournamentWaitlistService : ITournamentWaitlistService
         _logger = logger;
     }
 
-    public async Task<TournamentWaitlistEntryDto> JoinWaitlistAsync(Guid userId, Guid tournamentId)
+    public async Task<TournamentWaitlistEntryDto> JoinWaitlistAsync(Guid userId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -80,19 +80,19 @@ public class TournamentWaitlistService : ITournamentWaitlistService
         return MapToDto(entry);
     }
 
-    public async Task<IReadOnlyList<TournamentWaitlistEntryDto>> GetWaitlistAsync(Guid tournamentId)
+    public async Task<IReadOnlyList<TournamentWaitlistEntryDto>> GetWaitlistAsync(Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var entries = await _waitlistRepository.GetByTournamentAsync(tournamentId);
         return entries.Select(MapToDto).ToList();
     }
 
-    public async Task<TournamentWaitlistEntryDto?> GetMyWaitlistEntryAsync(Guid userId, Guid tournamentId)
+    public async Task<TournamentWaitlistEntryDto?> GetMyWaitlistEntryAsync(Guid userId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var entry = await _waitlistRepository.GetPendingByUserAsync(tournamentId, userId);
         return entry != null ? MapToDto(entry) : null;
     }
 
-    public async Task CancelWaitlistAsync(Guid userId, Guid tournamentId)
+    public async Task CancelWaitlistAsync(Guid userId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var entry = await _waitlistRepository.GetPendingByUserAsync(tournamentId, userId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.Waitlist.NotInWaitlist);
@@ -106,7 +106,7 @@ public class TournamentWaitlistService : ITournamentWaitlistService
             userId, tournamentId);
     }
 
-    public async Task<TournamentWaitlistEntryDto> ConfirmFromWaitlistAsync(Guid userId, Guid tournamentId)
+    public async Task<TournamentWaitlistEntryDto> ConfirmFromWaitlistAsync(Guid userId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var entry = await _waitlistRepository.GetPendingByUserAsync(tournamentId, userId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.Waitlist.NotInWaitlist);
@@ -137,7 +137,7 @@ public class TournamentWaitlistService : ITournamentWaitlistService
         return MapToDto(entry);
     }
 
-    public async Task<TournamentWaitlistEntryDto> DeclineOfferAsync(Guid userId, Guid tournamentId)
+    public async Task<TournamentWaitlistEntryDto> DeclineOfferAsync(Guid userId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var entry = await _waitlistRepository.GetPendingByUserAsync(tournamentId, userId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.Waitlist.NotInWaitlist);

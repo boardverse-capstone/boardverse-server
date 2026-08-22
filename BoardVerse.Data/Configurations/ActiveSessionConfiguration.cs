@@ -82,6 +82,13 @@ namespace BoardVerse.Data.Configurations
             builder.HasIndex(s => s.LobbyId);
             builder.HasIndex(s => s.GameTemplateId).HasDatabaseName("IX_ActiveSessions_GameTemplateId"); // L7
 
+            // GAP-R3-07 Fix: thêm index cho background jobs quét active sessions
+            // - Status alone: AutoReleaseExpiredSessionsJob và SessionExtensionRequestExpiryJob quét theo status
+            //   không cần filter theo cafe (cross-cafe sweep).
+            // - EndedAt: AutoRelease dùng EndedAt + 30p grace để tính cutoff.
+            builder.HasIndex(s => s.Status).HasDatabaseName("IX_ActiveSessions_Status");
+            builder.HasIndex(s => s.EndedAt).HasDatabaseName("IX_ActiveSessions_EndedAt");
+
             // P3 Fix #18: Add unique index on OrderId where not null to prevent duplicates
             builder.HasIndex(s => s.OrderId)
                 .IsUnique()

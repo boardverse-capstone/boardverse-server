@@ -24,7 +24,7 @@ public class FriendReportService : IFriendReportService
         _userRepository = userRepository;
     }
 
-    public async Task<FriendReportDto> SubmitReportAsync(Guid reporterId, CreateFriendReportDto dto)
+    public async Task<FriendReportDto> SubmitReportAsync(Guid reporterId, CreateFriendReportDto dto, CancellationToken cancellationToken = default)
     {
         if (dto.TargetUserId == reporterId)
             throw new BadRequestException(ApiErrorMessages.Friend.CannotReportSelf);
@@ -80,7 +80,7 @@ public class FriendReportService : IFriendReportService
         };
     }
 
-    public async Task<IReadOnlyList<FriendReportDto>> GetMyReportsAsync(Guid reporterId)
+    public async Task<IReadOnlyList<FriendReportDto>> GetMyReportsAsync(Guid reporterId, CancellationToken cancellationToken = default)
     {
         var reports = await _reportRepository.GetByReporterAsync(reporterId);
         if (reports.Count == 0) return Array.Empty<FriendReportDto>();
@@ -114,7 +114,7 @@ public class FriendReportService : IFriendReportService
     };
 
     public async Task<(IReadOnlyList<FriendReportDto> Items, int Total)> GetAllForAdminAsync(
-        string? status, int offset, int limit)
+        string? status, int offset, int limit, CancellationToken cancellationToken = default)
     {
         // Validate status filter
         if (!string.IsNullOrWhiteSpace(status)
@@ -153,7 +153,7 @@ public class FriendReportService : IFriendReportService
         Guid adminUserId,
         Guid reportId,
         string newStatus,
-        string? adminNote)
+        string? adminNote, CancellationToken cancellationToken = default)
     {
         if (!AllowedResolveStatuses.Contains(newStatus))
         {

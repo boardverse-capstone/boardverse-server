@@ -14,7 +14,7 @@ public class ReservationRepository : IReservationRepository
         _db = db;
     }
 
-    public async Task<Reservation?> GetByIdAsync(Guid reservationId, bool includeRelations = false)
+    public async Task<Reservation?> GetByIdAsync(Guid reservationId, bool includeRelations = false, CancellationToken cancellationToken = default)
     {
         var query = _db.Reservations.AsQueryable();
         if (includeRelations)
@@ -27,31 +27,31 @@ public class ReservationRepository : IReservationRepository
                 .Include(r => r.SeatInventory)
                 .Include(r => r.GameInventory);
         }
-        return await query.FirstOrDefaultAsync(r => r.Id == reservationId);
+        return await query.FirstOrDefaultAsync(r => r.Id == reservationId, cancellationToken);
     }
 
-    public async Task<Reservation?> GetByIdempotencyKeyAsync(string idempotencyKey)
+    public async Task<Reservation?> GetByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken = default)
     {
         return await _db.Reservations
             .Include(r => r.Lobby)
-            .FirstOrDefaultAsync(r => r.IdempotencyKey == idempotencyKey);
+            .FirstOrDefaultAsync(r => r.IdempotencyKey == idempotencyKey, cancellationToken);
     }
 
-    public Task<Reservation?> GetByReservationCodeAsync(string reservationCode)
+    public Task<Reservation?> GetByReservationCodeAsync(string reservationCode, CancellationToken cancellationToken = default)
     {
-        return _db.Reservations.FirstOrDefaultAsync(r => r.ReservationCode == reservationCode);
+        return _db.Reservations.FirstOrDefaultAsync(r => r.ReservationCode == reservationCode, cancellationToken);
     }
 
-    public Task<Reservation?> GetByLobbyIdAsync(Guid lobbyId)
+    public Task<Reservation?> GetByLobbyIdAsync(Guid lobbyId, CancellationToken cancellationToken = default)
     {
-        return _db.Reservations.FirstOrDefaultAsync(r => r.LobbyId == lobbyId);
+        return _db.Reservations.FirstOrDefaultAsync(r => r.LobbyId == lobbyId, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Reservation>> GetByHostAndPlayDateAsync(Guid hostId, DateOnly playDate)
+    public async Task<IReadOnlyList<Reservation>> GetByHostAndPlayDateAsync(Guid hostId, DateOnly playDate, CancellationToken cancellationToken = default)
     {
         return await _db.Reservations
             .Where(r => r.HostId == hostId && r.PlayDate == playDate)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
     private static readonly HashSet<ReservationStatus> ActiveReservationStatuses = new()
@@ -61,35 +61,55 @@ public class ReservationRepository : IReservationRepository
         ReservationStatus.CheckedIn
     };
 
+    /// <summary>
+    /// GAP-01 fix (2026-08-21): Đếm reservation active cho cafe + playDate + khung giờ cụ thể.
+    /// BR-NEW-15: Dùng PreferredStartTime/PreferredEndTime thay vì TimeSlot enum.
+    /// </summary>
     public async Task<IReadOnlyList<Reservation>> GetActiveByCafePlayDateSlotAsync(
-        Guid cafeId, DateOnly playDate, TimeSlot timeSlot)
+        Guid cafeId, DateOnly playDate, TimeOnly preferredStartTime, TimeOnly preferredEndTime,
+        CancellationToken cancellationToken = default)
     {
         return await _db.Reservations
             .Where(r => r.CafeId == cafeId
                 && r.PlayDate == playDate
-                && r.TimeSlot == timeSlot
+                && r.PreferredStartTime == preferredStartTime
+                && r.PreferredEndTime == preferredEndTime
                 && ActiveReservationStatuses.Contains(r.Status))
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Reservation>> GetActiveByHostAsync(Guid hostId)
+    /// <summary>
+    /// GAP-01 fix (2026-08-21): Lấy tất cả reservation active cho cafe + playDate.
+    /// Dùng cho CafeService dashboard - không cần filter theo slot cố định.
+    /// </summary>
+    public async Task<IReadOnlyList<Reservation>> GetActiveByCafePlayDateAsync(Guid cafeId, DateOnly playDate, CancellationToken cancellationToken = default)
+    {
+        return await _db.Reservations
+            .Where(r => r.CafeId == cafeId
+                && r.PlayDate == playDate
+                && ActiveReservationStatuses.Contains(r.Status))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Reservation>> GetActiveByHostAsync(Guid hostId, CancellationToken cancellationToken = default)
     {
         return await _db.Reservations
             .Where(r => r.HostId == hostId && ActiveReservationStatuses.Contains(r.Status))
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Reservation>> GetJoinedByUserAsync(Guid userId)
+    public async Task<IReadOnlyList<Reservation>> GetJoinedByUserAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         return await _db.Reservations
             .Where(r => ActiveReservationStatuses.Contains(r.Status)
                 && r.Lobby != null
                 && r.Lobby.Members.Any(m => m.UserId == userId && m.IsActive))
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<Reservation>> GetOverlappingReservationsAsync(
-        Guid cafeId, DateTime startTime, DateTime endTime)
+        Guid cafeId, DateTime startTime, DateTime endTime,
+        CancellationToken cancellationToken = default)
     {
         // Reservation overlap với [startTime, endTime] khi:
         //   reservation.ScheduledStartTime < endTime
@@ -101,7 +121,7 @@ public class ReservationRepository : IReservationRepository
                 r.CafeId == cafeId
                 && r.ScheduledStartTime < endTime
                 && r.ScheduledEndTime > startTime)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
     /// <summary>
@@ -109,7 +129,7 @@ public class ReservationRepository : IReservationRepository
     /// instance ReservationDeadlineJob không pick trùng reservation.
     /// Caller phải wrap transaction trước khi gọi (BR §17.3).
     /// </summary>
-    public async Task<IReadOnlyList<Reservation>> GetDueForDeadlineAsync(DateTime cutoff, int limit = 100)
+    public async Task<IReadOnlyList<Reservation>> GetDueForDeadlineAsync(DateTime cutoff, int limit = 100, CancellationToken cancellationToken = default)
     {
         return await _db.Reservations
             .FromSqlRaw(
@@ -119,13 +139,13 @@ public class ReservationRepository : IReservationRepository
                 "LIMIT {2} " +
                 "FOR UPDATE SKIP LOCKED",
                 (int)ReservationStatus.Holding, cutoff, limit)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
     /// <summary>
     /// GAP #23 fix: cluster-safe — FOR UPDATE SKIP LOCKED + push filter xuống SQL.
     /// </summary>
-    public async Task<IReadOnlyList<Reservation>> GetDueForCafeApprovalExpiryAsync(DateTime cutoff, int limit = 100)
+    public async Task<IReadOnlyList<Reservation>> GetDueForCafeApprovalExpiryAsync(DateTime cutoff, int limit = 100, CancellationToken cancellationToken = default)
     {
         // BR-NEW-11: lobby PendingCafeApproval quá 24 giờ → expiredByCafe.
         // SKIP LOCKED trên join: Postgres lock row Reservation, lookup Lobby sau.
@@ -143,7 +163,7 @@ public class ReservationRepository : IReservationRepository
                 LobbyStatus.PendingCafeApproval.ToString(),
                 cutoff,
                 limit)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         return pendingIds;
     }
@@ -153,7 +173,7 @@ public class ReservationRepository : IReservationRepository
     /// vẫn Confirmed (chưa check-in). scheduledStartTime lưu sẵn ở Reservation.ScheduledStartTime.
     /// Dùng LINQ để filter trong C# tránh hard-code SQL cho enum.
     /// </summary>
-    public async Task<IReadOnlyList<Reservation>> GetDueForNoShowAsync(DateTime cutoff, int limit = 100)
+    public async Task<IReadOnlyList<Reservation>> GetDueForNoShowAsync(DateTime cutoff, int limit = 100, CancellationToken cancellationToken = default)
     {
         var graceCutoff = cutoff.AddMinutes(-30);
 
@@ -162,14 +182,14 @@ public class ReservationRepository : IReservationRepository
                 && r.ScheduledStartTime <= graceCutoff)
             .OrderBy(r => r.ScheduledStartTime)
             .Take(limit)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
-    public async Task<int> CountHostActionsForPlayDateAsync(Guid hostId, DateOnly playDate)
+    public async Task<int> CountHostActionsForPlayDateAsync(Guid hostId, DateOnly playDate, CancellationToken cancellationToken = default)
     {
         return await _db.Reservations
             .Where(r => r.HostId == hostId && r.PlayDate == playDate)
-            .CountAsync();
+            .CountAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<Reservation>> GetNoShowCandidatesAsync(DateTime cutoff, CancellationToken ct = default)
@@ -189,7 +209,8 @@ public class ReservationRepository : IReservationRepository
         DateOnly? playDate,
         Guid? cafeId,
         int page,
-        int pageSize)
+        int pageSize,
+        CancellationToken cancellationToken = default)
     {
         var query = _db.Reservations
             .Include(r => r.Host).ThenInclude(u => u.Profile)
@@ -241,14 +262,14 @@ public class ReservationRepository : IReservationRepository
         }
 
         // Count total
-        var totalCount = await query.CountAsync();
+        var totalCount = await query.CountAsync(cancellationToken);
 
         // Paginate
         var items = await query
             .OrderByDescending(r => r.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         return (items, totalCount);
     }
@@ -262,7 +283,8 @@ public class ReservationRepository : IReservationRepository
         Guid? cafeId,
         DateOnly? playDate,
         int page,
-        int pageSize)
+        int pageSize,
+        CancellationToken cancellationToken = default)
     {
         if (cafeIds.Count == 0)
         {
@@ -293,7 +315,7 @@ public class ReservationRepository : IReservationRepository
         }
 
         // Count total
-        var totalCount = await query.CountAsync();
+        var totalCount = await query.CountAsync(cancellationToken);
 
         // Paginate
         var items = await query
@@ -301,7 +323,7 @@ public class ReservationRepository : IReservationRepository
             .ThenByDescending(r => r.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         return (items, totalCount);
     }
@@ -309,7 +331,7 @@ public class ReservationRepository : IReservationRepository
     /// <summary>
     /// BR-NEW-11: Lấy 1 reservation pending cafe approval theo ID.
     /// </summary>
-    public async Task<Reservation?> GetPendingCafeApprovalByIdAsync(Guid reservationId)
+    public async Task<Reservation?> GetPendingCafeApprovalByIdAsync(Guid reservationId, CancellationToken cancellationToken = default)
     {
         return await _db.Reservations
             .Include(r => r.Host).ThenInclude(u => u.Profile)
@@ -317,25 +339,39 @@ public class ReservationRepository : IReservationRepository
             .Include(r => r.Game)
             .Include(r => r.Lobby)
             .Where(r => r.Id == reservationId && r.Lobby != null && r.Lobby.Status == LobbyStatus.PendingCafeApproval)
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
-    public Task AddAsync(Reservation reservation)
+    public Task AddAsync(Reservation reservation, CancellationToken cancellationToken = default)
     {
         _db.Reservations.Add(reservation);
         return Task.CompletedTask;
     }
 
-    public Task UpdateAsync(Reservation reservation)
+    public Task UpdateAsync(Reservation reservation, CancellationToken cancellationToken = default)
     {
         reservation.UpdatedAt = DateTime.UtcNow;
-        _db.Reservations.Update(reservation);
+
+        // GAP-R6-RT-NEW: nếu instance đã được tracked (qua Include navigation trong
+        // cùng DbContext — vd. LobbyRepository.GetByIdAsync include Reservation),
+        // KHÔNG gọi _db.Reservations.Update() — sẽ throw "another instance with the same key
+        // value is already being tracked". Đánh Modified trên entry hiện tại thay thế.
+        var alreadyTracked = _db.Reservations.Local.Any(e => e.Id == reservation.Id);
+        if (alreadyTracked)
+        {
+            _db.Entry(reservation).State = EntityState.Modified;
+        }
+        else
+        {
+            _db.Reservations.Update(reservation);
+        }
+
         return Task.CompletedTask;
     }
 
-    public Task SaveChangesAsync()
+    public async Task SaveChangesAsync(CancellationToken cancellationToken = default)
     {
-        return _db.SaveChangesAsync();
+        await _db.SaveChangesAsync(cancellationToken);
     }
 
     /// <summary>
@@ -347,7 +383,8 @@ public class ReservationRepository : IReservationRepository
         List<ReservationStatus>? statuses,
         DateOnly? playDate,
         int page,
-        int pageSize)
+        int pageSize,
+        CancellationToken cancellationToken = default)
     {
         var query = _db.Reservations
             .Include(r => r.Host).ThenInclude(u => u.Profile)
@@ -366,13 +403,13 @@ public class ReservationRepository : IReservationRepository
             query = query.Where(r => r.PlayDate == playDate.Value);
         }
 
-        var totalCount = await query.CountAsync();
+        var totalCount = await query.CountAsync(cancellationToken);
 
         var items = await query
             .OrderByDescending(r => r.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         return (items, totalCount);
     }

@@ -21,7 +21,7 @@ public class LobbyServiceTests
         var gameId = Guid.NewGuid();
 
         var gameRepo = new Mock<IGameTemplateRepository>();
-        gameRepo.Setup(r => r.GetByIdWithComponentsAsync(gameId)).ReturnsAsync(new GameTemplate
+        gameRepo.Setup(r => r.GetByIdWithComponentsAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync(new GameTemplate
         {
             Id = gameId,
             Name = "Catan",
@@ -66,7 +66,7 @@ public class LobbyServiceTests
 
         var lobbyRepo = new Mock<ILobbyRepository>();
         // JoinLobbyAsync uses GetByIdForUpdateAsync (H4: SELECT FOR UPDATE) to prevent race conditions.
-        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
 
@@ -107,7 +107,7 @@ public class LobbyServiceTests
         var gameId = Guid.NewGuid();
 
         var gameRepo = new Mock<IGameTemplateRepository>();
-        gameRepo.Setup(r => r.GetByIdWithComponentsAsync(gameId)).ReturnsAsync(new GameTemplate
+        gameRepo.Setup(r => r.GetByIdWithComponentsAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync(new GameTemplate
         {
             Id = gameId,
             Name = "Catan",
@@ -138,7 +138,7 @@ public class LobbyServiceTests
         var gameId = Guid.NewGuid();
 
         var gameRepo = new Mock<IGameTemplateRepository>();
-        gameRepo.Setup(r => r.GetByIdWithComponentsAsync(gameId)).ReturnsAsync((GameTemplate?)null);
+        gameRepo.Setup(r => r.GetByIdWithComponentsAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync((GameTemplate?)null);
 
         var lobbyRepo = new Mock<ILobbyRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
@@ -161,7 +161,7 @@ public class LobbyServiceTests
         var gameId = Guid.NewGuid();
 
         var gameRepo = new Mock<IGameTemplateRepository>();
-        gameRepo.Setup(r => r.GetByIdWithComponentsAsync(gameId)).ReturnsAsync(new GameTemplate
+        gameRepo.Setup(r => r.GetByIdWithComponentsAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync(new GameTemplate
         {
             Id = gameId,
             Name = "Catan",
@@ -185,7 +185,7 @@ public class LobbyServiceTests
         Assert.Equal(hostId, result.HostUserId);
         Assert.Single(result.Members);
         Assert.True(result.Members[0].IsHost);
-        lobbyRepo.Verify(r => r.AddAsync(It.IsAny<Lobby>()), Times.Once);
+        lobbyRepo.Verify(r => r.AddAsync(It.IsAny<Lobby>(), It.IsAny<CancellationToken>()), Times.Once);
         lobbyRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
     }
 
@@ -199,7 +199,7 @@ public class LobbyServiceTests
         var lobbyId = Guid.NewGuid();
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync((Lobby?)null);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync((Lobby?)null);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
@@ -223,7 +223,7 @@ public class LobbyServiceTests
 
         var lobbyRepo = new Mock<ILobbyRepository>();
         // JoinLobbyAsync uses GetByIdForUpdateAsync (H4: SELECT FOR UPDATE) to prevent race conditions.
-        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
@@ -251,7 +251,7 @@ public class LobbyServiceTests
 
         var lobbyRepo = new Mock<ILobbyRepository>();
         // JoinLobbyAsync uses GetByIdForUpdateAsync (H4: SELECT FOR UPDATE) to prevent race conditions.
-        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
@@ -281,7 +281,7 @@ public class LobbyServiceTests
 
         var lobbyRepo = new Mock<ILobbyRepository>();
         // JoinLobbyAsync uses GetByIdForUpdateAsync (H4: SELECT FOR UPDATE) to prevent race conditions.
-        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
@@ -310,12 +310,12 @@ public class LobbyServiceTests
 
         var lobbyRepo = new Mock<ILobbyRepository>();
         // JoinLobbyAsync uses GetByIdForUpdateAsync (H4: SELECT FOR UPDATE) to prevent race conditions.
-        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId)).ReturnsAsync(lobby);
-        lobbyRepo.Setup(r => r.GetActiveLobbiesByHostAsync(It.IsAny<Guid>())).ReturnsAsync(new List<Lobby>());
-        lobbyRepo.Setup(r => r.GetActiveLobbiesByMemberAsync(It.IsAny<Guid>())).ReturnsAsync(new List<Lobby>());
+        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetActiveLobbiesByHostAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<Lobby>());
+        lobbyRepo.Setup(r => r.GetActiveLobbiesByMemberAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<Lobby>());
 
         var userRepo = new Mock<IUserManagementRepository>();
-        userRepo.Setup(r => r.GetByIdWithProfileAsync(It.IsAny<Guid>())).ReturnsAsync(new User { Id = newUserId, Username = "newuser", Email = "new@test.com" });
+        userRepo.Setup(r => r.GetByIdWithProfileAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(new User { Id = newUserId, Username = "newuser", Email = "new@test.com" });
 
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, userRepo.Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
@@ -346,12 +346,12 @@ public class LobbyServiceTests
 
         var lobbyRepo = new Mock<ILobbyRepository>();
         // JoinLobbyAsync uses GetByIdForUpdateAsync (H4: SELECT FOR UPDATE) to prevent race conditions.
-        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId)).ReturnsAsync(lobby);
-        lobbyRepo.Setup(r => r.GetActiveLobbiesByHostAsync(It.IsAny<Guid>())).ReturnsAsync(new List<Lobby>());
-        lobbyRepo.Setup(r => r.GetActiveLobbiesByMemberAsync(It.IsAny<Guid>())).ReturnsAsync(new List<Lobby>());
+        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetActiveLobbiesByHostAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<Lobby>());
+        lobbyRepo.Setup(r => r.GetActiveLobbiesByMemberAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<Lobby>());
 
         var userRepo = new Mock<IUserManagementRepository>();
-        userRepo.Setup(r => r.GetByIdWithProfileAsync(It.IsAny<Guid>())).ReturnsAsync(new User { Id = user1Id, Username = "user1", Email = "u1@test.com" });
+        userRepo.Setup(r => r.GetByIdWithProfileAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(new User { Id = user1Id, Username = "user1", Email = "u1@test.com" });
 
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, userRepo.Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
@@ -370,7 +370,7 @@ public class LobbyServiceTests
     public async Task LeaveLobbyAsync_LobbyNotFound_ThrowsNotFoundException()
     {
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((Lobby?)null);
+        lobbyRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((Lobby?)null);
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
 
@@ -390,7 +390,7 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
 
@@ -415,7 +415,7 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
 
@@ -445,7 +445,7 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
 
@@ -476,7 +476,7 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
 
@@ -501,7 +501,7 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
 
@@ -528,7 +528,7 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
 
@@ -553,7 +553,7 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetActiveLobbiesForGameAsync(gameId, null)).ReturnsAsync(lobbies);
+        lobbyRepo.Setup(r => r.GetActiveLobbiesForGameAsync(gameId, null, It.IsAny<CancellationToken>())).ReturnsAsync(lobbies);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
@@ -596,7 +596,7 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetActiveLobbiesForGameAsync(gameId, null)).ReturnsAsync(lobbies);
+        lobbyRepo.Setup(r => r.GetActiveLobbiesForGameAsync(gameId, null, It.IsAny<CancellationToken>())).ReturnsAsync(lobbies);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
@@ -628,7 +628,7 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
 
@@ -653,7 +653,7 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
 
@@ -681,7 +681,7 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
 
@@ -704,7 +704,7 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
 
@@ -724,7 +724,7 @@ public class LobbyServiceTests
         var gameId = Guid.NewGuid();
 
         var gameRepo = new Mock<IGameTemplateRepository>();
-        gameRepo.Setup(r => r.GetByIdWithComponentsAsync(gameId)).ReturnsAsync(new GameTemplate
+        gameRepo.Setup(r => r.GetByIdWithComponentsAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync(new GameTemplate
         {
             Id = gameId,
             Name = "Catan",
@@ -733,7 +733,7 @@ public class LobbyServiceTests
 
         var lobbyRepo = new Mock<ILobbyRepository>();
         Lobby? captured = null;
-        lobbyRepo.Setup(r => r.AddAsync(It.IsAny<Lobby>()))
+        lobbyRepo.Setup(r => r.AddAsync(It.IsAny<Lobby>(), It.IsAny<CancellationToken>()))
             .Callback<Lobby>(l => captured = l)
             .Returns(Task.CompletedTask);
 
@@ -761,7 +761,7 @@ public class LobbyServiceTests
         var gameId = Guid.NewGuid();
 
         var gameRepo = new Mock<IGameTemplateRepository>();
-        gameRepo.Setup(r => r.GetByIdWithComponentsAsync(gameId)).ReturnsAsync(new GameTemplate
+        gameRepo.Setup(r => r.GetByIdWithComponentsAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync(new GameTemplate
         {
             Id = gameId,
             Name = "Catan",
@@ -770,7 +770,7 @@ public class LobbyServiceTests
 
         var lobbyRepo = new Mock<ILobbyRepository>();
         Lobby? captured = null;
-        lobbyRepo.Setup(r => r.AddAsync(It.IsAny<Lobby>()))
+        lobbyRepo.Setup(r => r.AddAsync(It.IsAny<Lobby>(), It.IsAny<CancellationToken>()))
             .Callback<Lobby>(l => captured = l)
             .Returns(Task.CompletedTask);
 
@@ -810,7 +810,7 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
@@ -844,7 +844,7 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
@@ -876,7 +876,7 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
@@ -914,7 +914,7 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
@@ -948,10 +948,10 @@ public class LobbyServiceTests
 
         var lobbyRepo = new Mock<ILobbyRepository>();
         // JoinLobbyAsync uses GetByIdForUpdateAsync (H4: SELECT FOR UPDATE) to prevent race conditions.
-        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var userRepo = new Mock<IUserManagementRepository>();
-        userRepo.Setup(r => r.GetByIdWithProfileAsync(newUserId)).ReturnsAsync(new User
+        userRepo.Setup(r => r.GetByIdWithProfileAsync(newUserId, It.IsAny<CancellationToken>())).ReturnsAsync(new User
         {
             Id = newUserId,
             Username = "newbie",
@@ -991,12 +991,12 @@ public class LobbyServiceTests
 
         var lobbyRepo = new Mock<ILobbyRepository>();
         // JoinLobbyAsync uses GetByIdForUpdateAsync (H4: SELECT FOR UPDATE) to prevent race conditions.
-        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId)).ReturnsAsync(lobby);
-        lobbyRepo.Setup(r => r.GetActiveLobbiesByHostAsync(It.IsAny<Guid>())).ReturnsAsync(new List<Lobby>());
-        lobbyRepo.Setup(r => r.GetActiveLobbiesByMemberAsync(It.IsAny<Guid>())).ReturnsAsync(new List<Lobby>());
+        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetActiveLobbiesByHostAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<Lobby>());
+        lobbyRepo.Setup(r => r.GetActiveLobbiesByMemberAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<Lobby>());
 
         var userRepo = new Mock<IUserManagementRepository>();
-        userRepo.Setup(r => r.GetByIdWithProfileAsync(newUserId)).ReturnsAsync(new User
+        userRepo.Setup(r => r.GetByIdWithProfileAsync(newUserId, It.IsAny<CancellationToken>())).ReturnsAsync(new User
         {
             Id = newUserId,
             Username = "veteran",
@@ -1038,13 +1038,13 @@ public class LobbyServiceTests
 
         var lobbyRepo = new Mock<ILobbyRepository>();
         // JoinLobbyAsync uses GetByIdForUpdateAsync (H4: SELECT FOR UPDATE) to prevent race conditions.
-        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId)).ReturnsAsync(lobby);
-        lobbyRepo.Setup(r => r.GetActiveLobbiesByHostAsync(It.IsAny<Guid>())).ReturnsAsync(new List<Lobby>());
-        lobbyRepo.Setup(r => r.GetActiveLobbiesByMemberAsync(It.IsAny<Guid>())).ReturnsAsync(new List<Lobby>());
+        lobbyRepo.Setup(r => r.GetByIdForUpdateAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetActiveLobbiesByHostAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<Lobby>());
+        lobbyRepo.Setup(r => r.GetActiveLobbiesByMemberAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<Lobby>());
 
         var userRepo = new Mock<IUserManagementRepository>();
         // KHÔNG cần setup GetByIdWithProfileAsync vì MinKarmaScore=null → skip check.
-        userRepo.Setup(r => r.GetByIdWithProfileAsync(It.IsAny<Guid>()))
+        userRepo.Setup(r => r.GetByIdWithProfileAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new User { Id = newUserId, Username = "any", Email = "any@test.com", Profile = new UserProfile { KarmaPoints = 0 } });
 
         var gameRepo = new Mock<IGameTemplateRepository>();
@@ -1074,7 +1074,7 @@ public class LobbyServiceTests
         };
 
         var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var gameRepo = new Mock<IGameTemplateRepository>();
         var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);

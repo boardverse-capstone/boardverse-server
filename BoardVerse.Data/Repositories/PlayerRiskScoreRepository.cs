@@ -11,10 +11,10 @@ public class PlayerRiskScoreRepository : IPlayerRiskScoreRepository
 
     public PlayerRiskScoreRepository(BoardVerseDbContext db) => _db = db;
 
-    public Task<PlayerRiskScore?> GetByUserIdAsync(Guid userId) =>
+    public Task<PlayerRiskScore?> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default) =>
         _db.PlayerRiskScores.FirstOrDefaultAsync(s => s.UserId == userId);
 
-    public async Task UpsertAsync(PlayerRiskScore snapshot)
+    public async Task UpsertAsync(PlayerRiskScore snapshot, CancellationToken cancellationToken = default)
     {
         // BR-RISK-01: 1 user chỉ có 1 row. Upsert bằng cách check existing.
         var existing = await _db.PlayerRiskScores
@@ -34,12 +34,12 @@ public class PlayerRiskScoreRepository : IPlayerRiskScoreRepository
         }
     }
 
-    public async Task AppendHistoryAsync(RiskScoreHistory history)
+    public async Task AppendHistoryAsync(RiskScoreHistory history, CancellationToken cancellationToken = default)
     {
         await _db.RiskScoreHistories.AddAsync(history);
     }
 
-    public async Task<IReadOnlyList<Guid>> GetAllActiveUserIdsAsync(int batchSize, int skip)
+    public async Task<IReadOnlyList<Guid>> GetAllActiveUserIdsAsync(int batchSize, int skip, CancellationToken cancellationToken = default)
     {
         // BR-RISK-01: Tính cho users có Wallet (đã onboard BVC).
         return await _db.Wallets
@@ -51,7 +51,7 @@ public class PlayerRiskScoreRepository : IPlayerRiskScoreRepository
             .ToListAsync();
     }
 
-    public async Task<IReadOnlyList<RiskScoreHistory>> GetHistoryByUserIdAndDateRangeAsync(Guid userId, DateOnly fromDate, DateOnly toDate) =>
+    public async Task<IReadOnlyList<RiskScoreHistory>> GetHistoryByUserIdAndDateRangeAsync(Guid userId, DateOnly fromDate, DateOnly toDate, CancellationToken cancellationToken = default) =>
         await _db.RiskScoreHistories
             .AsNoTracking()
             .Where(h => h.UserId == userId && h.SnapshotDate >= fromDate && h.SnapshotDate <= toDate)

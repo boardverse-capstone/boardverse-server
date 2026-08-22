@@ -85,8 +85,8 @@ public class SettlementServiceTests
             DepositAppliedAmount = 50_000m
         };
 
-        _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(BuildCafe(cafeId));
-        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
+        _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildCafe(cafeId));
+        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
 
         var ex = await Assert.ThrowsAsync<ConflictException>(
             () => _service.ReleaseSessionDepositAsync(cafeId, sessionId, sessionId));
@@ -108,9 +108,9 @@ public class SettlementServiceTests
             DepositAppliedAmount = 0
         };
 
-        _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(BuildCafe(cafeId));
-        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
-        _mockSePayAccountService.Setup(s => s.GetRawMasterAccountAsync())
+        _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildCafe(cafeId));
+        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
+        _mockSePayAccountService.Setup(s => s.GetRawMasterAccountAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync((SePayAccount?)null);
 
         var ex = await Assert.ThrowsAsync<ConflictException>(
@@ -137,7 +137,7 @@ public class SettlementServiceTests
         };
 
         // Cafe without SePay config
-        _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(new Cafe
+        _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(new Cafe
         {
             Id = cafeId,
             Name = "Test Cafe",
@@ -145,8 +145,8 @@ public class SettlementServiceTests
             ManagerId = Guid.NewGuid()
             // SePayAccountNumber/SePayBankCode null intentionally
         });
-        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
-        _mockSePayAccountService.Setup(s => s.GetRawMasterAccountAsync())
+        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
+        _mockSePayAccountService.Setup(s => s.GetRawMasterAccountAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SePayAccount { Id = Guid.NewGuid(), AccountHolder = "Test", IsActive = true });
 
         var ex = await Assert.ThrowsAsync<ConflictException>(
@@ -169,11 +169,11 @@ public class SettlementServiceTests
             DepositAppliedAmount = 50_000m
         };
 
-        _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(BuildCafe(cafeId));
-        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
-        _mockSePayAccountService.Setup(s => s.GetRawMasterAccountAsync())
+        _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildCafe(cafeId));
+        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
+        _mockSePayAccountService.Setup(s => s.GetRawMasterAccountAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SePayAccount { Id = Guid.NewGuid(), AccountHolder = "Test", IsActive = true });
-        _mockDepositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync((BookingDeposit?)null);
+        _mockDepositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync((BookingDeposit?)null);
 
         await Assert.ThrowsAsync<NotFoundException>(
             () => _service.ReleaseSessionDepositAsync(cafeId, sessionId, sessionId));
@@ -203,11 +203,11 @@ public class SettlementServiceTests
             Status = BookingDepositStatus.Pending
         };
 
-        _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(BuildCafe(cafeId));
-        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
-        _mockSePayAccountService.Setup(s => s.GetRawMasterAccountAsync())
+        _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildCafe(cafeId));
+        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
+        _mockSePayAccountService.Setup(s => s.GetRawMasterAccountAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SePayAccount { Id = Guid.NewGuid(), AccountHolder = "Test", IsActive = true });
-        _mockDepositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync(deposit);
+        _mockDepositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(deposit);
 
         var ex = await Assert.ThrowsAsync<ConflictException>(
             () => _service.ReleaseSessionDepositAsync(cafeId, sessionId, sessionId));
@@ -249,11 +249,11 @@ public class SettlementServiceTests
             TransferId = "TXN-TRANSFER-001"
         };
 
-        _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(BuildCafe(cafeId));
-        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId)).ReturnsAsync(session);
-        _mockSePayAccountService.Setup(s => s.GetRawMasterAccountAsync())
+        _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildCafe(cafeId));
+        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
+        _mockSePayAccountService.Setup(s => s.GetRawMasterAccountAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SePayAccount { Id = Guid.NewGuid(), AccountHolder = "Test", IsActive = true });
-        _mockDepositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId)).ReturnsAsync(deposit);
+        _mockDepositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(deposit);
         _mockSePayClient.Setup(c => c.CreateTransferAsync(It.IsAny<CreateTransferRequest>(), default))
             .Callback<CreateTransferRequest, CancellationToken>((req, _) =>
             {
@@ -300,8 +300,8 @@ public class SettlementServiceTests
             }
         };
 
-        _mockSettlementRepo.Setup(r => r.GetPendingAsync(cafeId)).ReturnsAsync(settlements);
-        _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(BuildCafe(cafeId));
+        _mockSettlementRepo.Setup(r => r.GetPendingAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(settlements);
+        _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildCafe(cafeId));
 
         var result = await _service.GetPendingSettlementsAsync(cafeId, Guid.NewGuid(), "Admin");
 
@@ -353,7 +353,7 @@ public class SettlementServiceTests
 
         _mockSettlementRepo
             .Setup(r => r.GetPagedAsync(It.Is<SettlementListQuery>(q =>
-                q.Status == CafeSettlementStatus.Failed && q.PageNumber == 1 && q.PageSize == 10)))
+                q.Status == CafeSettlementStatus.Failed && q.PageNumber == 1 && q.PageSize == 10), It.IsAny<CancellationToken>()))
             .ReturnsAsync(expected);
 
         var result = await _service.GetPagedAsync(query);
@@ -361,7 +361,7 @@ public class SettlementServiceTests
         Assert.Same(expected, result);
         Assert.Single(result.Data);
         Assert.Equal("SePay timeout", result.Data.First().FailureReason);
-        _mockSettlementRepo.Verify(r => r.GetPagedAsync(It.IsAny<SettlementListQuery>()), Times.Once);
+        _mockSettlementRepo.Verify(r => r.GetPagedAsync(It.IsAny<SettlementListQuery>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     /// <summary>
@@ -389,7 +389,7 @@ public class SettlementServiceTests
         };
 
         _mockSettlementRepo
-            .Setup(r => r.GetPagedAsync(It.IsAny<SettlementListQuery>()))
+            .Setup(r => r.GetPagedAsync(It.IsAny<SettlementListQuery>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(empty);
 
         var result = await _service.GetPagedAsync(query);
@@ -425,7 +425,7 @@ public class SettlementServiceTests
 
         SettlementListQuery? captured = null;
         _mockSettlementRepo
-            .Setup(r => r.GetPagedAsync(It.IsAny<SettlementListQuery>()))
+            .Setup(r => r.GetPagedAsync(It.IsAny<SettlementListQuery>(), It.IsAny<CancellationToken>()))
             .Callback<SettlementListQuery>(q => captured = q)
             .ReturnsAsync(new PaginatedResponse<SettlementListItemDto>());
 

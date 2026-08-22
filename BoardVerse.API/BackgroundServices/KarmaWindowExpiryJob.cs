@@ -42,6 +42,11 @@ public class KarmaWindowExpiryJob : BackgroundService
             {
                 await ProcessExpiredWindowsAsync(stoppingToken);
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("KarmaWindowExpiryJob stopped (host shutdown).");
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in KarmaWindowExpiryJob");

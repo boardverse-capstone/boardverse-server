@@ -129,16 +129,29 @@ namespace BoardVerse.Services.Services.Geocoding
                 return null;
             }
 
-            // Photon trả FeatureCollection — wrapper {"_source":"photon", "features":[...]}
-            if (raw.Contains("\"_source\":\"photon\"", StringComparison.Ordinal))
+            // GAP-R4-A25 Fix: dùng JsonDocument.TryGetProperty (typed) thay vì string-contains.
+            // Trước đây raw.Contains("\"_source\":\"photon\"") có thể false-positive nếu response
+            // chứa substring đó (vd city name 'Photon' trong description).
+            try
             {
-                return StripWrapperAndParse(raw, "photon", PhotonClient.ParsePhoton);
+                using var doc = System.Text.Json.JsonDocument.Parse(raw);
+                if (doc.RootElement.TryGetProperty("_source", out var sourceEl))
+                {
+                    var source = sourceEl.GetString();
+                    if (string.Equals(source, "photon", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return StripWrapperAndParse(raw, "photon", PhotonClient.ParsePhoton);
+                    }
+                    if (string.Equals(source, "nominatim", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return StripWrapperAndParse(raw, "nominatim", NominatimResponseParser.Parse);
+                    }
+                }
             }
-
-            // Nominatim trả object đơn (jsonv2) — wrapper {"_source":"nominatim", <nominatim-json>}
-            if (raw.Contains("\"_source\":\"nominatim\"", StringComparison.Ordinal))
+            catch (System.Text.Json.JsonException)
             {
-                return StripWrapperAndParse(raw, "nominatim", NominatimResponseParser.Parse);
+                // Không phải JSON — fallback Nominatim parser.
+                return NominatimResponseParser.Parse(raw);
             }
 
             // Fallback: response thô (không có wrapper) — thử Nominatim parser trước.

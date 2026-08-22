@@ -369,3 +369,38 @@ Manual retry SePay transfer cho settlement bị Failed (W-06). Dùng khi settlem
 | 400 | Session chưa PAID |
 | 404 | Không tìm thấy settlement |
 | 409 | Cafe chưa config SePay hoặc điều kiện không hợp lệ |
+
+---
+
+## Scheduled Background Jobs (chạy tự động, không có admin trigger)
+
+Các job dưới đây chỉ chạy theo lịch (không có endpoint admin trigger). Tham khảo code trong `BoardVerse.API/BackgroundServices/` để biết interval chính xác.
+
+| Job | File | Interval | Mục đích |
+|-----|------|----------|----------|
+| `LobbyTimeoutJob` | `LobbyTimeoutJob.cs` | 1 phút | BR-08: Auto `OPEN → TIMEOUT_FAILED` cho lobby không đủ người. Cluster-safe với `FOR UPDATE SKIP LOCKED`. |
+| `AutoReleaseExpiredSessionsJob` | `AutoReleaseExpiredSessionsJob.cs` | 5 phút | BR-END-05: Auto `Active → Closed` cho session quá `ExtendedEndTime + 30 phút`. Atomic flip qua `TryUpdateStatusAsync`. |
+| `LobbyInviteExpiryJob` | `LobbyInviteExpiryJob.cs` | **15 phút** (±10% jitter) | BR-LOBBY-INVITE-08: Mark invite `Pending` quá 24h → `Expired`. Batch cap **500/tick** (tránh OOM). |
+| `SessionExtensionRequestExpiryJob` | `SessionExtensionRequestExpiryJob.cs` | 1 phút | GAP-7: Mark extension request `Pending` quá **10 phút** → `Expired` (atomic batch). |
+| `OutboxCleanupJob` | `OutboxCleanupJob.cs` | 24 giờ | GAP-R4-A8: Hard-delete `OutboxEvents` đã `Processed` > **30 ngày**. |
+| `DeviceTokenCleanupJob` | `DeviceTokenCleanupJob.cs` | 24 giờ | GAP-R6-FCM-CLEANUP: Hard-delete `DeviceToken` nếu `IsInvalidated = true` HOẶC `LastSeenAt < now - 180 ngày`. |
+| `SettlementRetryJob` | `SettlementRetryJob.cs` | 5 phút | Retry SePay transfer cho `CafeSettlement.Status = Failed` (max 5 attempts, exponential backoff 2/4/8/16/32 phút). |
+| `OutboxPublisherHostedService` | `OutboxPublisherHostedService.cs` | Tick nhanh | Publish `OutboxEvents` ra SignalR + FCM. Atomic claim qua `TryClaimEventAsync`. |
+| `BookingDepositExpiryJob` | `BookingDepositExpiryJob.cs` | 1 phút | BR-06: Expire `BookingDeposit.Pending` quá 5 phút → release seats. |
+| `ReservationDeadlineJob` | `ReservationDeadlineJob.cs` | 1 phút | BR-LOBBY-02 + BR-NEW-11: Process reservation deadline + cafe approval expiry + no-show. |
+| `BvcTopUpExpiryJob` | `BvcTopUpExpiryJob.cs` | 1 phút | Expire BVC top-up pending quá 30 phút. |
+| `TournamentExpiryJob` / `ReminderJob` / `NoShowDetectionJob` | `Tournament*.cs` | 1 giờ / 1 phút / 1 phút | Tournament lifecycle. |
+| `KarmaWindowJob` / `KarmaWindowExpiryJob` | `KarmaWindow*.cs` | 1 phút | Karma window open + close. |
+| `FriendRequestExpiryJob` | `FriendRequestExpiryJob.cs` | 1 giờ | Expire friend request quá 30 ngày. |
+| `LobbyCleanupJob` | `LobbyCleanupJob.cs` | 24 giờ | Hard-delete lobby `Cancelled`/`TimeoutFailed` > 30 ngày. |
+| `LobbyNotificationJob` | `LobbyNotificationJob.cs` | 5 phút | BR-NEW-13: Notification 4 mốc (48h/24h/2h/30p). |
+| `LobbyAtRiskWarningJob` | `LobbyAtRiskWarningJob.cs` | 30 phút | BR-NEW-14: Cảnh báo lobby có nguy cơ fail. |
+| `ReservationNoShowDetectionJob` | `ReservationNoShowDetectionJob.cs` | 5 phút | BR-CHECKIN-02: Auto NoShow sau 30 phút grace. |
+| `WalkInWindowCleanupJob` | `WalkInWindowCleanupJob.cs` | 5 phút | Auto-close WalkInWindows hết hạn. |
+| `CoolingOffJob` | `CoolingOffJob.cs` | 30 phút | BR-NEW-10: Detect signals + expire cooling-off. |
+| `RiskScoreRecomputeJob` | `RiskScoreRecomputeJob.cs` | 1 giờ | BR-RISK-01: Recompute risk score. |
+| `SuspensionExpiryCheckJob` | `SuspensionExpiryCheckJob.cs` | 1 giờ | BR-RISK-06: Auto-unlock expired suspensions. |
+| `AlertExpiryCleanupJob` | `AlertExpiryCleanupJob.cs` | 24 giờ | Dismiss stale `PlayerAlert` > 30 ngày. |
+| `LegacyBookingCleanupJob` | `LegacyBookingCleanupJob.cs` | 24 giờ | Legacy Flow B: Sweep stale `PendingDeposit`/`Confirmed` rows. |
+
+> **Cluster-safety:** Mọi job xử lý batch đều dùng `FOR UPDATE SKIP LOCKED` trong transaction, hoặc `ExecuteUpdateAsync` atomic. Deploy nhiều instance cùng lúc không bị duplicate.

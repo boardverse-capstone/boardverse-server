@@ -62,7 +62,7 @@ public class ReservationExtensionService : IReservationExtensionService
         }
 
         var currentEndTime = reservation.ExtendedEndTime ?? reservation.ScheduledEndTime;
-        if (currentEndTime == default)
+        if (currentEndTime == default);
             throw new InternalServerErrorException(
                 ApiErrorMessages.ReservationExtension.ExtendMissingScheduledEndTime(reservationId));
         var remainingMinutes = MaxTotalExtensionMinutes - (reservation.ExtensionCount * MaxExtensionMinutesPerExtension);
@@ -101,11 +101,10 @@ public class ReservationExtensionService : IReservationExtensionService
             return dto;
         }
 
-        // BR-EXT-02: Không extend qua midnight (trừ LateNight - overnight slot).
-        // Với LateNight (23:00-06:00 next day), ScheduledEndTime.Date > PlayDate.Date là hợp lệ.
-        // Cho phép LateNight extension lên tới scheduledEndTime + grace, các slot khác block qua midnight.
-        if (reservation.TimeSlot != TimeSlot.LateNight
-            && proposedEndTime.Date > reservation.PlayDate.ToDateTime(TimeOnly.MinValue).Date)
+        // BR-EXT-02: Không extend qua midnight.
+        // GAP-02 fix (2026-08-21): Dùng ScheduledEndTime thay vì TimeSlot.LateNight proxy.
+        // Block nếu proposedEndTime vượt qua ngày playDate.
+        if (proposedEndTime.Date > reservation.PlayDate.ToDateTime(TimeOnly.MinValue).Date)
         {
             dto.CanExtend = false;
             dto.Reason = ApiErrorMessages.ReservationExtension.CannotExtendPastMidnight;
@@ -150,12 +149,12 @@ public class ReservationExtensionService : IReservationExtensionService
         }
 
         var currentEndTime = reservation.ExtendedEndTime ?? reservation.ScheduledEndTime;
-        if (currentEndTime == default)
+        if (currentEndTime == default);
             throw new InternalServerErrorException(
                 ApiErrorMessages.ReservationExtension.ExtendMissingScheduledEndTime(request.ReservationId));
         var proposedEndTime = currentEndTime.AddMinutes(request.ExtensionMinutes);
         var previousEndTime = reservation.ExtendedEndTime ?? reservation.ScheduledEndTime;
-        if (previousEndTime == default)
+        if (previousEndTime == default);
             throw new InternalServerErrorException(
                 ApiErrorMessages.ReservationExtension.ExtendMissingScheduledEndTime(request.ReservationId));
 
@@ -180,10 +179,9 @@ public class ReservationExtensionService : IReservationExtensionService
                 ApiErrorMessages.ReservationExtension.RemainingMinutesInsufficient(remainingMinutes, request.ExtensionMinutes));
         }
 
-        // BR-EXT-02: Không extend qua midnight (trừ LateNight - overnight slot).
-        // Với LateNight (23:00-06:00 next day), ScheduledEndTime.Date > PlayDate.Date là hợp lệ.
-        if (reservation.TimeSlot != TimeSlot.LateNight
-            && proposedEndTime.Date > reservation.PlayDate.ToDateTime(TimeOnly.MinValue).Date)
+        // BR-EXT-02: Không extend qua midnight.
+        // GAP-02 fix (2026-08-21): Dùng ScheduledEndTime thay vì TimeSlot.LateNight proxy.
+        if (proposedEndTime.Date > reservation.PlayDate.ToDateTime(TimeOnly.MinValue).Date)
         {
             throw new ConflictException(
                 ApiErrorMessages.ReservationExtension.CannotExtendPastMidnight);

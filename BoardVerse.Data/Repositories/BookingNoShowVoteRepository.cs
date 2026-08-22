@@ -14,31 +14,31 @@ public class BookingNoShowVoteRepository : IBookingNoShowVoteRepository
         _db = db;
     }
 
-    public async Task<BookingNoShowVote?> GetByBookingAndVoterAsync(Guid bookingId, Guid voterUserId)
+    public async Task<BookingNoShowVote?> GetByBookingAndVoterAsync(Guid bookingId, Guid voterUserId, CancellationToken cancellationToken = default)
     {
         return await _db.BookingNoShowVotes
             .FirstOrDefaultAsync(v => v.BookingId == bookingId && v.VoterUserId == voterUserId);
     }
 
-    public async Task<IReadOnlyList<BookingNoShowVote>> GetByBookingAsync(Guid bookingId)
+    public async Task<IReadOnlyList<BookingNoShowVote>> GetByBookingAsync(Guid bookingId, CancellationToken cancellationToken = default)
     {
         return await _db.BookingNoShowVotes
             .Where(v => v.BookingId == bookingId)
             .ToListAsync();
     }
 
-    public async Task AddAsync(BookingNoShowVote vote)
+    public async Task AddAsync(BookingNoShowVote vote, CancellationToken cancellationToken = default)
     {
         await _db.BookingNoShowVotes.AddAsync(vote);
     }
 
-    public Task UpdateAsync(BookingNoShowVote vote)
+    public Task UpdateAsync(BookingNoShowVote vote, CancellationToken cancellationToken = default)
     {
         _db.BookingNoShowVotes.Update(vote);
         return Task.CompletedTask;
     }
 
-    public Task SaveChangesAsync()
+    public Task SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         return _db.SaveChangesAsync();
     }

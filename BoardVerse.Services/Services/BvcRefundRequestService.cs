@@ -153,7 +153,14 @@ public class BvcRefundRequestService : IBvcRefundRequestService
             throw new BadRequestException(ApiErrorMessages.Wallet.RefundRequestNotFound(requestId));
         }
 
-        var request = await _refundRequestRepository.GetByIdAsync(requestId, cancellationToken);
+        // GAP-R6-WAL-03 Fix: lock row refund request để chặn race vs admin ResolveAsync.
+        // Trước đây: player CancelAsync + admin ResolveAsync gần nhau → cả 2 pass status check,
+        // cả 2 SaveChanges → ambiguous state + có thể double-credit nếu admin approve.
+        // Giờ: Serializable transaction + FOR UPDATE lock → 1 process đợi, check lại status sau lock.
+        await using var tx = await _db.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, cancellationToken);
+
+        var request = await _refundRequestRepository.GetByIdForUpdateAsync(requestId, cancellationToken);
         if (request == null)
         {
             throw new NotFoundException(ApiErrorMessages.Wallet.RefundRequestNotFound(requestId));
@@ -173,6 +180,8 @@ public class BvcRefundRequestService : IBvcRefundRequestService
         request.UpdatedAt = DateTime.UtcNow;
         await _refundRequestRepository.UpdateAsync(request);
         await _refundRequestRepository.SaveChangesAsync(cancellationToken);
+
+        await tx.CommitAsync(cancellationToken);
 
         _logger.LogInformation(
             "Refund request cancelled by user. RequestId={RequestId}, UserId={UserId}",
@@ -262,6 +271,56 @@ public class BvcRefundRequestService : IBvcRefundRequestService
         // Đảm bảo admin tồn tại.
         var admin = await _userRepository.GetByIdAsync(adminUserId)
             ?? throw new NotFoundException(ApiErrorMessages.AdminUsers.UserNotFound(adminUserId));
+
+        // GAP-R6-WAL-02 Fix: wrap resolve flow với serialization-failure retry.
+        // 2 admin click "Approve" gần nhau (cùng idempotencyKey) → cả 2 transaction Serializable
+        // cùng pass lock check ban đầu, 1 commit thành công, transaction kia fail với
+        // Postgres SQLSTATE 40001 (serialization_failure) hoặc 40P01 (deadlock_detected).
+        // Không có retry → user thấy 500 error và double-credit có thể xảy ra.
+        // Anti-flake loop retry 3 lần với exponential backoff (50ms, 100ms, 150ms).
+        const int MaxRetries = 3;
+        for (var attempt = 1; attempt <= MaxRetries; attempt++)
+        {
+            try
+            {
+                return await ResolveCoreAsync(
+                    requestId, request, adminUserId, admin, idempotencyKey, cancellationToken);
+            }
+            catch (DbUpdateException ex) when (IsSerializationFailure(ex) && attempt < MaxRetries)
+            {
+                _logger.LogWarning(
+                    "ResolveAsync serialization failure attempt {Attempt}/{Max}. RequestId={RequestId}, AdminId={AdminId}. Retrying...",
+                    attempt, MaxRetries, requestId, adminUserId);
+                await Task.Delay(TimeSpan.FromMilliseconds(50 * attempt), cancellationToken);
+            }
+            catch (Exception ex) when (
+                ex.InnerException is Npgsql.PostgresException pg
+                && (pg.SqlState == "40001" || pg.SqlState == "40P01")
+                && attempt < MaxRetries)
+            {
+                _logger.LogWarning(
+                    "ResolveAsync postgres serialization/deadlock attempt {Attempt}/{Max}. RequestId={RequestId}, SqlState={SqlState}. Retrying...",
+                    attempt, MaxRetries, requestId, pg.SqlState);
+                await Task.Delay(TimeSpan.FromMilliseconds(50 * attempt), cancellationToken);
+            }
+        }
+
+        // Unreachable — loop either returns or throws on final attempt.
+        return await ResolveCoreAsync(
+            requestId, request, adminUserId, admin, idempotencyKey, cancellationToken);
+    }
+
+    /// <summary>
+    /// Core resolve logic (private) — extracted để <see cref="ResolveAsync"/> retry on serialization failure.
+    /// </summary>
+    private async Task<RefundRequestResponseDto> ResolveCoreAsync(
+        Guid requestId,
+        ResolveRefundRequestDto request,
+        Guid adminUserId,
+        User admin,
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
 
         var ownsTransaction = _db.Database.CurrentTransaction is null;
         IDbContextTransaction? ownedTx = null;
@@ -402,6 +461,19 @@ public class BvcRefundRequestService : IBvcRefundRequestService
     }
 
     // ===== Helpers =====
+
+    /// <summary>
+    /// GAP-R6-WAL-02: detect Postgres serialization failure (40001) hoặc deadlock (40P01)
+    /// để retry toàn bộ transaction trong <see cref="ResolveAsync"/>.
+    /// </summary>
+    private static bool IsSerializationFailure(DbUpdateException ex)
+    {
+        var msg = ex.InnerException?.Message ?? ex.Message;
+        return msg.Contains("40001", StringComparison.Ordinal)
+            || msg.Contains("40P01", StringComparison.Ordinal)
+            || msg.Contains("could not serialize", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("deadlock", StringComparison.OrdinalIgnoreCase);
+    }
 
     private async Task<RefundRequestResponseDto> BuildResolvedDtoAsync(
         BvcRefundRequest request,

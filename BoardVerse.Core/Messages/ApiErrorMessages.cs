@@ -451,8 +451,12 @@ public static string AccessForbidden(Guid cafeId) =>
  public const string SessionMustBeActiveForEndGame =
  "Phiên chơi phải đang hoạt động để bấm 'Trả game'.";
 
- public const string SessionNoGamesForEndGame =
- "Phiên chơi chưa có game nào. Gán game trước khi bấm 'Trả game'.";
+public const string SessionNoGamesForEndGame =
+"Phiên chơi chưa có game nào. Gán game trước khi bấm 'Trả game'.";
+
+        // GAP-R3-03 Fix: BR-12 — không cho EndGame khi không còn member Playing/Guest nào (billing = 0 vô nghĩa).
+        public const string NoPlayingMembersToEndGame =
+            "Không còn thành viên nào đang chơi trong phiên. Hãy kiểm tra trước khi chuyển sang trạng thái kiểm kê linh kiện.";
 
  public const string SessionMustBeUnpaidForPayment =
  "Phiên chơi phải ở trạng thái chờ thanh toán (UNPAID) để thanh toán.";
@@ -460,11 +464,19 @@ public static string AccessForbidden(Guid cafeId) =>
  public const string SessionMustBeCheckingForResume =
  "Chỉ có thể khôi phục phiên đang ở trạng thái kiểm kê linh kiện (CHECKING).";
 
- public const string SessionCannotResumeHasCheckedOutMembers =
- "Phiên đã có thành viên thanh toán. Không thể khôi phục — hãy tiếp tục thanh toán các thành viên còn lại.";
+public const string SessionCannotResumeHasCheckedOutMembers =
+"Phiên đã có thành viên thanh toán. Không thể khôi phục — hãy tiếp tục thanh toán các thành viên còn lại.";
+
+        // GAP-R3-02: Bảo vệ audit trail BR-12 — staff phải xử lý missing components qua component-check
+        // hoặc checkout penalty trước khi resume phiên.
+        public const string CannotResumeWithMissingComponents =
+            "Phiên đang được đánh dấu có linh kiện thiếu/hỏng. Hãy xử lý qua kiểm kê linh kiện hoặc thanh toán phí phạt trước khi khôi phục phiên về ACTIVE.";
 
  public const string GuestSlotNotAllowedAfterSessionEnded =
  "Phiên chơi đã kết thúc. Không thể thêm khách vô danh.";
+
+ public const string GuestSlotCannotPartialCheckout =
+ "Khách vô danh (BR-13) không thể tách nhóm thanh toán một phần. Vui lòng gộp vào hóa đơn của host hoặc thu tiền mặt tại quầy.";
 
  public const string PartialCheckoutRequiresAtLeastOneMember =
  "Cần chọn ít nhất 1 thành viên để thanh toán một phần.";
@@ -1572,6 +1584,9 @@ public const string SePayBankInfoIncomplete =
 
  public static string InvalidQueryParameter(string name, string allowedValues)
  => $"Giá trị tham số '{name}' không hợp lệ. Cho phép: {allowedValues}.";
+
+ public const string InvalidRequestBody =
+ "Dữ liệu gửi lên không hợp lệ. Vui lòng kiểm tra và thử lại.";
  }
 
  public static class Validation
@@ -3246,5 +3261,83 @@ public static class Settlement
         public static string IPv4ResolutionFailed(string host) =>
             $"Không phân giải được địa chỉ IPv4 cho '{host}'.";
     }
+
+        // ===== Player Session APIs =====
+        public static class Session
+        {
+            public const string PlayerNoActiveSession =
+                "Bạn không có phiên chơi nào đang hoạt động.";
+
+            public const string PlayerNotInSession =
+                "Bạn không tham gia phiên chơi này.";
+
+            // GAP-6 Fix: Thêm method này vào Session class để tránh shadow với root-level method
+            public static string SessionNotFoundById(Guid id) =>
+                $"Không tìm thấy phiên chơi '{id}'.";
+
+            public const string InvalidExtensionMinutes =
+                "Số phút gia hạn phải lớn hơn 0.";
+
+            public const string ExtensionTooLong =
+                "Số phút gia hạn không được vượt quá 240 phút.";
+
+            public static string CannotExtendSessionStatus(string currentStatus) =>
+                "Không thể gia hạn khi phiên đang ở trạng thái: " + currentStatus + ". Chỉ có thể gia hạn khi phiên đang hoạt động.";
+
+            public const string AlreadyPaid =
+                "Bạn đã thanh toán cho phiên chơi này rồi.";
+
+            // GAP-2 Fix: SuspendedMutation members cannot pay directly
+            public const string CannotPayWhileSuspendedMutation =
+                "Thành viên đang chờ kiểm kê linh kiện. Nhân viên sẽ xử lý thanh toán tại quầy.";
+
+            public const string InsufficientBvcBalance =
+                "Số dư BVC không đủ để thanh toán.";
+
+            // ===== Extension Request APIs (GAP-NEW-1) =====
+            public const string ExtensionRequestNotFound =
+                "Không tìm thấy yêu cầu gia hạn.";
+
+            public const string ExtensionRequestAlreadyProcessed =
+                "Yêu cầu gia hạn này đã được xử lý.";
+
+            public const string ExtensionRequestExpired =
+                "Yêu cầu gia hạn đã hết hạn.";
+
+            public const string CannotApproveExtensionSessionNotActive =
+                "Không thể duyệt gia hạn khi phiên không còn ở trạng thái Active.";
+
+            // GAP-R3-05: Refactor từ hardcoded VN string trong ExtendSessionAsync
+            public const string AlreadyPaidCannotExtend =
+                "Phiên chơi đã thanh toán. Không thể gia hạn.";
+
+            public const string UnpaidCannotExtend =
+                "Phiên chơi đang chờ thanh toán. Vui lòng thanh toán trước khi gia hạn.";
+
+            // GAP-15 Fix: Guest slots cannot pay via app — staff handles at POS
+            public const string GuestCannotPayViaApp =
+                "Khách vô danh không thể thanh toán qua ứng dụng. Vui lòng thanh toán tại quầy.";
+
+            // GAP-16 Fix: POS-side extension approval validation
+            public const string ApprovedMinutesTooLong =
+                "Số phút duyệt không được vượt quá 480 phút (8 giờ).";
+
+            public const string RejectionReasonTooShort =
+                "Lý do từ chối phải có ít nhất 10 ký tự.";
+
+            public const string ExtensionSessionNotExtendable =
+                "Phiên chơi không còn ở trạng thái có thể gia hạn (trạng thái hiện tại: {0}).";
+
+            // GAP-5 Fix: Insufficient balance warning for extension request
+            public const string InsufficientBvcForExtension =
+                "Số dư BVC của bạn có thể không đủ để thanh toán phần gia hạn này. Vui lòng nạp thêm BVC trước khi staff duyệt yêu cầu.";
+
+            // GAP-12 Fix: Cafe closed/paused
+            public const string CafeClosedCannotExtend =
+                "Quán đã đóng cửa, không thể gia hạn thêm thời gian chơi.";
+
+            public const string SessionPausedCannotExtend =
+                "Phiên chơi đang tạm dừng, vui lòng liên hệ nhân viên để tiếp tục trước khi gia hạn.";
+        }
     }
 }

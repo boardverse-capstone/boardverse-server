@@ -17,10 +17,10 @@ namespace BoardVerse.Data.Repositories
             _context = context;
         }
 
-        public Task<PaginatedResponse<GameTemplate>> GetBoardGamesPagedAsync(GetMasterGamesQuery query) =>
+        public Task<PaginatedResponse<GameTemplate>> GetBoardGamesPagedAsync(GetMasterGamesQuery query, CancellationToken cancellationToken = default) =>
             GetPagedInternalAsync(query, includeComponents: false);
 
-        public Task<PaginatedResponse<GameTemplate>> GetPagedAsync(GetMasterGamesQuery query) =>
+        public Task<PaginatedResponse<GameTemplate>> GetPagedAsync(GetMasterGamesQuery query, CancellationToken cancellationToken = default) =>
             GetPagedInternalAsync(query, includeComponents: true);
 
         private async Task<PaginatedResponse<GameTemplate>> GetPagedInternalAsync(
@@ -106,7 +106,7 @@ namespace BoardVerse.Data.Repositories
             return baseQuery;
         }
 
-        public async Task<GameTemplate?> GetByIdWithComponentsAsync(Guid id)
+        public async Task<GameTemplate?> GetByIdWithComponentsAsync(Guid id, CancellationToken cancellationToken = default)
         {
             return await _context.GameTemplates
                 .AsNoTracking()
@@ -116,7 +116,7 @@ namespace BoardVerse.Data.Repositories
                 .FirstOrDefaultAsync(g => g.Id == id);
         }
 
-        public async Task<GameTemplate?> GetActiveByIdWithComponentsAsync(Guid id)
+        public async Task<GameTemplate?> GetActiveByIdWithComponentsAsync(Guid id, CancellationToken cancellationToken = default)
         {
             return await _context.GameTemplates
                 .AsNoTracking()
@@ -126,29 +126,29 @@ namespace BoardVerse.Data.Repositories
                 .FirstOrDefaultAsync(g => g.Id == id && g.IsActive);
         }
 
-        public Task<GameTemplate?> GetByIdWithCategoriesForUpdateAsync(Guid id) =>
+        public Task<GameTemplate?> GetByIdWithCategoriesForUpdateAsync(Guid id, CancellationToken cancellationToken = default) =>
             _context.GameTemplates
                 .Include(g => g.Categories)
                 .FirstOrDefaultAsync(g => g.Id == id);
 
-        public Task<GameTemplate?> GetByIdForUpdateAsync(Guid id) =>
+        public Task<GameTemplate?> GetByIdForUpdateAsync(Guid id, CancellationToken cancellationToken = default) =>
             _context.GameTemplates
                 .FirstOrDefaultAsync(g => g.Id == id);
 
-        public Task<GameTemplate?> GetByIdAsync(Guid id) =>
+        public Task<GameTemplate?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
             _context.GameTemplates
                 .AsNoTracking()
                 .FirstOrDefaultAsync(g => g.Id == id);
 
-        public Task<GameTemplate?> GetByNameAsync(string name) =>
+        public Task<GameTemplate?> GetByNameAsync(string name, CancellationToken cancellationToken = default) =>
             _context.GameTemplates
                 .AsNoTracking()
                 .FirstOrDefaultAsync(g => g.Name.ToLower() == name.ToLower() && g.IsActive);
 
-        public Task<bool> ExistsAsync(Guid id) =>
+        public Task<bool> ExistsAsync(Guid id, CancellationToken cancellationToken = default) =>
             _context.GameTemplates.AsNoTracking().AnyAsync(g => g.Id == id);
 
-        public async Task<Dictionary<Guid, int>> GetComponentCountsByGameIdsAsync(IReadOnlyCollection<Guid> gameIds)
+        public async Task<Dictionary<Guid, int>> GetComponentCountsByGameIdsAsync(IReadOnlyCollection<Guid> gameIds, CancellationToken cancellationToken = default)
         {
             if (gameIds.Count == 0)
                 return new Dictionary<Guid, int>();
@@ -161,12 +161,12 @@ namespace BoardVerse.Data.Repositories
                 .ToDictionaryAsync(x => x.Key, x => x.Count);
         }
 
-        public Task SaveChangesAsync()
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default)
         {
             return _context.SaveChangesAsync();
         }
 
-        public async Task<bool> CafeHasGameAsync(Guid cafeId, Guid gameTemplateId)
+        public async Task<bool> CafeHasGameAsync(Guid cafeId, Guid gameTemplateId, CancellationToken cancellationToken = default)
         {
             return await _context.CafeGameInventories
                 .AnyAsync(c => c.CafeId == cafeId && c.GameTemplateId == gameTemplateId && c.BoxQuantity > 0);

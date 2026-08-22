@@ -58,7 +58,7 @@ public class CafeServiceTests
                 It.IsAny<double>(),
                 GameTemplateId,
                 It.IsAny<string?>(),
-                It.IsAny<PaginationParams>()))
+                It.IsAny<PaginationParams>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(nearby);
 
         var service = BuildService(cafeRepo: cafeRepo);
@@ -90,14 +90,14 @@ public class CafeServiceTests
                 It.IsAny<double>(),
                 GameTemplateId,
                 It.IsAny<string?>(),
-                It.IsAny<PaginationParams>()))
+                It.IsAny<PaginationParams>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(empty);
         cafeRepo.Setup(r => r.GetAlternativeGameSuggestionsAsync(
                 It.IsAny<double>(),
                 It.IsAny<double>(),
                 It.IsAny<double>(),
                 GameTemplateId,
-                It.IsAny<int>()))
+                It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(alternatives);
 
         var service = BuildService(cafeRepo: cafeRepo);
@@ -112,7 +112,7 @@ public class CafeServiceTests
     public async Task GetNearbyCafesForCurrentUserAsync_NoSavedLocation_ThrowsBadRequest()
     {
         var profileRepo = new Mock<IUserProfileRepository>();
-        profileRepo.Setup(r => r.GetProfileByUserIdAsync(It.IsAny<Guid>()))
+        profileRepo.Setup(r => r.GetProfileByUserIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new UserProfile { UserId = Guid.NewGuid() });
 
         var service = BuildService(profileRepo: profileRepo);
@@ -126,7 +126,7 @@ public class CafeServiceTests
     {
         var userId = Guid.NewGuid();
         var profileRepo = new Mock<IUserProfileRepository>();
-        profileRepo.Setup(r => r.GetProfileByUserIdAsync(userId))
+        profileRepo.Setup(r => r.GetProfileByUserIdAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new UserProfile
             {
                 UserId = userId,
@@ -141,14 +141,14 @@ public class CafeServiceTests
                 It.IsAny<double>(),
                 GameTemplateId,
                 It.IsAny<string?>(),
-                It.IsAny<PaginationParams>()))
+                It.IsAny<PaginationParams>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PaginatedResponse<NearbyCafeDto> { Data = [], Meta = new PaginationMeta() });
         cafeRepo.Setup(r => r.GetAlternativeGameSuggestionsAsync(
                 10.776889,
                 106.700806,
                 It.IsAny<double>(),
                 GameTemplateId,
-                It.IsAny<int>()))
+                It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
 
         var service = BuildService(cafeRepo: cafeRepo, profileRepo: profileRepo);
@@ -161,7 +161,7 @@ public class CafeServiceTests
             It.IsAny<double>(),
             GameTemplateId,
             It.IsAny<string?>(),
-            It.IsAny<PaginationParams>()), Times.Once);
+            It.IsAny<PaginationParams>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -170,7 +170,7 @@ public class CafeServiceTests
         var managerId = Guid.NewGuid();
         var cafeId = Guid.NewGuid();
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetByIdAsync(cafeId))
+        cafeRepo.Setup(r => r.GetByIdAsync(cafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Cafe { Id = cafeId, ManagerId = managerId, Name = "Cafe", Address = "Addr" });
 
         var service = BuildService(cafeRepo: cafeRepo);
@@ -190,7 +190,7 @@ public class CafeServiceTests
         };
 
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetAllActiveCafesAsync(pagination))
+        cafeRepo.Setup(r => r.GetAllActiveCafesAsync(pagination, It.IsAny<CancellationToken>()))
             .ReturnsAsync(expected)
             .Verifiable();
 
@@ -199,7 +199,7 @@ public class CafeServiceTests
         var result = await service.GetAllActiveCafesAsync(pagination);
 
         Assert.Same(expected, result);
-        cafeRepo.Verify(r => r.GetAllActiveCafesAsync(pagination), Times.Once);
+        cafeRepo.Verify(r => r.GetAllActiveCafesAsync(pagination, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     private static Mock<IPushNotificationService>? pushNotificationService;
@@ -220,7 +220,7 @@ public class CafeServiceTests
         var lobbyRepo = new Mock<ILobbyRepository>();
         var reservationRepo = new Mock<IReservationRepository>();
 
-        config.Setup(c => c.GetDoubleAsync(SystemConfigKeys.MatchmakingRadiusKm, GeoLocationHelper.DefaultNearbyRadiusKm))
+        config.Setup(c => c.GetDoubleAsync(SystemConfigKeys.MatchmakingRadiusKm, GeoLocationHelper.DefaultNearbyRadiusKm, It.IsAny<CancellationToken>()))
             .ReturnsAsync(GeoLocationHelper.DefaultNearbyRadiusKm);
 
         return new CafeService(

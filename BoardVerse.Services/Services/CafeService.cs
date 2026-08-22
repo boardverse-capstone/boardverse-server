@@ -58,7 +58,7 @@ namespace BoardVerse.Services.Services
             Guid cafeId,
             double? latitude = null,
             double? longitude = null,
-            bool includeSensitiveInfo = false)
+            bool includeSensitiveInfo = false, CancellationToken cancellationToken = default)
         {
             var cafe = await _cafeRepository.GetCafeDetailAsync(cafeId);
             if (cafe == null)
@@ -238,7 +238,7 @@ namespace BoardVerse.Services.Services
 
         // === Legacy MapToDto kept for backward compatibility ===
 
-        public async Task<CafeDto> UpdateCafeAsync(Guid cafeId, Guid managerId, UpdateCafeRequestDto dto)
+        public async Task<CafeDto> UpdateCafeAsync(Guid cafeId, Guid managerId, UpdateCafeRequestDto dto, CancellationToken cancellationToken = default)
         {
             var cafe = await EnsureManagerOwnsCafeAsync(cafeId, managerId);
 
@@ -310,7 +310,7 @@ namespace BoardVerse.Services.Services
             return MapToDto(cafe);
         }
 
-        public async Task<IEnumerable<ManagerCafeDto>> GetManagerCafesAsync(Guid managerId)
+        public async Task<IEnumerable<ManagerCafeDto>> GetManagerCafesAsync(Guid managerId, CancellationToken cancellationToken = default)
         {
             var cafes = await _cafeRepository.GetCafesByManagerIdAsync(managerId);
             var cafesList = cafes as IReadOnlyList<Cafe> ?? cafes.ToList();
@@ -322,7 +322,7 @@ namespace BoardVerse.Services.Services
             return results;
         }
 
-        public async Task AddStaffAsync(Guid cafeId, Guid currentManagerId, AddStaffRequestDto dto)
+        public async Task AddStaffAsync(Guid cafeId, Guid currentManagerId, AddStaffRequestDto dto, CancellationToken cancellationToken = default)
         {
             var cafe = await EnsureManagerOwnsCafeAsync(cafeId, currentManagerId);
             var existingUser = await _cafeRepository.GetUserByEmailAsync(dto.Email);
@@ -376,7 +376,7 @@ namespace BoardVerse.Services.Services
             await LinkStaffToCafeAsync(cafe, staffUser);
         }
 
-        public async Task PromoteUserToStaffAsync(Guid cafeId, Guid currentManagerId, PromoteStaffRequestDto dto)
+        public async Task PromoteUserToStaffAsync(Guid cafeId, Guid currentManagerId, PromoteStaffRequestDto dto, CancellationToken cancellationToken = default)
         {
             var cafe = await EnsureManagerOwnsCafeAsync(cafeId, currentManagerId);
             var user = await _cafeRepository.GetUserByEmailAsync(dto.Email);
@@ -416,13 +416,13 @@ namespace BoardVerse.Services.Services
         public async Task<PaginatedResponse<StaffDto>> GetStaffListAsync(
             Guid cafeId,
             Guid currentManagerId,
-            PaginationParams paginationParams)
+            PaginationParams paginationParams, CancellationToken cancellationToken = default)
         {
             await EnsureManagerOwnsCafeAsync(cafeId, currentManagerId);
             return await _cafeRepository.GetStaffPagedAsync(cafeId, paginationParams);
         }
 
-        public async Task RemoveStaffAsync(Guid cafeId, Guid currentManagerId, Guid staffId)
+        public async Task RemoveStaffAsync(Guid cafeId, Guid currentManagerId, Guid staffId, CancellationToken cancellationToken = default)
         {
             await EnsureManagerOwnsCafeAsync(cafeId, currentManagerId);
 
@@ -448,7 +448,7 @@ namespace BoardVerse.Services.Services
             await _cafeRepository.SaveChangesAsync();
         }
 
-        public async Task<IEnumerable<ManagerCafeDto>> GetMyWorkplacesAsync(Guid currentStaffId)
+        public async Task<IEnumerable<ManagerCafeDto>> GetMyWorkplacesAsync(Guid currentStaffId, CancellationToken cancellationToken = default)
         {
             var cafes = await _cafeRepository.GetCafesByStaffIdAsync(currentStaffId);
             var cafesList = cafes as IReadOnlyList<Cafe> ?? cafes.ToList();
@@ -568,19 +568,14 @@ namespace BoardVerse.Services.Services
                 // Pending cafe approval (BR-NEW-11)
                 pendingCafeApprovalCount = pendingApproval.TotalCount;
 
-                // Active lobbies today: Reservation holding/confirmed + Lobby status ∈ (Open/Viable/Full/InProgress/PendingActivation/PendingCafeApproval)
-                var activeReservationsToday = await _reservationRepository.GetActiveByCafePlayDateSlotAsync(
-                    cafe.Id, today, TimeSlot.Morning)
-                    .ContinueWith(t => t.Result);
-                // Count all slots today
-                var slotTasks = new[] { TimeSlot.Morning, TimeSlot.Afternoon, TimeSlot.Evening, TimeSlot.LateNight }
-                    .Select(slot => _reservationRepository.GetActiveByCafePlayDateSlotAsync(cafe.Id, today, slot));
-                var slotResults = await Task.WhenAll(slotTasks);
-                activeLobbiesToday = slotResults.Sum(r => r.Count);
+                // Active lobbies today: Reservation holding/confirmed (GAP-01 fix: dùng PreferredStartTime/EndTime)
+                // Count all reservations today for this cafe
+                var activeReservationsToday = await _reservationRepository.GetActiveByCafePlayDateAsync(cafe.Id, today);
+                activeLobbiesToday = activeReservationsToday.Count;
 
-                // Held deposit total: t�ng HeldBalance của các player có Reservation active tại cafe này
-                // (Reservation.DepositAmount đang giữ trong ví BVC)
-                heldDepositTotal = slotResults.SelectMany(r => r)
+                // Held deposit total: tổng DepositAmount của các Reservation active tại cafe này
+                // (GAP-01 fix: dùng activeReservationsToday thay vì slotResults)
+                heldDepositTotal = activeReservationsToday
                     .Where(r => r.Status == ReservationStatus.Holding || r.Status == ReservationStatus.Confirmed)
                     .Sum(r => (long)r.DepositAmount);
 
@@ -687,7 +682,7 @@ namespace BoardVerse.Services.Services
             double radiusKm,
             Guid? gameTemplateId,
             string? name,
-            PaginationParams paginationParams)
+            PaginationParams paginationParams, CancellationToken cancellationToken = default)
         {
             // gameTemplateId is now optional — không filter theo game nếu null/empty.
 
@@ -774,7 +769,7 @@ namespace BoardVerse.Services.Services
             double radiusKm,
             Guid? gameTemplateId,
             string? name,
-            PaginationParams paginationParams)
+            PaginationParams paginationParams, CancellationToken cancellationToken = default)
         {
             var profile = await _userProfileRepository.GetProfileByUserIdAsync(userId);
             if (profile?.LastKnownLatitude is not { } latitude
@@ -803,7 +798,7 @@ namespace BoardVerse.Services.Services
             double? latitude,
             double? longitude,
             double? radiusKm,
-            PaginationParams paginationParams)
+            PaginationParams paginationParams, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(name))
             {
@@ -841,7 +836,7 @@ namespace BoardVerse.Services.Services
 
         public async Task<AdminCafeOperationalStatusResultDto> SetOperationalStatusByAdminAsync(
             Guid cafeId,
-            AdminSetCafeOperationalStatusRequestDto request)
+            AdminSetCafeOperationalStatusRequestDto request, CancellationToken cancellationToken = default)
         {
             if (!CafePartnerStatusMapper.TryParseApiOperationalStatus(request.Status, out var status))
             {
@@ -1152,7 +1147,7 @@ namespace BoardVerse.Services.Services
     // ====================================================================
 
     public async Task<AdminCafeListResponseDto> GetAdminCafesAsync(
-        int page, int pageSize, string? searchTerm, string? status, Guid? managerId)
+        int page, int pageSize, string? searchTerm, string? status, Guid? managerId, CancellationToken cancellationToken = default)
     {
         // Map query status string → enum + IsActive filter
         // status values: DATA_BLANK | ACTIVE | INACTIVE | BANNED
@@ -1329,7 +1324,7 @@ namespace BoardVerse.Services.Services
         };
     }
 
-    public async Task<AdminCafeDetailDto> AdminCreateCafeAsync(AdminCreateCafeRequestDto request)
+    public async Task<AdminCafeDetailDto> AdminCreateCafeAsync(AdminCreateCafeRequestDto request, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(request.Name))
         {
@@ -1386,7 +1381,7 @@ namespace BoardVerse.Services.Services
         return result;
     }
 
-    public async Task<AdminCafeDetailDto> AdminUpdateCafeAsync(Guid cafeId, AdminUpdateCafeRequestDto request)
+    public async Task<AdminCafeDetailDto> AdminUpdateCafeAsync(Guid cafeId, AdminUpdateCafeRequestDto request, CancellationToken cancellationToken = default)
     {
         var cafe = await _cafeRepository.GetByIdAsync(cafeId)
             ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
@@ -1467,7 +1462,7 @@ namespace BoardVerse.Services.Services
         return result;
     }
 
-    public async Task AdminDeleteCafeAsync(Guid cafeId)
+    public async Task AdminDeleteCafeAsync(Guid cafeId, CancellationToken cancellationToken = default)
     {
         var cafe = await _cafeRepository.GetByIdAsync(cafeId)
             ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));

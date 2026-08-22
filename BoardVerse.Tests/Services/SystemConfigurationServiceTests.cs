@@ -15,7 +15,7 @@ public class SystemConfigurationServiceTests
     public async Task GetIntAsync_ReturnsParsedValueFromRepository()
     {
         var repo = new Mock<ISystemConfigurationRepository>();
-        repo.Setup(r => r.GetAllAsync()).ReturnsAsync(new List<SystemConfiguration>
+        repo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new List<SystemConfiguration>
         {
             new()
             {
@@ -36,7 +36,7 @@ public class SystemConfigurationServiceTests
     public async Task GetDoubleAsync_UsesFallbackWhenMissing()
     {
         var repo = new Mock<ISystemConfigurationRepository>();
-        repo.Setup(r => r.GetAllAsync()).ReturnsAsync([]);
+        repo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([]);
 
         var service = BuildService(repo);
 
@@ -49,7 +49,7 @@ public class SystemConfigurationServiceTests
     public async Task BulkUpdateConfigsAsync_UpsertsAndInvalidatesCache()
     {
         var repo = new Mock<ISystemConfigurationRepository>();
-        repo.Setup(r => r.GetAllAsync()).ReturnsAsync([]);
+        repo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([]);
         repo.Setup(r => r.UpsertAsync(It.IsAny<IEnumerable<SystemConfiguration>>()))
             .Returns(Task.CompletedTask);
 
@@ -77,7 +77,7 @@ public class SystemConfigurationServiceTests
     public async Task IsDemoLoosenLobbyConstraintsEnabledAsync_ReturnsTrue_WhenConfigTrue()
     {
         var repo = new Mock<ISystemConfigurationRepository>();
-        repo.Setup(r => r.GetAllAsync()).ReturnsAsync(new List<SystemConfiguration>
+        repo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new List<SystemConfiguration>
         {
             new()
             {
@@ -98,7 +98,7 @@ public class SystemConfigurationServiceTests
     public async Task IsDemoLoosenLobbyConstraintsEnabledAsync_ReturnsFalse_WhenConfigFalse()
     {
         var repo = new Mock<ISystemConfigurationRepository>();
-        repo.Setup(r => r.GetAllAsync()).ReturnsAsync(new List<SystemConfiguration>
+        repo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new List<SystemConfiguration>
         {
             new()
             {
@@ -119,7 +119,7 @@ public class SystemConfigurationServiceTests
     public async Task IsDemoLoosenLobbyConstraintsEnabledAsync_ReturnsFalse_WhenConfigMissing()
     {
         var repo = new Mock<ISystemConfigurationRepository>();
-        repo.Setup(r => r.GetAllAsync()).ReturnsAsync([]);
+        repo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([]);
 
         var service = BuildService(repo);
 
@@ -132,7 +132,7 @@ public class SystemConfigurationServiceTests
     public async Task IsBypassTimeWindowEnabledAsync_ReturnsTrue_WhenConfigTrue()
     {
         var repo = new Mock<ISystemConfigurationRepository>();
-        repo.Setup(r => r.GetAllAsync()).ReturnsAsync(new List<SystemConfiguration>
+        repo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new List<SystemConfiguration>
         {
             new()
             {
@@ -164,7 +164,7 @@ public class SystemConfigurationServiceTests
     public async Task GetBoolAsync_ParsesCommonStringFormats(string raw, bool expected)
     {
         var repo = new Mock<ISystemConfigurationRepository>();
-        repo.Setup(r => r.GetAllAsync()).ReturnsAsync(new List<SystemConfiguration>
+        repo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new List<SystemConfiguration>
         {
             new()
             {
@@ -185,7 +185,7 @@ public class SystemConfigurationServiceTests
     public async Task GetBoolAsync_ReturnsFallback_WhenConfigMissing()
     {
         var repo = new Mock<ISystemConfigurationRepository>();
-        repo.Setup(r => r.GetAllAsync()).ReturnsAsync([]);
+        repo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([]);
 
         var service = BuildService(repo);
 
@@ -200,7 +200,7 @@ public class SystemConfigurationServiceTests
     public async Task GetBoolAsync_ReturnsFallback_WhenValueIsUnparseable()
     {
         var repo = new Mock<ISystemConfigurationRepository>();
-        repo.Setup(r => r.GetAllAsync()).ReturnsAsync(new List<SystemConfiguration>
+        repo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new List<SystemConfiguration>
         {
             new()
             {
@@ -220,7 +220,7 @@ public class SystemConfigurationServiceTests
     private static SystemConfigurationService BuildService(Mock<ISystemConfigurationRepository> repo)
     {
         var cache = new Mock<IDistributedCache>();
-        cache.Setup(c => c.GetAsync(It.IsAny<string>(), default)).ReturnsAsync((byte[]?)null);
+        cache.Setup(c => c.GetAsync(It.IsAny<string>(), default, It.IsAny<CancellationToken>())).ReturnsAsync((byte[]?)null);
         return new SystemConfigurationService(repo.Object, cache.Object);
     }
 }
@@ -231,7 +231,7 @@ public class KarmaConfigurationServiceTests
     public async Task GetNoShowPenaltyAsync_DelegatesToProvider()
     {
         var provider = new Mock<ISystemConfigurationProvider>();
-        provider.Setup(p => p.GetIntAsync(SystemConfigKeys.KarmaPenaltyNoshow, -5)).ReturnsAsync(-7);
+        provider.Setup(p => p.GetIntAsync(SystemConfigKeys.KarmaPenaltyNoshow, -5, It.IsAny<CancellationToken>())).ReturnsAsync(-7);
 
         var service = new KarmaConfigurationService(provider.Object);
 
@@ -244,7 +244,7 @@ public class KarmaConfigurationServiceTests
     public async Task GetLateCancelPenaltyAsync_DelegatesToProvider()
     {
         var provider = new Mock<ISystemConfigurationProvider>();
-        provider.Setup(p => p.GetIntAsync(SystemConfigKeys.KarmaPenaltyCancel, -3)).ReturnsAsync(-4);
+        provider.Setup(p => p.GetIntAsync(SystemConfigKeys.KarmaPenaltyCancel, -3, It.IsAny<CancellationToken>())).ReturnsAsync(-4);
 
         var service = new KarmaConfigurationService(provider.Object);
 

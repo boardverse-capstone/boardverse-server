@@ -73,13 +73,13 @@ public class WalletServiceTests
             AccountStatus = AccountStatus.Active
         };
 
-        _mockWalletRepo.Setup(r => r.GetByUserIdAsync(userId)).ReturnsAsync(existing);
+        _mockWalletRepo.Setup(r => r.GetByUserIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(existing);
 
         var dto = await _service.GetOrCreateWalletAsync(userId, includeHeld: true);
 
         Assert.Equal(250, dto.AvailableBalance);
         Assert.Equal(50, dto.HeldBalance);
-        _mockWalletRepo.Verify(r => r.AddAsync(It.IsAny<Wallet>()), Times.Never);
+        _mockWalletRepo.Verify(r => r.AddAsync(It.IsAny<Wallet>(), It.IsAny<CancellationToken>()), Times.Never);
         _mockWalletRepo.Verify(r => r.SaveChangesAsync(), Times.Never);
     }
 
@@ -87,8 +87,8 @@ public class WalletServiceTests
     public async Task GetOrCreateWalletAsync_NewWallet_AutoCreatesEmpty()
     {
         var userId = Guid.NewGuid();
-        _mockWalletRepo.Setup(r => r.GetByUserIdAsync(userId)).ReturnsAsync((Wallet?)null);
-        _mockUserRepo.Setup(r => r.GetByIdAsync(userId)).ReturnsAsync(new User
+        _mockWalletRepo.Setup(r => r.GetByUserIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync((Wallet?)null);
+        _mockUserRepo.Setup(r => r.GetByIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(new User
         {
             Id = userId,
             Username = "u1",
@@ -101,7 +101,7 @@ public class WalletServiceTests
         Assert.Null(dto.HeldBalance);
         Assert.Equal(RiskLevel.Low, dto.RiskLevel);
         Assert.Equal(AccountStatus.Active, dto.AccountStatus);
-        _mockWalletRepo.Verify(r => r.AddAsync(It.IsAny<Wallet>()), Times.Once);
+        _mockWalletRepo.Verify(r => r.AddAsync(It.IsAny<Wallet>(), It.IsAny<CancellationToken>()), Times.Once);
         _mockWalletRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
     }
 
@@ -109,8 +109,8 @@ public class WalletServiceTests
     public async Task GetOrCreateWalletAsync_UserNotFound_ThrowsNotFound()
     {
         var userId = Guid.NewGuid();
-        _mockWalletRepo.Setup(r => r.GetByUserIdAsync(userId)).ReturnsAsync((Wallet?)null);
-        _mockUserRepo.Setup(r => r.GetByIdAsync(userId)).ReturnsAsync((User?)null);
+        _mockWalletRepo.Setup(r => r.GetByUserIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync((Wallet?)null);
+        _mockUserRepo.Setup(r => r.GetByIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         await Assert.ThrowsAsync<NotFoundException>(
             () => _service.GetOrCreateWalletAsync(userId, includeHeld: false));
@@ -155,14 +155,14 @@ public class WalletServiceTests
         var req = new TopUpRequestDto { AmountVnd = 100_000, IdempotencyKey = "key-12345" };
 
         // BUGFIX (subagent audit #21): User-level check trước khi tạo wallet.
-        _mockUserRepo.Setup(r => r.GetByIdAsync(userId)).ReturnsAsync(new User
+        _mockUserRepo.Setup(r => r.GetByIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(new User
         {
             Id = userId,
             Username = "u1",
             Email = "u1@test.com",
             IsActive = true
         });
-        _mockWalletRepo.Setup(r => r.GetByUserIdAsync(userId)).ReturnsAsync(new Wallet
+        _mockWalletRepo.Setup(r => r.GetByUserIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(new Wallet
         {
             UserId = userId,
             AccountStatus = AccountStatus.Suspended
@@ -179,14 +179,14 @@ public class WalletServiceTests
         var req = new TopUpRequestDto { AmountVnd = 100_000, IdempotencyKey = "key-12345" };
 
         // BUGFIX (subagent audit #21): User-level check trước khi tạo wallet.
-        _mockUserRepo.Setup(r => r.GetByIdAsync(userId)).ReturnsAsync(new User
+        _mockUserRepo.Setup(r => r.GetByIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(new User
         {
             Id = userId,
             Username = "u1",
             Email = "u1@test.com",
             IsActive = true
         });
-        _mockWalletRepo.Setup(r => r.GetByUserIdAsync(userId)).ReturnsAsync(new Wallet
+        _mockWalletRepo.Setup(r => r.GetByUserIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(new Wallet
         {
             UserId = userId,
             AccountStatus = AccountStatus.Banned
@@ -203,7 +203,7 @@ public class WalletServiceTests
         var userId = Guid.NewGuid();
         var req = new TopUpRequestDto { AmountVnd = 100_000, IdempotencyKey = "key-12345" };
 
-        _mockUserRepo.Setup(r => r.GetByIdAsync(userId)).ReturnsAsync(new User
+        _mockUserRepo.Setup(r => r.GetByIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(new User
         {
             Id = userId,
             Username = "u1",
@@ -222,7 +222,7 @@ public class WalletServiceTests
         var userId = Guid.NewGuid();
         var req = new TopUpRequestDto { AmountVnd = 100_000, IdempotencyKey = "key-12345" };
 
-        _mockUserRepo.Setup(r => r.GetByIdAsync(userId)).ReturnsAsync((User?)null);
+        _mockUserRepo.Setup(r => r.GetByIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         await Assert.ThrowsAsync<NotFoundException>(
             () => _service.CreateTopUpAsync(userId, req));
@@ -246,7 +246,7 @@ public class WalletServiceTests
         SetupLedgerNoExistingKey(req.IdempotencyKey);
 
         _mockSePayAccount
-            .Setup(s => s.GetRawMasterAccountAsync())
+            .Setup(s => s.GetRawMasterAccountAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SePayAccount
             {
                 IsActive = true,
@@ -282,7 +282,7 @@ public class WalletServiceTests
         SetupUserWithoutWallet(userId);
         SetupLedgerNoExistingKey(req.IdempotencyKey);
         _mockSePayAccount
-            .Setup(s => s.GetRawMasterAccountAsync())
+            .Setup(s => s.GetRawMasterAccountAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync((SePayAccount?)null);
 
         await Assert.ThrowsAsync<PaymentException>(
@@ -297,7 +297,7 @@ public class WalletServiceTests
 
         SetupUserWithoutWallet(userId);
         SetupLedgerNoExistingKey(req.IdempotencyKey);
-        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync()).ReturnsAsync(new SePayAccount
+        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new SePayAccount
         {
             IsActive = true,
             BankCode = "MBBank",
@@ -364,7 +364,7 @@ public class WalletServiceTests
         await Assert.ThrowsAsync<NotFoundException>(
             () => _service.CancelTopUpAsync(topUpId, Guid.NewGuid()));
 
-        _mockTopUpRepo.Verify(r => r.UpdateAsync(It.IsAny<BvcTopUpRequest>()), Times.Never);
+        _mockTopUpRepo.Verify(r => r.UpdateAsync(It.IsAny<BvcTopUpRequest>(), It.IsAny<CancellationToken>()), Times.Never);
         _mockTopUpRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -390,7 +390,7 @@ public class WalletServiceTests
         await Assert.ThrowsAsync<ForbiddenException>(
             () => _service.CancelTopUpAsync(topUpId, attackerId));
 
-        _mockTopUpRepo.Verify(r => r.UpdateAsync(It.IsAny<BvcTopUpRequest>()), Times.Never);
+        _mockTopUpRepo.Verify(r => r.UpdateAsync(It.IsAny<BvcTopUpRequest>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Theory]
@@ -418,7 +418,7 @@ public class WalletServiceTests
         await Assert.ThrowsAsync<ConflictException>(
             () => _service.CancelTopUpAsync(topUpId, userId));
 
-        _mockTopUpRepo.Verify(r => r.UpdateAsync(It.IsAny<BvcTopUpRequest>()), Times.Never);
+        _mockTopUpRepo.Verify(r => r.UpdateAsync(It.IsAny<BvcTopUpRequest>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -439,7 +439,7 @@ public class WalletServiceTests
         _mockTopUpRepo.Setup(r => r.GetByIdAsync(topUpId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(topUp);
         BvcTopUpRequest? captured = null;
-        _mockTopUpRepo.Setup(r => r.UpdateAsync(It.IsAny<BvcTopUpRequest>()))
+        _mockTopUpRepo.Setup(r => r.UpdateAsync(It.IsAny<BvcTopUpRequest>(), It.IsAny<CancellationToken>()))
             .Callback<BvcTopUpRequest>(r => captured = r)
             .Returns(Task.CompletedTask);
 
@@ -528,7 +528,7 @@ public class WalletServiceTests
         await Assert.ThrowsAsync<ForbiddenException>(
             () => _service.UpdateTopUpAmountAsync(topUpId, attackerId, req));
 
-        _mockTopUpRepo.Verify(r => r.UpdateAsync(It.IsAny<BvcTopUpRequest>()), Times.Never);
+        _mockTopUpRepo.Verify(r => r.UpdateAsync(It.IsAny<BvcTopUpRequest>(), It.IsAny<CancellationToken>()), Times.Never);
         _mockGateway.Verify(
             g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), It.IsAny<CancellationToken>()),
             Times.Never);
@@ -624,7 +624,7 @@ public class WalletServiceTests
             .ReturnsAsync(existing);
         _mockTopUpRepo.Setup(r => r.GetByIdempotencyKeyAsync("new-key-12345", CancellationToken.None))
             .ReturnsAsync((BvcTopUpRequest?)null);
-        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync())
+        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync((SePayAccount?)null);
 
         await Assert.ThrowsAsync<PaymentException>(
@@ -634,10 +634,10 @@ public class WalletServiceTests
         // nhưng SaveChangesAsync chưa chạy vì throw ngay sau — caller vẫn thấy Status cũ trong DB.
         // (Idempotent retry sẽ thấy Status=Pending nếu SaveChangesAsync chưa commit.)
         Assert.Equal(BvcTopUpStatus.Cancelled, existing.Status);
-        _mockTopUpRepo.Verify(r => r.UpdateAsync(It.IsAny<BvcTopUpRequest>()), Times.Once);
+        _mockTopUpRepo.Verify(r => r.UpdateAsync(It.IsAny<BvcTopUpRequest>(), It.IsAny<CancellationToken>()), Times.Once);
         _mockTopUpRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
         // Không tạo đơn mới.
-        _mockTopUpRepo.Verify(r => r.AddAsync(It.IsAny<BvcTopUpRequest>()), Times.Never);
+        _mockTopUpRepo.Verify(r => r.AddAsync(It.IsAny<BvcTopUpRequest>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -660,7 +660,7 @@ public class WalletServiceTests
             .ReturnsAsync(existing);
         _mockTopUpRepo.Setup(r => r.GetByIdempotencyKeyAsync("new-key-12345", CancellationToken.None))
             .ReturnsAsync((BvcTopUpRequest?)null);
-        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync()).ReturnsAsync(new SePayAccount
+        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new SePayAccount
         {
             IsActive = true,
             BankCode = "MBBank",
@@ -694,7 +694,7 @@ public class WalletServiceTests
                  && t.AmountVnd == 50_000
                  && t.ExpectedBvc == 50
                  && t.IdempotencyKey == "new-key-12345"
-                 && t.Status == BvcTopUpStatus.Pending)), Times.Once);
+                 && t.Status == BvcTopUpStatus.Pending), It.IsAny<CancellationToken>()), Times.Once);
         _mockTopUpRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -706,23 +706,23 @@ public class WalletServiceTests
     public async Task GetTransactionsAsync_NoWallet_ReturnsEmptyPage()
     {
         var userId = Guid.NewGuid();
-        _mockWalletRepo.Setup(r => r.GetByUserIdAsync(userId)).ReturnsAsync((Wallet?)null);
+        _mockWalletRepo.Setup(r => r.GetByUserIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync((Wallet?)null);
 
         var page = await _service.GetTransactionsAsync(userId, 1, 20);
 
         Assert.Empty(page.Items);
         Assert.Equal(0, page.TotalItems);
         Assert.False(page.HasMore);
-        _mockLedgerRepo.Verify(r => r.CountByUserAsync(It.IsAny<Guid>()), Times.Never);
+        _mockLedgerRepo.Verify(r => r.CountByUserAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
     public async Task GetTransactionsAsync_ClampsPageSizeToMax()
     {
         var userId = Guid.NewGuid();
-        _mockWalletRepo.Setup(r => r.GetByUserIdAsync(userId)).ReturnsAsync(new Wallet { UserId = userId });
-        _mockLedgerRepo.Setup(r => r.CountByUserAsync(userId)).ReturnsAsync(0);
-        _mockLedgerRepo.Setup(r => r.GetHistoryAsync(userId, 1, 100))
+        _mockWalletRepo.Setup(r => r.GetByUserIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(new Wallet { UserId = userId });
+        _mockLedgerRepo.Setup(r => r.CountByUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(0);
+        _mockLedgerRepo.Setup(r => r.GetHistoryAsync(userId, 1, 100, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<BvcLedgerEntry>());
 
         var page = await _service.GetTransactionsAsync(userId, page: 1, pageSize: 9999);
@@ -734,9 +734,9 @@ public class WalletServiceTests
     public async Task GetTransactionsAsync_MapsLedgerEntriesCorrectly()
     {
         var userId = Guid.NewGuid();
-        _mockWalletRepo.Setup(r => r.GetByUserIdAsync(userId)).ReturnsAsync(new Wallet { UserId = userId });
-        _mockLedgerRepo.Setup(r => r.CountByUserAsync(userId)).ReturnsAsync(2);
-        _mockLedgerRepo.Setup(r => r.GetHistoryAsync(userId, 1, 20))
+        _mockWalletRepo.Setup(r => r.GetByUserIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(new Wallet { UserId = userId });
+        _mockLedgerRepo.Setup(r => r.CountByUserAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(2);
+        _mockLedgerRepo.Setup(r => r.GetHistoryAsync(userId, 1, 20, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<BvcLedgerEntry>
             {
                 new()
@@ -789,7 +789,7 @@ public class WalletServiceTests
         SetupLedgerNoExistingKey(req.IdempotencyKey);
 
         _mockSePayAccount
-            .Setup(s => s.GetRawMasterAccountAsync())
+            .Setup(s => s.GetRawMasterAccountAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SePayAccount
             {
                 IsActive = true,
@@ -837,7 +837,7 @@ public class WalletServiceTests
         SetupLedgerNoExistingKey(req.IdempotencyKey);
 
         _mockSePayAccount
-            .Setup(s => s.GetRawMasterAccountAsync())
+            .Setup(s => s.GetRawMasterAccountAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SePayAccount
             {
                 IsActive = true,
@@ -885,7 +885,7 @@ public class WalletServiceTests
         SetupLedgerNoExistingKey(req.IdempotencyKey);
 
         _mockSePayAccount
-            .Setup(s => s.GetRawMasterAccountAsync())
+            .Setup(s => s.GetRawMasterAccountAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SePayAccount
             {
                 IsActive = true,
@@ -938,7 +938,7 @@ public class WalletServiceTests
             .ReturnsAsync(existing);
 
         _mockSePayAccount
-            .Setup(s => s.GetRawMasterAccountAsync())
+            .Setup(s => s.GetRawMasterAccountAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SePayAccount
             {
                 IsActive = true,
@@ -983,7 +983,7 @@ public class WalletServiceTests
             .ReturnsAsync(existing);
         _mockTopUpRepo.Setup(r => r.GetByIdempotencyKeyAsync("update-qr-key-1234", CancellationToken.None))
             .ReturnsAsync((BvcTopUpRequest?)null);
-        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync()).ReturnsAsync(new SePayAccount
+        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new SePayAccount
         {
             IsActive = true,
             BankCode = "MBBank",
@@ -1089,7 +1089,7 @@ public class WalletServiceTests
         };
         _mockTopUpRepo.Setup(r => r.GetByOrderIdAsync("BVC-1983EBFA5333CF7F42", It.IsAny<CancellationToken>()))
             .ReturnsAsync(topUp);
-        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync())
+        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync((SePayAccount?)null);
 
         var stream = await _service.GetTopUpQrImageStreamAsync("BVC-1983EBFA5333CF7F42", userId);
@@ -1116,7 +1116,7 @@ public class WalletServiceTests
         };
         _mockTopUpRepo.Setup(r => r.GetByOrderIdAsync("BVC-1983EBFA5333CF7F42", It.IsAny<CancellationToken>()))
             .ReturnsAsync(topUp);
-        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync())
+        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SePayAccount
             {
                 IsActive = true,
@@ -1154,7 +1154,7 @@ public class WalletServiceTests
         };
         _mockTopUpRepo.Setup(r => r.GetByOrderIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(topUp);
-        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync())
+        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SePayAccount { IsActive = true, BankCode = "MBBank", AccountNumber = "0123456789" });
         _mockQrProxy.Setup(p => p.FetchAsStreamAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Stream?)null);
@@ -1167,9 +1167,9 @@ public class WalletServiceTests
 
     private void SetupUserWithoutWallet(Guid userId)
     {
-        _mockWalletRepo.Setup(r => r.GetByUserIdAsync(userId))
+        _mockWalletRepo.Setup(r => r.GetByUserIdAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((Wallet?)null);
-        _mockUserRepo.Setup(r => r.GetByIdAsync(userId))
+        _mockUserRepo.Setup(r => r.GetByIdAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new User
             {
                 Id = userId,
@@ -1180,7 +1180,7 @@ public class WalletServiceTests
 
     private void SetupLedgerNoExistingKey(string key)
     {
-        _mockLedgerRepo.Setup(r => r.GetByIdempotencyKeyAsync(key))
+        _mockLedgerRepo.Setup(r => r.GetByIdempotencyKeyAsync(key, It.IsAny<CancellationToken>()))
             .ReturnsAsync((BvcLedgerEntry?)null);
     }
 }

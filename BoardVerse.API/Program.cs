@@ -167,6 +167,19 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("RequireAdmin", policy => policy.RequireRole("Admin"));
     options.AddPolicy("RequireManagerOrStaff", policy => policy.RequireRole("Manager", "CafeStaff"));
 
+    // GAP-R6-AUTH-07 Fix: Add hierarchical admin role policies theo BR-RISK-07 (3 admin roles).
+    // Mỗi role có scope quyền riêng; mapping cụ thể:
+    //   - AdminSupport: ADM-01/06/07 (warn/note/verify_required) → roles "Admin", "AdminSupport"
+    //   - AdminRisk:   Support + ADM-02/03/05 (suspend/reset)     → roles "Admin", "AdminSupport", "AdminRisk"
+    //   - AdminSenior: Risk + ADM-04 (ban permanent)                → role "AdminSenior"
+    // Senior Admin có thể dùng .RequireRole("AdminSenior") hoặc escalation qua Audit.
+    options.AddPolicy("RequireAdminSupport", policy =>
+        policy.RequireRole("Admin", "AdminSupport", "AdminRisk", "AdminSenior"));
+    options.AddPolicy("RequireAdminRisk", policy =>
+        policy.RequireRole("Admin", "AdminRisk", "AdminSenior"));
+    options.AddPolicy("RequireAdminSenior", policy =>
+        policy.RequireRole("AdminSenior"));
+
     // H-M15: Default-deny authentication is now applied via [Authorize] on BaseApiController.
     // Không dùng FallbackPolicy ở đây vì chặn cả public endpoint (BoardGame, Cafe, MasterGame, Health) → 401.
     // Default-deny chỉ apply cho controller kế thừa BaseApiController; controller con gắn [AllowAnonymous] nếu public.
@@ -215,6 +228,7 @@ builder.Services.AddScoped<ILobbyRepository, LobbyRepository>();
 builder.Services.AddScoped<IPosCheckInTokenRepository, PosCheckInTokenRepository>();
 builder.Services.AddScoped<IPlayerCheckInService, PlayerCheckInService>();
 builder.Services.AddScoped<IActiveSessionRepository, ActiveSessionRepository>();
+builder.Services.AddScoped<ISessionExtensionRequestRepository, SessionExtensionRequestRepository>(); // GAP-1
 builder.Services.AddScoped<IKarmaRatingRepository, KarmaRatingRepository>();
 builder.Services.AddScoped<IMatchResultRepository, MatchResultRepository>();
 builder.Services.AddScoped<IAdminModerationRepository, AdminModerationRepository>();
@@ -324,16 +338,27 @@ if (!builder.Environment.IsEnvironment("Testing"))
     builder.Services.AddHostedService<RiskScoreRecomputeJob>(); // BR-RISK-01: hourly risk score recompute
     builder.Services.AddHostedService<SuspensionExpiryCheckJob>(); // BR-RISK-06: auto-unlock expired suspensions
     builder.Services.AddHostedService<AlertExpiryCleanupJob>(); // R-01: dismiss stale alerts after 30 days
+    builder.Services.AddHostedService<SessionExtensionRequestExpiryJob>(); // GAP-7 Fix: auto-expire extension requests after 10 minutes
 
     // BR §XXI-H.8: Reservation scheduler jobs (recruitmentDeadline, cafe approval 24h, no-show grace).
     builder.Services.AddReservationSchedulers();
 
     // BR-REQUIRED §17.5: Transactional Outbox publisher.
     builder.Services.AddHostedService<OutboxPublisherHostedService>();
+    builder.Services.AddHostedService<OutboxCleanupJob>(); // GAP-R4-A8: cleanup processed events > 30 days
+    builder.Services.AddHostedService<DeviceTokenCleanupJob>(); // GAP-R6-FCM-CLEANUP: cleanup stale FCM tokens
 }
 
 // SignalR Hubs for real-time updates
-builder.Services.AddSignalR();
+// GAP-R6-RT-07 Fix: Add JwtBearer subprotocol handler so SignalR upgrade requests
+// don't fall back to sending the JWT in the query string (logs leaks).
+// Client side must set `accessTokenFactory = () => jwt` and `transport = HttpTransportType.WebSockets | ServerSentEvents`.
+// On server, the [Authorize] attribute on Hub classes already enforces auth — the query-string
+// path is kept as fallback for compatibility with older @microsoft/signalr versions.
+builder.Services.AddSignalR(options =>
+{
+    options.EnableDetailedErrors = builder.Environment.IsDevelopment();
+});
 builder.Services.AddScoped<ILobbyHubService, LobbyHubService>();
 builder.Services.AddScoped<IPosHubService, PosHubService>();
 
@@ -398,22 +423,107 @@ builder.Services.AddRateLimiter(options =>
     options.OnRejected = async (context, cancellationToken) =>
     {
         context.HttpContext.Response.ContentType = "application/json";
+        // GAP-20 Fix: Include retry hint + endpoint hint
         await context.HttpContext.Response.WriteAsJsonAsync(new
         {
             status = 429,
+            code = "RATE_LIMIT_EXCEEDED",
             message = BoardVerse.Core.Messages.ApiErrorMessages.LobbyInvite.ShareCodeRateLimitExceeded
+                + " Vui lòng thử lại sau vài phút.",
+            retryAfterSeconds = 60
         }, cancellationToken);
     };
+    // GAP-R4-A7 Fix: Partition theo userId (nếu authenticated) HOẶC fall-back IP.
+    // Lý do: NAT scenario (cafe WiFi, mobile carrier, Render egress NAT) khiến nhiều user
+    // share cùng 1 IP → 1 user spam gây lock-out toàn bộ user khác cùng IP.
+    // Kết hợp ưu tiên userId cho authenticated flow (Bearer token), fallback IP cho public.
     options.AddPolicy("ShareCodePolicy", httpContext =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+    {
+        var userId = httpContext.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        var partitionKey = !string.IsNullOrEmpty(userId) ? $"user:{userId}" : $"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: partitionKey,
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 5,
                 Window = TimeSpan.FromMinutes(15),
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
-            }));
+            });
+    });
+
+    // GAP-20 Fix: Payment policy — 10 attempts per user per 5 minutes
+    // Chống spam POST /me/pay để capture BVC liên tục (idempotency đã có nhưng DB query vẫn cost).
+    options.AddPolicy("PaymentPolicy", httpContext =>
+    {
+        var userId = httpContext.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        var partitionKey = !string.IsNullOrEmpty(userId) ? $"user:{userId}" : $"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: partitionKey,
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(5),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            });
+    });
+
+    // GAP-R6-RT-06 Fix: SignalR Hub method rate limit (chống DB-amplification DoS).
+    // Trước đây: JoinSession/JoinLobby gọi DB query (`IsUserSessionParticipantInCafeAsync`) mỗi lần
+    // → attacker gửi 10k join requests/s → 10k DB queries/s. Một tenant khác ở cùng cluster
+    // bị ảnh hưởng (DB CPU spike).
+    // Fix: limit 30 method calls/user/10s. WebSocket long-lived, không phải HTTP request → partition
+    // theo userId (Connection.UserIdentifier) là đủ.
+    options.AddPolicy("HubMethodPolicy", httpContext =>
+    {
+        var userId = httpContext.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        var partitionKey = !string.IsNullOrEmpty(userId)
+            ? $"hub-user:{userId}"
+            : $"hub-ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+        return RateLimitPartition.GetSlidingWindowLimiter(
+            partitionKey: partitionKey,
+            factory: _ => new SlidingWindowRateLimiterOptions
+            {
+                PermitLimit = 30,
+                Window = TimeSpan.FromSeconds(10),
+                SegmentsPerWindow = 5,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            });
+    });
+
+    // GAP-R6-WAL-04 Fix: Top-up 5 attempts/user/5min.
+    options.AddPolicy("TopUpPolicy", httpContext =>
+    {
+        var userId = httpContext.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        var partitionKey = !string.IsNullOrEmpty(userId) ? $"user:{userId}" : $"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: partitionKey,
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(5),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            });
+    });
+
+    // GAP-R6-WAL-05 Fix: Refund requests 3/day/user.
+    options.AddPolicy("RefundPolicy", httpContext =>
+    {
+        var userId = httpContext.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        var partitionKey = !string.IsNullOrEmpty(userId) ? $"user:{userId}" : $"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: partitionKey,
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 3,
+                Window = TimeSpan.FromDays(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            });
+    });
 });
 
 // Add Swagger
@@ -596,9 +706,13 @@ app.MapControllers();
 // Note: RequireCors must come BEFORE RequireAuthorization so preflight (OPTIONS) is handled
 // by CORS middleware without hitting JwtBearer auth, otherwise the OPTIONS request fails
 // with 401 and the browser drops the negotiate POST.
+//
+// GAP-R6-RT-06 Fix: apply HubMethodPolicy (sliding window 30 req/user/10s) chống DB-amplification.
 app.MapHub<LobbyHub>("/hubs/lobby")
-    .RequireCors("SignalRCors");
+    .RequireCors("SignalRCors")
+    .RequireRateLimiting("HubMethodPolicy");
 app.MapHub<PosHub>("/hubs/pos")
-    .RequireCors("SignalRCors");
+    .RequireCors("SignalRCors")
+    .RequireRateLimiting("HubMethodPolicy");
 
 app.Run();

@@ -1,5 +1,6 @@
 using BoardVerse.Core.DTOs.Admin;
 
+using System.Threading;
 namespace BoardVerse.Services.IServices;
 
 /// <summary>
@@ -10,7 +11,7 @@ public interface IAdminReportService
     /// <summary>
     /// Lấy tổng quan dashboard: users, cafes, tournaments, lobbies, bookings, deposits, revenue.
     /// </summary>
-    Task<AdminDashboardOverviewDto> GetDashboardOverviewAsync();
+    Task<AdminDashboardOverviewDto> GetDashboardOverviewAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Báo cáo lobby failures: tổng hợp theo loại (timeout, host-cancelled, cafe-rejected, cafe-expired).
@@ -20,7 +21,7 @@ public interface IAdminReportService
         int pageSize,
         DateTime? fromUtc,
         DateTime? toUtc,
-        string? failureType);
+        string? failureType, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Báo cáo deposits: tổng hợp theo trạng thái (pending, paid, refunded, forfeited).
@@ -29,7 +30,7 @@ public interface IAdminReportService
         int page,
         int pageSize,
         DateTime? fromUtc,
-        DateTime? toUtc);
+        DateTime? toUtc, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Báo cáo performance của tất cả cafes: bookings, lobbies, tournaments, revenue.
@@ -38,7 +39,7 @@ public interface IAdminReportService
         int page,
         int pageSize,
         string sortBy,
-        bool sortDescending);
+        bool sortDescending, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Báo cáo chi tiết performance của một cafe cụ thể.
@@ -46,5 +47,5 @@ public interface IAdminReportService
     Task<AdminCafePerformanceDto?> GetCafePerformanceDetailAsync(
         Guid cafeId,
         DateTime? fromUtc,
-        DateTime? toUtc);
+        DateTime? toUtc, CancellationToken cancellationToken = default);
 }

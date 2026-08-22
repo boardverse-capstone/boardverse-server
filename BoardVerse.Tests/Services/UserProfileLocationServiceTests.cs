@@ -33,7 +33,7 @@ public class UserProfileLocationServiceTests
     public async Task GetCurrentLocationAsync_NoUser_ThrowsUserNotFound()
     {
         var repo = new Mock<IUserProfileRepository>();
-        repo.Setup(r => r.GetByIdWithProfileAsync(UserId)).ReturnsAsync((User?)null);
+        repo.Setup(r => r.GetByIdWithProfileAsync(UserId, It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         var service = new UserProfileService(repo.Object, Mock.Of<ILevelingService>(), new Mock<IPlayerGeocodingService>().Object);
 
@@ -45,7 +45,7 @@ public class UserProfileLocationServiceTests
     public async Task GetCurrentLocationAsync_ReturnsSavedCoordinates()
     {
         var repo = new Mock<IUserProfileRepository>();
-        repo.Setup(r => r.GetByIdWithProfileAsync(UserId)).ReturnsAsync(new User
+        repo.Setup(r => r.GetByIdWithProfileAsync(UserId, It.IsAny<CancellationToken>())).ReturnsAsync(new User
         {
             Id = UserId,
             Email = "player@test.dev",
@@ -81,7 +81,7 @@ public class UserProfileLocationServiceTests
     public async Task UpdateCurrentLocationAsync_InvalidLatitude_ThrowsBadRequest()
     {
         var repo = new Mock<IUserProfileRepository>();
-        repo.Setup(r => r.GetByIdWithProfileAsync(UserId))
+        repo.Setup(r => r.GetByIdWithProfileAsync(UserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new User { Id = UserId, Email = "player@test.dev", Username = "player", Profile = new UserProfile { UserId = UserId } });
 
         var service = new UserProfileService(repo.Object, Mock.Of<ILevelingService>(), new Mock<IPlayerGeocodingService>().Object);
@@ -99,7 +99,7 @@ public class UserProfileLocationServiceTests
     {
         var repo = new Mock<IUserProfileRepository>();
         var profile = new UserProfile { UserId = UserId, KarmaPoints = 100 };
-        repo.Setup(r => r.GetByIdWithProfileAsync(UserId))
+        repo.Setup(r => r.GetByIdWithProfileAsync(UserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new User { Id = UserId, Email = "player@test.dev", Username = "player", Profile = profile });
 
         var geocodingStub = new Mock<IPlayerGeocodingService>();
@@ -128,7 +128,7 @@ public class UserProfileLocationServiceTests
     {
         var repo = new Mock<IUserProfileRepository>();
         var profile = new UserProfile { UserId = UserId, KarmaPoints = 100 };
-        repo.Setup(r => r.GetByIdWithProfileAsync(UserId))
+        repo.Setup(r => r.GetByIdWithProfileAsync(UserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new User { Id = UserId, Email = "player@test.dev", Username = "player", Profile = profile });
 
         var geocodingStub = new Mock<IPlayerGeocodingService>();
@@ -167,7 +167,7 @@ public class UserProfileLocationServiceTests
     {
         var repo = new Mock<IUserProfileRepository>();
         var profile = new UserProfile { UserId = UserId, KarmaPoints = 100 };
-        repo.Setup(r => r.GetByIdWithProfileAsync(UserId))
+        repo.Setup(r => r.GetByIdWithProfileAsync(UserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new User { Id = UserId, Email = "player@test.dev", Username = "player", Profile = profile });
 
         var geocodingStub = new Mock<IPlayerGeocodingService>();
@@ -193,7 +193,7 @@ public class UserProfileLocationServiceTests
     public async Task ClearCurrentLocationAsync_NoSavedLocation_ThrowsNotFound()
     {
         var repo = new Mock<IUserProfileRepository>();
-        repo.Setup(r => r.GetProfileByUserIdAsync(UserId))
+        repo.Setup(r => r.GetProfileByUserIdAsync(UserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new UserProfile { UserId = UserId });
 
         var service = new UserProfileService(repo.Object, Mock.Of<ILevelingService>(), new Mock<IPlayerGeocodingService>().Object);
@@ -218,7 +218,7 @@ public class UserProfileLocationServiceTests
             LastResolvedDisplayName = "Quận 1, HCM, VN",
             LastResolvedAt = DateTime.UtcNow
         };
-        repo.Setup(r => r.GetProfileByUserIdAsync(UserId)).ReturnsAsync(profile);
+        repo.Setup(r => r.GetProfileByUserIdAsync(UserId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
 
         var service = new UserProfileService(repo.Object, Mock.Of<ILevelingService>(), new Mock<IPlayerGeocodingService>().Object);
         await service.ClearCurrentLocationAsync(UserId);

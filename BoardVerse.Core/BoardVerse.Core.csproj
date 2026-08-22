@@ -6,6 +6,24 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- Pre-build guard: check ApiErrorMessages.cs for brace/class corruption -->
+  <Target Name="GuardApiErrorMessages" BeforeTargets="Build">
+    <!-- Read file content -->
+    <ReadLinesFromFile File="BoardVerse.Core\Messages\ApiErrorMessages.cs">
+      <Output TaskParameter="Lines" PropertyName="ApiErrorMessagesLines" />
+    </ReadLinesFromFile>
+    <!-- Count braces via inline script -->
+    <PropertyGroup>
+      <_apiContent>$([System.IO.File]::ReadAllText($(MSBuildProjectDirectory)\Messages\ApiErrorMessages.cs))</_apiContent>
+      <_openBraces>$([System.Text.RegularExpressions.Regex]::Matches($(_apiContent), "{").Count)</_openBraces>
+      <_closeBraces>$([System.Text.RegularExpressions.Regex]::Matches($(_apiContent), "}").Count)</_closeBraces>
+      <_braceOk>$(_openBraces.Equals($(_closeBraces)))</_braceOk>
+    </PropertyGroup>
+    <!-- Fail build if braces are imbalanced -->
+    <Error Text="ApiErrorMessages.cs brace mismatch (open=$(_openBraces) vs close=$(_closeBraces)). Restore the file: git checkout BoardVerse.Core\Messages\ApiErrorMessages.cs"
+          Condition="!$(_braceOk)" />
+  </Target>
+
   <ItemGroup>
     <PackageReference Include="NetTopologySuite" Version="2.5.0" />
   </ItemGroup>

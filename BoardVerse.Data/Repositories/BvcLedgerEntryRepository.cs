@@ -14,7 +14,7 @@ public class BvcLedgerEntryRepository : IBvcLedgerEntryRepository
         _db = db;
     }
 
-    public Task<BvcLedgerEntry?> GetByIdempotencyKeyAsync(string idempotencyKey)
+    public Task<BvcLedgerEntry?> GetByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken = default)
     {
         return _db.BvcLedgerEntries
             .FirstOrDefaultAsync(e => e.IdempotencyKey == idempotencyKey);
@@ -24,7 +24,7 @@ public class BvcLedgerEntryRepository : IBvcLedgerEntryRepository
     /// GAP #13 fix: FOR UPDATE lock row ledger theo idempotencyKey.
     /// Phải gọi trong transaction (Serializable Isolation).
     /// </summary>
-    public Task<BvcLedgerEntry?> GetByIdempotencyKeyForUpdateAsync(string idempotencyKey)
+    public Task<BvcLedgerEntry?> GetByIdempotencyKeyForUpdateAsync(string idempotencyKey, CancellationToken cancellationToken = default)
     {
         // TD-02: Liệt kê cột tường minh để tránh EF generate alias `b."ReservationId"` (entity dùng RelatedReservationId).
         return _db.BvcLedgerEntries
@@ -39,12 +39,12 @@ public class BvcLedgerEntryRepository : IBvcLedgerEntryRepository
             .FirstOrDefaultAsync();
     }
 
-    public Task<BvcLedgerEntry?> GetByIdAsync(Guid id)
+    public Task<BvcLedgerEntry?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return _db.BvcLedgerEntries.FirstOrDefaultAsync(e => e.Id == id);
     }
 
-    public async Task<IReadOnlyList<BvcLedgerEntry>> GetHistoryAsync(Guid userId, int page, int pageSize)
+    public async Task<IReadOnlyList<BvcLedgerEntry>> GetHistoryAsync(Guid userId, int page, int pageSize, CancellationToken cancellationToken = default)
     {
         return await _db.BvcLedgerEntries
             .Where(e => e.UserId == userId)
@@ -54,12 +54,12 @@ public class BvcLedgerEntryRepository : IBvcLedgerEntryRepository
             .ToListAsync();
     }
 
-    public Task<int> CountByUserAsync(Guid userId)
+    public Task<int> CountByUserAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         return _db.BvcLedgerEntries.CountAsync(e => e.UserId == userId);
     }
 
-    public async Task<decimal> SumForfeitAsync(Guid userId, DateTime since)
+    public async Task<decimal> SumForfeitAsync(Guid userId, DateTime since, CancellationToken cancellationToken = default)
     {
         // Dùng decimal để tổng quát; ledger entry dù long nhưng tổng trả qua
         // service sẽ convert khi cần BR-NEW-10 (threshold BVC 500.000).
@@ -77,7 +77,7 @@ public class BvcLedgerEntryRepository : IBvcLedgerEntryRepository
         return sum;
     }
 
-    public async Task<int> CountByTypeSinceAsync(Guid userId, LedgerEntryType type, DateTime since)
+    public async Task<int> CountByTypeSinceAsync(Guid userId, LedgerEntryType type, DateTime since, CancellationToken cancellationToken = default)
     {
         return await _db.BvcLedgerEntries
             .CountAsync(e => e.UserId == userId && e.Type == type && e.CreatedAt >= since);
@@ -86,7 +86,7 @@ public class BvcLedgerEntryRepository : IBvcLedgerEntryRepository
     /// <summary>
     /// W-04: Tính tổng amount theo loại entry cho user để reconcile ví.
     /// </summary>
-    public async Task<long> SumAmountByTypesAsync(Guid userId, IEnumerable<LedgerEntryType> types)
+    public async Task<long> SumAmountByTypesAsync(Guid userId, IEnumerable<LedgerEntryType> types, CancellationToken cancellationToken = default)
     {
         var typeList = types.ToList();
         var entries = await _db.BvcLedgerEntries
@@ -102,13 +102,13 @@ public class BvcLedgerEntryRepository : IBvcLedgerEntryRepository
         return sum;
     }
 
-    public Task AddAsync(BvcLedgerEntry entry)
+    public Task AddAsync(BvcLedgerEntry entry, CancellationToken cancellationToken = default)
     {
         _db.BvcLedgerEntries.Add(entry);
         return Task.CompletedTask;
     }
 
-    public Task SaveChangesAsync()
+    public Task SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         return _db.SaveChangesAsync();
     }

@@ -2,6 +2,7 @@ using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.Admin;
 using BoardVerse.Core.DTOs.Cafe;
 
+using System.Threading;
 namespace BoardVerse.Services.IServices
 {
     public interface ICafeService
@@ -20,48 +21,48 @@ namespace BoardVerse.Services.IServices
             Guid cafeId,
             double? latitude = null,
             double? longitude = null,
-            bool includeSensitiveInfo = false);
+            bool includeSensitiveInfo = false, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Lấy thông tin cơ bản quán cafe (cho legacy compatibility).
         /// </summary>
         Task<CafeDto> GetCafeAsync(Guid cafeId);
-        Task<CafeDto> UpdateCafeAsync(Guid cafeId, Guid managerId, UpdateCafeRequestDto dto);
+        Task<CafeDto> UpdateCafeAsync(Guid cafeId, Guid managerId, UpdateCafeRequestDto dto, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Lấy danh sách quán mà manager sở hữu (kèm đầy đủ thông tin chi tiết cho manager).
         /// </summary>
-        Task<IEnumerable<ManagerCafeDto>> GetManagerCafesAsync(Guid managerId);
+        Task<IEnumerable<ManagerCafeDto>> GetManagerCafesAsync(Guid managerId, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Lấy danh sách quán mà staff hiện đang làm việc (kèm thông tin chi tiết cho staff).
         /// </summary>
-        Task<IEnumerable<ManagerCafeDto>> GetMyWorkplacesAsync(Guid currentStaffId);
-        Task AddStaffAsync(Guid cafeId, Guid currentManagerId, AddStaffRequestDto dto);
-        Task PromoteUserToStaffAsync(Guid cafeId, Guid currentManagerId, PromoteStaffRequestDto dto);
-        Task<PaginatedResponse<StaffDto>> GetStaffListAsync(Guid cafeId, Guid currentManagerId, PaginationParams paginationParams);
-        Task RemoveStaffAsync(Guid cafeId, Guid currentManagerId, Guid staffId);
+        Task<IEnumerable<ManagerCafeDto>> GetMyWorkplacesAsync(Guid currentStaffId, CancellationToken cancellationToken = default);
+        Task AddStaffAsync(Guid cafeId, Guid currentManagerId, AddStaffRequestDto dto, CancellationToken cancellationToken = default);
+        Task PromoteUserToStaffAsync(Guid cafeId, Guid currentManagerId, PromoteStaffRequestDto dto, CancellationToken cancellationToken = default);
+        Task<PaginatedResponse<StaffDto>> GetStaffListAsync(Guid cafeId, Guid currentManagerId, PaginationParams paginationParams, CancellationToken cancellationToken = default);
+        Task RemoveStaffAsync(Guid cafeId, Guid currentManagerId, Guid staffId, CancellationToken cancellationToken = default);
         Task<NearbyCafeSearchResultDto> GetNearbyCafesAsync(
             double latitude,
             double longitude,
             double radiusKm,
             Guid? gameTemplateId,
             string? name,
-            PaginationParams paginationParams);
+            PaginationParams paginationParams, CancellationToken cancellationToken = default);
 
         Task<NearbyCafeSearchResultDto> GetNearbyCafesForCurrentUserAsync(
             Guid userId,
             double radiusKm,
             Guid? gameTemplateId,
             string? name,
-            PaginationParams paginationParams);
+            PaginationParams paginationParams, CancellationToken cancellationToken = default);
 
         Task<PaginatedResponse<NearbyCafeDto>> SearchCafesAsync(
             string name,
             double? latitude,
             double? longitude,
             double? radiusKm,
-            PaginationParams paginationParams);
+            PaginationParams paginationParams, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Lấy tất cả quán đang ACTIVE cho player (không filter Location, không yêu cầu gameTemplateId).
@@ -70,7 +71,7 @@ namespace BoardVerse.Services.IServices
 
         Task<AdminCafeOperationalStatusResultDto> SetOperationalStatusByAdminAsync(
             Guid cafeId,
-            AdminSetCafeOperationalStatusRequestDto request);
+            AdminSetCafeOperationalStatusRequestDto request, CancellationToken cancellationToken = default);
 
         Task UpdateSePayConfigAsync(Guid cafeId, Guid managerId, UpdateSePayConfigRequestDto dto);
 
@@ -82,10 +83,10 @@ namespace BoardVerse.Services.IServices
 
         // === Admin: Cafe management ===
         Task<AdminCafeListResponseDto> GetAdminCafesAsync(
-            int page, int pageSize, string? searchTerm, string? status, Guid? managerId);
+            int page, int pageSize, string? searchTerm, string? status, Guid? managerId, CancellationToken cancellationToken = default);
         Task<AdminCafeDetailDto?> GetAdminCafeDetailAsync(Guid cafeId);
-        Task<AdminCafeDetailDto> AdminCreateCafeAsync(AdminCreateCafeRequestDto request);
-        Task<AdminCafeDetailDto> AdminUpdateCafeAsync(Guid cafeId, AdminUpdateCafeRequestDto request);
-        Task AdminDeleteCafeAsync(Guid cafeId);
+        Task<AdminCafeDetailDto> AdminCreateCafeAsync(AdminCreateCafeRequestDto request, CancellationToken cancellationToken = default);
+        Task<AdminCafeDetailDto> AdminUpdateCafeAsync(Guid cafeId, AdminUpdateCafeRequestDto request, CancellationToken cancellationToken = default);
+        Task AdminDeleteCafeAsync(Guid cafeId, CancellationToken cancellationToken = default);
     }
 }

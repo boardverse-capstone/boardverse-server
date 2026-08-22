@@ -15,5 +15,5 @@ public interface ILevelingService
     long GetExpToNextLevel(long currentExp, int currentLevel);
 
     /// <summary>Cập nhật level cho user profile.</summary>
-    Task UpdateUserLevelAsync(Guid userId, long expToAdd);
+    Task UpdateUserLevelAsync(Guid userId, long expToAdd, CancellationToken cancellationToken = default);
 }

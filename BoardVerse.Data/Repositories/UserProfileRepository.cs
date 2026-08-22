@@ -14,18 +14,18 @@ namespace BoardVerse.Data.Repositories
             _context = context;
         }
 
-        public Task<User?> GetByIdWithProfileAsync(Guid userId)
+        public Task<User?> GetByIdWithProfileAsync(Guid userId, CancellationToken cancellationToken = default)
         {
             return _context.Users.Include(u => u.Profile).FirstOrDefaultAsync(u => u.Id == userId);
         }
 
-        public Task<UserProfile?> GetProfileByUserIdAsync(Guid userId)
+        public Task<UserProfile?> GetProfileByUserIdAsync(Guid userId, CancellationToken cancellationToken = default)
         {
             return _context.Set<UserProfile>().FirstOrDefaultAsync(p => p.UserId == userId);
         }
 
         public async Task<IReadOnlyDictionary<Guid, UserProfile>> GetProfilesByUserIdsAsync(
-            IReadOnlyCollection<Guid> userIds)
+            IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default)
         {
             if (userIds.Count == 0)
             {
@@ -37,19 +37,19 @@ namespace BoardVerse.Data.Repositories
             return list.ToDictionary(p => p.UserId);
         }
 
-        public Task AddUserProfileAsync(UserProfile profile)
+        public Task AddUserProfileAsync(UserProfile profile, CancellationToken cancellationToken = default)
         {
             _context.UserProfiles.Add(profile);
             return Task.CompletedTask;
         }
 
-        public Task AddPlayerLocationHistoryAsync(PlayerLocationHistory history)
+        public Task AddPlayerLocationHistoryAsync(PlayerLocationHistory history, CancellationToken cancellationToken = default)
         {
             _context.PlayerLocationHistories.Add(history);
             return Task.CompletedTask;
         }
 
-        public async Task<IReadOnlyList<KarmaLog>> GetKarmaLogsAsync(Guid userId, int limit = 50)
+        public async Task<IReadOnlyList<KarmaLog>> GetKarmaLogsAsync(Guid userId, int limit = 50, CancellationToken cancellationToken = default)
         {
             return await _context.KarmaLogs
                 .Where(k => k.UserId == userId)
@@ -58,36 +58,36 @@ namespace BoardVerse.Data.Repositories
                 .ToListAsync();
         }
 
-        public Task SaveChangesAsync()
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default)
         {
             return _context.SaveChangesAsync();
         }
 
         // === Admin: Reports ===
 
-        public async Task<int> CountUsersAsync()
+        public async Task<int> CountUsersAsync(CancellationToken cancellationToken = default)
         {
             return await _context.Users.CountAsync();
         }
 
         // === K-05: Player profile game stats ===
 
-        public async Task<(int gamesPlayed, int gamesWon)> GetMatchHistoryStatsAsync(Guid userId)
+        public async Task<(int gamesPlayed, int gamesWon)> GetMatchHistoryStatsAsync(Guid userId, CancellationToken cancellationToken = default)
         {
             var participantCount = await _context.MatchHistoryParticipants
                 .Where(p => p.UserId == userId)
-                .CountAsync();
+                .CountAsync(cancellationToken);
 
             var wonCount = await _context.MatchHistories
                 .Where(m => m.WinnerUserId == userId)
-                .CountAsync();
+                .CountAsync(cancellationToken);
 
             return (participantCount, wonCount);
         }
 
         // === K-06: Karma + Elo leaderboard ===
 
-        public async Task<IReadOnlyList<KarmaLeaderboardRow>> GetKarmaLeaderboardAsync(int offset, int limit)
+        public async Task<IReadOnlyList<KarmaLeaderboardRow>> GetKarmaLeaderboardAsync(int offset, int limit, CancellationToken cancellationToken = default)
         {
             if (offset < 0) offset = 0;
             if (limit <= 0) limit = 1;
@@ -114,7 +114,7 @@ namespace BoardVerse.Data.Repositories
             return await query.Skip(offset).Take(limit).ToListAsync();
         }
 
-        public async Task<long> CountActiveKarmaUsersAsync()
+        public async Task<long> CountActiveKarmaUsersAsync(CancellationToken cancellationToken = default)
         {
             return await _context.Users
                 .Where(u => u.IsActive)
@@ -123,7 +123,7 @@ namespace BoardVerse.Data.Repositories
                 .LongCountAsync();
         }
 
-        public async Task<IReadOnlyList<EloLeaderboardRow>> GetEloLeaderboardAsync(int offset, int limit)
+        public async Task<IReadOnlyList<EloLeaderboardRow>> GetEloLeaderboardAsync(int offset, int limit, CancellationToken cancellationToken = default)
         {
             if (offset < 0) offset = 0;
             if (limit <= 0) limit = 1;
@@ -150,7 +150,7 @@ namespace BoardVerse.Data.Repositories
             return await query.Skip(offset).Take(limit).ToListAsync();
         }
 
-        public async Task<long> CountActiveEloUsersAsync()
+        public async Task<long> CountActiveEloUsersAsync(CancellationToken cancellationToken = default)
         {
             return await _context.Users
                 .Where(u => u.IsActive)
@@ -159,7 +159,7 @@ namespace BoardVerse.Data.Repositories
                 .LongCountAsync();
         }
 
-        public async Task<IReadOnlyList<LeaderboardRankRow>> GetLevelLeaderboardAsync(int offset, int limit)
+        public async Task<IReadOnlyList<LeaderboardRankRow>> GetLevelLeaderboardAsync(int offset, int limit, CancellationToken cancellationToken = default)
         {
             if (offset < 0) offset = 0;
             if (limit <= 0) limit = 1;
@@ -188,7 +188,7 @@ namespace BoardVerse.Data.Repositories
             return await query.Skip(offset).Take(limit).ToListAsync();
         }
 
-        public async Task<long> CountActiveLevelUsersAsync()
+        public async Task<long> CountActiveLevelUsersAsync(CancellationToken cancellationToken = default)
         {
             return await _context.Users
                 .Where(u => u.IsActive)
@@ -197,7 +197,7 @@ namespace BoardVerse.Data.Repositories
                 .LongCountAsync();
         }
 
-        public async Task<LeaderboardRankRow?> GetUserRankAsync(Guid userId, LeaderboardMetric metric)
+        public async Task<LeaderboardRankRow?> GetUserRankAsync(Guid userId, LeaderboardMetric metric, CancellationToken cancellationToken = default)
         {
             // Base projection reused for both metrics.
             var profileQuery =

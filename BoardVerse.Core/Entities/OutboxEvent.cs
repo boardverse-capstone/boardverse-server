@@ -46,6 +46,13 @@ public class OutboxEvent
 
     public string? LastError { get; set; }
 
+    /// <summary>
+    /// GAP-R4-A8 Fix: Next retry timestamp (exponential backoff).
+    /// Event chỉ được fetch khi <c>NextRetryAt &lt;= now()</c> hoặc null.
+    /// Backoff: 10s × 2^(retry-1), capped 300s.
+    /// </summary>
+    public DateTime? NextRetryAt { get; set; }
+
     /// <summary>Reservation navigation (optional).</summary>
     public virtual Reservation? Reservation { get; set; }
 }

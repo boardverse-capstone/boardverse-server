@@ -33,7 +33,7 @@ namespace BoardVerse.Services.Services.Email
                 _settings.SenderEmail);
         }
 
-        public async Task SendEmailAsync(string to, string subject, string body, bool isHtml = false)
+        public async Task SendEmailAsync(string to, string subject, string body, bool isHtml = false, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(_settings.ApiKey))
             {

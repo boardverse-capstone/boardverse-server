@@ -14,17 +14,17 @@ public class PlayerAlertRepository : IPlayerAlertRepository
 
     public PlayerAlertRepository(BoardVerseDbContext db) => _db = db;
 
-    public async Task<PlayerAlert?> GetByIdAsync(Guid alertId) =>
+    public async Task<PlayerAlert?> GetByIdAsync(Guid alertId, CancellationToken cancellationToken = default) =>
         await _db.PlayerAlerts
             .Include(a => a.User)
             .FirstOrDefaultAsync(a => a.Id == alertId);
 
-    public async Task AddAsync(PlayerAlert alert)
+    public async Task AddAsync(PlayerAlert alert, CancellationToken cancellationToken = default)
     {
         await _db.PlayerAlerts.AddAsync(alert);
     }
 
-    public async Task<PaginatedResponse<PlayerAlertDto>> GetPagedAsync(PlayerAlertQuery q)
+    public async Task<PaginatedResponse<PlayerAlertDto>> GetPagedAsync(PlayerAlertQuery q, CancellationToken cancellationToken = default)
     {
         var query = _db.PlayerAlerts.AsNoTracking().AsQueryable();
 
@@ -70,7 +70,7 @@ public class PlayerAlertRepository : IPlayerAlertRepository
         };
     }
 
-    public async Task<bool> ShouldCreateAutoAlertAsync(Guid userId, PlayerAlertType alertType, string? signalsKey, int cooldownHours)
+    public async Task<bool> ShouldCreateAutoAlertAsync(Guid userId, PlayerAlertType alertType, string? signalsKey, int cooldownHours, CancellationToken cancellationToken = default)
     {
         var cooldownSince = DateTime.UtcNow.AddHours(-cooldownHours);
         var exists = await _db.PlayerAlerts
@@ -82,12 +82,12 @@ public class PlayerAlertRepository : IPlayerAlertRepository
         return !exists;
     }
 
-    public async Task<int> CountOpenCriticalAsync() =>
+    public async Task<int> CountOpenCriticalAsync(CancellationToken cancellationToken = default) =>
         await _db.PlayerAlerts
             .Where(a => a.Status == PlayerAlertStatus.Open && a.Severity == PlayerAlertSeverity.Critical)
             .CountAsync();
 
-    public async Task<IReadOnlyList<PlayerAlert>> GetStaleAlertsForDismissalAsync(int maxAgeDays, int batchSize)
+    public async Task<IReadOnlyList<PlayerAlert>> GetStaleAlertsForDismissalAsync(int maxAgeDays, int batchSize, CancellationToken cancellationToken = default)
     {
         var cutoff = DateTime.UtcNow.AddDays(-maxAgeDays);
         return await _db.PlayerAlerts

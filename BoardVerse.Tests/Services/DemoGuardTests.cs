@@ -20,7 +20,7 @@ public class DemoGuardTests
         // Arrange: DB toggle ON
         var configProvider = new Mock<ISystemConfigurationProvider>();
         configProvider
-            .Setup(p => p.GetStringAsync(SystemConfigKeys.DemoLoosenLobbyConstraints, "false"))
+            .Setup(p => p.GetStringAsync(SystemConfigKeys.DemoLoosenLobbyConstraints, "false", It.IsAny<CancellationToken>()))
             .ReturnsAsync("true");
 
         // Act
@@ -40,7 +40,7 @@ public class DemoGuardTests
         // Arrange: DB toggle OFF (default)
         var configProvider = new Mock<ISystemConfigurationProvider>();
         configProvider
-            .Setup(p => p.GetStringAsync(SystemConfigKeys.DemoLoosenLobbyConstraints, "false"))
+            .Setup(p => p.GetStringAsync(SystemConfigKeys.DemoLoosenLobbyConstraints, "false", It.IsAny<CancellationToken>()))
             .ReturnsAsync("false");
 
         // Act
@@ -79,7 +79,7 @@ public class DemoGuardTests
         var configProvider = new Mock<ISystemConfigurationProvider>();
         // DB config FALSE để chứng minh header được ưu tiên
         configProvider
-            .Setup(p => p.GetStringAsync(SystemConfigKeys.DemoLoosenLobbyConstraints, "false"))
+            .Setup(p => p.GetStringAsync(SystemConfigKeys.DemoLoosenLobbyConstraints, "false", It.IsAny<CancellationToken>()))
             .ReturnsAsync("false");
 
         // Act
@@ -102,7 +102,7 @@ public class DemoGuardTests
 
         var configProvider = new Mock<ISystemConfigurationProvider>();
         configProvider
-            .Setup(p => p.GetStringAsync(SystemConfigKeys.DemoLoosenLobbyConstraints, "false"))
+            .Setup(p => p.GetStringAsync(SystemConfigKeys.DemoLoosenLobbyConstraints, "false", It.IsAny<CancellationToken>()))
             .ReturnsAsync("false");
 
         // Act

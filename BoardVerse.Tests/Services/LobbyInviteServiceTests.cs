@@ -64,7 +64,7 @@ public class LobbyInviteServiceTests
     public async Task SendInviteAsync_WhenLobbyNotFound_ThrowsNotFound()
     {
         var lobbyId = Guid.NewGuid();
-        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync((Lobby?)null);
+        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync((Lobby?)null);
 
         var svc = CreateService();
 
@@ -78,7 +78,7 @@ public class LobbyInviteServiceTests
         var lobbyId = Guid.NewGuid();
         var lobby = BuildLobby(lobbyId);
         lobby.Members.Add(BuildMember(Guid.NewGuid(), isHost: true));
-        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var svc = CreateService();
 
@@ -97,7 +97,7 @@ public class LobbyInviteServiceTests
         var inviterId = Guid.NewGuid();
         var lobby = BuildLobby(lobbyId, status: LobbyStatus.PendingActivation);
         lobby.Members.Add(BuildMember(inviterId, isHost: true));
-        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var svc = CreateService();
 
@@ -112,7 +112,7 @@ public class LobbyInviteServiceTests
         var inviterId = Guid.NewGuid();
         var lobby = BuildLobby(lobbyId, status: LobbyStatus.Closed);
         lobby.Members.Add(BuildMember(inviterId, isHost: true));
-        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var svc = CreateService();
 
@@ -129,7 +129,7 @@ public class LobbyInviteServiceTests
         var lobby = BuildLobby(lobbyId);
         lobby.Members.Add(BuildMember(inviterId, isHost: true));
         lobby.Members.Add(BuildMember(inviteeId, active: true));
-        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var svc = CreateService();
 
@@ -145,8 +145,8 @@ public class LobbyInviteServiceTests
         var inviteeId = Guid.NewGuid();
         var lobby = BuildLobby(lobbyId);
         lobby.Members.Add(BuildMember(inviterId, isHost: true));
-        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(inviterId, inviteeId))
+        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(inviterId, inviteeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Friendship { Id = Guid.NewGuid(), RequesterId = inviteeId, AddresseeId = inviterId, Status = FriendshipStatus.Blocked });
 
         var svc = CreateService();
@@ -163,8 +163,8 @@ public class LobbyInviteServiceTests
         var inviteeId = Guid.NewGuid();
         var lobby = BuildLobby(lobbyId, isPrivate: true);
         lobby.Members.Add(BuildMember(inviterId, isHost: true));
-        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(inviterId, inviteeId)).ReturnsAsync((Friendship?)null);
+        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(inviterId, inviteeId, It.IsAny<CancellationToken>())).ReturnsAsync((Friendship?)null);
 
         var svc = CreateService();
 
@@ -180,9 +180,9 @@ public class LobbyInviteServiceTests
         var inviteeId = Guid.NewGuid();
         var lobby = BuildLobby(lobbyId);
         lobby.Members.Add(BuildMember(inviterId, isHost: true));
-        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(inviterId, inviteeId)).ReturnsAsync((Friendship?)null);
-        _inviteRepo.Setup(r => r.GetPendingInviteAsync(lobbyId, inviteeId))
+        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(inviterId, inviteeId, It.IsAny<CancellationToken>())).ReturnsAsync((Friendship?)null);
+        _inviteRepo.Setup(r => r.GetPendingInviteAsync(lobbyId, inviteeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new LobbyInvite { Id = Guid.NewGuid() });
 
         var svc = CreateService();
@@ -199,12 +199,12 @@ public class LobbyInviteServiceTests
         var inviteeId = Guid.NewGuid();
         var lobby = BuildLobby(lobbyId);
         lobby.Members.Add(BuildMember(inviterId, isHost: true));
-        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(inviterId, inviteeId)).ReturnsAsync((Friendship?)null);
-        _inviteRepo.Setup(r => r.GetPendingInviteAsync(lobbyId, inviteeId)).ReturnsAsync((LobbyInvite?)null);
+        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(inviterId, inviteeId, It.IsAny<CancellationToken>())).ReturnsAsync((Friendship?)null);
+        _inviteRepo.Setup(r => r.GetPendingInviteAsync(lobbyId, inviteeId, It.IsAny<CancellationToken>())).ReturnsAsync((LobbyInvite?)null);
 
         LobbyInvite? captured = null;
-        _inviteRepo.Setup(r => r.AddAsync(It.IsAny<LobbyInvite>()))
+        _inviteRepo.Setup(r => r.AddAsync(It.IsAny<LobbyInvite>(), It.IsAny<CancellationToken>()))
             .Callback<LobbyInvite>(i => captured = i)
             .Returns(Task.CompletedTask);
 
@@ -233,11 +233,11 @@ public class LobbyInviteServiceTests
         var inviteeId = Guid.NewGuid();
         var lobby = BuildLobby(lobbyId, isPrivate: true);
         lobby.Members.Add(BuildMember(inviterId, isHost: true));
-        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(inviterId, inviteeId))
+        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(inviterId, inviteeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Friendship { Id = Guid.NewGuid(), RequesterId = inviterId, AddresseeId = inviteeId, Status = FriendshipStatus.Accepted });
-        _inviteRepo.Setup(r => r.GetPendingInviteAsync(lobbyId, inviteeId)).ReturnsAsync((LobbyInvite?)null);
-        _inviteRepo.Setup(r => r.AddAsync(It.IsAny<LobbyInvite>())).Returns(Task.CompletedTask);
+        _inviteRepo.Setup(r => r.GetPendingInviteAsync(lobbyId, inviteeId, It.IsAny<CancellationToken>())).ReturnsAsync((LobbyInvite?)null);
+        _inviteRepo.Setup(r => r.AddAsync(It.IsAny<LobbyInvite>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var svc = CreateService();
 
@@ -257,10 +257,10 @@ public class LobbyInviteServiceTests
     {
         var lobby = BuildLobby(lobbyId);
         lobby.Members.Add(BuildMember(inviterId, isHost: true));
-        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(inviterId, inviteeId)).ReturnsAsync((Friendship?)null);
-        _inviteRepo.Setup(r => r.GetPendingInviteAsync(lobbyId, inviteeId)).ReturnsAsync((LobbyInvite?)null);
-        _inviteRepo.Setup(r => r.AddAsync(It.IsAny<LobbyInvite>())).Returns(Task.CompletedTask);
+        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(inviterId, inviteeId, It.IsAny<CancellationToken>())).ReturnsAsync((Friendship?)null);
+        _inviteRepo.Setup(r => r.GetPendingInviteAsync(lobbyId, inviteeId, It.IsAny<CancellationToken>())).ReturnsAsync((LobbyInvite?)null);
+        _inviteRepo.Setup(r => r.AddAsync(It.IsAny<LobbyInvite>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
     }
 
     [Fact]
@@ -271,9 +271,9 @@ public class LobbyInviteServiceTests
         var inviterId = Guid.NewGuid();
         var inviteeId = Guid.NewGuid();
         SetupHappyPathInvites(lobbyId, inviterId, inviteeId);
-        _inviteRepo.Setup(r => r.CountSentByInviterSinceAsync(inviterId, It.IsAny<DateTime>()))
+        _inviteRepo.Setup(r => r.CountSentByInviterSinceAsync(inviterId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(LobbyInviteLimits.MaxSentPerUserPerDay - 1);
-        _inviteRepo.Setup(r => r.CountPendingByInviteeSinceAsync(inviteeId, It.IsAny<DateTime>()))
+        _inviteRepo.Setup(r => r.CountPendingByInviteeSinceAsync(inviteeId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
 
         var svc = CreateService();
@@ -291,7 +291,7 @@ public class LobbyInviteServiceTests
         var inviterId = Guid.NewGuid();
         var inviteeId = Guid.NewGuid();
         SetupHappyPathInvites(lobbyId, inviterId, inviteeId);
-        _inviteRepo.Setup(r => r.CountSentByInviterSinceAsync(inviterId, It.IsAny<DateTime>()))
+        _inviteRepo.Setup(r => r.CountSentByInviterSinceAsync(inviterId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(LobbyInviteLimits.MaxSentPerUserPerDay);
 
         var svc = CreateService();
@@ -299,7 +299,7 @@ public class LobbyInviteServiceTests
         var ex = await Assert.ThrowsAsync<ConflictException>(() =>
             svc.SendInviteAsync(lobbyId, inviterId, new SendLobbyInviteRequestDto { InviteeId = inviteeId }));
         Assert.Contains("lời mời", ex.Message, StringComparison.OrdinalIgnoreCase);
-        _inviteRepo.Verify(r => r.AddAsync(It.IsAny<LobbyInvite>()), Times.Never);
+        _inviteRepo.Verify(r => r.AddAsync(It.IsAny<LobbyInvite>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -311,9 +311,9 @@ public class LobbyInviteServiceTests
         var inviterId = Guid.NewGuid();
         var inviteeId = Guid.NewGuid();
         SetupHappyPathInvites(lobbyId, inviterId, inviteeId);
-        _inviteRepo.Setup(r => r.CountSentByInviterSinceAsync(inviterId, It.IsAny<DateTime>()))
+        _inviteRepo.Setup(r => r.CountSentByInviterSinceAsync(inviterId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
-        _inviteRepo.Setup(r => r.CountPendingByInviteeSinceAsync(inviteeId, It.IsAny<DateTime>()))
+        _inviteRepo.Setup(r => r.CountPendingByInviteeSinceAsync(inviteeId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(LobbyInviteLimits.MaxReceivedPerUserPerDay);
 
         var svc = CreateService();
@@ -321,7 +321,7 @@ public class LobbyInviteServiceTests
         var ex = await Assert.ThrowsAsync<ConflictException>(() =>
             svc.SendInviteAsync(lobbyId, inviterId, new SendLobbyInviteRequestDto { InviteeId = inviteeId }));
         Assert.Contains("lời mời", ex.Message, StringComparison.OrdinalIgnoreCase);
-        _inviteRepo.Verify(r => r.AddAsync(It.IsAny<LobbyInvite>()), Times.Never);
+        _inviteRepo.Verify(r => r.AddAsync(It.IsAny<LobbyInvite>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -332,9 +332,9 @@ public class LobbyInviteServiceTests
         var inviterId = Guid.NewGuid();
         var inviteeId = Guid.NewGuid();
         SetupHappyPathInvites(lobbyId, inviterId, inviteeId);
-        _inviteRepo.Setup(r => r.CountSentByInviterSinceAsync(inviterId, It.IsAny<DateTime>()))
+        _inviteRepo.Setup(r => r.CountSentByInviterSinceAsync(inviterId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
-        _inviteRepo.Setup(r => r.CountPendingByInviteeSinceAsync(inviteeId, It.IsAny<DateTime>()))
+        _inviteRepo.Setup(r => r.CountPendingByInviteeSinceAsync(inviteeId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(LobbyInviteLimits.MaxReceivedPerUserPerDay - 1);
 
         var svc = CreateService();
@@ -352,16 +352,16 @@ public class LobbyInviteServiceTests
         var inviterId = Guid.NewGuid();
         var inviteeId = Guid.NewGuid();
         SetupHappyPathInvites(lobbyId, inviterId, inviteeId);
-        _inviteRepo.Setup(r => r.CountSentByInviterSinceAsync(inviterId, It.IsAny<DateTime>()))
+        _inviteRepo.Setup(r => r.CountSentByInviterSinceAsync(inviterId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(LobbyInviteLimits.MaxSentPerUserPerDay);
-        _inviteRepo.Setup(r => r.CountPendingByInviteeSinceAsync(inviteeId, It.IsAny<DateTime>()))
+        _inviteRepo.Setup(r => r.CountPendingByInviteeSinceAsync(inviteeId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(LobbyInviteLimits.MaxReceivedPerUserPerDay);
 
         var svc = CreateService();
 
         await Assert.ThrowsAsync<ConflictException>(() =>
             svc.SendInviteAsync(lobbyId, inviterId, new SendLobbyInviteRequestDto { InviteeId = inviteeId }));
-        _inviteRepo.Verify(r => r.CountPendingByInviteeSinceAsync(It.IsAny<Guid>(), It.IsAny<DateTime>()), Times.Never);
+        _inviteRepo.Verify(r => r.CountPendingByInviteeSinceAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     #endregion
@@ -371,7 +371,7 @@ public class LobbyInviteServiceTests
     [Fact]
     public async Task AcceptInviteAsync_WhenInviteNotFound_ThrowsNotFound()
     {
-        _inviteRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((LobbyInvite?)null);
+        _inviteRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((LobbyInvite?)null);
 
         var svc = CreateService();
 
@@ -383,7 +383,7 @@ public class LobbyInviteServiceTests
     {
         var inviteId = Guid.NewGuid();
         var invite = new LobbyInvite { Id = inviteId, LobbyId = Guid.NewGuid(), InviterId = Guid.NewGuid(), InviteeId = Guid.NewGuid(), Status = LobbyInviteStatus.Pending, ExpiresAt = DateTime.UtcNow.AddHours(1) };
-        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId)).ReturnsAsync(invite);
+        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId, It.IsAny<CancellationToken>())).ReturnsAsync(invite);
 
         var svc = CreateService();
 
@@ -396,7 +396,7 @@ public class LobbyInviteServiceTests
         var inviteId = Guid.NewGuid();
         var inviteeId = Guid.NewGuid();
         var invite = new LobbyInvite { Id = inviteId, LobbyId = Guid.NewGuid(), InviterId = Guid.NewGuid(), InviteeId = inviteeId, Status = LobbyInviteStatus.Pending, ExpiresAt = DateTime.UtcNow.AddHours(-1) };
-        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId)).ReturnsAsync(invite);
+        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId, It.IsAny<CancellationToken>())).ReturnsAsync(invite);
 
         var svc = CreateService();
 
@@ -412,8 +412,8 @@ public class LobbyInviteServiceTests
         var invite = new LobbyInvite { Id = inviteId, LobbyId = lobbyId, InviterId = Guid.NewGuid(), InviteeId = inviteeId, Status = LobbyInviteStatus.Pending, ExpiresAt = DateTime.UtcNow.AddHours(1) };
         var lobby = BuildLobby(lobbyId, status: LobbyStatus.Closed);
 
-        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId)).ReturnsAsync(invite);
-        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId, It.IsAny<CancellationToken>())).ReturnsAsync(invite);
+        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var svc = CreateService();
 
@@ -432,8 +432,8 @@ public class LobbyInviteServiceTests
         lobby.Members.Add(BuildMember(Guid.NewGuid()));
         lobby.Members.Add(BuildMember(Guid.NewGuid()));
 
-        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId)).ReturnsAsync(invite);
-        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId, It.IsAny<CancellationToken>())).ReturnsAsync(invite);
+        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var svc = CreateService();
 
@@ -451,9 +451,9 @@ public class LobbyInviteServiceTests
         var invite = new LobbyInvite { Id = inviteId, LobbyId = lobbyId, InviterId = inviterId, InviteeId = inviteeId, Status = LobbyInviteStatus.Pending, ExpiresAt = DateTime.UtcNow.AddHours(1) };
         var lobby = BuildLobby(lobbyId, isPrivate: true);
 
-        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId)).ReturnsAsync(invite);
-        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
-        _friendshipRepo.Setup(r => r.GetByPairAsync(inviterId, inviteeId)).ReturnsAsync((Friendship?)null);
+        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId, It.IsAny<CancellationToken>())).ReturnsAsync(invite);
+        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
+        _friendshipRepo.Setup(r => r.GetByPairAsync(inviterId, inviteeId, It.IsAny<CancellationToken>())).ReturnsAsync((Friendship?)null);
 
         var svc = CreateService();
 
@@ -471,9 +471,9 @@ public class LobbyInviteServiceTests
         var invite = new LobbyInvite { Id = inviteId, LobbyId = lobbyId, InviterId = inviterId, InviteeId = inviteeId, Status = LobbyInviteStatus.Pending, ExpiresAt = DateTime.UtcNow.AddHours(1) };
         var lobby = BuildLobby(lobbyId);
 
-        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId)).ReturnsAsync(invite);
-        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
-        _lobbyService.Setup(s => s.JoinLobbyAsync(lobbyId, inviteeId)).ReturnsAsync(new Core.DTOs.Lobby.LobbyResponseDto { Id = lobbyId });
+        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId, It.IsAny<CancellationToken>())).ReturnsAsync(invite);
+        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
+        _lobbyService.Setup(s => s.JoinLobbyAsync(lobbyId, inviteeId, It.IsAny<CancellationToken>())).ReturnsAsync(new Core.DTOs.Lobby.LobbyResponseDto { Id = lobbyId });
 
         var svc = CreateService();
 
@@ -481,7 +481,7 @@ public class LobbyInviteServiceTests
 
         Assert.Equal(LobbyInviteStatus.Accepted, invite.Status);
         Assert.NotNull(invite.RespondedAt);
-        _lobbyService.Verify(s => s.JoinLobbyAsync(lobbyId, inviteeId), Times.Once);
+        _lobbyService.Verify(s => s.JoinLobbyAsync(lobbyId, inviteeId, It.IsAny<CancellationToken>()), Times.Once);
         _inviteRepo.Verify(r => r.SaveChangesAsync(), Times.AtLeastOnce);
         Assert.Equal(LobbyInviteStatus.Accepted.ToString(), result.Status);
     }
@@ -495,7 +495,7 @@ public class LobbyInviteServiceTests
     {
         var inviteId = Guid.NewGuid();
         var invite = new LobbyInvite { Id = inviteId, LobbyId = Guid.NewGuid(), InviterId = Guid.NewGuid(), InviteeId = Guid.NewGuid(), Status = LobbyInviteStatus.Pending, ExpiresAt = DateTime.UtcNow.AddHours(1) };
-        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId)).ReturnsAsync(invite);
+        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId, It.IsAny<CancellationToken>())).ReturnsAsync(invite);
 
         var svc = CreateService();
 
@@ -508,7 +508,7 @@ public class LobbyInviteServiceTests
         var inviteId = Guid.NewGuid();
         var inviteeId = Guid.NewGuid();
         var invite = new LobbyInvite { Id = inviteId, LobbyId = Guid.NewGuid(), InviterId = Guid.NewGuid(), InviteeId = inviteeId, Status = LobbyInviteStatus.Accepted, ExpiresAt = DateTime.UtcNow.AddHours(1) };
-        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId)).ReturnsAsync(invite);
+        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId, It.IsAny<CancellationToken>())).ReturnsAsync(invite);
 
         var svc = CreateService();
 
@@ -521,7 +521,7 @@ public class LobbyInviteServiceTests
         var inviteId = Guid.NewGuid();
         var inviteeId = Guid.NewGuid();
         var invite = new LobbyInvite { Id = inviteId, LobbyId = Guid.NewGuid(), InviterId = Guid.NewGuid(), InviteeId = inviteeId, Status = LobbyInviteStatus.Pending, ExpiresAt = DateTime.UtcNow.AddHours(1) };
-        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId)).ReturnsAsync(invite);
+        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId, It.IsAny<CancellationToken>())).ReturnsAsync(invite);
 
         var svc = CreateService();
 
@@ -541,7 +541,7 @@ public class LobbyInviteServiceTests
     {
         var inviteId = Guid.NewGuid();
         var invite = new LobbyInvite { Id = inviteId, LobbyId = Guid.NewGuid(), InviterId = Guid.NewGuid(), InviteeId = Guid.NewGuid(), Status = LobbyInviteStatus.Pending, ExpiresAt = DateTime.UtcNow.AddHours(1) };
-        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId)).ReturnsAsync(invite);
+        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId, It.IsAny<CancellationToken>())).ReturnsAsync(invite);
 
         var svc = CreateService();
 
@@ -554,7 +554,7 @@ public class LobbyInviteServiceTests
         var inviteId = Guid.NewGuid();
         var inviterId = Guid.NewGuid();
         var invite = new LobbyInvite { Id = inviteId, LobbyId = Guid.NewGuid(), InviterId = inviterId, InviteeId = Guid.NewGuid(), Status = LobbyInviteStatus.Declined, ExpiresAt = DateTime.UtcNow.AddHours(1) };
-        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId)).ReturnsAsync(invite);
+        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId, It.IsAny<CancellationToken>())).ReturnsAsync(invite);
 
         var svc = CreateService();
 
@@ -567,7 +567,7 @@ public class LobbyInviteServiceTests
         var inviteId = Guid.NewGuid();
         var inviterId = Guid.NewGuid();
         var invite = new LobbyInvite { Id = inviteId, LobbyId = Guid.NewGuid(), InviterId = inviterId, InviteeId = Guid.NewGuid(), Status = LobbyInviteStatus.Pending, ExpiresAt = DateTime.UtcNow.AddHours(1) };
-        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId)).ReturnsAsync(invite);
+        _inviteRepo.Setup(r => r.GetByIdAsync(inviteId, It.IsAny<CancellationToken>())).ReturnsAsync(invite);
 
         var svc = CreateService();
 
@@ -599,7 +599,7 @@ public class LobbyInviteServiceTests
                 CreatedAt = DateTime.UtcNow
             }
         };
-        _inviteRepo.Setup(r => r.GetPendingByInviteeAsync(meId)).ReturnsAsync(invites);
+        _inviteRepo.Setup(r => r.GetPendingByInviteeAsync(meId, It.IsAny<CancellationToken>())).ReturnsAsync(invites);
 
         var svc = CreateService();
 
@@ -620,7 +620,7 @@ public class LobbyInviteServiceTests
     public async Task GetMyInvitesAsync_WithNullStatus_ReturnsAll()
     {
         var meId = Guid.NewGuid();
-        _inviteRepo.Setup(r => r.GetAllByInviteeAsync(meId, null)).ReturnsAsync(new List<LobbyInvite>());
+        _inviteRepo.Setup(r => r.GetAllByInviteeAsync(meId, null, It.IsAny<CancellationToken>())).ReturnsAsync(new List<LobbyInvite>());
 
         var svc = CreateService();
 
@@ -635,7 +635,7 @@ public class LobbyInviteServiceTests
         var lobbyId = Guid.NewGuid();
         var lobby = BuildLobby(lobbyId);
         lobby.Members.Add(BuildMember(Guid.NewGuid(), isHost: true));
-        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var svc = CreateService();
 
@@ -649,7 +649,7 @@ public class LobbyInviteServiceTests
         var meId = Guid.NewGuid();
         var lobby = BuildLobby(lobbyId);
         lobby.Members.Add(BuildMember(meId));
-        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId)).ReturnsAsync(lobby);
+        _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var svc = CreateService();
 

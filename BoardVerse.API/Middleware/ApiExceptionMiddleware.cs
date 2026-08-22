@@ -61,11 +61,26 @@ namespace BoardVerse.API.Middleware
                 context.Response.ContentType = "application/json; charset=utf-8";
                 context.Response.StatusCode = ex.StatusCode;
 
+                object? data = null;
+
+                // GAP-5 Fix: Khi không đủ BVC, gửi thêm thông tin top-up guidance.
+                if (ex is InsufficientBvcBalanceException bvcEx)
+                {
+                    data = new
+                    {
+                        currentBalance = bvcEx.CurrentBalance,
+                        requiredBalance = bvcEx.RequiredBalance,
+                        missingAmount = bvcEx.MissingAmount,
+                        topUpRequired = true,
+                        topUpAction = "POST /api/v1/wallet/topup"
+                    };
+                }
+
                 var response = new ApiResponse
                 {
                     StatusCode = ex.StatusCode,
                     Message = ex.Message,
-                    Data = null,
+                    Data = data,
                     Timestamp = DateTime.UtcNow,
                     Path = context.Request.Path.Value ?? string.Empty
                 };

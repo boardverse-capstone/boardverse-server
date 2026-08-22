@@ -23,11 +23,11 @@ public class MatchResultServiceTests
         var config = new Mock<ISystemConfigurationProvider>();
         var lobby = BuildLobby(LobbyStatus.InProgress);
 
-        repo.Setup(r => r.GetLobbyForMatchAsync(LobbyId)).ReturnsAsync(lobby);
-        repo.Setup(r => r.GameSupportsMatchResultsAsync(GameId)).ReturnsAsync(true);
-        repo.Setup(r => r.GetFinalizedHistoryAsync(LobbyId)).ReturnsAsync((MatchHistory?)null);
-        repo.Setup(r => r.GetSubmissionAsync(LobbyId, Player1)).ReturnsAsync((MatchResult?)null);
-        repo.Setup(r => r.GetSubmissionsAsync(LobbyId))
+        repo.Setup(r => r.GetLobbyForMatchAsync(LobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
+        repo.Setup(r => r.GameSupportsMatchResultsAsync(GameId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        repo.Setup(r => r.GetFinalizedHistoryAsync(LobbyId, It.IsAny<CancellationToken>())).ReturnsAsync((MatchHistory?)null);
+        repo.Setup(r => r.GetSubmissionAsync(LobbyId, Player1, It.IsAny<CancellationToken>())).ReturnsAsync((MatchResult?)null);
+        repo.Setup(r => r.GetSubmissionsAsync(LobbyId, It.IsAny<CancellationToken>()))
             .ReturnsAsync([BuildSubmission(Player1, MatchOutcome.Win)]);
 
         var service = new MatchResultService(repo.Object, config.Object);
@@ -50,21 +50,21 @@ public class MatchResultServiceTests
         var config = new Mock<ISystemConfigurationProvider>();
         var lobby = BuildLobby(LobbyStatus.InProgress);
 
-        repo.Setup(r => r.GetLobbyForMatchAsync(LobbyId)).ReturnsAsync(lobby);
-        repo.Setup(r => r.GameSupportsMatchResultsAsync(GameId)).ReturnsAsync(true);
-        repo.Setup(r => r.GetFinalizedHistoryAsync(LobbyId)).ReturnsAsync((MatchHistory?)null);
-        repo.Setup(r => r.GetSubmissionAsync(LobbyId, Player2)).ReturnsAsync((MatchResult?)null);
-        repo.Setup(r => r.GetSubmissionsAsync(LobbyId))
+        repo.Setup(r => r.GetLobbyForMatchAsync(LobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
+        repo.Setup(r => r.GameSupportsMatchResultsAsync(GameId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        repo.Setup(r => r.GetFinalizedHistoryAsync(LobbyId, It.IsAny<CancellationToken>())).ReturnsAsync((MatchHistory?)null);
+        repo.Setup(r => r.GetSubmissionAsync(LobbyId, Player2, It.IsAny<CancellationToken>())).ReturnsAsync((MatchResult?)null);
+        repo.Setup(r => r.GetSubmissionsAsync(LobbyId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(
             [
                 BuildSubmission(Player1, MatchOutcome.Win),
                 BuildSubmission(Player2, MatchOutcome.Loss)
             ]);
-        repo.Setup(r => r.GetProfileForUpdateAsync(Player1))
+        repo.Setup(r => r.GetProfileForUpdateAsync(Player1, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new UserProfile { UserId = Player1, GlobalElo = 1200, KarmaPoints = 100 });
-        repo.Setup(r => r.GetProfileForUpdateAsync(Player2))
+        repo.Setup(r => r.GetProfileForUpdateAsync(Player2, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new UserProfile { UserId = Player2, GlobalElo = 1200, KarmaPoints = 100 });
-        config.Setup(c => c.GetIntAsync(It.IsAny<string>(), It.IsAny<int>())).ReturnsAsync(32);
+        config.Setup(c => c.GetIntAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync(32);
 
         var service = new MatchResultService(repo.Object, config.Object);
         var result = await service.SubmitMatchResultAsync(Player2, new SubmitMatchResultRequestDto
@@ -86,7 +86,7 @@ public class MatchResultServiceTests
         var repo = new Mock<IMatchResultRepository>();
         var lobby = BuildLobby(LobbyStatus.Open);
 
-        repo.Setup(r => r.GetLobbyForMatchAsync(LobbyId)).ReturnsAsync(lobby);
+        repo.Setup(r => r.GetLobbyForMatchAsync(LobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var service = new MatchResultService(repo.Object, Mock.Of<ISystemConfigurationProvider>());
 
@@ -105,7 +105,7 @@ public class MatchResultServiceTests
         var repo = new Mock<IMatchResultRepository>();
         var lobby = BuildLobby(LobbyStatus.InProgress);
 
-        repo.Setup(r => r.GetLobbyForMatchAsync(LobbyId)).ReturnsAsync(lobby);
+        repo.Setup(r => r.GetLobbyForMatchAsync(LobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
 
         var service = new MatchResultService(repo.Object, Mock.Of<ISystemConfigurationProvider>());
 

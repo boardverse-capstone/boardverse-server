@@ -13,7 +13,7 @@ namespace BoardVerse.Data.Repositories
             _context = context;
         }
 
-        public Task<Lobby?> GetLobbyForRatingAsync(Guid lobbyId) =>
+        public Task<Lobby?> GetLobbyForRatingAsync(Guid lobbyId, CancellationToken cancellationToken = default) =>
             _context.Lobbies
                 .AsNoTracking()
                 .Include(l => l.Members.Where(m => m.IsActive))
@@ -21,17 +21,17 @@ namespace BoardVerse.Data.Repositories
                         .ThenInclude(u => u.Profile)
                 .FirstOrDefaultAsync(l => l.Id == lobbyId);
 
-        public Task<Lobby?> GetLobbyForUpdateAsync(Guid lobbyId) =>
+        public Task<Lobby?> GetLobbyForUpdateAsync(Guid lobbyId, CancellationToken cancellationToken = default) =>
             _context.Lobbies
                 .Include(l => l.Members.Where(m => m.IsActive))
                 .FirstOrDefaultAsync(l => l.Id == lobbyId);
 
-        public Task<bool> IsActiveLobbyMemberAsync(Guid lobbyId, Guid userId) =>
+        public Task<bool> IsActiveLobbyMemberAsync(Guid lobbyId, Guid userId, CancellationToken cancellationToken = default) =>
             _context.LobbyMembers
                 .AsNoTracking()
                 .AnyAsync(m => m.LobbyId == lobbyId && m.UserId == userId && m.IsActive);
 
-        public Task<bool> HasRatingAsync(Guid lobbyId, Guid raterUserId, Guid targetUserId) =>
+        public Task<bool> HasRatingAsync(Guid lobbyId, Guid raterUserId, Guid targetUserId, CancellationToken cancellationToken = default) =>
             _context.PlayerKarmaRatings
                 .AsNoTracking()
                 .AnyAsync(r =>
@@ -39,28 +39,28 @@ namespace BoardVerse.Data.Repositories
                     && r.RaterUserId == raterUserId
                     && r.TargetUserId == targetUserId);
 
-        public async Task<IReadOnlyList<Guid>> GetRatedTargetIdsAsync(Guid lobbyId, Guid raterUserId) =>
+        public async Task<IReadOnlyList<Guid>> GetRatedTargetIdsAsync(Guid lobbyId, Guid raterUserId, CancellationToken cancellationToken = default) =>
             await _context.PlayerKarmaRatings
                 .AsNoTracking()
                 .Where(r => r.LobbyId == lobbyId && r.RaterUserId == raterUserId)
                 .Select(r => r.TargetUserId)
                 .ToListAsync();
 
-        public Task AddRatingAsync(PlayerKarmaRating rating)
+        public Task AddRatingAsync(PlayerKarmaRating rating, CancellationToken cancellationToken = default)
         {
             _context.PlayerKarmaRatings.Add(rating);
             return Task.CompletedTask;
         }
 
-        public Task AddKarmaLogAsync(KarmaLog log)
+        public Task AddKarmaLogAsync(KarmaLog log, CancellationToken cancellationToken = default)
         {
             _context.KarmaLogs.Add(log);
             return Task.CompletedTask;
         }
 
-        public Task<UserProfile?> GetProfileForUpdateAsync(Guid userId) =>
+        public Task<UserProfile?> GetProfileForUpdateAsync(Guid userId, CancellationToken cancellationToken = default) =>
             _context.UserProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
 
-        public Task SaveChangesAsync() => _context.SaveChangesAsync();
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default) => _context.SaveChangesAsync();
     }
 }

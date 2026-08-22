@@ -1,5 +1,6 @@
 using BoardVerse.Core.Entities;
 
+using System.Threading;
 namespace BoardVerse.Core.IRepositories;
 
 /// <summary>
@@ -11,14 +12,14 @@ public interface ICafeScheduleOverrideRepository
     /// <summary>
     /// Lấy override cho (cafe, applyDate).
     /// </summary>
-    Task<CafeScheduleOverride?> GetByApplyDateAsync(Guid cafeId, DateOnly applyDate);
+    Task<CafeScheduleOverride?> GetByApplyDateAsync(Guid cafeId, DateOnly applyDate, CancellationToken cancellationToken = default);
 
     /// <summary>Lấy tất cả override của cafe.</summary>
-    Task<IReadOnlyList<CafeScheduleOverride>> ListByCafeAsync(Guid cafeId);
+    Task<IReadOnlyList<CafeScheduleOverride>> ListByCafeAsync(Guid cafeId, CancellationToken cancellationToken = default);
 
-    Task AddAsync(CafeScheduleOverride overrideEntity);
-    Task UpdateAsync(CafeScheduleOverride overrideEntity);
-    Task DeleteByIdAsync(Guid overrideId);
+    Task AddAsync(CafeScheduleOverride overrideEntity, CancellationToken cancellationToken = default);
+    Task UpdateAsync(CafeScheduleOverride overrideEntity, CancellationToken cancellationToken = default);
+    Task DeleteByIdAsync(Guid overrideId, CancellationToken cancellationToken = default);
 
-    Task SaveChangesAsync();
+    Task SaveChangesAsync(CancellationToken cancellationToken = default);
 }

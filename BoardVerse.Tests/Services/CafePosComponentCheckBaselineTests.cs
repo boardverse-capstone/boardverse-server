@@ -49,7 +49,7 @@ public class CafePosComponentCheckBaselineTests
     public CafePosComponentCheckBaselineTests()
     {
         _db = new FakeDbContext();
-        _posRepo.Setup(r => r.CanOperateCafeAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>()))
+        _posRepo.Setup(r => r.CanOperateCafeAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
     }
 
@@ -130,8 +130,8 @@ public class CafePosComponentCheckBaselineTests
         var sessionGame = BuildSessionGame(gt);
         sessionGame.ActiveSession = session;
 
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id)).ReturnsAsync(cafe);
-        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId))
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
 
         // Baseline cũ: ActualQuantity = 0 (staff nhập mất hết ở phiên trước).
@@ -146,7 +146,7 @@ public class CafePosComponentCheckBaselineTests
                 CheckedAt = DateTime.UtcNow.AddDays(-3)
             }
         };
-        _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId))
+        _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(staleBaseline
                 .GroupBy(x => x.GameComponentTemplateId)
                 .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.CheckedAt).First()));
@@ -174,8 +174,8 @@ public class CafePosComponentCheckBaselineTests
         var sessionGame = BuildSessionGame(gt);
         sessionGame.ActiveSession = session;
 
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id)).ReturnsAsync(cafe);
-        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId))
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
         _posRepo.Setup(r => r.AddComponentCheckResultsAsync(It.IsAny<List<ComponentCheckResult>>()))
             .Returns(Task.CompletedTask);
@@ -192,7 +192,7 @@ public class CafePosComponentCheckBaselineTests
                 CheckedAt = DateTime.UtcNow.AddDays(-3)
             }
         };
-        _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId))
+        _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(staleBaseline
                 .GroupBy(x => x.GameComponentTemplateId)
                 .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.CheckedAt).First()));
@@ -224,13 +224,13 @@ public class CafePosComponentCheckBaselineTests
         var sessionGame = BuildSessionGame(gt);
         sessionGame.ActiveSession = session;
 
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id)).ReturnsAsync(cafe);
-        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId))
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
-        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId))
+        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
         _posRepo.Setup(r => r.GetComponentPenaltiesByCafeGameAsync(
-                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<List<Guid>>()))
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<List<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<Guid, CafeGameComponentPenalty>());
         _posRepo.Setup(r => r.AddComponentCheckResultsAsync(It.IsAny<List<ComponentCheckResult>>()))
             .Returns(Task.CompletedTask);
@@ -247,7 +247,7 @@ public class CafePosComponentCheckBaselineTests
                 CheckedAt = DateTime.UtcNow.AddDays(-3)
             }
         };
-        _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId))
+        _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(staleBaseline
                 .GroupBy(x => x.GameComponentTemplateId)
                 .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.CheckedAt).First()));

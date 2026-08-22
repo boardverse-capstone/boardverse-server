@@ -35,7 +35,7 @@ public class AdminReportService : IAdminReportService
         _dbContext = dbContext;
     }
 
-    public async Task<AdminDashboardOverviewDto> GetDashboardOverviewAsync()
+    public async Task<AdminDashboardOverviewDto> GetDashboardOverviewAsync(CancellationToken cancellationToken = default)
     {
         // --- Bookings & Lobbies (counters) ---
         var totalBookings = await _bookingRepository.CountAllAsync(null, null);
@@ -130,7 +130,7 @@ public class AdminReportService : IAdminReportService
         int pageSize,
         DateTime? fromUtc,
         DateTime? toUtc,
-        string? failureType)
+        string? failureType, CancellationToken cancellationToken = default)
     {
         LobbyStatus? status = null;
         if (!string.IsNullOrWhiteSpace(failureType) && Enum.TryParse<LobbyStatus>(failureType, true, out var parsed))
@@ -192,7 +192,7 @@ public class AdminReportService : IAdminReportService
         int page,
         int pageSize,
         DateTime? fromUtc,
-        DateTime? toUtc)
+        DateTime? toUtc, CancellationToken cancellationToken = default)
     {
         var baseQuery = _dbContext.BookingDeposits.AsNoTracking().AsQueryable();
         if (fromUtc.HasValue)
@@ -277,7 +277,7 @@ public class AdminReportService : IAdminReportService
         int page,
         int pageSize,
         string sortBy,
-        bool sortDescending)
+        bool sortDescending, CancellationToken cancellationToken = default)
     {
         var (cafeItems, totalCount) = await _cafeRepository.GetAdminListAsync(
             page, pageSize, null, true, null);
@@ -368,7 +368,7 @@ public class AdminReportService : IAdminReportService
     public async Task<AdminCafePerformanceDto?> GetCafePerformanceDetailAsync(
         Guid cafeId,
         DateTime? fromUtc,
-        DateTime? toUtc)
+        DateTime? toUtc, CancellationToken cancellationToken = default)
     {
         var cafe = await _cafeRepository.GetAdminDetailAsync(cafeId);
         if (cafe == null)

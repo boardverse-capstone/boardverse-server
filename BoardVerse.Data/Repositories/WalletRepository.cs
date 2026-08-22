@@ -14,7 +14,7 @@ public class WalletRepository : IWalletRepository
         _db = db;
     }
 
-    public Task<Wallet?> GetByUserIdAsync(Guid userId)
+    public Task<Wallet?> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         return _db.Wallets.FirstOrDefaultAsync(w => w.UserId == userId);
     }
@@ -23,27 +23,27 @@ public class WalletRepository : IWalletRepository
     /// Lấy wallet với khóa hàng (SELECT ... FOR UPDATE) — dùng trong transaction
     /// atomic trừ/cộng BVC cho deposit hold/capture (BR § 17.3).
     /// </summary>
-    public Task<Wallet?> GetByUserIdForUpdateAsync(Guid userId)
+    public Task<Wallet?> GetByUserIdForUpdateAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         return _db.Wallets.FromSqlRaw(
             "SELECT * FROM \"Wallets\" WHERE \"UserId\" = {0} FOR UPDATE", userId)
             .FirstOrDefaultAsync();
     }
 
-    public Task AddAsync(Wallet wallet)
+    public Task AddAsync(Wallet wallet, CancellationToken cancellationToken = default)
     {
         _db.Wallets.Add(wallet);
         return Task.CompletedTask;
     }
 
-    public Task UpdateAsync(Wallet wallet)
+    public Task UpdateAsync(Wallet wallet, CancellationToken cancellationToken = default)
     {
         wallet.UpdatedAt = DateTime.UtcNow;
         _db.Wallets.Update(wallet);
         return Task.CompletedTask;
     }
 
-    public Task SaveChangesAsync()
+    public Task SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         return _db.SaveChangesAsync();
     }
@@ -53,7 +53,7 @@ public class WalletRepository : IWalletRepository
         int pageSize,
         string? searchTerm = null,
         AccountStatus? statusFilter = null,
-        RiskLevel? riskLevelFilter = null)
+        RiskLevel? riskLevelFilter = null, CancellationToken cancellationToken = default)
     {
         var query = _db.Wallets
             .Include(w => w.User)
@@ -88,7 +88,7 @@ public class WalletRepository : IWalletRepository
         return (items, totalCount);
     }
 
-    public async Task<Wallet?> GetWalletWithUserAsync(Guid userId)
+    public async Task<Wallet?> GetWalletWithUserAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         return await _db.Wallets
             .Include(w => w.User)
@@ -99,7 +99,7 @@ public class WalletRepository : IWalletRepository
     /// BR-NEW-10 §XI.2 — Lấy wallet đang trong cooling-off (cho background job expire).
     /// Chỉ load những wallet đã quá hạn deactivation (CoolingOffExpiresAt &lt; now).
     /// </summary>
-    public async Task<IReadOnlyList<Wallet>> GetActiveCoolingOffWalletsPagedAsync(int batchSize)
+    public async Task<IReadOnlyList<Wallet>> GetActiveCoolingOffWalletsPagedAsync(int batchSize, CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;
         return await _db.Wallets
@@ -113,7 +113,7 @@ public class WalletRepository : IWalletRepository
     /// BR-NEW-10 §XI.1 — Lấy wallet còn active (AccountStatus = Active, không bị suspended/banned)
     /// để background job quét detect signals.
     /// </summary>
-    public async Task<IReadOnlyList<Wallet>> GetActiveWalletsPagedAsync(int batchSize)
+    public async Task<IReadOnlyList<Wallet>> GetActiveWalletsPagedAsync(int batchSize, CancellationToken cancellationToken = default)
     {
         return await _db.Wallets
             .Where(w => w.AccountStatus == AccountStatus.Active || w.AccountStatus == AccountStatus.Warning)

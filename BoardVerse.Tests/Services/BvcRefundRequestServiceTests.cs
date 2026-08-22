@@ -115,7 +115,7 @@ public class BvcRefundRequestServiceTests
             .Setup(r => r.GetByIdempotencyKeyAsync(key, It.IsAny<CancellationToken>()))
             .ReturnsAsync((BvcRefundRequest?)null);
         _mockLedgerRepo
-            .Setup(r => r.GetByIdAsync(req.RelatedLedgerEntryId))
+            .Setup(r => r.GetByIdAsync(req.RelatedLedgerEntryId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((BvcLedgerEntry?)null);
 
         var ex = await Assert.ThrowsAsync<NotFoundException>(
@@ -136,7 +136,7 @@ public class BvcRefundRequestServiceTests
             .Setup(r => r.GetByIdempotencyKeyAsync(key, It.IsAny<CancellationToken>()))
             .ReturnsAsync((BvcRefundRequest?)null);
         _mockLedgerRepo
-            .Setup(r => r.GetByIdAsync(req.RelatedLedgerEntryId))
+            .Setup(r => r.GetByIdAsync(req.RelatedLedgerEntryId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new BvcLedgerEntry
             {
                 Id = req.RelatedLedgerEntryId,
@@ -183,7 +183,7 @@ public class BvcRefundRequestServiceTests
         Assert.Equal(existing.Id, dto.Id);
         Assert.Equal(RefundRequestStatus.Pending, dto.Status);
         // KHÔNG gọi ledger repo khi replay.
-        _mockLedgerRepo.Verify(r => r.GetByIdAsync(It.IsAny<Guid>()), Times.Never);
+        _mockLedgerRepo.Verify(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
         _mockRefundRepo.Verify(r => r.AddAsync(It.IsAny<BvcRefundRequest>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -230,7 +230,7 @@ public class BvcRefundRequestServiceTests
             .Setup(r => r.GetByIdempotencyKeyAsync(key, It.IsAny<CancellationToken>()))
             .ReturnsAsync((BvcRefundRequest?)null);
         _mockLedgerRepo
-            .Setup(r => r.GetByIdAsync(req.RelatedLedgerEntryId))
+            .Setup(r => r.GetByIdAsync(req.RelatedLedgerEntryId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new BvcLedgerEntry
             {
                 Id = req.RelatedLedgerEntryId,
@@ -345,7 +345,7 @@ public class BvcRefundRequestServiceTests
         await _service.CancelAsync(requestId, userId);
 
         Assert.Equal(RefundRequestStatus.Cancelled, pending.Status);
-        _mockRefundRepo.Verify(r => r.UpdateAsync(pending), Times.Once);
+        _mockRefundRepo.Verify(r => r.UpdateAsync(pending, It.IsAny<CancellationToken>()), Times.Once);
         _mockRefundRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -402,7 +402,7 @@ public class BvcRefundRequestServiceTests
         var adminId = Guid.NewGuid();
         var req = ValidResolveRequest();
 
-        _mockUserRepo.Setup(r => r.GetByIdAsync(adminId)).ReturnsAsync((User?)null);
+        _mockUserRepo.Setup(r => r.GetByIdAsync(adminId, It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         var ex = await Assert.ThrowsAsync<NotFoundException>(
             () => _service.ResolveAsync(requestId, req, adminId, "key-001"));
@@ -417,7 +417,7 @@ public class BvcRefundRequestServiceTests
         var adminId = Guid.NewGuid();
         var req = ValidResolveRequest();
 
-        _mockUserRepo.Setup(r => r.GetByIdAsync(adminId)).ReturnsAsync(new User { Id = adminId, Username = "admin", Email = "admin@test.com" });
+        _mockUserRepo.Setup(r => r.GetByIdAsync(adminId, It.IsAny<CancellationToken>())).ReturnsAsync(new User { Id = adminId, Username = "admin", Email = "admin@test.com" });
         _mockRefundRepo
             .Setup(r => r.GetByIdForUpdateAsync(requestId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((BvcRefundRequest?)null);
@@ -435,7 +435,7 @@ public class BvcRefundRequestServiceTests
         var adminId = Guid.NewGuid();
         var req = ValidResolveRequest();
 
-        _mockUserRepo.Setup(r => r.GetByIdAsync(adminId)).ReturnsAsync(new User { Id = adminId, Username = "admin", Email = "admin@test.com" });
+        _mockUserRepo.Setup(r => r.GetByIdAsync(adminId, It.IsAny<CancellationToken>())).ReturnsAsync(new User { Id = adminId, Username = "admin", Email = "admin@test.com" });
         _mockRefundRepo
             .Setup(r => r.GetByIdForUpdateAsync(requestId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new BvcRefundRequest
@@ -484,15 +484,15 @@ public class BvcRefundRequestServiceTests
             HeldBalance = 0
         };
 
-        _mockUserRepo.Setup(r => r.GetByIdAsync(adminId)).ReturnsAsync(new User { Id = adminId, Username = "admin", Email = "admin@test.com" });
+        _mockUserRepo.Setup(r => r.GetByIdAsync(adminId, It.IsAny<CancellationToken>())).ReturnsAsync(new User { Id = adminId, Username = "admin", Email = "admin@test.com" });
         _mockRefundRepo
             .Setup(r => r.GetByIdForUpdateAsync(requestId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(refundRequest);
         _mockLedgerRepo
-            .Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>()))
+            .Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((BvcLedgerEntry?)null);
         _mockWalletRepo
-            .Setup(r => r.GetByUserIdForUpdateAsync(userId))
+            .Setup(r => r.GetByUserIdForUpdateAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(wallet);
 
         await _service.ResolveAsync(requestId, req, adminId, "admin-key-001");
@@ -508,7 +508,7 @@ public class BvcRefundRequestServiceTests
             && e.BalanceSnapshot == 150_000
             && e.Note!.Contains($"Request={requestId}")
             && e.IdempotencyKey.Contains($"refund:{requestId}:admin:{adminId}:admin-key-001")
-        )), Times.Once);
+        ), It.IsAny<CancellationToken>()), Times.Once);
 
         // RefundRequest cập nhật status + admin info.
         Assert.Equal(RefundRequestStatus.Approved, refundRequest.Status);
@@ -520,9 +520,9 @@ public class BvcRefundRequestServiceTests
         // (BR-RISK-05 audit log → PlayerActionHistories.Add được verify ở integration test với DB thật
         // vì InMemory provider không bind được JsonDocument của PlayerActionHistory.Metadata.)
 
-        _mockRefundRepo.Verify(r => r.UpdateAsync(refundRequest), Times.Once);
+        _mockRefundRepo.Verify(r => r.UpdateAsync(refundRequest, It.IsAny<CancellationToken>()), Times.Once);
         _mockRefundRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
-        _mockWalletRepo.Verify(r => r.UpdateAsync(wallet), Times.Once);
+        _mockWalletRepo.Verify(r => r.UpdateAsync(wallet, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -547,7 +547,7 @@ public class BvcRefundRequestServiceTests
             Status = RefundRequestStatus.Pending
         };
 
-        _mockUserRepo.Setup(r => r.GetByIdAsync(adminId)).ReturnsAsync(new User { Id = adminId, Username = "admin", Email = "admin@test.com" });
+        _mockUserRepo.Setup(r => r.GetByIdAsync(adminId, It.IsAny<CancellationToken>())).ReturnsAsync(new User { Id = adminId, Username = "admin", Email = "admin@test.com" });
         _mockRefundRepo
             .Setup(r => r.GetByIdForUpdateAsync(requestId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(refundRequest);
@@ -555,11 +555,11 @@ public class BvcRefundRequestServiceTests
         await _service.ResolveAsync(requestId, req, adminId, "admin-key-002");
 
         // KHÔNG gọi wallet repo (không có tiền cộng).
-        _mockWalletRepo.Verify(r => r.UpdateAsync(It.IsAny<Wallet>()), Times.Never);
-        _mockWalletRepo.Verify(r => r.GetByUserIdForUpdateAsync(It.IsAny<Guid>()), Times.Never);
+        _mockWalletRepo.Verify(r => r.UpdateAsync(It.IsAny<Wallet>(), It.IsAny<CancellationToken>()), Times.Never);
+        _mockWalletRepo.Verify(r => r.GetByUserIdForUpdateAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
 
         // KHÔNG tạo ledger entry.
-        _mockLedgerRepo.Verify(r => r.AddAsync(It.IsAny<BvcLedgerEntry>()), Times.Never);
+        _mockLedgerRepo.Verify(r => r.AddAsync(It.IsAny<BvcLedgerEntry>(), It.IsAny<CancellationToken>()), Times.Never);
 
         // RefundRequest status = Rejected, không có ApprovedAmount.
         Assert.Equal(RefundRequestStatus.Rejected, refundRequest.Status);
@@ -592,14 +592,14 @@ public class BvcRefundRequestServiceTests
             Status = RefundRequestStatus.Pending
         };
 
-        _mockUserRepo.Setup(r => r.GetByIdAsync(adminId)).ReturnsAsync(new User { Id = adminId, Username = "admin", Email = "admin@test.com" });
+        _mockUserRepo.Setup(r => r.GetByIdAsync(adminId, It.IsAny<CancellationToken>())).ReturnsAsync(new User { Id = adminId, Username = "admin", Email = "admin@test.com" });
         _mockRefundRepo
             .Setup(r => r.GetByIdForUpdateAsync(requestId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(refundRequest);
 
         // Replay: ledger đã tồn tại với cùng key.
         _mockLedgerRepo
-            .Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>()))
+            .Setup(r => r.GetByIdempotencyKeyAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new BvcLedgerEntry
             {
                 Id = existingLedgerId,
@@ -612,9 +612,9 @@ public class BvcRefundRequestServiceTests
         await _service.ResolveAsync(requestId, req, adminId, "replay-key-001");
 
         // KHÔNG thêm ledger entry mới.
-        _mockLedgerRepo.Verify(r => r.AddAsync(It.IsAny<BvcLedgerEntry>()), Times.Never);
+        _mockLedgerRepo.Verify(r => r.AddAsync(It.IsAny<BvcLedgerEntry>(), It.IsAny<CancellationToken>()), Times.Never);
         // KHÔNG cập nhật wallet.
-        _mockWalletRepo.Verify(r => r.UpdateAsync(It.IsAny<Wallet>()), Times.Never);
+        _mockWalletRepo.Verify(r => r.UpdateAsync(It.IsAny<Wallet>(), It.IsAny<CancellationToken>()), Times.Never);
 
         // Reuse ledger id.
         Assert.Equal(existingLedgerId, refundRequest.ResultLedgerEntryId);

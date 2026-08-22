@@ -58,5 +58,5 @@ public interface ICoolingOffService
     /// <param name="additionalDays">Số ngày gia hạn thêm (1..90).</param>
     /// <param name="reason">Lý do extend (lưu audit log).</param>
     /// <param name="ct">Cancellation token.</param>
-    Task ExtendAsync(Guid adminUserId, Guid targetUserId, int additionalDays, string reason, CancellationToken ct = default);
+    Task ExtendAsync(Guid adminUserId, Guid targetUserId, int additionalDays, string reason, CancellationToken cancellationToken = default);
 }
