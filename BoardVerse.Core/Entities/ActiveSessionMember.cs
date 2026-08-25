@@ -97,6 +97,27 @@ namespace BoardVerse.Core.Entities
         /// </summary>
         public decimal TotalAmount { get; set; }
 
+        // === Per-Member Payment Status (Split Bill) ===
+        /// <summary>
+        /// Trạng thái thanh toán của thành viên này.
+        /// </summary>
+        public MemberPaymentStatus PaymentStatus { get; set; } = MemberPaymentStatus.NotPaid;
+
+        /// <summary>
+        /// Phương thức thanh toán đã sử dụng (CASH, QR_CODE, BANK_TRANSFER).
+        /// </summary>
+        public string? PaymentMethod { get; set; }
+
+        /// <summary>
+        /// Thời điểm thanh toán thành công.
+        /// </summary>
+        public DateTime? PaidAt { get; set; }
+
+        /// <summary>
+        /// Transaction ID của thanh toán thành công.
+        /// </summary>
+        public Guid? TransactionId { get; set; }
+
         // === Navigation ===
         public virtual ActiveSession ActiveSession { get; set; } = null!;
         public virtual User? User { get; set; }

@@ -93,6 +93,26 @@ namespace BoardVerse.Data.Repositories
         private static string NormalizeOrderId(string orderId)
             => orderId.Replace("-", "").Trim().ToUpperInvariant();
 
+        /// <summary>
+        /// Split Bill (2026-08-25): Lookup ActiveSession qua MemberId — dùng cho webhook QR
+        /// khi SePay trả về payload chỉ chứa MemberId (qua hoặc parse từ OrderId).
+        /// Query sub-collection trước, sau đó load session cùng navigation đầy đủ
+        /// (giống <see cref="GetByIdWithMembersAsync"/>).
+        /// </summary>
+        public async Task<ActiveSession?> GetByMemberIdWithSessionAsync(Guid memberId, CancellationToken cancellationToken = default)
+        {
+            if (memberId == Guid.Empty) return null;
+
+            var sessionId = await _db.ActiveSessionMembers
+                .Where(m => m.Id == memberId)
+                .Select(m => (Guid?)m.ActiveSessionId)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (sessionId == null) return null;
+
+            return await GetByIdWithMembersAsync(sessionId.Value, cancellationToken);
+        }
+
         public async Task<ActiveSession?> GetByLobbyIdWithMembersAsync(Guid lobbyId, CancellationToken cancellationToken = default)
         {
             if (lobbyId == Guid.Empty) return null;

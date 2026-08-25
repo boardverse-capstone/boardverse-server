@@ -18,6 +18,13 @@ namespace BoardVerse.Core.IRepositories
     Task<IReadOnlyList<ActiveSession>> GetActiveSessionsAsync(Guid cafeId, Guid? gameTemplateId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Split Bill (2026-08-25): Lookup session qua MemberId — dùng cho webhook QR
+    /// khi SePay trả về OrderId chỉ chứa memberId (không có sessionId).
+    /// Trả ActiveSession cùng .Members + .Cafe + navigation cần thiết.
+    /// </summary>
+    Task<ActiveSession?> GetByMemberIdWithSessionAsync(Guid memberId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// BR-END-05: Lấy session Active mà ExtendedEndTime (hoặc ScheduledEndTime) + grace 30 phút đã qua.
     /// Dùng cho AutoReleaseExpiredSessionsJob.
     /// </summary>

@@ -35,17 +35,23 @@ API vận hành quầy: bàn, kho hộp game, phiên chơi, kiểm kê, khách v
 | `/sessions/{sessionId}/end` | POST | **Kết thúc phiên chơi** → session `CHECKING`, hộp → `Available`/`Maintenance` | `CafePosController` |
 | `/sessions/{sessionId}/resume` | POST | **Khôi phục phiên từ `CHECKING` → `ACTIVE`** khi nhân viên bấm nhầm (GAP-1) | `CafePosController` |
 | `/sessions/{sessionGameId}/component-checklist` | GET | Lấy mô tả bảng kiểm kê linh kiện của 1 game trong phiên (`ComponentChecklistDto` — chỉ ExpectedQuantity, chưa verify) | `CafePosController` |
-| `/sessions/component-check` | POST | Submit kết quả kiểm kê linh kiện (`ComponentCheckResultDto` — có ActualQuantity + PenaltyFee + TotalPenaltyAmount). **[Penalty #1]** Hỗ trợ `responsibleMemberId` per-component để phân bổ phí phạt cho member cụ thể. | `CafePosController` |
+| `/sessions/component-check` | POST | Submit kết quả kiểm kê linh kiện (`ComponentCheckResultDto` — có ActualQuantity + PenaltyFee + TotalPenaltyAmount). **[Penalty #1]** Hỗ trợ `responsibleMemberId` per-component để phân bổ phí phạt cho member cụ thể. **Tự động đổi `CafeInventoryBox.Status`** → `Maintenance` nếu thiếu linh kiện, hoặc `Available` nếu đủ (FIX 2026-08-24). | `CafePosController` |
 | `/sessions/component-check/reset` | POST | Reset checklist để kiểm tra lại khi bấm sai (GAP-25) | `CafePosController` |
 | `/boxes/{boxId}/component-history` | GET | **[Box history #1]** Lịch sử kiểm kê thiếu linh kiện của 1 hộp qua các phiên trước (staff kiểm tra trước khi giao hộp). | `CafePosController` |
+| `/boxes/{boxId}/status` | PATCH | **Đổi trạng thái hộp game** sau khi staff bổ sung linh kiện (`Maintenance`/`Damaged` → `Available`) hoặc đánh dấu hỏng (`Maintenance`/`Damaged`/`Retired`). Không cho phép set `InUse`. (FIX 2026-08-24) | `CafePosController` |
 | `/sessions/{sessionId}/return-game` | POST | Trả 1 game sớm: tính `surcharge_fine`, cập nhật box status (session vẫn ACTIVE) | `CafePosController` |
 | `/sessions/{sessionId}/games` | POST | Gán thêm game vào phiên (Exception 6) | `CafePosController` |
 | `/sessions/{sessionId}/guest-slots` | POST | Thêm khách vô danh (BR-13) | `CafePosController` |
 | `/sessions/{sessionId}/members/add` | POST | Thêm thành viên đến muộn (Exception 8) | `CafePosController` |
 | `/sessions/{sessionId}/inventory-loss` | POST | Ghi nhận hao hụt trước phiên (Exception 7) | `CafePosController` |
-| `/sessions/{sessionId}/checkout` | POST | Thanh toán toàn bộ sau kiểm kê (BR-15) | `CafePosController` |
+| `/sessions/{sessionId}/checkout` | POST | Thanh toán toàn bộ sau kiểm kê (BR-15). **FIX 2026-08-24:** Response giờ trả `Members[i].{Subtotal, PenaltyAmount, DepositAppliedAmount, TotalAmount}` cho từng member. Trước đây chỉ `PenaltyAmount` được copy → `Subtotal/TotalAmount = 0` mặc dù backend đã tính đúng. | `CafePosController` |
 | `/sessions/{sessionId}/partial-checkout` | POST | Thanh toán một phần khi có người về sớm (BR-12, BR-14) | `CafePosController` |
 | `/sessions/{sessionId}/pay` | POST | Thanh toán hóa đơn tổng (BR-15, BR-09) | `CafePosController` |
+| `/sessions/{sessionId}/payment-status` | GET | Trạng thái thanh toán per-member của session (Split Bill — xem ai đã trả, ai chưa) | `CafePosController` |
+| `/sessions/{sessionId}/pay-member` | POST | **Split Bill — thanh toán 1 hoặc nhiều thành viên.** CASH confirm ngay, QR tạo SePay order. | `CafePosController` |
+| `/sessions/{sessionId}/members/{memberId}/create-qr` | POST | Tạo QR thanh toán cho 1 member cụ thể (Split Bill). | `CafePosController` |
+| `/sessions/{sessionId}/members/{memberId}/regenerate-qr` | POST | **Tạo lại QR** khi QR cũ bị lỗi/hết hạn (Split Bill, 2026-08-25). | `CafePosController` |
+| `/sessions/{sessionId}/members/{memberId}/confirm-cash` | POST | Xác nhận thanh toán tiền mặt 1 member (Split Bill). | `CafePosController` |
 | `/sessions/{sourceSessionId}/merge` | POST | Ghép thành viên sang nhóm mới (Exception 4) | `CafePosController` |
 | `/sessions/{sessionId}/pause` | POST | **Tạm dừng phiên** (L-05) — timer ngừng đếm | `CafePosController` |
 | `/sessions/{sessionId}/resume-pause` | POST | **Tiếp tục phiên** (L-05) — timer chạy lại | `CafePosController` |
@@ -1055,12 +1061,93 @@ Reset lại checklist linh kiện của 1 game trong session về trạng thái 
 | `POST /sessions/component-check` (`markAllValid=false`) | `ComponentCheckResultDto` | ✅ = số nhân viên đếm được (có thể < `ExpectedQuantity` nếu thiếu) |
 | `POST /sessions/component-check/reset` | `ComponentChecklistDto` | ❌ Không — reset về chưa kiểm |
 
+**Side effect mới (FIX 2026-08-24):** Submit component-check **tự động đổi `CafeInventoryBox.Status`**:
+- `hasMissing = true` → box → `Maintenance` (cần bổ sung linh kiện).
+- `hasMissing = false` (đầy đủ, kể cả `markAllValid=true`) → box → `Available`.
+- Workflow mới: staff nhận box → kiểm tra → submit checklist → box tự vào `Maintenance` nếu thiếu → staff bổ sung → gọi `PATCH /boxes/{boxId}/status` để chuyển `Maintenance` → `Available`.
+
+Xem chi tiết ở `PATCH /boxes/{boxId}/status` bên dưới.
+
 **Audit trail:** Mỗi lần submit thành công, một bộ dòng `ComponentCheckResult` (mỗi component 1 dòng) được lưu vĩnh viễn. Admin có thể dùng query `WHERE ActiveSessionGameId = X` để:
 - Xem staff nào verify lúc nào
 - Phân biệt staff kiểm tra thật (ActualQuantity thay đổi) vs bấm `markAllValid`
 - Truy vết khiếu nại khách về "thiếu linh kiện"
 
 **Lỗi:** `409` — Phiên không ở `CHECKING`, hoặc session game không tồn tại.
+
+---
+
+### PATCH /api/cafes/{cafeId}/pos/boxes/{boxId}/status
+
+Đổi trạng thái hộp game (CafeInventoryBox) sau khi staff bổ sung linh kiện hoặc đánh dấu hỏng. **[Role: Manager, CafeStaff]**
+
+**Dùng khi:**
+
+| Trường hợp | Transition |
+|---|---|
+| Staff vừa bổ sung linh kiện sau khi component-check phát hiện thiếu | `Maintenance` → `Available` |
+| Staff đã sửa/sửa xong hộp bị hỏng nặng | `Damaged` → `Available` |
+| Staff phát hiện hộp cần kiểm tra thêm (không qua component-check) | `Available` → `Maintenance` |
+| Staff đánh dấu hộp hỏng nặng không dùng được | bất kỳ → `Damaged` |
+| Manager cho hộp ngừng sử dụng vĩnh viễn | bất kỳ → `Retired` |
+
+**Transition rules:**
+
+| From | To | OK? |
+|---|---|---|
+| `Maintenance` | `Available` | ✅ (staff vừa bổ sung linh kiện) |
+| `Damaged` | `Available` | ✅ (staff vừa sửa xong) |
+| `Available` | `Maintenance` | ✅ (staff muốn đưa hộp ra kiểm tra) |
+| `Damaged` | `Maintenance` | ✅ (chuyển sang kiểm tra trước khi sửa) |
+| Bất kỳ | `Retired` | ✅ (manager) |
+| `InUse` | Bất kỳ | ❌ **403** — hộp đang trong phiên, phải `EndGameSession` trước |
+| Trùng status hiện tại | — | ❌ `409` — không có gì thay đổi |
+
+**Body — `UpdateBoxStatusRequestDto`:**
+
+```json
+{
+ "status": "Available",
+ "reason": "Đã bổ sung 1 quân cờ đường bộ, khớp với baseline",
+ "restoredComponentId": "guid-component-đã-bổ-sung",
+ "restoredQuantity": 1
+}
+```
+
+| Field | Required | Mô tả |
+|---|---|---|
+| `status` | ✅ | Trạng thái mới: `Available`, `Maintenance`, `Damaged`, `Retired` (KHÔNG `InUse`). |
+| `reason` | ✅ | Lý do đổi status, 3-500 ký tự. Ghi audit log. |
+| `restoredComponentId` | ❌ | Optional — ID linh kiện vừa bổ sung (audit nhanh). |
+| `restoredQuantity` | ❌ | Optional — số lượng bổ sung (chỉ áp dụng kèm `restoredComponentId`). |
+
+**Response 200 — `UpdateBoxStatusResponseDto`:**
+
+```json
+{
+ "boxId": "guid",
+ "barcode": "BV-CAFE-XXXX-001",
+ "gameName": "Catan",
+ "status": "Available",
+ "previousStatus": "Maintenance",
+ "updatedAt": "2026-08-24T10:30:00Z",
+ "updatedByStaffId": "guid",
+ "reason": "Đã bổ sung 1 quân cờ đường bộ"
+}
+```
+
+**Lỗi:**
+
+| Code | Khi nào |
+|---|---|
+| `400` | `status` không hợp lệ (VD: set `InUse`) |
+| `401` | Thiếu token |
+| `403` | Staff không có quyền vận hành quán |
+| `404` | Không tìm thấy hộp hoặc hộp không thuộc quán |
+| `409` | Hộp đang `InUse` (đang trong phiên chơi), hoặc transition không hợp lệ (VD: từ `Available` muốn set `Available`) |
+| `500` | Lỗi hệ thống |
+
+**Audit log:** Mỗi lần đổi status thành công, log `Box status updated` ghi rõ `PreviousStatus`, `NewStatus`, `Reason`, `RestoredComponentId` (nếu có), `StaffId` để admin truy vết.
 
 ---
 
@@ -1502,9 +1589,9 @@ POST /api/cafes/{cafeId}/pos/sessions/{id}/checkout
 # Bước 2: Pay (thanh toán hóa đơn tổng)
 POST /api/cafes/{cafeId}/pos/sessions/{id}/pay
 {
-  "penaltyItems": [
-    { "sessionGameId": "guid", "componentTemplateId": "guid", "missingQuantity": 1, "damagedQuantity": 0 }
-  ]
+ "penaltyItems": [
+ { "sessionGameId": "guid", "componentTemplateId": "guid", "missingQuantity": 1, "damagedQuantity": 0 }
+ ]
 }
 # → Status: UNPAID → PAID
 # → Boxes + tables + seats → Available
@@ -1566,6 +1653,69 @@ POST /api/cafes/{cafeId}/pos/sessions/{id}/pay
 >   Fix: bỏ `- memberDeposit`, vẫn include `DepositAppliedAmount` trong DTO để UI hiển thị + audit.
 > - **Bug #4 (string compare fragility):** `bvcCaptureStatus` dùng string + `Enum.Parse` cuối method
 >   dễ sai khi rename enum value. Fix: dùng `BvcCaptureStatus` enum trực tiếp, bỏ `Enum.Parse`.
+
+### Per-Member Bill Breakdown (FIX 2026-08-24)
+
+> **Backend luôn tính toán chính xác** `Subtotal`, `PenaltyAmount`, `DepositAppliedAmount`, `TotalAmount` cho mỗi member tại `CompleteCheckoutAsync` (line ~1010 `ActiveSessionService.cs`). Tuy nhiên **trước 2026-08-24**, `MapSessionDto` CHỈ copy `PenaltyAmount` vào `ActiveSessionMemberDto`, bỏ sót 3 fields còn lại → POS checkout hiển thị `Subtotal = 0`, `TotalAmount = 0` cho mỗi member dù backend đã tính đúng trong DB.
+
+**Fields trong `ActiveSessionMemberDto`** (giờ đầy đủ):
+
+| Field | Ý nghĩa | Ví dụ |
+|---|---|---|
+| `totalMinutesPlayed` | Phút chơi cá nhân | 75 |
+| `subtotal` | Tiền giờ = phút × rate áp dụng (`CalculateRealtimeBilling`) | 75,000 VND |
+| `penaltyAmount` | Phí phạt thiếu linh kiện (BR-14: GuestSlot = 0) | 15,000 VND |
+| `depositAppliedAmount` | Cọc đã trừ (BR-22: mỗi member có deposit riêng) | -50,000 VND |
+| `totalAmount` | `subtotal + penaltyAmount - depositAppliedAmount` | **40,000 VND** |
+| `isGuestSlot` | Guest thì phải trả 100% tiền giờ (BR-09: Walk-in không có deposit) | true / false |
+| `status` | `Playing` / `SuspendedMutation` / `Finished` | — |
+
+**Ví dụ response từ `/sessions/{sessionId}/checkout`:**
+
+```json
+{
+ "sessionId": "...",
+ "status": "Unpaid",
+ "subtotal": 240000,
+ "totalAmount": 240000,
+ "members": [
+ {
+ "id": "m-1",
+ "userName": "Alice",
+ "isGuestSlot": false,
+ "totalMinutesPlayed": 75,
+ "subtotal": 75000,
+ "penaltyAmount": 0,
+ "depositAppliedAmount": 0,
+ "totalAmount": 75000
+ },
+ {
+ "id": "m-2",
+ "userName": "Bob",
+ "isGuestSlot": false,
+ "totalMinutesPlayed": 75,
+ "subtotal": 75000,
+ "penaltyAmount": 15000,
+ "depositAppliedAmount": 0,
+ "totalAmount": 90000
+ },
+ {
+ "id": "m-3",
+ "userName": "Guest-A",
+ "isGuestSlot": true,
+ "totalMinutesPlayed": 60,
+ "subtotal": 90000,
+ "penaltyAmount": 0,
+ "depositAppliedAmount": 0,
+ "totalAmount": 90000
+ }
+ ]
+}
+```
+
+**Lưu ý BR-22 (per-member deposit):** Member có Booking → deposit trừ vào `totalAmount`. Member Walk-in (không có Booking) → `depositAppliedAmount = 0` → trả 100%.
+
+**Host KHÔNG xuất hiện trong `members`** — `HostId` là staff tạo session, lưu riêng ở `session.HostId` để audit (xem comment `// BR-13: Ẩn host user` tại `MapSessionDto`).
 
 ### Luồng 9: Thanh toán một phần (Exception 4 — nhóm về sớm)
 
@@ -1663,6 +1813,224 @@ stateDiagram-v2
 | BR-15 | `TotalAmount = Subtotal + Penalty − DepositApplied` |
 | BR-17 | Chỉ nhân viên POS được kết thúc/tách nhóm/tính tiền |
 | BR-22 | Mỗi member có deposit riêng, áp dụng per-member trong checkout |
+
+---
+
+## Split Bill — Thanh toán per-member
+
+> **Mới (2026-08-24, update 2026-08-25):** Thay vì ép cả nhóm cùng thanh toán 1 lần qua `/pay` (host phải chờ mọi người xong mới checkout), POS cho phép **thu tiền từng member riêng** theo 2 phương thức `CASH` hoặc `QR_CODE`. Tổng bill = tổng `Member.TotalAmount`; khi tất cả `Member.PaymentStatus != NotPaid` → `ActiveSession.Status` mới chuyển sang `Paid`.
+
+### Bảng liên quan
+
+| Bảng / Entity | Vai trò |
+|---|---|
+| `ActiveSessionMembers` | 4 columns mới: `PaidAt`, `PaymentMethod`, `PaymentStatus` (enum `MemberPaymentStatus` = `NotPaid` / `PaidQr` / `PaidCash`), `TransactionId` (FK transaction SePay khi QR). Migration: `20260824082933_AddMemberPaymentFields`. |
+| `MemberPayments` | Audit trail cho mỗi lần thanh toán per-member. 1 dòng / lần pay: `Id`, `ActiveSessionId`, `MemberId`, `Amount`, `PaymentMethod` (`CASH` / `QR_CODE` / `BANK_TRANSFER`), `OrderId` (nếu QR), `TransactionId`, `StaffId` (staff thực hiện), `Notes`, `CreatedAt`. FK CASCADE → `ActiveSessions` + `ActiveSessionMembers`. |
+
+### GET /api/cafes/{cafeId}/pos/sessions/{sessionId}/payment-status
+
+Lấy trạng thái thanh toán per-member của session — staff xem ngay ai đã trả, ai chưa.
+
+**Role:** Manager — chủ quán; CafeStaff — đã được gắn vào quán.
+
+**Response 200 — `SessionPaymentStatusDto`:**
+
+```json
+{
+ "sessionId": "guid",
+ "totalAmount": 320000,
+ "totalPaid": 160000,
+ "totalRemaining": 160000,
+ "members": [
+ {
+ "memberId": "guid-member-1",
+ "displayName": "Alice",
+ "totalAmount": 90000,
+ "amountPaid": 90000,
+ "status": "PaidCash",
+ "paymentMethod": "CASH"
+ },
+ {
+ "memberId": "guid-member-2",
+ "displayName": "Bob",
+ "totalAmount": 90000,
+ "amountPaid": 90000,
+ "status": "PaidQr",
+ "paymentMethod": "QR_CODE"
+ },
+ {
+ "memberId": "guid-member-3",
+ "displayName": "Carol",
+ "totalAmount": 140000,
+ "amountPaid": 0,
+ "status": "NotPaid",
+ "paymentMethod": null
+ }
+ ]
+}
+```
+
+**Lỗi:** `401` thiếu token; `403` không thuộc cafe; `404` không tìm thấy session.
+
+### POST /api/cafes/{cafeId}/pos/sessions/{sessionId}/pay-member
+
+**Split Bill — thanh toán cho 1 hoặc nhiều thành viên cùng lúc.** Mỗi member thanh toán phần của mình (`Subtotal + Penalty - DepositApplied`).
+
+**Role:** Manager — chủ quán; CafeStaff — đã được gắn vào quán.
+
+**Điều kiện tiên quyết:**
+- `ActiveSession.Status == UNPAID` (đã qua `/checkout`).
+- Tất cả `memberIds` phải thuộc session.
+- Không trùng member đã `PaymentStatus = PaidCash | PaidQr` (idempotent — gọi lại với member đã trả → `409 MemberAlreadyPaid`).
+
+**Body — `PayMemberRequestDto`:**
+
+```json
+{
+ "memberIds": ["guid-member-1", "guid-member-2"],
+ "paymentMethod": "CASH",
+ "notes": "Alice + Bob trả tiền mặt"
+}
+```
+
+| Field | Type | Required | Mô tả |
+|---|---|---|---|
+| `memberIds` | `Guid[]` | ✅ | Danh sách thành viên thanh toán (≥ 1). |
+| `paymentMethod` | `string` | ✅ | `CASH` hoặc `QR_CODE`. Nếu `QR_CODE` → backend tạo SePay order + trả `qrImageUrl/paymentUrl/transferContent` cho từng member. |
+| `notes` | `string?` | ❌ | Ghi chú tự do (≤ 500 ký tự). Lưu vào `MemberPayment.Notes`. |
+
+**Response 200 — `MemberPaymentResponseDto[]`:**
+
+```json
+[
+ {
+ "memberId": "guid-member-1",
+ "displayName": "Alice",
+ "amountDue": 90000,
+ "amountPaid": 90000,
+ "paymentMethod": "CASH",
+ "status": "PaidCash",
+ "paidAt": "2026-08-24T15:30:00Z",
+ "orderId": null,
+ "qrImageUrl": null,
+ "paymentUrl": null,
+ "transferContent": null
+ },
+ {
+ "memberId": "guid-member-2",
+ "displayName": "Bob",
+ "amountDue": 90000,
+ "amountPaid": 90000,
+ "paymentMethod": "QR_CODE",
+ "status": "PaidQr",
+ "paidAt": null,
+ "orderId": "BV87654321",
+ "qrImageUrl": "https://...",
+ "paymentUrl": "https://pay.sepay.vn/...",
+ "transferContent": "BV87654321"
+ }
+]
+```
+
+> **Lưu ý QR flow (2026-08-24):** Khi `paymentMethod = QR_CODE`, `paidAt` ban đầu `null` — `status` được set `PaidQr` chỉ sau khi SePay gọi webhook thành công. Trước đó POS xem `status = NotPaid` (mặc dù đã hiển thị QR cho khách). CASH flow đồng bộ ngay.
+
+**Side effects:**
+- `ActiveSessionMembers.PaymentStatus = PaidCash | PaidQr` cho từng member.
+- `ActiveSessionMembers.PaymentMethod = request.PaymentMethod` (cho cả 2 mode — kể cả QR trước khi webhook, để biết staff chọn QR).
+- `ActiveSessionMembers.PaidAt` được set **chỉ khi CASH** hoặc **sau khi webhook QR thành công**.
+- Insert 1+ dòng `MemberPayments` (audit) — mỗi member = 1 dòng (kể cả QR chờ webhook).
+- **Session terminal auto-detection:** Sau khi save, nếu **tất cả member** đều `PaymentStatus != NotPaid` → auto chuyển `ActiveSession.Status = Paid`, release table/box/inventory (giống `/pay` happy path).
+- Nếu 1 member QR fail webhook → `MemberPayments` vẫn ghi audit `Failed`; member `PaymentStatus` revert `NotPaid`. Session không bao giờ bế `Paid` nếu còn member `NotPaid`.
+
+**Lỗi:**
+
+| Code | Khi nào |
+|---|---|
+| `400` | `memberIds` rỗng, `paymentMethod` không phải `CASH` / `QR_CODE`, memberId không thuộc session. |
+| `401` | Thiếu token. |
+| `403` | Không thuộc cafe / không phải staff. |
+| `404` | Không tìm thấy session. |
+| `409` | `SessionNotUnpaid`, `MemberAlreadyPaid`. |
+| `500` | Lỗi hệ thống. |
+
+### Luồng Split Bill (POS side)
+
+```powershell
+# Bước 1: Checkout toàn session (BR-12) — tính Subtotal + Penalty + TotalAmount cho mỗi member
+POST /api/cafes/{cafeId}/pos/sessions/{id}/checkout
+# → session: CHECKING → UNPAID
+
+# Bước 2: Xem ai đã trả, ai chưa
+GET /api/cafes/{cafeId}/pos/sessions/{id}/payment-status
+# → Trả SessionPaymentStatusDto với từng member.status
+
+# Bước 3a: Alice trả CASH ngay tại quán
+POST /api/cafes/{cafeId}/pos/sessions/{id}/pay-member
+{
+ "memberIds": ["guid-member-1"],
+ "paymentMethod": "CASH",
+ "notes": "Tiền mặt 90k"
+}
+# → member.status = PaidCash, PaidAt = now, insert MemberPayments audit
+
+# Bước 3b: Bob muốn trả QR — backend tạo SePay order
+POST /api/cafes/{cafeId}/pos/sessions/{id}/pay-member
+{
+ "memberIds": ["guid-member-2"],
+ "paymentMethod": "QR_CODE"
+}
+# → Response trả qrImageUrl + paymentUrl + transferContent + orderId cho Bob
+# → member.PaymentMethod = "QR_CODE", status = NotPaid (chờ webhook)
+
+# Bước 3c: QR cũ bị lỗi → tái tạo QR mới
+POST /api/cafes/{cafeId}/pos/sessions/{id}/members/{memberId}/regenerate-qr
+# → Trả QR mới với orderId mới
+# → Chỉ khi member đã chọn paymentMethod=QR_CODE và chưa trả
+
+# Bước 4: SePay tự động gọi webhook khi Bob chuyển khoản thành công
+POST /api/payments/sepay/webhook/member-payment
+{
+ "memberId": "guid-member-2",
+ "orderId": "BV-MEMBER-{full32charGuid}",
+ "status": "success",
+ "amount": 90000,
+ "gateway": "SePay",
+ "gatewayTransactionId": "TXN-..."
+}
+# → member.status = PaidQr, PaidAt = now, MemberPayments.TransactionId = TXN-...
+
+# Bước 5: Carol trả tiền mặt phần còn lại
+POST /api/cafes/{cafeId}/pos/sessions/{id}/pay-member
+{
+ "memberIds": ["guid-member-3"],
+ "paymentMethod": "CASH"
+}
+# → Tất cả member đã trả → session.Status = Paid (auto terminal)
+# → Tables/boxes/inventory → Available
+# → Outbox event SessionPaid
+```
+
+### BR mapping (Split Bill)
+
+| BR | Áp dụng |
+|---|---|
+| BR-15 | `Member.TotalAmount = Subtotal + Penalty - DepositApplied`. `MemberPayment.Amount` được validate phải bằng `Member.TotalAmount` tại thời điểm thanh toán (BR-09: deposit không trừ trong bill hiện tại → `DepositAppliedAmount = 0` cho legacy; `> 0` khi BR-22 per-member deposit được áp dụng). |
+| BR-09 | Cọc là phí giữ chỗ BoardVerse — KHÔNG trừ vào `Member.TotalAmount` ở session payment (BR-22 per-member deposit sẽ trừ trong `Member.TotalAmount` khi áp dụng). |
+| BR-17 | Chỉ nhân viên POS được thanh toán per-member (`Manager` hoặc `CafeStaff` thuộc cafe). |
+| Atomic flip (2026-08-25) | Race condition CASH + QR webhook cùng đến cho 1 member được giải quyết bằng `ExecuteUpdateAsync` (atomic flip) trước khi insert audit record. |
+| Webhook idempotency | Duplicate webhook với cùng `OrderId` + `status=success` → bỏ qua (check `PaymentStatus != NotPaid`). Amount mismatch → log warning + `409`. |
+| OrderId format (2026-08-25) | Dùng `BV-MEMBER-{full32charGuid}` — 36 ký tự thay vì 8 ký tự để tránh collision. |
+
+### Edge cases (Gap #11)
+
+| Trường hợp | Xử lý |
+|---|---|
+| QR cũ bị lỗi/hết hạn | Dùng `POST /sessions/{id}/members/{memberId}/regenerate-qr` — tạo QR mới với orderId mới, không ảnh hưởng audit cũ. |
+| QR webhook đến trước CASH confirm | Webhook check `PaymentStatus != NotPaid` → skip (idempotent). |
+| CASH confirm đến trước QR webhook | Staff bấm CASH → `PaymentStatus = PaidCash`. QR webhook đến → check skip. |
+| QR webhook success nhưng amount mismatch | Log warning + `409 Conflict` → không update. Member giữ nguyên `NotPaid`. |
+| Member chọn CASH nhưng staff confirm QR nhầm | `ConfirmMemberQrAsync` check `PaymentMethod == "CASH"` → `409 Conflict`. |
+| QR đang chờ, staff muốn đổi sang CASH | Không có flow đổi phương thức. Member phải hoàn tất QR (hoặc admin confirm QR), sau đó tạo session mới. |
 
 ---
 

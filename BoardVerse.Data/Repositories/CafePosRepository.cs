@@ -149,15 +149,17 @@ namespace BoardVerse.Data.Repositories
         /// </summary>
         public async Task<IReadOnlyDictionary<Guid, GroupSessionStatus>> GetBusyTableIdsByCafeAsync(Guid cafeId, CancellationToken cancellationToken = default)
         {
-            // Lấy (CafeTableId, Status) của các session chưa thanh toán.
+            // Lấy (CafeTableId, Status) của các session chưa giải phóng bàn.
             // Dùng AsNoTracking vì chỉ đọc.
+            // Bao gồm Closed vì session Closed vẫn đang giữ bàn (chưa giải phóng).
             var all = await _context.ActiveSessions
                 .AsNoTracking()
                 .Where(s => s.CafeId == cafeId
                             && s.CafeTableId.HasValue
                             && (s.Status == GroupSessionStatus.Active
                                 || s.Status == GroupSessionStatus.Checking
-                                || s.Status == GroupSessionStatus.Unpaid))
+                                || s.Status == GroupSessionStatus.Unpaid
+                                || s.Status == GroupSessionStatus.Closed))
                 .Select(s => new { s.CafeTableId, s.Status })
                 .ToListAsync(cancellationToken);
 
@@ -166,8 +168,8 @@ namespace BoardVerse.Data.Repositories
                 return new Dictionary<Guid, GroupSessionStatus>();
             }
 
-            // Group by tableId, chọn status priority = Active (0) > Checking (1) > Unpaid (2) > others.
-            // Dùng First + sort nhỏ nhất (vì Active = 0 nhỏ nhất trong enum theo thứ tự khai báo).
+            // Group by tableId, chọn status priority = Active (0) > Checking (1) > Unpaid (2) > Closed (4).
+            // Dùng Min (vì enum value nhỏ hơn = priority cao hơn).
             var result = all
                 .GroupBy(s => s.CafeTableId!.Value)
                 .ToDictionary(

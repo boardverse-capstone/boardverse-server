@@ -565,6 +565,25 @@ public const string SessionCannotResumeHasCheckedOutMembers =
  public static string BoxCafeMismatch(Guid boxId, Guid cafeId) =>
  $"Hộp game '{boxId}' không thuộc quán '{cafeId}'.";
 
+ /// <summary>
+ /// Trạng thái hộp không hợp lệ khi chuyển (VD: cố set InUse từ API, hoặc set status không có trong enum).
+ /// </summary>
+ public const string InvalidBoxStatus =
+ "Trạng thái hộp game không hợp lệ. Vui lòng chọn một trong: Available, Maintenance, Damaged, Retired.";
+
+ /// <summary>
+ /// Chuyển sang <c>Available</c> chỉ hợp lệ khi hộp đang ở <c>Maintenance</c> hoặc <c>Damaged</c>.
+ /// </summary>
+ public static string BoxStatusTransitionNotAllowed(string current, string target) =>
+ $"Không thể chuyển hộp game từ '{current}' sang '{target}'. " +
+ $"Chỉ chuyển sang 'Available' khi hộp đang ở 'Maintenance' hoặc 'Damaged'.";
+
+ /// <summary>
+ /// Hộp game đang được sử dụng trong phiên chơi — không thể đổi trạng thái cho đến khi kết thúc phiên.
+ /// </summary>
+ public static string BoxInUseCannotChangeStatus(Guid boxId) =>
+ $"Hộp game '{boxId}' đang được sử dụng trong phiên chơi. Vui lòng kết thúc phiên trước khi đổi trạng thái.";
+
  public static string SessionMustBeActiveForEnd(string current) =>
  $"Phiên chơi phải đang hoạt động để kết thúc. Trạng thái hiện tại: '{current}'.";
 
@@ -2487,8 +2506,8 @@ public const string LobbyBoostOnlyWhenOpen =
  public static string LobbyStatusInvalidForCancel(Guid lobbyId, object status) =>
  $"Lobby '{lobbyId}' đã ở trạng thái '{status}', không thể hủy.";
 
- public static string ReservationStatusInvalidForCancel(Guid reservationId, object status) =>
- $"Reservation '{reservationId}' không ở trạng thái Holding (hiện tại: {status}).";
+    public static string ReservationStatusInvalidForCancel(Guid reservationId, object status) =>
+        $"Reservation '{reservationId}' không thể hủy ở trạng thái hiện tại ({status}). Chỉ có thể hủy khi đang ở trạng thái Holding hoặc Confirmed (chưa check-in).";
 
  public static string LobbyNotPendingCafeApproval(Guid reservationId, object status) =>
  $"Lobby của reservation '{reservationId}' không ở trạng thái chờ cafe duyệt (hiện tại: {status}).";

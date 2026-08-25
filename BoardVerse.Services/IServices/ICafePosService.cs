@@ -130,12 +130,23 @@ namespace BoardVerse.Services.IServices
             string userRole,
             SubmitComponentCheckRequestDto request, CancellationToken cancellationToken = default);
 
-        // GAP-25 Fix: Reset checklist — cho phép staff reset lại checklist nếu đã kiểm tra sai
-        Task<ComponentChecklistDto> ResetComponentCheckAsync(
-            Guid cafeId,
-            Guid userId,
-            string userRole,
-            Guid sessionGameId, CancellationToken cancellationToken = default);
+// GAP-25 Fix: Reset checklist — cho phép staff reset lại checklist nếu đã kiểm tra sai
+ Task<ComponentChecklistDto> ResetComponentCheckAsync(
+ Guid cafeId,
+ Guid userId,
+ string userRole,
+ Guid sessionGameId, CancellationToken cancellationToken = default);
+
+ // FIX 2026-08-24: Đổi trạng thái hộp game (Maintenance → Available sau khi bổ sung
+ // linh kiện, hoặc Damaged/Retired khi hỏng nặng).
+ // KHÔNG cho phép set InUse (chỉ EndGameSession mới set InUse).
+ Task<UpdateBoxStatusResponseDto> UpdateBoxStatusAsync(
+ Guid cafeId,
+ Guid userId,
+ string userRole,
+ Guid boxId,
+ UpdateBoxStatusRequestDto request,
+ CancellationToken cancellationToken = default);
 
         // Box history #1: trả lịch sử các lần hộp bị ghi nhận MissingComponents
         // qua các phiên trước, kèm linh kiện thiếu + staff + member chịu trách nhiệm.

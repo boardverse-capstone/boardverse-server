@@ -1069,27 +1069,35 @@ namespace BoardVerse.Services.Services
                 PausedAt = session.PausedAt,
                 EndedAt = session.EndedAt,
                 PaidAt = session.PaidAt,
-                // BR-13: Ẩn host user (staff tạo session) khỏi members list.
-                // Host lưu ở session.HostId để audit / SignalR — KHÔNG phải customer.
-                Members = session.Members?
-                    .Where(m => m.UserId != session.HostId)
-                    .Select(m => new ActiveSessionMemberDto
-                {
-                    Id = m.Id,
-                    UserId = m.UserId,
-                    UserName = m.User?.Username ?? string.Empty,
-                    IsGuestSlot = m.IsGuestSlot,
-                    PhoneNumber = m.IsGuestSlot ? m.GuestPhoneNumber : null,
-                    JoinedAt = m.JoinedAt,
-                    LeftAt = m.LeftAt,
-                    TotalMinutesPlayed = m.Status == IndividualSessionStatus.Finished
-                        ? m.TotalMinutesPlayed
-                        : (int)Math.Floor((now - m.JoinedAt).TotalMinutes),
-                    PenaltyAmount = m.PenaltyAmount,
-                    IsCheckedOut = m.IsCheckedOut,
-                    CheckedOutAt = m.CheckedOutAt,
-                    Status = m.Status
-                }).ToList() ?? new List<ActiveSessionMemberDto>(),
+// BR-13: Ẩn host user (staff tạo session) khỏi members list.
+ // Host lưu ở session.HostId để audit / SignalR — KHÔNG phải customer.
+ Members = session.Members?
+ .Where(m => m.UserId != session.HostId)
+ .Select(m => new ActiveSessionMemberDto
+ {
+ Id = m.Id,
+ UserId = m.UserId,
+ UserName = m.User?.Username ?? string.Empty,
+ IsGuestSlot = m.IsGuestSlot,
+ PhoneNumber = m.IsGuestSlot ? m.GuestPhoneNumber : null,
+ JoinedAt = m.JoinedAt,
+ LeftAt = m.LeftAt,
+ TotalMinutesPlayed = m.Status == IndividualSessionStatus.Finished
+ ? m.TotalMinutesPlayed
+ : (int)Math.Floor((now - m.JoinedAt).TotalMinutes),
+ // FIX 2026-08-24: Copy financial fields từ entity vào DTO.
+ // Trước đây MapSessionDto chỉ copy TotalMinutesPlayed + PenaltyAmount
+ // → Subtotal/DepositAppliedAmount/TotalAmount = 0 mặc dù CompleteCheckoutAsync
+ // đã tính và persist giá trị thật. POS checkout hiển thị "0đ" cho mỗi member.
+ // BR-15: TotalAmount = Subtotal + PenaltyAmount - DepositAppliedAmount
+ Subtotal = m.Subtotal,
+ PenaltyAmount = m.PenaltyAmount,
+ DepositAppliedAmount = m.DepositAppliedAmount,
+ TotalAmount = m.TotalAmount,
+ IsCheckedOut = m.IsCheckedOut,
+ CheckedOutAt = m.CheckedOutAt,
+ Status = m.Status
+ }).ToList() ?? new List<ActiveSessionMemberDto>(),
                 Games = session.Games?.Select(g => new ActiveSessionGameDto
                 {
                     Id = g.Id,

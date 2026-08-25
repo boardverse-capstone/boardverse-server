@@ -379,7 +379,7 @@ Các job dưới đây chỉ chạy theo lịch (không có endpoint admin trigg
 | Job | File | Interval | Mục đích |
 |-----|------|----------|----------|
 | `LobbyTimeoutJob` | `LobbyTimeoutJob.cs` | 1 phút | BR-08: Auto `OPEN → TIMEOUT_FAILED` cho lobby không đủ người. Cluster-safe với `FOR UPDATE SKIP LOCKED`. |
-| `AutoReleaseExpiredSessionsJob` | `AutoReleaseExpiredSessionsJob.cs` | 5 phút | BR-END-05: Auto `Active → Closed` cho session quá `ExtendedEndTime + 30 phút`. Atomic flip qua `TryUpdateStatusAsync`. |
+| `AutoReleaseExpiredSessionsJob` | `AutoReleaseExpiredSessionsJob.cs` | 5 phút | BR-END-05: Auto `Active → Closed` cho session quá `ExtendedEndTime + 30 phút`. Atomic flip qua `TryUpdateStatusAsync`. **Side effect (BR-END-05):** Set `Reservation.Status = Completed` + `EndReason = AutoReleased`, đồng thời sync `Lobby.Status = Closed` + deactivate members để tránh inconsistent state (lobby hiển thị `InProgress` khi reservation đã `Completed`). |
 | `LobbyInviteExpiryJob` | `LobbyInviteExpiryJob.cs` | **15 phút** (±10% jitter) | BR-LOBBY-INVITE-08: Mark invite `Pending` quá 24h → `Expired`. Batch cap **500/tick** (tránh OOM). |
 | `SessionExtensionRequestExpiryJob` | `SessionExtensionRequestExpiryJob.cs` | 1 phút | GAP-7: Mark extension request `Pending` quá **10 phút** → `Expired` (atomic batch). |
 | `OutboxCleanupJob` | `OutboxCleanupJob.cs` | 24 giờ | GAP-R4-A8: Hard-delete `OutboxEvents` đã `Processed` > **30 ngày**. |

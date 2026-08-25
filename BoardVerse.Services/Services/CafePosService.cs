@@ -1581,15 +1581,23 @@ namespace BoardVerse.Services.Services
                 .GetLatestComponentCheckByBoxAsync(sessionGame.CafeInventoryBoxId)
                 ?? new Dictionary<Guid, ComponentCheckResult>();
 
-            // AC 3.2: "Tất cả hợp lệ" → mark Verified ngay. Vẫn insert 1 dòng result cho mỗi component
-            // với ActualQuantity = ExpectedQuantity (baseline) để admin audit "staff bấm AllValid lúc Y, không đếm chi tiết".
-            if (request.MarkAllValid)
-            {
-                var now = DateTime.UtcNow;
-                sessionGame.CheckStatus = ComponentCheckStatus.Verified;
-                sessionGame.CheckedAt = now;
-                sessionGame.CheckedByStaffId = userId;
-                sessionGame.TotalPenaltyAmount = 0;
+// AC 3.2: "Tất cả hợp lệ" → mark Verified ngay. Vẫn insert 1 dòng result cho mỗi component
+ // với ActualQuantity = ExpectedQuantity (baseline) để admin audit "staff bấm AllValid lúc Y, không đếm chi tiết".
+ if (request.MarkAllValid)
+ {
+ var now = DateTime.UtcNow;
+ sessionGame.CheckStatus = ComponentCheckStatus.Verified;
+ sessionGame.CheckedAt = now;
+ sessionGame.CheckedByStaffId = userId;
+ sessionGame.TotalPenaltyAmount = 0;
+
+ // FIX 2026-08-24: MarkAllValid = đầy đủ → box về Available ngay (xem comment ở
+ // SubmitComponentCheckCoreAsync bên dưới để biết lý do).
+ if (sessionGame.CafeInventoryBox != null)
+ {
+ sessionGame.CafeInventoryBox.Status = CafeGameInventoryStatus.Available;
+ sessionGame.CafeInventoryBox.UpdatedAt = now;
+ }
 
                 var allValidResults = components.Select(c =>
                 {
@@ -1809,12 +1817,35 @@ namespace BoardVerse.Services.Services
                     missingPenaltyComponents.Count, request.SessionGameId, string.Join("; ", missingPenaltyComponents));
             }
 
-            sessionGame.CheckStatus = hasMissing
-                ? ComponentCheckStatus.MissingComponents
-                : ComponentCheckStatus.Verified;
-            sessionGame.CheckedAt = nowDetailed;
-            sessionGame.CheckedByStaffId = userId;
-            sessionGame.TotalPenaltyAmount = totalPenalty;
+sessionGame.CheckStatus = hasMissing
+ ? ComponentCheckStatus.MissingComponents
+ : ComponentCheckStatus.Verified;
+ sessionGame.CheckedAt = nowDetailed;
+ sessionGame.CheckedByStaffId = userId;
+ sessionGame.TotalPenaltyAmount = totalPenalty;
+
+ // FIX 2026-08-24: Tự động đổi trạng thái hộp game theo kết quả kiểm kê.
+ // - Có linh kiện thiếu (hasMissing = true) → Maintenance: staff biết hộp này cần
+ // bổ sung linh kiện trước khi cho thuê lại.
+ // - Đầy đủ → Available: hộp sẵn sàng cho khách phiên tiếp theo.
+ // Trước đây: box.Status không đổi sau component-check → staff phải thao tác
+ // tay để chuyển Maintenance trên POS UI. Workflow mới: submit checklist là box
+ // tự vào Maintenance/Available, staff chỉ cần bổ sung linh kiện rồi gọi
+ // PATCH /boxes/{boxId}/status để chuyển về Available.
+ if (sessionGame.CafeInventoryBox != null)
+ {
+ var previousStatus = sessionGame.CafeInventoryBox.Status;
+ sessionGame.CafeInventoryBox.Status = hasMissing
+ ? CafeGameInventoryStatus.Maintenance
+ : CafeGameInventoryStatus.Available;
+ sessionGame.CafeInventoryBox.UpdatedAt = nowDetailed;
+
+ _logger.LogInformation(
+ "Component-check auto-update box status. CafeId={CafeId}, BoxId={BoxId}, Barcode={Barcode}, PreviousStatus={Previous}, NewStatus={New}, HasMissing={HasMissing}",
+ cafeId, sessionGame.CafeInventoryBoxId,
+ sessionGame.CafeInventoryBox.Barcode, previousStatus,
+ sessionGame.CafeInventoryBox.Status, hasMissing);
+ }
 
             // BR-12: Lưu audit trail cho từng component (kể cả đủ, ActualQuantity = ExpectedQuantity).
             // Admin có thể truy vết staff có thật sự kiểm tra hay bấm AllValid.
@@ -1901,14 +1932,103 @@ namespace BoardVerse.Services.Services
 
             _logger.LogInformation(
                 "Component checklist reset. SessionGameId={SessionGameId}, CafeId={CafeId}, StaffId={StaffId}",
-                sessionGameId, cafeId, userId);
+sessionGameId, cafeId, userId);
 
-            return await GetComponentChecklistAsync(cafeId, userId, userRole, sessionGameId);
-        }
+ return await GetComponentChecklistAsync(cafeId, userId, userRole, sessionGameId);
+ }
 
-        // POST /api/cafes/{cafeId}/pos/sessions/{sessionId}/return-game
-        // GAP-26 Fix: Validate box belongs to the session.
-        public async Task<ReturnGameResponseDto> ReturnGameAsync(
+ // PATCH /api/cafes/{cafeId}/pos/boxes/{boxId}/status
+ // FIX 2026-08-24: Cho phép staff đổi trạng thái hộp game (CafeInventoryBox) sau khi bổ sung
+ // linh kiện hoặc đánh dấu hỏng/vĩnh viễn. Workflow mới:
+ // 1. Component-check thiếu linh kiện → box tự động → Maintenance (xem SubmitComponentCheckCoreAsync).
+ // 2. Staff bổ sung linh kiện → PATCH endpoint này để chuyển về Available.
+ // 3. Hoặc staff phát hiện hỏng nặng → chuyển sang Damaged/Retired.
+ public async Task<UpdateBoxStatusResponseDto> UpdateBoxStatusAsync(
+ Guid cafeId,
+ Guid userId,
+ string userRole,
+ Guid boxId,
+ UpdateBoxStatusRequestDto request,
+ CancellationToken cancellationToken = default)
+ {
+ await EnsurePosAccessAsync(cafeId, userId, userRole);
+
+ var box = await _posRepository.GetInventoryBoxByIdAsync(boxId, cancellationToken);
+ if (box == null)
+ {
+ throw new NotFoundException(ApiErrorMessages.Pos.BoxNotFoundById(boxId));
+ }
+
+ if (box.CafeGameInventory?.CafeId != cafeId)
+ {
+ throw new NotFoundException(ApiErrorMessages.Pos.BoxCafeMismatch(boxId, cafeId));
+ }
+
+ // Chỉ cho phép 4 status: Available, Maintenance, Damaged, Retired.
+ // KHÔNG cho phép set InUse từ API (chỉ EndGameSession mới set InUse khi attach box vào phiên).
+ var newStatus = request.Status;
+ if (newStatus != CafeGameInventoryStatus.Available
+ && newStatus != CafeGameInventoryStatus.Maintenance
+ && newStatus != CafeGameInventoryStatus.Damaged
+ && newStatus != CafeGameInventoryStatus.Retired)
+ {
+ throw new BadRequestException(ApiErrorMessages.Pos.InvalidBoxStatus);
+ }
+
+ // Chặn đổi status nếu box đang được sử dụng trong phiên chơi.
+ // Box InUse thuộc về 1 ActiveSession đang chạy → staff không được tự ý đổi status
+ // mà phải EndGameSession trước.
+ if (box.Status == CafeGameInventoryStatus.InUse)
+ {
+ throw new ConflictException(ApiErrorMessages.Pos.BoxInUseCannotChangeStatus(boxId));
+ }
+
+ // Transition rules:
+ // - Available ← từ Maintenance/Damaged (staff đã bổ sung linh kiện hoặc đã sửa xong).
+ // - Maintenance ← từ Available/Damaged (hộp cần kiểm tra/sửa).
+ // - Damaged ← từ Available/Maintenance (hỏng nặng).
+ // - Retired ← từ bất kỳ (vĩnh viễn ngừng sử dụng).
+ var currentStatus = box.Status;
+ if (currentStatus == newStatus)
+ {
+ throw new ConflictException(ApiErrorMessages.Pos.BoxStatusTransitionNotAllowed(
+ currentStatus.ToString(), newStatus.ToString()));
+ }
+ if (newStatus == CafeGameInventoryStatus.Available
+ && currentStatus != CafeGameInventoryStatus.Maintenance
+ && currentStatus != CafeGameInventoryStatus.Damaged)
+ {
+ throw new ConflictException(ApiErrorMessages.Pos.BoxStatusTransitionNotAllowed(
+ currentStatus.ToString(), newStatus.ToString()));
+ }
+
+ var now = DateTime.UtcNow;
+ box.Status = newStatus;
+ box.UpdatedAt = now;
+ await _posRepository.UpdateInventoryBoxAsync(box, cancellationToken);
+ await _posRepository.SaveChangesAsync(cancellationToken);
+
+ _logger.LogInformation(
+ "Box status updated. CafeId={CafeId}, BoxId={BoxId}, Barcode={Barcode}, PreviousStatus={Previous}, NewStatus={New}, Reason={Reason}, RestoredComponentId={RestoredComponentId}, RestoredQuantity={RestoredQuantity}, StaffId={StaffId}",
+ cafeId, boxId, box.Barcode, currentStatus, newStatus, request.Reason,
+ request.RestoredComponentId, request.RestoredQuantity, userId);
+
+ return new UpdateBoxStatusResponseDto
+ {
+ BoxId = box.Id,
+ Barcode = box.Barcode,
+ GameName = box.CafeGameInventory?.GameTemplate?.Name ?? string.Empty,
+ Status = box.Status,
+ PreviousStatus = currentStatus.ToString(),
+ UpdatedAt = now,
+ UpdatedByStaffId = userId,
+ Reason = request.Reason
+ };
+ }
+
+ // POST /api/cafes/{cafeId}/pos/sessions/{sessionId}/return-game
+ // GAP-26 Fix: Validate box belongs to the session.
+ public async Task<ReturnGameResponseDto> ReturnGameAsync(
             Guid cafeId,
             Guid userId,
             string userRole,

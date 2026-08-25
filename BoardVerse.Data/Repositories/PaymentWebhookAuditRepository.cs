@@ -38,6 +38,17 @@ public class PaymentWebhookAuditRepository : IPaymentWebhookAuditRepository
             .ToListAsync(ct);
     }
 
+    // Fix #2: Find audit by gateway transaction ID for duplicate detection
+    public async Task<PaymentWebhookAudit?> GetByGatewayTransactionIdAsync(
+        string gatewayTransactionId, CancellationToken ct = default)
+    {
+        return await _db.PaymentWebhookAudits
+            .AsNoTracking()
+            .Where(a => a.GatewayTransactionId == gatewayTransactionId)
+            .OrderByDescending(a => a.ProcessedAt)
+            .FirstOrDefaultAsync(ct);
+    }
+
     public async Task<int> CountAmountMismatchAsync(DateTime since, CancellationToken ct = default)
     {
         return await _db.PaymentWebhookAudits

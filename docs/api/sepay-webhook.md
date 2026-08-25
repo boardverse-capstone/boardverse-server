@@ -18,6 +18,8 @@ Endpoint nhận webhook từ cổng thanh toán SePay (server-to-server). Cập 
 | `/return` | GET | Redirect URL cho user sau thanh toán | Public |
 | `/mock` | POST | Mock webhook cho dev/test | **Dev only** |
 
+> **Webhook bổ sung cho Split Bill:** Xem `POST /api/payments/sepay/webhook/member-payment` ở [payment.md](./payment.md) §"Member Payment Webhook" — nhận kết quả QR per-member và update `ActiveSessionMember.PaymentStatus`. Idempotent theo `OrderId` (per-member), tách biệt hoàn toàn với deposit / session payment webhook ở đây.
+
 ---
 
 ## POST /api/payments/sepay/webhook

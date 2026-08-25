@@ -152,6 +152,7 @@ Holding            Confirmed  CheckedIn                Completed
 | `CHECKED_IN` (đã đến) | `Confirmed` (đến `ScheduledStartTime`) | `Full`/`Viable` | `Active` |
 | `IN_PROGRESS` (đang chơi) | (no change) | `InProgress` | `Active` |
 | `COMPLETED` (đúng giờ) | `Completed` | `Closed` | `Paid` |
+| `COMPLETED_AUTO_RELEASED` (quên end, grace 30p) | `Completed` + `EndReason=AutoReleased` | `Closed` (synced từ `AutoReleaseExpiredSessionsJob`) | `Closed` |
 | `EARLY_CHECKOUT` (về sớm) | (no change) | (no change) | `Closed` (early) |
 | `NO_SHOW` (không check-in) | `NoShow` | `TimeoutFailed` | — |
 | `CANCELLED` (host hủy trước giờ) | `Cancelled` (kèm `CancelledByPlayer`/`ByCafe`) | `HostCancelled`/`RejectedByCafe`/`ExpiredByCafe` | — |
@@ -235,7 +236,7 @@ Nhóm A đặt 13:00 - 18:00 (Reservation timeSlot = Afternoon)
 | `BR-END-02` | `playedRatio = (EndedAt - StartedAt) / (ScheduledEndTime - ScheduledStartTime)` | Decimal `[0.0, ~1.0+]` | `ReservationService.CompleteAndCaptureAsync` |
 | `BR-END-03` | `playedRatio ≥ 0.9` → Coi như **on-time** → forfeit 100% deposit | BR-REFUND-06 → 0% BVC refund | `ReservationService` |
 | `BR-END-04` | `playedRatio > 1.0` (trễ hơn scheduled) | Charge thêm theo hourly rate + check slot liền kề | `CafePosController.EndSession` charge extra |
-| `BR-END-05` | Grace period 30 phút sau `ScheduledEndTime` | Không tính extra trong 30 phút đầu | `AutoReleaseExpiredSessionsJob` auto-release (Phase 3) |
+| `BR-END-05` | Grace period 30 phút sau `ScheduledEndTime` | Không tính extra trong 30 phút đầu | `AutoReleaseExpiredSessionsJob` auto-release session → reservation → **sync lobby → Closed** (idempotent atomic flip) |
 
 ### 3.4. BR-REFUND — Refund Rules
 
@@ -876,8 +877,10 @@ WHERE "Id" = @windowId
 **Xử lý:**
 - `AutoReleaseExpiredSessionsJob` quét mỗi 5 phút.
 - Nếu `ActiveSession.Status = Active` AND `now > Reservation.ScheduledEndTime + 30 min`:
- - Auto set `ActiveSession.Status = Closed` (auto-released)
+ - Auto set `ActiveSession.Status = Closed` (auto-released) — atomic flip qua `TryUpdateStatusAsync` (status chỉ update khi đang `Active`, idempotent)
  - Set `ActiveSession.ActualEndAt = ScheduledEndTime` (grace period)
+ - Set `Reservation.Status = Completed` + `EndReason = AutoReleased` + `PlayedRatio = 1.0m`
+ - **Sync `Lobby.Status = Closed`** + `ClosedAt = now` + deactivate members (`IsActive=false`, `Status=LobbyTerminated`) — fix 2026-08-24 để tránh inconsistent state (lobby hiển thị `InProgress` khi reservation đã `Completed`)
  - Tạo `WalkInWindow` cho phần thời gian còn lại
  - Log audit "STAFF_FORGOT_END"
  - Notification staff

@@ -20,6 +20,8 @@ API thanh toán cho deposit đặt chỗ (Player) và thanh toán hóa đơn phi
 | `/session-payment` | POST | Manager, CafeStaff | Tạo QR thanh toán hóa đơn phiên chơi tại POS |
 | `/session-payment/{sessionId}/regenerate-qr` | POST | Manager, CafeStaff | Tạo lại QR thanh toán phiên chơi |
 | `/manual-confirm` | POST | Manager, CafeStaff | Xác nhận thanh toán thủ công khi SePay + VietQR đều lỗi |
+| `/sepay/webhook/member-payment` | POST | **Public — SePay webhook** | Webhook nhận kết quả QR per-member (Split Bill). Update `ActiveSessionMember.PaymentStatus = PaidQr` + `PaidAt` khi SePay gọi `success`. Idempotent theo `OrderId`. |
+| `/confirm-member-qr` | POST | Manager, CafeStaff, Admin | Staff xác nhận QR per-member đã chuyển khoản (manual override khi webhook fail / dev test). |
 
 **Header bắt buộc:** `Authorization: Bearer <token>`
 
@@ -338,6 +340,82 @@ Staff xác nhận thanh toán thủ công khi cả SePay và VietQR đều khôn
 - `403` không phải Manager/CafeStaff của cafe.
 - `404` không tìm thấy session.
 - `500` lỗi hệ thống.
+
+---
+
+## POST /api/payments/sepay/webhook/member-payment
+
+Webhook từ SePay cho thanh toán **per-member** (Split Bill). Tách biệt hoàn toàn với webhook session-payment (`/api/payments/sepay/webhook`) — handler riêng, lookup theo `MemberId` (trực tiếp hoặc parse từ `OrderId`).
+
+**Body — `MemberPaymentWebhookDto`:**
+
+```json
+{
+ "memberId": "guid-member-2",
+ "orderId": "BV-MEMBER-{full32charGuid}",
+ "gateway": "SePay",
+ "gatewayTransactionId": "TXN-2026-08-24-...",
+ "status": "success",
+ "amount": 90000,
+ "currency": "VND",
+ "referenceCode": "REF-MEMBER-001",
+ "paidAt": "2026-08-24T15:35:00Z"
+}
+```
+
+**Behavior:**
+
+| Incoming `status` | Action |
+|---|---|
+| `success` / `paid` | Lookup session via `GetByMemberIdWithSessionAsync` → atomic flip → insert audit. |
+| `failed` / `canceled` / `cancelled` | Log warning. Member `PaymentStatus` giữ nguyên (POS polling tự thấy). |
+| other | log warning + return `200`. |
+
+**Idempotency:**
+- Duplicate webhook → check `PaymentStatus != NotPaid` → skip.
+- Member không tìm thấy → `404`.
+- Amount mismatch → `409` (KHÔNG update).
+- **Atomic flip** qua `ExecuteUpdateAsync` — race CASH + QR webhook cùng đến không tạo 2 dòng audit.
+
+**Response 200:** `{ "status": "ok" }`
+
+**Side effects (2026-08-25 update):**
+- Tạo `Transaction` record cho QR payment (**GAP #2 FIX**) — đảm bảo audit trail đầy đủ cho mỗi thanh toán per-member
+- Cập nhật `ActiveSessionMember.PaymentStatus = PaidQr`
+- Tạo `MemberPayment` audit record
+- Check all members → nếu tất cả đã trả → auto finalize session
+
+---
+
+## POST /api/payments/confirm-member-qr
+
+Staff xác nhận QR per-member đã được chuyển khoản thành công — dùng khi:
+- SePay webhook fail (timeout, signature fail) nhưng khách đã chuyển khoản và xuất trình biên lai.
+- Dev/test mà không muốn gọi webhook.
+- Audit override khi nghi ngờ discrepancy.
+
+**Role:** Manager — chủ quán; CafeStaff — đã được gắn vào quán; Admin.
+
+**Query params:**
+- `sessionId` (Guid): mã phiên chơi.
+- `memberId` (Guid): mã thành viên đã trả QR.
+- `notes` (string?, optional): ghi chú (≤ 500 ký tự) — lưu vào `MemberPayments.Notes` + audit log.
+
+**Điều kiện (2026-08-25 update):**
+- Session thuộc cafe của staff (cross-cafe guard).
+- `ActiveSessionMember.PaymentMethod = QR_CODE` (đã chọn QR qua `/pay-member`).
+- `ActiveSessionMember.PaymentStatus != PaidCash | PaidQr` (chưa confirm).
+
+**Response 200 — `MemberPaymentResponseDto`** (giống response từ `/pay-member`).
+
+**Lỗi:**
+
+| Code | Khi nào |
+|---|---|
+| `401` | Thiếu token. |
+| `403` | Không thuộc cafe. |
+| `404` | Session / member không tồn tại. |
+| `409` | Member đã thanh toán (cả CASH lẫn QR), hoặc member chưa chọn `paymentMethod = QR_CODE`. |
 
 ---
 

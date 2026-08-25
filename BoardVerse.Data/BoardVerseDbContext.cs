@@ -26,6 +26,7 @@ namespace BoardVerse.Data
         public DbSet<CafeInventoryBox> CafeInventoryBoxes => Set<CafeInventoryBox>();
         public DbSet<ActiveSession> ActiveSessions => Set<ActiveSession>();
         public DbSet<ActiveSessionMember> ActiveSessionMembers => Set<ActiveSessionMember>();
+        public DbSet<MemberPayment> MemberPayments => Set<MemberPayment>();
         public DbSet<ActiveSessionGame> ActiveSessionGames => Set<ActiveSessionGame>();
         public DbSet<ComponentCheckResult> ComponentCheckResults => Set<ComponentCheckResult>();
         public DbSet<SessionExtensionRequest> SessionExtensionRequests => Set<SessionExtensionRequest>();

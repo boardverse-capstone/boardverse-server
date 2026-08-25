@@ -72,8 +72,8 @@ public class OutboxRepository : IOutboxRepository
                 SET "Processed" = true, "ProcessedAt" = NOW() AT TIME ZONE 'UTC'
                 WHERE "Id" = {0} AND "Processed" = false
                 """,
-                cancellationToken,
-                eventId);
+                [eventId],
+                cancellationToken);
             return rowsAffected > 0;
         }
 

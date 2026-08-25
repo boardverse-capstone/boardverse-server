@@ -153,6 +153,7 @@ public class AutoReleaseExpiredSessionsJob : BackgroundService
         var sessionRepo = scope.ServiceProvider.GetRequiredService<IActiveSessionRepository>();
         var reservationRepo = scope.ServiceProvider.GetRequiredService<IReservationRepository>();
         var walkInService = scope.ServiceProvider.GetRequiredService<IWalkInService>();
+        var lobbyRepo = scope.ServiceProvider.GetRequiredService<ILobbyRepository>();
         var dbContext = scope.ServiceProvider.GetRequiredService<BoardVerseDbContext>();
 
         var session = await sessionRepo.GetByIdAsync(sessionId);
@@ -187,9 +188,18 @@ public class AutoReleaseExpiredSessionsJob : BackgroundService
 
             // BR-END-05: Mark reservation as AutoReleased if linked.
             Reservation? reservation = null;
+            Lobby? lobby = null;
             if (session.LobbyId.HasValue)
             {
                 reservation = await reservationRepo.GetByLobbyIdAsync(session.LobbyId.Value);
+
+                // FIX 2026-08-24: Đồng bộ Lobby.Status = Closed khi Reservation → Completed.
+                // Trước đây AutoRelease chỉ update Reservation, để Lobby ở InProgress → FE
+                // hiển thị lịch hẹn "Completed" nhưng lobby vẫn "InProgress" → inconsistent state.
+                // (Issue từ data thật: reservation.Status=Completed, endReason=AutoReleased,
+                // lobbyStatus=InProgress trong cùng payload.)
+                lobby = await lobbyRepo.GetByIdAsync(session.LobbyId.Value);
+
                 if (reservation != null)
                 {
                     reservation.Status = ReservationStatus.Completed;
@@ -200,6 +210,37 @@ public class AutoReleaseExpiredSessionsJob : BackgroundService
                     // GAP-R6-BJ-01 Fix: SaveChangesAsync TRƯỚC CommitAsync — nếu thiếu, EF
                     // không flush UPDATE Reservations vào DB → AutoReleased status bị mất.
                     await reservationRepo.SaveChangesAsync(ct);
+                }
+
+                if (lobby != null
+                    && lobby.Status != LobbyStatus.Closed
+                    && lobby.Status != LobbyStatus.TimeoutFailed
+                    && lobby.Status != LobbyStatus.HostCancelled
+                    && lobby.Status != LobbyStatus.RejectedByCafe
+                    && lobby.Status != LobbyStatus.ExpiredByCafe)
+                {
+                    lobby.Status = LobbyStatus.Closed;
+                    lobby.ClosedAt = now;
+                    lobby.UpdatedAt = now;
+
+                    // Deactivate members tương tự ReservationService.CompleteAndCaptureAsync
+                    // để các API list lobby không trả về member "active" cho lobby đã đóng.
+                    if (lobby.Members != null)
+                    {
+                        foreach (var member in lobby.Members.Where(m => m.IsActive))
+                        {
+                            member.IsActive = false;
+                            member.Status = LobbyMemberStatus.LobbyTerminated;
+                            member.LeftAt ??= now;
+                        }
+                    }
+
+                    await lobbyRepo.UpdateAsync(lobby);
+                    await lobbyRepo.SaveChangesAsync(ct);
+
+                    _logger.LogInformation(
+                        "AutoReleaseExpiredSessionsJob: Lobby {LobbyId} status synced to Closed",
+                        lobby.Id);
                 }
             }
 

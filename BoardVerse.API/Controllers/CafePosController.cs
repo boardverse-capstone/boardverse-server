@@ -15,11 +15,16 @@ namespace BoardVerse.API.Controllers
     {
         private readonly ICafePosService _posService;
         private readonly IActiveSessionService _sessionService;
+        private readonly ISplitBillService _splitBillService;
 
-        public CafePosController(ICafePosService posService, IActiveSessionService sessionService)
+        public CafePosController(
+            ICafePosService posService,
+            IActiveSessionService sessionService,
+            ISplitBillService splitBillService)
         {
             _posService = posService;
             _sessionService = sessionService;
+            _splitBillService = splitBillService;
         }
 
         /// <summary>
@@ -471,16 +476,63 @@ public async Task<IActionResult> GetPaidSessions(
         /// <response code="404">Không tìm thấy session game.</response>
         /// <response code="409">Phiên không ở trạng thái CHECKING.</response>
         /// <response code="500">Lỗi hệ thống.</response>
-        [HttpPost("sessions/component-check/reset")]
-        public async Task<IActionResult> ResetComponentCheck(Guid cafeId, [FromQuery] Guid sessionGameId)
-        {
-            var (userId, role) = GetViewerContext();
-            var result = await _posService.ResetComponentCheckAsync(cafeId, userId, role, sessionGameId);
-            return this.NewResponse(200, "Đã reset checklist để kiểm tra lại.", result);
-        }
+[HttpPost("sessions/component-check/reset")]
+ public async Task<IActionResult> ResetComponentCheck(Guid cafeId, [FromQuery] Guid sessionGameId)
+ {
+ var (userId, role) = GetViewerContext();
+ var result = await _posService.ResetComponentCheckAsync(cafeId, userId, role, sessionGameId);
+ return this.NewResponse(200, "Đã reset checklist để kiểm tra lại.", result);
+ }
 
-        /// <summary>
-        /// Lấy lịch sử kiểm kê linh kiện của một hộp game (CafeInventoryBox). [Role: Manager, CafeStaff]
+ /// <summary>
+ /// Đổi trạng thái hộp game (CafeInventoryBox) — dùng sau khi staff bổ sung linh kiện
+ /// hoặc đánh dấu hỏng nặng. [Role: Manager, CafeStaff — phải có quyền vận hành quán.]
+ /// <para>
+ /// Workflow sau khi <c>POST /sessions/component-check</c> phát hiện thiếu linh kiện:
+ /// <list type="number">
+ /// <item>Hệ thống tự động chuyển <c>CafeInventoryBox.Status</c> → <c>Maintenance</c>.</item>
+ /// <item>Staff bổ sung linh kiện thực tế tại quán.</item>
+ /// <item>Staff gọi PATCH endpoint này với <c>status: "Available"</c> để đánh dấu sẵn sàng.</item>
+ /// </list>
+ /// </para>
+ /// <para>
+ /// Transition rules:
+ /// <list type="bullet">
+ /// <item><c>Maintenance</c>/<c>Damaged</c> → <c>Available</c>: chỉ khi bổ sung/sửa xong.</item>
+ /// <item><c>Available</c>/<c>Damaged</c> → <c>Maintenance</c>: hộp cần kiểm tra.</item>
+ /// <item>Bất kỳ → <c>Retired</c>: ngừng sử dụng vĩnh viễn.</item>
+ /// <item><c>InUse</c> (đang trong phiên) → KHÔNG thể đổi status từ API này.</item>
+ /// </list>
+ /// </para>
+ /// </summary>
+ /// <param name="cafeId">Mã quán.</param>
+ /// <param name="boxId">Mã hộp game (CafeInventoryBox).</param>
+ /// <param name="request">
+ /// Trạng thái mới + lý do đổi. <c>Reason</c> bắt buộc, tối đa 500 ký tự — ghi audit log.
+ /// Optional: <c>RestoredComponentId</c> + <c>RestoredQuantity</c> nếu staff vừa bổ sung
+ /// linh kiện (giúp admin audit nhanh).
+ /// </param>
+ /// <response code="200">Đổi trạng thái thành công, trả thông tin hộp.</response>
+ /// <response code="400">Status không hợp lệ (VD: set InUse).</response>
+ /// <response code="401">Thiếu token.</response>
+ /// <response code="403">Không đủ quyền vận hành quán.</response>
+ /// <response code="404">Không tìm thấy hộp hoặc hộp không thuộc quán.</response>
+ /// <response code="409">Hộp đang được sử dụng trong phiên chơi, hoặc transition không hợp lệ.</response>
+ /// <response code="500">Lỗi hệ thống.</response>
+ [HttpPatch("boxes/{boxId:guid}/status")]
+ public async Task<IActionResult> UpdateBoxStatus(
+ Guid cafeId,
+ Guid boxId,
+ [FromBody] UpdateBoxStatusRequestDto request)
+ {
+ var (userId, role) = GetViewerContext();
+ var result = await _posService.UpdateBoxStatusAsync(
+ cafeId, userId, role, boxId, request, HttpContext.RequestAborted);
+ return this.NewResponse(200, "Cập nhật trạng thái hộp game thành công.", result);
+ }
+
+ /// <summary>
+ /// Lấy lịch sử kiểm kê linh kiện của một hộp game (CafeInventoryBox). [Role: Manager, CafeStaff]
         /// <para>
         /// Trả các lần hộp này từng bị ghi nhận <c>MissingComponents</c> qua các phiên trước,
         /// kèm linh kiện thiếu, staff đã kiểm kê, member chịu trách nhiệm (nếu có).
@@ -959,6 +1011,130 @@ public async Task<IActionResult> GetPaidSessions(
             var result = await _sessionService.RejectExtensionRequestAsync(
                 cafeId, userId, requestId, dto?.Reason);
             return this.NewResponse(200, "Da tu choi yeu cau gia han.", result);
+        }
+
+        /// <summary>
+        /// Lấy trạng thái thanh toán per-member của session. [Role: Manager, CafeStaff]
+        /// Cho biết ai đã thanh toán, ai chưa, và số tiền còn lại.
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="sessionId">Mã phiên chơi.</param>
+        /// <response code="200">Trả về trạng thái thanh toán per-member.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy phiên.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpGet("sessions/{sessionId:guid}/payment-status")]
+        public async Task<IActionResult> GetSessionPaymentStatus(Guid cafeId, Guid sessionId)
+        {
+            var (userId, role) = GetViewerContext();
+            var result = await _splitBillService.GetSessionPaymentStatusAsync(sessionId, HttpContext.RequestAborted);
+            return this.NewResponse(200, "Trang thai thanh toan per-member.", result);
+        }
+
+        /// <summary>
+        /// Thanh toán cho các thành viên cụ thể trong session. [Role: Manager, CafeStaff]
+        /// - PaymentMethod = CASH: xác nhận thanh toán tiền mặt ngay
+        /// - PaymentMethod = QR_CODE: tạo QR cho từng thành viên
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="sessionId">Mã phiên chơi.</param>
+        /// <param name="request">Danh sách thành viên + phương thức thanh toán.</param>
+        /// <response code="200">Thanh toán thành công. Nếu là QR_CODE, trả về danh sách QR cho từng thành viên.</response>
+        /// <response code="400">Dữ liệu không hợp lệ.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy phiên hoặc thành viên.</response>
+        /// <response code="409">Thành viên đã thanh toán hoặc phiên không ở trạng thái UNPAID.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpPost("sessions/{sessionId:guid}/pay-member")]
+        public async Task<IActionResult> PayMembers(
+            Guid cafeId,
+            Guid sessionId,
+            [FromBody] PayMemberRequestDto request)
+        {
+            var (userId, role) = GetViewerContext();
+            var result = await _splitBillService.PayMembersAsync(
+                sessionId, request, userId, role, HttpContext.RequestAborted);
+            return this.NewResponse(200, "Thanh toan per-member thanh cong.", result);
+        }
+
+        /// <summary>
+        /// Tạo QR thanh toán cho một thành viên cụ thể. [Role: Manager, CafeStaff]
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="sessionId">Mã phiên chơi.</param>
+        /// <param name="memberId">Mã thành viên.</param>
+        /// <response code="200">Tạo QR thành công, trả về thông tin thanh toán.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy phiên hoặc thành viên.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpPost("sessions/{sessionId:guid}/members/{memberId:guid}/create-qr")]
+        public async Task<IActionResult> CreateMemberQr(
+            Guid cafeId,
+            Guid sessionId,
+            Guid memberId)
+        {
+            var (userId, role) = GetViewerContext();
+            var result = await _splitBillService.CreateMemberQrAsync(
+                sessionId, memberId, userId, role, HttpContext.RequestAborted);
+            return this.NewResponse(200, "Tao QR thanh toan thanh cong.", result);
+        }
+
+        /// <summary>
+        /// Tạo lại QR thanh toán cho một thành viên (khi QR cũ bị lỗi/hết hạn).
+        /// Chỉ áp dụng khi member đã chọn paymentMethod=QR_CODE và chưa trả.
+        /// [Role: Manager, CafeStaff]
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="sessionId">Mã phiên chơi.</param>
+        /// <param name="memberId">Mã thành viên.</param>
+        /// <response code="200">Tạo lại QR thành công.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy phiên hoặc thành viên.</response>
+        /// <response code="409">Thành viên đã thanh toán hoặc không chọn QR.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpPost("sessions/{sessionId:guid}/members/{memberId:guid}/regenerate-qr")]
+        public async Task<IActionResult> RegenerateMemberQr(
+            Guid cafeId,
+            Guid sessionId,
+            Guid memberId)
+        {
+            var (userId, role) = GetViewerContext();
+            var result = await _splitBillService.RegenerateMemberQrAsync(
+                sessionId, memberId, userId, role, HttpContext.RequestAborted);
+            return this.NewResponse(200, "Tao lai QR thanh cong.", result);
+        }
+
+        /// <summary>
+        /// Xác nhận thanh toán tiền mặt cho một thành viên. [Role: Manager, CafeStaff]
+        /// </summary>
+        /// <param name="cafeId">Mã quán.</param>
+        /// <param name="sessionId">Mã phiên chơi.</param>
+        /// <param name="memberId">Mã thành viên.</param>
+        /// <param name="amount">Số tiền thanh toán (phải bằng TotalAmount của thành viên).</param>
+        /// <param name="notes">Ghi chú (optional).</param>
+        /// <response code="200">Xác nhận thành công.</response>
+        /// <response code="400">Số tiền không khớp.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy phiên hoặc thành viên.</response>
+        /// <response code="409">Thành viên đã thanh toán.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpPost("sessions/{sessionId:guid}/members/{memberId:guid}/confirm-cash")]
+        public async Task<IActionResult> ConfirmMemberCash(
+            Guid cafeId,
+            Guid sessionId,
+            Guid memberId,
+            [FromQuery] decimal amount,
+            [FromQuery] string? notes = null)
+        {
+            var (userId, role) = GetViewerContext();
+            var result = await _splitBillService.ConfirmMemberCashAsync(
+                sessionId, memberId, amount, userId, role, notes, HttpContext.RequestAborted);
+            return this.NewResponse(200, "Xac nhan thanh toan tien mat thanh cong.", result);
         }
 
         private (Guid UserId, string Role) GetViewerContext()

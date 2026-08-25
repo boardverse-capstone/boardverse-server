@@ -771,17 +771,20 @@ ILogger<LobbyService> logger,
             }
 
             // Tính scheduledTime của các lobby user đang tham gia
+            // Bao gồm LobbyId để có thể exclude khi so sánh overlap
             var userScheduledRanges = userLobbies
                 .Where(l => l.PlayDate.HasValue)
                 .Select(l => new
                 {
+                    LobbyId = l.Id,
                     l.PlayDate,
                     l.TimeSlot,
                     Start = GetScheduledTime(l),
                     End = GetScheduledTime(l).AddMinutes(30) // +30 phút buffer
                 }).ToList();
 
-            // Loại bỏ lobby trùng lịch
+            // Loại bỏ lobby trùng lịch (NHƯNG KHÔNG loại bỏ chính lobby đó ra khỏi discoverable)
+            // Fix: exclude lobby đang xét ra khỏi userScheduledRanges để lobby đã join vẫn hiển thị
             return lobbies.Where(lobby =>
             {
                 if (!lobby.PlayDate.HasValue)
@@ -792,8 +795,14 @@ ILogger<LobbyService> logger,
                 var lobbyStart = GetScheduledTime(lobby);
                 var lobbyEnd = lobbyStart.AddMinutes(30);
 
+                // Exclude chính lobby này ra khỏi danh sách so sánh
+                // để lobby đã join vẫn hiển thị trong discoverable (public lobby vẫn visible cho tất cả)
+                var otherUserRanges = userScheduledRanges
+                    .Where(r => r.LobbyId != lobby.Id)
+                    .ToList();
+
                 // Kiểm tra overlap bằng computed Start/End times (BR-NEW-15: dùng PreferredStartTime)
-                return !userScheduledRanges.Any(userRange =>
+                return !otherUserRanges.Any(userRange =>
                     userRange.PlayDate == lobby.PlayDate &&
                     userRange.Start < lobbyEnd &&
                     lobbyStart < userRange.End);

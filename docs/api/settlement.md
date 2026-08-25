@@ -22,14 +22,45 @@ Lấy danh sách bản ghi giải ngân deposit đang chờ xử lý.
 
 1. POS thanh toán hóa đơn tổng → `POST /api/cafes/{cafeId}/pos/sessions/{sessionId}/pay`
 2. Hệ thống tự động tạo `CafeSettlement` sau khi session PAID
-   - Deposit của Host (đã paid) → chuyển về Cafe Manager
+   - Deposit của Host (đã paid) → chuyển về Cafe Manager qua `SettlementService.ReleaseSessionDepositAsync()`
+   - **GAP #1 FIX (2026-08-25)**: `ReservationService.CompleteAndCaptureAsync()` gọi `TriggerSettlementTransferAsync()` để đảm bảo settlement được tạo sau khi BVC được capture
+   - Settlement lookup deposit qua 3 chiến lược: ActiveSessionId → Lobby → Reservation.Id (**GAP #4 FIX**)
+   - **Settlement được trigger tự động** — không cần staff gọi thủ công
    - Note: Thanh toán session KHÔNG trừ tiền cọc — deposit là phí giữ chỗ
 3. Trạng thái settlement:
    - `Pending`: chờ SePay transfer thành công
    - `Succeeded`: đã chuyển tiền về manager
-   - `Failed`: cần retry hoặc xử lý thủ công
+   - `Failed`: cần retry hoặc xử lý thủ công (SettlementRetryJob sẽ tự động retry)
    - `Retrying`: đang thử lại lần nữa
 4. Nhân viên có thể xem danh sách chờ giải ngân qua endpoint này.
+
+## Settlement Trigger Flow (2026-08-25)
+
+```
+Checkout (Staff bấm "Thanh toán")
+    │
+    ▼
+ReservationService.CompleteAndCaptureAsync()
+    │
+    ├── 1. Capture BVC (BvcLedgerEntry: DEPOSIT_CAPTURE)
+    ├── 2. TriggerKarmaAggregationAsync()
+    ├── 3. TriggerShortPlayTrackingAsync()
+    ├── 4. TriggerSettlementTransferAsync() ← GAP #1 FIX
+    │       │
+    │       ▼
+    │   SettlementService.ReleaseSessionDepositAsync()
+    │       │
+    │       ├── Lookup deposit (3 strategies)
+    │       ├── Create CafeSettlement record
+    │       └── SePayClient.CreateTransferAsync()
+    │
+    └── 5. Commit transaction
+
+SettlementRetryJob (nếu SePay fail)
+    │
+    └── Retry mỗi 5 phút (exponential backoff)
+        └── Max 5 attempts
+```
 
 ---
 

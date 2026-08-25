@@ -60,6 +60,7 @@ public class ReservationService : IReservationService
     private readonly IPlayerKarmaService _karmaService;
     private readonly ISystemConfigurationProvider _configProvider;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly ISettlementService _settlementService;
 
     public ReservationService(
         BoardVerseDbContext db,
@@ -86,7 +87,8 @@ public class ReservationService : IReservationService
         IWalkInService walkInService,
         IPlayerKarmaService karmaService,
         ISystemConfigurationProvider configProvider = null!,
-        IHttpContextAccessor httpContextAccessor = null!)
+        IHttpContextAccessor httpContextAccessor = null!,
+        ISettlementService settlementService = null!)
     {
         _db = db;
         _walletService = walletService;
@@ -113,6 +115,7 @@ public class ReservationService : IReservationService
         _karmaService = karmaService;
         _configProvider = configProvider;
         _httpContextAccessor = httpContextAccessor;
+        _settlementService = settlementService ?? throw new ArgumentNullException(nameof(settlementService));
     }
 
     // ===== 21A.2 QUOTE =====
@@ -998,7 +1001,8 @@ public class ReservationService : IReservationService
                 throw new ForbiddenException(ApiErrorMessages.Reservation.OnlyHostCanCancel);
             }
 
-            if (reservation.Status != ReservationStatus.Holding)
+            if (reservation.Status != ReservationStatus.Holding &&
+                reservation.Status != ReservationStatus.Confirmed)
             {
                 throw new BadRequestException(
                     ApiErrorMessages.Reservation.ReservationStatusInvalidForCancel(reservation.Id, reservation.Status));
@@ -2556,6 +2560,11 @@ public class ReservationService : IReservationService
                 // Wrap try/catch riêng — track fail KHÔNG block capture (đã commit).
                 await TriggerShortPlayTrackingAsync(reservation, activeSessionId, ct);
 
+                // GAP #1 FIX: Sau khi capture BVC thành công → gọi SettlementService
+                // để chuyển tiền cọc qua SePay vào tài khoản cafe manager.
+                // Settlement fail KHÔNG block flow — sẽ được retry bởi SettlementRetryJob.
+                await TriggerSettlementTransferAsync(reservation, activeSessionId, ct);
+
                 return;
             }
             catch (DbUpdateException dbx) when (IsSerializationFailure(dbx) && attempt < maxRetries)
@@ -2749,6 +2758,60 @@ public class ReservationService : IReservationService
             _logger.LogWarning(ex,
                 "TriggerShortPlayTrackingAsync failed for ReservationId={ResId}, ActiveSessionId={ActiveSessionId}. " +
                 "Capture BVC vẫn thành công nhưng Karma short-play tracking bị skip.",
+                reservation.Id, activeSessionId);
+        }
+    }
+
+    /// <summary>
+    /// GAP #1 FIX: Sau khi capture BVC thành công → gọi SettlementService
+    /// để chuyển tiền cọc qua SePay vào tài khoản cafe manager.
+    ///
+    /// Tiền flow:
+    /// 1. Khách đặt cọc → BVC giữ trong ví BoardVerse (heldBalance)
+    /// 2. Khách check-in → phiên chơi bắt đầu
+    /// 3. Khách checkout → BVC được capture (DepositCapture ledger entry)
+    /// 4. Bước này: SettlementService gọi SePay transfer → tiền vào tài khoản cafe manager
+    ///
+    /// Settlement fail KHÔNG block flow — đã capture BVC thành công,
+    /// tiền nằm trong ví BoardVerse. SettlementRetryJob sẽ retry.
+    /// </summary>
+    private async Task TriggerSettlementTransferAsync(
+        Reservation reservation, Guid activeSessionId, CancellationToken ct)
+    {
+        try
+        {
+            // Chỉ settlement nếu có deposit thực sự
+            if (reservation.DepositAmount <= 0)
+            {
+                _logger.LogInformation(
+                    "TriggerSettlementTransferAsync: DepositAmount={Amount} ≤ 0, skip settlement. ReservationId={ReservationId}",
+                    reservation.DepositAmount, reservation.Id);
+                return;
+            }
+
+            _logger.LogInformation(
+                "TriggerSettlementTransferAsync: Starting settlement transfer. ReservationId={ReservationId}, " +
+                "ActiveSessionId={ActiveSessionId}, CafeId={CafeId}, DepositAmount={Amount}",
+                reservation.Id, activeSessionId, reservation.CafeId, reservation.DepositAmount);
+
+            var settlement = await _settlementService.ReleaseSessionDepositAsync(
+                reservation.CafeId,
+                reservation.Id, // sessionId = reservationId (Reservation IS the session concept here)
+                activeSessionId,
+                ct);
+
+            _logger.LogInformation(
+                "TriggerSettlementTransferAsync: Settlement completed. SettlementId={SettlementId}, " +
+                "Status={Status}, NetTransferAmount={Amount}, SePayTransferId={TransferId}",
+                settlement.Id, settlement.Status, settlement.NetTransferAmount, settlement.SePayTransferId);
+        }
+        catch (Exception ex)
+        {
+            // Settlement fail KHÔNG block flow — đã capture BVC thành công.
+            // SettlementRetryJob sẽ retry các settlement failed.
+            _logger.LogWarning(ex,
+                "TriggerSettlementTransferAsync FAILED for ReservationId={ReservationId}, ActiveSessionId={ActiveSessionId}. " +
+                "Settlement will be retried by SettlementRetryJob. BVC capture đã thành công.",
                 reservation.Id, activeSessionId);
         }
     }
