@@ -34,6 +34,7 @@ Tuân thủ business rules:
 
 - [GET /{id}](#get-id)
 - [GET /](#get-)
+- [GET /search](#get-search)
 - [GET /pending-cafe-approval](#get-pending-cafe-approval)
 - [GET /{id}/cafe-approval](#get-idcafe-approval)
 - [POST /quote](#post-quote)
@@ -193,6 +194,91 @@ Lấy danh sách reservation của user (host hoặc member). Có filter + phân
 |--------|---------|
 | `401` | Thiếu token |
 | `400` | `page` hoặc `pageSize` không hợp lệ |
+
+---
+
+## GET /search
+
+Tìm kiếm lịch hẹn theo tên game hoặc ngày tháng. Có filter + phân trang.
+
+### Request
+
+- Method: `GET`
+- Path: `/api/v1/reservations/search`
+- Auth: Player (JWT)
+
+### Query
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `gameName` | string | No | Từ khóa tìm kiếm theo tên game (fuzzy, case-insensitive). |
+| `fromDate` | date | No | Ngày bắt đầu filter (inclusive). |
+| `toDate` | date | No | Ngày kết thúc filter (inclusive). |
+| `statuses` | enum[] | No | Filter theo trạng thái. |
+| `cafeId` | guid | No | Filter theo cafe. |
+| `hostedByMe` | bool | No | Chỉ reservation do user host (default true). |
+| `joinedByMe` | bool | No | Chỉ reservation user tham gia (default false). |
+| `page` | int | No | Số trang (≥ 1). Mặc định 1 |
+| `pageSize` | int | No | Số item/trang (1-100). Mặc định 20 |
+
+**Lưu ý:** Nếu không truyền `hostedByMe` hoặc `joinedByMe`, mặc định trả cả hai (tất cả reservation liên quan đến user).
+
+### Response 200
+
+```json
+{
+  "statusCode": 200,
+  "message": "ReservationsSearched",
+  "data": {
+    "items": [
+      {
+        "id": "...",
+        "cafeId": "...",
+        "cafeName": "BoardGame Cafe A",
+        "gameId": "...",
+        "gameName": "Catan",
+        "playDate": "2026-08-04",
+        "preferredStartTime": "19:30:00",
+        "preferredEndTime": "22:00:00",
+        "currentPlayers": 3,
+        "maxPlayers": 6,
+        "depositAmount": 100000,
+        "status": "Holding",
+        "lobbyId": "...",
+        "lobbyStatus": "Open",
+        "reservationCode": "K7H3NP9X",
+        "scheduledStartTime": "2026-08-04T19:30:00Z",
+        "scheduledEndTime": "2026-08-04T22:00:00Z",
+        "recruitmentDeadline": "2026-08-04T19:10:00Z",
+        "createdAt": "2026-08-02T15:30:00Z",
+        "isHost": true,
+        "tableNumber": null
+      }
+    ],
+    "page": 1,
+    "pageSize": 20,
+    "totalCount": 5,
+    "totalPages": 1
+  }
+}
+```
+
+### Ví dụ
+
+```
+GET /api/v1/reservations/search?gameName=Catan&fromDate=2026-08-01&toDate=2026-08-31
+GET /api/v1/reservations/search?gameName=Splendor&hostedByMe=true
+GET /api/v1/reservations/search?fromDate=2026-08-20&toDate=2026-08-25&statuses=Holding,Confirmed
+GET /api/v1/reservations/search?cafeId=abc123-guid&page=1&pageSize=10
+```
+
+### Lỗi thường gặp
+
+| Status | Message |
+|--------|---------|
+| `401` | Thiếu token |
+| `400` | `page` hoặc `pageSize` không hợp lệ |
+| `500` | Lỗi hệ thống |
 
 ---
 

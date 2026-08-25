@@ -342,6 +342,103 @@ public class ReservationRepository : IReservationRepository
             .FirstOrDefaultAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Tìm kiếm reservation theo tên game hoặc ngày tháng.
+    /// BR-USER-LIMIT-01: user chỉ thấy reservation mình host hoặc có tham gia.
+    /// </summary>
+    public async Task<(IReadOnlyList<Reservation> Items, int TotalCount)> SearchAsync(
+        Guid userId,
+        string? gameName,
+        DateOnly? fromDate,
+        DateOnly? toDate,
+        List<ReservationStatus>? statuses,
+        Guid? cafeId,
+        bool hostedByMe,
+        bool joinedByMe,
+        int page,
+        int pageSize, CancellationToken cancellationToken = default)
+    {
+        var query = _db.Reservations
+            .Include(r => r.Host).ThenInclude(u => u.Profile)
+            .Include(r => r.Cafe)
+            .Include(r => r.Game)
+            .Include(r => r.Lobby)
+            .AsQueryable();
+
+        // Filter: host hoặc joined
+        if (hostedByMe && joinedByMe)
+        {
+            query = query.Where(r =>
+                r.HostId == userId ||
+                (r.Lobby != null && r.Lobby.Members.Any(m => m.UserId == userId && m.IsActive)));
+        }
+        else if (hostedByMe)
+        {
+            query = query.Where(r => r.HostId == userId);
+        }
+        else if (joinedByMe)
+        {
+            query = query.Where(r =>
+                r.Lobby != null && r.Lobby.Members.Any(m => m.UserId == userId && m.IsActive));
+        }
+        else
+        {
+            // Default: host or joined
+            query = query.Where(r =>
+                r.HostId == userId ||
+                (r.Lobby != null && r.Lobby.Members.Any(m => m.UserId == userId && m.IsActive)));
+        }
+
+        // Filter: game name (fuzzy search)
+        if (!string.IsNullOrWhiteSpace(gameName))
+        {
+            var normalizedGameName = gameName.Trim().ToLowerInvariant();
+            // Escape SQL wildcard characters to prevent injection
+            var escapedGameName = normalizedGameName
+                .Replace("\\", "\\\\")
+                .Replace("%", "\\%")
+                .Replace("_", "\\_");
+            query = query.Where(r =>
+                r.Game != null && EF.Functions.ILike(r.Game.Name, $"%{escapedGameName}%"));
+        }
+
+        // Filter: from date
+        if (fromDate.HasValue)
+        {
+            query = query.Where(r => r.PlayDate >= fromDate.Value);
+        }
+
+        // Filter: to date
+        if (toDate.HasValue)
+        {
+            query = query.Where(r => r.PlayDate <= toDate.Value);
+        }
+
+        // Filter: statuses
+        if (statuses != null && statuses.Count > 0)
+        {
+            query = query.Where(r => statuses.Contains(r.Status));
+        }
+
+        // Filter: cafe
+        if (cafeId.HasValue)
+        {
+            query = query.Where(r => r.CafeId == cafeId.Value);
+        }
+
+        // Count total
+        var totalCount = await query.CountAsync(cancellationToken);
+
+        // Paginate
+        var items = await query
+            .OrderByDescending(r => r.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        return (items, totalCount);
+    }
+
     public Task AddAsync(Reservation reservation, CancellationToken cancellationToken = default)
     {
         _db.Reservations.Add(reservation);

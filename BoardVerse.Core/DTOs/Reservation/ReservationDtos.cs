@@ -742,3 +742,45 @@ public class CafeLobbiesResponseDto
     public int PageSize { get; set; }
     public int TotalPages => (int)Math.Ceiling((double)TotalCount / PageSize);
 }
+
+/// <summary>
+/// Request tìm kiếm lịch hẹn theo tên game hoặc ngày tháng.
+/// </summary>
+public class ReservationSearchRequestDto
+{
+    /// <summary>Từ khóa tìm kiếm theo tên game (fuzzy search).</summary>
+    public string? GameName { get; set; }
+
+    /// <summary>Ngày bắt đầu filter (inclusive). Null = không giới hạn.</summary>
+    public DateOnly? FromDate { get; set; }
+
+    /// <summary>Ngày kết thúc filter (inclusive). Null = không giới hạn.</summary>
+    public DateOnly? ToDate { get; set; }
+
+    /// <summary>Filter theo trạng thái. Null = all.</summary>
+    public List<ReservationStatus>? Statuses { get; set; }
+
+    /// <summary>Filter theo cafe. Null = all.</summary>
+    public Guid? CafeId { get; set; }
+
+    /// <summary>Chỉ lấy reservation do user host. Default true.</summary>
+    public bool HostedByMe { get; set; } = true;
+
+    /// <summary>Chỉ lấy reservation user tham gia (member). Default false.</summary>
+    public bool JoinedByMe { get; set; }
+
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; } = 20;
+}
+
+/// <summary>
+/// Response paginated cho tìm kiếm lịch hẹn.
+/// </summary>
+public class ReservationSearchResponseDto
+{
+    public List<ReservationListItemDto> Items { get; set; } = [];
+    public int TotalCount { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalPages => (int)Math.Ceiling((double)TotalCount / PageSize);
+}

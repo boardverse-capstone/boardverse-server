@@ -170,4 +170,13 @@ public interface IReservationService
         Guid cafeManagerUserId,
         Guid cafeId,
         CafeReservationsRequestDto request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Tìm kiếm lịch hẹn theo tên game hoặc ngày tháng.
+    /// Filter theo gameName, fromDate, toDate, statuses, cafeId.
+    /// BR-USER-LIMIT-01: user chỉ thấy reservation mình host hoặc có tham gia.
+    /// </summary>
+    Task<ReservationSearchResponseDto> SearchAsync(
+        Guid userId,
+        ReservationSearchRequestDto request, CancellationToken cancellationToken = default);
 }

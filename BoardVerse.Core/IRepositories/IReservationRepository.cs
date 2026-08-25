@@ -110,6 +110,22 @@ public interface IReservationRepository
         int page,
         int pageSize, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Tìm kiếm reservation theo tên game hoặc ngày tháng.
+    /// BR-USER-LIMIT-01: user chỉ thấy reservation mình host hoặc có tham gia.
+    /// </summary>
+    Task<(IReadOnlyList<Reservation> Items, int TotalCount)> SearchAsync(
+        Guid userId,
+        string? gameName,
+        DateOnly? fromDate,
+        DateOnly? toDate,
+        List<ReservationStatus>? statuses,
+        Guid? cafeId,
+        bool hostedByMe,
+        bool joinedByMe,
+        int page,
+        int pageSize, CancellationToken cancellationToken = default);
+
     Task AddAsync(Reservation reservation, CancellationToken cancellationToken = default);
 
     Task UpdateAsync(Reservation reservation, CancellationToken cancellationToken = default);

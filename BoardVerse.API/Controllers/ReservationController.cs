@@ -157,6 +157,29 @@ public class ReservationController : BaseApiController
     }
 
     /// <summary>
+    /// Tìm kiếm lịch hẹn theo tên game hoặc ngày tháng. [Role: Player]
+    /// </summary>
+    /// <param name="request">
+    /// - gameName: từ khóa tìm kiếm theo tên game (fuzzy search).
+    /// - fromDate: ngày bắt đầu filter (inclusive).
+    /// - toDate: ngày kết thúc filter (inclusive).
+    /// - statuses: filter theo trạng thái.
+    /// - cafeId: filter theo cafe.
+    /// - hostedByMe: chỉ lấy reservation do user host (default true).
+    /// - joinedByMe: chỉ lấy reservation user tham gia (default false).
+    /// </param>
+    /// <response code="200">Danh sách reservation tìm được (phân trang).</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpGet("search")]
+    public async Task<IActionResult> SearchReservations([FromQuery] ReservationSearchRequestDto request)
+    {
+        var userId = GetUserIdFromClaims();
+        var result = await _reservationService.SearchAsync(userId, request);
+        return this.NewResponse(200, "ReservationsSearched", result);
+    }
+
+    /// <summary>
     /// Lấy danh sách lobby đang chờ cafe duyệt (BR-NEW-11). [Role: Cafe Manager]
     /// Lobby có playDate > 2 ngày sẽ ở trạng thái PendingCafeApproval và cần manager duyệt.
     /// </summary>

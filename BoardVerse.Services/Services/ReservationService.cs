@@ -3686,6 +3686,62 @@ public class ReservationService : IReservationService
             PageSize = pageSize
         };
     }
+
+    /// <summary>
+    /// Tìm kiếm lịch hẹn theo tên game hoặc ngày tháng.
+    /// </summary>
+    public async Task<ReservationSearchResponseDto> SearchAsync(
+        Guid userId,
+        ReservationSearchRequestDto request, CancellationToken cancellationToken = default)
+    {
+        var page = Math.Max(1, request.Page);
+        var pageSize = Math.Clamp(request.PageSize, 1, 100);
+
+        var (items, totalCount) = await _reservationRepository.SearchAsync(
+            userId,
+            request.GameName,
+            request.FromDate,
+            request.ToDate,
+            request.Statuses,
+            request.CafeId,
+            request.HostedByMe,
+            request.JoinedByMe,
+            page,
+            pageSize);
+
+        var dtos = items.Select(r => new ReservationListItemDto
+        {
+            Id = r.Id,
+            CafeId = r.CafeId,
+            CafeName = r.Cafe?.Name ?? string.Empty,
+            GameId = r.GameId,
+            GameName = r.Game?.Name ?? string.Empty,
+            PlayDate = r.PlayDate,
+            PreferredStartTime = r.PreferredStartTime ?? TimeOnly.MinValue,
+            PreferredEndTime = r.PreferredEndTime ?? TimeOnly.MinValue,
+            CurrentPlayers = r.CurrentPlayers,
+            MaxPlayers = r.MaxPlayers,
+            Status = r.Status.ToString(),
+            DepositAmount = r.DepositAmount,
+            LobbyId = r.LobbyId,
+            LobbyStatus = r.Lobby?.Status.ToString(),
+            ReservationCode = r.ReservationCode,
+            ScheduledStartTime = r.ScheduledStartTime,
+            ScheduledEndTime = r.ScheduledEndTime,
+            RecruitmentDeadline = r.RecruitmentDeadline,
+            CreatedAt = r.CreatedAt,
+            IsHost = r.HostId == userId,
+            TableNumber = r.TableNumber
+        }).ToList();
+
+        return new ReservationSearchResponseDto
+        {
+            Items = dtos,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize
+        };
+    }
 }
 
 /// <summary>
