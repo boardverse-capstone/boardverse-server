@@ -1,4 +1,4 @@
-﻿using BoardVerse.Core.Enum;
+using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Core.Messages
 {
@@ -451,8 +451,12 @@ public static string AccessForbidden(Guid cafeId) =>
  public const string SessionMustBeActiveForEndGame =
  "Phiên chơi phải đang hoạt động để bấm 'Trả game'.";
 
- public const string SessionNoGamesForEndGame =
- "Phiên chơi chưa có game nào. Gán game trước khi bấm 'Trả game'.";
+public const string SessionNoGamesForEndGame =
+"Phiên chơi chưa có game nào. Gán game trước khi bấm 'Trả game'.";
+
+        // GAP-R3-03 Fix: BR-12 — không cho EndGame khi không còn member Playing/Guest nào (billing = 0 vô nghĩa).
+        public const string NoPlayingMembersToEndGame =
+            "Không còn thành viên nào đang chơi trong phiên. Hãy kiểm tra trước khi chuyển sang trạng thái kiểm kê linh kiện.";
 
  public const string SessionMustBeUnpaidForPayment =
  "Phiên chơi phải ở trạng thái chờ thanh toán (UNPAID) để thanh toán.";
@@ -460,11 +464,19 @@ public static string AccessForbidden(Guid cafeId) =>
  public const string SessionMustBeCheckingForResume =
  "Chỉ có thể khôi phục phiên đang ở trạng thái kiểm kê linh kiện (CHECKING).";
 
- public const string SessionCannotResumeHasCheckedOutMembers =
- "Phiên đã có thành viên thanh toán. Không thể khôi phục — hãy tiếp tục thanh toán các thành viên còn lại.";
+public const string SessionCannotResumeHasCheckedOutMembers =
+"Phiên đã có thành viên thanh toán. Không thể khôi phục — hãy tiếp tục thanh toán các thành viên còn lại.";
+
+        // GAP-R3-02: Bảo vệ audit trail BR-12 — staff phải xử lý missing components qua component-check
+        // hoặc checkout penalty trước khi resume phiên.
+        public const string CannotResumeWithMissingComponents =
+            "Phiên đang được đánh dấu có linh kiện thiếu/hỏng. Hãy xử lý qua kiểm kê linh kiện hoặc thanh toán phí phạt trước khi khôi phục phiên về ACTIVE.";
 
  public const string GuestSlotNotAllowedAfterSessionEnded =
  "Phiên chơi đã kết thúc. Không thể thêm khách vô danh.";
+
+ public const string GuestSlotCannotPartialCheckout =
+ "Khách vô danh (BR-13) không thể tách nhóm thanh toán một phần. Vui lòng gộp vào hóa đơn của host hoặc thu tiền mặt tại quầy.";
 
  public const string PartialCheckoutRequiresAtLeastOneMember =
  "Cần chọn ít nhất 1 thành viên để thanh toán một phần.";
@@ -552,6 +564,25 @@ public static string AccessForbidden(Guid cafeId) =>
 
  public static string BoxCafeMismatch(Guid boxId, Guid cafeId) =>
  $"Hộp game '{boxId}' không thuộc quán '{cafeId}'.";
+
+ /// <summary>
+ /// Trạng thái hộp không hợp lệ khi chuyển (VD: cố set InUse từ API, hoặc set status không có trong enum).
+ /// </summary>
+ public const string InvalidBoxStatus =
+ "Trạng thái hộp game không hợp lệ. Vui lòng chọn một trong: Available, Maintenance, Damaged, Retired.";
+
+ /// <summary>
+ /// Chuyển sang <c>Available</c> chỉ hợp lệ khi hộp đang ở <c>Maintenance</c> hoặc <c>Damaged</c>.
+ /// </summary>
+ public static string BoxStatusTransitionNotAllowed(string current, string target) =>
+ $"Không thể chuyển hộp game từ '{current}' sang '{target}'. " +
+ $"Chỉ chuyển sang 'Available' khi hộp đang ở 'Maintenance' hoặc 'Damaged'.";
+
+ /// <summary>
+ /// Hộp game đang được sử dụng trong phiên chơi — không thể đổi trạng thái cho đến khi kết thúc phiên.
+ /// </summary>
+ public static string BoxInUseCannotChangeStatus(Guid boxId) =>
+ $"Hộp game '{boxId}' đang được sử dụng trong phiên chơi. Vui lòng kết thúc phiên trước khi đổi trạng thái.";
 
  public static string SessionMustBeActiveForEnd(string current) =>
  $"Phiên chơi phải đang hoạt động để kết thúc. Trạng thái hiện tại: '{current}'.";
@@ -1572,12 +1603,118 @@ public const string SePayBankInfoIncomplete =
 
  public static string InvalidQueryParameter(string name, string allowedValues)
  => $"Giá trị tham số '{name}' không hợp lệ. Cho phép: {allowedValues}.";
+
+ public const string InvalidRequestBody =
+ "Dữ liệu gửi lên không hợp lệ. Vui lòng kiểm tra và thử lại.";
  }
 
  public static class Validation
  {
  public const string RequestFailed = "Dữ liệu gửi lên không hợp lệ cho '{0}': {1}";
  public const string FieldRequired = "Trường '{0}' là bắt buộc. Bạn vui lòng điền đầy đủ thông tin nhé.";
+
+ /// <summary>
+ /// Tạo thông điệp lỗi validation thân thiện tiếng Việt cho field bị lỗi khi ASP.NET Core auto-trả về 400 trước khi controller chạy.
+ /// Phần message user-facing LUÔN tiếng Việt; chi tiết kỹ thuật gốc của ASP.NET được giữ riêng ở <c>data.fields</c> để FE/dev debug.
+ /// </summary>
+ /// <param name="fieldName">Tên field bị lỗi (vd: <c>PreferredEndTime</c>, <c>PreferredStartTime</c>). Để trống = không trích xuất được.</param>
+ /// <param name="errorCount">Tổng số lỗi trong request. 1 = số ít, &gt;1 = số nhiều.</param>
+ public static string FieldValidationFailed(string fieldName, int errorCount = 1)
+ {
+ var hasField = !string.IsNullOrEmpty(fieldName) && fieldName != "$";
+ return errorCount <= 1
+ ? (hasField
+ ? $"Trường '{fieldName}' chưa hợp lệ. Bạn kiểm tra và thử lại nhé!"
+ : "Dữ liệu gửi lên chưa hợp lệ. Bạn kiểm tra lại rồi thử lại nhé!")
+ : (hasField
+ ? $"Có {errorCount} trường chưa hợp lệ — trường đầu tiên: '{fieldName}'. Bạn kiểm tra và thử lại nhé!"
+ : $"Có {errorCount} trường chưa hợp lệ. Bạn kiểm tra và thử lại nhé!");
+ }
+
+ /// <summary>Fallback khi ModelState invalid nhưng không trích xuất được field name.</summary>
+ public const string GenericValidationFailed =
+ "Dữ liệu gửi lên chưa hợp lệ. Bạn kiểm tra lại rồi thử lại nhé!";
+
+ // ===== Reservation flow fields (BR §XXI-A.2..21A.3) =====
+ // Friendly Vietnamese messages cho các field DTO của Reservation flow —
+ // được dùng bởi InvalidModelStateResponseFactory khi ASP.NET Core auto
+ // reject request trước khi controller chạy (do [Required] validation).
+ // Message này hiển thị trực tiếp lên UI cho người dùng cuối, nên phải
+ // gợi ý cách sửa cụ thể thay vì chỉ chung chung "field không hợp lệ".
+
+ /// <summary>
+ /// BR-RESV-02: <c>PreferredEndTime</c> không bắt buộc — server tự tính
+ /// <c>scheduledEndTime</c> từ <c>timeSlot</c>. FE không cần (và không nên) gửi field này.
+ /// Hiển thị hướng dẫn thân thiện thay vì bắt FE gửi field không tồn tại trong spec.
+ /// </summary>
+ public const string ReservationPreferredEndTimeNotNeeded =
+ "Trường 'preferredEndTime' không cần gửi lên — hệ thống sẽ tự tính giờ kết thúc dựa trên khung giờ (timeSlot) bạn đã chọn. Bạn bỏ field này khỏi request rồi thử lại nhé!";
+
+ /// <summary>
+ /// BR-RESV-02: <c>PreferredStartTime</c> nên nằm trong khung giờ đã chọn.
+ /// Nếu FE gửi giờ nằm ngoài khung, đây là message gợi ý.
+ /// </summary>
+ public const string ReservationPreferredStartTimeOutOfRange =
+ "Giờ bắt đầu ưu tiên (preferredStartTime) phải nằm trong khung giờ bạn đã chọn (timeSlot). Ví dụ: khung 'evening' (17:00–23:00) → chỉ chọn giờ từ 17:00 đến 23:00.";
+
+ /// <summary>
+ /// <c>TimeSlot</c> enum không hợp lệ (giá trị ngoài 0–3, vd: do FE deserialize lỗi).
+ /// </summary>
+ public const string ReservationTimeSlotInvalid =
+ "Khung giờ (timeSlot) không hợp lệ. Vui lòng chọn 1 trong 4 khung: morning (06:00–12:00), afternoon (12:00–17:00), evening (17:00–23:00), lateNight (23:00–06:00).";
+
+ /// <summary>
+ /// <c>PlayDate</c> nằm ngoài khoảng cho phép [today, today+7] (BR §VIII).
+ /// Thường do FE dùng date cũ hoặc date quá xa.
+ /// </summary>
+ public const string ReservationPlayDateOutOfRange =
+ "Ngày dự kiến chơi (playDate) phải nằm trong vòng 7 ngày tới. Bạn chọn lại ngày khác nhé!";
+
+ /// <summary>
+ /// <c>MinPlayers</c>/<c>MaxPlayers</c> ngoài Range(1, 30) hoặc min &gt; max.
+ /// </summary>
+ public const string ReservationPlayerCountInvalid =
+ "Số người chơi không hợp lệ. Số tối thiểu (minPlayers) phải từ 1–30 và không được lớn hơn số tối đa (maxPlayers).";
+
+ /// <summary>
+ /// <c>IdempotencyKey</c> thiếu hoặc không đúng format (8–128 ký tự).
+ /// </summary>
+ public const string ReservationIdempotencyKeyInvalid =
+ "Mã idempotency (idempotencyKey) phải dài từ 8 đến 128 ký tự. Bạn kiểm tra lại nhé!";
+
+ /// <summary>
+ /// Lookup message cụ thể cho các field của Reservation flow.
+ /// Trả về <c>null</c> nếu field không thuộc domain này (để factory dùng generic message).
+ /// </summary>
+ /// <param name="fieldName">Tên field (PascalCase như trong DTO, vd: <c>PreferredEndTime</c>).</param>
+ /// <param name="errorMessage">Error message gốc của ASP.NET (<c>ModelStateEntry.Errors[0].ErrorMessage</c>) — dùng để phân biệt "required" vs "range" vs "format".</param>
+ public static string? GetReservationFieldMessage(string? fieldName, string? errorMessage = null)
+ {
+ if (string.IsNullOrEmpty(fieldName))
+ {
+ return null;
+ }
+
+ // Detect "required" từ message gốc (ASP.NET dùng "The X field is required.")
+ var isRequired = !string.IsNullOrEmpty(errorMessage)
+ && errorMessage.Contains("is required", StringComparison.OrdinalIgnoreCase);
+
+ return fieldName switch
+ {
+ "PreferredEndTime" => ReservationPreferredEndTimeNotNeeded,
+ "PreferredStartTime" => isRequired
+ ? "Giờ bắt đầu ưu tiên (preferredStartTime) là bắt buộc. Bạn chọn giờ trong khung giờ (timeSlot) đã chọn nhé."
+ : ReservationPreferredStartTimeOutOfRange,
+ "TimeSlot" => ReservationTimeSlotInvalid,
+ "PlayDate" => ReservationPlayDateOutOfRange,
+ "MinPlayers" or "MaxPlayers" => ReservationPlayerCountInvalid,
+ "IdempotencyKey" => ReservationIdempotencyKeyInvalid,
+ "CafeId" => "Mã quán (cafeId) là bắt buộc. Bạn kiểm tra lại nhé!",
+ "GameId" => "Mã game (gameId) là bắt buộc. Bạn kiểm tra lại nhé!",
+ _ => null,
+ };
+ }
+
  public const string TimeSlotRequired = "Khung giờ (TimeSlot) là bắt buộc. Bạn vui lòng chọn khung giờ hợp lệ nhé.";
  public const string EmailRequired = "Email là bắt buộc. Bạn nhập email để tiếp tục nhé.";
  public const string EmailInvalid = "Email không đúng định dạng. Bạn kiểm tra lại email nhé.";
@@ -2024,7 +2161,10 @@ public const string SePayBankInfoIncomplete =
  "Chỉ Host mới có thể mở cửa sổ đánh giá.";
 
  public const string OnlyFullLobbyCanInProgress =
- "Chỉ phòng ở trạng thái FULL mới chuyển sang IN_PROGRESS được.";
+ "Chỉ phòng ở trạng thái FULL hoặc WAITING_CHECK_IN mới chuyển sang IN_PROGRESS được.";
+
+ public const string OnlyFullOrWaitingCheckInCanInProgress =
+ "Chỉ phòng ở trạng thái FULL hoặc WAITING_CHECK_IN mới chuyển sang IN_PROGRESS được.";
 
  public const string OnlyInProgressCanClose =
  "Chỉ phòng đang chơi hoặc đang đánh giá mới đóng được.";
@@ -2123,19 +2263,27 @@ public const string LobbyBoostOnlyWhenOpen =
     // ===== BR-RES-07: Reservation bắt buộc có startTime + endTime =====
     public const string ReservationRequiresStartAndEnd =
         "Đặt chỗ bắt buộc phải có thời gian bắt đầu và thời gian kết thúc. " +
-        "Vui lòng chọn khung giờ (morning/afternoon/evening/lateNight) để hệ thống tự tính giờ kết thúc.";
+        "Vui lòng chọn đầy đủ preferredStartTime và preferredEndTime.";
 
-    // ===== BR-RES-08: endTime cùng ngày startTime (trừ LateNight) =====
+    public const string PreferredTimesMustDiffer =
+        "Thời gian kết thúc phải khác thời gian bắt đầu. Nếu chơi qua đêm, giờ kết thúc sẽ được hiểu là thuộc ngày hôm sau.";
+
+    public static string PreferredStartBeforeOpen(TimeOnly openTime) =>
+        $"Thời gian bắt đầu không được trước giờ mở cửa ({openTime:HH:mm}). Vui lòng chọn giờ bắt đầu khác.";
+
+    public static string PreferredEndAfterClose(TimeOnly closeTime) =>
+        $"Thời gian kết thúc không được sau giờ đóng cửa ({closeTime:HH:mm}). Vui lòng chọn giờ kết thúc khác.";
+
+    // ===== BR-RES-08: endTime cùng ngày startTime hoặc ngày kế tiếp nếu qua đêm =====
     public const string ReservationEndTimeDifferentDay =
-        "Thời gian kết thúc phải cùng ngày với thời gian bắt đầu. " +
-        "Vui lòng chọn khung giờ LateNight nếu bạn muốn chơi qua đêm.";
+        "Thời gian kết thúc phải cùng ngày với thời gian bắt đầu, hoặc thuộc ngày hôm sau nếu giờ kết thúc nhỏ hơn giờ bắt đầu.";
 
     // ===== BR-RES-09: TimeSlot không hợp lệ =====
     public static string ReservationInvalidTimeSlot(TimeSlot slot) =>
         $"Khung giờ không hợp lệ ({(int)slot}). Chỉ chấp nhận: morning (06:00-12:00), afternoon (12:00-17:00), evening (17:00-23:00), lateNight (23:00-06:00).";
 
     public static string PosTokenNotFound(string token) =>
-        $"Không tìm thấy mã QR này.";
+        $"Không tìm thấy mã QR '{token}' này. Vui lòng kiểm tra lại mã QR hoặc liên hệ nhân viên quán.";
 
     public static string PosTokenNotInCheckInWindow(Guid reservationId) =>
         $"Đặt chỗ của bạn chưa đến giờ check-in. Bạn đến đúng giờ hoặc nhờ nhân viên hỗ trợ nhé!";
@@ -2160,10 +2308,13 @@ public const string LobbyBoostOnlyWhenOpen =
  public const string CafeConfigMissing =
  "Quán chưa được cấu hình BVC. Không thể đặt cọc. Liên hệ quản lý quán.";
 
- public const string SeatInventoryNotConfigured =
- "Quán chưa được cấu hình số ghế cho ngày và khung giờ này. Liên hệ quản lý quán.";
+    public const string SeatInventoryNotConfigured =
+    "Quán chưa được cấu hình số ghế cho ngày và khung giờ này. Liên hệ quản lý quán.";
 
- public const string GameNotInCafeInventory =
+    public const string CafeScheduleClosedForPlayDate =
+    "Quán đóng cửa vào ngày bạn chọn. Vui lòng chọn ngày khác.";
+
+    public const string GameNotInCafeInventory =
  "Quán chưa nhập game này vào kho. Bạn chọn game khác đi nha.";
 
  // ===== BR-RESERVATION-01: maxPlayers > capacity =====
@@ -2180,6 +2331,9 @@ public const string LobbyBoostOnlyWhenOpen =
 
     public const string ActiveLobbyMemberLimitReached =
         "Bạn đang tham gia một phòng khác rồi. Hãy rời phòng đó trước khi tạo phòng mới làm chủ phòng nhé!";
+
+    public const string TotalLobbyLimitReached =
+        "Bạn đã đạt giới hạn tối đa 2 phòng (1 host + 1 member). Hãy rời hoặc kết thúc một phòng trước nhé!";
 
     // ===== BR-USER-LIMIT-04/05: cross-role =====
     public const string MemberCannotCreateLobby =
@@ -2352,8 +2506,8 @@ public const string LobbyBoostOnlyWhenOpen =
  public static string LobbyStatusInvalidForCancel(Guid lobbyId, object status) =>
  $"Lobby '{lobbyId}' đã ở trạng thái '{status}', không thể hủy.";
 
- public static string ReservationStatusInvalidForCancel(Guid reservationId, object status) =>
- $"Reservation '{reservationId}' không ở trạng thái Holding (hiện tại: {status}).";
+    public static string ReservationStatusInvalidForCancel(Guid reservationId, object status) =>
+        $"Reservation '{reservationId}' không thể hủy ở trạng thái hiện tại ({status}). Chỉ có thể hủy khi đang ở trạng thái Holding hoặc Confirmed (chưa check-in).";
 
  public static string LobbyNotPendingCafeApproval(Guid reservationId, object status) =>
  $"Lobby của reservation '{reservationId}' không ở trạng thái chờ cafe duyệt (hiện tại: {status}).";
@@ -2629,8 +2783,14 @@ public const string LobbyBoostOnlyWhenOpen =
  public static string CannotAdvanceRoundCurrentNotFinished(int currentRound) =>
  $"Vòng hiện tại (Round {currentRound}) chưa kết thúc toàn bộ các bàn đấu. Hãy ghi nhận kết quả các bàn trước khi chuyển vòng.";
 
- public static string CannotAdvanceRoundFinalAlreadyBuilt(Guid tournamentId) =>
- $"Giải đấu '{tournamentId}' đã có bàn chung kết. Không thể chuyển sang vòng khác.";
+public static string CannotAdvanceRoundFinalAlreadyBuilt(Guid tournamentId) =>
+    $"Giải đấu '{tournamentId}' đã có bàn chung kết. Không thể chuyển sang vòng khác.";
+
+    public static string CannotViewFutureRound(Guid tournamentId, int requestedRound, int currentRound) =>
+    $"Không thể xem vòng {requestedRound} của giải đấu '{tournamentId}'. Hiện tại đang ở Round {currentRound}. Vui lòng ghi nhận kết quả các bàn đấu hiện tại trước khi chuyển vòng.";
+
+    public static string CannotStartFutureRoundMatch(Guid matchId, int matchRound, int currentRound) =>
+    $"Không thể bắt đầu bàn đấu vòng {matchRound} (ID: '{matchId}'). Giải đấu hiện đang ở Round {currentRound}. Hãy hoàn thành các bàn đấu hiện tại trước.";
 
  public static string CannotWithdrawAfterCheckIn(TournamentParticipantStatus currentStatus)
  {
@@ -2744,8 +2904,13 @@ public const string LobbyBoostOnlyWhenOpen =
  public static string FinalPairingsInvalid(int finalistCount) =>
  "Cáº·p Ä‘áº¥u chung káº¿t khÃ´ng há»£p lá»‡ vá»›i {finalistCount} finalist.";
 
- public const string CannotSwitchManualWithMatches =
- "KhÃ´ng thá»ƒ chuyá»ƒn sang cháº¿ Ä‘á»™ táº¡o cáº·p thá»§ cÃ´ng khi Ä‘Ã£ cÃ³ tráº­n Ä‘áº¥u tá»“n táº¡i.";
+ public static string CannotSwitchManualWithMatches(int currentRound) =>
+        $"Không thể chuyển sang chế độ ghép đôi thủ công khi vòng đấu hiện tại (Vòng {currentRound}) đã có bàn đấu. " +
+        $"Vui lòng hoàn thành vòng đấu hiện tại trước, sau đó chuyển sang Manual cho vòng tiếp theo.";
+
+ public static string CannotSwitchManualWithActiveMatches =>
+        "Không thể chuyển sang chế độ ghép đôi thủ công khi có bàn đấu đang diễn ra hoặc đã kết thúc. " +
+        "Vui lòng hoàn thành hoặc hủy các bàn đấu hiện tại trước khi thay đổi chế độ ghép đôi.";
 
  public static string RoundHasMatches(int roundNumber) =>
  "VÃ²ng {roundNumber} Ä‘Ã£ cÃ³ tráº­n Ä‘áº¥u tá»“n táº¡i. KhÃ´ng thá»ƒ thá»±c hiá»‡n thao tÃ¡c nÃ y.";
@@ -2753,20 +2918,40 @@ public const string LobbyBoostOnlyWhenOpen =
  public static string RoundCannotResetPairings(int roundNumber) =>
  "KhÃ´ng thá»ƒ táº¡o láº¡i cáº·p Ä‘áº¥u cho vÃ²ng {roundNumber} khi Ä‘Ã£ cÃ³ káº¿t quáº£.";
 
- public static string RoundNumberOutOfRange(int roundNumber, int totalRounds) =>
- "Sá»‘ vÃ²ng {roundNumber} náº±m ngoÃ i pháº¡m vi cho phÃ©p (1 - {totalRounds}).";
+public static string RoundNumberOutOfRange(int roundNumber, int totalRounds) =>
+"Số vòng {roundNumber} nằm ngoài phạm vi cho phép (1 - {totalRounds}).";
 
- public static string InvalidPairingUserIds(string userIds) =>
- "Danh sÃ¡ch userId ghÃ©p cáº·p khÃ´ng há»£p lá»‡: [{userIds}].";
+    public static string InvalidPairingUserIds(string userIds) =>
+        $"Danh sách userId ghép cặp không hợp lệ: [{userIds}].";
 
  public static string FinalPairingInvalidSingle(int finalistCount) =>
- "Cáº·p chung káº¿t chá»‰ cháº¥p nháº­n Ä‘Ãºng 2 ngÆ°á»i chÆ¡i (hiá»‡n cÃ³ {finalistCount}).";
+        $"Cặp chung kết chỉ chấp nhận đúng 2 người chơi (hiện có {finalistCount}).";
 
- public static string PairingSizeInvalid(int matchNumber, int playerCount) =>
- "Sá»‘ ngÆ°á»i chÆ¡i cá»§a cáº·p Ä‘áº¥u thá»© {matchNumber} ({playerCount}) khÃ´ng há»£p lá»‡.";
+    public static string PairingSizeInvalid(int matchNumber, int playerCount) =>
+        $"Số người chơi của cặp đấu thứ {matchNumber} ({playerCount}) không hợp lệ.";
 
- public const string NoOfferToDecline =
- "Bạn không có offer nào để từ chối.";
+ 
+
+public static string RoundHasNoMatches(int roundNumber) =>
+$"Vòng {roundNumber} chưa có trận đấu nào.";
+
+public static string PlayerNotInMatch(Guid playerId, int matchNumber) =>
+$"Người chơi không có trong bàn {matchNumber}.";
+
+public const string SwapOnlyAllowedWhenOnGoing =
+"Không thể hoán đổi khi giải đấu không diễn ra.";
+
+public const string SwapSameMatch =
+"Hai người chơi đang ở cùng một bàn. Không cần hoán đổi.";
+
+public const string SwapMatchAlreadyCompleted =
+"Không thể hoán đổi vì bàn đấu đã hoàn thành.";
+
+public const string SwapMatchOnGoing =
+"Không thể hoán đổi vì bàn đấu đang diễn ra.";
+
+public const string NoOfferToDecline =
+"Bạn không có offer nào để từ chối.";
 
  public static class Spectator
  {
@@ -3072,7 +3257,7 @@ public static class Settlement
             $"Khung LateNight phải kết thúc vào ngày hôm sau (start='{startTime}', end='{endTime}').";
 
         public const string TimeSlotOverrideInvalidTimeRange =
-            "Khoảng giờ override không hợp lệ.";
+            "Khoảng giờ override không hợp lệ: Giờ bắt đầu và giờ kết thúc không được bằng nhau (trừ khi IsClosed = true).";
 
         public const string TimeSlotOverrideInvalidEffectiveRange =
             "Khoảng hiệu lực của override không hợp lệ.";
@@ -3095,5 +3280,83 @@ public static class Settlement
         public static string IPv4ResolutionFailed(string host) =>
             $"Không phân giải được địa chỉ IPv4 cho '{host}'.";
     }
+
+        // ===== Player Session APIs =====
+        public static class Session
+        {
+            public const string PlayerNoActiveSession =
+                "Bạn không có phiên chơi nào đang hoạt động.";
+
+            public const string PlayerNotInSession =
+                "Bạn không tham gia phiên chơi này.";
+
+            // GAP-6 Fix: Thêm method này vào Session class để tránh shadow với root-level method
+            public static string SessionNotFoundById(Guid id) =>
+                $"Không tìm thấy phiên chơi '{id}'.";
+
+            public const string InvalidExtensionMinutes =
+                "Số phút gia hạn phải lớn hơn 0.";
+
+            public const string ExtensionTooLong =
+                "Số phút gia hạn không được vượt quá 240 phút.";
+
+            public static string CannotExtendSessionStatus(string currentStatus) =>
+                "Không thể gia hạn khi phiên đang ở trạng thái: " + currentStatus + ". Chỉ có thể gia hạn khi phiên đang hoạt động.";
+
+            public const string AlreadyPaid =
+                "Bạn đã thanh toán cho phiên chơi này rồi.";
+
+            // GAP-2 Fix: SuspendedMutation members cannot pay directly
+            public const string CannotPayWhileSuspendedMutation =
+                "Thành viên đang chờ kiểm kê linh kiện. Nhân viên sẽ xử lý thanh toán tại quầy.";
+
+            public const string InsufficientBvcBalance =
+                "Số dư BVC không đủ để thanh toán.";
+
+            // ===== Extension Request APIs (GAP-NEW-1) =====
+            public const string ExtensionRequestNotFound =
+                "Không tìm thấy yêu cầu gia hạn.";
+
+            public const string ExtensionRequestAlreadyProcessed =
+                "Yêu cầu gia hạn này đã được xử lý.";
+
+            public const string ExtensionRequestExpired =
+                "Yêu cầu gia hạn đã hết hạn.";
+
+            public const string CannotApproveExtensionSessionNotActive =
+                "Không thể duyệt gia hạn khi phiên không còn ở trạng thái Active.";
+
+            // GAP-R3-05: Refactor từ hardcoded VN string trong ExtendSessionAsync
+            public const string AlreadyPaidCannotExtend =
+                "Phiên chơi đã thanh toán. Không thể gia hạn.";
+
+            public const string UnpaidCannotExtend =
+                "Phiên chơi đang chờ thanh toán. Vui lòng thanh toán trước khi gia hạn.";
+
+            // GAP-15 Fix: Guest slots cannot pay via app — staff handles at POS
+            public const string GuestCannotPayViaApp =
+                "Khách vô danh không thể thanh toán qua ứng dụng. Vui lòng thanh toán tại quầy.";
+
+            // GAP-16 Fix: POS-side extension approval validation
+            public const string ApprovedMinutesTooLong =
+                "Số phút duyệt không được vượt quá 480 phút (8 giờ).";
+
+            public const string RejectionReasonTooShort =
+                "Lý do từ chối phải có ít nhất 10 ký tự.";
+
+            public const string ExtensionSessionNotExtendable =
+                "Phiên chơi không còn ở trạng thái có thể gia hạn (trạng thái hiện tại: {0}).";
+
+            // GAP-5 Fix: Insufficient balance warning for extension request
+            public const string InsufficientBvcForExtension =
+                "Số dư BVC của bạn có thể không đủ để thanh toán phần gia hạn này. Vui lòng nạp thêm BVC trước khi staff duyệt yêu cầu.";
+
+            // GAP-12 Fix: Cafe closed/paused
+            public const string CafeClosedCannotExtend =
+                "Quán đã đóng cửa, không thể gia hạn thêm thời gian chơi.";
+
+            public const string SessionPausedCannotExtend =
+                "Phiên chơi đang tạm dừng, vui lòng liên hệ nhân viên để tiếp tục trước khi gia hạn.";
+        }
     }
 }

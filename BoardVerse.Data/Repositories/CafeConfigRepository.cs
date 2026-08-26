@@ -13,12 +13,12 @@ public class CafeConfigRepository : ICafeConfigRepository
         _db = db;
     }
 
-    public Task<CafeConfig?> GetByCafeIdAsync(Guid cafeId)
+    public Task<CafeConfig?> GetByCafeIdAsync(Guid cafeId, CancellationToken cancellationToken = default)
     {
         return _db.CafeConfigs.FirstOrDefaultAsync(c => c.CafeId == cafeId);
     }
 
-    public async Task<CafeConfig> GetOrCreateDefaultAsync(Guid cafeId)
+    public async Task<CafeConfig> GetOrCreateDefaultAsync(Guid cafeId, CancellationToken cancellationToken = default)
     {
         var existing = await GetByCafeIdAsync(cafeId);
         if (existing != null) return existing;
@@ -34,14 +34,14 @@ public class CafeConfigRepository : ICafeConfigRepository
         return existing;
     }
 
-    public Task UpdateAsync(CafeConfig config)
+    public Task UpdateAsync(CafeConfig config, CancellationToken cancellationToken = default)
     {
         config.UpdatedAt = DateTime.UtcNow;
         _db.CafeConfigs.Update(config);
         return Task.CompletedTask;
     }
 
-    public Task SaveChangesAsync()
+    public Task SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         return _db.SaveChangesAsync();
     }

@@ -37,6 +37,11 @@ public class ReservationDeadlineJob : BackgroundService
             {
                 await RunAllSchedulersAsync(stoppingToken);
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("ReservationDeadlineJob stopped (host shutdown).");
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in ReservationDeadlineJob tick");
@@ -61,22 +66,25 @@ public class ReservationDeadlineJob : BackgroundService
         await RunSchedulerAsync(
             tickName: "Deadline",
             invocation: sp => sp.GetRequiredService<IReservationService>()
-                .ProcessDeadlineReservationsAsync(DateTime.UtcNow, BatchSize, ct));
+                .ProcessDeadlineReservationsAsync(DateTime.UtcNow, BatchSize, ct),
+            ct: ct);
 
         // 2. Cafe approval expiry (24h timeout).
         await RunSchedulerAsync(
             tickName: "CafeApprovalExpiry",
             invocation: sp => sp.GetRequiredService<IReservationService>()
-                .ProcessCafeApprovalExpiryAsync(DateTime.UtcNow, BatchSize, ct));
+                .ProcessCafeApprovalExpiryAsync(DateTime.UtcNow, BatchSize, ct),
+            ct: ct);
 
         // 3. No-show detection (đã đến scheduledTime + grace mà chưa check-in).
         await RunSchedulerAsync(
             tickName: "NoShow",
             invocation: sp => sp.GetRequiredService<IReservationService>()
-                .ProcessNoShowAsync(DateTime.UtcNow, BatchSize, ct));
+                .ProcessNoShowAsync(DateTime.UtcNow, BatchSize, ct),
+            ct: ct);
     }
 
-    private async Task RunSchedulerAsync(string tickName, Func<IServiceProvider, Task<int>> invocation)
+    private async Task RunSchedulerAsync(string tickName, Func<IServiceProvider, Task<int>> invocation, CancellationToken ct)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
@@ -91,6 +99,13 @@ public class ReservationDeadlineJob : BackgroundService
                     "[{Tick}] ReservationDeadlineJob processed {Count} reservations in {ElapsedMs}ms",
                     tickName, processed, sw.ElapsedMilliseconds);
             }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            sw.Stop();
+            _logger.LogInformation(
+                "[{Tick}] ReservationDeadlineJob cancelled after {ElapsedMs}ms (likely host shutdown).",
+                tickName, sw.ElapsedMilliseconds);
         }
         catch (Exception ex)
         {

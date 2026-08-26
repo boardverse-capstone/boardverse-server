@@ -8,6 +8,7 @@ using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services.Payments;
 using Microsoft.Extensions.Logging;
 
+using System.Threading;
 namespace BoardVerse.Services.Services;
 
 public class SePayAccountService : ISePayAccountService
@@ -46,41 +47,41 @@ public class SePayAccountService : ISePayAccountService
         return cafes.FirstOrDefault()?.Id;
     }
 
-    public async Task<SePayAccountDto?> GetByIdAsync(Guid id)
+    public async Task<SePayAccountDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var account = await _repository.GetByIdAsync(id);
         return account == null ? null : ToDto(account);
     }
 
-    public async Task<SePayAccountDto?> GetByCafeIdAsync(Guid cafeId)
+    public async Task<SePayAccountDto?> GetByCafeIdAsync(Guid cafeId, CancellationToken cancellationToken = default)
     {
         var account = await _repository.GetByCafeIdAsync(cafeId);
         return account == null ? null : ToDto(account);
     }
 
-    public async Task<SePayAccountDto?> GetMasterAccountAsync()
+    public async Task<SePayAccountDto?> GetMasterAccountAsync(CancellationToken cancellationToken = default)
     {
         var account = await _repository.GetMasterAccountAsync();
         return account == null ? null : ToDto(account);
     }
 
-    public Task<SePayAccount?> GetRawMasterAccountAsync()
+    public Task<SePayAccount?> GetRawMasterAccountAsync(CancellationToken cancellationToken = default)
     {
         return _repository.GetMasterAccountAsync();
     }
 
-    public async Task<SePayAccount?> GetRawByCafeIdAsync(Guid cafeId)
+    public async Task<SePayAccount?> GetRawByCafeIdAsync(Guid cafeId, CancellationToken cancellationToken = default)
     {
         return await _repository.GetByCafeIdAsync(cafeId);
     }
 
-    public async Task<IReadOnlyList<SePayAccountDto>> GetAllAsync(SePayAccountQuery? query = null)
+    public async Task<IReadOnlyList<SePayAccountDto>> GetAllAsync(SePayAccountQuery? query = null, CancellationToken cancellationToken = default)
     {
         var accounts = await _repository.GetAllAsync(query);
         return accounts.Select(ToDto).ToList();
     }
 
-    public async Task<SePayAccountDto> CreateAsync(CreateSePayAccountRequestDto request)
+    public async Task<SePayAccountDto> CreateAsync(CreateSePayAccountRequestDto request, CancellationToken cancellationToken = default)
     {
         // Validate CafeId if AccountType is Cafe
 if (request.AccountType == SePayAccountType.Cafe)
@@ -132,7 +133,7 @@ throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountE
         return ToDto(account);
     }
 
-    public async Task<SePayAccountDto> UpdateAsync(Guid id, UpdateSePayAccountRequestDto request)
+    public async Task<SePayAccountDto> UpdateAsync(Guid id, UpdateSePayAccountRequestDto request, CancellationToken cancellationToken = default)
     {
         var account = await _repository.GetByIdAsync(id)
             ?? throw new NotFoundException(ApiErrorMessages.Payment.SePayAccountNotFound(id));
@@ -159,7 +160,7 @@ throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountE
         return ToDto(account);
     }
 
-    public async Task<SePayAccountDto> SetEnvironmentAsync(Guid id, string environment)
+    public async Task<SePayAccountDto> SetEnvironmentAsync(Guid id, string environment, CancellationToken cancellationToken = default)
     {
         var validEnvironments = new[] { "Test", "Production" };
         var normalizedEnv = char.ToUpper(environment[0]) + environment[1..].ToLower();
@@ -187,7 +188,7 @@ throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountE
         return ToDto(account);
     }
 
-    public async Task DeleteAsync(Guid id)
+    public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var account = await _repository.GetByIdAsync(id)
             ?? throw new NotFoundException(ApiErrorMessages.Payment.SePayAccountNotFound(id));
@@ -198,7 +199,7 @@ throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountE
         _logger.LogInformation("SePayAccount deleted. Id={Id}", id);
     }
 
-    public async Task<SePayAccountDto?> GetByManagerCafeAsync()
+    public async Task<SePayAccountDto?> GetByManagerCafeAsync(CancellationToken cancellationToken = default)
     {
         var cafeId = await GetCurrentUserCafeIdAsync();
         if (!cafeId.HasValue) return null;
@@ -207,7 +208,7 @@ throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountE
         return account == null ? null : ToDto(account);
     }
 
-    public async Task<SePayAccountDto> CreateByManagerCafeAsync(CreateCafePaymentAccountRequestDto request)
+    public async Task<SePayAccountDto> CreateByManagerCafeAsync(CreateCafePaymentAccountRequestDto request, CancellationToken cancellationToken = default)
     {
         // 1. Lấy cafe của Manager hiện tại
         var cafeId = await GetCurrentUserCafeIdAsync()
@@ -270,7 +271,7 @@ throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountE
         return normalizedEnv;
     }
 
-    public async Task<CafePaymentQrPreviewDto> GenerateTestQrByManagerCafeAsync()
+    public async Task<CafePaymentQrPreviewDto> GenerateTestQrByManagerCafeAsync(CancellationToken cancellationToken = default)
     {
         // 1. Lấy cafe + payment account của Manager
         var cafeId = await GetCurrentUserCafeIdAsync()
@@ -321,7 +322,7 @@ throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountE
         };
     }
 
-    public async Task<SePayAccountDto> UpdateByManagerCafeAsync(UpdateSePayAccountRequestDto request)
+    public async Task<SePayAccountDto> UpdateByManagerCafeAsync(UpdateSePayAccountRequestDto request, CancellationToken cancellationToken = default)
     {
         var cafeId = await GetCurrentUserCafeIdAsync()
             ?? throw new NotFoundException(ApiErrorMessages.Payment.ManagerHasNoCafe);
@@ -351,7 +352,7 @@ throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountE
         return ToDto(account);
     }
 
-    public async Task<SePayAccountDto> SetEnvironmentByManagerCafeAsync(string environment)
+    public async Task<SePayAccountDto> SetEnvironmentByManagerCafeAsync(string environment, CancellationToken cancellationToken = default)
     {
         var validEnvironments = new[] { "Test", "Production" };
         var normalizedEnv = char.ToUpper(environment[0]) + environment[1..].ToLower();
@@ -416,7 +417,7 @@ throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountE
     /// <summary>
     /// Admin: Tra cứu BookingDeposit theo SePayTransactionId. Trả null nếu không tìm thấy.
     /// </summary>
-    public async Task<SePayTransactionLookupDto?> LookupBySePayTransactionIdAsync(string sePayTransactionId)
+    public async Task<SePayTransactionLookupDto?> LookupBySePayTransactionIdAsync(string sePayTransactionId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(sePayTransactionId))
         {

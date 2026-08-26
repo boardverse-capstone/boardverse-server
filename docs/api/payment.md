@@ -20,6 +20,8 @@ API thanh toán cho deposit đặt chỗ (Player) và thanh toán hóa đơn phi
 | `/session-payment` | POST | Manager, CafeStaff | Tạo QR thanh toán hóa đơn phiên chơi tại POS |
 | `/session-payment/{sessionId}/regenerate-qr` | POST | Manager, CafeStaff | Tạo lại QR thanh toán phiên chơi |
 | `/manual-confirm` | POST | Manager, CafeStaff | Xác nhận thanh toán thủ công khi SePay + VietQR đều lỗi |
+| `/sepay/webhook/member-payment` | POST | **Public — SePay webhook** | Webhook nhận kết quả QR per-member (Split Bill). Update `ActiveSessionMember.PaymentStatus = PaidQr` + `PaidAt` khi SePay gọi `success`. Idempotent theo `OrderId`. |
+| `/confirm-member-qr` | POST | Manager, CafeStaff, Admin | Staff xác nhận QR per-member đã chuyển khoản (manual override khi webhook fail / dev test). |
 
 **Header bắt buộc:** `Authorization: Bearer <token>`
 
@@ -341,6 +343,82 @@ Staff xác nhận thanh toán thủ công khi cả SePay và VietQR đều khôn
 
 ---
 
+## POST /api/payments/sepay/webhook/member-payment
+
+Webhook từ SePay cho thanh toán **per-member** (Split Bill). Tách biệt hoàn toàn với webhook session-payment (`/api/payments/sepay/webhook`) — handler riêng, lookup theo `MemberId` (trực tiếp hoặc parse từ `OrderId`).
+
+**Body — `MemberPaymentWebhookDto`:**
+
+```json
+{
+ "memberId": "guid-member-2",
+ "orderId": "BV-MEMBER-{full32charGuid}",
+ "gateway": "SePay",
+ "gatewayTransactionId": "TXN-2026-08-24-...",
+ "status": "success",
+ "amount": 90000,
+ "currency": "VND",
+ "referenceCode": "REF-MEMBER-001",
+ "paidAt": "2026-08-24T15:35:00Z"
+}
+```
+
+**Behavior:**
+
+| Incoming `status` | Action |
+|---|---|
+| `success` / `paid` | Lookup session via `GetByMemberIdWithSessionAsync` → atomic flip → insert audit. |
+| `failed` / `canceled` / `cancelled` | Log warning. Member `PaymentStatus` giữ nguyên (POS polling tự thấy). |
+| other | log warning + return `200`. |
+
+**Idempotency:**
+- Duplicate webhook → check `PaymentStatus != NotPaid` → skip.
+- Member không tìm thấy → `404`.
+- Amount mismatch → `409` (KHÔNG update).
+- **Atomic flip** qua `ExecuteUpdateAsync` — race CASH + QR webhook cùng đến không tạo 2 dòng audit.
+
+**Response 200:** `{ "status": "ok" }`
+
+**Side effects (2026-08-25 update):**
+- Tạo `Transaction` record cho QR payment (**GAP #2 FIX**) — đảm bảo audit trail đầy đủ cho mỗi thanh toán per-member
+- Cập nhật `ActiveSessionMember.PaymentStatus = PaidQr`
+- Tạo `MemberPayment` audit record
+- Check all members → nếu tất cả đã trả → auto finalize session
+
+---
+
+## POST /api/payments/confirm-member-qr
+
+Staff xác nhận QR per-member đã được chuyển khoản thành công — dùng khi:
+- SePay webhook fail (timeout, signature fail) nhưng khách đã chuyển khoản và xuất trình biên lai.
+- Dev/test mà không muốn gọi webhook.
+- Audit override khi nghi ngờ discrepancy.
+
+**Role:** Manager — chủ quán; CafeStaff — đã được gắn vào quán; Admin.
+
+**Query params:**
+- `sessionId` (Guid): mã phiên chơi.
+- `memberId` (Guid): mã thành viên đã trả QR.
+- `notes` (string?, optional): ghi chú (≤ 500 ký tự) — lưu vào `MemberPayments.Notes` + audit log.
+
+**Điều kiện (2026-08-25 update):**
+- Session thuộc cafe của staff (cross-cafe guard).
+- `ActiveSessionMember.PaymentMethod = QR_CODE` (đã chọn QR qua `/pay-member`).
+- `ActiveSessionMember.PaymentStatus != PaidCash | PaidQr` (chưa confirm).
+
+**Response 200 — `MemberPaymentResponseDto`** (giống response từ `/pay-member`).
+
+**Lỗi:**
+
+| Code | Khi nào |
+|---|---|
+| `401` | Thiếu token. |
+| `403` | Không thuộc cafe. |
+| `404` | Session / member không tồn tại. |
+| `409` | Member đã thanh toán (cả CASH lẫn QR), hoặc member chưa chọn `paymentMethod = QR_CODE`. |
+
+---
+
 ## Idempotency & Duplicate Webhook
 
 - Duplicate webhook cho `BookingDeposit.Paid` hoặc `ActiveSession.Paid` → bỏ qua, không cập nhật lại.
@@ -383,7 +461,79 @@ Trước khi có cleanup contract:
 
 Sau fix: cả 3 entry point gọi cùng `IActiveSessionRepository.CompleteSessionPaymentCleanupAsync(sessionId)`. Amount-mismatch check chạy trước atomic status update. Box chỉ được set `Available` nếu hiện tại không phải `Available`.
 
+5. **Nested-transaction bug (2026-08-18)** — `InvalidOperationException: The connection is already in a transaction and cannot participate in another transaction` được ném ra từ `ReservationService.ExecuteCompleteAndCaptureTransactionAsync` khi SePay webhook trỏ vào session có liên kết Reservation (lobby đã check-in).
+
+   **Stack trace gốc:**
+
+   ```
+   fail: BoardVerse.API.Controllers.SePayWebhookController[0]
+         SePay webhook processing failed.
+         System.InvalidOperationException: The connection is already in a transaction
+         at BoardVerse.Services.Services.ReservationService.ExecuteCompleteAndCaptureTransactionAsync(...)
+         at BoardVerse.Services.Services.ReservationService.CompleteAndCaptureAsync(...)
+         at BoardVerse.Services.Services.ActiveSessionService.PaySessionCoreAsync(...)
+         at BoardVerse.Services.Services.PaymentService.ProcessSessionPaymentWebhookAsync(...)
+   ```
+
+   **Root cause:** `ActiveSessionService.PaySessionCoreAsync` mở 1 transaction với `await using var dbTx = await TryBeginTransactionAsync()` để wrap billing + status update + cleanup + capture. Sau đó gọi `_reservationService.CompleteAndCaptureAsync(lobbyId, sessionId, ct)` — method đó lại mở transaction thứ 2 trong `ExecuteCompleteAndCaptureTransactionAsync` bằng `_db.Database.BeginTransactionAsync(...)`. Trên cùng `BoardVerseDbContext` (singleton per scope), connection đã ở trong transaction → EF Core ném `InvalidOperationException`. Webhook trả 500, SePay retry, vẫn fail, tiền bị giữ phía SePay nhưng session + reservation state không cập nhật → ghost reservation.
+
+   **Fix (2026-08-18):** Tại `ReservationService.ExecuteCompleteAndCaptureTransactionAsync` (ReservationService.cs line 2947-2952), detect ambient transaction qua `_db.Database.CurrentTransaction`:
+   - Nếu `CurrentTransaction != null` → reuse ambient transaction (không gọi `BeginTransactionAsync`).
+   - Nếu `CurrentTransaction == null` → mở transaction mới (giữ behavior cũ cho background jobs gọi standalone).
+
+   Outer transaction ở `PaySessionCoreAsync` sẽ commit/rollback cho cả 2 method — atomicity giữ nguyên.
+
+   **Verify (2026-08-19, Neon testing branch):** Replay exact payload `BV-0A88CA2AC8164A2C` qua `POST /api/payments/sepay/webhook` → server trả `200 OK {"status":"ok"}`, không còn exception mới trong log. Caveat: webhook signature invalid trong test payload (đã ghi `signature: "mock"`) nên code path gây bug chỉ được verify một phần; cần thêm integration test thật sự trigger đầy đủ flow trước khi deploy production.
+
 Xem chi tiết: [sepay-webhook.md](./sepay-webhook.md) §V, [active-session.md](./active-session.md) §`POST .../pay`.
+
+### Ambient Transaction Pattern (2026-08-18)
+
+Mọi service method có thể được gọi từ **hai ngữ cảnh**:
+
+| Ngữ cảnh | Đặc điểm |
+|---|---|
+| **Standalone** (background job, controller trực tiếp) | Caller không mở transaction → method phải tự mở để đảm bảo atomicity |
+| **Nested** (gọi từ method khác đã mở transaction) | Caller đã mở transaction trên cùng `DbContext` → method PHẢI reuse, KHÔNG được mở transaction mới (sẽ ném `InvalidOperationException`) |
+
+**Pattern bắt buộc** khi viết service method có thể chạy cả hai ngữ cảnh:
+
+```csharp
+var ambientTx = _db.Database.CurrentTransaction;
+Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? ownedTx = null;
+if (ambientTx == null)
+{
+    ownedTx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+}
+
+try
+{
+    // ... business logic, gồm cả SaveChangesAsync ...
+    if (ownedTx != null)
+    {
+        await ownedTx.CommitAsync(ct);
+    }
+}
+catch
+{
+    if (ownedTx != null)
+    {
+        await ownedTx.RollbackAsync(ct);
+    }
+    throw;
+}
+finally
+{
+    if (ownedTx != null)
+    {
+        await ownedTx.DisposeAsync();
+    }
+}
+```
+
+Nếu KHÔNG cần kiểm soát transaction (chỉ `SaveChangesAsync` đơn lẻ), KHÔNG gọi `BeginTransactionAsync` — để ambient caller tự quản lý.
+
+**Áp dụng cho:** mọi service method trong `ReservationService`, `BookingService`, `PaymentService`, `ActiveSessionService` có thể được gọi từ controller trực tiếp HOẶC từ method khác đã wrap transaction.
 
 ## Business Rules áp dụng
 

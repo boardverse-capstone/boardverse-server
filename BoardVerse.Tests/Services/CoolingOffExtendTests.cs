@@ -77,7 +77,7 @@ public class CoolingOffExtendTests
     {
         // Arrange
         var userId = Guid.NewGuid();
-        _walletRepo.Setup(r => r.GetByUserIdForUpdateAsync(userId))
+        _walletRepo.Setup(r => r.GetByUserIdForUpdateAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((Wallet?)null);
 
         // Act + Assert
@@ -92,7 +92,7 @@ public class CoolingOffExtendTests
         var userId = Guid.NewGuid();
         var wallet = CreateCoolingOffWallet(userId);
         wallet.IsCoolingOff = false; // already deactivated
-        _walletRepo.Setup(r => r.GetByUserIdForUpdateAsync(userId))
+        _walletRepo.Setup(r => r.GetByUserIdForUpdateAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(wallet);
 
         // Act + Assert

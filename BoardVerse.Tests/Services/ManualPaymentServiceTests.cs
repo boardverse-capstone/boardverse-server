@@ -7,6 +7,7 @@ using BoardVerse.Services.Services;
 using Microsoft.Extensions.Logging;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class ManualPaymentServiceTests
@@ -76,7 +77,7 @@ public class ManualPaymentServiceTests
     public async Task ConfirmManualPaymentAsync_SessionNotFound_ThrowsNotFound()
     {
         var sessionId = Guid.NewGuid();
-        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId)).ReturnsAsync((ActiveSession?)null);
+        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync((ActiveSession?)null);
 
         var svc = CreateService();
 
@@ -96,7 +97,7 @@ public class ManualPaymentServiceTests
     public async Task ConfirmManualPaymentAsync_SessionNotUnpaid_ThrowsConflict()
     {
         var sessionId = Guid.NewGuid();
-        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId)).ReturnsAsync(new ActiveSession
+        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(new ActiveSession
         {
             Id = sessionId,
             Status = GroupSessionStatus.Paid
@@ -121,7 +122,7 @@ public class ManualPaymentServiceTests
     {
         // H5: Amount mismatch detected BEFORE any DB writes.
         var sessionId = Guid.NewGuid();
-        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId)).ReturnsAsync(new ActiveSession
+        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(new ActiveSession
         {
             Id = sessionId,
             CafeId = Guid.NewGuid(),
@@ -152,15 +153,15 @@ public class ManualPaymentServiceTests
         var callerId = Guid.NewGuid();
         var otherManagerId = Guid.NewGuid();
 
-        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId)).ReturnsAsync(new ActiveSession
+        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(new ActiveSession
         {
             Id = sessionId,
             CafeId = cafeId,
             Status = GroupSessionStatus.Unpaid,
             TotalAmount = 50000m
         });
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(new Cafe { Id = cafeId, Name = "X", Address = "Y", ManagerId = otherManagerId });
-        _cafeRepo.Setup(r => r.IsStaffMemberExistsAsync(cafeId, callerId)).ReturnsAsync(false);
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(new Cafe { Id = cafeId, Name = "X", Address = "Y", ManagerId = otherManagerId });
+        _cafeRepo.Setup(r => r.IsStaffMemberExistsAsync(cafeId, callerId, It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
         var svc = CreateService();
 
@@ -192,8 +193,8 @@ public class ManualPaymentServiceTests
             TotalAmount = 50000m
         };
 
-        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId)).ReturnsAsync(session);
-        _transactionRepo.Setup(r => r.AddAsync(It.IsAny<Transaction>(), default))
+        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
+        _transactionRepo.Setup(r => r.AddAsync(It.IsAny<Transaction>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Transaction t, CancellationToken _) => t);
 
         var svc = CreateService();
@@ -231,9 +232,9 @@ public class ManualPaymentServiceTests
             TotalAmount = 150000m
         };
 
-        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId)).ReturnsAsync(session);
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(new Cafe { Id = cafeId, Name = "X", Address = "Y", ManagerId = staffId });
-        _transactionRepo.Setup(r => r.AddAsync(It.IsAny<Transaction>(), default))
+        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(new Cafe { Id = cafeId, Name = "X", Address = "Y", ManagerId = staffId });
+        _transactionRepo.Setup(r => r.AddAsync(It.IsAny<Transaction>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Transaction t, CancellationToken _) => t);
 
         var svc = CreateService();
@@ -251,7 +252,7 @@ public class ManualPaymentServiceTests
 
         Assert.Equal(GroupSessionStatus.Paid, session.Status);
         Assert.NotNull(session.PaidAt);
-        _sessionRepo.Verify(r => r.UpdateAsync(session), Times.Once);
+        _sessionRepo.Verify(r => r.UpdateAsync(session, It.IsAny<CancellationToken>()), Times.Once);
         Assert.Equal("Session", result.PaymentType);
     }
 
@@ -274,9 +275,9 @@ public class ManualPaymentServiceTests
             CafeInventoryBoxId = boxId
         };
 
-        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId)).ReturnsAsync(session);
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(new Cafe { Id = cafeId, Name = "X", Address = "Y", ManagerId = staffId });
-        _transactionRepo.Setup(r => r.AddAsync(It.IsAny<Transaction>(), default))
+        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(new Cafe { Id = cafeId, Name = "X", Address = "Y", ManagerId = staffId });
+        _transactionRepo.Setup(r => r.AddAsync(It.IsAny<Transaction>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Transaction t, CancellationToken _) => t);
 
         var svc = CreateService();
@@ -297,9 +298,9 @@ public class ManualPaymentServiceTests
         Assert.NotNull(session.PaidAt);
 
         // Cleanup delegated to repository
-        _sessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(sessionId), Times.Once);
-        _sessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(sessionId), Times.Once);
-        _sessionRepo.Verify(r => r.SaveChangesAsync(), Times.AtLeastOnce);
+        _sessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(sessionId, It.IsAny<CancellationToken>()), Times.Once);
+        _sessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(sessionId, It.IsAny<CancellationToken>()), Times.Once);
+        _sessionRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.AtLeastOnce);
     }
 
     [Fact]
@@ -320,9 +321,9 @@ public class ManualPaymentServiceTests
             CafeInventoryBoxId = null
         };
 
-        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId)).ReturnsAsync(session);
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync(new Cafe { Id = cafeId, Name = "X", Address = "Y", ManagerId = staffId });
-        _transactionRepo.Setup(r => r.AddAsync(It.IsAny<Transaction>(), default))
+        _sessionRepo.Setup(r => r.GetByIdWithMembersAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(new Cafe { Id = cafeId, Name = "X", Address = "Y", ManagerId = staffId });
+        _transactionRepo.Setup(r => r.AddAsync(It.IsAny<Transaction>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Transaction t, CancellationToken _) => t);
 
         var svc = CreateService();
@@ -339,7 +340,7 @@ public class ManualPaymentServiceTests
             "Manager");
 
         Assert.Equal(GroupSessionStatus.Paid, session.Status);
-        _sessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(sessionId), Times.Once);
-        _sessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(sessionId), Times.Once);
+        _sessionRepo.Verify(r => r.ReleaseMembersAndCloseLobbyAsync(sessionId, It.IsAny<CancellationToken>()), Times.Once);
+        _sessionRepo.Verify(r => r.ReleaseSessionTableAndBoxAsync(sessionId, It.IsAny<CancellationToken>()), Times.Once);
     }
 }

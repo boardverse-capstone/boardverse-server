@@ -1,5 +1,6 @@
 using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.Cafe;
+using BoardVerse.Core.DTOs.Reservation;
 using BoardVerse.Core.Helpers;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
@@ -13,10 +14,17 @@ namespace BoardVerse.API.Controllers
     public class CafeController : BaseApiController
     {
         private readonly ICafeService _cafeService;
+        private readonly IReservationService _reservationService;
+        private readonly ILobbyService _lobbyService;
 
-        public CafeController(ICafeService cafeService)
+        public CafeController(
+            ICafeService cafeService,
+            IReservationService reservationService,
+            ILobbyService lobbyService)
         {
             _cafeService = cafeService;
+            _reservationService = reservationService;
+            _lobbyService = lobbyService;
         }
 
         /// <summary>
@@ -337,6 +345,48 @@ namespace BoardVerse.API.Controllers
             var managerId = GetUserIdFromClaims();
             var result = await _cafeService.UpdatePricingConfigAsync(id, managerId, dto);
             return this.NewResponse(200, "Cập nhật biểu phí thành công.", result);
+        }
+
+        /// <summary>
+        /// Lấy danh sách reservation của 1 cafe cho Manager. [Role: Manager, CafeStaff]
+        /// Filter theo status, playDate, có phân trang.
+        /// </summary>
+        /// <param name="cafeId">Mã định danh quán cafe.</param>
+        /// <param name="request">Filter theo status, playDate; phân trang.</param>
+        /// <response code="200">Danh sách reservation của cafe (phân trang).</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không phải manager/staff của cafe.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpGet("{cafeId:guid}/reservations")]
+        [Authorize(Roles = "Manager,CafeStaff")]
+        public async Task<IActionResult> GetCafeReservations(
+            Guid cafeId,
+            [FromQuery] CafeReservationsRequestDto request)
+        {
+            var userId = GetUserIdFromClaims();
+            var result = await _reservationService.GetCafeReservationsAsync(userId, cafeId, request);
+            return this.NewResponse(200, "CafeReservationsRetrieved", result);
+        }
+
+        /// <summary>
+        /// Lấy danh sách lobby của 1 cafe cho Manager. [Role: Manager, CafeStaff]
+        /// Filter theo status, playDate, có phân trang.
+        /// </summary>
+        /// <param name="cafeId">Mã định danh quán cafe.</param>
+        /// <param name="request">Filter theo lobby status, playDate; phân trang.</param>
+        /// <response code="200">Danh sách lobby của cafe (phân trang).</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không phải manager/staff của cafe.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpGet("{cafeId:guid}/lobbies")]
+        [Authorize(Roles = "Manager,CafeStaff")]
+        public async Task<IActionResult> GetCafeLobbies(
+            Guid cafeId,
+            [FromQuery] CafeLobbiesRequestDto request)
+        {
+            var userId = GetUserIdFromClaims();
+            var result = await _lobbyService.GetCafeLobbiesAsync(userId, cafeId, request);
+            return this.NewResponse(200, "CafeLobbiesRetrieved", result);
         }
     }
 }

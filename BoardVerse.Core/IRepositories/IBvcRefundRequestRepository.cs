@@ -1,6 +1,7 @@
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 
+using System.Threading;
 namespace BoardVerse.Core.IRepositories;
 
 public interface IBvcRefundRequestRepository
@@ -45,7 +46,7 @@ public interface IBvcRefundRequestRepository
 
     Task AddAsync(BvcRefundRequest request, CancellationToken cancellationToken = default);
 
-    Task UpdateAsync(BvcRefundRequest request);
+    Task UpdateAsync(BvcRefundRequest request, CancellationToken cancellationToken = default);
 
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
 }

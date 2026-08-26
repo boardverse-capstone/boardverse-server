@@ -13,7 +13,7 @@ public class PosCheckInTokenRepository : IPosCheckInTokenRepository
         _db = db;
     }
 
-    public async Task<PosCheckInToken?> GetByIdAsync(Guid id)
+    public async Task<PosCheckInToken?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _db.PosCheckInTokens
             .Include(t => t.Reservation)
@@ -21,7 +21,7 @@ public class PosCheckInTokenRepository : IPosCheckInTokenRepository
             .FirstOrDefaultAsync(t => t.Id == id);
     }
 
-    public async Task<PosCheckInToken?> GetByTokenAsync(string token)
+    public async Task<PosCheckInToken?> GetByTokenAsync(string token, CancellationToken cancellationToken = default)
     {
         var normalized = token.Trim().ToUpperInvariant();
         return await _db.PosCheckInTokens
@@ -30,7 +30,7 @@ public class PosCheckInTokenRepository : IPosCheckInTokenRepository
             .FirstOrDefaultAsync(t => t.Token == normalized);
     }
 
-    public async Task<List<PosCheckInToken>> GetActiveTokensForCafeAsync(Guid cafeId)
+    public async Task<List<PosCheckInToken>> GetActiveTokensForCafeAsync(Guid cafeId, CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;
         return await _db.PosCheckInTokens
@@ -38,13 +38,13 @@ public class PosCheckInTokenRepository : IPosCheckInTokenRepository
             .ToListAsync();
     }
 
-    public async Task AddAsync(PosCheckInToken token)
+    public async Task AddAsync(PosCheckInToken token, CancellationToken cancellationToken = default)
     {
         await _db.PosCheckInTokens.AddAsync(token);
         await _db.SaveChangesAsync();
     }
 
-    public async Task<bool> TokenExistsAsync(string token)
+    public async Task<bool> TokenExistsAsync(string token, CancellationToken cancellationToken = default)
     {
         var normalized = token.Trim().ToUpperInvariant();
         return await _db.PosCheckInTokens.AnyAsync(t => t.Token == normalized);

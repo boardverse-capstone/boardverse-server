@@ -32,10 +32,10 @@ public class PlayerAlertService : IPlayerAlertService
         _logger = logger;
     }
 
-    public Task<PaginatedResponse<PlayerAlertDto>> GetPagedAsync(PlayerAlertQuery query) =>
+    public Task<PaginatedResponse<PlayerAlertDto>> GetPagedAsync(PlayerAlertQuery query, CancellationToken cancellationToken = default) =>
         _alertRepo.GetPagedAsync(query);
 
-    public async Task<PlayerAlertDto> AcknowledgeAsync(Guid alertId, Guid adminUserId)
+    public async Task<PlayerAlertDto> AcknowledgeAsync(Guid alertId, Guid adminUserId, CancellationToken cancellationToken = default)
     {
         var alert = await _alertRepo.GetByIdAsync(alertId);
         if (alert == null)
@@ -56,7 +56,7 @@ public class PlayerAlertService : IPlayerAlertService
         return ToDto(alert);
     }
 
-    public async Task<PlayerAlertDto> ResolveAsync(Guid alertId, Guid adminUserId, string note)
+    public async Task<PlayerAlertDto> ResolveAsync(Guid alertId, Guid adminUserId, string note, CancellationToken cancellationToken = default)
     {
         var alert = await _alertRepo.GetByIdAsync(alertId);
         if (alert == null)
@@ -97,7 +97,7 @@ public class PlayerAlertService : IPlayerAlertService
         return ToDto(alert);
     }
 
-    public async Task<PlayerAlertDto> DismissAsync(Guid alertId, Guid adminUserId, string note)
+    public async Task<PlayerAlertDto> DismissAsync(Guid alertId, Guid adminUserId, string note, CancellationToken cancellationToken = default)
     {
         var alert = await _alertRepo.GetByIdAsync(alertId);
         if (alert == null)
@@ -136,7 +136,7 @@ public class PlayerAlertService : IPlayerAlertService
         int riskScore,
         RiskLevel newLevel,
         RiskLevel previousLevel,
-        string? signalsJson)
+        string? signalsJson, CancellationToken cancellationToken = default)
     {
         // BR-RISK-02: chỉ trigger alert khi level tăng ≥ Medium.
         // MVP: chỉ trigger cho level Critical để tránh spam alerts.
@@ -175,7 +175,7 @@ public class PlayerAlertService : IPlayerAlertService
             userId, riskScore, signalsJson);
     }
 
-    public async Task<PlayerAlertMetricsDto> GetMetricsAsync()
+    public async Task<PlayerAlertMetricsDto> GetMetricsAsync(CancellationToken cancellationToken = default)
     {
         var alerts = await _db.PlayerAlerts.AsNoTracking().ToListAsync();
         return new PlayerAlertMetricsDto

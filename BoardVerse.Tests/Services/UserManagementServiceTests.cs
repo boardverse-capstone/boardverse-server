@@ -6,6 +6,7 @@ using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.Services;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class UserManagementServiceTests
@@ -24,7 +25,7 @@ public class UserManagementServiceTests
     public async Task GetAsync_UserNotFound_ThrowsUserNotFound()
     {
         var repo = new Mock<IUserManagementRepository>();
-        repo.Setup(r => r.GetByIdWithProfileAsync(It.IsAny<Guid>())).ReturnsAsync((User?)null);
+        repo.Setup(r => r.GetByIdWithProfileAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         var service = new UserManagementService(repo.Object);
 
@@ -36,7 +37,7 @@ public class UserManagementServiceTests
     public async Task CreateAsync_DuplicateEmail_ThrowsUserAlreadyExists()
     {
         var repo = new Mock<IUserManagementRepository>();
-        repo.Setup(r => r.UserExistsAsync("dup@test.dev", "dupuser")).ReturnsAsync(true);
+        repo.Setup(r => r.UserExistsAsync("dup@test.dev", "dupuser", It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
         var service = new UserManagementService(repo.Object);
 
@@ -53,7 +54,7 @@ public class UserManagementServiceTests
     public async Task CreateAsync_ValidRequest_CreatesUser()
     {
         var repo = new Mock<IUserManagementRepository>();
-        repo.Setup(r => r.UserExistsAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(false);
+        repo.Setup(r => r.UserExistsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
         var service = new UserManagementService(repo.Object);
         var result = await service.CreateAsync(new AdminCreateUserDto
@@ -66,7 +67,7 @@ public class UserManagementServiceTests
 
         Assert.Equal("new@test.dev", result.Email);
         Assert.Equal("Player", result.Role);
-        repo.Verify(r => r.AddUserAsync(It.IsAny<User>()), Times.Once);
-        repo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        repo.Verify(r => r.AddUserAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()), Times.Once);
+        repo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 }

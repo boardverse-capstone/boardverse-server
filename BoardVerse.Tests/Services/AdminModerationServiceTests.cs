@@ -8,6 +8,7 @@ using BoardVerse.Services.Services;
 using BoardVerse.Tests.Helpers;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class AdminModerationServiceTests
@@ -20,7 +21,7 @@ public class AdminModerationServiceTests
     {
         var repo = new Mock<IAdminModerationRepository>();
         var user = BuildTargetUser(karma: 85);
-        repo.Setup(r => r.GetUserWithProfileForUpdateAsync(TargetId)).ReturnsAsync(user);
+        repo.Setup(r => r.GetUserWithProfileForUpdateAsync(TargetId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var service = new AdminModerationService(repo.Object, new FakeDbContext());
         var result = await service.PunishUserAsync(AdminId, TargetId, new AdminPunishUserRequestDto
@@ -34,15 +35,15 @@ public class AdminModerationServiceTests
         repo.Verify(r => r.AddKarmaLogAsync(It.Is<KarmaLog>(l =>
             l.ViolationCategory == KarmaViolationCategory.AdminWarning &&
             l.KarmaPointsChange == 0 &&
-            l.KarmaBefore == 85)), Times.Once);
-        repo.Verify(r => r.SaveChangesAsync(), Times.Once);
+            l.KarmaBefore == 85), It.IsAny<CancellationToken>()), Times.Once);
+        repo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
     public async Task PunishUserAsync_SuspendWithoutDuration_ThrowsBadRequest()
     {
         var repo = new Mock<IAdminModerationRepository>();
-        repo.Setup(r => r.GetUserWithProfileForUpdateAsync(TargetId))
+        repo.Setup(r => r.GetUserWithProfileForUpdateAsync(TargetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildTargetUser());
 
         var service = new AdminModerationService(repo.Object, new FakeDbContext());
@@ -60,7 +61,7 @@ public class AdminModerationServiceTests
     {
         var repo = new Mock<IAdminModerationRepository>();
         var user = BuildTargetUser();
-        repo.Setup(r => r.GetUserWithProfileForUpdateAsync(TargetId)).ReturnsAsync(user);
+        repo.Setup(r => r.GetUserWithProfileForUpdateAsync(TargetId, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var service = new AdminModerationService(repo.Object, new FakeDbContext());
         var result = await service.PunishUserAsync(AdminId, TargetId, new AdminPunishUserRequestDto
@@ -79,7 +80,7 @@ public class AdminModerationServiceTests
     public async Task PunishUserAsync_CannotPunishAdmin_ThrowsForbidden()
     {
         var repo = new Mock<IAdminModerationRepository>();
-        repo.Setup(r => r.GetUserWithProfileForUpdateAsync(TargetId))
+        repo.Setup(r => r.GetUserWithProfileForUpdateAsync(TargetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new User { Id = TargetId, Email = "admin@test.dev", Username = "admin", Role = UserRole.Admin });
 
         var service = new AdminModerationService(repo.Object, new FakeDbContext());
@@ -97,7 +98,7 @@ public class AdminModerationServiceTests
     {
         var repo = new Mock<IAdminModerationRepository>();
         var profile = new UserProfile { UserId = TargetId, KarmaPoints = 100, GamerTier = GamerTier.Gold };
-        repo.Setup(r => r.GetProfileForUpdateAsync(TargetId)).ReturnsAsync(profile);
+        repo.Setup(r => r.GetProfileForUpdateAsync(TargetId, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
 
         var service = new AdminModerationService(repo.Object, new FakeDbContext());
         var result = await service.AdjustKarmaAsync(AdminId, TargetId, new AdminAdjustKarmaRequestDto
@@ -110,7 +111,7 @@ public class AdminModerationServiceTests
         Assert.Equal(95, result.NewKarma);
         repo.Verify(r => r.AddKarmaLogAsync(It.Is<KarmaLog>(l =>
             l.IsAdminAdjustment &&
-            l.KarmaPointsChange == -5)), Times.Once);
+            l.KarmaPointsChange == -5), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

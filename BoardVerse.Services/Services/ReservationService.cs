@@ -8,7 +8,9 @@ using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
 using BoardVerse.Data;
+using BoardVerse.Services.Helpers;
 using BoardVerse.Services.IServices;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -56,6 +58,9 @@ public class ReservationService : IReservationService
     private readonly RefundCalculationService _refundCalc;
     private readonly IWalkInService _walkInService;
     private readonly IPlayerKarmaService _karmaService;
+    private readonly ISystemConfigurationProvider _configProvider;
+    private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly ISettlementService _settlementService;
 
     public ReservationService(
         BoardVerseDbContext db,
@@ -80,7 +85,10 @@ public class ReservationService : IReservationService
         IBookingRatingService bookingRatingService,
         RefundCalculationService refundCalc,
         IWalkInService walkInService,
-        IPlayerKarmaService karmaService)
+        IPlayerKarmaService karmaService,
+        ISystemConfigurationProvider configProvider = null!,
+        IHttpContextAccessor httpContextAccessor = null!,
+        ISettlementService settlementService = null!)
     {
         _db = db;
         _walletService = walletService;
@@ -105,41 +113,41 @@ public class ReservationService : IReservationService
         _refundCalc = refundCalc;
         _walkInService = walkInService;
         _karmaService = karmaService;
+        _configProvider = configProvider;
+        _httpContextAccessor = httpContextAccessor;
+        _settlementService = settlementService ?? throw new ArgumentNullException(nameof(settlementService));
     }
 
     // ===== 21A.2 QUOTE =====
 
-    public async Task<ReservationQuoteDto> CreateQuoteAsync(Guid hostId, ReservationQuoteRequestDto request)
+    public async Task<ReservationQuoteDto> CreateQuoteAsync(Guid hostId, ReservationQuoteRequestDto request, CancellationToken cancellationToken = default)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         ValidatePlayDate(request.PlayDate, now);
-        ValidateTimeSlotWindow(request);
 
-        // Validate cafe + game tồn tại, dùng cho BR-RESERVATION-02.
-        await ValidateCafeAndGameAsync(request);
-
-        // Validate preferredStartTime + preferredEndTime nằm trong timeSlot window.
+        // Validate preferredStartTime + preferredEndTime hợp lệ.
         var (timeValid, timeError) = CafeSchedule.ValidatePreferredTimeRange(
-            request.TimeSlot, request.PreferredStartTime, request.PreferredEndTime);
+            request.PreferredStartTime, request.PreferredEndTime);
         if (!timeValid)
         {
             throw new BadRequestException(timeError!);
         }
 
+        // Validate cafe + game tồn tại.
+        await ValidateCafeAndGameAsync(request);
+
         // Load cafe config (BR-NEW-12).
         var cafeConfig = await _cafeConfigRepository.GetOrCreateDefaultAsync(request.CafeId);
 
-        // Ensure SeatInventory tồn tại để tính số BVC cọc (BR §21A.2).
-        // Dùng TotalSeats từ CafeConfig thay vì Cafe.TotalSeats vì config có thể override.
+        // Ensure SeatInventory tồn tại.
         await _seatInventoryRepository.EnsureRowAsync(
             request.CafeId,
             request.PlayDate,
-            request.TimeSlot,
+            request.PreferredStartTime,
+            request.PreferredEndTime,
             cafeConfig.Capacity);
 
-        // Ensure GameInventory tồn tại (BR-RESERVATION-02).
-        // TotalCopies lấy từ CafeGameInventory.BoxQuantity (số box khả dụng của cafe cho game này).
-        // Nếu cafe chưa add game vào inventory → dùng fallback 1 copy để quote vẫn chạy được.
+        // Ensure GameInventory tồn tại.
         var cafeInventory = await _cafeInventoryRepository.GetByCafeAndGameTemplateAsync(
             request.CafeId, request.GameId);
         var totalCopies = cafeInventory?.BoxQuantity ?? 1;
@@ -147,31 +155,30 @@ public class ReservationService : IReservationService
             request.CafeId,
             request.GameId,
             request.PlayDate,
-            request.TimeSlot,
+            request.PreferredStartTime,
+            request.PreferredEndTime,
             totalCopies);
 
         // Load wallet để lấy riskMultiplier.
         var wallet = await GetOrCreateWalletEntityAsync(hostId, now);
 
-        // Load cafe BasePrice cho BR-03 cap.
+        // Load cafe BasePrice.
         var cafe = await _cafeRepository.GetActiveByIdAsync(request.CafeId)
             ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(request.CafeId));
 
-        // Tính quote (có áp dụng CafeScheduleOverride qua resolver).
-        var quote = await _depositCalculator.CalculateWithScheduleAsync(
+        // Tính quote.
+        var quote = _depositCalculator.Calculate(
             request,
             cafeConfig,
             cafe.BasePrice,
             wallet.RiskMultiplier,
             wallet.IsCoolingOff,
             request.IsPrivate,
-            now,
-            _scheduleResolver,
-            request.CafeId);
+            now);
 
         // BR-LOBBY-01a/b: buffer check.
         var (isAllowed, _) = DepositCalculator.EvaluateBuffer(quote.BufferMinutes);
-        if (!isAllowed)
+        if (!isAllowed && !await ShouldBypassLobbyBufferAsync())
         {
             throw new BadRequestException(
                 ApiErrorMessages.Reservation.BufferTooShort(quote.BufferMinutes, 60));
@@ -185,24 +192,24 @@ public class ReservationService : IReservationService
             wallet,
             now);
 
-        _eligibilityValidator.ValidateHostCanCreate(eligibilityContext);
+        await _eligibilityValidator.ValidateHostCanCreateAsync(
+            eligibilityContext, _httpContextAccessor, _configProvider, _logger);
 
         // BR-RESV-02: build ScheduledStart/End từ user-chosen preferred times.
         var (scheduledStartTime, scheduledEndTime) = CafeSchedule.BuildScheduledStartEndFromPreferred(
-            request.PlayDate, request.TimeSlot, request.PreferredStartTime, request.PreferredEndTime);
+            request.PlayDate, request.PreferredStartTime, request.PreferredEndTime);
 
-        // Validate cafe mở cửa slot này.
-        var resolvedSchedule = await _scheduleResolver.ResolveAsync(
-            request.CafeId, request.PlayDate, request.TimeSlot);
+        // Validate cafe mở cửa.
+        var resolvedSchedule = await _scheduleResolver.ResolveAsync(request.CafeId, request.PlayDate);
         if (resolvedSchedule.IsClosed)
         {
-            throw new BadRequestException(ApiErrorMessages.Reservation.CafeScheduleSlotClosed(request.TimeSlot.ToString(), request.CafeId));
+            throw new BadRequestException(ApiErrorMessages.Reservation.CafeScheduleClosedForPlayDate);
         }
 
-        // BR-RES-07/08/09: validate reservation có startTime+endTime, cùng ngày, TimeSlot hợp lệ.
-        ValidateReservationTimeWindow(scheduledStartTime, scheduledEndTime, request.TimeSlot);
+        // Validate reservation time window.
+        ValidateReservationTimeWindow(scheduledStartTime, scheduledEndTime);
 
-        var recruitmentDeadline = scheduledStartTime.AddMinutes(-20); // default leadTimeMinutes
+        var recruitmentDeadline = scheduledStartTime.AddMinutes(-20);
 
         var warnings = new List<string>();
         if (quote.BufferWarning)
@@ -216,7 +223,6 @@ public class ReservationService : IReservationService
             CafeId = request.CafeId,
             GameId = request.GameId,
             PlayDate = request.PlayDate,
-            TimeSlot = request.TimeSlot,
             PreferredStartTime = request.PreferredStartTime,
             PreferredEndTime = request.PreferredEndTime,
             ScheduledStartTime = scheduledStartTime,
@@ -241,7 +247,7 @@ public class ReservationService : IReservationService
 
     // ===== 21A.3 CONFIRM =====
 
-    public async Task<ReservationConfirmResponseDto> ConfirmAsync(Guid hostId, ReservationConfirmRequestDto request)
+    public async Task<ReservationConfirmResponseDto> ConfirmAsync(Guid hostId, ReservationConfirmRequestDto request, CancellationToken cancellationToken = default)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
 
@@ -263,8 +269,10 @@ public class ReservationService : IReservationService
                 paramsMismatch.Add($"GameId (existing={existing.GameId}, request={request.GameId})");
             if (existing.PlayDate != request.PlayDate)
                 paramsMismatch.Add($"PlayDate (existing={existing.PlayDate}, request={request.PlayDate})");
-            if (existing.TimeSlot != request.TimeSlot)
-                paramsMismatch.Add($"TimeSlot (existing={existing.TimeSlot}, request={request.TimeSlot})");
+            if (existing.PreferredStartTime != request.PreferredStartTime)
+                paramsMismatch.Add($"PreferredStartTime (existing={existing.PreferredStartTime}, request={request.PreferredStartTime})");
+            if (existing.PreferredEndTime != request.PreferredEndTime)
+                paramsMismatch.Add($"PreferredEndTime (existing={existing.PreferredEndTime}, request={request.PreferredEndTime})");
             if (existing.MaxPlayers != request.MaxPlayers)
                 paramsMismatch.Add($"MaxPlayers (existing={existing.MaxPlayers}, request={request.MaxPlayers})");
             if (existing.MinPlayers != request.MinPlayers)
@@ -345,11 +353,11 @@ public class ReservationService : IReservationService
 
         // 2. Re-validate cafe + game + window.
         ValidatePlayDate(request.PlayDate, now);
-        ValidateTimeSlotWindowRaw(request.MinPlayers, request.MaxPlayers);
+        ValidatePlayersWindowRaw(request.MinPlayers, request.MaxPlayers);
 
-        // Validate preferredStartTime + preferredEndTime nằm trong timeSlot window.
+        // Validate preferredStartTime + preferredEndTime nằm trong giờ mở/đóng cửa cafe.
         var (timeValid, timeError) = CafeSchedule.ValidatePreferredTimeRange(
-            request.TimeSlot, request.PreferredStartTime, request.PreferredEndTime);
+            request.PreferredStartTime, request.PreferredEndTime);
         if (!timeValid)
         {
             throw new BadRequestException(timeError!);
@@ -360,7 +368,6 @@ public class ReservationService : IReservationService
             CafeId = request.CafeId,
             GameId = request.GameId,
             PlayDate = request.PlayDate,
-            TimeSlot = request.TimeSlot,
             PreferredStartTime = request.PreferredStartTime,
             PreferredEndTime = request.PreferredEndTime,
             MinPlayers = request.MinPlayers,
@@ -376,10 +383,12 @@ public class ReservationService : IReservationService
         var wallet = await GetOrCreateWalletEntityAsync(hostId, now);
 
         // Ensure SeatInventory tồn tại trước khi bắt đầu transaction.
+        // BR-NEW-15: Dùng PreferredStartTime/PreferredEndTime thay vì TimeSlot.
         await _seatInventoryRepository.EnsureRowAsync(
             request.CafeId,
             request.PlayDate,
-            request.TimeSlot,
+            request.PreferredStartTime,
+            request.PreferredEndTime,
             cafeConfig.Capacity);
 
         // Ensure GameInventory tồn tại (BR-RESERVATION-02) — fix bug GameInventoryNotFound 409.
@@ -391,26 +400,38 @@ public class ReservationService : IReservationService
             request.CafeId,
             request.GameId,
             request.PlayDate,
-            request.TimeSlot,
+            request.PreferredStartTime,
+            request.PreferredEndTime,
             totalCopies);
 
         // 4. Tính lại quote (server authoritative — BR §XVII.2) — có áp dụng CafeScheduleOverride.
         var cafe = await _cafeRepository.GetActiveByIdAsync(request.CafeId)
             ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(request.CafeId));
-        var quote = await _depositCalculator.CalculateWithScheduleAsync(
-            quoteRequest,
+        // BR-NEW-15: Calculate nhận ReservationQuoteRequestDto; map từ ConfirmDto.
+        var quoteRequestDto = new ReservationQuoteRequestDto
+        {
+            CafeId = request.CafeId,
+            GameId = request.GameId,
+            PlayDate = request.PlayDate,
+            PreferredStartTime = request.PreferredStartTime,
+            PreferredEndTime = request.PreferredEndTime,
+            MaxPlayers = request.MaxPlayers,
+            MinPlayers = request.MinPlayers,
+            IsPrivate = request.IsPrivate,
+            IdempotencyKey = request.IdempotencyKey
+        };
+        var quote = _depositCalculator.Calculate(
+            quoteRequestDto,
             cafeConfig,
             cafe.BasePrice,
             wallet.RiskMultiplier,
             wallet.IsCoolingOff,
             request.IsPrivate,
-            now,
-            _scheduleResolver,
-            request.CafeId);
+            now);
 
         // 5. BR-LOBBY-01a/b: buffer check.
         var (isAllowed, _) = DepositCalculator.EvaluateBuffer(quote.BufferMinutes);
-        if (!isAllowed)
+        if (!isAllowed && !await ShouldBypassLobbyBufferAsync())
         {
             throw new BadRequestException(
                 ApiErrorMessages.Reservation.BufferTooShort(quote.BufferMinutes, 60));
@@ -426,7 +447,8 @@ public class ReservationService : IReservationService
         // 7. BR-USER-LIMIT-* / BR-NEW-* validate.
         var eligibilityContext = await BuildHostEligibilityContextAsync(
             hostId, quoteRequest, quote, wallet, now);
-        _eligibilityValidator.ValidateHostCanCreate(eligibilityContext);
+        await _eligibilityValidator.ValidateHostCanCreateAsync(
+            eligibilityContext, _httpContextAccessor, _configProvider, _logger);
 
         // 8. BR-RESERVATION-01: đủ ghế? BR-RESERVATION-02: đủ game copy?
         if (wallet.AvailableBalance < quote.FinalDeposit)
@@ -436,19 +458,19 @@ public class ReservationService : IReservationService
         }
 
         // Validate cafe mở cửa slot này.
-        var resolvedSchedule = await _scheduleResolver.ResolveAsync(
-            request.CafeId, quoteRequest.PlayDate, quoteRequest.TimeSlot);
+        // BR-NEW-15: ResolveAsync now takes (cafeId, playDate) without TimeSlot.
+        var resolvedSchedule = await _scheduleResolver.ResolveAsync(request.CafeId, quoteRequest.PlayDate);
         if (resolvedSchedule.IsClosed)
         {
-            throw new BadRequestException(ApiErrorMessages.Reservation.CafeScheduleSlotClosed(quoteRequest.TimeSlot.ToString(), quoteRequest.CafeId));
+            throw new BadRequestException(ApiErrorMessages.Reservation.CafeScheduleClosedForPlayDate);
         }
 
         // BR-RESV-02: build ScheduledStart/End từ user-chosen preferred times.
         var (scheduledStartTime, scheduledEndTime) = CafeSchedule.BuildScheduledStartEndFromPreferred(
-            quoteRequest.PlayDate, quoteRequest.TimeSlot, quoteRequest.PreferredStartTime, quoteRequest.PreferredEndTime);
+            quoteRequest.PlayDate, quoteRequest.PreferredStartTime, quoteRequest.PreferredEndTime);
 
-        // BR-RES-07/08/09: validate reservation có startTime+endTime, cùng ngày, TimeSlot hợp lệ.
-        ValidateReservationTimeWindow(scheduledStartTime, scheduledEndTime, quoteRequest.TimeSlot);
+        // BR-RES-07/08/09: validate reservation có startTime+endTime, cùng ngày, preferred times hợp lệ.
+        ValidateReservationTimeWindow(scheduledStartTime, scheduledEndTime);
 
         var recruitmentDeadline = scheduledStartTime.AddMinutes(-20); // BR-LOBBY-01 default leadTimeMinutes = 20
 
@@ -461,7 +483,7 @@ public class ReservationService : IReservationService
             try
             {
                 return await ExecuteConfirmTransactionAsync(
-                    hostId, request, quoteRequest, cafeConfig, wallet, quote, scheduledStartTime, scheduledEndTime, recruitmentDeadline, now);
+                    hostId, request, quoteRequestDto, cafeConfig, wallet, quote, scheduledStartTime, scheduledEndTime, recruitmentDeadline, now);
             }
             catch (DbUpdateException dbx) when (IsSerializationFailure(dbx) && attempt < maxRetries)
             {
@@ -477,16 +499,26 @@ public class ReservationService : IReservationService
                 cafeConfig = await _cafeConfigRepository.GetOrCreateDefaultAsync(request.CafeId);
                 var cafeRetry = await _cafeRepository.GetActiveByIdAsync(request.CafeId)
                     ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(request.CafeId));
-                quote = await _depositCalculator.CalculateWithScheduleAsync(
-                    quoteRequest,
+                quoteRequestDto = new ReservationQuoteRequestDto
+                {
+                    CafeId = request.CafeId,
+                    GameId = request.GameId,
+                    PlayDate = request.PlayDate,
+                    PreferredStartTime = request.PreferredStartTime,
+                    PreferredEndTime = request.PreferredEndTime,
+                    MaxPlayers = request.MaxPlayers,
+                    MinPlayers = request.MinPlayers,
+                    IsPrivate = request.IsPrivate,
+                    IdempotencyKey = request.IdempotencyKey
+                };
+                quote = _depositCalculator.Calculate(
+                    quoteRequestDto,
                     cafeConfig,
                     cafeRetry.BasePrice,
                     wallet.RiskMultiplier,
                     wallet.IsCoolingOff,
                     request.IsPrivate,
-                    now,
-                    _scheduleResolver,
-                    request.CafeId);
+                    now);
             }
             catch (Exception ex)
             {
@@ -509,16 +541,26 @@ public class ReservationService : IReservationService
                 cafeConfig = await _cafeConfigRepository.GetOrCreateDefaultAsync(request.CafeId);
                 var cafeRetry = await _cafeRepository.GetActiveByIdAsync(request.CafeId)
                     ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(request.CafeId));
-                quote = await _depositCalculator.CalculateWithScheduleAsync(
-                    quoteRequest,
+                quoteRequestDto = new ReservationQuoteRequestDto
+                {
+                    CafeId = request.CafeId,
+                    GameId = request.GameId,
+                    PlayDate = request.PlayDate,
+                    PreferredStartTime = request.PreferredStartTime,
+                    PreferredEndTime = request.PreferredEndTime,
+                    MaxPlayers = request.MaxPlayers,
+                    MinPlayers = request.MinPlayers,
+                    IsPrivate = request.IsPrivate,
+                    IdempotencyKey = request.IdempotencyKey
+                };
+                quote = _depositCalculator.Calculate(
+                    quoteRequestDto,
                     cafeConfig,
                     cafeRetry.BasePrice,
                     wallet.RiskMultiplier,
                     wallet.IsCoolingOff,
                     request.IsPrivate,
-                    now,
-                    _scheduleResolver,
-                    request.CafeId);
+                    now);
             }
         }
 
@@ -541,13 +583,14 @@ public class ReservationService : IReservationService
         DateTime recruitmentDeadline,
         DateTime now)
     {
-        await using var tx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+        var (_, tx) = await BeginTransactionIfNeededAsync();
 
         try
         {
             // 9. Lock seat inventory + game inventory (BR §17.3 — SELECT FOR UPDATE).
+            // BR-NEW-15: Dùng PreferredStartTime/PreferredEndTime thay vì TimeSlot.
             var seatInventory = await _seatInventoryRepository.GetForUpdateAsync(
-                request.CafeId, request.PlayDate, request.TimeSlot);
+                request.CafeId, request.PlayDate, request.PreferredStartTime, request.PreferredEndTime);
             if (seatInventory == null)
             {
                 throw new BadRequestException(ApiErrorMessages.Reservation.SeatInventoryNotConfigured);
@@ -563,7 +606,7 @@ public class ReservationService : IReservationService
             }
 
             var gameInventory = await _gameInventoryRepository.GetForUpdateAsync(
-                request.CafeId, request.GameId, request.PlayDate, request.TimeSlot);
+                request.CafeId, request.GameId, request.PlayDate, request.PreferredStartTime, request.PreferredEndTime);
             // AvailableCopies cũng là computed property — column không tồn tại trong DB, EF set = 0 sau raw SELECT.
             var copiesAvail = gameInventory == null
                 ? 0
@@ -598,7 +641,6 @@ public class ReservationService : IReservationService
                 CafeId = request.CafeId,
                 GameId = request.GameId,
                 PlayDate = request.PlayDate,
-                TimeSlot = request.TimeSlot,
                 PreferredStartTime = request.PreferredStartTime,
                 PreferredEndTime = request.PreferredEndTime,
                 RecruitmentDeadline = recruitmentDeadline,
@@ -633,7 +675,6 @@ public class ReservationService : IReservationService
                 CafeId = request.CafeId,
                 ReservationId = reservation.Id,
                 PlayDate = request.PlayDate,
-                TimeSlot = request.TimeSlot,
                 PreferredStartTime = request.PreferredStartTime,
                 PreferredEndTime = request.PreferredEndTime,
                 RecruitmentDeadline = recruitmentDeadline,
@@ -792,8 +833,8 @@ public class ReservationService : IReservationService
         catch (Exception ex)
         {
             _logger.LogError(ex,
-                "ExecuteConfirmTransactionAsync FAILED. HostId={HostId}, CafeId={CafeId}, GameId={GameId}, PlayDate={PlayDate}, TimeSlot={TimeSlot}, IdempotencyKey={IdempotencyKey}. Exception: {ExceptionType} - {ExceptionMessage}",
-                hostId, request.CafeId, request.GameId, request.PlayDate, request.TimeSlot, request.IdempotencyKey,
+                "ExecuteConfirmTransactionAsync FAILED. HostId={HostId}, CafeId={CafeId}, GameId={GameId}, PlayDate={PlayDate}, PreferredStartTime={PreferredStartTime}, PreferredEndTime={PreferredEndTime}, IdempotencyKey={IdempotencyKey}. Exception: {ExceptionType} - {ExceptionMessage}",
+                hostId, request.CafeId, request.GameId, request.PlayDate, request.PreferredStartTime, request.PreferredEndTime, request.IdempotencyKey,
                 ex.GetType().FullName, ex.Message);
             await tx.RollbackAsync();
             throw;
@@ -864,7 +905,8 @@ public class ReservationService : IReservationService
             cafeId = lobby.CafeId,
             gameId = lobby.GameTemplateId,
             playDate = lobby.PlayDate.ToString(),
-            timeSlot = (int)lobby.TimeSlot,
+            preferredStartTime = lobby.PreferredStartTime?.ToString("HH:mm") ?? "",
+            preferredEndTime = lobby.PreferredEndTime?.ToString("HH:mm") ?? "",
             maxPlayers = lobby.MaxMembers,
             recruitmentDeadline = lobby.RecruitmentDeadline,
             lobbyStatus = lobby.Status.ToString(),
@@ -918,7 +960,7 @@ public class ReservationService : IReservationService
     /// Idempotency: cancellation idempotency key dựa trên reservationId (stable).
     /// Nếu cancel bị retry, idempotency ở wallet layer (refund-{reservationId}) chặn double-refund.
     /// </summary>
-    public async Task<CancelReservationResponseDto> CancelAsync(Guid hostId, CancelReservationRequestDto request)
+    public async Task<CancelReservationResponseDto> CancelAsync(Guid hostId, CancelReservationRequestDto request, CancellationToken cancellationToken = default)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
 
@@ -959,7 +1001,8 @@ public class ReservationService : IReservationService
                 throw new ForbiddenException(ApiErrorMessages.Reservation.OnlyHostCanCancel);
             }
 
-            if (reservation.Status != ReservationStatus.Holding)
+            if (reservation.Status != ReservationStatus.Holding &&
+                reservation.Status != ReservationStatus.Confirmed)
             {
                 throw new BadRequestException(
                     ApiErrorMessages.Reservation.ReservationStatusInvalidForCancel(reservation.Id, reservation.Status));
@@ -992,7 +1035,7 @@ public class ReservationService : IReservationService
             if (scheduledStart == default)
                 throw new InternalServerErrorException(
                     ApiErrorMessages.Reservation.CancelMissingScheduledStartTime);
-            var refundPolicy = ComputeRefundPolicy(
+            var refundPolicy = await ComputeRefundPolicyAsync(
                 scheduledStart,
                 now,
                 hasMembers,
@@ -1079,7 +1122,7 @@ public class ReservationService : IReservationService
     /// </summary>
     public async Task<CancelAfterCheckinResponseDto> CancelAfterCheckinAsync(
         Guid hostId,
-        CancelAfterCheckinRequestDto request)
+        CancelAfterCheckinRequestDto request, CancellationToken cancellationToken = default)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
 
@@ -1317,7 +1360,7 @@ public class ReservationService : IReservationService
     /// </summary>
     public async Task<CafeApprovalResponseDto> HandleCafeApprovalAsync(
         Guid cafeManagerUserId,
-        CafeApprovalRequestDto request)
+        CafeApprovalRequestDto request, CancellationToken cancellationToken = default)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
 
@@ -1458,14 +1501,28 @@ public class ReservationService : IReservationService
 
         var reservations = await _reservationRepository.GetDueForDeadlineAsync(cutoff, batchSize);
         var processed = 0;
+        var failed = 0;
 
         try
         {
             foreach (var reservation in reservations)
             {
                 ct.ThrowIfCancellationRequested();
-                await ProcessSingleDeadlineAsync(reservation, cutoff);
-                processed++;
+
+                // Per-reservation try/catch: 1 reservation fail KHÔNG rollback toàn batch.
+                try
+                {
+                    await ProcessSingleDeadlineAsync(reservation, cutoff);
+                    processed++;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    _logger.LogError(ex,
+                        "[Deadline] ReservationId={ReservationId} failed. Continuing with next reservation.",
+                        reservation.Id);
+                    _db.ChangeTracker.Clear();
+                }
             }
 
             await batchTx.CommitAsync(ct);
@@ -1474,6 +1531,13 @@ public class ReservationService : IReservationService
         {
             await batchTx.RollbackAsync(ct);
             throw;
+        }
+
+        if (failed > 0)
+        {
+            _logger.LogWarning(
+                "[Deadline] Batch completed with {Failed} failures out of {Total} reservations.",
+                failed, reservations.Count);
         }
 
         return processed;
@@ -1506,12 +1570,9 @@ public class ReservationService : IReservationService
             {
                 if (reservation.CurrentPlayers >= reservation.MinPlayers)
                 {
-                    // Đạt minPlayers → viable/full → confirmed.
-                    // BR-NEW-11: Lobby PendingCafeApproval đã đạt minPlayers tại deadline → chuyển sang Viable.
-                    // Lý do: cafe vẫn có 24h để duyệt nhưng recruitment window đã kết thúc,
-                    // không thể block Viable transition. Nếu cafe từ chối sau đó → ProcessCafeApprovalExpiryAsync xử lý.
-                    reservation.Status = ReservationStatus.Confirmed;
-
+                    // BR-LOBBY-READY-01: Deadline đến mà đủ minPlayers → lobby Viable/Full nhưng KHÔNG chuyển
+                    // reservation sang Confirmed. Reservation chỉ Confirmed khi lobby đạt WaitingCheckIn
+                    // (tất cả members ready). Trước deadline, lobby có thể vẫn đang tuyển thêm.
                     if (reservation.CurrentPlayers >= reservation.MaxPlayers)
                     {
                         lobby.Status = LobbyStatus.Full;
@@ -1528,13 +1589,14 @@ public class ReservationService : IReservationService
                     }
 
                     lobby.UpdatedAt = now;
+                    reservation.Status = ReservationStatus.Holding; // giữ Holding chờ ready
 
                     await _reservationRepository.UpdateAsync(reservation);
                     await _lobbyRepository.UpdateAsync(lobby);
                     await _reservationRepository.SaveChangesAsync();
 
                     _logger.LogInformation(
-                        "Reservation confirmed at deadline. ReservationId={ReservationId}, Players={Players}, LobbyStatus={LobbyStatus}",
+                        "Reservation Holding at deadline (chờ WaitingCheckIn). ReservationId={ReservationId}, Players={Players}, LobbyStatus={LobbyStatus}",
                         reservation.Id, reservation.CurrentPlayers, lobby.Status);
                 }
                 else
@@ -1597,14 +1659,28 @@ public class ReservationService : IReservationService
 
         var reservations = await _reservationRepository.GetDueForCafeApprovalExpiryAsync(cutoff, batchSize);
         var processed = 0;
+        var failed = 0;
 
         try
         {
             foreach (var reservation in reservations)
             {
                 ct.ThrowIfCancellationRequested();
-                await ProcessSingleCafeApprovalExpiryAsync(reservation, cutoff);
-                processed++;
+
+                // Per-reservation try/catch: 1 reservation fail KHÔNG rollback toàn batch.
+                try
+                {
+                    await ProcessSingleCafeApprovalExpiryAsync(reservation, cutoff);
+                    processed++;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    _logger.LogError(ex,
+                        "[CafeApprovalExpiry] ReservationId={ReservationId} failed. Continuing with next reservation.",
+                        reservation.Id);
+                    _db.ChangeTracker.Clear();
+                }
             }
 
             await batchTx.CommitAsync(ct);
@@ -1613,6 +1689,13 @@ public class ReservationService : IReservationService
         {
             await batchTx.RollbackAsync(ct);
             throw;
+        }
+
+        if (failed > 0)
+        {
+            _logger.LogWarning(
+                "[CafeApprovalExpiry] Batch completed with {Failed} failures out of {Total} reservations.",
+                failed, reservations.Count);
         }
 
         return processed;
@@ -1688,14 +1771,32 @@ public class ReservationService : IReservationService
 
         var reservations = await _reservationRepository.GetDueForNoShowAsync(cutoff, batchSize);
         var processed = 0;
+        var failed = 0;
 
         try
         {
             foreach (var reservation in reservations)
             {
                 ct.ThrowIfCancellationRequested();
-                await ProcessSingleNoShowAsync(reservation, cutoff);
-                processed++;
+
+                // Per-reservation try/catch: 1 reservation fail KHÔNG rollback toàn batch
+                // (trước đây outer catch rollback → mất hết công sức các reservation OK khác).
+                // Trước fix: stack trace 956-967 — `Cần 0 BVC nhưng chỉ có 50 BVC`
+                // khiến toàn bộ batch rollback, retry mãi → log spam.
+                try
+                {
+                    await ProcessSingleNoShowAsync(reservation, cutoff);
+                    processed++;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    _logger.LogError(ex,
+                        "[NoShow] ReservationId={ReservationId} failed. Continuing with next reservation.",
+                        reservation.Id);
+                    // Detach để EF không track entity này nữa trong batch tx.
+                    _db.ChangeTracker.Clear();
+                }
             }
 
             await batchTx.CommitAsync(ct);
@@ -1704,6 +1805,13 @@ public class ReservationService : IReservationService
         {
             await batchTx.RollbackAsync(ct);
             throw;
+        }
+
+        if (failed > 0)
+        {
+            _logger.LogWarning(
+                "[NoShow] Batch completed with {Failed} failures out of {Total} reservations.",
+                failed, reservations.Count);
         }
 
         return processed;
@@ -1728,6 +1836,13 @@ public class ReservationService : IReservationService
             return;
         }
 
+        // GAP-R6-RT-NEW fix v3: LobbyRepository.GetByIdAsync include Lobby.Reservation
+        // navigation → Reservation instance đã tracked qua nav. Input `reservation`
+        // parameter là instance khác (cùng Id) — gọi _db.Reservations.Update()/Entry().State
+        // đều throw identity conflict. Lấy instance đã tracked từ lobby.Reservation nav
+        // và apply thay đổi trên đó. Nếu nav null (lobby không include), dùng input.
+        var trackedReservation = lobby.Reservation ?? reservation;
+
         const int MaxRetries = 3;
         for (var attempt = 1; attempt <= MaxRetries; attempt++)
         {
@@ -1737,33 +1852,50 @@ public class ReservationService : IReservationService
                 // Idempotency key dựa trên reservationId (stable).
                 var forfeitIdempotencyKey = $"no-show-{reservation.Id:N}";
 
-                reservation.Status = ReservationStatus.NoShow;
+                trackedReservation.Status = ReservationStatus.NoShow;
+                trackedReservation.UpdatedAt = now;
                 lobby.Status = LobbyStatus.Closed;
                 lobby.ClosedAt = now;
                 lobby.ClosedReason = "No-show (không check-in sau grace period).";
                 lobby.UpdatedAt = now;
                 MarkLobbyMembersInactive(lobby, now);
 
-                await _reservationRepository.UpdateAsync(reservation);
+                await _reservationRepository.UpdateAsync(trackedReservation);
                 await _lobbyRepository.UpdateAsync(lobby);
 
                 // BR-REFUND-03: no-show forfeit 100%. Nếu DepositAmount = 0
                 // (test edge case hoặc quote đặc biệt) thì bỏ qua — không có gì để forfeit.
-                if (reservation.DepositAmount > 0)
+                if (trackedReservation.DepositAmount > 0)
                 {
-                    await _walletService.ForfeitDepositAsync(
-                        reservation.HostId,
-                        reservation.DepositAmount,
-                        lobby.Id,
-                        reservation.Id,
-                        forfeitIdempotencyKey);
+                    try
+                    {
+                        await _walletService.ForfeitDepositAsync(
+                            trackedReservation.HostId,
+                            trackedReservation.DepositAmount,
+                            lobby.Id,
+                            trackedReservation.Id,
+                            forfeitIdempotencyKey);
+                    }
+                    catch (BadRequestException forfeitEx)
+                    {
+                        // GAP-R6-RT-NEW fix v4: data inconsistency defense. Nếu wallet
+                        // HeldBalance < DepositAmount (vd. đã release bởi timeout job,
+                        // manual refund, partial refund trước đó), KHÔNG fail cả
+                        // no-show pipeline — vẫn commit status change. Log warning để
+                        // admin investigate data drift.
+                        _logger.LogWarning(
+                            "[NoShow] Forfeit skipped due to wallet data inconsistency. " +
+                            "ReservationId={ReservationId}, DepositAmount={DepositAmount}, " +
+                            "Reason={Reason}. Status change vẫn được commit.",
+                            trackedReservation.Id, trackedReservation.DepositAmount, forfeitEx.Message);
+                    }
                 }
 
                 await _reservationRepository.SaveChangesAsync();
 
                 _logger.LogInformation(
                     "Reservation no-show. ReservationId={ReservationId}, ForfeitBvc={ForfeitBvc}",
-                    reservation.Id, reservation.DepositAmount);
+                    trackedReservation.Id, trackedReservation.DepositAmount);
                 return;
             }
             catch (DbUpdateException ex) when (IsSerializationFailure(ex) && attempt < MaxRetries)
@@ -1895,6 +2027,25 @@ public class ReservationService : IReservationService
             ApiErrorMessages.System.CheckInRetryExhausted(reservation.Id, maxRetries));
     }
 
+    public async Task<ReservationCheckInResponseDto> CheckInByCodeAsync(
+        Guid staffUserId,
+        string reservationCode,
+        CheckInByCodeRequestDto request)
+    {
+        // Chuyển đổi sang ReservationCheckInRequestDto để reuse logic
+        var checkInRequest = new ReservationCheckInRequestDto
+        {
+            CafeId = request.CafeId,
+            ReservationCode = reservationCode,
+            ActiveSessionId = request.ActiveSessionId,
+            TableNumber = request.TableNumber,
+            IdempotencyKey = request.IdempotencyKey
+                ?? $"pos-checkin:{reservationCode}:{Guid.NewGuid():N}"
+        };
+
+        return await CheckInAsync(staffUserId, checkInRequest);
+    }
+
     private async Task<ReservationCheckInResponseDto> ExecuteCheckInTransactionAsync(
         Reservation reservation,
         Guid staffUserId,
@@ -1906,20 +2057,45 @@ public class ReservationService : IReservationService
         try
         {
             // 5. Lock seat inventory + game inventory (BR §17.3).
-            var seatInventory = await _seatInventoryRepository.GetForUpdateAsync(
-                reservation.CafeId, reservation.PlayDate, reservation.TimeSlot);
+            // BR-NEW-15: Dùng SeatInventoryId/GameInventoryId FK thay vì query theo TimeSlot.
+            SeatInventory? seatInventory;
+            GameInventory? gameInventory;
+            if (reservation.SeatInventoryId != null)
+            {
+                seatInventory = await _seatInventoryRepository.GetByIdForUpdateAsync(reservation.SeatInventoryId.Value);
+            }
+            else
+            {
+                seatInventory = await _seatInventoryRepository.GetForUpdateAsync(
+                    reservation.CafeId, reservation.PlayDate,
+                    reservation.PreferredStartTime ?? TimeOnly.MinValue,
+                    reservation.PreferredEndTime ?? TimeOnly.MaxValue);
+            }
             if (seatInventory == null)
             {
                 throw new ConflictException(
-                    ApiErrorMessages.System.SeatInventoryMissingForReservation(reservation.CafeId, reservation.PlayDate, reservation.TimeSlot.ToString()));
+                    ApiErrorMessages.System.SeatInventoryMissingForReservation(
+                        reservation.CafeId, reservation.PlayDate,
+                        $"{reservation.ScheduledStartTime:HH:mm}-{reservation.ScheduledEndTime:HH:mm}"));
             }
 
-            var gameInventory = await _gameInventoryRepository.GetForUpdateAsync(
-                reservation.CafeId, reservation.GameId, reservation.PlayDate, reservation.TimeSlot);
+            if (reservation.GameInventoryId != null)
+            {
+                gameInventory = await _gameInventoryRepository.GetByIdForUpdateAsync(reservation.GameInventoryId.Value);
+            }
+            else
+            {
+                gameInventory = await _gameInventoryRepository.GetForUpdateAsync(
+                    reservation.CafeId, reservation.GameId, reservation.PlayDate,
+                    reservation.PreferredStartTime ?? TimeOnly.MinValue,
+                    reservation.PreferredEndTime ?? TimeOnly.MaxValue);
+            }
             if (gameInventory == null)
             {
                 throw new ConflictException(
-                    ApiErrorMessages.System.GameInventoryMissingForReservation(reservation.CafeId, reservation.PlayDate, reservation.TimeSlot.ToString()));
+                    ApiErrorMessages.System.GameInventoryMissingForReservation(
+                        reservation.CafeId, reservation.PlayDate,
+                        $"{reservation.ScheduledStartTime:HH:mm}-{reservation.ScheduledEndTime:HH:mm}"));
             }
 
             // 6. Validate inventory state — must be Held.
@@ -2033,11 +2209,28 @@ public class ReservationService : IReservationService
 
         var scheduledStart = reservation.ScheduledStartTime;
         var scheduledEnd = reservation.ScheduledEndTime;
-        var resolvedSchedule = await _scheduleResolver.ResolveAsync(
-            reservation.CafeId, reservation.PlayDate, reservation.TimeSlot);
+        // BR-NEW-15: ResolveAsync takes (cafeId, playDate) without TimeSlot.
+        var resolvedSchedule = await _scheduleResolver.ResolveAsync(reservation.CafeId, reservation.PlayDate);
 
         var windowStart = scheduledStart.AddMinutes(-EarlyGraceMinutes);
         var windowEnd = scheduledEnd.AddMinutes(LateGraceMinutes);
+
+        var bypassCheckInWindow = await TimeWindowGuard.ShouldBypassAsync(
+            _httpContextAccessor?.HttpContext, _configProvider, _logger,
+            operation: "Reservation.CheckInWindow", entityId: reservation.Id);
+        if (bypassCheckInWindow)
+        {
+            return;
+        }
+
+        // BR-DEMO-04: Demo mode → cho phép check-in sớm bất kỳ (không giới hạn early grace).
+        var bypassCheckInDemo = await DemoGuard.ShouldBypassDemoLocksAsync(
+            _httpContextAccessor?.HttpContext, _configProvider, _logger,
+            operation: "Reservation.CheckInWindow.Demo", entityId: reservation.Id);
+        if (bypassCheckInDemo)
+        {
+            return;
+        }
 
         if (now < windowStart)
         {
@@ -2054,6 +2247,29 @@ public class ReservationService : IReservationService
         }
     }
 
+    /// <summary>
+    /// Wrapper TimeWindowGuard cho lobby buffer (BR-LOBBY-01a/b) và các deadline khác.
+    /// </summary>
+    private Task<bool> ShouldBypassLobbyBufferAsync()
+    {
+        // Lớp 1: TimeWindowGuard (bypass_time_window_validations DB hoặc per-request).
+        // Lớp 2: DemoGuard (demo_loosen_lobby_constraints) — BR-DEMO-02.
+        // Trả true nếu 1 trong 2 bật.
+        return ShouldBypassLobbyBufferCombinedAsync();
+    }
+
+    private async Task<bool> ShouldBypassLobbyBufferCombinedAsync()
+    {
+        var bypassTw = await TimeWindowGuard.ShouldBypassAsync(
+            _httpContextAccessor?.HttpContext, _configProvider, _logger,
+            operation: "Reservation.LobbyBuffer");
+        if (bypassTw) return true;
+
+        return await DemoGuard.ShouldBypassDemoLocksAsync(
+            _httpContextAccessor?.HttpContext, _configProvider, _logger,
+            operation: "Reservation.LobbyBuffer.Demo");
+    }
+
     // ===== Helpers =====
 
     private async Task<HostReservationContext> BuildHostEligibilityContextAsync(
@@ -2063,8 +2279,9 @@ public class ReservationService : IReservationService
         Wallet wallet,
         DateTime now)
     {
+        // BR-NEW-15: Dùng PreferredStartTime/PreferredEndTime thay vì TimeSlot.
         var overlapList = await _lobbyRepository.GetOverlappingLobbiesAsync(
-            hostId, request.PlayDate, request.TimeSlot, now, now);
+            hostId, request.PlayDate, request.PreferredStartTime, request.PreferredEndTime, now);
         var firstOverlap = overlapList.FirstOrDefault();
 
         var activeLobbyByHost = await _lobbyRepository.GetActiveLobbiesByHostAsync(hostId);
@@ -2072,12 +2289,12 @@ public class ReservationService : IReservationService
 
         var activeLobbyOnPlayDate = await _lobbyRepository.GetActiveLobbiesByHostAsync(hostId, request.PlayDate);
         var activeLobbyOnCafeSlot = await _lobbyRepository.GetActiveLobbiesByCafeDateSlotAsync(
-            hostId, request.CafeId, request.PlayDate, request.TimeSlot);
+            hostId, request.CafeId, request.PlayDate, request.PreferredStartTime, request.PreferredEndTime);
 
         var hostCreateOrCancelCount = await _reservationRepository.CountHostActionsForPlayDateAsync(hostId, request.PlayDate);
 
         var (scheduledStartTime, scheduledEndTime) = CafeSchedule.BuildScheduledStartEndFromPreferred(
-            request.PlayDate, request.TimeSlot, request.PreferredStartTime, request.PreferredEndTime);
+            request.PlayDate, request.PreferredStartTime, request.PreferredEndTime);
         var recruitmentDeadline = scheduledStartTime.AddMinutes(-20);
 
         return new HostReservationContext
@@ -2085,7 +2302,6 @@ public class ReservationService : IReservationService
             HostId = hostId,
             CafeId = request.CafeId,
             PlayDate = request.PlayDate,
-            TimeSlot = request.TimeSlot,
             RecruitmentDeadline = recruitmentDeadline,
             Now = now,
             PreferredScheduledStart = scheduledStartTime,
@@ -2106,7 +2322,7 @@ public class ReservationService : IReservationService
             HostCreateOrCancelCount = hostCreateOrCancelCount,
             OverlapOtherDeadline = firstOverlap?.RecruitmentDeadline,
             OverlapOtherStart = firstOverlap?.ScheduledStartTime,
-            CoolingOffExpiresAt = wallet.IsCoolingOff ? (DateTime?)null : null
+            CoolingOffExpiresAt = wallet.IsCoolingOff ? wallet.CoolingOffExpiresAt : null
         };
     }
 
@@ -2148,17 +2364,12 @@ public class ReservationService : IReservationService
         }
     }
 
-    private static void ValidateTimeSlotWindow(ReservationQuoteRequestDto request)
+    private static void ValidatePlayersWindow(ReservationQuoteRequestDto request)
     {
-        if (!Enum.IsDefined(typeof(TimeSlot), request.TimeSlot))
-        {
-            throw new BadRequestException(ApiErrorMessages.Reservation.InvalidTimeSlot(request.TimeSlot));
-        }
-
-        ValidateTimeSlotWindowRaw(request.MinPlayers, request.MaxPlayers);
+        ValidatePlayersWindowRaw(request.MinPlayers, request.MaxPlayers);
     }
 
-    private static void ValidateTimeSlotWindowRaw(int minPlayers, int maxPlayers)
+    private static void ValidatePlayersWindowRaw(int minPlayers, int maxPlayers)
     {
         // Solo play (MinPlayers = 1) được phép.
         if (minPlayers < 1)
@@ -2193,12 +2404,18 @@ public class ReservationService : IReservationService
         return requiresApproval ? LobbyStatus.PendingCafeApproval : LobbyStatus.PendingActivation;
     }
 
-    private static (string PolicyName, decimal RefundPercent) ComputeRefundPolicy(
+    private async Task<(string PolicyName, decimal RefundPercent)> ComputeRefundPolicyAsync(
         DateTime scheduledTime,
         DateTime now,
         bool hasMembers,
         double minutesSinceCreated)
     {
+        // Bypass time-window: hoàn 100% regardless of milestone (dev/test only).
+        if (await ShouldBypassLobbyBufferAsync())
+        {
+            return ("BypassTimeWindow", 1.0m);
+        }
+
         // BR-REFUND-03: grace 15 phút + chưa có member → hoàn 100%.
         if (minutesSinceCreated <= 15 && !hasMembers)
         {
@@ -2233,8 +2450,7 @@ public class ReservationService : IReservationService
     {
         if (reservation.SeatInventoryId != null)
         {
-            var seatInv = await _seatInventoryRepository.GetForUpdateAsync(
-                reservation.CafeId, reservation.PlayDate, reservation.TimeSlot);
+            var seatInv = await _seatInventoryRepository.GetByIdForUpdateAsync(reservation.SeatInventoryId.Value);
             if (seatInv != null)
             {
                 seatInv.HeldSeats = Math.Max(0, seatInv.HeldSeats - reservation.MaxPlayers);
@@ -2245,8 +2461,7 @@ public class ReservationService : IReservationService
 
         if (reservation.GameInventoryId != null)
         {
-            var gameInv = await _gameInventoryRepository.GetForUpdateAsync(
-                reservation.CafeId, reservation.GameId, reservation.PlayDate, reservation.TimeSlot);
+            var gameInv = await _gameInventoryRepository.GetByIdForUpdateAsync(reservation.GameInventoryId.Value);
             if (gameInv != null)
             {
                 gameInv.HeldCopies = Math.Max(0, gameInv.HeldCopies - 1);
@@ -2344,6 +2559,11 @@ public class ReservationService : IReservationService
                 // BR-KARMA-01: Track short-play nếu playedRatio < 0.5 và scheduled >= 4h.
                 // Wrap try/catch riêng — track fail KHÔNG block capture (đã commit).
                 await TriggerShortPlayTrackingAsync(reservation, activeSessionId, ct);
+
+                // GAP #1 FIX: Sau khi capture BVC thành công → gọi SettlementService
+                // để chuyển tiền cọc qua SePay vào tài khoản cafe manager.
+                // Settlement fail KHÔNG block flow — sẽ được retry bởi SettlementRetryJob.
+                await TriggerSettlementTransferAsync(reservation, activeSessionId, ct);
 
                 return;
             }
@@ -2542,9 +2762,63 @@ public class ReservationService : IReservationService
         }
     }
 
+    /// <summary>
+    /// GAP #1 FIX: Sau khi capture BVC thành công → gọi SettlementService
+    /// để chuyển tiền cọc qua SePay vào tài khoản cafe manager.
+    ///
+    /// Tiền flow:
+    /// 1. Khách đặt cọc → BVC giữ trong ví BoardVerse (heldBalance)
+    /// 2. Khách check-in → phiên chơi bắt đầu
+    /// 3. Khách checkout → BVC được capture (DepositCapture ledger entry)
+    /// 4. Bước này: SettlementService gọi SePay transfer → tiền vào tài khoản cafe manager
+    ///
+    /// Settlement fail KHÔNG block flow — đã capture BVC thành công,
+    /// tiền nằm trong ví BoardVerse. SettlementRetryJob sẽ retry.
+    /// </summary>
+    private async Task TriggerSettlementTransferAsync(
+        Reservation reservation, Guid activeSessionId, CancellationToken ct)
+    {
+        try
+        {
+            // Chỉ settlement nếu có deposit thực sự
+            if (reservation.DepositAmount <= 0)
+            {
+                _logger.LogInformation(
+                    "TriggerSettlementTransferAsync: DepositAmount={Amount} ≤ 0, skip settlement. ReservationId={ReservationId}",
+                    reservation.DepositAmount, reservation.Id);
+                return;
+            }
+
+            _logger.LogInformation(
+                "TriggerSettlementTransferAsync: Starting settlement transfer. ReservationId={ReservationId}, " +
+                "ActiveSessionId={ActiveSessionId}, CafeId={CafeId}, DepositAmount={Amount}",
+                reservation.Id, activeSessionId, reservation.CafeId, reservation.DepositAmount);
+
+            var settlement = await _settlementService.ReleaseSessionDepositAsync(
+                reservation.CafeId,
+                reservation.Id, // sessionId = reservationId (Reservation IS the session concept here)
+                activeSessionId,
+                ct);
+
+            _logger.LogInformation(
+                "TriggerSettlementTransferAsync: Settlement completed. SettlementId={SettlementId}, " +
+                "Status={Status}, NetTransferAmount={Amount}, SePayTransferId={TransferId}",
+                settlement.Id, settlement.Status, settlement.NetTransferAmount, settlement.SePayTransferId);
+        }
+        catch (Exception ex)
+        {
+            // Settlement fail KHÔNG block flow — đã capture BVC thành công.
+            // SettlementRetryJob sẽ retry các settlement failed.
+            _logger.LogWarning(ex,
+                "TriggerSettlementTransferAsync FAILED for ReservationId={ReservationId}, ActiveSessionId={ActiveSessionId}. " +
+                "Settlement will be retried by SettlementRetryJob. BVC capture đã thành công.",
+                reservation.Id, activeSessionId);
+        }
+    }
+
     // ===== GET LIST / DETAIL =====
 
-    public async Task<ReservationDetailDto?> GetByIdAsync(Guid userId, Guid reservationId)
+    public async Task<ReservationDetailDto?> GetByIdAsync(Guid userId, Guid reservationId, CancellationToken cancellationToken = default)
     {
         var reservation = await _reservationRepository.GetByIdAsync(reservationId, includeRelations: true);
         if (reservation == null)
@@ -2577,8 +2851,8 @@ public class ReservationService : IReservationService
             GameId = reservation.GameId,
             GameName = reservation.Game?.Name ?? string.Empty,
             PlayDate = reservation.PlayDate,
-            TimeSlot = reservation.TimeSlot,
-            PreferredStartTime = reservation.PreferredStartTime,
+            PreferredStartTime = reservation.PreferredStartTime ?? TimeOnly.MinValue,
+            PreferredEndTime = reservation.PreferredEndTime ?? TimeOnly.MinValue,
             ScheduledStartTime = reservation.ScheduledStartTime,
             ScheduledEndTime = reservation.ScheduledEndTime,
             RecruitmentDeadline = reservation.RecruitmentDeadline,
@@ -2609,7 +2883,7 @@ public class ReservationService : IReservationService
         };
     }
 
-    public async Task<ReservationListResponseDto> GetListAsync(Guid userId, ReservationListRequestDto request)
+    public async Task<ReservationListResponseDto> GetListAsync(Guid userId, ReservationListRequestDto request, CancellationToken cancellationToken = default)
     {
         var page = Math.Max(1, request.Page);
         var pageSize = Math.Clamp(request.PageSize, 1, 100);
@@ -2632,7 +2906,8 @@ public class ReservationService : IReservationService
             GameId = r.GameId,
             GameName = r.Game?.Name ?? string.Empty,
             PlayDate = r.PlayDate,
-            TimeSlot = r.TimeSlot,
+            PreferredStartTime = r.PreferredStartTime ?? TimeOnly.MinValue,
+            PreferredEndTime = r.PreferredEndTime ?? TimeOnly.MinValue,
             CurrentPlayers = r.CurrentPlayers,
             MaxPlayers = r.MaxPlayers,
             Status = r.Status.ToString(),
@@ -2662,7 +2937,7 @@ public class ReservationService : IReservationService
     /// </summary>
     public async Task<LobbyPendingApprovalItemDto?> GetPendingCafeApprovalDetailAsync(
         Guid managerUserId,
-        Guid reservationId)
+        Guid reservationId, CancellationToken cancellationToken = default)
     {
         // Lấy danh sách cafe mà manager này quản lý
         var managedCafes = await _cafeRepository.GetCafesByManagerIdAsync(managerUserId);
@@ -2698,7 +2973,8 @@ public class ReservationService : IReservationService
             GameId = reservation.GameId,
             GameName = reservation.Game?.Name ?? string.Empty,
             PlayDate = reservation.PlayDate,
-            TimeSlot = reservation.TimeSlot,
+            PreferredStartTime = reservation.PreferredStartTime ?? TimeOnly.MinValue,
+            PreferredEndTime = reservation.PreferredEndTime ?? TimeOnly.MinValue,
             MinPlayers = reservation.MinPlayers,
             MaxPlayers = reservation.MaxPlayers,
             CurrentPlayers = reservation.CurrentPlayers,
@@ -2718,7 +2994,7 @@ public class ReservationService : IReservationService
     /// </summary>
     public async Task<LobbyPendingApprovalListResponseDto> GetPendingCafeApprovalAsync(
         Guid managerUserId,
-        LobbyPendingApprovalRequestDto request)
+        LobbyPendingApprovalRequestDto request, CancellationToken cancellationToken = default)
     {
         var page = Math.Max(1, request.Page);
         var pageSize = Math.Clamp(request.PageSize, 1, 100);
@@ -2757,7 +3033,8 @@ public class ReservationService : IReservationService
             GameId = r.GameId,
             GameName = r.Game?.Name ?? string.Empty,
             PlayDate = r.PlayDate,
-            TimeSlot = r.TimeSlot,
+            PreferredStartTime = r.PreferredStartTime ?? TimeOnly.MinValue,
+            PreferredEndTime = r.PreferredEndTime ?? TimeOnly.MinValue,
             MinPlayers = r.MinPlayers,
             MaxPlayers = r.MaxPlayers,
             CurrentPlayers = r.CurrentPlayers,
@@ -2799,31 +3076,71 @@ public class ReservationService : IReservationService
         return host.Username ?? string.Empty;
     }
 
+    // P2 Fix (2026-08-19): Shared helper for ambient transaction pattern.
+    // If already in a transaction (ambient), reuse it. Otherwise, create new transaction.
+    // Pattern: adopted from ExecuteCompleteAndCaptureTransactionAsync.
+    private async Task<(Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? OwnedTx, Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction Tx)> BeginTransactionIfNeededAsync(
+        CancellationToken ct = default)
+    {
+        var ambientTx = _db.Database.CurrentTransaction;
+        Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? ownedTx = null;
+        if (ambientTx == null)
+        {
+            ownedTx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+            return (ownedTx, ownedTx);
+        }
+        return (null, ambientTx);
+    }
+
     private async Task ExecuteCompleteAndCaptureTransactionAsync(
         Reservation reservation,
         Guid activeSessionId,
         DateTime now,
         CancellationToken ct)
     {
-        await using var tx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
-
+        var (ownedTx, tx) = await BeginTransactionIfNeededAsync(ct);
         try
         {
             // 1. Lock seat inventory + game inventory (BR §17.3).
-            var seatInventory = await _seatInventoryRepository.GetForUpdateAsync(
-                reservation.CafeId, reservation.PlayDate, reservation.TimeSlot);
+            // BR-NEW-15: Use SeatInventoryId/GameInventoryId FK when available.
+            SeatInventory? seatInventory;
+            if (reservation.SeatInventoryId.HasValue)
+            {
+                seatInventory = await _seatInventoryRepository.GetByIdForUpdateAsync(reservation.SeatInventoryId.Value);
+            }
+            else
+            {
+                seatInventory = await _seatInventoryRepository.GetForUpdateAsync(
+                    reservation.CafeId, reservation.PlayDate,
+                    TimeOnly.FromDateTime(reservation.ScheduledStartTime),
+                    TimeOnly.FromDateTime(reservation.ScheduledEndTime));
+            }
             if (seatInventory == null)
             {
                 throw new ConflictException(
-                    ApiErrorMessages.System.SeatInventoryMissingForReservation(reservation.CafeId, reservation.PlayDate, reservation.TimeSlot.ToString()));
+                    ApiErrorMessages.System.SeatInventoryMissingForReservation(
+                        reservation.CafeId, reservation.PlayDate,
+                        $"{reservation.ScheduledStartTime:HH:mm}-{reservation.ScheduledEndTime:HH:mm}"));
             }
 
-            var gameInventory = await _gameInventoryRepository.GetForUpdateAsync(
-                reservation.CafeId, reservation.GameId, reservation.PlayDate, reservation.TimeSlot);
+            GameInventory? gameInventory;
+            if (reservation.GameInventoryId.HasValue)
+            {
+                gameInventory = await _gameInventoryRepository.GetByIdForUpdateAsync(reservation.GameInventoryId.Value);
+            }
+            else
+            {
+                gameInventory = await _gameInventoryRepository.GetForUpdateAsync(
+                    reservation.CafeId, reservation.GameId, reservation.PlayDate,
+                    TimeOnly.FromDateTime(reservation.ScheduledStartTime),
+                    TimeOnly.FromDateTime(reservation.ScheduledEndTime));
+            }
             if (gameInventory == null)
             {
                 throw new ConflictException(
-                    ApiErrorMessages.System.GameInventoryMissingForReservation(reservation.CafeId, reservation.PlayDate, reservation.TimeSlot.ToString()));
+                    ApiErrorMessages.System.GameInventoryMissingForReservation(
+                        reservation.CafeId, reservation.PlayDate,
+                        $"{reservation.ScheduledStartTime:HH:mm}-{reservation.ScheduledEndTime:HH:mm}"));
             }
 
             // 2. Validate inventory state — must be InUse (từ CheckInAsync move).
@@ -2966,7 +3283,17 @@ public class ReservationService : IReservationService
             });
 
             await _db.SaveChangesAsync();
-            await tx.CommitAsync();
+
+            // CRITICAL FIX (2026-08-18): chỉ commit transaction nếu method này TỰ MỞ
+            // (ownedTx != null). Nếu đã có ambient transaction (gọi từ
+            // ActiveSessionService.PaySessionCoreAsync trong cùng DbContext scope),
+            // outer transaction sẽ commit toàn bộ — không gọi CommitAsync ở đây
+            // (gọi CommitAsync trên ambient transaction KHÔNG thuộc method này
+            // sẽ gây "transaction is already completed" hoặc commit sai scope).
+            if (ownedTx != null)
+            {
+                await ownedTx.CommitAsync(ct);
+            }
 
             _logger.LogInformation(
                 "Reservation completed + BVC captured. ReservationId={ReservationId}, CapturedBvc={Bvc}, ActiveSessionId={ActiveSessionId}",
@@ -2974,7 +3301,13 @@ public class ReservationService : IReservationService
         }
         catch
         {
-            await tx.RollbackAsync();
+            // Tương tự commit: chỉ rollback transaction do method này sở hữu.
+            // Ambient transaction sẽ tự rollback ở outer catch (ActiveSessionService.PaySessionCoreAsync
+            // line 622: `await dbTx.RollbackAsync()`).
+            if (ownedTx != null)
+            {
+                await ownedTx.RollbackAsync(ct);
+            }
             throw;
         }
     }
@@ -2988,7 +3321,7 @@ public class ReservationService : IReservationService
         Guid adminUserId,
         Guid reservationId,
         AdminOverrideRefundRequestDto request,
-        string idempotencyKey)
+        string idempotencyKey, CancellationToken cancellationToken = default)
     {
         // 1. Idempotency check — nếu đã xử lý rồi thì trả kết quả cũ.
         var existingEntry = await _db.BvcLedgerEntries
@@ -3086,31 +3419,30 @@ public class ReservationService : IReservationService
     }
 
     /// <summary>
-    /// Tính scheduledStartTime + scheduledEndTime từ <paramref name="playDate"/> và resolved schedule.
-    /// BR-RES-07/08/09: endTime bắt buộc (không open-ended), auto-resolve từ TimeSlot.
-    /// LateNight (23:00-06:00) là overnight: endDate = playDate + 1 ngày.
+    /// Tính scheduledStartTime + scheduledEndTime từ <paramref name="playDate"/> và giờ user chọn.
+    /// BR-RES-07/08/09: endTime bắt buộc (không open-ended).
+    /// Nếu endTime nhỏ hơn startTime thì endTime thuộc ngày kế tiếp.
     /// Lưu vào DB (<see cref="Reservation.ScheduledStartTime"/>, <see cref="Reservation.ScheduledEndTime"/>)
     /// để WalkInWindowCleanupJob (§4.4), playedRatio (§4.3), extension flow (Phase 3)
-    /// không phải derive runtime từ TimeSlot.
+    /// không phải derive runtime từ TimeSlot enum.
     /// </summary>
     internal static (DateTime ScheduledStartTime, DateTime ScheduledEndTime) BuildScheduledStartEnd(
         DateOnly playDate,
         TimeOnly startTime,
-        TimeOnly endTime,
-        TimeSlot slot)
+        TimeOnly endTime)
     {
         var startDateTime = playDate.ToDateTime(startTime);
 
         DateTime endDateTime;
-        // LateNight là overnight: endDate = playDate + 1 ngày
-        if (slot == TimeSlot.LateNight)
+        // Overnight: endTime < startTime (e.g., 21:00 → 00:00 ngày hôm sau)
+        if (endTime < startTime)
         {
             endDateTime = playDate.AddDays(1).ToDateTime(endTime);
         }
         else
         {
             endDateTime = playDate.ToDateTime(endTime);
-            // Sanity check: các slot khác phải cùng ngày
+            // Sanity check: cùng ngày
             if (endDateTime.Date != startDateTime.Date)
             {
                 throw new InvalidOperationException(
@@ -3123,19 +3455,28 @@ public class ReservationService : IReservationService
 
     /// <summary>
     /// BR-RES-07/08/09: validate rằng reservation có đầy đủ startTime + endTime,
-    /// cùng ngày (hoặc LateNight overnight), và TimeSlot thuộc BR-NEW-15 enum.
-    /// LateNight (23:00-06:00) cho phép endDate = startDate + 1 ngày.
+    /// cùng ngày hoặc ngày kế tiếp nếu qua đêm, không dùng TimeSlot enum nữa.
+    /// BR-NEW-15 (2026-08-18): derive overnight từ endTime &lt; startTime.
     /// Throw BadRequestException với message tiếng Việt từ <see cref="ApiErrorMessages.Reservation"/>.
     /// </summary>
-    internal static void ValidateReservationTimeWindow(DateTime scheduledStartTime, DateTime scheduledEndTime, TimeSlot timeSlot)
+    internal static void ValidateReservationTimeWindow(DateTime scheduledStartTime, DateTime scheduledEndTime)
     {
         if (scheduledStartTime == default || scheduledEndTime == default)
         {
             throw new BadRequestException(ApiErrorMessages.Reservation.ReservationRequiresStartAndEnd);
         }
 
-        // LateNight là overnight slot: endDate = startDate + 1 ngày
-        if (timeSlot == TimeSlot.LateNight)
+        if (scheduledEndTime <= scheduledStartTime)
+        {
+            throw new BadRequestException(ApiErrorMessages.Reservation.PreferredTimesMustDiffer);
+        }
+
+        // Overnight khi giờ kết thúc nhỏ hơn giờ bắt đầu.
+        var startTimeOnly = TimeOnly.FromDateTime(scheduledStartTime);
+        var endTimeOnly = TimeOnly.FromDateTime(scheduledEndTime);
+        var isOvernight = endTimeOnly < startTimeOnly;
+
+        if (isOvernight)
         {
             if (scheduledEndTime.Date != scheduledStartTime.Date.AddDays(1))
             {
@@ -3153,11 +3494,6 @@ public class ReservationService : IReservationService
                 throw new BadRequestException(ApiErrorMessages.Reservation.ReservationEndTimeDifferentDay);
             }
         }
-
-        if (!Enum.IsDefined(typeof(TimeSlot), timeSlot))
-        {
-            throw new BadRequestException(ApiErrorMessages.Reservation.ReservationInvalidTimeSlot(timeSlot));
-        }
     }
 
     /// <summary>
@@ -3166,7 +3502,7 @@ public class ReservationService : IReservationService
     /// </summary>
     public async Task<EndReservationResponseDto> EndAndSettleAsync(
         Guid staffUserId,
-        EndReservationRequestDto request)
+        EndReservationRequestDto request, CancellationToken cancellationToken = default)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var actualEnd = request.ActualEndAt ?? now;
@@ -3202,8 +3538,7 @@ public class ReservationService : IReservationService
         // Validate BR-RES-08 (sanity check).
         ValidateReservationTimeWindow(
             reservation.ScheduledStartTime,
-            reservation.ScheduledEndTime,
-            reservation.TimeSlot);
+            reservation.ScheduledEndTime);
 
         // Tính playedRatio.
         var playedMinutes = (actualEnd - reservation.CheckedInAt.Value).TotalMinutes;
@@ -3290,6 +3625,121 @@ public class ReservationService : IReservationService
             ScheduledEndTime = reservation.ScheduledEndTime,
             WalkInWindowId = reservation.WalkInWindowId,
             KarmaRecorded = karmaRecorded
+        };
+    }
+
+    /// <summary>
+    /// Lấy danh sách reservation của 1 cafe cho Manager.
+    /// </summary>
+    public async Task<CafeReservationsResponseDto> GetCafeReservationsAsync(
+        Guid cafeManagerUserId,
+        Guid cafeId,
+        CafeReservationsRequestDto request, CancellationToken cancellationToken = default)
+    {
+        // Validate user có quyền xem cafe này (Manager hoặc CafeStaff)
+        var hasAccess = await _cafeRepository.IsManagerOrStaffAsync(cafeId, cafeManagerUserId);
+        if (!hasAccess)
+        {
+            throw new ForbiddenException(ApiErrorMessages.Cafe.ManagerForbidden(cafeId));
+        }
+
+        var page = Math.Max(1, request.Page);
+        var pageSize = Math.Clamp(request.PageSize, 1, 100);
+
+        var (items, totalCount) = await _reservationRepository.GetByCafeAsync(
+            cafeId,
+            request.Statuses,
+            request.PlayDate ?? DateOnly.FromDateTime(DateTime.UtcNow),
+            page,
+            pageSize);
+
+        var dtos = items.Select(r => new ReservationListItemDto
+        {
+            Id = r.Id,
+            CafeId = r.CafeId,
+            CafeName = r.Cafe?.Name ?? string.Empty,
+            GameId = r.GameId,
+            GameName = r.Game?.Name ?? string.Empty,
+            PlayDate = r.PlayDate,
+            PreferredStartTime = r.PreferredStartTime ?? TimeOnly.MinValue,
+            PreferredEndTime = r.PreferredEndTime ?? TimeOnly.MinValue,
+            CurrentPlayers = r.CurrentPlayers,
+            MaxPlayers = r.MaxPlayers,
+            Status = r.Status.ToString(),
+            DepositAmount = r.DepositAmount,
+            LobbyId = r.LobbyId,
+            LobbyStatus = r.Lobby?.Status.ToString(),
+            ReservationCode = r.ReservationCode,
+            ScheduledStartTime = r.ScheduledStartTime,
+            ScheduledEndTime = r.ScheduledEndTime,
+            RecruitmentDeadline = r.RecruitmentDeadline,
+            CreatedAt = r.CreatedAt,
+            IsHost = r.HostId == cafeManagerUserId,
+            TableNumber = r.TableNumber
+        }).ToList();
+
+        return new CafeReservationsResponseDto
+        {
+            Items = dtos,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize
+        };
+    }
+
+    /// <summary>
+    /// Tìm kiếm lịch hẹn theo tên game hoặc ngày tháng.
+    /// </summary>
+    public async Task<ReservationSearchResponseDto> SearchAsync(
+        Guid userId,
+        ReservationSearchRequestDto request, CancellationToken cancellationToken = default)
+    {
+        var page = Math.Max(1, request.Page);
+        var pageSize = Math.Clamp(request.PageSize, 1, 100);
+
+        var (items, totalCount) = await _reservationRepository.SearchAsync(
+            userId,
+            request.GameName,
+            request.FromDate,
+            request.ToDate,
+            request.Statuses,
+            request.CafeId,
+            request.HostedByMe,
+            request.JoinedByMe,
+            page,
+            pageSize);
+
+        var dtos = items.Select(r => new ReservationListItemDto
+        {
+            Id = r.Id,
+            CafeId = r.CafeId,
+            CafeName = r.Cafe?.Name ?? string.Empty,
+            GameId = r.GameId,
+            GameName = r.Game?.Name ?? string.Empty,
+            PlayDate = r.PlayDate,
+            PreferredStartTime = r.PreferredStartTime ?? TimeOnly.MinValue,
+            PreferredEndTime = r.PreferredEndTime ?? TimeOnly.MinValue,
+            CurrentPlayers = r.CurrentPlayers,
+            MaxPlayers = r.MaxPlayers,
+            Status = r.Status.ToString(),
+            DepositAmount = r.DepositAmount,
+            LobbyId = r.LobbyId,
+            LobbyStatus = r.Lobby?.Status.ToString(),
+            ReservationCode = r.ReservationCode,
+            ScheduledStartTime = r.ScheduledStartTime,
+            ScheduledEndTime = r.ScheduledEndTime,
+            RecruitmentDeadline = r.RecruitmentDeadline,
+            CreatedAt = r.CreatedAt,
+            IsHost = r.HostId == userId,
+            TableNumber = r.TableNumber
+        }).ToList();
+
+        return new ReservationSearchResponseDto
+        {
+            Items = dtos,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize
         };
     }
 }

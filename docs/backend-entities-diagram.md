@@ -28,7 +28,7 @@ Nội dung:
 | **Game Inventory (atomic)** | `SeatInventory`, `GameInventory` | 2 |
 | **Booking (legacy Flow B)** | `Booking`, `BookingDeposit`, `BookingRating`, `BookingNoShowVote` | 4 |
 | **Reservation (Flow A — mới)** | `Reservation`, `WalkInBooking`, `WalkInWindow` | 3 |
-| **Active Session / POS** | `ActiveSession`, `ActiveSessionGame`, `ActiveSessionMember`, `PosCheckInToken` | 4 |
+| **Active Session / POS** | `ActiveSession`, `ActiveSessionGame`, `ActiveSessionMember`, `MemberPayment`, `PosCheckInToken` | 5 |
 | **Lobby / Match** | `Lobby`, `LobbyMember`, `LobbyInvite`, `LobbyMessage`, `LobbyReport`, `LobbyAtRiskWarning`, `LobbyNotificationSent`, `MatchHistory`, `MatchHistoryParticipant`, `MatchResult` | 10 |
 | **Tournament** | `Tournament`, `TournamentParticipant`, `TournamentMatchBracket`, `TournamentMatchEloContribution`, `TournamentWaitlist`, `TournamentSpectator` | 6 |
 | **BVC Wallet / Payment** | `BvcLedgerEntry`, `BvcTopUpRequest`, `BvcRefundRequest`, `Transaction`, `RefundTransaction`, `SePayAccount`, `CafeSettlement`, `PaymentWebhookAudit` | 8 |
@@ -1009,7 +1009,7 @@ classDiagram
  +DateTime UpdatedAt
  }
 
- class ActiveSessionMember {
+class ActiveSessionMember {
  +Guid Id
  +Guid ActiveSessionId
  +Guid UserId
@@ -1028,11 +1028,28 @@ classDiagram
  +DateTime CheckedOutAt
  +decimal DepositAppliedAmount
  +Guid DepositId
+ +MemberPaymentStatus PaymentStatus
+ +string PaymentMethod
+ +DateTime PaidAt
+ +Guid TransactionId
  +DateTime CreatedAt
  +DateTime UpdatedAt
- }
+}
 
- class PosCheckInToken {
+class MemberPayment {
+ +Guid Id
+ +Guid ActiveSessionId
+ +Guid MemberId
+ +decimal Amount
+ +string PaymentMethod
+ +string OrderId
+ +Guid TransactionId
+ +Guid StaffId
+ +string Notes
+ +DateTime CreatedAt
+}
+
+class PosCheckInToken {
  +Guid Id
  +Guid CafeId
  +Guid ReservationId
@@ -1044,11 +1061,13 @@ classDiagram
  +DateTime ConsumedAt
  +Guid ConsumedByUserId
  +Guid ResultActiveSessionId
- }
+}
 
- ActiveSession "1" --o{ "*" ActiveSessionGame : plays
- ActiveSession "1" --o{ "*" ActiveSessionMember : members
- ActiveSessionGame "1" --o{ "*" ComponentCheckResult : checks
+ActiveSession "1" --o{ "*" ActiveSessionGame : plays
+ActiveSession "1" --o{ "*" ActiveSessionMember : members
+ActiveSession "1" --o{ "*" MemberPayment : per-member audit
+ActiveSessionMember "1" --o{ "*" MemberPayment : pays
+ActiveSessionGame "1" --o{ "*" ComponentCheckResult : checks
 ```
 
 ### F. Cluster Lobby / Match
@@ -1625,10 +1644,17 @@ Ký hiệu:
 | `CheckedOutAt` | `DateTime?` | |
 | `DepositAppliedAmount` | `decimal` | BR-22 |
 | `DepositId` | `Guid?` | (FK→BookingDeposit) BR-22 |
+| `PaymentStatus` | `MemberPaymentStatus` | **Split Bill (2026-08-24)**: `NotPaid` (default) / `PaidQr` / `PaidCash`. |
+| `PaymentMethod` | `string?` | **Split Bill (2026-08-24)**: `CASH` / `QR_CODE` / null khi chưa chọn. |
+| `PaidAt` | `DateTime?` | **Split Bill (2026-08-24)**: timestamp khi member thanh toán xong. `null` nếu `NotPaid`. |
+| `TransactionId` | `Guid?` | **Split Bill (2026-08-24)**: FK `Transaction` khi `PaymentMethod = QR_CODE`. |
 | `ActiveSession` | `virtual ActiveSession` | (nav) |
 | `User` | `virtual User?` | (nav) |
+| `MemberPayments` | `ICollection<MemberPayment>` | **Split Bill (2026-08-24)**: audit trail cho mỗi lần pay per-member. |
 | `CreatedAt` | `DateTime` | audit |
 | `UpdatedAt` | `DateTime` | audit |
+
+> **Split Bill (2026-08-24):** 4 columns mới (`PaymentStatus`, `PaymentMethod`, `PaidAt`, `TransactionId`) được thêm qua migration `20260824082933_AddMemberPaymentFields` để hỗ trợ POS thu tiền per-member (CASH / QR_CODE độc lập). Khi tất cả member `PaymentStatus != NotPaid` → `ActiveSession.Status` tự động chuyển `Paid`. Xem chi tiết tại [cafe-pos.md](./api/cafe-pos.md) §"Split Bill".
 
 ---
 
@@ -1892,6 +1918,29 @@ Ký hiệu:
 | `UpdatedAt` | `DateTime` | audit |
 | `CafeGameInventory` | `virtual CafeGameInventory` | (nav) |
 | `GameComponentTemplate` | `virtual GameComponentTemplate` | (nav) |
+
+---
+
+### M2. `MemberPayment` (Split Bill — per-member payment audit, 2026-08-24)
+
+| Field | Type | Note |
+|---|---|---|
+| `Id` | `Guid` | (PK) |
+| `ActiveSessionId` | `Guid` | (FK→ActiveSession) |
+| `MemberId` | `Guid` | (FK→ActiveSessionMember) |
+| `Amount` | `decimal` | Số tiền thanh toán (= `Member.TotalAmount` tại thời điểm pay). |
+| `PaymentMethod` | `string` | `CASH` / `QR_CODE` / `BANK_TRANSFER`. |
+| `OrderId` | `string?` | SePay order id (BV-prefix) nếu `PaymentMethod = QR_CODE`. |
+| `TransactionId` | `Guid?` | FK `Transaction` khi QR thanh toán thành công (sau webhook). |
+| `StaffId` | `Guid` | (FK→User) — staff thực hiện thanh toán. |
+| `Notes` | `string?` | Ghi chú tùy ý (≤ 500 ký tự). |
+| `CreatedAt` | `DateTime` | audit — thời điểm pay. |
+| `ActiveSession` | `virtual ActiveSession` | (nav) |
+| `Member` | `virtual ActiveSessionMember` | (nav) |
+
+> **Mục đích:** Audit trail cho mỗi lần thanh toán per-member. Mỗi call tới `POST /sessions/{id}/pay-member` insert **1 dòng / member** trong bảng này, kể cả QR đang chờ webhook. Sau khi webhook `success` → cập nhật `TransactionId` cho cùng dòng (không insert dòng mới).
+>
+> **Khác `Transaction`:** `MemberPayment` là audit log của **per-member session payment**. `Transaction` (SePay generic) là audit log cho **mọi SePay payment** (deposit, session, member). 1 dòng `MemberPayment` QR có thể tham chiếu 1 `Transaction` qua `TransactionId`.
 
 ---
 
@@ -3176,7 +3225,8 @@ Ký hiệu:
 | BR-NEW-14 | `LobbyAtRiskWarning` khi 50% thời gian và current < 50% min |
 | BR-22 | `BookingDeposit.UserId` (per-member) + `ActiveSessionMember.DepositId` |
 | BR-09 | `ActiveSession.DepositAppliedAmount` KHÔNG trừ hóa đơn |
-| BR-15 | `ActiveSession.TotalAmount = Subtotal + Penalty - DepositAppliedAmount` |
+| BR-15 | `ActiveSession.TotalAmount = Subtotal + Penalty - DepositAppliedAmount`. **Split Bill (2026-08-24):** `ActiveSessionMember.PaymentStatus` track per-member thanh toán; `MemberPayments` audit trail khi POS thu tiền từng member riêng (CASH hoặc QR_CODE). |
+| BR-17 | Chỉ nhân viên POS được kết thúc / tách nhóm / tính tiền / thanh toán per-member. |
 | BR-18 | `BookingDeposit.RefundedAt/ForfeitedAt` theo `RefundPolicy` |
 
 ---

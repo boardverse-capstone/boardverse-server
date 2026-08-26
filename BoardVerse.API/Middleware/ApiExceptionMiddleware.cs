@@ -51,21 +51,36 @@ namespace BoardVerse.API.Middleware
                         Path = context.Request.Path.Value ?? string.Empty
                     };
 
-                    context.Response.ContentType = "application/json";
+                    context.Response.ContentType = "application/json; charset=utf-8";
                     var payload = JsonSerializer.Serialize(response, jsonOptions);
                     await context.Response.WriteAsync(payload);
                 }
             }
             catch (AppException ex)
             {
-                context.Response.ContentType = "application/json";
+                context.Response.ContentType = "application/json; charset=utf-8";
                 context.Response.StatusCode = ex.StatusCode;
+
+                object? data = null;
+
+                // GAP-5 Fix: Khi không đủ BVC, gửi thêm thông tin top-up guidance.
+                if (ex is InsufficientBvcBalanceException bvcEx)
+                {
+                    data = new
+                    {
+                        currentBalance = bvcEx.CurrentBalance,
+                        requiredBalance = bvcEx.RequiredBalance,
+                        missingAmount = bvcEx.MissingAmount,
+                        topUpRequired = true,
+                        topUpAction = "POST /api/v1/wallet/topup"
+                    };
+                }
 
                 var response = new ApiResponse
                 {
                     StatusCode = ex.StatusCode,
                     Message = ex.Message,
-                    Data = null,
+                    Data = data,
                     Timestamp = DateTime.UtcNow,
                     Path = context.Request.Path.Value ?? string.Empty
                 };
@@ -93,7 +108,7 @@ namespace BoardVerse.API.Middleware
                     Path = context.Request.Path.Value ?? string.Empty
                 };
 
-                context.Response.ContentType = "application/json";
+                context.Response.ContentType = "application/json; charset=utf-8";
                 context.Response.StatusCode = response.StatusCode;
                 var payload = JsonSerializer.Serialize(response, jsonOptions);
                 await context.Response.WriteAsync(payload);
@@ -114,7 +129,7 @@ namespace BoardVerse.API.Middleware
                     Path = context.Request.Path.Value ?? string.Empty
                 };
 
-                context.Response.ContentType = "application/json";
+                context.Response.ContentType = "application/json; charset=utf-8";
                 context.Response.StatusCode = response.StatusCode;
                 var payload = JsonSerializer.Serialize(response, jsonOptions);
                 await context.Response.WriteAsync(payload);

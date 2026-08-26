@@ -16,22 +16,22 @@ namespace BoardVerse.Data.Repositories
             _context = context;
         }
 
-        public Task<bool> UserExistsAsync(string email, string username)
+        public Task<bool> UserExistsAsync(string email, string username, CancellationToken cancellationToken = default)
         {
             return _context.Users.AnyAsync(u => u.Email == email || u.Username == username);
         }
 
-        public Task<bool> UsernameExistsAsync(string username, Guid? excludedUserId = null)
+        public Task<bool> UsernameExistsAsync(string username, Guid? excludedUserId = null, CancellationToken cancellationToken = default)
         {
             return _context.Users.AnyAsync(u => u.Username == username && (!excludedUserId.HasValue || u.Id != excludedUserId.Value));
         }
 
-        public Task<bool> EmailExistsAsync(string email, Guid? excludedUserId = null)
+        public Task<bool> EmailExistsAsync(string email, Guid? excludedUserId = null, CancellationToken cancellationToken = default)
         {
             return _context.Users.AnyAsync(u => u.Email == email && (!excludedUserId.HasValue || u.Id != excludedUserId.Value));
         }
 
-        public async Task<PaginatedResponse<User>> GetAdminUsersAsync(AdminUserQueryDto query)
+        public async Task<PaginatedResponse<User>> GetAdminUsersAsync(AdminUserQueryDto query, CancellationToken cancellationToken = default)
         {
             var usersQuery = _context.Users.Include(u => u.Profile).AsQueryable();
 
@@ -79,12 +79,12 @@ namespace BoardVerse.Data.Repositories
             };
         }
 
-        public Task<User?> GetByIdAsync(Guid userId)
+        public Task<User?> GetByIdAsync(Guid userId, CancellationToken cancellationToken = default)
         {
             return _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
         }
 
-        public Task<User?> GetByIdWithProfileAsync(Guid userId)
+        public Task<User?> GetByIdWithProfileAsync(Guid userId, CancellationToken cancellationToken = default)
         {
             return _context.Users.Include(u => u.Profile).FirstOrDefaultAsync(u => u.Id == userId);
         }
@@ -93,7 +93,7 @@ namespace BoardVerse.Data.Repositories
             string keyword,
             Guid excludeUserId,
             int limit = 20,
-            IReadOnlyCollection<Guid>? blockedUserIds = null)
+            IReadOnlyCollection<Guid>? blockedUserIds = null, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(keyword))
                 return Array.Empty<User>();
@@ -119,7 +119,7 @@ namespace BoardVerse.Data.Repositories
                 .ToListAsync();
         }
 
-        public async Task<IReadOnlyList<User>> GetByIdsAsync(IReadOnlyCollection<Guid> userIds)
+        public async Task<IReadOnlyList<User>> GetByIdsAsync(IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default)
         {
             if (userIds == null || userIds.Count == 0) return Array.Empty<User>();
             var ids = userIds.ToHashSet();
@@ -129,7 +129,7 @@ namespace BoardVerse.Data.Repositories
                 .ToListAsync();
         }
 
-        public async Task UpdateLastActiveAsync(Guid userId, DateTime lastActiveAt)
+        public async Task UpdateLastActiveAsync(Guid userId, DateTime lastActiveAt, CancellationToken cancellationToken = default)
         {
             var profile = await _context.UserProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
             if (profile == null) return;
@@ -138,13 +138,13 @@ namespace BoardVerse.Data.Repositories
             await _context.SaveChangesAsync();
         }
 
-        public Task AddUserAsync(User user)
+        public Task AddUserAsync(User user, CancellationToken cancellationToken = default)
         {
             _context.Users.Add(user);
             return Task.CompletedTask;
         }
 
-        public Task SaveChangesAsync()
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default)
         {
             return _context.SaveChangesAsync();
         }

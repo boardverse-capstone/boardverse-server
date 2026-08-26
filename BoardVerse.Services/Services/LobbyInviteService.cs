@@ -28,7 +28,7 @@ public class LobbyInviteService : ILobbyInviteService
         _friendshipRepository = friendshipRepository;
     }
 
-    public async Task<LobbyInviteResponseDto> SendInviteAsync(Guid lobbyId, Guid inviterId, SendLobbyInviteRequestDto request)
+    public async Task<LobbyInviteResponseDto> SendInviteAsync(Guid lobbyId, Guid inviterId, SendLobbyInviteRequestDto request, CancellationToken cancellationToken = default)
     {
         if (request.InviteeId == inviterId)
         {
@@ -108,7 +108,7 @@ public class LobbyInviteService : ILobbyInviteService
         return MapToDto(invite, lobby);
     }
 
-    public async Task<LobbyInviteResponseDto> AcceptInviteAsync(Guid inviteId, Guid currentUserId)
+    public async Task<LobbyInviteResponseDto> AcceptInviteAsync(Guid inviteId, Guid currentUserId, CancellationToken cancellationToken = default)
     {
         var invite = await _inviteRepository.GetByIdAsync(inviteId)
             ?? throw new NotFoundException(ApiErrorMessages.LobbyInvite.InviteNotFound(inviteId));
@@ -168,7 +168,7 @@ public class LobbyInviteService : ILobbyInviteService
         return MapToDto(invite, lobby);
     }
 
-    public async Task<LobbyInviteResponseDto> DeclineInviteAsync(Guid inviteId, Guid currentUserId)
+    public async Task<LobbyInviteResponseDto> DeclineInviteAsync(Guid inviteId, Guid currentUserId, CancellationToken cancellationToken = default)
     {
         var invite = await _inviteRepository.GetByIdAsync(inviteId)
             ?? throw new NotFoundException(ApiErrorMessages.LobbyInvite.InviteNotFound(inviteId));
@@ -191,7 +191,7 @@ public class LobbyInviteService : ILobbyInviteService
         return MapToDto(invite, null);
     }
 
-    public async Task CancelInviteAsync(Guid inviteId, Guid currentUserId)
+    public async Task CancelInviteAsync(Guid inviteId, Guid currentUserId, CancellationToken cancellationToken = default)
     {
         var invite = await _inviteRepository.GetByIdAsync(inviteId)
             ?? throw new NotFoundException(ApiErrorMessages.LobbyInvite.InviteNotFound(inviteId));
@@ -216,7 +216,7 @@ public class LobbyInviteService : ILobbyInviteService
         Guid lobbyId,
         Guid currentUserId,
         string? status = null,
-        int limit = 100)
+        int limit = 100, CancellationToken cancellationToken = default)
     {
         if (limit < 1) limit = 100;
         if (limit > 200) limit = 200;
@@ -345,13 +345,13 @@ public class LobbyInviteService : ILobbyInviteService
         return MapToDto(newInvite, lobby);
     }
 
-    public async Task<IReadOnlyList<LobbyInviteResponseDto>> GetMyPendingInvitesAsync(Guid inviteeId)
+    public async Task<IReadOnlyList<LobbyInviteResponseDto>> GetMyPendingInvitesAsync(Guid inviteeId, CancellationToken cancellationToken = default)
     {
         var list = await _inviteRepository.GetPendingByInviteeAsync(inviteeId);
         return list.Select(i => MapToDto(i, i.Lobby)).ToList();
     }
 
-    public async Task<IReadOnlyList<LobbyInviteResponseDto>> GetMyInvitesAsync(Guid inviteeId, string? status)
+    public async Task<IReadOnlyList<LobbyInviteResponseDto>> GetMyInvitesAsync(Guid inviteeId, string? status, CancellationToken cancellationToken = default)
     {
         LobbyInviteStatus? parsed = null;
         if (!string.IsNullOrWhiteSpace(status))
@@ -367,7 +367,7 @@ public class LobbyInviteService : ILobbyInviteService
         return list.Select(i => MapToDto(i, i.Lobby)).ToList();
     }
 
-    public async Task<LobbyShareInfoDto> GetShareInfoAsync(Guid lobbyId, Guid currentUserId)
+    public async Task<LobbyShareInfoDto> GetShareInfoAsync(Guid lobbyId, Guid currentUserId, CancellationToken cancellationToken = default)
     {
         var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
             ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -391,7 +391,7 @@ public class LobbyInviteService : ILobbyInviteService
     public async Task<IReadOnlyList<LobbyInvitableFriendDto>> GetInvitableFriendsForLobbyAsync(
         Guid lobbyId,
         Guid currentUserId,
-        LobbyInvitableFriendsQuery query)
+        LobbyInvitableFriendsQuery query, CancellationToken cancellationToken = default)
     {
         var limit = query?.Limit ?? 100;
         if (limit < 1) limit = 100;

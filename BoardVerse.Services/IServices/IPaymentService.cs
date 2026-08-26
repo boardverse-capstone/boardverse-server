@@ -1,15 +1,16 @@
 using BoardVerse.Core.DTOs.Payment;
 using BoardVerse.Core.Entities;
 
+using System.Threading;
 namespace BoardVerse.Services.IServices;
 
 public interface IPaymentService
 {
-    Task<CreatePaymentResponseDto> CreateDepositPaymentAsync(CreatePaymentRequestDto request, Guid userId);
-    Task<RegenerateQrResponseDto> RegenerateDepositQrAsync(Guid depositId, Guid userId);
-    Task<CreateSessionPaymentResponseDto> CreateSessionPaymentAsync(CreateSessionPaymentRequestDto request, Guid actorUserId, string actorRole);
-    Task<CreateSessionPaymentResponseDto> RegenerateSessionQrAsync(Guid sessionId, Guid actorUserId, string actorRole);
-    Task HandleSePayWebhookAsync(SePayWebhookDto webhook);
-    Task<RefundDepositResult> RefundDepositAsync(Guid depositId, string reason, Guid actorUserId, string actorRole);
-    Task ProcessExpiredDepositsAsync();
+    Task<CreatePaymentResponseDto> CreateDepositPaymentAsync(CreatePaymentRequestDto request, Guid userId, CancellationToken cancellationToken = default);
+    Task<RegenerateQrResponseDto> RegenerateDepositQrAsync(Guid depositId, Guid userId, CancellationToken cancellationToken = default);
+    Task<CreateSessionPaymentResponseDto> CreateSessionPaymentAsync(CreateSessionPaymentRequestDto request, Guid actorUserId, string actorRole, CancellationToken cancellationToken = default);
+    Task<CreateSessionPaymentResponseDto> RegenerateSessionQrAsync(Guid sessionId, Guid actorUserId, string actorRole, CancellationToken cancellationToken = default);
+    Task HandleSePayWebhookAsync(SePayWebhookDto webhook, CancellationToken cancellationToken = default);
+    Task<RefundDepositResult> RefundDepositAsync(Guid depositId, string reason, Guid actorUserId, string actorRole, CancellationToken cancellationToken = default);
+    Task ProcessExpiredDepositsAsync(CancellationToken cancellationToken = default);
 }

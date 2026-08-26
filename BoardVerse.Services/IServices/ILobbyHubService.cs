@@ -45,6 +45,9 @@ public interface ILobbyHubService
     /// <summary>BR-REQUIRED §17.5: Lobby đạt minPlayers → booking confirmed.</summary>
     Task NotifyLobbyConfirmed(Guid lobbyId);
 
+    /// <summary>Tất cả members ready → lobby đang chờ check-in tại quán.</summary>
+    Task NotifyLobbyWaitingCheckIn(Guid lobbyId);
+
     /// <summary>BR-REQUIRED §17.5: Lobby bị hủy (host/cafe/no-show/timeout).</summary>
     Task NotifyLobbyCancelled(Guid lobbyId);
 

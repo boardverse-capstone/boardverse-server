@@ -1,5 +1,6 @@
 using BoardVerse.Core.Entities;
 
+using System.Threading;
 namespace BoardVerse.Core.IRepositories;
 
 public interface IBvcTopUpRequestRepository
@@ -19,7 +20,7 @@ public interface IBvcTopUpRequestRepository
     /// Dùng FOR UPDATE SKIP LOCKED + batch transaction để cluster-safe.
     /// Caller phải wrap transaction.
     /// </summary>
-    Task<IReadOnlyList<BvcTopUpRequest>> GetPendingExpiredAsync(DateTime now, int limit = 50);
+    Task<IReadOnlyList<BvcTopUpRequest>> GetPendingExpiredAsync(DateTime now, int limit = 50, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lấy tất cả top-up request đang Pending với AmountVnd khớp — dùng cho webhook
@@ -30,7 +31,7 @@ public interface IBvcTopUpRequestRepository
         decimal amountVnd,
         CancellationToken cancellationToken = default);
 
-    Task AddAsync(BvcTopUpRequest request);
-    Task UpdateAsync(BvcTopUpRequest request);
+    Task AddAsync(BvcTopUpRequest request, CancellationToken cancellationToken = default);
+    Task UpdateAsync(BvcTopUpRequest request, CancellationToken cancellationToken = default);
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
 }

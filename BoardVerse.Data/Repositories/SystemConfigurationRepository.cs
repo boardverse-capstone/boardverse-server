@@ -13,7 +13,7 @@ namespace BoardVerse.Data.Repositories
             _context = context;
         }
 
-        public async Task<IReadOnlyList<SystemConfiguration>> GetAllAsync()
+        public async Task<IReadOnlyList<SystemConfiguration>> GetAllAsync(CancellationToken cancellationToken = default)
         {
             var list = await _context.SystemConfigurations
                 .AsNoTracking()
@@ -23,10 +23,10 @@ namespace BoardVerse.Data.Repositories
             return list;
         }
 
-        public Task<SystemConfiguration?> GetByKeyAsync(string configKey) =>
+        public Task<SystemConfiguration?> GetByKeyAsync(string configKey, CancellationToken cancellationToken = default) =>
             _context.SystemConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == configKey);
 
-        public async Task UpsertAsync(IEnumerable<SystemConfiguration> configs)
+        public async Task UpsertAsync(IEnumerable<SystemConfiguration> configs, CancellationToken cancellationToken = default)
         {
             var utcNow = DateTime.UtcNow;
             foreach (var config in configs)
@@ -49,6 +49,6 @@ namespace BoardVerse.Data.Repositories
             }
         }
 
-        public Task SaveChangesAsync() => _context.SaveChangesAsync();
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default) => _context.SaveChangesAsync();
     }
 }

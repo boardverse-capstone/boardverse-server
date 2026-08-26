@@ -6,6 +6,7 @@ using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.Services;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class CafeInventoryServiceTests
@@ -18,15 +19,15 @@ public class CafeInventoryServiceTests
     public async Task AddToInventoryAsync_GameAlreadyInInventory_ThrowsConflict()
     {
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetByIdAsync(CafeId))
+        cafeRepo.Setup(r => r.GetByIdAsync(CafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Cafe { Id = CafeId, ManagerId = ManagerId, Name = "Demo", Address = "Addr" });
 
         var inventoryRepo = new Mock<ICafeInventoryRepository>();
-        inventoryRepo.Setup(r => r.GetByCafeAndGameTemplateAsync(CafeId, GameTemplateId))
+        inventoryRepo.Setup(r => r.GetByCafeAndGameTemplateAsync(CafeId, GameTemplateId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new CafeGameInventory { Id = Guid.NewGuid(), CafeId = CafeId, GameTemplateId = GameTemplateId });
 
         var gameRepo = new Mock<IGameTemplateRepository>();
-        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameTemplateId))
+        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameTemplateId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new GameTemplate { Id = GameTemplateId, Name = "Catan", MinPlayers = 2, MaxPlayers = 4, PlayTime = 60 });
 
         var service = new CafeInventoryService(cafeRepo.Object, inventoryRepo.Object, gameRepo.Object);
@@ -44,11 +45,11 @@ public class CafeInventoryServiceTests
     public async Task AddToInventoryAsync_UnknownGame_ThrowsNotFound()
     {
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetByIdAsync(CafeId))
+        cafeRepo.Setup(r => r.GetByIdAsync(CafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Cafe { Id = CafeId, ManagerId = ManagerId, Name = "Demo", Address = "Addr" });
 
         var gameRepo = new Mock<IGameTemplateRepository>();
-        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameTemplateId))
+        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameTemplateId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((GameTemplate?)null);
 
         var service = new CafeInventoryService(cafeRepo.Object, new Mock<ICafeInventoryRepository>().Object, gameRepo.Object);
@@ -66,16 +67,16 @@ public class CafeInventoryServiceTests
     public async Task AddToInventoryAsync_Success_CreatesInventoryAndSyncsBoxes()
     {
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetByIdAsync(CafeId))
+        cafeRepo.Setup(r => r.GetByIdAsync(CafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Cafe { Id = CafeId, ManagerId = ManagerId, Name = "Demo", Address = "Addr" });
 
         var inventoryRepo = new Mock<ICafeInventoryRepository>();
-        inventoryRepo.Setup(r => r.GetByCafeAndGameTemplateAsync(CafeId, GameTemplateId))
+        inventoryRepo.Setup(r => r.GetByCafeAndGameTemplateAsync(CafeId, GameTemplateId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((CafeGameInventory?)null);
-        inventoryRepo.Setup(r => r.GetByCafeAndGameTemplateIncludingInactiveAsync(CafeId, GameTemplateId))
+        inventoryRepo.Setup(r => r.GetByCafeAndGameTemplateIncludingInactiveAsync(CafeId, GameTemplateId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((CafeGameInventory?)null);
-        inventoryRepo.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>()))
-            .ReturnsAsync((Guid id) => new CafeGameInventory
+        inventoryRepo.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid id, CancellationToken _) => new CafeGameInventory
             {
                 Id = id,
                 CafeId = CafeId,
@@ -87,7 +88,7 @@ public class CafeInventoryServiceTests
             });
 
         var gameRepo = new Mock<IGameTemplateRepository>();
-        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameTemplateId))
+        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameTemplateId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new GameTemplate
             {
                 Id = GameTemplateId,
@@ -107,8 +108,8 @@ public class CafeInventoryServiceTests
         });
 
         Assert.Equal(GameTemplateId, result.GameTemplateId);
-        inventoryRepo.Verify(r => r.AddAsync(It.IsAny<CafeGameInventory>()), Times.Once);
-        inventoryRepo.Verify(r => r.SyncInventoryBoxesAsync(It.IsAny<Guid>()), Times.Once);
-        inventoryRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        inventoryRepo.Verify(r => r.AddAsync(It.IsAny<CafeGameInventory>(), It.IsAny<CancellationToken>()), Times.Once);
+        inventoryRepo.Verify(r => r.SyncInventoryBoxesAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Once);
+        inventoryRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 }

@@ -2,6 +2,8 @@ namespace BoardVerse.Core.Entities;
 
 /// <summary>
 /// Tồn kho bản copy game theo cafe × playDate × timeSlot (BR-RESERVATION-02 §V + §19.11).
+/// BR-NEW-15 (2026-08-18): Thêm ScheduledStartTime/ScheduledEndTime (TimeOnly) 
+/// ngoài TimeSlot enum để hỗ trợ flexible time ranges.
 /// </summary>
 public class GameInventory
 {
@@ -14,7 +16,11 @@ public class GameInventory
 
     public DateOnly PlayDate { get; set; }
 
-    public Core.Enum.TimeSlot TimeSlot { get; set; }
+    /// <summary>BR-NEW-15: Giờ bắt đầu dự kiến (nullable cho backward compat với TimeSlot).</summary>
+    public TimeOnly? ScheduledStartTime { get; set; }
+
+    /// <summary>BR-NEW-15: Giờ kết thúc dự kiến.</summary>
+    public TimeOnly? ScheduledEndTime { get; set; }
 
     /// <summary>Tổng số hộp cafe có cho game này trong khung giờ.</summary>
     public int TotalCopies { get; set; }

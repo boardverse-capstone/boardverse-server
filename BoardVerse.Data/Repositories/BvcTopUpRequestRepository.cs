@@ -32,7 +32,7 @@ public class BvcTopUpRequestRepository : IBvcTopUpRequestRepository
             .FirstOrDefaultAsync(r => r.IdempotencyKey == idempotencyKey, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<BvcTopUpRequest>> GetPendingExpiredAsync(DateTime now, int limit = 50)
+    public async Task<IReadOnlyList<BvcTopUpRequest>> GetPendingExpiredAsync(DateTime now, int limit = 50, CancellationToken cancellationToken = default)
     {
         // Cluster-safe: FOR UPDATE SKIP LOCKED + push filter xuống SQL.
         // Caller wrap batch transaction.
@@ -65,7 +65,7 @@ public class BvcTopUpRequestRepository : IBvcTopUpRequestRepository
                 TaskScheduler.Default);
     }
 
-    public async Task AddAsync(BvcTopUpRequest request)
+    public async Task AddAsync(BvcTopUpRequest request, CancellationToken cancellationToken = default)
     {
         await _db.BvcTopUpRequests.AddAsync(request);
     }
@@ -80,7 +80,7 @@ public class BvcTopUpRequestRepository : IBvcTopUpRequestRepository
             .FirstOrDefaultAsync(r => r.OrderId == orderId && r.Status == BvcTopUpStatus.Pending, cancellationToken);
     }
 
-    public Task UpdateAsync(BvcTopUpRequest request)
+    public Task UpdateAsync(BvcTopUpRequest request, CancellationToken cancellationToken = default)
     {
         _db.BvcTopUpRequests.Update(request);
         return Task.CompletedTask;

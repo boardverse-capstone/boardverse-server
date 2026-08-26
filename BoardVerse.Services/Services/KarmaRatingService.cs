@@ -24,7 +24,7 @@ namespace BoardVerse.Services.Services
             _karmaRatingRepository = karmaRatingRepository;
         }
 
-        public async Task<LobbyKarmaRatingContextDto> GetLobbyRatingContextAsync(Guid raterUserId, Guid lobbyId)
+        public async Task<LobbyKarmaRatingContextDto> GetLobbyRatingContextAsync(Guid raterUserId, Guid lobbyId, CancellationToken cancellationToken = default)
         {
             var lobby = await RequireLobbyMemberContextAsync(raterUserId, lobbyId);
             var ratedTargetIds = await _karmaRatingRepository.GetRatedTargetIdsAsync(lobbyId, raterUserId);
@@ -58,7 +58,7 @@ namespace BoardVerse.Services.Services
 
         public async Task<SubmitKarmaRatingsResponseDto> SubmitKarmaRatingsAsync(
             Guid raterUserId,
-            SubmitKarmaRatingsRequestDto request)
+            SubmitKarmaRatingsRequestDto request, CancellationToken cancellationToken = default)
         {
             var lobby = await RequireLobbyMemberContextAsync(raterUserId, request.LobbyId);
 

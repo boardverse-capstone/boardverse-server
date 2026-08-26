@@ -1,6 +1,7 @@
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 
+using System.Threading;
 namespace BoardVerse.Core.IRepositories
 {
 /// <summary>
@@ -11,16 +12,16 @@ namespace BoardVerse.Core.IRepositories
 /// </summary>
 public interface ILobbyRepository
 {
-    Task<Lobby?> GetByIdAsync(Guid lobbyId);
-    Task<Lobby?> GetByIdWithMembersAsync(Guid lobbyId);
-    Task<Lobby?> GetByActiveSessionIdAsync(Guid activeSessionId);
+    Task<Lobby?> GetByIdAsync(Guid lobbyId, CancellationToken cancellationToken = default);
+    Task<Lobby?> GetByIdWithMembersAsync(Guid lobbyId, CancellationToken cancellationToken = default);
+    Task<Lobby?> GetByActiveSessionIdAsync(Guid activeSessionId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Tra cứu lobby bằng share code (dùng cho join lobby private qua link).
     /// </summary>
-    Task<Lobby?> GetByShareCodeAsync(string shareCode);
+    Task<Lobby?> GetByShareCodeAsync(string shareCode, CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<Lobby>> GetActiveLobbiesForGameAsync(Guid gameTemplateId, Guid? excludeLobbyId);
+    Task<IReadOnlyList<Lobby>> GetActiveLobbiesForGameAsync(Guid gameTemplateId, Guid? excludeLobbyId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lấy các lobby public đang mở (status=Open, IsPrivate=false) mà bất kỳ player nào cũng có thể thấy/join.
@@ -31,93 +32,95 @@ public interface ILobbyRepository
         double? latitude,
         double? longitude,
         double? radiusKm,
-        int limit);
+        int limit, CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<Lobby>> SearchLobbiesNearbyAsync(Guid gameTemplateId, double latitude, double longitude, double radiusKm, int? minKarmaScore);
+    Task<IReadOnlyList<Lobby>> SearchLobbiesNearbyAsync(Guid gameTemplateId, double latitude, double longitude, double radiusKm, int? minKarmaScore, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lấy tất cả lobby do user này host (còn active + đã đóng).
     /// </summary>
-    Task<IReadOnlyList<Lobby>> GetLobbiesByHostAsync(Guid hostUserId);
+    Task<IReadOnlyList<Lobby>> GetLobbiesByHostAsync(Guid hostUserId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Lấy các lobby user đang tham gia (active, chưa đóng).
+    /// Lấy tất cả lobby của user (host hoặc member, active).
     /// </summary>
-    Task<IReadOnlyList<Lobby>> GetJoinedLobbiesAsync(Guid userId);
+    Task<IReadOnlyList<Lobby>> GetMyLobbiesAsync(Guid userId, CancellationToken cancellationToken = default);
 
     // ===== BR-NEW-* mở rộng cho Reservation flow =====
 
     /// <summary>
     /// BR-USER-LIMIT-01: lobby do user này host mà status ∈ (Open, Viable, Full, PendingCafeApproval, PendingActivation, InProgress).
     /// </summary>
-    Task<IReadOnlyList<Lobby>> GetActiveLobbiesByHostAsync(Guid hostUserId);
+    Task<IReadOnlyList<Lobby>> GetActiveLobbiesByHostAsync(Guid hostUserId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// BR-NEW-02: lobby active của host cho 1 playDate cụ thể.
     /// </summary>
-    Task<IReadOnlyList<Lobby>> GetActiveLobbiesByHostAsync(Guid hostUserId, DateOnly playDate);
+    Task<IReadOnlyList<Lobby>> GetActiveLobbiesByHostAsync(Guid hostUserId, DateOnly playDate, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// BR-USER-LIMIT-01: lobby user đang làm member mà status ∈ active.
     /// </summary>
-    Task<IReadOnlyList<Lobby>> GetActiveLobbiesByMemberAsync(Guid userId);
+    Task<IReadOnlyList<Lobby>> GetActiveLobbiesByMemberAsync(Guid userId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// BR-NEW-08: lobby active của user trong cùng (cafe, playDate, timeSlot).
+    /// BR-NEW-08: lobby active của user trong cùng (cafe, playDate, scheduled times).
+    /// BR-NEW-15 (2026-08-18): Dùng TimeOnly thay vì TimeSlot.
     /// </summary>
-    Task<IReadOnlyList<Lobby>> GetActiveLobbiesByCafeDateSlotAsync(Guid cafeId, DateOnly playDate, Core.Enum.TimeSlot timeSlot);
+    Task<IReadOnlyList<Lobby>> GetActiveLobbiesByCafeDateSlotAsync(Guid cafeId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// BR-NEW-08: lobby active của user cụ thể trong cùng (cafe, playDate, timeSlot).
+    /// BR-NEW-08: lobby active của user cụ thể trong cùng (cafe, playDate, scheduled times).
+    /// BR-NEW-15 (2026-08-18): Dùng TimeOnly thay vì TimeSlot.
     /// </summary>
-    Task<IReadOnlyList<Lobby>> GetActiveLobbiesByCafeDateSlotAsync(Guid userId, Guid cafeId, DateOnly playDate, Core.Enum.TimeSlot timeSlot);
+    Task<IReadOnlyList<Lobby>> GetActiveLobbiesByCafeDateSlotAsync(Guid userId, Guid cafeId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// BR-USER-LIMIT-02: lobby của user có overlap với khung [startTime, endTime] (+30p buffer).
-    /// Lấy từ Reservation.PlayDate + TimeSlot để so sánh.
+    /// BR-NEW-15 (2026-08-18): Dùng TimeOnly thay vì TimeSlot.
     /// </summary>
     Task<IReadOnlyList<Lobby>> GetOverlappingLobbiesAsync(
         Guid userId,
         DateOnly playDate,
-        Core.Enum.TimeSlot timeSlot,
-        DateTime newRecruitmentDeadline,
-        DateTime newScheduledTime);
+        TimeOnly newScheduledStartTime,
+        TimeOnly newScheduledEndTime,
+        DateTime newRecruitmentDeadline, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// BR-NEW-05: đếm số lobby user đã tạo (status không phải terminal) cho 1 playDate.
     /// </summary>
-    Task<int> CountActiveOrTerminalByHostPlayDateAsync(Guid hostUserId, DateOnly playDate);
+    Task<int> CountActiveOrTerminalByHostPlayDateAsync(Guid hostUserId, DateOnly playDate, CancellationToken cancellationToken = default);
 
-    Task<BookingDeposit?> GetBookingByIdAsync(Guid bookingId);
+    Task<BookingDeposit?> GetBookingByIdAsync(Guid bookingId, CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<LobbyMember>> GetMembersAsync(Guid lobbyId);
+    Task<IReadOnlyList<LobbyMember>> GetMembersAsync(Guid lobbyId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// R-Bug-026 Fix: kiểm tra user có phải thành viên active của lobby không.
     /// Dùng cho SignalR PosHub/LobbyHub authorization.
     /// </summary>
-    Task<bool> IsUserLobbyMemberAsync(Guid lobbyId, Guid userId);
+    Task<bool> IsUserLobbyMemberAsync(Guid lobbyId, Guid userId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// R-Bug-026 Fix: kiểm tra user có phải member của booking không.
     /// Dùng cho SignalR LobbyHub.JoinBookingGroup authorization.
     /// </summary>
-    Task<bool> IsUserBookingParticipantAsync(Guid bookingId, Guid userId);
+    Task<bool> IsUserBookingParticipantAsync(Guid bookingId, Guid userId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Tìm lobby theo ReservationId — dùng để self-heal orphan reservation khi
     /// Reservation.LobbyId = null nhưng Lobby.ReservationId tồn tại (R-Bug-029).
     /// </summary>
-    Task<Lobby?> GetByReservationIdAsync(Guid reservationId);
+    Task<Lobby?> GetByReservationIdAsync(Guid reservationId, CancellationToken cancellationToken = default);
 
-    Task AddAsync(Lobby lobby);
-    Task AddMemberAsync(LobbyMember member);
-    Task AddReportAsync(LobbyReport report);
+    Task AddAsync(Lobby lobby, CancellationToken cancellationToken = default);
+    Task AddMemberAsync(LobbyMember member, CancellationToken cancellationToken = default);
+    Task AddReportAsync(LobbyReport report, CancellationToken cancellationToken = default);
 
-    Task UpdateAsync(Lobby lobby);
+    Task UpdateAsync(Lobby lobby, CancellationToken cancellationToken = default);
 
     // H4: SELECT ... FOR UPDATE để chống race condition khi JoinLobby (BR-07: vượt MaxMembers).
-    Task<Lobby?> GetByIdForUpdateAsync(Guid lobbyId);
+    Task<Lobby?> GetByIdForUpdateAsync(Guid lobbyId, CancellationToken cancellationToken = default);
 
     // H4: transaction context cho JoinLobby atomic guard.
     Task<IDatabaseTransactionContext> BeginTransactionAsync(CancellationToken cancellationToken = default);
@@ -126,9 +129,9 @@ public interface ILobbyRepository
     /// Hard-delete lobby và toàn bộ records phụ thuộc (members, messages, invites, reports).
     /// Dùng cho dissolve — chỉ host mới được gọi.
     /// </summary>
-    Task RemoveAsync(Lobby lobby);
+    Task RemoveAsync(Lobby lobby, CancellationToken cancellationToken = default);
 
-    Task SaveChangesAsync();
+    Task SaveChangesAsync(CancellationToken cancellationToken = default);
 
     // === Admin: Reports ===
     /// <summary>
@@ -136,7 +139,7 @@ public interface ILobbyRepository
     /// </summary>
     Task<int> CountFailuresByTypeAsync(
         DateTime? fromUtc, DateTime? toUtc,
-        LobbyStatus? failureType);
+        LobbyStatus? failureType, CancellationToken cancellationToken = default);
     /// <summary>
     /// BR-NEW-10 §XI.1 — Đếm lobby failures của 1 host cụ thể trong khoảng thời gian.
     /// Dùng cho cooling-off signal detection.
@@ -144,14 +147,14 @@ public interface ILobbyRepository
     Task<int> CountFailuresByTypeForHostAsync(
         Guid hostUserId,
         DateTime? fromUtc, DateTime? toUtc,
-        LobbyStatus? failureType);
+        LobbyStatus? failureType, CancellationToken cancellationToken = default);
     /// <summary>
     /// BR-RISK-01 (SIG-08): Count lobby của host có create+cancel trong &lt; 5 phút trong khoảng thời gian.
     /// </summary>
     Task<int> CountQuickCreateCancelAsync(
         Guid hostUserId,
         DateTime fromUtc,
-        TimeSpan maxGap);
+        TimeSpan maxGap, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lấy danh sách lobby failures có phân trang.
@@ -159,6 +162,17 @@ public interface ILobbyRepository
     Task<(IReadOnlyList<Lobby> Items, int TotalCount)> GetAdminLobbyFailuresAsync(
         int page, int pageSize,
         DateTime? fromUtc, DateTime? toUtc,
-        LobbyStatus? failureType);
+        LobbyStatus? failureType, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lấy danh sách lobby của 1 cafe cho Manager dashboard.
+    /// Filter theo status và playDate, có phân trang.
+    /// </summary>
+    Task<(IReadOnlyList<Lobby> Items, int TotalCount)> GetByCafeAsync(
+        Guid cafeId,
+        DateOnly? playDate,
+        List<LobbyStatus>? statuses,
+        int page,
+        int pageSize, CancellationToken cancellationToken = default);
 }
 }

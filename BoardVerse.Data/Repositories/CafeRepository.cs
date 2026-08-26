@@ -19,26 +19,26 @@ namespace BoardVerse.Data.Repositories
             _context = context;
         }
 
-        public async Task<Cafe?> GetByIdAsync(Guid id)
+        public async Task<Cafe?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
         {
             return await _context.Cafes
                 .Include(c => c.StaffMembers)
-                .FirstOrDefaultAsync(c => c.Id == id);
+                .FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
         }
 
         /// <summary>
         /// Lấy Cafe kèm Manager navigation (FK User) — dùng cho AdminCafeController.GET /api/admin/cafes/{id}
         /// cần render ManagerName/ManagerEmail. Include Manager tránh NullRef khi map DTO.
         /// </summary>
-        public async Task<Cafe?> GetByIdWithManagerAsync(Guid id)
+        public async Task<Cafe?> GetByIdWithManagerAsync(Guid id, CancellationToken cancellationToken = default)
         {
             return await _context.Cafes
                 .Include(c => c.Manager)
                 .Include(c => c.StaffMembers)
-                .FirstOrDefaultAsync(c => c.Id == id);
+                .FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
         }
 
-        public async Task<Cafe?> GetActiveByIdAsync(Guid id)
+        public async Task<Cafe?> GetActiveByIdAsync(Guid id, CancellationToken cancellationToken = default)
         {
             return await _context.Cafes
                 .AsNoTracking()
@@ -46,39 +46,39 @@ namespace BoardVerse.Data.Repositories
                     c.Id == id &&
                     c.IsActive &&
                     (c.PartnerOperationalStatus == null ||
-                     c.PartnerOperationalStatus == Core.Enum.CafePartnerOperationalStatus.Active));
+                     c.PartnerOperationalStatus == Core.Enum.CafePartnerOperationalStatus.Active), cancellationToken);
         }
 
-        public async Task<Cafe?> GetByIdWithInventoriesAsync(Guid id)
+        public async Task<Cafe?> GetByIdWithInventoriesAsync(Guid id, CancellationToken cancellationToken = default)
         {
             return await _context.Cafes
                 .Include(c => c.Inventories)
                     .ThenInclude(i => i.Boxes)
-                .FirstOrDefaultAsync(c => c.Id == id);
+                .FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
         }
 
-        public async Task<List<Cafe>> GetNearbyCafesAsync(Guid excludeCafeId, double radiusKm = 10)
+        public async Task<List<Cafe>> GetNearbyCafesAsync(Guid excludeCafeId, double radiusKm = 10, CancellationToken cancellationToken = default)
         {
             return await _context.Cafes
                 .AsNoTracking()
                 .Where(c => c.Id != excludeCafeId && c.IsActive && c.Location != null)
                 .OrderBy(c => c.Location.Distance(_context.Cafes.First(x => x.Id == excludeCafeId).Location))
                 .Take(5)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
         }
 
-        public async Task<User?> GetUserByIdAsync(Guid userId)
+        public async Task<User?> GetUserByIdAsync(Guid userId, CancellationToken cancellationToken = default)
         {
-            return await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+            return await _context.Users.FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
         }
 
-        public async Task<User?> GetUserByEmailAsync(string email)
+        public async Task<User?> GetUserByEmailAsync(string email, CancellationToken cancellationToken = default)
         {
             return await _context.Users
-                .FirstOrDefaultAsync(u => u.Email == email);
+                .FirstOrDefaultAsync(u => u.Email == email, cancellationToken);
         }
 
-        public async Task<bool> UsernameExistsAsync(string username, Guid? excludedUserId = null)
+        public async Task<bool> UsernameExistsAsync(string username, Guid? excludedUserId = null, CancellationToken cancellationToken = default)
         {
             var query = _context.Users.Where(u => u.Username == username);
             if (excludedUserId.HasValue)
@@ -86,45 +86,45 @@ namespace BoardVerse.Data.Repositories
                 query = query.Where(u => u.Id != excludedUserId.Value);
             }
 
-            return await query.AnyAsync();
+            return await query.AnyAsync(cancellationToken);
         }
 
-        public Task AddCafeStaffAsync(CafeStaff cafeStaff)
+        public Task AddCafeStaffAsync(CafeStaff cafeStaff, CancellationToken cancellationToken = default)
         {
             _context.CafeStaffs.Add(cafeStaff);
             return Task.CompletedTask;
         }
 
-        public Task AddUserAsync(User user)
+        public Task AddUserAsync(User user, CancellationToken cancellationToken = default)
         {
             _context.Users.Add(user);
             return Task.CompletedTask;
         }
 
-        public async Task<bool> IsStaffMemberExistsAsync(Guid cafeId, Guid userId)
+        public async Task<bool> IsStaffMemberExistsAsync(Guid cafeId, Guid userId, CancellationToken cancellationToken = default)
         {
             return await _context.CafeStaffs
-                .AnyAsync(cs => cs.CafeId == cafeId && cs.UserId == userId);
+                .AnyAsync(cs => cs.CafeId == cafeId && cs.UserId == userId, cancellationToken);
         }
 
         /// <summary>
         /// GAP-C1: Returns true when the user is the cafe's manager OR a staff member.
         /// Used by IDOR guards on booking/receipt endpoints to lock cross-tenant access.
         /// </summary>
-        public async Task<bool> IsManagerOrStaffAsync(Guid cafeId, Guid userId)
+        public async Task<bool> IsManagerOrStaffAsync(Guid cafeId, Guid userId, CancellationToken cancellationToken = default)
         {
             return await _context.Cafes
                 .AnyAsync(c => c.Id == cafeId && (c.ManagerId == userId
-                    || _context.CafeStaffs.Any(cs => cs.CafeId == cafeId && cs.UserId == userId)));
+                    || _context.CafeStaffs.Any(cs => cs.CafeId == cafeId && cs.UserId == userId)), cancellationToken);
         }
 
-        public async Task<int> CountActiveStaffAssignmentsAsync(Guid userId)
+        public async Task<int> CountActiveStaffAssignmentsAsync(Guid userId, CancellationToken cancellationToken = default)
         {
             return await _context.CafeStaffs
-                .CountAsync(cs => cs.UserId == userId && cs.User.IsActive);
+                .CountAsync(cs => cs.UserId == userId && cs.User.IsActive, cancellationToken);
         }
 
-        public async Task<PaginatedResponse<StaffDto>> GetStaffPagedAsync(Guid cafeId, PaginationParams paginationParams)
+        public async Task<PaginatedResponse<StaffDto>> GetStaffPagedAsync(Guid cafeId, PaginationParams paginationParams, CancellationToken cancellationToken = default)
         {
             var query = _context.CafeStaffs
                 .Include(cs => cs.User)
@@ -137,11 +137,11 @@ namespace BoardVerse.Data.Repositories
                     JoinedAt = cs.JoinedAt
                 });
 
-            var totalItems = await query.CountAsync();
+            var totalItems = await query.CountAsync(cancellationToken);
             var items = await query
                 .Skip((paginationParams.PageNumber - 1) * paginationParams.PageSize)
                 .Take(paginationParams.PageSize)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             var totalPages = (int)Math.Ceiling(totalItems / (double)paginationParams.PageSize);
 
@@ -158,36 +158,36 @@ namespace BoardVerse.Data.Repositories
             };
         }
 
-        public async Task<CafeStaff?> GetCafeStaffAsync(Guid cafeId, Guid staffId)
+        public async Task<CafeStaff?> GetCafeStaffAsync(Guid cafeId, Guid staffId, CancellationToken cancellationToken = default)
         {
             return await _context.CafeStaffs
                 .Include(cs => cs.Cafe)
-                .FirstOrDefaultAsync(cs => cs.CafeId == cafeId && cs.UserId == staffId);
+                .FirstOrDefaultAsync(cs => cs.CafeId == cafeId && cs.UserId == staffId, cancellationToken);
         }
 
-        public Task RemoveCafeStaffAsync(CafeStaff cafeStaff)
+        public Task RemoveCafeStaffAsync(CafeStaff cafeStaff, CancellationToken cancellationToken = default)
         {
             _context.CafeStaffs.Remove(cafeStaff);
             return Task.CompletedTask;
         }
 
-        public async Task<IEnumerable<Cafe>> GetCafesByManagerIdAsync(Guid managerId)
+        public async Task<IEnumerable<Cafe>> GetCafesByManagerIdAsync(Guid managerId, CancellationToken cancellationToken = default)
         {
             return await _context.Cafes
                 .AsNoTracking()
                 .Where(c => c.ManagerId == managerId && c.IsActive)
                 .OrderBy(c => c.Name)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
         }
 
-        public async Task<IEnumerable<Cafe>> GetCafesByStaffIdAsync(Guid staffId)
+        public async Task<IEnumerable<Cafe>> GetCafesByStaffIdAsync(Guid staffId, CancellationToken cancellationToken = default)
         {
             return await _context.CafeStaffs
                 .Include(cs => cs.Cafe)
                 .Where(cs => cs.UserId == staffId && cs.User.IsActive)
                 .Select(cs => cs.Cafe)
                 .Where(c => c.IsActive)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
         }
 
         public async Task<PaginatedResponse<NearbyCafeDto>> GetNearbyAsync(
@@ -196,7 +196,8 @@ namespace BoardVerse.Data.Repositories
             double radiusKm,
             Guid? gameTemplateId,
             string? name,
-            PaginationParams paginationParams)
+            PaginationParams paginationParams,
+            CancellationToken cancellationToken = default)
         {
             var origin = GeoLocationHelper.ToPoint(latitude, longitude);
             var radiusMeters = radiusKm * 1000;
@@ -280,12 +281,12 @@ namespace BoardVerse.Data.Repositories
                     && t.IsActive)
             });
 
-            var totalItems = await projected.CountAsync();
+            var totalItems = await projected.CountAsync(cancellationToken);
             var items = await projected
                 .OrderBy(c => c.DistanceMeters)
                 .Skip((paginationParams.PageNumber - 1) * paginationParams.PageSize)
                 .Take(paginationParams.PageSize)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             var totalPages = totalItems == 0
                 ? 0
@@ -305,7 +306,8 @@ namespace BoardVerse.Data.Repositories
         }
 
         public async Task<PaginatedResponse<NearbyCafeDto>> GetAllActiveCafesAsync(
-            PaginationParams paginationParams)
+            PaginationParams paginationParams,
+            CancellationToken cancellationToken = default)
         {
             var query = _context.Cafes
                 .AsNoTracking()
@@ -349,12 +351,12 @@ namespace BoardVerse.Data.Repositories
                     && t.IsActive)
             });
 
-            var totalItems = await projected.CountAsync();
+            var totalItems = await projected.CountAsync(cancellationToken);
             var items = await projected
                 .OrderBy(c => c.Name)
                 .Skip((paginationParams.PageNumber - 1) * paginationParams.PageSize)
                 .Take(paginationParams.PageSize)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             var totalPages = totalItems == 0
                 ? 0
@@ -378,7 +380,8 @@ namespace BoardVerse.Data.Repositories
             double? latitude,
             double? longitude,
             double? radiusKm,
-            PaginationParams paginationParams)
+            PaginationParams paginationParams,
+            CancellationToken cancellationToken = default)
         {
             var query = _context.Cafes
                 .AsNoTracking()
@@ -443,11 +446,11 @@ namespace BoardVerse.Data.Repositories
                 projected = projected.OrderBy(c => c.Name);
             }
 
-            var totalItems = await projected.CountAsync();
+            var totalItems = await projected.CountAsync(cancellationToken);
             var items = await projected
                 .Skip((paginationParams.PageNumber - 1) * paginationParams.PageSize)
                 .Take(paginationParams.PageSize)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             var totalPages = totalItems == 0
                 ? 0
@@ -466,7 +469,7 @@ namespace BoardVerse.Data.Repositories
             };
         }
 
-        public async Task EnrichNearbyWithGameWaitAsync(IList<NearbyCafeDto> cafes, Guid gameTemplateId)
+        public async Task EnrichNearbyWithGameWaitAsync(IList<NearbyCafeDto> cafes, Guid gameTemplateId, CancellationToken cancellationToken = default)
         {
             if (cafes.Count == 0)
             {
@@ -480,7 +483,7 @@ namespace BoardVerse.Data.Repositories
                 .AsNoTracking()
                 .Where(g => g.Id == gameTemplateId && g.IsActive)
                 .Select(g => (int?)g.PlayTime)
-                .FirstOrDefaultAsync();
+                .FirstOrDefaultAsync(cancellationToken);
 
             if (!playTime.HasValue)
             {
@@ -502,7 +505,7 @@ namespace BoardVerse.Data.Repositories
                     b.CafeGameInventory.CafeId,
                     b.Status
                 })
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             var inUseBoxIds = boxes
                 .Where(b => b.Status == CafeGameInventoryStatus.InUse)
@@ -518,7 +521,7 @@ namespace BoardVerse.Data.Repositories
                         && s.CafeInventoryBoxId.HasValue
                         && inUseBoxIds.Contains(s.CafeInventoryBoxId.Value))
                     .Select(s => new { BoxId = s.CafeInventoryBoxId!.Value, s.StartedAt })
-                    .ToListAsync();
+                    .ToListAsync(cancellationToken);
 
             var sessionStartByBoxId = sessionStarts.ToDictionary(s => s.BoxId, s => s.StartedAt);
 
@@ -564,7 +567,8 @@ namespace BoardVerse.Data.Repositories
             double longitude,
             double radiusKm,
             Guid gameTemplateId,
-            int limit = 10)
+            int limit = 10,
+            CancellationToken cancellationToken = default)
         {
             var origin = GeoLocationHelper.ToPoint(latitude, longitude);
             var radiusMeters = radiusKm * 1000;
@@ -573,7 +577,7 @@ namespace BoardVerse.Data.Repositories
                 .AsNoTracking()
                 .Where(gtc => gtc.GameTemplateId == gameTemplateId)
                 .Select(gtc => gtc.CategoryId)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             if (categoryIds.Count == 0)
             {
@@ -603,7 +607,7 @@ namespace BoardVerse.Data.Repositories
                     CafeId = b.CafeGameInventory.CafeId,
                     DistanceMeters = b.CafeGameInventory.Cafe.Location!.Distance(origin)
                 })
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             if (availabilityRows.Count == 0)
             {
@@ -629,7 +633,7 @@ namespace BoardVerse.Data.Repositories
                         SortOrder = gtc.Category.SortOrder
                     }
                 })
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             var categoriesLookup = sharedCategoriesByGame
                 .GroupBy(x => x.GameTemplateId)
@@ -663,7 +667,7 @@ namespace BoardVerse.Data.Repositories
                 .ToList();
         }
 
-        public async Task<Cafe?> GetPartnerCafeByManagerIdAsync(Guid managerUserId)
+        public async Task<Cafe?> GetPartnerCafeByManagerIdAsync(Guid managerUserId, CancellationToken cancellationToken = default)
         {
             return await _context.Cafes
                 .Include(c => c.PartnerApplication)
@@ -671,14 +675,14 @@ namespace BoardVerse.Data.Repositories
                 .Include(c => c.Inventories.Where(i => i.IsActive))
                 .FirstOrDefaultAsync(c =>
                     c.ManagerId == managerUserId &&
-                    c.PartnerOperationalStatus != null);
+                    c.PartnerOperationalStatus != null, cancellationToken);
         }
 
-        public async Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<string> tableNames)
+        public async Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<string> tableNames, CancellationToken cancellationToken = default)
         {
             var existingTables = await _context.CafeTables
                 .Where(t => t.CafeId == cafeId)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             var loadedIds = existingTables.Select(t => t.Id).ToHashSet();
             CafeTableSyncHelper.ApplySync(cafeId, tableNames, existingTables);
@@ -688,16 +692,16 @@ namespace BoardVerse.Data.Repositories
                 _context.CafeTables.Add(table);
             }
 
-            await RefreshTableLayoutJsonAsync(cafeId);
+            await RefreshTableLayoutJsonAsync(cafeId, cancellationToken);
 
-            await _context.SaveChangesAsync();
+            await _context.SaveChangesAsync(cancellationToken);
         }
 
-        public async Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<CafeTableSyncItem> tables)
+        public async Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<CafeTableSyncItem> tables, CancellationToken cancellationToken = default)
         {
             var existingTables = await _context.CafeTables
                 .Where(t => t.CafeId == cafeId)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             var loadedIds = existingTables.Select(t => t.Id).ToHashSet();
             CafeTableSyncHelper.ApplySync(cafeId, tables, existingTables);
@@ -707,14 +711,14 @@ namespace BoardVerse.Data.Repositories
                 _context.CafeTables.Add(table);
             }
 
-            await RefreshTableLayoutJsonAsync(cafeId);
+            await RefreshTableLayoutJsonAsync(cafeId, cancellationToken);
 
-            await _context.SaveChangesAsync();
+            await _context.SaveChangesAsync(cancellationToken);
         }
 
-        public async Task RefreshTableLayoutJsonAsync(Guid cafeId)
+        public async Task RefreshTableLayoutJsonAsync(Guid cafeId, CancellationToken cancellationToken = default)
         {
-            var cafe = await _context.Cafes.FirstOrDefaultAsync(c => c.Id == cafeId);
+            var cafe = await _context.Cafes.FirstOrDefaultAsync(c => c.Id == cafeId, cancellationToken);
             if (cafe == null)
             {
                 return;
@@ -724,27 +728,28 @@ namespace BoardVerse.Data.Repositories
                 .Where(t => t.CafeId == cafeId && t.IsActive)
                 .OrderBy(t => t.SortOrder)
                 .Select(t => t.Name)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             cafe.TableLayoutJson = System.Text.Json.JsonSerializer.Serialize(activeNames);
             cafe.UpdatedAt = DateTime.UtcNow;
         }
 
-        public async Task SaveChangesAsync()
+        public async Task SaveChangesAsync(CancellationToken cancellationToken = default)
         {
-            await _context.SaveChangesAsync();
+            await _context.SaveChangesAsync(cancellationToken);
         }
 
         // === Admin: Full CRUD ===
 
-        public async Task AddCafeAsync(Cafe cafe)
+        public async Task AddCafeAsync(Cafe cafe, CancellationToken cancellationToken = default)
         {
             _context.Cafes.Add(cafe);
-            await _context.SaveChangesAsync();
+            await _context.SaveChangesAsync(cancellationToken);
         }
 
         public async Task<(IReadOnlyList<Cafe> Items, int TotalCount)> GetAdminListAsync(
-            int page, int pageSize, string? searchTerm, bool? isActive, Guid? managerId)
+            int page, int pageSize, string? searchTerm, bool? isActive, Guid? managerId,
+            CancellationToken cancellationToken = default)
         {
             var query = _context.Cafes.AsQueryable();
 
@@ -766,7 +771,7 @@ namespace BoardVerse.Data.Repositories
                 query = query.Where(c => c.ManagerId == managerId.Value);
             }
 
-            var totalCount = await query.CountAsync();
+            var totalCount = await query.CountAsync(cancellationToken);
 
             var items = await query
                 .Include(c => c.Manager)
@@ -774,33 +779,33 @@ namespace BoardVerse.Data.Repositories
                 .OrderByDescending(c => c.CreatedAt)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             return (items, totalCount);
         }
 
-        public async Task<Cafe?> GetAdminDetailAsync(Guid cafeId)
+        public async Task<Cafe?> GetAdminDetailAsync(Guid cafeId, CancellationToken cancellationToken = default)
         {
             return await _context.Cafes
                 .Include(c => c.StaffMembers)
                     .ThenInclude(s => s.User)
                 .Include(c => c.Inventories)
-                .FirstOrDefaultAsync(c => c.Id == cafeId);
+                .FirstOrDefaultAsync(c => c.Id == cafeId, cancellationToken);
         }
 
-        public async Task<int> CountAllAsync()
+        public async Task<int> CountAllAsync(CancellationToken cancellationToken = default)
         {
-            return await _context.Cafes.CountAsync();
+            return await _context.Cafes.CountAsync(cancellationToken);
         }
 
-        public async Task<int> CountActiveAsync()
+        public async Task<int> CountActiveAsync(CancellationToken cancellationToken = default)
         {
-            return await _context.Cafes.CountAsync(c => c.IsActive);
+            return await _context.Cafes.CountAsync(c => c.IsActive, cancellationToken);
         }
 
         // === Cafe Detail (extended public info) ===
 
-        public async Task<Cafe?> GetCafeDetailAsync(Guid id)
+        public async Task<Cafe?> GetCafeDetailAsync(Guid id, CancellationToken cancellationToken = default)
         {
             return await _context.Cafes
                 .AsNoTracking()
@@ -811,14 +816,21 @@ namespace BoardVerse.Data.Repositories
                     c.Id == id &&
                     c.IsActive &&
                     (c.PartnerOperationalStatus == null ||
-                     c.PartnerOperationalStatus == CafePartnerOperationalStatus.Active));
+                     c.PartnerOperationalStatus == CafePartnerOperationalStatus.Active), cancellationToken);
         }
 
-        public async Task<Dictionary<TimeSlot, int>> GetAvailableSeatsByTimeSlotAsync(Guid cafeId, DateOnly playDate)
+        public async Task<Dictionary<TimeSlot, int>> GetAvailableSeatsByTimeSlotAsync(Guid cafeId, DateOnly playDate, CancellationToken cancellationToken = default)
         {
+            // BR-NEW-15 (2026-08-18): GetAvailableSeatsByTimeSlotAsync đang trong quá trình refactor.
+            // SeatInventory.TimeSlot đã được thay bằng ScheduledStartTime/ScheduledEndTime.
+            // Tạm thời trả về total seats - held - inUse (không phân biệt slot).
+            // TODO Phase 2: Cập nhật trả về Dictionary<TimeOnly, int> dựa trên ScheduledStartTime ranges.
             var result = new Dictionary<TimeSlot, int>();
-            var utcNow = DateTime.UtcNow;
-            var today = DateOnly.FromDateTime(utcNow);
+            var totalSeats = await _context.Cafes
+                .AsNoTracking()
+                .Where(c => c.Id == cafeId)
+                .Select(c => c.TotalSeats)
+                .FirstOrDefaultAsync(cancellationToken);
 
             foreach (TimeSlot slot in Enum.GetValues<TimeSlot>())
             {
@@ -827,7 +839,8 @@ namespace BoardVerse.Data.Repositories
                     .FirstOrDefaultAsync(s =>
                         s.CafeId == cafeId &&
                         s.PlayDate == playDate &&
-                        s.TimeSlot == slot);
+                        s.ScheduledStartTime == slot.GetStartTime() &&
+                        s.ScheduledEndTime == slot.GetEndTime(), cancellationToken);
 
                 if (inventory != null)
                 {
@@ -835,22 +848,16 @@ namespace BoardVerse.Data.Repositories
                 }
                 else
                 {
-                    // Không có inventory record → dùng TotalSeats của cafe
-                    // (quán chưa có ai đặt cho ngày này)
-                    var cafe = await _context.Cafes
-                        .AsNoTracking()
-                        .Where(c => c.Id == cafeId)
-                        .Select(c => new { c.TotalSeats })
-                        .FirstOrDefaultAsync();
-
-                    result[slot] = cafe?.TotalSeats ?? 0;
+                    var heldSeats = await CountHeldSeatsForSlotAsync(cafeId, playDate, slot, cancellationToken);
+                    var inUseSeats = await CountInUseSeatsForSlotAsync(cafeId, playDate, slot, cancellationToken);
+                    result[slot] = Math.Max(0, totalSeats - heldSeats - inUseSeats);
                 }
             }
 
             return result;
         }
 
-        public async Task<List<CafeScheduleOverride>> GetScheduleOverridesAsync(Guid cafeId, DateOnly? fromDate = null, DateOnly? toDate = null)
+        public async Task<List<CafeScheduleOverride>> GetScheduleOverridesAsync(Guid cafeId, DateOnly? fromDate = null, DateOnly? toDate = null, CancellationToken cancellationToken = default)
         {
             var query = _context.CafeScheduleOverrides
                 .AsNoTracking()
@@ -858,23 +865,20 @@ namespace BoardVerse.Data.Repositories
 
             if (fromDate.HasValue)
             {
-                query = query.Where(o =>
-                    o.EffectiveTo == null || o.EffectiveTo >= fromDate.Value);
+                query = query.Where(o => o.ApplyDate >= fromDate.Value);
             }
 
             if (toDate.HasValue)
             {
-                query = query.Where(o =>
-                    o.EffectiveFrom == null || o.EffectiveFrom <= toDate.Value);
+                query = query.Where(o => o.ApplyDate <= toDate.Value);
             }
 
             return await query
-                .OrderBy(o => o.TimeSlot)
-                .ThenBy(o => o.EffectiveFrom)
-                .ToListAsync();
+                .OrderBy(o => o.ApplyDate)
+                .ToListAsync(cancellationToken);
         }
 
-        public async Task<int> CountHeldSeatsAsync(Guid cafeId, DateOnly playDate)
+        public async Task<int> CountHeldSeatsAsync(Guid cafeId, DateOnly playDate, CancellationToken cancellationToken = default)
         {
             // Đếm tổng MaxPlayers của các reservation đang ở trạng thái holding/confirmed
             // (chưa check-in, chưa expired/cancelled)
@@ -886,10 +890,10 @@ namespace BoardVerse.Data.Repositories
                     (r.Status == ReservationStatus.Holding ||
                      r.Status == ReservationStatus.Confirmed ||
                      r.Status == ReservationStatus.AwaitingDeposit))
-                .SumAsync(r => (int?)r.MaxPlayers) ?? 0;
+                .SumAsync(r => (int?)r.MaxPlayers, cancellationToken) ?? 0;
         }
 
-        public async Task<int> CountInUseSeatsAsync(Guid cafeId, DateOnly playDate)
+        public async Task<int> CountInUseSeatsAsync(Guid cafeId, DateOnly playDate, CancellationToken cancellationToken = default)
         {
             // Đếm tổng số members đang active trong các session
             // ActiveSession: đã check-in, chưa paid
@@ -904,7 +908,56 @@ namespace BoardVerse.Data.Repositories
                     s.StartedAt >= startOfDay &&
                     s.StartedAt <= endOfDay)
                 .SelectMany(s => s.Members)
-                .CountAsync(m => m.Status == IndividualSessionStatus.Playing);
+                .CountAsync(m => m.Status == IndividualSessionStatus.Playing, cancellationToken);
+        }
+
+        /// <summary>
+        /// Đếm tổng MaxPlayers của các reservation đang giữ ghế cho (cafe, playDate, timeSlot).
+        /// Dùng cho fallback khi SeatInventory row chưa được tạo.
+        /// BR-NEW-15: Dùng OVERLAP check thay vì exact match để đếm đúng reservation giao nhau với slot.
+        ///
+        /// Reservation overlap với slot khi:
+        ///   r.PreferredStartTime &lt; slotEnd &amp;&amp; r.PreferredEndTime &gt; slotStart
+        /// Ví dụ: reservation 14:00-17:00 overlap với Afternoon (12:00-18:00)
+        /// </summary>
+        private async Task<int> CountHeldSeatsForSlotAsync(Guid cafeId, DateOnly playDate, TimeSlot timeSlot, CancellationToken cancellationToken = default)
+        {
+            var slotStart = timeSlot.GetStartTime();
+            var slotEnd = timeSlot.GetEndTime();
+
+            return await _context.Reservations
+                .AsNoTracking()
+                .Where(r =>
+                    r.CafeId == cafeId &&
+                    r.PlayDate == playDate &&
+                    // GAP-06 fix: OVERLAP check thay vì exact match
+                    r.PreferredStartTime < slotEnd &&
+                    r.PreferredEndTime > slotStart &&
+                    (r.Status == ReservationStatus.Holding ||
+                     r.Status == ReservationStatus.Confirmed ||
+                     r.Status == ReservationStatus.AwaitingDeposit))
+                .SumAsync(r => (int?)r.MaxPlayers, cancellationToken) ?? 0;
+        }
+
+        /// <summary>
+        /// Đếm tổng số members đang active trong session cho (cafe, playDate).
+        /// ActiveSession không có TimeSlot field → chỉ filter theo ngày.
+        /// Dùng cho fallback khi SeatInventory row chưa được tạo.
+        /// </summary>
+        private async Task<int> CountInUseSeatsForSlotAsync(Guid cafeId, DateOnly playDate, TimeSlot timeSlot, CancellationToken cancellationToken = default)
+        {
+            var startOfDay = playDate.ToDateTime(TimeOnly.MinValue);
+            var endOfDay = playDate.ToDateTime(TimeOnly.MaxValue);
+
+            return await _context.ActiveSessions
+                .AsNoTracking()
+                .Where(s =>
+                    s.CafeId == cafeId &&
+                    s.Status != GroupSessionStatus.Paid &&
+                    s.StartedAt >= startOfDay &&
+                    s.StartedAt <= endOfDay)
+                .SelectMany(s => s.Members)
+                .CountAsync(m => m.Status == IndividualSessionStatus.Playing, cancellationToken);
         }
     }
 }

@@ -3,20 +3,19 @@ using System.ComponentModel.DataAnnotations;
 namespace BoardVerse.Core.Entities;
 
 /// <summary>
-/// GAP-10 Fix: Audit table cho mọi SePay webhook nhận được.
+/// GAP-10 + Fix #1: Audit table cho mọi SePay webhook nhận được.
 /// Lưu payload + kết quả xử lý để admin query lại khi cần debug/refund.
-/// Đặc biệt quan trọng cho session payment khi:
-///   - Amount mismatch (cần refund manual)
-///   - Session không match OrderId
-///   - Session đã Closed (terminal) → staff phải refund
-///   - Status = failed/cancelled cho session (không auto-handler)
+/// Hỗ trợ cả session payment và split bill per-member payment.
 /// </summary>
 public class PaymentWebhookAudit
 {
     [Key]
     public Guid Id { get; set; }
 
-    /// <summary>OrderId từ webhook (BV... / BVC-... / session order).</summary>
+    /// <summary>Endpoint webhook được gọi.</summary>
+    public string Endpoint { get; set; } = string.Empty;
+
+    /// <summary>OrderId từ webhook (BV... / BVC-... / BV-MEMBER-...).</summary>
     public string OrderId { get; set; } = string.Empty;
 
     /// <summary>Gateway transaction ID (FT... từ SePay).</summary>
@@ -24,6 +23,9 @@ public class PaymentWebhookAudit
 
     /// <summary>Session ID nếu match được (cho session payment).</summary>
     public Guid? SessionId { get; set; }
+
+    /// <summary>Member ID nếu match được (cho split bill payment).</summary>
+    public Guid? MemberId { get; set; }
 
     /// <summary>Số tiền nhận từ webhook.</summary>
     public decimal Amount { get; set; }
@@ -48,4 +50,16 @@ public class PaymentWebhookAudit
 
     /// <summary>Thời điểm nhận webhook.</summary>
     public DateTime ProcessedAt { get; set; }
+
+    /// <summary>Service/handler xử lý webhook.</summary>
+    public string ProcessedBy { get; set; } = string.Empty;
+
+    /// <summary>Webhook có xử lý thành công không.</summary>
+    public bool IsSuccess { get; set; }
+
+    /// <summary>Thông điệp lỗi nếu không thành công.</summary>
+    public string? ErrorMessage { get; set; }
+
+    /// <summary>Ghi chú bổ sung cho audit.</summary>
+    public string? Notes { get; set; }
 }

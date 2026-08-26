@@ -1,10 +1,13 @@
 using BoardVerse.Core.Entities;
-using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
 using Microsoft.EntityFrameworkCore;
 
 namespace BoardVerse.Data.Repositories;
 
+/// <summary>
+/// Repository cho CafeScheduleOverride.
+/// BR-NEW-15 (2026-08-18): BỎ TimeSlot - dùng ApplyDate/OpenTime/CloseTime.
+/// </summary>
 public class CafeScheduleOverrideRepository : ICafeScheduleOverrideRepository
 {
     private readonly BoardVerseDbContext _db;
@@ -14,66 +17,54 @@ public class CafeScheduleOverrideRepository : ICafeScheduleOverrideRepository
         _db = db;
     }
 
-    public Task<CafeScheduleOverride?> GetActiveAsync(Guid cafeId, TimeSlot slot, DateOnly playDate)
+    public Task<CafeScheduleOverride?> GetByApplyDateAsync(Guid cafeId, DateOnly applyDate, CancellationToken cancellationToken = default)
     {
         return _db.CafeScheduleOverrides
-            .Where(o => o.CafeId == cafeId && o.TimeSlot == slot)
-            .Where(o => o.EffectiveFrom == null || o.EffectiveFrom <= playDate)
-            .Where(o => o.EffectiveTo == null || o.EffectiveTo >= playDate)
-            .OrderByDescending(o => o.UpdatedAt)
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(o => o.CafeId == cafeId && o.ApplyDate == applyDate);
     }
 
-    public async Task<IReadOnlyList<CafeScheduleOverride>> ListByCafeAsync(Guid cafeId)
+    public async Task<IReadOnlyList<CafeScheduleOverride>> ListByCafeAsync(Guid cafeId, CancellationToken cancellationToken = default)
     {
         return await _db.CafeScheduleOverrides
             .Where(o => o.CafeId == cafeId)
-            .OrderBy(o => o.TimeSlot)
-            .ToListAsync();
+            .OrderBy(o => o.ApplyDate)
+            .ToListAsync(cancellationToken);
     }
 
-    public Task<CafeScheduleOverride?> GetByCafeAndSlotAsync(Guid cafeId, TimeSlot slot)
-    {
-        return _db.CafeScheduleOverrides
-            .FirstOrDefaultAsync(o => o.CafeId == cafeId && o.TimeSlot == slot);
-    }
-
-    public Task AddAsync(CafeScheduleOverride overrideEntity)
+    public Task AddAsync(CafeScheduleOverride overrideEntity, CancellationToken cancellationToken = default)
     {
         _db.CafeScheduleOverrides.Add(overrideEntity);
         return Task.CompletedTask;
     }
 
-    public Task UpdateAsync(CafeScheduleOverride overrideEntity)
+    public Task UpdateAsync(CafeScheduleOverride overrideEntity, CancellationToken cancellationToken = default)
     {
-        // Entity đã được EF tracking (qua GetByCafeAndSlotAsync). Chỉ cập nhật UpdatedAt —
-        // EF sẽ tự detect property changes khi SaveChangesAsync được gọi.
         overrideEntity.UpdatedAt = DateTime.UtcNow;
         return Task.CompletedTask;
     }
 
-    public async Task DeleteAsync(Guid cafeId, TimeSlot slot)
+    public async Task DeleteAsync(Guid cafeId, DateOnly applyDate, CancellationToken cancellationToken = default)
     {
         var existing = await _db.CafeScheduleOverrides
-            .FirstOrDefaultAsync(o => o.CafeId == cafeId && o.TimeSlot == slot);
+            .FirstOrDefaultAsync(o => o.CafeId == cafeId && o.ApplyDate == applyDate, cancellationToken);
         if (existing != null)
         {
             _db.CafeScheduleOverrides.Remove(existing);
         }
     }
 
-    public async Task DeleteByIdAsync(Guid overrideId)
+    public async Task DeleteByIdAsync(Guid overrideId, CancellationToken cancellationToken = default)
     {
         var existing = await _db.CafeScheduleOverrides
-            .FirstOrDefaultAsync(o => o.Id == overrideId);
+            .FirstOrDefaultAsync(o => o.Id == overrideId, cancellationToken);
         if (existing != null)
         {
             _db.CafeScheduleOverrides.Remove(existing);
         }
     }
 
-    public Task SaveChangesAsync()
+    public Task SaveChangesAsync(CancellationToken cancellationToken = default)
     {
-        return _db.SaveChangesAsync();
+        return _db.SaveChangesAsync(cancellationToken);
     }
 }

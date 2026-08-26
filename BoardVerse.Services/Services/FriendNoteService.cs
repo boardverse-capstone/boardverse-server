@@ -20,13 +20,13 @@ public class FriendNoteService : IFriendNoteService
         _userRepository = userRepository;
     }
 
-    public async Task<IReadOnlyList<FriendNoteDto>> GetMyNotesAsync(Guid ownerUserId)
+    public async Task<IReadOnlyList<FriendNoteDto>> GetMyNotesAsync(Guid ownerUserId, CancellationToken cancellationToken = default)
     {
         var notes = await _noteRepository.GetByOwnerAsync(ownerUserId);
         return notes.Select(MapToDto).ToList();
     }
 
-    public async Task<FriendNoteDto> UpsertNoteAsync(Guid ownerUserId, Guid friendUserId, UpsertFriendNoteDto dto)
+    public async Task<FriendNoteDto> UpsertNoteAsync(Guid ownerUserId, Guid friendUserId, UpsertFriendNoteDto dto, CancellationToken cancellationToken = default)
     {
         if (friendUserId == ownerUserId)
             throw new BadRequestException(ApiErrorMessages.Friend.CannotNoteSelf);
@@ -68,7 +68,7 @@ public class FriendNoteService : IFriendNoteService
         return MapToDto(reload);
     }
 
-    public async Task DeleteNoteAsync(Guid ownerUserId, Guid noteId)
+    public async Task DeleteNoteAsync(Guid ownerUserId, Guid noteId, CancellationToken cancellationToken = default)
     {
         var note = await _noteRepository.GetByIdAsync(noteId)
             ?? throw new NotFoundException(ApiErrorMessages.Friend.NoteNotFound(noteId));

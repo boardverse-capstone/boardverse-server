@@ -16,7 +16,7 @@ public class TournamentRepository : ITournamentRepository
 
     // === Tournament CRUD ===
 
-    public async Task<Tournament?> GetByIdAsync(Guid tournamentId)
+    public async Task<Tournament?> GetByIdAsync(Guid tournamentId, CancellationToken cancellationToken = default)
     {
         return await _db.Tournaments
             .Include(t => t.Participants)
@@ -26,7 +26,7 @@ public class TournamentRepository : ITournamentRepository
             .FirstOrDefaultAsync(t => t.Id == tournamentId);
     }
 
-    public async Task<Tournament?> GetByIdWithDetailsAsync(Guid tournamentId)
+    public async Task<Tournament?> GetByIdWithDetailsAsync(Guid tournamentId, CancellationToken cancellationToken = default)
     {
         return await _db.Tournaments
             .Include(t => t.Participants)
@@ -37,7 +37,7 @@ public class TournamentRepository : ITournamentRepository
             .FirstOrDefaultAsync(t => t.Id == tournamentId);
     }
 
-    public async Task<IReadOnlyList<Tournament>> GetByCafeAsync(Guid cafeId, TournamentStatus? status)
+    public async Task<IReadOnlyList<Tournament>> GetByCafeAsync(Guid cafeId, TournamentStatus? status, CancellationToken cancellationToken = default)
     {
         var query = _db.Tournaments
             .Include(t => t.Participants)
@@ -55,7 +55,7 @@ public class TournamentRepository : ITournamentRepository
             .ToListAsync();
     }
 
-    public async Task<IReadOnlyList<Tournament>> GetAllOpenAsync()
+    public async Task<IReadOnlyList<Tournament>> GetAllOpenAsync(CancellationToken cancellationToken = default)
     {
         return await _db.Tournaments
             .Include(t => t.Participants)
@@ -67,7 +67,25 @@ public class TournamentRepository : ITournamentRepository
             .ToListAsync();
     }
 
-    public async Task<IReadOnlyList<Tournament>> GetUpcomingForClosingAsync(DateTime cutoffTime)
+    public async Task<IReadOnlyList<Tournament>> GetAllByStatusAsync(TournamentStatus? status, CancellationToken cancellationToken = default)
+    {
+        var query = _db.Tournaments
+            .Include(t => t.Participants)
+            .Include(t => t.GameTemplate)
+            .Include(t => t.Cafe)
+            .AsQueryable();
+
+        if (status.HasValue)
+        {
+            query = query.Where(t => t.Status == status.Value);
+        }
+
+        return await query
+            .OrderBy(t => t.StartTime)
+            .ToListAsync();
+    }
+
+    public async Task<IReadOnlyList<Tournament>> GetUpcomingForClosingAsync(DateTime cutoffTime, CancellationToken cancellationToken = default)
     {
         return await _db.Tournaments
             .Include(t => t.Participants)
@@ -105,7 +123,7 @@ public class TournamentRepository : ITournamentRepository
             .ToListAsync(ct);
     }
 
-    public async Task<IReadOnlyList<Tournament>> GetActiveByCafeAsync(Guid cafeId)
+    public async Task<IReadOnlyList<Tournament>> GetActiveByCafeAsync(Guid cafeId, CancellationToken cancellationToken = default)
     {
         return await _db.Tournaments
             .Include(t => t.Participants)
@@ -117,25 +135,25 @@ public class TournamentRepository : ITournamentRepository
             .ToListAsync();
     }
 
-    public async Task AddAsync(Tournament tournament)
+    public async Task AddAsync(Tournament tournament, CancellationToken cancellationToken = default)
     {
         await _db.Tournaments.AddAsync(tournament);
     }
 
-    public Task UpdateAsync(Tournament tournament)
+    public Task UpdateAsync(Tournament tournament, CancellationToken cancellationToken = default)
     {
         _db.Tournaments.Update(tournament);
         return Task.CompletedTask;
     }
 
-    public Task SaveChangesAsync()
+    public Task SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         return _db.SaveChangesAsync();
     }
 
     // === Participants ===
 
-    public async Task<TournamentParticipant?> GetParticipantAsync(Guid tournamentId, Guid userId)
+    public async Task<TournamentParticipant?> GetParticipantAsync(Guid tournamentId, Guid userId, CancellationToken cancellationToken = default)
     {
         return await _db.TournamentParticipants
             .Include(p => p.User)
@@ -143,7 +161,7 @@ public class TournamentRepository : ITournamentRepository
             .FirstOrDefaultAsync(p => p.TournamentId == tournamentId && p.UserId == userId);
     }
 
-    public async Task<TournamentParticipant?> GetParticipantByIdAsync(Guid participantId)
+    public async Task<TournamentParticipant?> GetParticipantByIdAsync(Guid participantId, CancellationToken cancellationToken = default)
     {
         return await _db.TournamentParticipants
             .Include(p => p.User)
@@ -151,7 +169,7 @@ public class TournamentRepository : ITournamentRepository
             .FirstOrDefaultAsync(p => p.Id == participantId);
     }
 
-    public async Task<IReadOnlyList<TournamentParticipant>> GetParticipantsAsync(Guid tournamentId)
+    public async Task<IReadOnlyList<TournamentParticipant>> GetParticipantsAsync(Guid tournamentId, CancellationToken cancellationToken = default)
     {
         return await _db.TournamentParticipants
             .Include(p => p.User)
@@ -161,7 +179,7 @@ public class TournamentRepository : ITournamentRepository
             .ToListAsync();
     }
 
-    public async Task<IReadOnlyList<TournamentParticipant>> GetCheckedInParticipantsAsync(Guid tournamentId)
+    public async Task<IReadOnlyList<TournamentParticipant>> GetCheckedInParticipantsAsync(Guid tournamentId, CancellationToken cancellationToken = default)
     {
         return await _db.TournamentParticipants
             .Include(p => p.User)
@@ -172,7 +190,7 @@ public class TournamentRepository : ITournamentRepository
             .ToListAsync();
     }
 
-    public async Task<int> CountActiveParticipantsAsync(Guid tournamentId)
+    public async Task<int> CountActiveParticipantsAsync(Guid tournamentId, CancellationToken cancellationToken = default)
     {
         return await _db.TournamentParticipants
             .CountAsync(p => p.TournamentId == tournamentId
@@ -180,12 +198,12 @@ public class TournamentRepository : ITournamentRepository
                 && p.Status != TournamentParticipantStatus.NoShow);
     }
 
-    public async Task AddParticipantAsync(TournamentParticipant participant)
+    public async Task AddParticipantAsync(TournamentParticipant participant, CancellationToken cancellationToken = default)
     {
         await _db.TournamentParticipants.AddAsync(participant);
     }
 
-    public Task UpdateParticipantAsync(TournamentParticipant participant)
+    public Task UpdateParticipantAsync(TournamentParticipant participant, CancellationToken cancellationToken = default)
     {
         _db.TournamentParticipants.Update(participant);
         return Task.CompletedTask;
@@ -193,7 +211,7 @@ public class TournamentRepository : ITournamentRepository
 
     // === Matches ===
 
-    public async Task<TournamentMatchBracket?> GetMatchByIdAsync(Guid matchId)
+    public async Task<TournamentMatchBracket?> GetMatchByIdAsync(Guid matchId, CancellationToken cancellationToken = default)
     {
         return await _db.TournamentMatchBrackets
             .Include(m => m.Player1)
@@ -204,7 +222,7 @@ public class TournamentRepository : ITournamentRepository
             .FirstOrDefaultAsync(m => m.Id == matchId);
     }
 
-    public async Task<IReadOnlyList<TournamentMatchBracket>> GetMatchesByRoundAsync(Guid tournamentId, int roundNumber)
+    public async Task<IReadOnlyList<TournamentMatchBracket>> GetMatchesByRoundAsync(Guid tournamentId, int roundNumber, CancellationToken cancellationToken = default)
     {
         return await _db.TournamentMatchBrackets
             .Where(m => m.TournamentId == tournamentId && m.RoundNumber == roundNumber)
@@ -212,7 +230,7 @@ public class TournamentRepository : ITournamentRepository
             .ToListAsync();
     }
 
-    public async Task<IReadOnlyList<TournamentMatchBracket>> GetMatchesByTournamentAsync(Guid tournamentId)
+    public async Task<IReadOnlyList<TournamentMatchBracket>> GetMatchesByTournamentAsync(Guid tournamentId, CancellationToken cancellationToken = default)
     {
         return await _db.TournamentMatchBrackets
             .Where(m => m.TournamentId == tournamentId)
@@ -220,7 +238,7 @@ public class TournamentRepository : ITournamentRepository
             .ToListAsync();
     }
 
-    public async Task<TournamentMatchBracket?> GetFinalMatchAsync(Guid tournamentId)
+    public async Task<TournamentMatchBracket?> GetFinalMatchAsync(Guid tournamentId, CancellationToken cancellationToken = default)
     {
         return await _db.TournamentMatchBrackets
             .Include(m => m.Player1)
@@ -230,36 +248,54 @@ public class TournamentRepository : ITournamentRepository
             .FirstOrDefaultAsync(m => m.TournamentId == tournamentId && m.IsFinal);
     }
 
-    public async Task AddMatchAsync(TournamentMatchBracket match)
+    public async Task AddMatchAsync(TournamentMatchBracket match, CancellationToken cancellationToken = default)
     {
         await _db.TournamentMatchBrackets.AddAsync(match);
     }
 
-    public async Task AddMatchesAsync(IEnumerable<TournamentMatchBracket> matches)
+    public async Task AddMatchesAsync(IEnumerable<TournamentMatchBracket> matches, CancellationToken cancellationToken = default)
     {
         await _db.TournamentMatchBrackets.AddRangeAsync(matches);
     }
 
-    public Task UpdateMatchAsync(TournamentMatchBracket match)
+    public Task UpdateMatchAsync(TournamentMatchBracket match, CancellationToken cancellationToken = default)
     {
         _db.TournamentMatchBrackets.Update(match);
         return Task.CompletedTask;
     }
 
+    public async Task DeleteMatchesByRoundAsync(Guid tournamentId, int roundNumber, CancellationToken cancellationToken = default)
+    {
+        var matches = await _db.TournamentMatchBrackets
+            .Where(m => m.TournamentId == tournamentId && m.RoundNumber == roundNumber)
+            .ToListAsync();
+
+        if (matches.Count == 0) return;
+
+        var matchIds = matches.Select(m => m.Id).ToList();
+
+        var contributions = await _db.TournamentMatchEloContributions
+            .Where(c => matchIds.Contains(c.MatchId))
+            .ToListAsync();
+        _db.TournamentMatchEloContributions.RemoveRange(contributions);
+
+        _db.TournamentMatchBrackets.RemoveRange(matches);
+    }
+
     // === Elo Contribution ===
-    public async Task AddEloContributionAsync(TournamentMatchEloContribution contribution)
+    public async Task AddEloContributionAsync(TournamentMatchEloContribution contribution, CancellationToken cancellationToken = default)
     {
         await _db.TournamentMatchEloContributions.AddAsync(contribution);
     }
 
-    public async Task<IReadOnlyList<TournamentMatchEloContribution>> GetEloContributionsByMatchAsync(Guid matchId)
+    public async Task<IReadOnlyList<TournamentMatchEloContribution>> GetEloContributionsByMatchAsync(Guid matchId, CancellationToken cancellationToken = default)
     {
         return await _db.TournamentMatchEloContributions
             .Where(x => x.MatchId == matchId)
             .ToListAsync();
     }
 
-    public async Task DeleteEloContributionsByMatchAsync(Guid matchId)
+    public async Task DeleteEloContributionsByMatchAsync(Guid matchId, CancellationToken cancellationToken = default)
     {
         var contributions = await _db.TournamentMatchEloContributions
             .Where(x => x.MatchId == matchId)
@@ -267,7 +303,7 @@ public class TournamentRepository : ITournamentRepository
         _db.TournamentMatchEloContributions.RemoveRange(contributions);
     }
 
-    public async Task<IReadOnlyList<TournamentParticipant>> GetParticipantsByUserAsync(Guid userId)
+    public async Task<IReadOnlyList<TournamentParticipant>> GetParticipantsByUserAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         return await _db.TournamentParticipants
             .Include(p => p.User)
@@ -281,7 +317,7 @@ public class TournamentRepository : ITournamentRepository
             .ToListAsync();
     }
 
-    public async Task<IReadOnlyList<UserProfile>> GetTopEloProfilesAsync(int topCount, Guid? gameTemplateId = null)
+    public async Task<IReadOnlyList<UserProfile>> GetTopEloProfilesAsync(int topCount, Guid? gameTemplateId = null, CancellationToken cancellationToken = default)
     {
         // GlobalElo là tổng quát (BR-10); không filter theo game ở query này.
         // Filter theo game chỉ áp dụng cho AggregatedStats (TournamentsPlayed / Champions count).
@@ -296,7 +332,7 @@ public class TournamentRepository : ITournamentRepository
     }
 
     public async Task<IReadOnlyDictionary<Guid, (int TournamentsPlayed, int Champions)>> GetAggregatedTournamentStatsAsync(
-        IReadOnlyCollection<Guid> userIds, Guid? gameTemplateId = null)
+        IReadOnlyCollection<Guid> userIds, Guid? gameTemplateId = null, CancellationToken cancellationToken = default)
     {
         if (userIds == null || userIds.Count == 0)
         {
@@ -339,7 +375,7 @@ public class TournamentRepository : ITournamentRepository
     // === Admin: Full CRUD + Reports ===
 
     public async Task<(IReadOnlyList<Tournament> Items, int TotalCount)> GetAdminListAsync(
-        int page, int pageSize, string? searchTerm, TournamentStatus? status, Guid? cafeId)
+        int page, int pageSize, string? searchTerm, TournamentStatus? status, Guid? cafeId, CancellationToken cancellationToken = default)
     {
         var query = _db.Tournaments
             .Include(t => t.GameTemplate)
@@ -375,7 +411,7 @@ public class TournamentRepository : ITournamentRepository
         return (items, totalCount);
     }
 
-    public async Task<Tournament?> GetAdminDetailAsync(Guid tournamentId)
+    public async Task<Tournament?> GetAdminDetailAsync(Guid tournamentId, CancellationToken cancellationToken = default)
     {
         return await _db.Tournaments
             .Include(t => t.GameTemplate)
@@ -386,12 +422,12 @@ public class TournamentRepository : ITournamentRepository
             .FirstOrDefaultAsync(t => t.Id == tournamentId);
     }
 
-    public async Task<int> CountAllAsync()
+    public async Task<int> CountAllAsync(CancellationToken cancellationToken = default)
     {
         return await _db.Tournaments.CountAsync();
     }
 
-    public async Task<int> CountByStatusAsync(TournamentStatus status)
+    public async Task<int> CountByStatusAsync(TournamentStatus status, CancellationToken cancellationToken = default)
     {
         return await _db.Tournaments.CountAsync(t => t.Status == status);
     }

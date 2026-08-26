@@ -364,17 +364,33 @@ Lý do:
 - Tránh 1 user "ôm" nhiều lobby cùng lúc (1 host + 1 member → 2 lobby).
 - Tránh tình trạng user cam kết chơi 2 nơi mà không thể đến cả 2.
 
-**BR-USER-LIMIT-05 (Cross-role: host không được join)**: User đang là **host** của một lobby ACTIVE thì **không được join** lobby khác với vai trò member.
+**BR-USER-LIMIT-05 (Cross-role: host được phép join)**: **ĐÃ BỎ — User đang là host của một lobby ACTIVE THÌ ĐƯỢC PHÉP join lobby khác với vai trò member.**
 
-Áp dụng cho đến khi lobby do user host:
+Điều kiện để host join lobby khác:
 
-- Đạt terminal state.
-- Hoặc user chuyển quyền host cho member khác (chức năng tương lai, MVP không cần).
+| Điều kiện | Giải thích |
+|---|---|
+| (a) Không overlap | Không trùng lịch với lobby đang host + buffer 30 phút (BR-USER-LIMIT-02) |
+| (b) Tổng lobby | host + member ≤ 2 (BR-USER-LIMIT-01) |
+| (c) Không phải cooling-off | User không đang trong thời gian cooling-off (BR-NEW-10) |
 
-Lý do:
+**Ví dụ hợp lệ:**
 
-- Tránh host "ôm" 2 lobby (1 host + 1 member → 2 lobby).
-- Tránh tình trạng host không thể điều phối lobby mình tạo vì đang chơi ở nơi khác.
+- Host lobby thứ 7 (3 ngày sau) → Join lobby hôm nay (khác khung giờ, không overlap) ✓
+- Host lobby tối mai (2 ngày sau) → Join lobby sáng mai (khác ngày) ✓
+- Host lobby 14:00 ngày mai → Join lobby 19:00 ngày mai (khác khung giờ) ✓
+
+**Ví dụ bị từ chối:**
+
+- Host lobby 19:00 hôm nay → Join lobby 18:30 hôm nay (overlap) ✗
+- Host lobby 19:00 hôm nay → Join lobby 19:00 hôm nay (cùng khung giờ, overlap) ✗
+- Host lobby 14:00 ngày mai → Join lobby 14:00 ngày mai (cùng khung giờ, overlap) ✗
+
+**Lý do bỏ luật cũ:**
+
+- BR-USER-LIMIT-02 đã ngăn overlap lịch.
+- BR-USER-LIMIT-01 (tổng ≤ 2) đã giới hạn tổng số lobby.
+- Luật cũ quá restrictive, không cho phép use case hợp lý (host tổ chức lobby xa mà vẫn muốn chơi gần).
 
 **Bảng tổng hợp BR-USER-LIMIT:**
 
@@ -384,7 +400,7 @@ Lý do:
 | BR-USER-LIMIT-02 | Không lịch chồng lấn (overlap + buffer 30 phút). |
 | BR-USER-LIMIT-03 | Tổng cọc held ≤ 500k (user thường) / 1tr (VIP) / 200k (risk cao). |
 | BR-USER-LIMIT-04 | Player join lobby → không được tạo lobby mới làm host. |
-| BR-USER-LIMIT-05 | Host có lobby → không được join lobby khác làm member. |
+| BR-USER-LIMIT-05 | **ĐÃ BỎ** — Host được phép join lobby khác nếu không overlap. |
 
 Chi tiết các trường hợp cross-role xem **mục 10.11** và **mục 17**.
 
@@ -1224,7 +1240,7 @@ lib/features/reservation/
 | BR-USER-LIMIT-02 | Không lịch chồng lấn | Validate overlap interval |
 | BR-USER-LIMIT-03 | Tổng cọc held ≤ 500k (user thường) | Validate lúc tạo lobby |
 | BR-USER-LIMIT-04 | Player join lobby → không được host lobby khác | Validate trước khi tạo |
-| BR-USER-LIMIT-05 | Host có lobby → không được join lobby khác | Validate trước khi join |
+| BR-USER-LIMIT-05 | **ĐÃ BỎ** — Host được phép join lobby khác nếu không overlap | Validate trước khi join |
 | BR-REFUND-01 | Timeout: hoàn 100% | Scheduler |
 | BR-REFUND-02 | Hủy theo mốc thời gian | `cancelLobby()` |
 | BR-REFUND-03 | Grace period 15 phút | `cancelLobby()` với điều kiện |
@@ -1375,15 +1391,27 @@ Tình huống:
   Lobby ABC đang tuyển người, status = open.
   User B muốn join lobby DEF (do host khác tạo) làm member.
 
-Xử lý:
-  Validate BR-USER-LIMIT-05:
-    - User B đang là host của lobby ACTIVE.
-    - Từ chối join lobby DEF.
-  UI: "Bạn đang là host của lobby ABC. Vui lòng chuyển quyền host hoặc hủy lobby trước khi tham gia lobby khác."
+Xử lý (BR-USER-LIMIT-05 ĐÃ BỎ):
+  Validate BR-USER-LIMIT-01: tổng host + member ≤ 2.
+  - Nếu User B chưa là member lobby nào (tổng = 1) → CHO PHÉP join.
+  - Nếu User B đã là member 1 lobby khác (tổng = 2) → TỪ CHỐI.
 
-Ngoại lệ:
-  MVP không hỗ trợ chuyển quyền host. Chỉ có thể hủy lobby (theo BR-REFUND-02/03).
+  Validate BR-USER-LIMIT-02: không overlap lịch.
+  - Nếu lobby DEF không overlap với lobby ABC → CHO PHÉP join.
+  - Nếu lobby DEF overlap với lobby ABC (+30 phút buffer) → TỪ CHỐI.
+
+UI: "Phòng bạn muốn tham gia bị trùng lịch với phòng bạn đang host."
 ```
+
+**Ví dụ hợp lệ:**
+
+- User B host lobby 19:00 thứ 7 (3 ngày sau) → Join lobby 14:00 thứ 7 (khác khung giờ) ✓
+- User B host lobby sáng mai → Join lobby tối mai (khác khung giờ) ✓
+
+**Ví dụ bị từ chối:**
+
+- User B host lobby 19:00 hôm nay → Join lobby 19:00 hôm nay (overlap) ✗
+- User B host lobby 19:00 + đã là member 1 lobby khác → Tổng = 2 → TỪ CHỐI ✗
 
 #### 10.11.3. Player join 1 lobby, host 1 lobby → tổng 2 lobby
 
@@ -1395,8 +1423,8 @@ Tình huống hợp lệ:
 
 Tình huống bị từ chối:
   User C đã host lobby 1 (đang active).
-  User C muốn join lobby 2 làm member.
-  BR-USER-LIMIT-05 chặn → từ chối.
+  User C muốn join lobby 2 làm member, nhưng đã là member 1 lobby khác.
+  BR-USER-LIMIT-01 chặn (tổng = 2) → từ chối.
 ```
 
 #### 10.11.4. Host lobby A, member lobby B, muốn host lobby C
@@ -1408,8 +1436,7 @@ Tình huống:
   User D muốn tạo lobby C làm host mới.
 
 Xử lý:
-  BR-USER-LIMIT-01: tổng 2 lobby, đã đạt max → không thể có lobby thứ 3.
-  BR-USER-LIMIT-05: đang host lobby A → không được tạo lobby mới.
+  BR-USER-LIMIT-01: tổng 2 lobby (A + B), đã đạt max → không thể có lobby thứ 3.
   → Từ chối hoàn toàn.
 
   User D phải đợi ít nhất 1 trong 2 lobby (A hoặc B) terminal.
@@ -1948,7 +1975,7 @@ Partition:
 | 19 | `playDate` tối đa bao xa? | 7 ngày trong tương lai |
 | 20 | Phân biệt hạn mức theo khoảng cách playDate? | Có. maxPlayers và minDeposit thay đổi theo khoảng cách (BR-NEW-01). |
 | 21 | Player join lobby có thể host lobby khác? | Không (BR-USER-LIMIT-04). Phải đợi lobby hiện tại terminal. |
-| 22 | Host có lobby có thể join lobby khác? | Không (BR-USER-LIMIT-05). Phải đợi lobby mình host terminal. |
+| 22 | Host có lobby có thể join lobby khác? | **Có** (BR-USER-LIMIT-05 ĐÃ BỎ), nếu không overlap lịch và tổng ≤ 2. |
 | 23 | Cap tổng cọc active / user? | 500k user thường, 1tr VIP, 200k risk cao (BR-USER-LIMIT-03). |
 | 24 | 1 lobby / cafe / user / playDate+timeSlot? | Có (BR-NEW-08). Tránh chiếm nhiều slot cùng quán. |
 | 25 | Cooling-off nếu fail nhiều? | Có (BR-NEW-10). 3 lần fail / 7 ngày → cooling-off 30 ngày, cọc ×2. |
@@ -2030,7 +2057,7 @@ Partition:
 | BR-NEW-15b | `preferredStartTime` tham chiếu trong timeSlot | Optional giờ chính xác |
 | BR-USER-LIMIT-03 | Cap tổng cọc held (500k thường / 1tr VIP / 200k risk cao) | Chống spam cọc |
 | BR-USER-LIMIT-04 | Player join lobby → không được host lobby khác | Cross-role rule |
-| BR-USER-LIMIT-05 | Host có lobby → không được join lobby khác | Cross-role rule |
+| BR-USER-LIMIT-05 | **ĐÃ BỎ** — Host được phép join lobby khác nếu không overlap | Cross-role rule |
 
 ### 17.2. Bảng hạn mức theo khoảng cách `playDate` (BR-NEW-01)
 
@@ -2197,14 +2224,27 @@ User A muốn tạo lobby mới làm host.
 Ngoại lệ: nếu lobby XYZ đã terminal hoặc user A đã rời lobby trước recruitmentDeadline.
 ```
 
-#### Quy tắc 2: Host có lobby → không được join lobby khác
+#### Quy tắc 2: Host có lobby → **ĐƯỢC PHÉP join lobby khác** (BR-USER-LIMIT-05 ĐÃ BỎ)
 
 ```
 User B đã host lobby ABC.
 User B muốn join lobby DEF làm member.
-→ Từ chối (BR-USER-LIMIT-05).
 
-Ngoại lệ: nếu lobby ABC đã terminal.
+Điều kiện để được join:
+  (a) Tổng lobby: host + member ≤ 2 (BR-USER-LIMIT-01)
+      - Nếu B chưa là member lobby nào (tổng = 1) → CHO PHÉP
+      - Nếu B đã là member 1 lobby khác (tổng = 2) → TỪ CHỐI
+  (b) Không overlap: lobby DEF không trùng lịch với lobby ABC (+30 phút buffer)
+      - Nếu không overlap → CHO PHÉP
+      - Nếu overlap → TỪ CHỐI
+
+Ví dụ hợp lệ:
+  - Host lobby thứ 7 (3 ngày sau) → Join lobby hôm nay ✓
+  - Host lobby tối mai → Join lobby sáng mai ✓
+
+Ví dụ bị từ chối:
+  - Host lobby 19:00 hôm nay → Join lobby 19:00 hôm nay (overlap) ✗
+  - Host lobby 19:00 + đã member 1 lobby khác (tổng = 2) ✗
 ```
 
 #### Quy tắc 3: Tổng 2 lobby active
@@ -2212,9 +2252,9 @@ Ngoại lệ: nếu lobby ABC đã terminal.
 ```
 User C đang host lobby 1.
 User C muốn tạo lobby 2 mới.
-→ Từ chối (BR-USER-LIMIT-01 + BR-USER-LIMIT-05).
+→ Từ chối (BR-USER-LIMIT-01 đạt max 2 lobby).
 
-User C đang host lobby 1 và join lobby 2.
+User C đang host lobby 1 và đã member lobby 2.
 → Đã đạt max 2 lobby, không thể tạo lobby 3.
 ```
 
@@ -2676,4 +2716,86 @@ accountStatus (active | warning | restricted | suspended | banned)  // BR-RISK-0
 
 ---
 
-**Trạng thái tài liệu**: Đã chốt với giảng viên và nhóm. Bổ sung section 17 (Recruitment Window & Spam Prevention) và section 18 (Player Risk Alert & Admin Management) ngày 02/08/2026 sau khi phân tích kỹ kịch bản spam cọc chiếm chỗ, cross-role rules và hệ thống phát hiện player spam. Mọi thay đổi phải được review và cập nhật đồng bộ tại file này.
+## 19. Bypass time-window (Dev/QA convenience)
+
+Triển khai ngày 17/08/2026 — cờ bypass cho phép Dev/QA test đầy đủ các flow có ràng buộc thời gian mà không bị chặn bởi deadline thực tế.
+
+### 19.1. Phạm vi bypass
+
+| Check | Service | Operation key |
+|-------|---------|---------------|
+| Check-in window (± grace) | `PlayerCheckInService.CheckInByTokenAsync`, `ReservationService.ValidateCheckInTimeWindowAsync` | `PlayerCheckIn.Window`, `Reservation.CheckInWindow` |
+| Lobby recruitment deadline | `LobbyService.JoinLobbyAsync` | `Lobby.JoinDeadline` |
+| Lobby time-slot change buffer | `LobbyService.UpdateTimeSlotAsync` | `Lobby.TimeSlotChangeBuffer` |
+| Refund milestones (24h/6h) | `ReservationService.ComputeRefundPolicyAsync` | `Reservation.RefundMilestone` |
+| No-show detection grace | `ReservationNoShowDetectionJob.RunDetectionAsync` | `ReservationNoShowDetectionJob` |
+| Tournament scheduled time + registration deadline | `TournamentService.CreateTournamentAsync`, `UpdateTournamentAsync` | `Tournament.CreateDeadlinePast`, `Tournament.StartTimeFuture` |
+
+### 19.2. Ba cách bật bypass
+
+| # | Cách | Phạm vi | Dùng khi |
+|---|------|---------|----------|
+| 1 | HTTP header `X-Bypass-Time-Window: true` | 1 request | Test 1 endpoint cụ thể |
+| 2 | Query string `?bypassTimeWindow=true` | 1 request | Test từ browser/Postman |
+| 3 | DB config `bypass_time_window_validations=true` | Toàn cục, áp dụng sau ≤ 10s | Test full flow |
+
+### 19.3. Helper class
+
+`BoardVerse.Services/Helpers/TimeWindowGuard.cs` — static helper `ShouldBypassAsync(httpContext, configProvider, logger, operation, entityId?)`.
+
+```csharp
+// Ưu tiên: HTTP header > query > DB config
+public static async Task<bool> ShouldBypassAsync(
+    HttpContext? httpContext,
+    ISystemConfigurationProvider configProvider,
+    ILogger logger,
+    string operation,
+    Guid? entityId = null,
+    CancellationToken ct = default);
+```
+
+Các method tiện ích không cần `HttpContext` (cho background job):
+
+```csharp
+public static Task<bool> ShouldBypassAsync(
+    ISystemConfigurationProvider configProvider,
+    ILogger logger,
+    string operation,
+    CancellationToken ct = default);
+```
+
+### 19.4. Admin endpoints
+
+```
+POST   /api/v1/admin/configs/bypass-time-window    # bật (DB config = true)
+DELETE /api/v1/admin/configs/bypass-time-window    # tắt (DB config = false)
+GET    /api/v1/admin/configs/bypass-time-window    # xem trạng thái
+POST   /api/v1/admin/configs/invalidate-cache      # force invalidate Redis cache
+```
+
+### 19.5. Cache & multi-instance
+
+- `SystemConfigurationService.CacheDuration = TimeSpan.FromSeconds(10)` — đảm bảo mọi instance cùng toggle trong vòng 10s.
+- Dùng `POST /invalidate-cache` để áp dụng ngay lập tức.
+- Default key trong DB: `bypass_time_window_validations`, default value: `false`.
+
+### 19.6. Lưu ý production
+
+- Production mặc định `false`. Không bật trên production trừ khi investigate sự cố.
+- Mọi lần toggle qua admin endpoint đều ghi audit log (qua admin action log có sẵn).
+- Logic bypass dùng pattern `if (!bypass && <originalCheck>)` — khi tắt bypass, hành vi y hệt như trước khi triển khai.
+
+### 19.7. Checklist khi thêm check mới
+
+Khi thêm ràng buộc thời gian mới trong service:
+
+1. ☐ Inject `ISystemConfigurationProvider` + `IHttpContextAccessor` vào service (cho phép null để không break unit test).
+2. ☐ Wrap original check: `if (!await TimeWindowGuard.ShouldBypassAsync(...) && <originalCheck>) { throw ... }`.
+3. ☐ Chọn `operation` key mô tả ngắn gọn (VD: `"Lobby.SomethingTimeCheck"`).
+4. ☐ Cập nhật section 19.1 của rule này + `docs/api/admin-configuration.md` + `docs/business-flows-overview.md`.
+5. ☐ Thêm unit test cho TimeWindowGuard (nếu chưa có) — verify 3-tier bypass.
+6. ☐ Test thủ công: bật bypass DB → kiểm tra check bị bỏ qua → tắt bypass → kiểm tra check hoạt động trở lại.
+
+---
+
+**Trạng thái tài liệu**: Đã chốt với giảng viên và nhóm. Bổ sung section 17 (Recruitment Window & Spam Prevention) và section 18 (Player Risk Alert & Admin Management) ngày 02/08/2026 sau khi phân tích kỹ kịch bản spam cọc chiếm chỗ, cross-role rules và hệ thống phát hiện player spam. Bổ sung section 19 (Bypass time-window Dev/QA) ngày 17/08/2026. Mọi thay đổi phải được review và cập nhật đồng bộ tại file này.

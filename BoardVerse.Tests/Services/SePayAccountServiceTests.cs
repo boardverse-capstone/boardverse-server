@@ -10,6 +10,7 @@ using BoardVerse.Services.Services.Payments;
 using Microsoft.Extensions.Logging;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class SePayAccountServiceTests
@@ -51,7 +52,7 @@ public class SePayAccountServiceTests
     public async Task GetByIdAsync_ExistingAccount_ReturnsDto()
     {
         var account = CreateTestAccount(TestCafeId);
-        _mockRepo.Setup(r => r.GetByIdAsync(account.Id)).ReturnsAsync(account);
+        _mockRepo.Setup(r => r.GetByIdAsync(account.Id, It.IsAny<CancellationToken>())).ReturnsAsync(account);
 
         var result = await _service.GetByIdAsync(account.Id);
 
@@ -63,7 +64,7 @@ public class SePayAccountServiceTests
     [Fact]
     public async Task GetByIdAsync_NotFound_ReturnsNull()
     {
-        _mockRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((SePayAccount?)null);
+        _mockRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((SePayAccount?)null);
 
         var result = await _service.GetByIdAsync(Guid.NewGuid());
 
@@ -78,7 +79,7 @@ public class SePayAccountServiceTests
     public async Task GetAllAsync_WithQuery_FiltersCorrectly()
     {
         var masterAccount = CreateTestAccount(null, SePayAccountType.Master);
-        _mockRepo.Setup(r => r.GetAllAsync(It.IsAny<SePayAccountQuery?>()))
+        _mockRepo.Setup(r => r.GetAllAsync(It.IsAny<SePayAccountQuery?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<SePayAccount> { masterAccount });
 
         var query = new SePayAccountQuery { AccountType = SePayAccountType.Master };
@@ -95,8 +96,8 @@ public class SePayAccountServiceTests
     [Fact]
     public async Task CreateAsync_MasterAccount_SetsCreatedByUserId()
     {
-        _mockRepo.Setup(r => r.GetMasterAccountAsync()).ReturnsAsync((SePayAccount?)null);
-        _mockRepo.Setup(r => r.AddAsync(It.IsAny<SePayAccount>())).Returns(Task.CompletedTask);
+        _mockRepo.Setup(r => r.GetMasterAccountAsync(It.IsAny<CancellationToken>())).ReturnsAsync((SePayAccount?)null);
+        _mockRepo.Setup(r => r.AddAsync(It.IsAny<SePayAccount>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var request = new CreateSePayAccountRequestDto
         {
@@ -113,14 +114,14 @@ public class SePayAccountServiceTests
 
         _mockRepo.Verify(r => r.AddAsync(It.Is<SePayAccount>(a =>
             a.CreatedByUserId == TestUserId &&
-            a.AccountType == SePayAccountType.Master)), Times.Once);
+            a.AccountType == SePayAccountType.Master), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
     public async Task CreateAsync_MasterAccount_ThrowsIfAlreadyExists()
     {
         var existingMaster = CreateTestAccount(null, SePayAccountType.Master);
-        _mockRepo.Setup(r => r.GetMasterAccountAsync()).ReturnsAsync(existingMaster);
+        _mockRepo.Setup(r => r.GetMasterAccountAsync(It.IsAny<CancellationToken>())).ReturnsAsync(existingMaster);
 
         var request = new CreateSePayAccountRequestDto { AccountType = SePayAccountType.Master };
 
@@ -130,8 +131,8 @@ public class SePayAccountServiceTests
     [Fact]
     public async Task CreateAsync_MasterAccount_LogsCreation()
     {
-        _mockRepo.Setup(r => r.GetMasterAccountAsync()).ReturnsAsync((SePayAccount?)null);
-        _mockRepo.Setup(r => r.AddAsync(It.IsAny<SePayAccount>())).Returns(Task.CompletedTask);
+        _mockRepo.Setup(r => r.GetMasterAccountAsync(It.IsAny<CancellationToken>())).ReturnsAsync((SePayAccount?)null);
+        _mockRepo.Setup(r => r.AddAsync(It.IsAny<SePayAccount>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var request = new CreateSePayAccountRequestDto
         {
@@ -170,7 +171,7 @@ public class SePayAccountServiceTests
     public async Task CreateAsync_CafeAccount_ThrowsIfCafeAlreadyHasAccount()
     {
         var existingCafeAccount = CreateTestAccount(TestCafeId, SePayAccountType.Cafe);
-        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId)).ReturnsAsync(existingCafeAccount);
+        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId, It.IsAny<CancellationToken>())).ReturnsAsync(existingCafeAccount);
 
         var request = new CreateSePayAccountRequestDto
         {
@@ -184,8 +185,8 @@ public class SePayAccountServiceTests
     [Fact]
     public async Task CreateAsync_CafeAccount_SetsCreatedByUserIdAndCafeId()
     {
-        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId)).ReturnsAsync((SePayAccount?)null);
-        _mockRepo.Setup(r => r.AddAsync(It.IsAny<SePayAccount>())).Returns(Task.CompletedTask);
+        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId, It.IsAny<CancellationToken>())).ReturnsAsync((SePayAccount?)null);
+        _mockRepo.Setup(r => r.AddAsync(It.IsAny<SePayAccount>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var request = new CreateSePayAccountRequestDto
         {
@@ -199,7 +200,7 @@ public class SePayAccountServiceTests
         _mockRepo.Verify(r => r.AddAsync(It.Is<SePayAccount>(a =>
             a.CreatedByUserId == TestUserId &&
             a.CafeId == TestCafeId &&
-            a.AccountType == SePayAccountType.Cafe)), Times.Once);
+            a.AccountType == SePayAccountType.Cafe), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -210,7 +211,7 @@ public class SePayAccountServiceTests
     public async Task UpdateAsync_ExistingAccount_SetsUpdatedByUserId()
     {
         var account = CreateTestAccount(TestCafeId, SePayAccountType.Cafe);
-        _mockRepo.Setup(r => r.GetByIdAsync(account.Id)).ReturnsAsync(account);
+        _mockRepo.Setup(r => r.GetByIdAsync(account.Id, It.IsAny<CancellationToken>())).ReturnsAsync(account);
 
         var request = new UpdateSePayAccountRequestDto
         {
@@ -224,13 +225,13 @@ public class SePayAccountServiceTests
             a.UpdatedByUserId == TestUserId &&
             a.UpdatedAt.HasValue &&
             a.MerchantId == "NEW-MERCHANT-001" &&
-            a.BankCode == "Vietinbank")), Times.Once);
+            a.BankCode == "Vietinbank"), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
     public async Task UpdateAsync_NotFound_ThrowsKeyNotFoundException()
     {
-        _mockRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((SePayAccount?)null);
+        _mockRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((SePayAccount?)null);
 
         var request = new UpdateSePayAccountRequestDto { MerchantId = "NEW-001" };
 
@@ -243,7 +244,7 @@ public class SePayAccountServiceTests
         var account = CreateTestAccount(TestCafeId, SePayAccountType.Cafe);
         account.ApiKey = "ORIGINAL-API-KEY";
         account.SecretKey = "ORIGINAL-SECRET-KEY";
-        _mockRepo.Setup(r => r.GetByIdAsync(account.Id)).ReturnsAsync(account);
+        _mockRepo.Setup(r => r.GetByIdAsync(account.Id, It.IsAny<CancellationToken>())).ReturnsAsync(account);
 
         var request = new UpdateSePayAccountRequestDto
         {
@@ -261,7 +262,7 @@ public class SePayAccountServiceTests
     public async Task UpdateAsync_LogsUpdate()
     {
         var account = CreateTestAccount(TestCafeId, SePayAccountType.Cafe);
-        _mockRepo.Setup(r => r.GetByIdAsync(account.Id)).ReturnsAsync(account);
+        _mockRepo.Setup(r => r.GetByIdAsync(account.Id, It.IsAny<CancellationToken>())).ReturnsAsync(account);
 
         var request = new UpdateSePayAccountRequestDto { MerchantId = "NEW-001" };
 
@@ -285,20 +286,20 @@ public class SePayAccountServiceTests
     {
         var account = CreateTestAccount(TestCafeId, SePayAccountType.Cafe);
         account.Environment = "Test";
-        _mockRepo.Setup(r => r.GetByIdAsync(account.Id)).ReturnsAsync(account);
+        _mockRepo.Setup(r => r.GetByIdAsync(account.Id, It.IsAny<CancellationToken>())).ReturnsAsync(account);
 
         var result = await _service.SetEnvironmentAsync(account.Id, "Production");
 
         _mockRepo.Verify(r => r.UpdateAsync(It.Is<SePayAccount>(a =>
             a.UpdatedByUserId == TestUserId &&
-            a.Environment == "Production")), Times.Once);
+            a.Environment == "Production"), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
     public async Task SetEnvironmentAsync_InvalidEnvironment_ThrowsArgumentException()
     {
         var account = CreateTestAccount(TestCafeId, SePayAccountType.Cafe);
-        _mockRepo.Setup(r => r.GetByIdAsync(account.Id)).ReturnsAsync(account);
+        _mockRepo.Setup(r => r.GetByIdAsync(account.Id, It.IsAny<CancellationToken>())).ReturnsAsync(account);
 
         await Assert.ThrowsAsync<ArgumentException>(() =>
             _service.SetEnvironmentAsync(account.Id, "InvalidEnv"));
@@ -309,7 +310,7 @@ public class SePayAccountServiceTests
     {
         var account = CreateTestAccount(TestCafeId, SePayAccountType.Cafe);
         account.Environment = "Test";
-        _mockRepo.Setup(r => r.GetByIdAsync(account.Id)).ReturnsAsync(account);
+        _mockRepo.Setup(r => r.GetByIdAsync(account.Id, It.IsAny<CancellationToken>())).ReturnsAsync(account);
 
         await _service.SetEnvironmentAsync(account.Id, "Production");
 
@@ -330,11 +331,11 @@ public class SePayAccountServiceTests
     public async Task DeleteAsync_ExistingAccount_DeletesAndLogs()
     {
         var account = CreateTestAccount(TestCafeId, SePayAccountType.Cafe);
-        _mockRepo.Setup(r => r.GetByIdAsync(account.Id)).ReturnsAsync(account);
+        _mockRepo.Setup(r => r.GetByIdAsync(account.Id, It.IsAny<CancellationToken>())).ReturnsAsync(account);
 
         await _service.DeleteAsync(account.Id);
 
-        _mockRepo.Verify(r => r.DeleteAsync(account.Id), Times.Once);
+        _mockRepo.Verify(r => r.DeleteAsync(account.Id, It.IsAny<CancellationToken>()), Times.Once);
         _mockLogger.Verify(l => l.Log(
             LogLevel.Information,
             It.IsAny<EventId>(),
@@ -347,7 +348,7 @@ public class SePayAccountServiceTests
     [Fact]
     public async Task DeleteAsync_NotFound_ThrowsNotFoundException()
     {
-        _mockRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((SePayAccount?)null);
+        _mockRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((SePayAccount?)null);
 
         await Assert.ThrowsAsync<NotFoundException>(() => _service.DeleteAsync(Guid.NewGuid()));
     }
@@ -361,7 +362,7 @@ public class SePayAccountServiceTests
     {
         var account = CreateTestAccount(TestCafeId, SePayAccountType.Cafe);
         account.AccountNumber = "0855199924"; // 10 digits -> 6 asterisks + 4 digits
-        _mockRepo.Setup(r => r.GetByIdAsync(account.Id)).ReturnsAsync(account);
+        _mockRepo.Setup(r => r.GetByIdAsync(account.Id, It.IsAny<CancellationToken>())).ReturnsAsync(account);
 
         var result = await _service.GetByIdAsync(account.Id);
 
@@ -373,7 +374,7 @@ public class SePayAccountServiceTests
     {
         var account = CreateTestAccount(TestCafeId, SePayAccountType.Cafe);
         account.AccountNumber = "123";
-        _mockRepo.Setup(r => r.GetByIdAsync(account.Id)).ReturnsAsync(account);
+        _mockRepo.Setup(r => r.GetByIdAsync(account.Id, It.IsAny<CancellationToken>())).ReturnsAsync(account);
 
         var result = await _service.GetByIdAsync(account.Id);
 
@@ -387,8 +388,8 @@ public class SePayAccountServiceTests
     [Fact]
     public async Task CreateAsync_ResponseDto_ContainsAuditFields()
     {
-        _mockRepo.Setup(r => r.GetMasterAccountAsync()).ReturnsAsync((SePayAccount?)null);
-        _mockRepo.Setup(r => r.AddAsync(It.IsAny<SePayAccount>())).Returns(Task.CompletedTask);
+        _mockRepo.Setup(r => r.GetMasterAccountAsync(It.IsAny<CancellationToken>())).ReturnsAsync((SePayAccount?)null);
+        _mockRepo.Setup(r => r.AddAsync(It.IsAny<SePayAccount>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var request = new CreateSePayAccountRequestDto { AccountType = SePayAccountType.Master };
 
@@ -404,7 +405,7 @@ public class SePayAccountServiceTests
     {
         var account = CreateTestAccount(TestCafeId, SePayAccountType.Cafe);
         account.CreatedByUserId = Guid.NewGuid();
-        _mockRepo.Setup(r => r.GetByIdAsync(account.Id)).ReturnsAsync(account);
+        _mockRepo.Setup(r => r.GetByIdAsync(account.Id, It.IsAny<CancellationToken>())).ReturnsAsync(account);
 
         var request = new UpdateSePayAccountRequestDto { BankCode = "NewBank" };
 
@@ -423,12 +424,12 @@ public class SePayAccountServiceTests
     {
         // Arrange: Manager có cafe, cafe chưa có payment account
         var cafe = new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test St" };
-        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Cafe> { cafe });
-        _mockCafeRepo.Setup(r => r.GetByIdAsync(TestCafeId)).ReturnsAsync(cafe);
-        _mockCafeRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
-        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId)).ReturnsAsync((SePayAccount?)null);
-        _mockRepo.Setup(r => r.AddAsync(It.IsAny<SePayAccount>())).Returns(Task.CompletedTask);
+        _mockCafeRepo.Setup(r => r.GetByIdAsync(TestCafeId, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _mockCafeRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId, It.IsAny<CancellationToken>())).ReturnsAsync((SePayAccount?)null);
+        _mockRepo.Setup(r => r.AddAsync(It.IsAny<SePayAccount>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var request = new CreateCafePaymentAccountRequestDto
         {
@@ -457,13 +458,13 @@ public class SePayAccountServiceTests
             && a.SecretKey == null
             && a.WebhookToken == null
             && a.Environment == "Production"
-        )), Times.Once);
+        ), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
     public async Task CreateByManagerCafeAsync_MissingBankCode_ThrowsArgumentException()
     {
-        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Cafe> { new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test St" } });
 
         var request = new CreateCafePaymentAccountRequestDto
@@ -481,7 +482,7 @@ public class SePayAccountServiceTests
     [Fact]
     public async Task CreateByManagerCafeAsync_MissingAccountNumber_ThrowsArgumentException()
     {
-        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Cafe> { new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test St" } });
 
         var request = new CreateCafePaymentAccountRequestDto
@@ -499,7 +500,7 @@ public class SePayAccountServiceTests
     [Fact]
     public async Task CreateByManagerCafeAsync_MissingAccountHolder_ThrowsArgumentException()
     {
-        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Cafe> { new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test St" } });
 
         var request = new CreateCafePaymentAccountRequestDto
@@ -517,7 +518,7 @@ public class SePayAccountServiceTests
     [Fact]
     public async Task CreateByManagerCafeAsync_ManagerHasNoCafe_ThrowsNotFoundException()
     {
-        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Cafe>());
 
         var request = new CreateCafePaymentAccountRequestDto
@@ -534,9 +535,9 @@ public class SePayAccountServiceTests
     [Fact]
     public async Task CreateByManagerCafeAsync_CafeAlreadyHasAccount_ThrowsInvalidOperation()
     {
-        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Cafe> { new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test St" } });
-        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId))
+        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateTestAccount(TestCafeId, SePayAccountType.Cafe));
 
         var request = new CreateCafePaymentAccountRequestDto
@@ -554,12 +555,12 @@ public class SePayAccountServiceTests
     public async Task CreateByManagerCafeAsync_CustomEnvironment_NormalizedToProduction()
     {
         var cafe = new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test St" };
-        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Cafe> { cafe });
-        _mockCafeRepo.Setup(r => r.GetByIdAsync(TestCafeId)).ReturnsAsync(cafe);
-        _mockCafeRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
-        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId)).ReturnsAsync((SePayAccount?)null);
-        _mockRepo.Setup(r => r.AddAsync(It.IsAny<SePayAccount>())).Returns(Task.CompletedTask);
+        _mockCafeRepo.Setup(r => r.GetByIdAsync(TestCafeId, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _mockCafeRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId, It.IsAny<CancellationToken>())).ReturnsAsync((SePayAccount?)null);
+        _mockRepo.Setup(r => r.AddAsync(It.IsAny<SePayAccount>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var request = new CreateCafePaymentAccountRequestDto
         {
@@ -577,7 +578,7 @@ public class SePayAccountServiceTests
     [Fact]
     public async Task CreateByManagerCafeAsync_InvalidEnvironment_ThrowsArgumentException()
     {
-        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Cafe> { new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test St" } });
 
         var request = new CreateCafePaymentAccountRequestDto
@@ -604,9 +605,9 @@ public class SePayAccountServiceTests
         account.AccountNumber = "1234567890";
         account.AccountHolder = "NGUYEN VAN A";
 
-        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Cafe> { new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test" } });
-        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId)).ReturnsAsync(account);
+        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId, It.IsAny<CancellationToken>())).ReturnsAsync(account);
         _mockVietQr.Setup(q => q.GenerateQrUrl(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<decimal>(),
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
@@ -632,7 +633,7 @@ public class SePayAccountServiceTests
     [Fact]
     public async Task GenerateTestQrByManagerCafeAsync_ManagerHasNoCafe_ThrowsNotFoundException()
     {
-        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Cafe>());
 
         await Assert.ThrowsAsync<NotFoundException>(
@@ -642,9 +643,9 @@ public class SePayAccountServiceTests
     [Fact]
     public async Task GenerateTestQrByManagerCafeAsync_CafeNoAccount_ThrowsNotFoundException()
     {
-        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Cafe> { new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test" } });
-        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId)).ReturnsAsync((SePayAccount?)null);
+        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId, It.IsAny<CancellationToken>())).ReturnsAsync((SePayAccount?)null);
 
         await Assert.ThrowsAsync<NotFoundException>(
             () => _service.GenerateTestQrByManagerCafeAsync());
@@ -656,9 +657,9 @@ public class SePayAccountServiceTests
         var account = CreateTestAccount(TestCafeId, SePayAccountType.Cafe);
         account.BankCode = null; // simulate data corruption
 
-        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Cafe> { new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test" } });
-        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId)).ReturnsAsync(account);
+        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId, It.IsAny<CancellationToken>())).ReturnsAsync(account);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(
             () => _service.GenerateTestQrByManagerCafeAsync());
@@ -669,9 +670,9 @@ public class SePayAccountServiceTests
     public async Task GenerateTestQrByManagerCafeAsync_CalledMultipleTimes_GeneratesUniqueTransferContent()
     {
         var account = CreateTestAccount(TestCafeId, SePayAccountType.Cafe);
-        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId))
+        _mockCafeRepo.Setup(r => r.GetCafesByManagerIdAsync(TestUserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Cafe> { new Cafe { Id = TestCafeId, Name = "Cafe", Address = "1 Test" } });
-        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId)).ReturnsAsync(account);
+        _mockRepo.Setup(r => r.GetByCafeIdAsync(TestCafeId, It.IsAny<CancellationToken>())).ReturnsAsync(account);
 
         var result1 = await _service.GenerateTestQrByManagerCafeAsync();
         var result2 = await _service.GenerateTestQrByManagerCafeAsync();

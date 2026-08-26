@@ -71,6 +71,7 @@ Tài liệu tổng hợp cho hệ thống BoardVerse — board game center manag
 - [admin-reports.md](./api/admin-reports.md) — `AdminReportController` (dashboard + reports)
 - [admin-configuration.md](./api/admin-configuration.md) — `AdminConfigurationController` (system config key-value)
 - [admin-moderation.md](./api/admin-moderation.md) — `AdminModerationController` (Karma logs, punish, adjust)
+- [system-config.md](./api/system-config.md) — `SystemConfigurationPublicController` (Admin-only read-only — verify demo/bypass flag)
 
 #### Tournament
 - [tournament.md](./api/tournament.md) — `TournamentController` (Player-facing)
@@ -131,6 +132,7 @@ Tài liệu tổng hợp cho hệ thống BoardVerse — board game center manag
 | `SePayAccountController` | [sepay-account.md](./api/sepay-account.md) |
 | `SePayWebhookController` | [sepay-webhook.md](./api/sepay-webhook.md) |
 | `StaffController` | [staff.md](./api/staff.md) |
+| `SystemConfigurationPublicController` | [system-config.md](./api/system-config.md) |
 | `TournamentController` | [tournament.md](./api/tournament.md) |
 | `TournamentPosController` | [tournament-pos.md](./api/tournament-pos.md) |
 | `TournamentWaitlistController` | [tournament-waitlist.md](./api/tournament-waitlist.md) |

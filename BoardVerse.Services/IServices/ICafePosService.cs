@@ -3,6 +3,7 @@ using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.DTOs.Session;
 using BoardVerse.Core.Enum;
 
+using System.Threading;
 namespace BoardVerse.Services.IServices
 {
     public interface ICafePosService
@@ -13,39 +14,40 @@ namespace BoardVerse.Services.IServices
             string userRole,
             bool includeOnlyAvailable = true,
             bool includeInactive = false,
-            IReadOnlyCollection<CafeTableStatus>? statuses = null);
+            IReadOnlyCollection<CafeTableStatus>? statuses = null,
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Legacy overload — đồng bộ chỉ tên bàn (giữ nguyên SeatCount cũ, default 4 cho bàn mới).
         /// </summary>
-        Task SyncTablesAsync(Guid cafeId, Guid managerId, IReadOnlyList<string> tableNames);
+        Task SyncTablesAsync(Guid cafeId, Guid managerId, IReadOnlyList<string> tableNames, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Overload mới — đồng bộ cả Name + SeatCount + SortOrder trong một lần PUT.
         /// PUT /api/cafes/{cafeId}/pos/tables shape mới.
         /// </summary>
-        Task SyncTablesAsync(Guid cafeId, Guid managerId, IReadOnlyList<CafeTableSyncItem> tables);
+        Task SyncTablesAsync(Guid cafeId, Guid managerId, IReadOnlyList<CafeTableSyncItem> tables, CancellationToken cancellationToken = default);
 
         Task<CafeTableStatusDto> UpdateCafeTableAsync(
             Guid cafeId,
             Guid managerId,
             Guid tableId,
-            UpdateCafeTableRequestDto request);
+            UpdateCafeTableRequestDto request, CancellationToken cancellationToken = default);
         Task<IReadOnlyList<CafeInventoryBoxDto>> GetBoxesAsync(
             Guid cafeId,
             Guid userId,
             string userRole,
-            Guid? gameTemplateId);
+            Guid? gameTemplateId, CancellationToken cancellationToken = default);
         Task<CafeInventoryBoxDto> GetBoxByBarcodeAsync(
             Guid cafeId,
             Guid userId,
             string userRole,
-            string barcode);
+            string barcode, CancellationToken cancellationToken = default);
         Task<IReadOnlyList<ActiveSessionDto>> GetActiveSessionsAsync(
             Guid cafeId,
             Guid userId,
             string userRole,
-            Guid? gameTemplateId);
+            Guid? gameTemplateId, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Lấy danh sách phiên chơi đang ở trạng thái UNPAID (chờ thanh toán).
@@ -59,7 +61,7 @@ namespace BoardVerse.Services.IServices
             Guid cafeId,
             Guid userId,
             string userRole,
-            Guid? sessionId = null);
+            Guid? sessionId = null, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Lấy danh sách phiên chơi đã thanh toán (PAID) theo khoảng ngày + phân trang.
@@ -69,7 +71,7 @@ namespace BoardVerse.Services.IServices
             Guid cafeId,
             Guid userId,
             string userRole,
-            GetPaidSessionsQuery query);
+            GetPaidSessionsQuery query, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// GAP 1 Fix: Get session by ID for frontend to view session details.
@@ -78,13 +80,14 @@ namespace BoardVerse.Services.IServices
             Guid cafeId,
             Guid userId,
             string userRole,
-            Guid sessionId);
+            Guid sessionId, CancellationToken cancellationToken = default);
 
         Task<ActiveSessionDto> StartGameSessionAsync(
             Guid cafeId,
             Guid userId,
             string userRole,
-            StartGameSessionRequestDto request);
+            StartGameSessionRequestDto request,
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// POS check-in: Staff quét QR (ReservationCode hoặc BookingCode legacy) để kích hoạt phiên chơi.
@@ -94,7 +97,7 @@ namespace BoardVerse.Services.IServices
             Guid cafeId,
             Guid userId,
             string userRole,
-            CheckInRequestDto request);
+            CheckInRequestDto request, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Preview booking info trước khi check-in.
@@ -104,13 +107,14 @@ namespace BoardVerse.Services.IServices
             Guid cafeId,
             Guid userId,
             string userRole,
-            string bookingCode);
+            string bookingCode, CancellationToken cancellationToken = default);
 
         Task<ActiveSessionDto> EndGameSessionAsync(
             Guid cafeId,
             Guid userId,
             string userRole,
-            Guid sessionId);
+            Guid sessionId,
+            CancellationToken cancellationToken = default);
 
         // BR-12: Component Checklist
         // GET: trả về mô tả các linh kiện cần kiểm (chưa có số liệu thực tế).
@@ -118,20 +122,31 @@ namespace BoardVerse.Services.IServices
             Guid cafeId,
             Guid userId,
             string userRole,
-            Guid sessionGameId);
+            Guid sessionGameId, CancellationToken cancellationToken = default);
         // POST verify: lưu kết quả kiểm kê, tính phí phạt, trả ComponentCheckResultDto.
         Task<ComponentCheckResultDto> SubmitComponentCheckAsync(
             Guid cafeId,
             Guid userId,
             string userRole,
-            SubmitComponentCheckRequestDto request);
+            SubmitComponentCheckRequestDto request, CancellationToken cancellationToken = default);
 
-        // GAP-25 Fix: Reset checklist — cho phép staff reset lại checklist nếu đã kiểm tra sai
-        Task<ComponentChecklistDto> ResetComponentCheckAsync(
-            Guid cafeId,
-            Guid userId,
-            string userRole,
-            Guid sessionGameId);
+// GAP-25 Fix: Reset checklist — cho phép staff reset lại checklist nếu đã kiểm tra sai
+ Task<ComponentChecklistDto> ResetComponentCheckAsync(
+ Guid cafeId,
+ Guid userId,
+ string userRole,
+ Guid sessionGameId, CancellationToken cancellationToken = default);
+
+ // FIX 2026-08-24: Đổi trạng thái hộp game (Maintenance → Available sau khi bổ sung
+ // linh kiện, hoặc Damaged/Retired khi hỏng nặng).
+ // KHÔNG cho phép set InUse (chỉ EndGameSession mới set InUse).
+ Task<UpdateBoxStatusResponseDto> UpdateBoxStatusAsync(
+ Guid cafeId,
+ Guid userId,
+ string userRole,
+ Guid boxId,
+ UpdateBoxStatusRequestDto request,
+ CancellationToken cancellationToken = default);
 
         // Box history #1: trả lịch sử các lần hộp bị ghi nhận MissingComponents
         // qua các phiên trước, kèm linh kiện thiếu + staff + member chịu trách nhiệm.
@@ -145,7 +160,7 @@ namespace BoardVerse.Services.IServices
             Guid userId,
             string userRole,
             Guid boxId,
-            Guid? sessionId = null);
+            Guid? sessionId = null, CancellationToken cancellationToken = default);
 
         // Return Game: tính surcharge_fine
         Task<ReturnGameResponseDto> ReturnGameAsync(
@@ -153,7 +168,7 @@ namespace BoardVerse.Services.IServices
             Guid userId,
             string userRole,
             Guid sessionId,
-            ReturnGameRequestDto request);
+            ReturnGameRequestDto request, CancellationToken cancellationToken = default);
 
         // ====== Billing Operations (delegates to ActiveSessionService) ======
         // AttachGame: Nhóm tự ý lấy thêm game (Exception 6)
@@ -162,7 +177,7 @@ namespace BoardVerse.Services.IServices
             Guid userId,
             string userRole,
             Guid sessionId,
-            AttachGameRequestDto request);
+            AttachGameRequestDto request, CancellationToken cancellationToken = default);
 
         // AddGuestSlot: Thêm khách vô danh (Exception 10)
         Task<ActiveSessionDto> AddGuestSlotAsync(
@@ -170,7 +185,7 @@ namespace BoardVerse.Services.IServices
             Guid userId,
             string userRole,
             Guid sessionId,
-            AddGuestSlotRequestDto request);
+            AddGuestSlotRequestDto request, CancellationToken cancellationToken = default);
 
         // AddLateMember: Thêm thành viên đến muộn (Exception 8)
         Task<ActiveSessionDto> AddLateMemberAsync(
@@ -178,7 +193,7 @@ namespace BoardVerse.Services.IServices
             Guid userId,
             string userRole,
             Guid sessionId,
-            AddLateMemberRequestDto request);
+            AddLateMemberRequestDto request, CancellationToken cancellationToken = default);
 
         // RecordInventoryLoss: Ghi nhận hao hụt trước phiên (Exception 7)
         Task RecordInventoryLossAsync(
@@ -186,14 +201,14 @@ namespace BoardVerse.Services.IServices
             Guid userId,
             string userRole,
             Guid sessionId,
-            RecordInventoryLossRequestDto request);
+            RecordInventoryLossRequestDto request, CancellationToken cancellationToken = default);
 
         // P-04: Ghi nhận hao hụt TRƯỚC KHI có phiên chơi (shift handoff)
         Task RecordPreSessionInventoryLossAsync(
             Guid cafeId,
             Guid userId,
             string userRole,
-            RecordPreSessionInventoryLossRequestDto request);
+            RecordPreSessionInventoryLossRequestDto request, CancellationToken cancellationToken = default);
 
         // ====== Checkout & Payment Operations ======
         // Checkout: Thanh toán toàn bộ sau kiểm kê (BR-12)
@@ -203,7 +218,7 @@ namespace BoardVerse.Services.IServices
             Guid userId,
             string userRole,
             Guid sessionId,
-            CheckoutRequestDto request);
+            CheckoutRequestDto request, CancellationToken cancellationToken = default);
 
         // Pay: Thanh toán hóa đơn tổng (BR-15)
         // GAP-7 Fix: Nhận userId/userRole để EnsurePosAccessAsync đúng cách.
@@ -212,7 +227,8 @@ namespace BoardVerse.Services.IServices
             Guid userId,
             string userRole,
             Guid sessionId,
-            PaySessionRequestDto request);
+            PaySessionRequestDto request,
+            CancellationToken cancellationToken = default);
 
         // PartialCheckout: Thanh toán một phần cho thành viên về sớm
         // GAP-7 Fix: Nhận userId/userRole để EnsurePosAccessAsync đúng cách.
@@ -221,14 +237,14 @@ namespace BoardVerse.Services.IServices
             Guid userId,
             string userRole,
             Guid sessionId,
-            PartialCheckoutRequestDto request);
+            PartialCheckoutRequestDto request, CancellationToken cancellationToken = default);
 
         // ====== POS QR 2-chiều check-in (BR §21A.7) ======
         Task<PosCheckInTokenDto> CreateCheckInTokenAsync(
             Guid cafeId,
             Guid staffUserId,
             string staffRole,
-            CreatePosCheckInTokenRequestDto request);
+            CreatePosCheckInTokenRequestDto request, CancellationToken cancellationToken = default);
 
         // Merge: Ghép thành viên vào nhóm mới (Exception 4)
         // GAP-7 Fix: Nhận userId/userRole để EnsurePosAccessAsync đúng cách.
@@ -237,7 +253,7 @@ namespace BoardVerse.Services.IServices
             Guid userId,
             string userRole,
             Guid sourceSessionId,
-            MergeSessionRequestDto request);
+            MergeSessionRequestDto request, CancellationToken cancellationToken = default);
 
         // Phase 4 / EC-11: ghi audit log khi player khiếu nại giờ chơi.
         // BR §XX evidence: POS logs (StartedAt scan QR + EndedAt POS button) là definitive.
@@ -246,7 +262,7 @@ namespace BoardVerse.Services.IServices
             Guid cafeId,
             Guid staffUserId,
             string staffRole,
-            DisputePlayedTimeRequestDto request);
+            DisputePlayedTimeRequestDto request, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Phase 5 / EC-11 — Manager override played time (BR-REFUND-07).
@@ -265,6 +281,6 @@ namespace BoardVerse.Services.IServices
             Guid cafeId,
             Guid managerUserId,
             string managerRole,
-            OverridePlayedTimeRequestDto request);
+            OverridePlayedTimeRequestDto request, CancellationToken cancellationToken = default);
     }
 }

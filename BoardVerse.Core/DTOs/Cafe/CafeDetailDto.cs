@@ -143,11 +143,12 @@ public class CafeConfigDto
 
 /// <summary>
 /// Override giờ mở cửa cho ngày đặc biệt (BR-Schedule).
+/// BR-NEW-15 (2026-08-18): BỎ TimeSlot - dùng ApplyDate/OpenTime/CloseTime.
 /// </summary>
 public class CafeScheduleOverrideDto
 {
     /// <summary>Ngày áp dụng override.</summary>
-    public DateOnly Date { get; set; }
+    public DateOnly ApplyDate { get; set; }
 
     /// <summary>Lý do (VD: "Tết Nguyên Đán 2026").</summary>
     public string? Reason { get; set; }
@@ -160,7 +161,4 @@ public class CafeScheduleOverrideDto
 
     /// <summary>True = đóng cửa ngày này.</summary>
     public bool IsClosed { get; set; }
-
-    /// <summary>TimeSlot bị ảnh hưởng. Null = áp dụng cho tất cả.</summary>
-    public TimeSlot? AffectedTimeSlot { get; set; }
 }

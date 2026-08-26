@@ -270,6 +270,9 @@ namespace BoardVerse.Core.DTOs.Admin
         public int HostCancelledFailures { get; set; }
         public int RejectedByCafeFailures { get; set; }
         public int ExpiredByCafeFailures { get; set; }
+
+        /// <summary>BR-NEW-10: Lobby host tự giải tán (LobbyStatus.Dissolved). Tính vào cooling-off signals.</summary>
+        public int DissolvedFailures { get; set; }
         public DateTime GeneratedAt { get; set; }
     }
 
@@ -284,6 +287,9 @@ namespace BoardVerse.Core.DTOs.Admin
         public int HostCancelledCount { get; set; }
         public int RejectedByCafeCount { get; set; }
         public int ExpiredByCafeCount { get; set; }
+
+        /// <summary>BR-NEW-10: Lobby host tự giải tán (LobbyStatus.Dissolved).</summary>
+        public int DissolvedCount { get; set; }
     }
 
     public class AdminLobbyFailureItemDto

@@ -31,6 +31,11 @@ public class BookingDepositExpiryJob : BackgroundService
             {
                 await ProcessExpiredDepositsAsync(stoppingToken);
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("BookingDepositExpiryJob stopped (host shutdown).");
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in BookingDepositExpiryJob");

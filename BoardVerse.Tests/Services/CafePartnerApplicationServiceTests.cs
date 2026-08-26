@@ -8,6 +8,7 @@ using BoardVerse.Services.Services;
 using Microsoft.Extensions.Logging;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class CafePartnerApplicationServiceTests
@@ -25,9 +26,9 @@ public class CafePartnerApplicationServiceTests
         var emailService = new Mock<IEmailService>();
         var logger = new Mock<ILogger<CafePartnerApplicationService>>();
 
-        applicationRepo.Setup(r => r.HasOpenApplicationByEmailAsync(It.IsAny<string>())).ReturnsAsync(false);
-        authRepo.Setup(r => r.GetByEmailAsync(It.IsAny<string>())).ReturnsAsync((User?)null);
-        authRepo.Setup(r => r.GetByIdAsync(managerId)).ReturnsAsync(new User
+        applicationRepo.Setup(r => r.HasOpenApplicationByEmailAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        authRepo.Setup(r => r.GetByEmailAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
+        authRepo.Setup(r => r.GetByIdAsync(managerId, It.IsAny<CancellationToken>())).ReturnsAsync(new User
         {
             Id = managerId,
             Email = email,
@@ -36,11 +37,11 @@ public class CafePartnerApplicationServiceTests
             Provider = "Local",
             PasswordHash = "hash"
         });
-        applicationRepo.Setup(r => r.HasSevereDuplicateAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Guid?>())).ReturnsAsync(false);
-        applicationRepo.Setup(r => r.AddAsync(It.IsAny<CafePartnerApplication>()))
-            .Callback<CafePartnerApplication>(app => app.Id = Guid.NewGuid());
-        applicationRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>()))
-            .ReturnsAsync((Guid id) => new CafePartnerApplication
+        applicationRepo.Setup(r => r.HasSevereDuplicateAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        applicationRepo.Setup(r => r.AddAsync(It.IsAny<CafePartnerApplication>(), It.IsAny<CancellationToken>()))
+            .Callback<CafePartnerApplication, CancellationToken>((app, _) => app.Id = Guid.NewGuid());
+        applicationRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid id, CancellationToken _) => new CafePartnerApplication
             {
                 Id = id,
                 CafeName = "Unit Test Cafe",
@@ -54,7 +55,7 @@ public class CafePartnerApplicationServiceTests
                 SubmittedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             });
-        applicationRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        applicationRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var service = new CafePartnerApplicationService(
             applicationRepo.Object,
@@ -96,8 +97,8 @@ public class CafePartnerApplicationServiceTests
         var emailService = new Mock<IEmailService>();
         var logger = new Mock<ILogger<CafePartnerApplicationService>>();
 
-        applicationRepo.Setup(r => r.HasOpenApplicationByEmailAsync(It.IsAny<string>())).ReturnsAsync(false);
-        authRepo.Setup(r => r.GetByEmailAsync(It.IsAny<string>())).ReturnsAsync(new User
+        applicationRepo.Setup(r => r.HasOpenApplicationByEmailAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        authRepo.Setup(r => r.GetByEmailAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(new User
         {
             Id = managerId,
             Email = email,
@@ -106,7 +107,7 @@ public class CafePartnerApplicationServiceTests
             Provider = "Local",
             PasswordHash = "hash"
         });
-        authRepo.Setup(r => r.GetByIdAsync(managerId)).ReturnsAsync(new User
+        authRepo.Setup(r => r.GetByIdAsync(managerId, It.IsAny<CancellationToken>())).ReturnsAsync(new User
         {
             Id = managerId,
             Email = email,
@@ -115,11 +116,11 @@ public class CafePartnerApplicationServiceTests
             Provider = "Local",
             PasswordHash = "hash"
         });
-        applicationRepo.Setup(r => r.HasSevereDuplicateAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Guid?>())).ReturnsAsync(false);
-        applicationRepo.Setup(r => r.AddAsync(It.IsAny<CafePartnerApplication>()))
-            .Callback<CafePartnerApplication>(app => app.Id = Guid.NewGuid());
-        applicationRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>()))
-            .ReturnsAsync((Guid id) => new CafePartnerApplication
+        applicationRepo.Setup(r => r.HasSevereDuplicateAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        applicationRepo.Setup(r => r.AddAsync(It.IsAny<CafePartnerApplication>(), It.IsAny<CancellationToken>()))
+            .Callback<CafePartnerApplication, CancellationToken>((app, _) => app.Id = Guid.NewGuid());
+        applicationRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid id, CancellationToken _) => new CafePartnerApplication
             {
                 Id = id,
                 CafeName = "Unit Test Cafe",
@@ -133,7 +134,7 @@ public class CafePartnerApplicationServiceTests
                 SubmittedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             });
-        applicationRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        applicationRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var service = new CafePartnerApplicationService(
             applicationRepo.Object,

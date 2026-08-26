@@ -17,7 +17,7 @@ namespace BoardVerse.Data.Repositories
             _context = context;
         }
 
-        public async Task<CafeGameInventory?> GetByIdWithDetailsAsync(Guid inventoryId)
+        public async Task<CafeGameInventory?> GetByIdWithDetailsAsync(Guid inventoryId, CancellationToken cancellationToken = default)
         {
             return await _context.CafeGameInventories
                 .Include(i => i.GameTemplate)
@@ -31,7 +31,7 @@ namespace BoardVerse.Data.Repositories
                 .FirstOrDefaultAsync(i => i.Id == inventoryId && i.IsActive);
         }
 
-        public async Task<CafeGameInventory?> GetByIdWithDetailsIncludingInactiveAsync(Guid inventoryId)
+        public async Task<CafeGameInventory?> GetByIdWithDetailsIncludingInactiveAsync(Guid inventoryId, CancellationToken cancellationToken = default)
         {
             return await _context.CafeGameInventories
                 .Include(i => i.GameTemplate)
@@ -41,7 +41,7 @@ namespace BoardVerse.Data.Repositories
                 .FirstOrDefaultAsync(i => i.Id == inventoryId);
         }
 
-        public async Task<CafeGameInventory?> GetByCafeAndGameTemplateAsync(Guid cafeId, Guid gameTemplateId)
+        public async Task<CafeGameInventory?> GetByCafeAndGameTemplateAsync(Guid cafeId, Guid gameTemplateId, CancellationToken cancellationToken = default)
         {
             return await _context.CafeGameInventories
                 .Include(i => i.ComponentPenalties)
@@ -53,15 +53,17 @@ namespace BoardVerse.Data.Repositories
 
         public async Task<CafeGameInventory?> GetByCafeAndGameTemplateIncludingInactiveAsync(
             Guid cafeId,
-            Guid gameTemplateId)
+            Guid gameTemplateId,
+            CancellationToken cancellationToken = default)
         {
             return await _context.CafeGameInventories
                 .FirstOrDefaultAsync(i =>
                     i.CafeId == cafeId &&
-                    i.GameTemplateId == gameTemplateId);
+                    i.GameTemplateId == gameTemplateId,
+                    cancellationToken);
         }
 
-        public async Task<HashSet<Guid>> GetActiveGameTemplateIdsByCafeAsync(Guid cafeId)
+        public async Task<HashSet<Guid>> GetActiveGameTemplateIdsByCafeAsync(Guid cafeId, CancellationToken cancellationToken = default)
         {
             var ids = await _context.CafeGameInventories
                 .AsNoTracking()
@@ -75,7 +77,7 @@ namespace BoardVerse.Data.Repositories
         public async Task<PaginatedResponse<CafeGameInventory>> GetPagedByCafeAsync(
             Guid cafeId,
             GetCafeInventoryQuery query,
-            bool deletedOnly = false)
+            bool deletedOnly = false, CancellationToken cancellationToken = default)
         {
             var baseQuery = _context.CafeGameInventories
                 .AsNoTracking()
@@ -126,13 +128,13 @@ namespace BoardVerse.Data.Repositories
             };
         }
 
-        public Task AddAsync(CafeGameInventory inventory)
+        public Task AddAsync(CafeGameInventory inventory, CancellationToken cancellationToken = default)
         {
             _context.CafeGameInventories.Add(inventory);
             return Task.CompletedTask;
         }
 
-        public async Task SyncInventoryBoxesAsync(Guid inventoryId)
+        public async Task SyncInventoryBoxesAsync(Guid inventoryId, CancellationToken cancellationToken = default)
         {
             var inventory = await _context.CafeGameInventories
                 .FirstOrDefaultAsync(i => i.Id == inventoryId);
@@ -155,7 +157,7 @@ namespace BoardVerse.Data.Repositories
             }
         }
 
-        public async Task BackfillMissingInventoryBoxesAsync()
+        public async Task BackfillMissingInventoryBoxesAsync(CancellationToken cancellationToken = default)
         {
             var inventories = await _context.CafeGameInventories
                 .AsNoTracking()
@@ -183,7 +185,7 @@ namespace BoardVerse.Data.Repositories
             }
         }
 
-        public Task SaveChangesAsync() => _context.SaveChangesAsync();
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default) => _context.SaveChangesAsync();
 
         private static IQueryable<CafeGameInventory> ApplySort(
             IQueryable<CafeGameInventory> query,

@@ -251,6 +251,17 @@ public class LobbyHubService : ILobbyHubService
         _logger.LogInformation("Broadcast LobbyConfirmed to lobby {LobbyId}", lobbyId);
     }
 
+    public async Task NotifyLobbyWaitingCheckIn(Guid lobbyId)
+    {
+        await _hubContext.Clients.Group(lobbyId.ToString()).SendAsync("LobbyWaitingCheckIn", new
+        {
+            LobbyId = lobbyId,
+            Message = "Tất cả thành viên đã sẵn sàng. Đang chờ check-in tại quán.",
+            Timestamp = DateTime.UtcNow
+        });
+        _logger.LogInformation("Broadcast LobbyWaitingCheckIn to lobby {LobbyId}", lobbyId);
+    }
+
     public async Task NotifyLobbyCancelled(Guid lobbyId)
     {
         await _hubContext.Clients.Group(lobbyId.ToString()).SendAsync("LobbyCancelled", new

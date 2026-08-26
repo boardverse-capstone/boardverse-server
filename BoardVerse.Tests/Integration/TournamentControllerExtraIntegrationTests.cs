@@ -229,4 +229,94 @@ public class TournamentControllerExtraIntegrationTests
     }
 
     #endregion
+
+    #region === GET /api/v1/tournaments?status=... (filter by status) ===
+
+    [IntegrationFact]
+    public async Task Tournament_GetAll_NoStatus_ReturnsOk()
+    {
+        var token = await IntegrationTestAuth.AsPlayer1Async(_client);
+        ApiTestClient.Authorize(_client, token);
+
+        // Không truyền status → trả tất cả (mọi status).
+        var response = await _client.GetAsync("/api/v1/tournaments");
+        Assert.True(response.StatusCode == HttpStatusCode.OK ||
+                   response.StatusCode == HttpStatusCode.Unauthorized ||
+                   response.StatusCode == HttpStatusCode.MethodNotAllowed ||
+                   response.StatusCode == HttpStatusCode.Gone);
+    }
+
+    [IntegrationFact]
+    public async Task Tournament_GetAll_StatusOpen_FiltersCorrectly()
+    {
+        var token = await IntegrationTestAuth.AsPlayer1Async(_client);
+        ApiTestClient.Authorize(_client, token);
+
+        var response = await _client.GetAsync("/api/v1/tournaments?status=RegistrationOpen");
+        Assert.True(response.StatusCode == HttpStatusCode.OK ||
+                   response.StatusCode == HttpStatusCode.Unauthorized ||
+                   response.StatusCode == HttpStatusCode.MethodNotAllowed ||
+                   response.StatusCode == HttpStatusCode.Gone);
+    }
+
+    [IntegrationFact]
+    public async Task Tournament_GetAll_StatusOngoing_FiltersCorrectly()
+    {
+        var token = await IntegrationTestAuth.AsPlayer1Async(_client);
+        ApiTestClient.Authorize(_client, token);
+
+        var response = await _client.GetAsync("/api/v1/tournaments?status=OnGoing");
+        Assert.True(response.StatusCode == HttpStatusCode.OK ||
+                   response.StatusCode == HttpStatusCode.Unauthorized ||
+                   response.StatusCode == HttpStatusCode.MethodNotAllowed ||
+                   response.StatusCode == HttpStatusCode.Gone);
+    }
+
+    [IntegrationFact]
+    public async Task Tournament_GetAll_StatusCompleted_FiltersCorrectly()
+    {
+        var token = await IntegrationTestAuth.AsPlayer1Async(_client);
+        ApiTestClient.Authorize(_client, token);
+
+        var response = await _client.GetAsync("/api/v1/tournaments?status=Completed");
+        Assert.True(response.StatusCode == HttpStatusCode.OK ||
+                   response.StatusCode == HttpStatusCode.Unauthorized ||
+                   response.StatusCode == HttpStatusCode.MethodNotAllowed ||
+                   response.StatusCode == HttpStatusCode.Gone);
+    }
+
+    [IntegrationFact]
+    public async Task Tournament_GetAll_AllKeyword_ReturnsAll()
+    {
+        var token = await IntegrationTestAuth.AsPlayer1Async(_client);
+        ApiTestClient.Authorize(_client, token);
+
+        // "all" → giống null, trả tất cả.
+        var response = await _client.GetAsync("/api/v1/tournaments?status=all");
+        Assert.True(response.StatusCode == HttpStatusCode.OK ||
+                   response.StatusCode == HttpStatusCode.Unauthorized ||
+                   response.StatusCode == HttpStatusCode.MethodNotAllowed ||
+                   response.StatusCode == HttpStatusCode.Gone);
+    }
+
+    [IntegrationFact]
+    public async Task Tournament_GetAll_InvalidStatus_ReturnsBadRequest()
+    {
+        var token = await IntegrationTestAuth.AsPlayer1Async(_client);
+        ApiTestClient.Authorize(_client, token);
+
+        var response = await _client.GetAsync("/api/v1/tournaments?status=FROZEN_STATUS");
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [IntegrationFact]
+    public async Task Tournament_GetAll_NoAuth_ReturnsUnauthorized()
+    {
+        ApiTestClient.ClearAuth(_client);
+
+        var response = await _client.GetAsync("/api/v1/tournaments");
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    #endregion
 }

@@ -39,6 +39,7 @@ public static class PaymentServiceExtensions
         services.AddScoped<IManualPaymentService, ManualPaymentService>();
         services.AddScoped<IBookingDepositService, BookingDepositService>();
         services.AddScoped<IPaymentService, PaymentService>();
+        services.AddScoped<ISplitBillService, SplitBillService>();
 
         // BVC wallet + ledger (BR § III, Phase 1)
         services.AddScoped<IWalletRepository, WalletRepository>();
@@ -49,6 +50,10 @@ public static class PaymentServiceExtensions
         // BVC refund request — player gửi → admin duyệt (BR-RISK-05).
         services.AddScoped<IBvcRefundRequestRepository, BvcRefundRequestRepository>();
         services.AddScoped<IBvcRefundRequestService, BvcRefundRequestService>();
+
+        // Split bill service
+        services.AddScoped<ITransactionRepository, TransactionRepository>();
+        services.AddScoped<ISplitBillService, SplitBillService>();
 
         return services;
     }

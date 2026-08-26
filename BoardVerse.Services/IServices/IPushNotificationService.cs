@@ -1,5 +1,6 @@
 using BoardVerse.Core.Entities;
 
+using System.Threading;
 namespace BoardVerse.Services.IServices;
 
 /// <summary>
@@ -20,18 +21,18 @@ public interface IPushNotificationService
     /// <param name="userIds">Danh sách UserId nhận notification.</param>
     /// <param name="payload">FCM message payload (title/body/data).</param>
     /// <returns>Số notification gửi thành công.</returns>
-    Task<int> SendToUsersAsync(IReadOnlyCollection<Guid> userIds, PushNotificationPayload payload);
+    Task<int> SendToUsersAsync(IReadOnlyCollection<Guid> userIds, PushNotificationPayload payload, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gửi notification tới 1 user (single overload).
     /// </summary>
-    Task<int> SendAsync(Guid userId, string title, string body, Dictionary<string, string>? data = null);
+    Task<int> SendAsync(Guid userId, string title, string body, Dictionary<string, string>? data = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Invalidate token khi mobile báo token hết hạn (vd: gọi từ cleanup job
     /// sau khi FCM trả lỗi). Token sẽ không được push nữa.
     /// </summary>
-    Task InvalidateTokenAsync(string token);
+    Task InvalidateTokenAsync(string token, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

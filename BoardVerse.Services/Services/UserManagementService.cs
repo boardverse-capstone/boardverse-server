@@ -45,7 +45,7 @@ namespace BoardVerse.Services.Services
             };
         }
 
-        public async Task<PaginatedResponse<AdminUserDto>> GetAllAsync(AdminUserQueryDto query)
+        public async Task<PaginatedResponse<AdminUserDto>> GetAllAsync(AdminUserQueryDto query, CancellationToken cancellationToken = default)
         {
             if (!string.IsNullOrWhiteSpace(query.Role) && !UserRoleParser.TryParse(query.Role, out _))
             {
@@ -62,7 +62,7 @@ namespace BoardVerse.Services.Services
             };
         }
 
-        public async Task<AdminUserDto> GetAsync(Guid id)
+        public async Task<AdminUserDto> GetAsync(Guid id, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(id);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.AdminUsers.UserNotFound(id));
@@ -70,7 +70,7 @@ namespace BoardVerse.Services.Services
             return MapUser(user);
         }
 
-        public async Task<AdminUserDto> CreateAsync(AdminCreateUserDto request)
+        public async Task<AdminUserDto> CreateAsync(AdminCreateUserDto request, CancellationToken cancellationToken = default)
         {
             if (await _userRepository.UserExistsAsync(request.Email, request.Username))
             {
@@ -104,7 +104,7 @@ namespace BoardVerse.Services.Services
             return MapUser(user);
         }
 
-        public async Task<AdminUserDto> UpdateAsync(Guid id, AdminUpdateUserDto request)
+        public async Task<AdminUserDto> UpdateAsync(Guid id, AdminUpdateUserDto request, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(id);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.AdminUsers.UserNotFound(id));
@@ -149,7 +149,7 @@ namespace BoardVerse.Services.Services
             return MapUser(user);
         }
 
-        public async Task DisableAsync(Guid id)
+        public async Task DisableAsync(Guid id, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(id);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.AdminUsers.UserNotFound(id));
@@ -161,7 +161,7 @@ namespace BoardVerse.Services.Services
             await _userRepository.SaveChangesAsync();
         }
 
-        public async Task<AdminUserDto> BlockAsync(Guid id, AdminBlockUserDto request)
+        public async Task<AdminUserDto> BlockAsync(Guid id, AdminBlockUserDto request, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(id);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.AdminUsers.UserNotFound(id));
@@ -177,7 +177,7 @@ namespace BoardVerse.Services.Services
             return MapUser(user);
         }
 
-        public async Task<AdminUserDto> UnblockAsync(Guid id)
+        public async Task<AdminUserDto> UnblockAsync(Guid id, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(id);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.AdminUsers.UserNotFound(id));
@@ -190,7 +190,7 @@ namespace BoardVerse.Services.Services
             return MapUser(user);
         }
 
-        public async Task<AdminUserDto> UpdateRoleAsync(Guid id, AdminUpdateUserRoleDto request)
+        public async Task<AdminUserDto> UpdateRoleAsync(Guid id, AdminUpdateUserRoleDto request, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(id);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.AdminUsers.UserNotFound(id));

@@ -14,7 +14,7 @@ public class LobbyInviteRepository : ILobbyInviteRepository
         _db = db;
     }
 
-    public async Task<LobbyInvite?> GetByIdAsync(Guid id)
+    public async Task<LobbyInvite?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _db.LobbyInvites
             .Include(i => i.Lobby).ThenInclude(l => l.Members)
@@ -23,7 +23,7 @@ public class LobbyInviteRepository : ILobbyInviteRepository
             .FirstOrDefaultAsync(i => i.Id == id);
     }
 
-    public async Task<LobbyInvite?> GetPendingInviteAsync(Guid lobbyId, Guid inviteeId)
+    public async Task<LobbyInvite?> GetPendingInviteAsync(Guid lobbyId, Guid inviteeId, CancellationToken cancellationToken = default)
     {
         return await _db.LobbyInvites
             .FirstOrDefaultAsync(i => i.LobbyId == lobbyId
@@ -32,7 +32,7 @@ public class LobbyInviteRepository : ILobbyInviteRepository
                 && i.ExpiresAt > DateTime.UtcNow);
     }
 
-    public async Task<LobbyInvite?> GetAcceptedInviteAsync(Guid lobbyId, Guid inviteeId)
+    public async Task<LobbyInvite?> GetAcceptedInviteAsync(Guid lobbyId, Guid inviteeId, CancellationToken cancellationToken = default)
     {
         return await _db.LobbyInvites
             .FirstOrDefaultAsync(i => i.LobbyId == lobbyId
@@ -40,7 +40,7 @@ public class LobbyInviteRepository : ILobbyInviteRepository
                 && i.Status == LobbyInviteStatus.Accepted);
     }
 
-    public async Task<IReadOnlyList<LobbyInvite>> GetByLobbyAsync(Guid lobbyId, LobbyInviteStatus? status = null)
+    public async Task<IReadOnlyList<LobbyInvite>> GetByLobbyAsync(Guid lobbyId, LobbyInviteStatus? status = null, CancellationToken cancellationToken = default)
     {
         var query = _db.LobbyInvites
             .Include(i => i.Inviter).ThenInclude(u => u.Profile)
@@ -55,7 +55,7 @@ public class LobbyInviteRepository : ILobbyInviteRepository
         return await query.OrderByDescending(i => i.CreatedAt).ToListAsync();
     }
 
-    public async Task<IReadOnlyList<LobbyInvite>> GetPendingByInviteeAsync(Guid inviteeId)
+    public async Task<IReadOnlyList<LobbyInvite>> GetPendingByInviteeAsync(Guid inviteeId, CancellationToken cancellationToken = default)
     {
         return await _db.LobbyInvites
             .Include(i => i.Lobby).ThenInclude(l => l.Members)
@@ -67,7 +67,7 @@ public class LobbyInviteRepository : ILobbyInviteRepository
             .ToListAsync();
     }
 
-    public async Task<IReadOnlyList<LobbyInvite>> GetAllByInviteeAsync(Guid inviteeId, LobbyInviteStatus? status = null)
+    public async Task<IReadOnlyList<LobbyInvite>> GetAllByInviteeAsync(Guid inviteeId, LobbyInviteStatus? status = null, CancellationToken cancellationToken = default)
     {
         var query = _db.LobbyInvites
             .Include(i => i.Lobby).ThenInclude(l => l.Members)
@@ -82,13 +82,13 @@ public class LobbyInviteRepository : ILobbyInviteRepository
         return await query.OrderByDescending(i => i.CreatedAt).ToListAsync();
     }
 
-    public Task AddAsync(LobbyInvite invite)
+    public Task AddAsync(LobbyInvite invite, CancellationToken cancellationToken = default)
     {
         _db.LobbyInvites.Add(invite);
         return Task.CompletedTask;
     }
 
-    public async Task<IReadOnlyList<LobbyInvite>> CancelPendingBetweenAsync(Guid userAId, Guid userBId)
+    public async Task<IReadOnlyList<LobbyInvite>> CancelPendingBetweenAsync(Guid userAId, Guid userBId, CancellationToken cancellationToken = default)
     {
         var pending = await _db.LobbyInvites
             .Where(i => i.Status == LobbyInviteStatus.Pending &&
@@ -108,14 +108,18 @@ public class LobbyInviteRepository : ILobbyInviteRepository
         return pending;
     }
 
-    public async Task<IReadOnlyList<LobbyInvite>> GetExpiredPendingAsync(DateTime now)
+    public async Task<IReadOnlyList<LobbyInvite>> GetExpiredPendingAsync(
+        DateTime now, int limit = 500, CancellationToken cancellationToken = default)
     {
+        if (limit <= 0) limit = 500;
         return await _db.LobbyInvites
             .Where(i => i.Status == LobbyInviteStatus.Pending && i.ExpiresAt <= now)
-            .ToListAsync();
+            .OrderBy(i => i.ExpiresAt)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
     }
 
-    public async Task<int> CancelAllPendingForLobbyAsync(Guid lobbyId)
+    public async Task<int> CancelAllPendingForLobbyAsync(Guid lobbyId, CancellationToken cancellationToken = default)
     {
         var pending = await _db.LobbyInvites
             .Where(i => i.LobbyId == lobbyId && i.Status == LobbyInviteStatus.Pending)
@@ -135,7 +139,7 @@ public class LobbyInviteRepository : ILobbyInviteRepository
         return pending.Count;
     }
 
-    public async Task<int> CancelPendingForLobbyAndInviteeAsync(Guid lobbyId, Guid inviteeId)
+    public async Task<int> CancelPendingForLobbyAndInviteeAsync(Guid lobbyId, Guid inviteeId, CancellationToken cancellationToken = default)
     {
         var pending = await _db.LobbyInvites
             .Where(i => i.LobbyId == lobbyId
@@ -157,12 +161,12 @@ public class LobbyInviteRepository : ILobbyInviteRepository
         return pending.Count;
     }
 
-    public Task SaveChangesAsync()
+    public Task SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         return _db.SaveChangesAsync();
     }
 
-    public async Task<int> CountPendingByInviteeSinceAsync(Guid inviteeId, DateTime since)
+    public async Task<int> CountPendingByInviteeSinceAsync(Guid inviteeId, DateTime since, CancellationToken cancellationToken = default)
     {
         return await _db.LobbyInvites
             .Where(i => i.InviteeId == inviteeId
@@ -171,7 +175,7 @@ public class LobbyInviteRepository : ILobbyInviteRepository
             .CountAsync();
     }
 
-    public async Task<int> CountSentByInviterSinceAsync(Guid inviterId, DateTime since)
+    public async Task<int> CountSentByInviterSinceAsync(Guid inviterId, DateTime since, CancellationToken cancellationToken = default)
     {
         return await _db.LobbyInvites
             .Where(i => i.InviterId == inviterId && i.CreatedAt >= since)

@@ -23,7 +23,7 @@ namespace BoardVerse.Services.Services
             _categoryRepository = categoryRepository;
         }
 
-        public async Task<PaginatedResponse<BoardGameListItemDto>> SearchBoardGamesAsync(GetBoardGamesQuery query)
+        public async Task<PaginatedResponse<BoardGameListItemDto>> SearchBoardGamesAsync(GetBoardGamesQuery query, CancellationToken cancellationToken = default)
         {
             var result = await _gameTemplateRepository.GetBoardGamesPagedAsync(query.ToMasterGamesQuery());
             var componentCounts = await _gameTemplateRepository.GetComponentCountsByGameIdsAsync(
@@ -36,7 +36,7 @@ namespace BoardVerse.Services.Services
             };
         }
 
-        public async Task<BoardGameDetailDto> GetBoardGameByIdAsync(Guid id)
+        public async Task<BoardGameDetailDto> GetBoardGameByIdAsync(Guid id, CancellationToken cancellationToken = default)
         {
             var game = await _gameTemplateRepository.GetActiveByIdWithComponentsAsync(id);
             if (game == null)
@@ -45,7 +45,7 @@ namespace BoardVerse.Services.Services
             return MapDetail(game);
         }
 
-        public async Task<List<CategoryDto>> GetCategoriesAsync()
+        public async Task<List<CategoryDto>> GetCategoriesAsync(CancellationToken cancellationToken = default)
         {
             var categories = await _categoryRepository.GetAllActiveAsync();
             return categories.Select(c => new CategoryDto
@@ -58,7 +58,7 @@ namespace BoardVerse.Services.Services
             }).ToList();
         }
 
-        public async Task<GamePlayConfigurationDto> GetPlayConfigurationAsync(Guid gameTemplateId)
+        public async Task<GamePlayConfigurationDto> GetPlayConfigurationAsync(Guid gameTemplateId, CancellationToken cancellationToken = default)
         {
             var game = await RequireActiveGameAsync(gameTemplateId);
             return MapPlayConfiguration(game);
@@ -66,7 +66,7 @@ namespace BoardVerse.Services.Services
 
         public async Task<GamePlayNavigationResponseDto> ResolvePlayNavigationAsync(
             Guid gameTemplateId,
-            ResolveGamePlayNavigationRequestDto request)
+            ResolveGamePlayNavigationRequestDto request, CancellationToken cancellationToken = default)
         {
             var game = await RequireActiveGameAsync(gameTemplateId);
 

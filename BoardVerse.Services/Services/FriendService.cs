@@ -38,7 +38,7 @@ public class FriendService : IFriendService
         _logger = logger;
     }
 
-    public async Task<FriendshipResponseDto> SendFriendRequestAsync(Guid requesterId, SendFriendRequestDto request)
+    public async Task<FriendshipResponseDto> SendFriendRequestAsync(Guid requesterId, SendFriendRequestDto request, CancellationToken cancellationToken = default)
     {
         if (request.AddresseeId == requesterId)
         {
@@ -143,7 +143,7 @@ public class FriendService : IFriendService
         return dto;
     }
 
-    public async Task<FriendshipResponseDto> AcceptFriendRequestAsync(Guid currentUserId, Guid friendshipId)
+    public async Task<FriendshipResponseDto> AcceptFriendRequestAsync(Guid currentUserId, Guid friendshipId, CancellationToken cancellationToken = default)
     {
         var friendship = await _friendshipRepository.GetByIdAsync(friendshipId)
             ?? throw new NotFoundException(ApiErrorMessages.Friend.FriendshipNotFound(friendshipId));
@@ -204,7 +204,7 @@ public class FriendService : IFriendService
         return await MapToResponseDtoAsync(friendship, currentUserId);
     }
 
-    public async Task<FriendshipResponseDto> DeclineFriendRequestAsync(Guid currentUserId, Guid friendshipId)
+    public async Task<FriendshipResponseDto> DeclineFriendRequestAsync(Guid currentUserId, Guid friendshipId, CancellationToken cancellationToken = default)
     {
         var friendship = await _friendshipRepository.GetByIdAsync(friendshipId)
             ?? throw new NotFoundException(ApiErrorMessages.Friend.FriendshipNotFound(friendshipId));
@@ -227,7 +227,7 @@ public class FriendService : IFriendService
         return await MapToResponseDtoAsync(friendship, currentUserId);
     }
 
-    public async Task CancelFriendRequestAsync(Guid currentUserId, Guid friendshipId)
+    public async Task CancelFriendRequestAsync(Guid currentUserId, Guid friendshipId, CancellationToken cancellationToken = default)
     {
         var friendship = await _friendshipRepository.GetByIdAsync(friendshipId)
             ?? throw new NotFoundException(ApiErrorMessages.Friend.FriendshipNotFound(friendshipId));
@@ -248,7 +248,7 @@ public class FriendService : IFriendService
         await _friendshipRepository.SaveChangesAsync();
     }
 
-    public async Task<FriendshipResponseDto> GetFriendRequestByIdAsync(Guid currentUserId, Guid friendshipId)
+    public async Task<FriendshipResponseDto> GetFriendRequestByIdAsync(Guid currentUserId, Guid friendshipId, CancellationToken cancellationToken = default)
     {
         var friendship = await _friendshipRepository.GetByIdAsync(friendshipId)
             ?? throw new NotFoundException(ApiErrorMessages.Friend.FriendshipNotFound(friendshipId));
@@ -268,7 +268,7 @@ public class FriendService : IFriendService
         return await MapToResponseDtoAsync(friendship, currentUserId);
     }
 
-    public async Task<IReadOnlyList<FriendshipResponseDto>> GetBlockedUsersAsync(Guid currentUserId)
+    public async Task<IReadOnlyList<FriendshipResponseDto>> GetBlockedUsersAsync(Guid currentUserId, CancellationToken cancellationToken = default)
     {
         var list = await _friendshipRepository.GetByDirectionAsync(
             currentUserId,
@@ -279,7 +279,7 @@ public class FriendService : IFriendService
             .ToList();
     }
 
-    public async Task<IReadOnlyList<FriendshipResponseDto>> GetBlockedByUsersAsync(Guid currentUserId)
+    public async Task<IReadOnlyList<FriendshipResponseDto>> GetBlockedByUsersAsync(Guid currentUserId, CancellationToken cancellationToken = default)
     {
         var list = await _friendshipRepository.GetByDirectionAsync(
             currentUserId,
@@ -290,7 +290,7 @@ public class FriendService : IFriendService
             .ToList();
     }
 
-    public async Task RemoveFriendshipAsync(Guid currentUserId, Guid friendshipId)
+    public async Task RemoveFriendshipAsync(Guid currentUserId, Guid friendshipId, CancellationToken cancellationToken = default)
     {
         var friendship = await _friendshipRepository.GetByIdAsync(friendshipId)
             ?? throw new NotFoundException(ApiErrorMessages.Friend.FriendshipNotFound(friendshipId));
@@ -330,7 +330,7 @@ public class FriendService : IFriendService
         }
     }
 
-    public async Task BlockUserAsync(Guid currentUserId, Guid targetUserId)
+    public async Task BlockUserAsync(Guid currentUserId, Guid targetUserId, CancellationToken cancellationToken = default)
     {
         if (targetUserId == currentUserId)
         {
@@ -378,7 +378,7 @@ public class FriendService : IFriendService
         await _friendshipRepository.SaveChangesAsync();
     }
 
-    public async Task UnblockUserAsync(Guid currentUserId, Guid targetUserId)
+    public async Task UnblockUserAsync(Guid currentUserId, Guid targetUserId, CancellationToken cancellationToken = default)
     {
         var existing = await _friendshipRepository.GetByPairAsync(currentUserId, targetUserId);
         if (existing == null || existing.Status != FriendshipStatus.Blocked)
@@ -404,7 +404,7 @@ public class FriendService : IFriendService
         await _friendshipRepository.SaveChangesAsync();
     }
 
-    public async Task<IReadOnlyList<FriendSummaryDto>> GetFriendsAsync(Guid userId)
+    public async Task<IReadOnlyList<FriendSummaryDto>> GetFriendsAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         var friendships = await _friendshipRepository.GetFriendsAsync(userId);
         var result = new List<FriendSummaryDto>(friendships.Count);
@@ -416,7 +416,7 @@ public class FriendService : IFriendService
         return result;
     }
 
-    public async Task<IReadOnlyList<FriendshipResponseDto>> GetPendingReceivedRequestsAsync(Guid userId)
+    public async Task<IReadOnlyList<FriendshipResponseDto>> GetPendingReceivedRequestsAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         var list = await _friendshipRepository.GetByUserAsync(userId, FriendshipStatus.Pending);
         return (await Task.WhenAll(list
@@ -425,7 +425,7 @@ public class FriendService : IFriendService
             .ToList();
     }
 
-    public async Task<IReadOnlyList<FriendshipResponseDto>> GetPendingSentRequestsAsync(Guid userId)
+    public async Task<IReadOnlyList<FriendshipResponseDto>> GetPendingSentRequestsAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         var list = await _friendshipRepository.GetByUserAsync(userId, FriendshipStatus.Pending);
         return (await Task.WhenAll(list
@@ -437,7 +437,7 @@ public class FriendService : IFriendService
     public async Task<IReadOnlyList<FriendshipResponseDto>> GetByDirectionAsync(
         Guid currentUserId,
         FriendshipRelationshipDirection direction,
-        int limit = 50)
+        int limit = 50, CancellationToken cancellationToken = default)
     {
         if (direction == FriendshipRelationshipDirection.None)
             return Array.Empty<FriendshipResponseDto>();
@@ -502,7 +502,7 @@ public class FriendService : IFriendService
         };
     }
 
-    public async Task<IReadOnlyList<FriendActivityDto>> GetFriendsActivityAsync(Guid userId)
+    public async Task<IReadOnlyList<FriendActivityDto>> GetFriendsActivityAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         var friendships = await _friendshipRepository.GetFriendsAsync(userId);
         var result = new List<FriendActivityDto>(friendships.Count);
@@ -525,7 +525,7 @@ public class FriendService : IFriendService
         return result;
     }
 
-    public async Task<IReadOnlyList<FriendSuggestionDto>> GetFriendSuggestionsAsync(Guid userId, int limit = 20)
+    public async Task<IReadOnlyList<FriendSuggestionDto>> GetFriendSuggestionsAsync(Guid userId, int limit = 20, CancellationToken cancellationToken = default)
     {
         if (userId == Guid.Empty) throw new BadRequestException(ApiErrorMessages.Friend.CannotSuggestToSelf);
 
@@ -600,7 +600,7 @@ public class FriendService : IFriendService
             .ToList();
     }
 
-    public async Task<IReadOnlyList<MutualFriendDto>> GetMutualFriendsAsync(Guid currentUserId, Guid otherUserId)
+    public async Task<IReadOnlyList<MutualFriendDto>> GetMutualFriendsAsync(Guid currentUserId, Guid otherUserId, CancellationToken cancellationToken = default)
     {
         if (currentUserId == otherUserId)
             throw new BadRequestException(ApiErrorMessages.Friend.CannotViewOwnFriendList);
@@ -633,7 +633,7 @@ public class FriendService : IFriendService
             .ToList();
     }
 
-    public async Task<IReadOnlyList<FriendSummaryDto>> GetOtherUserFriendsAsync(Guid currentUserId, Guid otherUserId)
+    public async Task<IReadOnlyList<FriendSummaryDto>> GetOtherUserFriendsAsync(Guid currentUserId, Guid otherUserId, CancellationToken cancellationToken = default)
     {
         if (currentUserId == otherUserId)
             throw new BadRequestException(ApiErrorMessages.Friend.CannotViewOwnFriendList);
@@ -662,7 +662,7 @@ public class FriendService : IFriendService
         return result;
     }
 
-    public async Task UpdatePrivacyAsync(Guid userId, UpdateFriendPrivacyDto dto)
+    public async Task UpdatePrivacyAsync(Guid userId, UpdateFriendPrivacyDto dto, CancellationToken cancellationToken = default)
     {
         var profile = await _userRepository.GetByIdWithProfileAsync(userId)
             ?? throw new NotFoundException(ApiErrorMessages.Friend.UserNotFound(userId));
@@ -687,7 +687,7 @@ public class FriendService : IFriendService
         await _userRepository.SaveChangesAsync();
     }
 
-    public async Task MarkRequestAsReadAsync(Guid currentUserId, Guid friendshipId)
+    public async Task MarkRequestAsReadAsync(Guid currentUserId, Guid friendshipId, CancellationToken cancellationToken = default)
     {
         var f = await _friendshipRepository.GetByIdAsync(friendshipId)
             ?? throw new NotFoundException(ApiErrorMessages.Friend.FriendshipNotFound(friendshipId));
@@ -708,7 +708,7 @@ public class FriendService : IFriendService
         await _friendshipRepository.SaveChangesAsync();
     }
 
-    public async Task<int> ExpireOldPendingRequestsAsync(int expiryDays = 30)
+    public async Task<int> ExpireOldPendingRequestsAsync(int expiryDays = 30, CancellationToken cancellationToken = default)
     {
         if (expiryDays <= 0) expiryDays = 30;
 
@@ -729,7 +729,7 @@ public class FriendService : IFriendService
         return expired.Count;
     }
 
-    public async Task<PlayerProfileDto> GetPlayerProfileAsync(Guid currentUserId, Guid targetUserId)
+    public async Task<PlayerProfileDto> GetPlayerProfileAsync(Guid currentUserId, Guid targetUserId, CancellationToken cancellationToken = default)
     {
         if (currentUserId == targetUserId)
         {

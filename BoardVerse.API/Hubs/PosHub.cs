@@ -34,32 +34,49 @@ public class PosHub : Hub
     /// <summary>
     /// Subscribe to a session to receive real-time updates.
     /// R-Bug-026 Fix: verify user is part of the session (host, member, or check-in staff).
+    /// GAP-R3-08 Fix: yêu cầu cafeId để chống multi-tenant leak — player của cafe A không join được
+    /// SignalR group của session ở cafe B (kể cả khi guess đúng sessionId).
     /// </summary>
-    public async Task JoinSession(Guid sessionId)
+    public async Task JoinSession(Guid cafeId, Guid sessionId)
     {
         var userId = GetUserId();
-        var isParticipant = await _activeSessionRepository.IsUserSessionParticipantAsync(sessionId, userId);
+        var isParticipant = await _activeSessionRepository.IsUserSessionParticipantInCafeAsync(sessionId, userId, cafeId);
         if (!isParticipant)
         {
-            _logger.LogWarning("IDOR attempt: user {UserId} tried to join session {SessionId} without membership",
-                userId, sessionId);
+            _logger.LogWarning(
+                "IDOR attempt: user {UserId} tried to join session {SessionId} (cafe {CafeId}) without membership",
+                userId, sessionId, cafeId);
             throw new HubException(ApiErrorMessages.Jwt.AccessDenied);
         }
 
         await Groups.AddToGroupAsync(Context.ConnectionId, $"session:{sessionId}");
-        _logger.LogInformation("User {UserId} joined SignalR group for session {SessionId}",
-            userId, sessionId);
+        _logger.LogInformation(
+            "User {UserId} joined SignalR group for session {SessionId} (cafe {CafeId})",
+            userId, sessionId, cafeId);
     }
 
-    /// <summary>
-    /// Unsubscribe from session updates.
-    /// </summary>
-    public async Task LeaveSession(Guid sessionId)
+/// <summary>
+/// Unsubscribe from session updates.
+/// GAP-R4-A5 Fix: validate user is part of the session before allowing leave — chống IDOR
+/// gỡ connection của victim khỏi group. SignalR IGroupManager không cho remove connectionId
+/// của user khác, nhưng leave validation vẫn nên có để chống misuse + log suspicious.
+/// </summary>
+public async Task LeaveSession(Guid cafeId, Guid sessionId)
+{
+    var userId = GetUserId();
+    var isParticipant = await _activeSessionRepository.IsUserSessionParticipantInCafeAsync(sessionId, userId, cafeId);
+    if (!isParticipant)
     {
-        await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"session:{sessionId}");
-        _logger.LogInformation("User {UserId} left SignalR group for session {SessionId}",
-            GetUserId(), sessionId);
+        _logger.LogWarning(
+            "IDOR attempt: user {UserId} tried to leave session {SessionId} (cafe {CafeId}) without membership",
+            userId, sessionId, cafeId);
+        throw new HubException(ApiErrorMessages.Jwt.AccessDenied);
     }
+
+    await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"session:{sessionId}");
+    _logger.LogInformation("User {UserId} left SignalR group for session {SessionId}",
+        userId, sessionId);
+}
 
     /// <summary>
     /// Subscribe to user-specific notifications.
@@ -99,15 +116,26 @@ public class PosHub : Hub
             userId, lobbyId);
     }
 
-    /// <summary>
-    /// Unsubscribe from lobby updates.
-    /// </summary>
-    public async Task LeaveLobby(Guid lobbyId)
+/// <summary>
+/// Unsubscribe from lobby updates.
+/// GAP-R4-A5 Fix: validate user is member of lobby before allowing leave.
+/// </summary>
+public async Task LeaveLobby(Guid cafeId, Guid lobbyId)
+{
+    var userId = GetUserId();
+    var isMember = await _lobbyRepository.IsUserLobbyMemberAsync(lobbyId, userId);
+    if (!isMember)
     {
-        await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"lobby:{lobbyId}");
-        _logger.LogInformation("User {UserId} left SignalR group for lobby {LobbyId}",
-            GetUserId(), lobbyId);
+        _logger.LogWarning(
+            "IDOR attempt: user {UserId} tried to leave lobby {LobbyId} (cafe {CafeId}) without membership",
+            userId, lobbyId, cafeId);
+        throw new HubException(ApiErrorMessages.Jwt.AccessDenied);
     }
+
+    await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"lobby:{lobbyId}");
+    _logger.LogInformation("User {UserId} left SignalR group for lobby {LobbyId}",
+        userId, lobbyId);
+}
 
     public override async Task OnConnectedAsync()
     {

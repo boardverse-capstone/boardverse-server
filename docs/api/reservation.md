@@ -22,8 +22,9 @@ Tuân thủ business rules:
 - **BR-LOBBY-01a/b**: Buffer ≥ 120 phút OK, 60–120 cảnh báo, < 60 từ chối.
 - **BR-USER-LIMIT-01..05**: 1 host lobby + 1 member lobby = tối đa 2 active; cap tổng heldBalance.
 - **BR-NEW-02**: 1 lobby active / `playDate` / user.
-- **BR-NEW-08**: 1 lobby active / `playDate+timeSlot` / `cafe` / user.
+- **BR-NEW-08**: 1 lobby active / `playDate+scheduledStartTime` / `cafe` / user.
 - **BR-NEW-11**: `playDate ≥ DistantThresholdDays` (mặc định 2) + lobby **public** → lobby ở `PendingCafeApproval`, chờ cafe duyệt 24h. Lobby **private** không cần cafe duyệt.
+- **BR-NEW-15 (2026-08-18):** Hệ thống giờ dùng `preferredStartTime` + `preferredEndTime` thay vì `TimeSlot` enum. `CafeScheduleOverride` dùng `ApplyDate` thay vì `TimeSlot`.
 - **BR-REFUND-02**: Cancel theo grace 15 phút + ≥24h / <24h. **Early checkout** dùng `playedRatio`: <50% → 0%, ≥50% → 30%, ≥90% → 0% (treated as on-time).
 - **BR-RESERVATION-01/02**: Giữ `maxPlayers` ghế + 1 game copy.
 
@@ -33,6 +34,7 @@ Tuân thủ business rules:
 
 - [GET /{id}](#get-id)
 - [GET /](#get-)
+- [GET /search](#get-search)
 - [GET /pending-cafe-approval](#get-pending-cafe-approval)
 - [GET /{id}/cafe-approval](#get-idcafe-approval)
 - [POST /quote](#post-quote)
@@ -42,6 +44,8 @@ Tuân thủ business rules:
 - [POST /{id}/check-in](#post-idcheck-in)
 - [POST /{id}/end](#post-idend)
 - [POST /{id}/extend](#post-idextend)
+- [POST /by-code/{reservationCode}/check-in](#post-by-codereservationcodecheck-in)
+- [POST /{id}/cancel-after-checkin](#post-idcancel-after-checkin)
 - [Luồng tích hợp](#luồng-tích-hợp)
 - [State machine](#state-machine)
 
@@ -193,6 +197,91 @@ Lấy danh sách reservation của user (host hoặc member). Có filter + phân
 
 ---
 
+## GET /search
+
+Tìm kiếm lịch hẹn theo tên game hoặc ngày tháng. Có filter + phân trang.
+
+### Request
+
+- Method: `GET`
+- Path: `/api/v1/reservations/search`
+- Auth: Player (JWT)
+
+### Query
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `gameName` | string | No | Từ khóa tìm kiếm theo tên game (fuzzy, case-insensitive). |
+| `fromDate` | date | No | Ngày bắt đầu filter (inclusive). |
+| `toDate` | date | No | Ngày kết thúc filter (inclusive). |
+| `statuses` | enum[] | No | Filter theo trạng thái. |
+| `cafeId` | guid | No | Filter theo cafe. |
+| `hostedByMe` | bool | No | Chỉ reservation do user host (default true). |
+| `joinedByMe` | bool | No | Chỉ reservation user tham gia (default false). |
+| `page` | int | No | Số trang (≥ 1). Mặc định 1 |
+| `pageSize` | int | No | Số item/trang (1-100). Mặc định 20 |
+
+**Lưu ý:** Nếu không truyền `hostedByMe` hoặc `joinedByMe`, mặc định trả cả hai (tất cả reservation liên quan đến user).
+
+### Response 200
+
+```json
+{
+  "statusCode": 200,
+  "message": "ReservationsSearched",
+  "data": {
+    "items": [
+      {
+        "id": "...",
+        "cafeId": "...",
+        "cafeName": "BoardGame Cafe A",
+        "gameId": "...",
+        "gameName": "Catan",
+        "playDate": "2026-08-04",
+        "preferredStartTime": "19:30:00",
+        "preferredEndTime": "22:00:00",
+        "currentPlayers": 3,
+        "maxPlayers": 6,
+        "depositAmount": 100000,
+        "status": "Holding",
+        "lobbyId": "...",
+        "lobbyStatus": "Open",
+        "reservationCode": "K7H3NP9X",
+        "scheduledStartTime": "2026-08-04T19:30:00Z",
+        "scheduledEndTime": "2026-08-04T22:00:00Z",
+        "recruitmentDeadline": "2026-08-04T19:10:00Z",
+        "createdAt": "2026-08-02T15:30:00Z",
+        "isHost": true,
+        "tableNumber": null
+      }
+    ],
+    "page": 1,
+    "pageSize": 20,
+    "totalCount": 5,
+    "totalPages": 1
+  }
+}
+```
+
+### Ví dụ
+
+```
+GET /api/v1/reservations/search?gameName=Catan&fromDate=2026-08-01&toDate=2026-08-31
+GET /api/v1/reservations/search?gameName=Splendor&hostedByMe=true
+GET /api/v1/reservations/search?fromDate=2026-08-20&toDate=2026-08-25&statuses=Holding,Confirmed
+GET /api/v1/reservations/search?cafeId=abc123-guid&page=1&pageSize=10
+```
+
+### Lỗi thường gặp
+
+| Status | Message |
+|--------|---------|
+| `401` | Thiếu token |
+| `400` | `page` hoặc `pageSize` không hợp lệ |
+| `500` | Lỗi hệ thống |
+
+---
+
 ## GET /pending-cafe-approval
 
 Lấy danh sách lobby đang chờ cafe duyệt (BR-NEW-11). Dùng cho dashboard của Cafe Manager.
@@ -329,8 +418,8 @@ Tạo quote cho reservation. **KHÔNG tạo row DB** — chỉ validate + tính 
   "cafeId": "guid",
   "gameId": "guid",
   "playDate": "2026-08-04",
-  "timeSlot": "evening",
   "preferredStartTime": "19:30",
+  "preferredEndTime": "22:00",
   "minPlayers": 4,
   "maxPlayers": 6,
   "isPrivate": false,
@@ -343,8 +432,8 @@ Tạo quote cho reservation. **KHÔNG tạo row DB** — chỉ validate + tính 
 | `cafeId` | guid | Yes | Cafe còn hoạt động. |
 | `gameId` | guid | Yes | Game có trong `CafeGameInventory`. |
 | `playDate` | date | Yes | Trong khoảng `[today, today+7]`. |
-| `timeSlot` | enum | Yes | `morning` / `afternoon` / `evening` / `lateNight`. |
-| `preferredStartTime` | time | No | Phải nằm trong `[timeSlot.startTime, timeSlot.endTime]`. |
+| `preferredStartTime` | time | Yes | `HH:mm`. Phải `>= CafeSchedule.DefaultOpenTime` (06:00). |
+| `preferredEndTime` | time | Yes | `HH:mm`. Nếu `> preferredStartTime` → cùng ngày; nếu `<` → hiểu là ngày kế tiếp (overnight). Nếu `==` → 400. |
 | `minPlayers` | int | Yes | ≥ 2. |
 | `maxPlayers` | int | Yes | `minPlayers ≤ maxPlayers`. |
 | `isPrivate` | bool | No | `false` = public lobby (có thể cần cafe duyệt). `true` = private lobby (mời bạn, không cần cafe duyệt). Mặc định `false`. |
@@ -415,14 +504,16 @@ Trường `warnings` chứa các cảnh báo từ server:
 | `400` | `playDate` ngoài [today, +7] | - |
 | `400` | `minPlayers < 1` hoặc `maxPlayers > 30` | - |
 | `400` | `maxPlayers < minPlayers` | - |
-| `400` | `preferredStartTime` không nằm trong `timeSlot` window | BR-LOBBY-15b |
+| `400` | `preferredStartTime < CafeSchedule.DefaultOpenTime` (06:00) | BR-RES-07 |
+| `400` | `preferredEndTime == preferredStartTime` (zero-duration) | BR-RES-07 |
+| `400` | `preferredEndTime > DefaultCloseTime` (23:00) khi không overnight | BR-RES-07 |
 | `400` | Buffer < 60 phút (từ chối) | BR-LOBBY-01b |
 | `400` | Buffer 60-120 phút (cảnh báo) | BR-LOBBY-01c |
 | `401` | Thiếu token | - |
 | `403` | User bị `suspended` / `banned` | BR-RISK-04 |
 | `403` | Cooling-off active (chỉ tạo lobby trong ngày, cọc ×2) | BR-NEW-10 |
 | `403` | User đang là member của lobby active (không được host) | BR-USER-LIMIT-04 |
-| `403` | User đang là host của lobby active (không được join) | BR-USER-LIMIT-05 |
+| `403` | User đang là host của 1 lobby (không được host thêm) | BR-USER-LIMIT-01 |
 | `409` | Đã có lobby overlap (lịch chồng lấn +30 phút) | BR-USER-LIMIT-02 |
 | `409` | Đã host lobby `playDate+cafe+slot` | BR-NEW-08 |
 | `409` | Vượt 5 lần tạo/hủy / `playDate` | BR-NEW-05 |
@@ -450,8 +541,8 @@ Confirm reservation — atomic transaction. Trừ BVC + giữ seat + giữ game 
   "cafeId": "guid",
   "gameId": "guid",
   "playDate": "2026-08-04",
-  "timeSlot": "evening",
   "preferredStartTime": "19:30",
+  "preferredEndTime": "22:00",
   "minPlayers": 4,
   "maxPlayers": 6,
   "isPrivate": false,
@@ -521,11 +612,47 @@ Khi active:
 
 Trigger: 3 lobby fail (`timeoutFailed` hoặc `hostCancelled` sau grace) trong 7 ngày.
 
+### Overnight Reservations (BR-RES-08)
+
+`POST /quote` và `POST /confirm` chấp nhận khung giờ qua đêm: nếu `preferredEndTime < preferredStartTime`, hệ thống hiểu rằng `scheduledEndTime` thuộc ngày kế tiếp của `playDate`.
+
+| Input | Interpretation |
+|---|---|
+| `preferredStartTime=21:00`, `preferredEndTime=00:00` | 21:00 hôm nay → 00:00 ngày kế tiếp (3 giờ) |
+| `preferredStartTime=22:00`, `preferredEndTime=02:00` | 22:00 hôm nay → 02:00 ngày kế tiếp (4 giờ) |
+| `preferredStartTime=19:00`, `preferredEndTime=21:00` | 19:00 hôm nay → 21:00 cùng ngày (2 giờ) |
+| `preferredStartTime=10:00`, `preferredEndTime=10:00` | **400** — zero-duration, không hợp lệ |
+| `preferredStartTime=05:00`, `preferredEndTime=08:00` | **400** — `preferredStartTime < DefaultOpenTime` (06:00) |
+| `preferredStartTime=20:00`, `preferredEndTime=23:30` (same day) | **400** — `preferredEndTime > DefaultCloseTime` (23:00) |
+
+Response trả `scheduledStartTime` + `scheduledEndTime` đầy đủ `DateTime` (kèm ngày thực tế), ví dụ:
+
+```json
+{
+  "playDate": "2026-08-18",
+  "preferredStartTime": "21:00:00",
+  "preferredEndTime": "00:00:00",
+  "scheduledStartTime": "2026-08-18T21:00:00Z",
+  "scheduledEndTime": "2026-08-19T00:00:00Z",
+  "durationMinutes": 180
+}
+```
+
+Lỗi thường gặp thêm (BR-RES-07/08):
+
+| Status | Message rule | BR |
+|---|---|---|
+| `400` | `PreferredTimesMustDiffer` (end == start, hoặc zero-duration) | BR-RES-07 |
+| `400` | `PreferredStartBeforeOpen(06:00)` | BR-RES-07 |
+| `400` | `PreferredEndAfterClose(23:00)` khi không overnight | BR-RES-07 |
+| `400` | `ReservationEndTimeDifferentDay` (end > start nhưng lệch sang ngày khác) | BR-RES-08 |
+
 ### Idempotency strict params (fix 2026-08-06)
 
 Confirm endpoint **verify tất cả params** trước khi trả kết quả cũ:
 
-- `CafeId`, `GameId`, `PlayDate`, `TimeSlot`
+- `CafeId`, `GameId`, `PlayDate`
+- `PreferredStartTime`, `PreferredEndTime`
 - `MaxPlayers`, `MinPlayers`
 - `ExpectedFinalDeposit`
 
@@ -859,6 +986,131 @@ Host mở rộng thời gian reservation (BR-EXT-01..05 + EC-05 + EC-08).
 
 ---
 
+## POST /{id}/cancel-after-checkin
+
+Host hủy reservation sau khi đã check-in. Áp dụng refund theo playedRatio (BR-REFUND-04/05).
+
+### Request
+
+- Method: `POST`
+- Path: `/api/v1/reservations/{reservationId}/cancel-after-checkin`
+- Auth: Player (JWT) — phải là host của reservation
+
+### Request Body
+
+```json
+{
+  "reason": "Trời mưa to không thể tiếp tục chơi",
+  "idempotencyKey": "host-cancel-after-checkin-xyz789"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `reason` | string | No | Lý do hủy (hiển thị trong audit log) |
+| `idempotencyKey` | string | Yes | Chống duplicate request |
+
+### Response 200
+
+```json
+{
+  "statusCode": 200,
+  "message": "ReservationCancelledAfterCheckin",
+  "data": {
+    "reservationId": "guid",
+    "previousStatus": "CheckedIn",
+    "newStatus": "CancelledByPlayer",
+    "playDurationMinutes": 45,
+    "playedRatio": 0.75,
+    "refundBvc": 30,
+    "forfeitBvc": 70,
+    "refundReason": "Hoàn 30% tiền cọc (playedRatio ≥ 50%)",
+    "cancellationType": "PartialForfeit",
+    "cancelledAt": "2026-08-15T11:00:00Z"
+  }
+}
+```
+
+### playedRatio và refund
+
+| playedRatio | Hoàn BVC | Karma |
+|------------|----------|-------|
+| `< 50%` | 0% (forfeit 100%) | Giảm nhẹ |
+| `≥ 50%` | 30% | Không phạt |
+| `≥ 90%` | 0% (treated as on-time) | Không phạt |
+
+### Lỗi
+
+| Code | Mô tả |
+|------|--------|
+| 400 | Request không hợp lệ / thiếu idempotencyKey |
+| 401 | Thiếu token |
+| 403 | Không phải host |
+| 404 | Không tìm thấy reservation |
+| 409 | Reservation chưa check-in hoặc đã ở trạng thái terminal |
+
+### Idempotency
+
+Retry với cùng `idempotencyKey` trả cùng kết quả. Server check `ReservationActionAudit` trước khi xử lý.
+
+---
+
+## Bypass time-window (Dev/QA convenience)
+
+BoardVerse cung cấp cờ bypass cho phép Dev/QA test các ràng buộc thời gian mà không bị chặn bởi deadline thực tế.
+
+### Áp dụng cho các endpoint sau
+
+| Endpoint | Check bị bypass | Operation key |
+|----------|-----------------|---------------|
+| `POST /confirm`, `POST /quote` | Time-slot buffer, deadline past | `Lobby.*` |
+| `POST /{id}/check-in` (POS) | Check-in window (± grace) | `PlayerCheckIn.Window`, `Reservation.CheckInWindow` |
+| `POST /{id}/cancel` | Refund milestones (24h/6h → 100% always) | `Reservation.RefundMilestone` |
+| `POST /{id}/cancel-after-checkin` | playedRatio thresholds | `Reservation.RefundMilestone` |
+| (background) `ReservationNoShowDetectionJob` | No-show detection grace | `ReservationNoShowDetectionJob` |
+
+### Ba cách bật bypass (ưu tiên từ cao xuống thấp)
+
+1. **HTTP header** `X-Bypass-Time-Window: true` — chỉ áp dụng cho 1 request.
+2. **Query string** `?bypassTimeWindow=true` — chỉ áp dụng cho 1 request.
+3. **DB config** `bypass_time_window_validations=true` — áp dụng toàn cục sau ≤ 10s.
+
+### Ví dụ
+
+```bash
+# Bật bypass toàn cục (cần Admin role)
+curl -X POST https://api.boardverse.dev/api/v1/admin/configs/bypass-time-window \
+  -H "Authorization: Bearer <admin-token>"
+
+# Sau đó test check-in ngoài khung giờ thoải mái
+curl -X POST https://api.boardverse.dev/api/v1/reservations/{id}/check-in \
+  -H "Authorization: Bearer <staff-token>" \
+  -H "Content-Type: application/json" \
+  -d '{ "arrivedMemberIds": [...] }'
+
+# Hoặc dùng header cho 1 request duy nhất
+curl -X POST https://api.boardverse.dev/api/v1/reservations/{id}/check-in \
+  -H "Authorization: Bearer <staff-token>" \
+  -H "X-Bypass-Time-Window: true" \
+  -d '{ "arrivedMemberIds": [...] }'
+
+# Tắt bypass
+curl -X DELETE https://api.boardverse.dev/api/v1/admin/configs/bypass-time-window \
+  -H "Authorization: Bearer <admin-token>"
+```
+
+Xem chi tiết: [admin-configuration.md](./admin-configuration.md#bypass-time-window-devqa-convenience).
+
+> 💡 **Admin check nhanh**: Xem trạng thái `bypass_time_window_validations` (yêu cầu JWT Admin token) — dùng endpoint:
+> ```bash
+> curl https://api.boardverse.dev/api/v1/system-configs/bypass_time_window_validations \
+>   -H "Authorization: Bearer <admin-token>"
+> # → { ..., "inferredType": "bool", "parsedValue": true|false }
+> ```
+> Xem [system-config.md](./system-config.md).
+
+---
+
 ## Luồng tích hợp
 
 ```
@@ -983,3 +1235,121 @@ Confirm verify **tất cả params** trước khi trả kết quả cũ:
 1. **Dùng key mới** khi muốn tạo reservation mới sau khi lobby cũ bị hủy
 2. **Lưu key** ở client để retry khi network fail
 3. **Client dedupe**: quote không cần server-side dedupe vì chỉ đọc
+
+---
+
+## GET /{id}/extend/availability
+
+Kiểm tra xem có thể extend reservation không (BR-EXT).
+
+### Request
+
+- Method: `GET`
+- Path: `/api/v1/reservations/{reservationId}/extend/availability`
+- Auth: Player (JWT) — chỉ host
+
+### Query Parameters
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `extensionMinutes` | int | Yes | Số phút muốn extend |
+
+### Response 200
+
+```json
+{
+  "statusCode": 200,
+  "message": "ExtendAvailability",
+  "data": {
+    "reservationId": "guid",
+    "currentScheduledEndTime": "2026-08-15T13:00:00Z",
+    "requestedExtensionMinutes": 30,
+    "newScheduledEndTime": "2026-08-15T13:30:00Z",
+    "isAvailable": true,
+    "remainingExtensionMinutes": 90,
+    "extensionCount": 1,
+    "maxExtensionMinutes": 120,
+    "reason": null
+  }
+}
+```
+
+### Response khi không khả dụng
+
+```json
+{
+  "statusCode": 200,
+  "message": "ExtendAvailability",
+  "data": {
+    "reservationId": "guid",
+    "isAvailable": false,
+    "reason": "Đã đạt số lần extend tối đa (2 lần)"
+  }
+}
+```
+
+### Lỗi
+
+| Code | Mô tả |
+|------|--------|
+| 401 | Thiếu token |
+| 404 | Không tìm thấy reservation |
+
+---
+
+## POST /by-code/{reservationCode}/check-in
+
+POS staff quét QR theo ReservationCode (8-char). Endpoint thay thế cho FE không biết reservationId.
+
+### Request
+
+- Method: `POST`
+- Path: `/api/v1/reservations/by-code/{reservationCode}/check-in`
+- Auth: Manager, CafeStaff
+
+### Path Parameters
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `reservationCode` | string | Mã 8-char alphanumeric từ QR code |
+
+### Request Body
+
+```json
+{
+  "cafeId": "guid",
+  "activeSessionId": "guid",
+  "idempotencyKey": "pos-checkin-abc123"
+}
+```
+
+### Response 201
+
+```json
+{
+  "statusCode": 201,
+  "message": "ReservationCheckedIn",
+  "data": {
+    "reservationId": "guid",
+    "lobbyId": "guid",
+    "activeSessionId": "guid",
+    "reservationStatus": "CheckedIn",
+    "lobbyStatus": "InProgress",
+    "checkedInAt": "2026-08-15T10:30:00Z"
+  }
+}
+```
+
+### Lỗi
+
+| Code | Mô tả |
+|------|--------|
+| 400 | Request không hợp lệ |
+| 401 | Thiếu token |
+| 403 | Không đủ quyền vận hành quán |
+| 404 | Không tìm thấy reservation |
+| 409 | Reservation không thuộc cafe hoặc đã check-in rồi |
+
+### Idempotency
+
+Scan cùng QR trả cùng response (cùng ActiveSessionId). Key: `pos-checkin:{code}`.

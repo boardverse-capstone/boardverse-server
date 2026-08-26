@@ -37,6 +37,11 @@ public class SettlementRetryJob : BackgroundService
             {
                 await ProcessRetriesAsync(stoppingToken);
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("SettlementRetryJob stopped (host shutdown).");
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "SettlementRetryJob iteration failed.");
@@ -71,14 +76,15 @@ public class SettlementRetryJob : BackgroundService
         foreach (var settlement in retryable)
         {
             if (ct.IsCancellationRequested) break;
-            await RetryOneAsync(settlement, settlementService, settlementRepo);
+            await RetryOneAsync(settlement, settlementService, settlementRepo, ct);
         }
     }
 
     private async Task RetryOneAsync(
         CafeSettlement settlement,
         ISettlementService settlementService,
-        ICafeSettlementRepository settlementRepo)
+        ICafeSettlementRepository settlementRepo,
+        CancellationToken ct)
     {
         if (settlement.ActiveSessionId == null)
         {
@@ -106,7 +112,7 @@ public class SettlementRetryJob : BackgroundService
             }
             else
             {
-                BumpRetry(settlement, settlementRepo);
+                await BumpRetryAsync(settlement, settlementRepo, ct);
             }
         }
         catch (NotFoundException ex)
@@ -124,17 +130,28 @@ public class SettlementRetryJob : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Retry threw unexpected error for settlement {SettlementId}", settlement.Id);
-            BumpRetry(settlement, settlementRepo);
+            await BumpRetryAsync(settlement, settlementRepo, ct);
         }
     }
 
-    private static async void BumpRetry(CafeSettlement settlement, ICafeSettlementRepository settlementRepo)
+    /// <summary>
+    /// GAP-R6-BJ-02 Fix: đổi từ <c>private static async void BumpRetry</c> sang
+    /// <c>private static async Task BumpRetryAsync</c> + <see cref="CancellationToken"/>.
+    ///
+    /// Lý do: async void exception không thể catch được → unobserved task có thể crash ASP.NET host.
+    /// Trước đây: throw trong UpdateAsync/SaveChangesAsync → unhandled → có thể tear down process.
+    /// Sau: caller await, exception propagate qua caller (đã log ở RetryOneAsync).
+    /// </summary>
+    private static async Task BumpRetryAsync(
+        CafeSettlement settlement,
+        ICafeSettlementRepository settlementRepo,
+        CancellationToken ct)
     {
         settlement.RetryCount += 1;
         var backoffMinutes = (int)Math.Pow(2, settlement.RetryCount); // 2, 4, 8, 16, 32
         settlement.NextRetryAt = DateTime.UtcNow.AddMinutes(backoffMinutes);
         settlement.UpdatedAt = DateTime.UtcNow;
         await settlementRepo.UpdateAsync(settlement);
-        await settlementRepo.SaveChangesAsync();
+        await settlementRepo.SaveChangesAsync(ct);
     }
 }

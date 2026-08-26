@@ -28,4 +28,8 @@ public enum AdminActionType
     // Staff mở dispute → lưu evidence. Manager review/override → lưu lại.
     PlayedTimeDisputed = 40,    // Staff mở ticket: player yêu cầu xem lại giờ chơi.
     PlayedTimeOverridden = 41,  // Manager adjust Subtotal/TotalMinutes dựa trên evidence.
+
+    // GAP-19 Fix: Player self-payment bằng BVC (audit per BR-RISK-05).
+    // ActionBy = chính player đó (self-trigger), không phải admin.
+    SessionPaymentBvc = 50,
 }

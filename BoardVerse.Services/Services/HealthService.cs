@@ -12,7 +12,7 @@ namespace BoardVerse.Services.Services
             _userRepository = userRepository;
         }
 
-        public Task<int> GetUserCountAsync()
+        public Task<int> GetUserCountAsync(CancellationToken cancellationToken = default)
         {
             return _userRepository.CountUsersAsync();
         }

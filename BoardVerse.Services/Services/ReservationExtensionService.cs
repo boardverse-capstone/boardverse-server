@@ -101,11 +101,13 @@ public class ReservationExtensionService : IReservationExtensionService
             return dto;
         }
 
-        // BR-EXT-02: Không extend qua midnight (trừ LateNight - overnight slot).
-        // Với LateNight (23:00-06:00 next day), ScheduledEndTime.Date > PlayDate.Date là hợp lệ.
-        // Cho phép LateNight extension lên tới scheduledEndTime + grace, các slot khác block qua midnight.
-        if (reservation.TimeSlot != TimeSlot.LateNight
-            && proposedEndTime.Date > reservation.PlayDate.ToDateTime(TimeOnly.MinValue).Date)
+        // BR-EXT-02: Không extend qua midnight.
+        // GAP-02 fix (2026-08-21): Dùng ScheduledEndTime thay vì TimeSlot.LateNight proxy.
+        // Block nếu proposedEndTime vượt qua ngày playDate.
+        // Cho phép qua midnight nếu TimeSlot = LateNight (overnight đã có sẵn).
+        var playDateDate = reservation.PlayDate.ToDateTime(TimeOnly.MinValue).Date;
+        var isOvernightAllowed = reservation.TimeSlot == TimeSlot.LateNight;
+        if (!isOvernightAllowed && proposedEndTime.Date > playDateDate)
         {
             dto.CanExtend = false;
             dto.Reason = ApiErrorMessages.ReservationExtension.CannotExtendPastMidnight;
@@ -180,10 +182,12 @@ public class ReservationExtensionService : IReservationExtensionService
                 ApiErrorMessages.ReservationExtension.RemainingMinutesInsufficient(remainingMinutes, request.ExtensionMinutes));
         }
 
-        // BR-EXT-02: Không extend qua midnight (trừ LateNight - overnight slot).
-        // Với LateNight (23:00-06:00 next day), ScheduledEndTime.Date > PlayDate.Date là hợp lệ.
-        if (reservation.TimeSlot != TimeSlot.LateNight
-            && proposedEndTime.Date > reservation.PlayDate.ToDateTime(TimeOnly.MinValue).Date)
+        // BR-EXT-02: Không extend qua midnight.
+        // GAP-02 fix (2026-08-21): Dùng ScheduledEndTime thay vì TimeSlot.LateNight proxy.
+        // Cho phép qua midnight nếu TimeSlot = LateNight (overnight đã có sẵn).
+        var playDateDate = reservation.PlayDate.ToDateTime(TimeOnly.MinValue).Date;
+        var isOvernightAllowed = reservation.TimeSlot == TimeSlot.LateNight;
+        if (!isOvernightAllowed && proposedEndTime.Date > playDateDate)
         {
             throw new ConflictException(
                 ApiErrorMessages.ReservationExtension.CannotExtendPastMidnight);

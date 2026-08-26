@@ -42,7 +42,7 @@ public class TournamentExpiryJob : BackgroundService
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
-                // App shutting down — exit cleanly.
+                _logger.LogInformation("TournamentExpiryJob stopped (host shutdown).");
                 break;
             }
             catch (Exception ex)

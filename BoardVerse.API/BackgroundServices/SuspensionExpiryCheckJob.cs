@@ -76,6 +76,11 @@ public class SuspensionExpiryCheckJob : BackgroundService
                         "SuspensionExpiryCheckJob reactivated {Count} users.", expired.Count);
                 }
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("SuspensionExpiryCheckJob stopped (host shutdown).");
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "SuspensionExpiryCheckJob tick failed");

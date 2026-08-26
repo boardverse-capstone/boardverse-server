@@ -1,4 +1,5 @@
 using System;
+using BoardVerse.Core.Messages;
 
 namespace BoardVerse.Core.Exceptions
 {
@@ -232,5 +233,24 @@ namespace BoardVerse.Core.Exceptions
     {
         public TooManyRequestsException(string message = "Quá nhiều yêu cầu. Vui lòng thử lại sau.") : base(message, 429) { }
         public TooManyRequestsException(string message, Exception innerException) : base(message, 429, innerException) { }
+    }
+
+    /// <summary>
+    /// GAP-5 Fix: Exception khi player không đủ BVC để thanh toán.
+    /// Chứa thêm thông tin để client hiển thị top-up guidance.
+    /// </summary>
+    public class InsufficientBvcBalanceException : BadRequestException
+    {
+        public long CurrentBalance { get; }
+        public long RequiredBalance { get; }
+        public long MissingAmount { get; }
+
+        public InsufficientBvcBalanceException(long currentBalance, long requiredBalance)
+            : base(ApiErrorMessages.Session.InsufficientBvcBalance)
+        {
+            CurrentBalance = currentBalance;
+            RequiredBalance = requiredBalance;
+            MissingAmount = requiredBalance - currentBalance;
+        }
     }
 }

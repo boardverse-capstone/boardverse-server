@@ -1,5 +1,6 @@
 using BoardVerse.Core.DTOs.Reservation;
 
+using System.Threading;
 namespace BoardVerse.Services.IServices;
 
 /// <summary>
@@ -17,7 +18,7 @@ public interface IReservationService
     /// Tạo quote cho 1 reservation. Idempotent theo IdempotencyKey.
     /// Validate toàn bộ BR-USER-LIMIT-* + BR-LOBBY-01 + BR-NEW-01.
     /// </summary>
-    Task<ReservationQuoteDto> CreateQuoteAsync(Guid hostId, ReservationQuoteRequestDto request);
+    Task<ReservationQuoteDto> CreateQuoteAsync(Guid hostId, ReservationQuoteRequestDto request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Confirm reservation — atomic transaction:
@@ -29,12 +30,12 @@ public interface IReservationService
     /// Nếu bất kỳ step nào fail → rollback toàn bộ.
     /// Idempotent theo IdempotencyKey.
     /// </summary>
-    Task<ReservationConfirmResponseDto> ConfirmAsync(Guid hostId, ReservationConfirmRequestDto request);
+    Task<ReservationConfirmResponseDto> ConfirmAsync(Guid hostId, ReservationConfirmRequestDto request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Host hủy reservation (BR-REFUND-02/03): áp dụng % hoàn theo mốc 24h/6h, grace 15p.
     /// </summary>
-    Task<CancelReservationResponseDto> CancelAsync(Guid hostId, CancelReservationRequestDto request);
+    Task<CancelReservationResponseDto> CancelAsync(Guid hostId, CancelReservationRequestDto request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// BR-REFUND-08 (walk-in-override-design §2.3):
@@ -50,14 +51,14 @@ public interface IReservationService
     /// <exception cref="ConflictException">Reservation chưa check-in (status ≠ CheckedIn).</exception>
     Task<CancelAfterCheckinResponseDto> CancelAfterCheckinAsync(
         Guid hostId,
-        CancelAfterCheckinRequestDto request);
+        CancelAfterCheckinRequestDto request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Cafe duyệt/từ chối lobby pending (BR-NEW-11 §XII).
     /// </summary>
     Task<CafeApprovalResponseDto> HandleCafeApprovalAsync(
         Guid cafeManagerUserId,
-        CafeApprovalRequestDto request);
+        CafeApprovalRequestDto request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Scheduler: xử lý reservation đến recruitmentDeadline (BR-LOBBY-02).
@@ -95,6 +96,13 @@ public interface IReservationService
     Task<ReservationCheckInResponseDto> CheckInAsync(Guid staffUserId, ReservationCheckInRequestDto request);
 
     /// <summary>
+    /// BR §21A.7: Check-in theo ReservationCode thay vi reservationId.
+    /// Dành cho FE/POS chi co QR code, không can biet reservationId.
+    /// Tim reservation theo code, validate cafe ownership, thuc hien check-in.
+    /// </summary>
+    Task<ReservationCheckInResponseDto> CheckInByCodeAsync(Guid staffUserId, string reservationCode, CheckInByCodeRequestDto request);
+
+    /// <summary>
     /// BR §21A.8 + BR-REVENUE-01: POS đóng phiên (ActiveSession → Paid) → capture BVC deposit
     /// về doanh thu quán. Lookup Reservation theo lobbyId, ghi DEPOSIT_CAPTURE ledger entry,
     /// chuyển Reservation.Status = Completed, giải phóng seat + game inventory inUse → Available,
@@ -115,33 +123,33 @@ public interface IReservationService
     /// <exception cref="NotFoundException">Reservation không tồn tại.</exception>
     /// <exception cref="ForbiddenException">User không phải staff của cafe.</exception>
     /// <exception cref="ConflictException">Reservation chưa check-in (status ≠ CheckedIn).</exception>
-    Task<EndReservationResponseDto> EndAndSettleAsync(Guid staffUserId, EndReservationRequestDto request);
+    Task<EndReservationResponseDto> EndAndSettleAsync(Guid staffUserId, EndReservationRequestDto request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lấy chi tiết 1 reservation.
     /// Validate: user phải là host hoặc member của lobby.
     /// </summary>
-    Task<ReservationDetailDto?> GetByIdAsync(Guid userId, Guid reservationId);
+    Task<ReservationDetailDto?> GetByIdAsync(Guid userId, Guid reservationId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lấy danh sách reservation với filter + phân trang.
     /// BR-USER-LIMIT-01: user chỉ thấy reservation mình host hoặc có tham gia.
     /// </summary>
-    Task<ReservationListResponseDto> GetListAsync(Guid userId, ReservationListRequestDto request);
+    Task<ReservationListResponseDto> GetListAsync(Guid userId, ReservationListRequestDto request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// BR-NEW-11: Lấy chi tiết một reservation pending cafe approval.
     /// </summary>
     Task<LobbyPendingApprovalItemDto?> GetPendingCafeApprovalDetailAsync(
         Guid managerUserId,
-        Guid reservationId);
+        Guid reservationId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// BR-NEW-11: Lấy danh sách lobby pending cafe approval cho manager.
     /// </summary>
     Task<LobbyPendingApprovalListResponseDto> GetPendingCafeApprovalAsync(
         Guid managerUserId,
-        LobbyPendingApprovalRequestDto request);
+        LobbyPendingApprovalRequestDto request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// BR-REFUND-07: Admin override refund amount cho reservation đã completed.
@@ -152,5 +160,23 @@ public interface IReservationService
         Guid adminUserId,
         Guid reservationId,
         AdminOverrideRefundRequestDto request,
-        string idempotencyKey);
+        string idempotencyKey, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lấy danh sách reservation của 1 cafe cho Manager.
+    /// Filter theo status, playDate, có phân trang.
+    /// </summary>
+    Task<CafeReservationsResponseDto> GetCafeReservationsAsync(
+        Guid cafeManagerUserId,
+        Guid cafeId,
+        CafeReservationsRequestDto request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Tìm kiếm lịch hẹn theo tên game hoặc ngày tháng.
+    /// Filter theo gameName, fromDate, toDate, statuses, cafeId.
+    /// BR-USER-LIMIT-01: user chỉ thấy reservation mình host hoặc có tham gia.
+    /// </summary>
+    Task<ReservationSearchResponseDto> SearchAsync(
+        Guid userId,
+        ReservationSearchRequestDto request, CancellationToken cancellationToken = default);
 }

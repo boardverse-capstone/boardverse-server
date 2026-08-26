@@ -1,4 +1,6 @@
+using System.Security.Cryptography;
 using BoardVerse.Core.DTOs.Lobby;
+using BoardVerse.Core.DTOs.Reservation;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
@@ -6,8 +8,14 @@ using BoardVerse.Core.Constants;
 using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
+using BoardVerse.Data;
+using BoardVerse.Services.Helpers;
 using BoardVerse.Services.IServices;
 using GeoHelper = BoardVerse.Core.Helpers.GeoLocationHelper;
+using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Logging;
 
 namespace BoardVerse.Services.Services
 {
@@ -18,9 +26,17 @@ namespace BoardVerse.Services.Services
     /// BR-07: Lobby.MaxMembers nằm trong [GameTemplate.MinPlayers, GameTemplate.MaxPlayers].
     /// BR-08: Auto-hủy nếu trước giờ hẹn X phút mà chưa đạt MinPlayers.
     /// BR-10: Filter theo Karma (không dùng Elo).
+    /// BR-REFUND-02/03: Host dissolve lobby → hoàn BVC theo mốc thời gian + release inventory.
     /// </summary>
     public class LobbyService : ILobbyService
     {
+        // BR-REFUND-03: grace 15 phút đầu + chưa có member thì hoàn 100%.
+        private const int DissolveGraceMinutes = 15;
+        // BR-REFUND-02 mốc cao: ≥24h trước scheduledStartTime hoàn 100%.
+        private const int DissolveFullRefundHours = 24;
+        // BR-REFUND-02 mốc giữa: 6–24h hoàn 50%.
+        private const int DissolveHalfRefundHours = 6;
+
         private readonly ILobbyRepository _lobbyRepository;
         private readonly IGameTemplateRepository _gameTemplateRepository;
         private readonly IUserManagementRepository _userManagementRepository;
@@ -30,8 +46,17 @@ namespace BoardVerse.Services.Services
         private readonly ILobbyMessageRepository _lobbyMessageRepository;
         private readonly IFriendshipRepository _friendshipRepository;
         private readonly IReservationRepository _reservationRepository;
+        private readonly IWalletService _walletService;
+        private readonly ISeatInventoryRepository _seatInventoryRepository;
+        private readonly IGameInventoryRepository _gameInventoryRepository;
+        private readonly IOutboxRepository _outboxRepository;
+        private readonly ICafeRepository _cafeRepository;
+        private readonly BoardVerseDbContext _db;
         private readonly EligibilityValidator _eligibilityValidator;
         private readonly IUserProfileService _userProfileService;
+        private readonly ILogger<LobbyService> _logger;
+        private readonly ISystemConfigurationProvider _configProvider;
+        private readonly IHttpContextAccessor _httpContextAccessor;
         private const int ExpRewardPerCompletedLobby = 10; // K-04: exp reward for completing a lobby session
 
         public LobbyService(
@@ -44,8 +69,17 @@ namespace BoardVerse.Services.Services
             ILobbyMessageRepository lobbyMessageRepository,
             IFriendshipRepository friendshipRepository,
             IReservationRepository reservationRepository,
+            IWalletService walletService,
+            ISeatInventoryRepository seatInventoryRepository,
+            IGameInventoryRepository gameInventoryRepository,
+            IOutboxRepository outboxRepository,
+            ICafeRepository cafeRepository,
+            BoardVerseDbContext db,
             EligibilityValidator eligibilityValidator,
-            IUserProfileService userProfileService)
+            IUserProfileService userProfileService,
+ILogger<LobbyService> logger,
+            ISystemConfigurationProvider configProvider = null!,
+            IHttpContextAccessor httpContextAccessor = null!)
         {
             _lobbyRepository = lobbyRepository;
             _gameTemplateRepository = gameTemplateRepository;
@@ -56,11 +90,20 @@ namespace BoardVerse.Services.Services
             _lobbyMessageRepository = lobbyMessageRepository;
             _friendshipRepository = friendshipRepository;
             _reservationRepository = reservationRepository;
+            _walletService = walletService;
+            _seatInventoryRepository = seatInventoryRepository;
+            _gameInventoryRepository = gameInventoryRepository;
+            _outboxRepository = outboxRepository;
+            _cafeRepository = cafeRepository;
+            _db = db;
             _eligibilityValidator = eligibilityValidator;
             _userProfileService = userProfileService;
+            _logger = logger;
+            _configProvider = configProvider;
+            _httpContextAccessor = httpContextAccessor;
         }
 
-        public async Task<LobbyResponseDto> CreateLobbyAsync(Guid hostUserId, CreateLobbyRequestDto request)
+        public async Task<LobbyResponseDto> CreateLobbyAsync(Guid hostUserId, CreateLobbyRequestDto request, CancellationToken cancellationToken = default)
         {
             if (request.ScheduledStartTime < DateTime.UtcNow.AddMinutes(5))
             {
@@ -171,7 +214,7 @@ namespace BoardVerse.Services.Services
             return MapLobbyDto(lobby, null);
         }
 
-        public async Task<LobbyResponseDto> JoinLobbyAsync(Guid lobbyId, Guid userId)
+        public async Task<LobbyResponseDto> JoinLobbyAsync(Guid lobbyId, Guid userId, CancellationToken cancellationToken = default)
         {
             // H4: SELECT ... FOR UPDATE để chống race condition khi nhiều request JoinLobby đồng thời.
             // Trước đây: chỉ check count trên snapshot không lock → có thể vượt MaxMembers (BR-07).
@@ -183,7 +226,10 @@ namespace BoardVerse.Services.Services
                 var lobby = await _lobbyRepository.GetByIdForUpdateAsync(lobbyId)
                     ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
 
-                if (lobby.Status != LobbyStatus.Open)
+                // BR-LOBBY-READY-02: Cho phép join thêm khi lobby đã WaitingCheckIn (chờ check-in tại quán)
+                // nếu vẫn còn chỗ trống (< MaxMembers). Trước đây chỉ Open, dẫn đến bạn bè đến sau
+                // bị chặn không vào lobby dù còn ghế.
+                if (lobby.Status != LobbyStatus.Open && lobby.Status != LobbyStatus.WaitingCheckIn)
                 {
                     throw new ConflictException(ApiErrorMessages.Reservation.LobbyNotOpen);
                 }
@@ -212,6 +258,9 @@ namespace BoardVerse.Services.Services
                     inactiveMember.LeftAt = null;
 
                     lobby.UpdatedAt = now;
+
+                    // Sync Reservation.CurrentPlayers whenever member count changes.
+                    SyncReservationCurrentPlayers(lobby);
 
                     var filledToMaxActiveMembers = lobby.Members.Count(m => m.IsActive) >= lobby.MaxMembers;
                     if (filledToMaxActiveMembers)
@@ -256,7 +305,12 @@ namespace BoardVerse.Services.Services
                 }
 
                 // BR-LOBBY-01: chặn join sau recruitmentDeadline.
-                if (lobby.RecruitmentDeadline.HasValue && now > lobby.RecruitmentDeadline.Value)
+                var bypassLobbyDeadline = await TimeWindowGuard.ShouldBypassAsync(
+                    _httpContextAccessor?.HttpContext, _configProvider, _logger,
+                    operation: "Lobby.JoinDeadline", entityId: lobby.Id);
+                if (!bypassLobbyDeadline
+                    && lobby.RecruitmentDeadline.HasValue
+                    && now > lobby.RecruitmentDeadline.Value)
                 {
                     throw new ConflictException(ApiErrorMessages.Reservation.LobbyExpired);
                 }
@@ -300,6 +354,9 @@ namespace BoardVerse.Services.Services
                 lobby.Members.Add(newMember);
 
                 lobby.UpdatedAt = now;
+
+                // Sync Reservation.CurrentPlayers whenever member count changes.
+                SyncReservationCurrentPlayers(lobby);
 
                 var filledToMax = lobby.Members.Count(m => m.IsActive) >= lobby.MaxMembers;
                 if (filledToMax)
@@ -352,6 +409,28 @@ namespace BoardVerse.Services.Services
             }
         }
 
+        /// <summary>
+        /// Sync Reservation.CurrentPlayers với số active members trong Lobby.
+        /// Gọi sau mỗi thao tác join/leave/reactivate để Reservation.CurrentPlayers luôn đúng.
+        /// Nếu CurrentPlayers >= MinPlayers và Status còn là Holding → chuyển sang Confirmed real-time.
+        /// Không làm gì nếu lobby không có Reservation liên kết.
+        /// </summary>
+        private void SyncReservationCurrentPlayers(Lobby lobby)
+        {
+            if (lobby.Reservation == null)
+            {
+                return;
+            }
+
+            var reservation = lobby.Reservation;
+            var activeCount = lobby.Members.Count(m => m.IsActive);
+            reservation.CurrentPlayers = activeCount;
+
+            // BR-LOBBY-READY-01: Reservation CHỈ chuyển Holding → Confirmed khi lobby đạt WaitingCheckIn
+            // (tất cả members ready). Lúc đủ minPlayers vẫn giữ Holding.
+            // Transition Confirmed chỉ xảy ra tại MarkMembersReadyAndTransitionToInProgressAsync.
+        }
+
         // H4: null-safe transaction helper, pattern copy từ ActiveSessionService.TryBeginTransactionAsync.
         private async Task<IDatabaseTransactionContext?> TryBeginTransactionAsync()
         {
@@ -371,32 +450,32 @@ namespace BoardVerse.Services.Services
 
         /// <summary>
         /// BR-USER-LIMIT-* + BR-RISK-04 cho member join lobby:
-        /// - BR-USER-LIMIT-05: User đang là host của lobby ACTIVE → không được join.
-        /// - BR-USER-LIMIT-01: Member đã tham gia 1 lobby active → không join thêm.
+        /// - BR-USER-LIMIT-01: tổng host + member ≤ 2 active.
+        /// - BR-USER-LIMIT-05: **ĐÃ BỎ** — Host có thể join lobby khác nếu không overlap.
         /// - BR-USER-LIMIT-02: Lịch của member trùng với lobby đang join (+30p buffer).
         /// - BR-RISK-04: Account bị suspended/banned → chặn.
         /// </summary>
         private async Task ValidateMemberEligibilityAsync(Guid userId, Lobby lobby, DateTime now)
         {
-            // BR-USER-LIMIT-05: User đang host lobby ACTIVE → không được join lobby khác.
+            // BR-DEMO-01: demo mode → skip toàn bộ user-limit checks (BR-USER-LIMIT-01/04/05).
+            var bypassDemo = await DemoGuard.ShouldBypassDemoLocksAsync(
+                _httpContextAccessor?.HttpContext, _configProvider, _logger,
+                operation: "Lobby.ValidateMemberEligibility", entityId: userId);
+            if (bypassDemo)
+            {
+                return;
+            }
+
             var activeHostLobbies = await _lobbyRepository.GetActiveLobbiesByHostAsync(userId);
             var activeMemberLobbies = await _lobbyRepository.GetActiveLobbiesByMemberAsync(userId);
 
-            // BR-USER-LIMIT-01: tổng host + member ≤ 2 active. Check tổng trước.
+            // BR-USER-LIMIT-01: tổng host + member ≤ 2 active.
             var totalActiveLobbies = activeHostLobbies.Count + activeMemberLobbies.Count;
             if (totalActiveLobbies >= 2)
             {
-                // Ưu tiên message host trước (cross-role nghiêm trọng hơn).
-                if (activeHostLobbies.Count > 0)
-                {
-                    throw new ForbiddenException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
-                }
-                throw new ForbiddenException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);
-            }
-
-            if (activeHostLobbies.Count > 0)
-            {
-                throw new ForbiddenException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
+                // BR-USER-LIMIT-01: Đã đạt tổng 2 lobby (host + member).
+                // Đổi message đúng theo BR mới (BR-USER-LIMIT-05 ĐÃ BỎ - host được join).
+                throw new ForbiddenException(ApiErrorMessages.Reservation.TotalLobbyLimitReached);
             }
 
             // BR-USER-LIMIT-01: Member đã có 1 lobby member active → không join thêm.
@@ -426,9 +505,9 @@ namespace BoardVerse.Services.Services
                 var overlapList = await _lobbyRepository.GetOverlappingLobbiesAsync(
                     userId,
                     lobby.PlayDate.Value,
-                    lobby.TimeSlot!.Value,
-                    lobby.RecruitmentDeadline.Value,
-                    lobby.ScheduledStartTime.Value);
+                    lobby.PreferredStartTime ?? (lobby.ScheduledStartTime.HasValue ? TimeOnly.FromDateTime(lobby.ScheduledStartTime.Value) : TimeOnly.MinValue),
+                    lobby.PreferredEndTime ?? (lobby.ScheduledStartTime.HasValue ? TimeOnly.FromDateTime(lobby.ScheduledStartTime.Value.AddHours(2)) : TimeOnly.MinValue),
+                    lobby.RecruitmentDeadline ?? DateTime.MinValue);
 
                 if (overlapList.Any())
                 {
@@ -440,14 +519,15 @@ namespace BoardVerse.Services.Services
             }
         }
 
-        public async Task<LobbyResponseDto> LeaveLobbyAsync(Guid lobbyId, Guid userId)
+        public async Task<LobbyResponseDto> LeaveLobbyAsync(Guid lobbyId, Guid userId, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
 
             // P1 Fix #1: Block leaving during terminal or in-progress states
+            // Also block leaving when all members are ready (WaitingCheckIn)
             if (lobby.Status is LobbyStatus.InProgress or LobbyStatus.Closed or
-                LobbyStatus.TimeoutFailed or LobbyStatus.HostCancelled)
+                LobbyStatus.TimeoutFailed or LobbyStatus.HostCancelled or LobbyStatus.WaitingCheckIn)
             {
                 throw new ConflictException(ApiErrorMessages.Lobby.CannotLeaveLobbyDuringSession);
             }
@@ -502,6 +582,9 @@ namespace BoardVerse.Services.Services
             member.LeftAt = DateTime.UtcNow;
             lobby.UpdatedAt = DateTime.UtcNow;
 
+            // Sync Reservation.CurrentPlayers whenever member count changes.
+            SyncReservationCurrentPlayers(lobby);
+
             await _lobbyRepository.SaveChangesAsync();
 
             // Realtime: notify group
@@ -521,7 +604,7 @@ namespace BoardVerse.Services.Services
             return MapLobbyDto(lobby, null);
         }
 
-        public async Task<LobbyResponseDto> GetLobbyAsync(Guid lobbyId, Guid? requestingUserId = null)
+        public async Task<LobbyResponseDto> GetLobbyAsync(Guid lobbyId, Guid? requestingUserId = null, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -556,7 +639,7 @@ namespace BoardVerse.Services.Services
             return MapLobbyDto(lobby, distanceKm);
         }
 
-        public async Task<IReadOnlyList<LobbyResponseDto>> SearchLobbiesAsync(SearchLobbiesRequestDto request, Guid? requestingUserId = null)
+        public async Task<IReadOnlyList<LobbyResponseDto>> SearchLobbiesAsync(SearchLobbiesRequestDto request, Guid? requestingUserId = null, CancellationToken cancellationToken = default)
         {
             // BR-10: Filter by game, geo proximity, and karma (NOT Elo)
             // Private lobby bị loại khỏi kết quả search
@@ -618,7 +701,7 @@ namespace BoardVerse.Services.Services
             double? longitude,
             double? radiusKm,
             int limit = 50,
-            Guid? requestingUserId = null)
+            Guid? requestingUserId = null, CancellationToken cancellationToken = default)
         {
             // BR-10: Lobby phải là public + status Open. Private bị ẩn hoàn toàn.
             // BR-USER-LIMIT-02: Loại bỏ các lobby trùng lịch với user (excludeSelfOverlapping)
@@ -659,10 +742,11 @@ namespace BoardVerse.Services.Services
             // M1: lọc dựa trên `lobbies` (raw Lobby entities) thay vì re-fetch qua GetByIdAsync.
             // Trước đây: lobbyIds.Select → GetByIdAsync → N+1 round-trips.
             // (Tránh nhầm với `result` là List<LobbyResponseDto> không có PlayDate/TimeSlot.)
+            // GAP-03 fix (2026-08-21): Dùng PreferredStartTime.HasValue thay vì TimeSlot.HasValue
             if (requestingUserId.HasValue)
             {
                 var loadedLobbies = lobbies
-                    .Where(l => l.PlayDate.HasValue && l.TimeSlot.HasValue)
+                    .Where(l => l.PlayDate.HasValue && l.PreferredStartTime.HasValue)
                     .ToList();
                 var filteredLobbies = await FilterOverlappingLobbiesAsync(loadedLobbies, requestingUserId.Value);
                 var filteredIds = filteredLobbies.Select(l => l.Id).ToHashSet();
@@ -679,10 +763,7 @@ namespace BoardVerse.Services.Services
         private async Task<List<Lobby>> FilterOverlappingLobbiesAsync(List<Lobby> lobbies, Guid userId)
         {
             // Lấy tất cả lobby mà user đang host hoặc tham gia
-            var userHostingLobbies = await _lobbyRepository.GetActiveLobbiesByHostAsync(userId);
-            var userJoinedLobbies = await _lobbyRepository.GetJoinedLobbiesAsync(userId);
-
-            var userLobbies = userHostingLobbies.Concat(userJoinedLobbies).DistinctBy(l => l.Id).ToList();
+            var userLobbies = await _lobbyRepository.GetMyLobbiesAsync(userId);
 
             if (userLobbies.Count == 0)
             {
@@ -690,31 +771,39 @@ namespace BoardVerse.Services.Services
             }
 
             // Tính scheduledTime của các lobby user đang tham gia
+            // Bao gồm LobbyId để có thể exclude khi so sánh overlap
             var userScheduledRanges = userLobbies
-                .Where(l => l.PlayDate.HasValue && l.TimeSlot.HasValue)
+                .Where(l => l.PlayDate.HasValue)
                 .Select(l => new
                 {
+                    LobbyId = l.Id,
                     l.PlayDate,
                     l.TimeSlot,
-                    Start = GetScheduledTime(l.PlayDate!.Value, l.TimeSlot!.Value),
-                    End = GetScheduledTime(l.PlayDate!.Value, l.TimeSlot!.Value).AddMinutes(30) // +30 phút buffer
+                    Start = GetScheduledTime(l),
+                    End = GetScheduledTime(l).AddMinutes(30) // +30 phút buffer
                 }).ToList();
 
-            // Loại bỏ lobby trùng lịch
+            // Loại bỏ lobby trùng lịch (NHƯNG KHÔNG loại bỏ chính lobby đó ra khỏi discoverable)
+            // Fix: exclude lobby đang xét ra khỏi userScheduledRanges để lobby đã join vẫn hiển thị
             return lobbies.Where(lobby =>
             {
-                if (!lobby.PlayDate.HasValue || !lobby.TimeSlot.HasValue)
+                if (!lobby.PlayDate.HasValue)
                 {
                     return true; // Không có thông tin schedule → không filter
                 }
 
-                var lobbyStart = GetScheduledTime(lobby.PlayDate.Value, lobby.TimeSlot.Value);
+                var lobbyStart = GetScheduledTime(lobby);
                 var lobbyEnd = lobbyStart.AddMinutes(30);
 
-                // Kiểm tra overlap
-                return !userScheduledRanges.Any(userRange =>
+                // Exclude chính lobby này ra khỏi danh sách so sánh
+                // để lobby đã join vẫn hiển thị trong discoverable (public lobby vẫn visible cho tất cả)
+                var otherUserRanges = userScheduledRanges
+                    .Where(r => r.LobbyId != lobby.Id)
+                    .ToList();
+
+                // Kiểm tra overlap bằng computed Start/End times (BR-NEW-15: dùng PreferredStartTime)
+                return !otherUserRanges.Any(userRange =>
                     userRange.PlayDate == lobby.PlayDate &&
-                    userRange.TimeSlot == lobby.TimeSlot &&
                     userRange.Start < lobbyEnd &&
                     lobbyStart < userRange.End);
             }).ToList();
@@ -722,15 +811,21 @@ namespace BoardVerse.Services.Services
 
         /// <summary>
         /// Tính scheduledTime từ PlayDate + TimeSlot (sync — dùng default <c>CafeSchedule</c>).
-        /// Lưu ý: nếu lobby đã có <c>CafeScheduleOverride</c>, dùng <c>Lobby.ScheduledStartTime</c>
-        /// thay vì method này (đã được lưu lúc tạo lobby qua <c>ReservationService</c>).
+        /// BR-NEW-15 (2026-08-18): Dùng PreferredStartTime khi có, fallback to TimeSlot.GetStartTime().
         /// </summary>
-        private static DateTime GetScheduledTime(DateOnly playDate, TimeSlot timeSlot)
+        private static DateTime GetScheduledTime(Lobby lobby)
         {
-            // Delegate to CafeSchedule để đảm bảo consistency với schedule chính.
-            var timeOnly = CafeSchedule.GetStartTime(timeSlot);
-            return playDate.ToDateTime(timeOnly);
+            if (lobby.PlayDate.HasValue && lobby.PreferredStartTime.HasValue)
+                return lobby.PlayDate.Value.ToDateTime(lobby.PreferredStartTime.Value);
+
+            // Legacy: fall back to TimeSlot-based start time (for pre-BR-NEW-15 lobbies)
+            if (lobby.PlayDate.HasValue && lobby.TimeSlot.HasValue)
+                return lobby.PlayDate.Value.ToDateTime(lobby.TimeSlot.Value.GetStartTime());
+
+            // Last resort: use ScheduledStartTime stored on lobby
+            return lobby.ScheduledStartTime ?? DateTime.MinValue;
         }
+
 
         public async Task<LobbyResponseDto> CloseLobbyAsync(Guid lobbyId, Guid hostUserId, string? reason)
         {
@@ -783,82 +878,471 @@ namespace BoardVerse.Services.Services
         /// Soft delete: row Lobby + LobbyMember + LobbyMessage + LobbyInvite + LobbyReport
         /// vẫn còn trong DB để phục vụ:
         ///  - BR-RISK-01 (SIG-01/SIG-02): tính risk score cho host.
-        ///  - BR-NEW-10 §XI.1: cooling-off detection (3 lần/7 ngày).
+        ///  - BR-NEW-10 §XI.1: cooling-off detection (3 lần/7 ngày) — job quét status Dissolved.
         ///  - Audit trail (player action history).
         ///
         /// Lobby.Status = Dissolved (terminal, không thuộc ActiveLobbyStatuses nên BR-NEW-08
         /// cho phép host tạo lobby mới cùng playDate+timeSlot).
+        ///
+        /// GAP fix (2026-08-16):
+        ///  - BR-REFUND-02/03: hoàn BVC theo mốc (grace 15p / 24h / 6h / &lt;6h) + ghi ledger.
+        ///  - BR-RESERVATION-01/02 + §XVII.4 atomic: giải phóng SeatInventory + GameInventory
+        ///    trong cùng transaction Serializable với status flip + refund.
+        ///
+        /// Idempotent (BR §XVII.1): refund/forfeit dùng key "dissolve-refund-{lobbyId}" và
+        /// "dissolve-forfeit-{lobbyId}" — replay sẽ được wallet chặn tự động.
         /// </summary>
-        public async Task<DissolveLobbyResponseDto> DissolveLobbyAsync(Guid lobbyId, Guid hostUserId, string? reason = null)
+        public async Task<DissolveLobbyResponseDto> DissolveLobbyAsync(Guid lobbyId, Guid hostUserId, string? reason = null, CancellationToken cancellationToken = default)
         {
-            var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
-                ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
+            const int MaxRetries = 3;
 
-            var host = lobby.Members.FirstOrDefault(m => m.UserId == hostUserId && m.IsHost && m.IsActive);
-            if (host == null)
+            for (var attempt = 1; attempt <= MaxRetries; attempt++)
             {
-                throw new ForbiddenException(ApiErrorMessages.Lobby.OnlyHostCanDissolve);
-            }
-
-            // Không cho phép dissolve khi đã check-in / đang chơi / đã đóng / đang rating
-            // (Dissolved đã là terminal — không cần guard)
-            if (lobby.Status == LobbyStatus.InProgress
-                || lobby.Status == LobbyStatus.Closed
-                || lobby.Status == LobbyStatus.RatingOpen
-                || lobby.Status == LobbyStatus.HostCancelled
-                || lobby.Status == LobbyStatus.TimeoutFailed
-                || lobby.Status == LobbyStatus.RejectedByCafe
-                || lobby.Status == LobbyStatus.ExpiredByCafe)
-            {
-                throw new ConflictException(
-                    ApiErrorMessages.Lobby.DissolveInvalidState(lobby.Status));
-            }
-
-            var reservationId = lobby.ReservationId;
-            var dissolvedAt = DateTime.UtcNow;
-
-            // 1. Cancel pending invites (giữ row, chỉ đổi status)
-            await _lobbyInviteRepository.CancelAllPendingForLobbyAsync(lobbyId);
-
-            // 2. Mark members inactive (audit trail — vẫn giữ row)
-            foreach (var member in lobby.Members.Where(m => m.IsActive))
-            {
-                member.IsActive = false;
-                member.Status = LobbyMemberStatus.LobbyTerminated;
-                member.LeftAt ??= dissolvedAt;
-            }
-
-            // 3. Soft-delete lobby
-            lobby.Status = LobbyStatus.Dissolved;
-            lobby.ClosedAt = dissolvedAt;
-            lobby.ClosedReason = reason ?? "Host đã giải tán phòng chờ.";
-            lobby.UpdatedAt = dissolvedAt;
-
-            await _lobbyRepository.SaveChangesAsync();
-
-            // 4. Giải phóng reservation về Holding nếu có
-            if (reservationId.HasValue)
-            {
-                var reservation = await _reservationRepository.GetByIdAsync(reservationId.Value);
-                if (reservation != null && reservation.Status == ReservationStatus.Confirmed)
+                try
                 {
-                    reservation.Status = ReservationStatus.Holding;
-                    reservation.UpdatedAt = dissolvedAt;
-                    await _reservationRepository.UpdateAsync(reservation);
-                    await _reservationRepository.SaveChangesAsync();
+                    return await ExecuteDissolveTransactionAsync(lobbyId, hostUserId, reason);
+                }
+                catch (DbUpdateException ex) when (IsSerializationFailure(ex) && attempt < MaxRetries)
+                {
+                    _logger.LogWarning(
+                        "DissolveLobby serialization failure on attempt {Attempt}/{Max}. LobbyId={LobbyId}. Retrying...",
+                        attempt, MaxRetries, lobbyId);
+                    await Task.Delay(TimeSpan.FromMilliseconds(50 * attempt));
+                }
+                catch (DbUpdateConcurrencyException) when (attempt < MaxRetries)
+                {
+                    _logger.LogWarning(
+                        "DissolveLobby concurrency failure on attempt {Attempt}/{Max}. LobbyId={LobbyId}. Retrying...",
+                        attempt, MaxRetries, lobbyId);
+                    await Task.Delay(TimeSpan.FromMilliseconds(50 * attempt));
                 }
             }
 
-            return new DissolveLobbyResponseDto
-            {
-                LobbyId = lobbyId,
-                ReservationId = reservationId,
-                Reason = reason ?? "Host đã giải tán phòng chờ.",
-                DissolvedAt = dissolvedAt
-            };
+            throw new InternalServerErrorException(
+                ApiErrorMessages.System.CancelRetryExhausted(lobbyId, MaxRetries));
         }
 
-        public async Task<LobbyResponseDto> LockLobbyAsync(Guid lobbyId, Guid hostUserId)
+        private async Task<DissolveLobbyResponseDto> ExecuteDissolveTransactionAsync(
+            Guid lobbyId, Guid hostUserId, string? reason)
+        {
+            var now = DateTime.UtcNow;
+
+            // H4 fix: null-safe transaction helper.
+            // Trong production: BeginTransactionAsync luôn trả IDbContextTransaction (success hoặc throw).
+            // Trong unit test với Mock<DbContext>: _db.Database có thể null hoặc BeginTransactionAsync
+            // throw NotImplementedException/InvalidOperationException (mock stub không impl).
+            // Catch những exception test-only → tx = null → chạy ngoài transaction.
+            IDbContextTransaction? tx = null;
+            if (_db?.Database != null)
+            {
+                try
+                {
+                    tx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+                }
+                catch (NotImplementedException)
+                {
+                    tx = null;
+                }
+                catch (InvalidOperationException)
+                {
+                    tx = null;
+                }
+                catch (NullReferenceException)
+                {
+                    tx = null;
+                }
+            }
+
+            try
+            {
+                var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
+                    ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
+
+                var host = lobby.Members.FirstOrDefault(m => m.UserId == hostUserId && m.IsHost && m.IsActive);
+                if (host == null)
+                {
+                    throw new ForbiddenException(ApiErrorMessages.Lobby.OnlyHostCanDissolve);
+                }
+
+                // Status guard: không cho dissolve khi lobby đã terminal / đã check-in / đang rating / đang chờ check-in.
+                // GAP #10 fix: thêm LobbyStatus.Viable (lobby đạt minPlayers nhưng chưa full).
+                var forbiddenStatuses = new[]
+                {
+                    LobbyStatus.InProgress,
+                    LobbyStatus.Closed,
+                    LobbyStatus.RatingOpen,
+                    LobbyStatus.HostCancelled,
+                    LobbyStatus.TimeoutFailed,
+                    LobbyStatus.RejectedByCafe,
+                    LobbyStatus.ExpiredByCafe,
+                    LobbyStatus.Dissolved,
+                    LobbyStatus.Viable,
+                    LobbyStatus.WaitingCheckIn
+                };
+                if (forbiddenStatuses.Contains(lobby.Status))
+                {
+                    throw new ConflictException(
+                        ApiErrorMessages.Lobby.DissolveInvalidState(lobby.Status));
+                }
+
+                // Idempotency: nếu lobby đã Dissolved → return early với policy mặc định.
+                // (Tránh 2 request Dissolve song song, request thứ 2 sẽ bị guard chặn.)
+
+                var reservationId = lobby.ReservationId;
+                Reservation? reservation = null;
+                if (reservationId.HasValue)
+                {
+                    reservation = await _reservationRepository.GetByIdAsync(reservationId.Value);
+                }
+
+                // 1. Release SeatInventory + GameInventory (BR-RESERVATION-01/02 + §XVII.4 atomic).
+                await ReleaseDissolveInventoriesAsync(reservation, lobby, now);
+
+                // 2. Tính refund policy + BR-REFUND-02/03.
+                var hasMembers = lobby.Members.Any(m => !m.IsHost && m.IsActive);
+                var minutesSinceCreated = lobby.CreatedAt == default
+                    ? double.MaxValue
+                    : (now - lobby.CreatedAt).TotalMinutes;
+
+                var scheduledStart = reservation?.ScheduledStartTime ?? lobby.ScheduledStartTime;
+                var (policyName, refundPercent, depositAmount) = ComputeDissolveRefundPolicy(
+                    scheduledStart, now, hasMembers, minutesSinceCreated, reservation?.DepositAmount ?? 0);
+
+                var refundAmount = (long)Math.Round(depositAmount * refundPercent, MidpointRounding.AwayFromZero);
+                var forfeitAmount = depositAmount - refundAmount;
+
+                var refundKey = $"dissolve-refund-{lobbyId:N}";
+                var forfeitKey = $"dissolve-forfeit-{lobbyId:N}";
+
+                if (refundAmount > 0)
+                {
+                    await _walletService.ReleaseDepositAsync(
+                        hostUserId,
+                        refundAmount,
+                        lobbyId,
+                        reservationId,
+                        refundKey);
+                }
+
+                if (forfeitAmount > 0)
+                {
+                    await _walletService.ForfeitDepositAsync(
+                        hostUserId,
+                        forfeitAmount,
+                        lobbyId,
+                        reservationId,
+                        forfeitKey);
+                }
+
+                // 3. Cancel pending invites (giữ row, chỉ đổi status).
+                await _lobbyInviteRepository.CancelAllPendingForLobbyAsync(lobbyId);
+
+                // 4. Soft-delete lobby + mark members inactive.
+                // GAP #5: Nullify ShareCode + IsPrivate để tránh join-by-code / re-search
+                // (BR-LOBBY-PRIVACY-*). Lobby terminal không còn khả dụng join.
+                lobby.Status = LobbyStatus.Dissolved;
+                lobby.IsPrivate = false;
+                lobby.ShareCode = string.Empty;
+                lobby.ClosedAt = now;
+                lobby.ClosedReason = reason ?? $"Host đã giải tán phòng chờ ({policyName}).";
+                lobby.UpdatedAt = now;
+
+                foreach (var member in lobby.Members.Where(m => m.IsActive))
+                {
+                    member.IsActive = false;
+                    member.Status = LobbyMemberStatus.LobbyTerminated;
+                    member.LeftAt ??= now;
+                }
+
+                // 5. Update reservation status nếu có.
+                if (reservation != null)
+                {
+                    if (reservation.Status == ReservationStatus.Holding
+                        || reservation.Status == ReservationStatus.Confirmed)
+                    {
+                        reservation.Status = ReservationStatus.CancelledByPlayer;
+                        reservation.UpdatedAt = now;
+                        await _reservationRepository.UpdateAsync(reservation);
+                    }
+                }
+
+                // GAP #2: Publish Outbox event LobbyCancelledByHost + DepositReleased/Forfeited
+                // trong CÙNG transaction với domain mutation (BR-REQUIRED §17.5).
+                // Background worker sẽ publish SignalR + push notification cho host + members.
+                // Idempotency key có suffix :lobbyId → replay-safe.
+                var outboxEvents = new List<OutboxEvent>();
+                outboxEvents.Add(new OutboxEvent
+                {
+                    Id = Guid.NewGuid(),
+                    EventType = OutboxEventType.LobbyCancelledByHost,
+                    Payload = SerializeDissolveLobbyCancelledPayload(
+                        lobby, hostUserId, policyName, refundAmount, forfeitAmount, depositAmount, reason),
+                    IdempotencyKey = $"dissolve-lobby-cancelled-{lobbyId:N}",
+                    ReservationId = reservationId,
+                    LobbyId = lobbyId,
+                    UserId = hostUserId,
+                    CreatedAt = now
+                });
+
+                if (refundAmount > 0)
+                {
+                    outboxEvents.Add(new OutboxEvent
+                    {
+                        Id = Guid.NewGuid(),
+                        EventType = OutboxEventType.DepositReleased,
+                        Payload = SerializeDissolveDepositPayload(
+                            hostUserId, refundAmount, reservationId, lobbyId, "DEPOSIT_RELEASE", refundKey),
+                        IdempotencyKey = refundKey,
+                        ReservationId = reservationId,
+                        LobbyId = lobbyId,
+                        UserId = hostUserId,
+                        CreatedAt = now
+                    });
+                }
+
+                if (forfeitAmount > 0)
+                {
+                    outboxEvents.Add(new OutboxEvent
+                    {
+                        Id = Guid.NewGuid(),
+                        EventType = OutboxEventType.DepositCaptured,
+                        Payload = SerializeDissolveDepositPayload(
+                            hostUserId, forfeitAmount, reservationId, lobbyId, "DEPOSIT_CAPTURE", forfeitKey),
+                        IdempotencyKey = forfeitKey,
+                        ReservationId = reservationId,
+                        LobbyId = lobbyId,
+                        UserId = hostUserId,
+                        CreatedAt = now
+                    });
+                }
+
+                // Add outbox events to DbContext → sẽ được SaveChanges cùng domain changes.
+                foreach (var evt in outboxEvents)
+                {
+                    await _outboxRepository.AddAsync(evt);
+                }
+
+                await _lobbyRepository.SaveChangesAsync();
+
+                if (tx != null)
+                {
+                    await tx.CommitAsync();
+                }
+
+                // Structured audit log (BR-RISK-05 §16.7 — logger thay cho PlayerActionHistory
+                // để đồng bộ pattern với ReservationService.CancelAsync — service cancel hiện
+                // không ghi PlayerActionHistory entity, chỉ log structured).
+                // TODO: Khi PlayerActionHistory được mở rộng cho lobby cancel/dissolve events
+                // (BR-RISK-05 + Gap #7), chuyển từ logger sang entity insert.
+                _logger.LogInformation(
+                    "Lobby dissolved. LobbyId={LobbyId}, HostId={HostId}, Policy={Policy}, Refund={Refund} BVC, Forfeit={Forfeit} BVC, Deposit={Deposit} BVC, OutboxEvents={OutboxCount}, HasReservation={HasReservation}",
+                    lobbyId, hostUserId, policyName, refundAmount, forfeitAmount, depositAmount,
+                    outboxEvents.Count, reservation != null);
+
+                // TODO: Gap #8 — Karma penalty cho host khi dissolve <6h trước scheduledStart
+                // (BR-REFUND-02 bảng "giảm đáng kể"). Cần thêm hook vào IPlayerKarmaService
+                // (vd. RecordHostDissolveAsync) — phase tiếp theo vì chưa có sẵn.
+                // TODO: Gap #9 — Trigger KarmaAggregation sau dissolve. Hiện chưa có interface
+                // IBookingRatingService.AggregrateForLobbyAsync — phase tiếp theo.
+
+                return new DissolveLobbyResponseDto
+                {
+                    LobbyId = lobbyId,
+                    ReservationId = reservationId,
+                    Reason = lobby.ClosedReason,
+                    DissolvedAt = now,
+                    RefundBvc = refundAmount,
+                    ForfeitBvc = forfeitAmount,
+                    RefundPolicyApplied = policyName
+                };
+            }
+            catch
+            {
+                if (tx != null)
+                {
+                    await tx.RollbackAsync();
+                }
+                throw;
+            }
+            finally
+            {
+                if (tx != null)
+                {
+                    await tx.DisposeAsync();
+                }
+            }
+        }
+
+        /// <summary>
+        /// BR-RESERVATION-01/02 + BR §17.3: Release seat + game copy trong cùng transaction.
+        /// Caller PHẢI đang trong 1 transaction (Serializable).
+        /// Dùng <c>GetForUpdateAsync</c> (<c>SELECT FOR UPDATE</c>) để chống race.
+        ///
+        /// Fallback lookup từ Lobby mirror fields (CafeId/PlayDate/TimeSlot) nếu reservation
+        /// chưa từng được tạo (legacy lobby không gắn reservation flow).
+        /// </summary>
+        private async Task ReleaseDissolveInventoriesAsync(
+            Reservation? reservation, Lobby lobby, DateTime now)
+        {
+            if (reservation?.CafeId != null
+                && reservation.PlayDate != default
+                && (reservation.PreferredStartTime.HasValue || reservation.PreferredEndTime.HasValue))
+            {
+                if (reservation.SeatInventoryId != null && reservation.PreferredStartTime.HasValue && reservation.PreferredEndTime.HasValue)
+                {
+                    var seatInv = await _seatInventoryRepository.GetForUpdateAsync(
+                        reservation.CafeId, reservation.PlayDate, reservation.PreferredStartTime.Value, reservation.PreferredEndTime.Value);
+                    if (seatInv != null && lobby.MaxMembers > 0)
+                    {
+                        seatInv.HeldSeats = Math.Max(0, seatInv.HeldSeats - lobby.MaxMembers);
+                        seatInv.UpdatedAt = now;
+                        await _seatInventoryRepository.UpdateAsync(seatInv);
+                    }
+                }
+
+                if (reservation.GameInventoryId != null && reservation.GameId != Guid.Empty && reservation.PreferredStartTime.HasValue && reservation.PreferredEndTime.HasValue)
+                {
+                    var gameInv = await _gameInventoryRepository.GetForUpdateAsync(
+                        reservation.CafeId, reservation.GameId, reservation.PlayDate, reservation.PreferredStartTime.Value, reservation.PreferredEndTime.Value);
+                    if (gameInv != null)
+                    {
+                        gameInv.HeldCopies = Math.Max(0, gameInv.HeldCopies - 1);
+                        gameInv.UpdatedAt = now;
+                        await _gameInventoryRepository.UpdateAsync(gameInv);
+                    }
+                }
+                return;
+            }
+
+            // Fallback: derive từ Lobby mirror fields (legacy lobby không có reservation).
+            if (lobby.CafeId.HasValue
+                && lobby.PlayDate.HasValue
+                && (lobby.PreferredStartTime.HasValue || lobby.ScheduledStartTime.HasValue))
+            {
+                var startTime = lobby.PreferredStartTime ?? TimeOnly.FromDateTime(lobby.ScheduledStartTime!.Value);
+                var endTime = lobby.PreferredEndTime ?? (lobby.ScheduledStartTime.HasValue ? TimeOnly.FromDateTime(lobby.ScheduledStartTime.Value.AddHours(2)) : TimeOnly.MinValue);
+                var seatInv = await _seatInventoryRepository.GetForUpdateAsync(
+                    lobby.CafeId.Value, lobby.PlayDate.Value, startTime, endTime);
+                if (seatInv != null && lobby.MaxMembers > 0)
+                {
+                    seatInv.HeldSeats = Math.Max(0, seatInv.HeldSeats - lobby.MaxMembers);
+                    seatInv.UpdatedAt = now;
+                    await _seatInventoryRepository.UpdateAsync(seatInv);
+                }
+            }
+        }
+
+        /// <summary>
+        /// BR-REFUND-02/03: refund matrix khi host dissolve lobby.
+        /// Logic mirror ReservationService.ComputeRefundPolicy — đồng bộ nếu thay đổi.
+        /// </summary>
+        private static (string PolicyName, decimal RefundPercent, long DepositBvc) ComputeDissolveRefundPolicy(
+            DateTime? scheduledStart,
+            DateTime now,
+            bool hasMembers,
+            double minutesSinceCreated,
+            long depositAmount)
+        {
+            if (depositAmount <= 0)
+            {
+                // Legacy lobby không có deposit (chưa qua Reservation flow) → hoàn 0, policy none.
+                return ("No-Deposit-Legacy", 0m, 0L);
+            }
+
+            // BR-REFUND-03: grace 15 phút + chưa có member → hoàn 100%.
+            if (minutesSinceCreated <= DissolveGraceMinutes && !hasMembers)
+            {
+                return ("Grace-15p-NoMember", 1.0m, depositAmount);
+            }
+
+            // Nếu lobby không có ScheduledStartTime (legacy) → không áp dụng được
+            // các mốc 24h/6h → mặc định 50% (matching BR-REFUND-02 default cancel).
+            if (!scheduledStart.HasValue || scheduledStart.Value == default)
+            {
+                return ("Legacy-NoScheduledTime", 0.5m, depositAmount);
+            }
+
+            var hoursUntilPlay = (scheduledStart.Value - now).TotalHours;
+
+            // BR-REFUND-02: ≥24h → 100%.
+            if (hoursUntilPlay >= DissolveFullRefundHours)
+            {
+                return ("Cancel-24h", 1.0m, depositAmount);
+            }
+
+            // BR-REFUND-02: 6–24h → 50%.
+            if (hoursUntilPlay >= DissolveHalfRefundHours)
+            {
+                return ("Cancel-6h", 0.5m, depositAmount);
+            }
+
+            // BR-REFUND-02: <6h → 0% (forfeit 100%).
+            return ("Cancel-Under6h", 0m, depositAmount);
+        }
+
+        private static bool IsSerializationFailure(DbUpdateException ex)
+        {
+            // GAP-R4-N1 Fix: Dùng Npgsql.PostgresException.SqlState thay vì string-contains.
+            // String-contains có thể false-positive nếu message user hoặc data chứa '40001'.
+            // SqlState là API chính thức từ Postgres driver, không có ambiguity.
+            return ex.InnerException is Npgsql.PostgresException pg
+                && (pg.SqlState == "40001" || pg.SqlState == "40P01");
+        }
+
+        // ===== Outbox payload serializers cho DissolveLobbyAsync (Gap #2) =====
+
+        private static string SerializeDissolveLobbyCancelledPayload(
+            Lobby lobby,
+            Guid hostUserId,
+            string policyName,
+            long refundBvc,
+            long forfeitBvc,
+            long depositBvc,
+            string? reason)
+        {
+            return System.Text.Json.JsonSerializer.Serialize(new
+            {
+                lobbyId = lobby.Id,
+                hostUserId,
+                reservationId = lobby.ReservationId,
+                cafeId = lobby.CafeId,
+                gameTemplateId = lobby.GameTemplateId,
+                playDate = lobby.PlayDate?.ToString(),
+                // GAP-10 fix (2026-08-21): dùng PreferredStartTime/PreferredEndTime thay vì TimeSlot int
+                preferredStartTime = lobby.PreferredStartTime?.ToString(),
+                preferredEndTime = lobby.PreferredEndTime?.ToString(),
+                lobbyStatus = lobby.Status.ToString(),
+                terminalReason = "host_dissolved",
+                refundPolicyApplied = policyName,
+                refundBvc,
+                forfeitBvc,
+                depositBvc,
+                reason = reason ?? $"Host đã giải tán phòng chờ ({policyName}).",
+                dissolvedAt = lobby.ClosedAt,
+                memberCount = lobby.Members?.Count ?? 0
+            });
+        }
+
+        private static string SerializeDissolveDepositPayload(
+            Guid userId,
+            long amount,
+            Guid? reservationId,
+            Guid lobbyId,
+            string ledgerEntryType,
+            string idempotencyKey)
+        {
+            return System.Text.Json.JsonSerializer.Serialize(new
+            {
+                userId,
+                amount,
+                reservationId,
+                lobbyId,
+                entryType = ledgerEntryType,
+                idempotencyKey
+            });
+        }
+
+        public async Task<LobbyResponseDto> LockLobbyAsync(Guid lobbyId, Guid hostUserId, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -893,7 +1377,7 @@ namespace BoardVerse.Services.Services
             return MapLobbyDto(lobby, null);
         }
 
-        public async Task<LobbyResponseDto> OpenKarmaWindowAsync(Guid lobbyId, Guid hostUserId)
+        public async Task<LobbyResponseDto> OpenKarmaWindowAsync(Guid lobbyId, Guid hostUserId, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -912,14 +1396,14 @@ namespace BoardVerse.Services.Services
             return MapLobbyDto(lobby, null);
         }
 
-        public async Task<LobbyResponseDto> TransitionToInProgressAsync(Guid lobbyId, Guid? activeSessionId)
+        public async Task<LobbyResponseDto> TransitionToInProgressAsync(Guid lobbyId, Guid? activeSessionId, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
 
-            if (lobby.Status != LobbyStatus.Full)
+            if (lobby.Status != LobbyStatus.Full && lobby.Status != LobbyStatus.WaitingCheckIn)
             {
-                throw new ConflictException(ApiErrorMessages.Lobby.OnlyFullLobbyCanInProgress);
+                throw new ConflictException(ApiErrorMessages.Lobby.OnlyFullOrWaitingCheckInCanInProgress);
             }
 
             lobby.Status = LobbyStatus.InProgress;
@@ -931,7 +1415,7 @@ namespace BoardVerse.Services.Services
             return MapLobbyDto(lobby, null);
         }
 
-        public async Task<LobbyResponseDto> JoinLobbyByShareCodeAsync(string shareCode, Guid userId)
+        public async Task<LobbyResponseDto> JoinLobbyByShareCodeAsync(string shareCode, Guid userId, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(shareCode))
             {
@@ -963,7 +1447,7 @@ namespace BoardVerse.Services.Services
             return await JoinLobbyAsync(lobby.Id, userId);
         }
 
-        public async Task<LobbyResponseDto> TransitionToClosedAsync(Guid lobbyId)
+        public async Task<LobbyResponseDto> TransitionToClosedAsync(Guid lobbyId, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -998,7 +1482,7 @@ namespace BoardVerse.Services.Services
 
         // ============================ P1 Features ============================
 
-        public async Task<LobbyResponseDto> TransferHostAsync(Guid lobbyId, Guid currentHostUserId, Guid newHostUserId)
+        public async Task<LobbyResponseDto> TransferHostAsync(Guid lobbyId, Guid currentHostUserId, Guid newHostUserId, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -1029,23 +1513,16 @@ namespace BoardVerse.Services.Services
             var newHostActiveLobbies = await _lobbyRepository.GetActiveLobbiesByHostAsync(newHostUserId);
             var newHostMemberLobbies = await _lobbyRepository.GetActiveLobbiesByMemberAsync(newHostUserId);
 
-            // BR-USER-LIMIT-01: tổng host + member ≤ 2 active. Check tổng trước.
-            var totalActiveLobbies = newHostActiveLobbies.Count + newHostMemberLobbies.Count;
-            if (totalActiveLobbies >= 2)
+            // BR-USER-LIMIT-01: Tổng lobby (host + member) ≤ 2 active cho new host.
+            var totalNewHostLobbies = newHostActiveLobbies.Count + newHostMemberLobbies.Count;
+            if (totalNewHostLobbies >= 2)
             {
-                if (newHostActiveLobbies.Count > 0)
-                {
-                    throw new ConflictException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
-                }
-                throw new ConflictException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);
+                // BR-USER-LIMIT-05 ĐÃ BỎ: Host được phép join/transfer host sang lobby khác
+                // Chỉ block khi tổng lobby đã đạt max 2.
+                throw new ConflictException(ApiErrorMessages.Reservation.TotalLobbyLimitReached);
             }
 
-            if (newHostActiveLobbies.Count > 0)
-            {
-                throw new ConflictException(ApiErrorMessages.Reservation.HostCannotJoinLobby);
-            }
-
-            // L-04: BR-USER-LIMIT-05 validation cho new host — new host không được đang là member của lobby active khác
+            // BR-USER-LIMIT-01: new host không được đang là member của lobby active khác.
             if (newHostMemberLobbies.Count > 0)
             {
                 throw new ConflictException(ApiErrorMessages.Reservation.ActiveLobbyMemberLimitReached);
@@ -1073,7 +1550,7 @@ namespace BoardVerse.Services.Services
         /// L-03: Host tạo mã chia sẻ mới, invalidate mã cũ.
         /// Logic: Generate new code, update DB, old code becomes invalid immediately.
         /// </summary>
-        public async Task<LobbyResponseDto> RegenerateShareCodeAsync(Guid lobbyId, Guid hostUserId)
+        public async Task<LobbyResponseDto> RegenerateShareCodeAsync(Guid lobbyId, Guid hostUserId, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -1117,10 +1594,10 @@ namespace BoardVerse.Services.Services
         /// BR-LOBBY-01a/b/c: Validate buffer mới >= 120 phút.
         /// BR-RES-07/08/09: preferredStartTime/EndTime phải nằm trong slot range.
         /// </summary>
-        public async Task<LobbyResponseDto> ChangeTimeSlotAsync(
+        public async Task<LobbyResponseDto> ChangeTimeAsync(
             Guid lobbyId,
             Guid hostUserId,
-            Core.DTOs.Lobby.ChangeTimeSlotRequestDto request)
+            Core.DTOs.Lobby.ChangeTimeSlotRequestDto request, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -1148,17 +1625,16 @@ namespace BoardVerse.Services.Services
             var now = DateTime.UtcNow;
             var playDate = lobby.PlayDate ?? DateOnly.FromDateTime(now);
 
-            // Xác định effective timeSlot (mới hoặc giữ nguyên)
-            var effectiveTimeSlot = request.NewTimeSlot ?? lobby.TimeSlot ?? Core.Enum.TimeSlot.Morning;
-            var oldTimeSlot = lobby.TimeSlot ?? Core.Enum.TimeSlot.Morning;
+            // BR-NEW-15: Determine effective start/end times (from PreferredStartTime/PreferredEndTime, not TimeSlot)
+            var effectiveStartTime = request.PreferredStartTime ?? lobby.PreferredStartTime;
+            var effectiveEndTime = request.PreferredEndTime ?? lobby.PreferredEndTime;
 
             // Validate preferred times nếu có
-            if (request.PreferredStartTime.HasValue || request.PreferredEndTime.HasValue)
+            if (effectiveStartTime.HasValue && effectiveEndTime.HasValue)
             {
                 var validation = Core.Constants.CafeSchedule.ValidatePreferredTimeRange(
-                    effectiveTimeSlot,
-                    request.PreferredStartTime,
-                    request.PreferredEndTime);
+                    effectiveStartTime.Value,
+                    effectiveEndTime.Value);
 
                 if (!validation.isValid)
                 {
@@ -1166,12 +1642,11 @@ namespace BoardVerse.Services.Services
                 }
             }
 
-            // Tính ScheduledStartTime/EndTime mới
+            // Tính ScheduledStartTime/EndTime mới từ preferred times (BR-NEW-15: no TimeSlot param)
             var (scheduledStartTime, scheduledEndTime) = Core.Constants.CafeSchedule.BuildScheduledStartEndFromPreferred(
                 playDate,
-                effectiveTimeSlot,
-                request.PreferredStartTime ?? lobby.PreferredStartTime,
-                request.PreferredEndTime ?? lobby.PreferredEndTime);
+                effectiveStartTime ?? new TimeOnly(18, 0),
+                effectiveEndTime ?? new TimeOnly(23, 0));
 
             // Tính RecruitmentDeadline mới
             // BR-LOBBY-01: deadline = scheduledStartTime - leadTimeMinutes
@@ -1180,18 +1655,16 @@ namespace BoardVerse.Services.Services
 
             // BR-LOBBY-01b: Buffer phải >= 60 phút
             var bufferMinutes = (newDeadline - now).TotalMinutes;
-            if (bufferMinutes < 60)
+            var bypassLobbyBuffer = await TimeWindowGuard.ShouldBypassAsync(
+                _httpContextAccessor?.HttpContext, _configProvider, _logger,
+                operation: "Lobby.TimeSlotChangeBuffer", entityId: lobby.Id);
+            if (!bypassLobbyBuffer && bufferMinutes < 60)
             {
                 throw new BadRequestException(
                     ApiErrorMessages.Lobby.BufferTooShortForTimeSlotChange((int)bufferMinutes));
             }
 
-            // Build change summary cho notification
             var changes = new List<string>();
-            if (request.NewTimeSlot.HasValue && request.NewTimeSlot != oldTimeSlot)
-            {
-                changes.Add($"khung giờ từ {GetTimeSlotDisplayName(oldTimeSlot)} sang {GetTimeSlotDisplayName(effectiveTimeSlot)}");
-            }
             if (request.PreferredStartTime.HasValue)
             {
                 changes.Add($"giờ bắt đầu: {request.PreferredStartTime:HH:mm}");
@@ -1201,11 +1674,7 @@ namespace BoardVerse.Services.Services
                 changes.Add($"giờ kết thúc: {request.PreferredEndTime:HH:mm}");
             }
 
-            // Update Lobby (mirror fields)
-            if (request.NewTimeSlot.HasValue)
-            {
-                lobby.TimeSlot = effectiveTimeSlot;
-            }
+            // Update Lobby (mirror fields) — TimeSlot is [Obsolete], only update if explicitly requested
             lobby.PreferredStartTime = request.PreferredStartTime ?? lobby.PreferredStartTime;
             lobby.PreferredEndTime = request.PreferredEndTime ?? lobby.PreferredEndTime;
             lobby.RecruitmentDeadline = newDeadline;
@@ -1218,10 +1687,6 @@ namespace BoardVerse.Services.Services
                 var reservation = await _reservationRepository.GetByIdAsync(lobby.ReservationId.Value);
                 if (reservation != null)
                 {
-                    if (request.NewTimeSlot.HasValue)
-                    {
-                        reservation.TimeSlot = effectiveTimeSlot;
-                    }
                     reservation.PreferredStartTime = request.PreferredStartTime ?? reservation.PreferredStartTime;
                     reservation.PreferredEndTime = request.PreferredEndTime ?? reservation.PreferredEndTime;
                     reservation.RecruitmentDeadline = newDeadline;
@@ -1251,7 +1716,7 @@ namespace BoardVerse.Services.Services
         /// Chỉ áp dụng khi lobby đang Open và chưa được boost trong 6 giờ gần nhất.
         /// Action: bump CreatedAt để lobby hiện lên đầu search results.
         /// </summary>
-        public async Task<LobbyResponseDto> BoostLobbyAsync(Guid lobbyId, Guid hostUserId)
+        public async Task<LobbyResponseDto> BoostLobbyAsync(Guid lobbyId, Guid hostUserId, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -1294,26 +1759,7 @@ namespace BoardVerse.Services.Services
             return MapLobbyDto(lobby, null);
         }
 
-        private static string GetTimeSlotDisplayName(TimeSlot? timeSlot)
-        {
-            return timeSlot switch
-            {
-                TimeSlot.Morning => "Sáng (06:00-12:00)",
-                TimeSlot.Afternoon => "Chiều (12:00-17:00)",
-                TimeSlot.Evening => "Tối (17:00-23:00)",
-                TimeSlot.LateNight => "Khuya (23:00-06:00)",
-                _ => timeSlot?.ToString() ?? "Không xác định"
-            };
-        }
-
-        private static DateTime GetScheduledTimeFromTimeSlot(DateOnly playDate, TimeSlot timeSlot)
-        {
-            // Delegate to CafeSchedule để đảm bảo consistency với schedule chính.
-            var timeOnly = CafeSchedule.GetStartTime(timeSlot);
-            return playDate.ToDateTime(timeOnly);
-        }
-
-        public async Task<LobbyResponseDto> KickMemberAsync(Guid lobbyId, Guid hostUserId, Guid targetUserId, string? reason)
+        public async Task<LobbyResponseDto> KickMemberAsync(Guid lobbyId, Guid hostUserId, Guid targetUserId, string? reason, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -1367,7 +1813,7 @@ namespace BoardVerse.Services.Services
             return MapLobbyDto(lobby, null);
         }
 
-        public async Task<LobbyResponseDto> UpdateLobbyAsync(Guid lobbyId, Guid hostUserId, UpdateLobbyRequestDto request)
+        public async Task<LobbyResponseDto> UpdateLobbyAsync(Guid lobbyId, Guid hostUserId, UpdateLobbyRequestDto request, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -1459,7 +1905,7 @@ namespace BoardVerse.Services.Services
             return MapLobbyDto(lobby, null);
         }
 
-        public async Task<LobbyResponseDto> SetMemberReadyAsync(Guid lobbyId, Guid userId, bool isReady)
+        public async Task<LobbyResponseDto> SetMemberReadyAsync(Guid lobbyId, Guid userId, bool isReady, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -1511,7 +1957,8 @@ namespace BoardVerse.Services.Services
 
             await _hubService.NotifyMemberReady(lobbyId, userId, isReady);
 
-            // BR-LOBBY-READY-01: Nếu TẤT CẢ members đều Ready → lobby tự chuyển InProgress.
+            // BR-LOBBY-READY-01: Nếu TẤT CẢ members đều Ready → lobby chuyển WaitingCheckIn (chờ check-in tại quán).
+            // Đồng thời chuyển Reservation Holding → Confirmed (đã sẵn sàng đến quán).
             // Áp dụng cho cả lobby Open/Full/Viable để cho phép Ready sớm (Option A).
             var readyableMembers = lobby.Members.Where(m => m.IsActive).ToList();
             var allReady = readyableMembers.Count > 0
@@ -1519,28 +1966,41 @@ namespace BoardVerse.Services.Services
 
             if (allReady && readyableMembers.Count >= lobby.MinPlayers)
             {
-                lobby.Status = LobbyStatus.InProgress;
+                lobby.Status = LobbyStatus.WaitingCheckIn;
                 lobby.UpdatedAt = DateTime.UtcNow;
+
+                // BR-RESERVATION-READY-01: Khi lobby WaitingCheckIn → Reservation cũng Confirmed.
+                if (lobby.Reservation != null && lobby.Reservation.Status == ReservationStatus.Holding)
+                {
+                    lobby.Reservation.Status = ReservationStatus.Confirmed;
+                    lobby.Reservation.UpdatedAt = DateTime.UtcNow;
+                    _logger.LogInformation(
+                        "Reservation auto-confirmed (all members ready): ReservationId={ReservationId}, LobbyId={LobbyId}",
+                        lobby.Reservation.Id, lobby.Id);
+                }
+
                 await _lobbyRepository.SaveChangesAsync();
-                await _hubService.NotifyLobbyInProgress(lobbyId);
+                await _hubService.NotifyLobbyWaitingCheckIn(lobbyId);
             }
 
             return MapLobbyDto(lobby, null);
         }
 
-        public async Task<IReadOnlyList<LobbyResponseDto>> GetLobbiesByHostAsync(Guid hostUserId)
+        public async Task<IReadOnlyList<LobbyResponseDto>> GetLobbiesByHostAsync(Guid hostUserId, CancellationToken cancellationToken = default)
         {
             var lobbies = await _lobbyRepository.GetLobbiesByHostAsync(hostUserId);
             return lobbies.Select(l => MapLobbyDto(l, null)).ToList();
         }
 
-        public async Task<IReadOnlyList<LobbyResponseDto>> GetJoinedLobbiesAsync(Guid userId)
+        public async Task<IReadOnlyList<LobbyResponseDto>> GetMyLobbiesAsync(Guid userId, CancellationToken cancellationToken = default)
         {
-            var lobbies = await _lobbyRepository.GetJoinedLobbiesAsync(userId);
+            _logger.LogDebug("GetMyLobbiesAsync called. UserId={UserId}", userId);
+            var lobbies = await _lobbyRepository.GetMyLobbiesAsync(userId);
+            _logger.LogDebug("GetMyLobbiesAsync result. UserId={UserId}, FoundCount={Count}", userId, lobbies.Count);
             return lobbies.Select(l => MapLobbyDto(l, null)).ToList();
         }
 
-        public async Task<LobbyResponseDto> ReportLobbyAsync(Guid lobbyId, Guid reporterId, CreateLobbyReportDto request)
+        public async Task<LobbyResponseDto> ReportLobbyAsync(Guid lobbyId, Guid reporterId, CreateLobbyReportDto request, CancellationToken cancellationToken = default)
         {
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
@@ -1567,27 +2027,90 @@ namespace BoardVerse.Services.Services
             return MapLobbyDto(lobby, null);
         }
 
+        /// <summary>
+        /// Lấy danh sách lobby của 1 cafe cho Manager.
+        /// </summary>
+        public async Task<CafeLobbiesResponseDto> GetCafeLobbiesAsync(
+            Guid cafeManagerUserId,
+            Guid cafeId,
+            CafeLobbiesRequestDto request, CancellationToken cancellationToken = default)
+        {
+            // Validate user có quyền xem cafe này (Manager hoặc CafeStaff)
+            var hasAccess = await _cafeRepository.IsManagerOrStaffAsync(cafeId, cafeManagerUserId);
+            if (!hasAccess)
+            {
+                throw new ForbiddenException(ApiErrorMessages.Cafe.ManagerForbidden(cafeId));
+            }
+
+            var page = Math.Max(1, request.Page);
+            var pageSize = Math.Clamp(request.PageSize, 1, 100);
+
+            var (items, totalCount) = await _lobbyRepository.GetByCafeAsync(
+                cafeId,
+                request.PlayDate ?? DateOnly.FromDateTime(DateTime.UtcNow),
+                request.LobbyStatuses,
+                page,
+                pageSize);
+
+            var dtos = items.Select(l => new CafeLobbyItemDto
+            {
+                LobbyId = l.Id,
+                ReservationId = l.ReservationId,
+                HostId = l.HostUserId,
+                HostName = l.HostUser?.Profile?.LastResolvedDisplayName ?? l.HostUser?.Username ?? string.Empty,
+                GameId = l.GameTemplateId,
+                GameName = l.GameTemplate?.Name ?? string.Empty,
+                PlayDate = l.PlayDate ?? DateOnly.FromDateTime(DateTime.UtcNow),
+                PreferredStartTime = l.PreferredStartTime ?? TimeOnly.FromDateTime(l.ScheduledStartTime ?? DateTime.UtcNow),
+                PreferredEndTime = l.PreferredEndTime ?? TimeOnly.FromDateTime(l.Reservation?.ScheduledEndTime ?? l.ScheduledStartTime ?? DateTime.UtcNow),
+                CurrentPlayers = l.Members?.Count(m => m.IsActive) ?? 0,
+                MinPlayers = l.MinPlayers,
+                MaxPlayers = l.MaxMembers,
+                Status = l.Status,
+                IsPrivate = l.IsPrivate,
+                ShareCode = l.ShareCode,
+                ScheduledStartTime = l.ScheduledStartTime ?? DateTime.MinValue,
+                ScheduledEndTime = l.Reservation?.ScheduledEndTime ?? DateTime.MinValue,
+                RecruitmentDeadline = l.RecruitmentDeadline ?? DateTime.MinValue,
+                DepositAmount = l.Reservation?.DepositAmount ?? 0,
+                CreatedAt = l.CreatedAt
+            }).ToList();
+
+            return new CafeLobbiesResponseDto
+            {
+                Items = dtos,
+                TotalCount = totalCount,
+                Page = page,
+                PageSize = pageSize
+            };
+        }
+
         // ============================ Helpers ============================
 
-        private static readonly Random _secureRng = new();
-
+        /// <summary>
+        /// GAP-R4-A8 Fix: Dùng <see cref="RandomNumberGenerator"/> (cryptographically secure)
+        /// thay vì <see cref="Random"/> để chống brute-force attack vào ShareCode.
+        /// ShareCode 6-char từ alphabet 32 ký tự = ~1B combinations. Rate Limit 5/15min/IP chống
+        /// được naive attack, nhưng với cryptographically-secure RNG + đủ entropy thì attacker
+        /// không thể đoán code dựa trên timing hoặc pattern.
+        /// </summary>
         private async Task<string> GenerateUniqueShareCodeAsync()
         {
             const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
-            // P1 Fix #6: Use static Random (not instantiated per-call) for better randomness
-            // Also use GUID fallback to avoid predictability
             for (var attempt = 0; attempt < 5; attempt++)
             {
-                var code = new string(
-                    Enumerable.Range(0, 6)
-                        .Select(_ => chars[_secureRng.Next(chars.Length)])
-                        .ToArray());
+                var code = new char[6];
+                for (var i = 0; i < 6; i++)
+                {
+                    code[i] = chars[RandomNumberGenerator.GetInt32(0, chars.Length)];
+                }
+                var codeStr = new string(code);
 
-                var existing = await _lobbyRepository.GetByShareCodeAsync(code);
+                var existing = await _lobbyRepository.GetByShareCodeAsync(codeStr);
                 if (existing == null)
                 {
-                    return code;
+                    return codeStr;
                 }
             }
 

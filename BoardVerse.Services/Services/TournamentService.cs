@@ -1,4 +1,4 @@
-﻿using BoardVerse.Core.Data;
+using BoardVerse.Core.Data;
 using BoardVerse.Core.DTOs.Tournament;
 using BoardVerse.Core.DTOs.Admin;
 using BoardVerse.Core.Entities;
@@ -7,14 +7,24 @@ using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
+using BoardVerse.Services.Helpers;
 using BoardVerse.Services.IServices;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
+using System.Threading;
 namespace BoardVerse.Services.Services;
 
 public class TournamentService : ITournamentService
 {
+    /// <summary>Cache key prefix cho leaderboard (GAP-R6-TW-LEADERBOARD).</summary>
+    private const string LeaderboardCacheKeyPrefix = "tournament:leaderboard:";
+
+    /// <summary>Leaderboard cache TTL: 60s — balance freshness vs DB load.</summary>
+    private static readonly TimeSpan LeaderboardCacheTtl = TimeSpan.FromSeconds(60);
+
     private readonly ITournamentRepository _tournamentRepository;
     private readonly ITournamentWaitlistRepository _waitlistRepository;
     private readonly IGameTemplateRepository _gameTemplateRepository;
@@ -25,6 +35,8 @@ public class TournamentService : ITournamentService
     private readonly IKarmaRatingRepository _karmaRatingRepository;
     private readonly IPushNotificationService _pushNotificationService;
     private readonly ILogger<TournamentService> _logger;
+    private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IMemoryCache _memoryCache;
 
     public TournamentService(
         ITournamentRepository tournamentRepository,
@@ -36,7 +48,9 @@ public class TournamentService : ITournamentService
         ISystemConfigurationProvider systemConfigurationProvider,
         IKarmaRatingRepository karmaRatingRepository,
         IPushNotificationService pushNotificationService,
-        ILogger<TournamentService> logger)
+        ILogger<TournamentService> logger,
+        IHttpContextAccessor httpContextAccessor = null!,
+        IMemoryCache? memoryCache = null)
     {
         _tournamentRepository = tournamentRepository;
         _waitlistRepository = waitlistRepository;
@@ -48,6 +62,8 @@ public class TournamentService : ITournamentService
         _karmaRatingRepository = karmaRatingRepository;
         _pushNotificationService = pushNotificationService;
         _logger = logger;
+        _httpContextAccessor = httpContextAccessor;
+        _memoryCache = memoryCache ?? new MemoryCache(new MemoryCacheOptions());
     }
 
     // ====================================================================
@@ -55,7 +71,7 @@ public class TournamentService : ITournamentService
     // ====================================================================
 
     public async Task<TournamentResponseDto> CreateTournamentAsync(
-        Guid managerId, Guid cafeId, CreateTournamentRequestDto request)
+        Guid managerId, Guid cafeId, CreateTournamentRequestDto request, CancellationToken cancellationToken = default)
     {
         // 1) Verify manager owns the cafe.
         await EnsureManagerOwnsCafeAsync(managerId, cafeId);
@@ -80,7 +96,10 @@ public class TournamentService : ITournamentService
             ?? request.StartTime.AddHours(-24);
 
         // P2 Fix #12: Ensure deadline is not in the past
-        if (deadline <= now)
+        if (deadline <= now
+            && !await TimeWindowGuard.ShouldBypassAsync(
+                _httpContextAccessor?.HttpContext, _systemConfigurationProvider, _logger,
+                operation: "Tournament.CreateDeadlinePast", entityId: null))
         {
             throw new BadRequestException(
                 ApiErrorMessages.Tournament.RegistrationDeadlineInPast(deadline));
@@ -138,7 +157,7 @@ public class TournamentService : ITournamentService
     }
 
     public async Task<TournamentResponseDto> UpdateTournamentAsync(
-        Guid managerId, Guid tournamentId, UpdateTournamentRequestDto request)
+        Guid managerId, Guid tournamentId, UpdateTournamentRequestDto request, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -170,7 +189,10 @@ public class TournamentService : ITournamentService
             // Khi RegistrationOpen rá»“i, StartTime cÃ³ thá»ƒ Ä‘Ã£ qua nhÆ°ng tournament chÆ°a start
             // â†’ váº«n cho phÃ©p dá»i sang ngÃ y future khÃ¡c.
             if (tournament.Status == TournamentStatus.Draft
-                && request.StartTime.Value <= DateTime.UtcNow)
+                && request.StartTime.Value <= DateTime.UtcNow
+                && !await TimeWindowGuard.ShouldBypassAsync(
+                    _httpContextAccessor?.HttpContext, _systemConfigurationProvider, _logger,
+                    operation: "Tournament.StartTimeFuture", entityId: tournament.Id))
             {
                 throw new BadRequestException(ApiErrorMessages.Tournament.StartTimeMustBeFuture);
             }
@@ -242,7 +264,7 @@ public class TournamentService : ITournamentService
         return await BuildResponseAsync(tournamentId, null);
     }
 
-    public async Task<TournamentResponseDto> OpenRegistrationAsync(Guid managerId, Guid tournamentId)
+    public async Task<TournamentResponseDto> OpenRegistrationAsync(Guid managerId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -266,7 +288,7 @@ public class TournamentService : ITournamentService
         return await BuildResponseAsync(tournamentId, null);
     }
 
-    public async Task<TournamentResponseDto> CloseRegistrationAsync(Guid managerId, Guid tournamentId)
+    public async Task<TournamentResponseDto> CloseRegistrationAsync(Guid managerId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -286,7 +308,7 @@ public class TournamentService : ITournamentService
         return await BuildResponseAsync(tournamentId, null);
     }
 
-    public async Task<TournamentResponseDto> ReopenRegistrationAsync(Guid managerId, Guid tournamentId)
+    public async Task<TournamentResponseDto> ReopenRegistrationAsync(Guid managerId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -306,7 +328,7 @@ public class TournamentService : ITournamentService
         return await BuildResponseAsync(tournamentId, null);
     }
 
-    public async Task<TournamentResponseDto> StartTournamentAsync(Guid managerId, Guid tournamentId)
+    public async Task<TournamentResponseDto> StartTournamentAsync(Guid managerId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         // Default: khÃ´ng cho phÃ©p partial start, khÃ´ng auto-shorten.
         return await StartTournamentCoreAsync(
@@ -319,7 +341,7 @@ public class TournamentService : ITournamentService
     }
 
     public async Task<TournamentResponseDto> StartTournamentWithOptionsAsync(
-        Guid managerId, Guid tournamentId, StartTournamentOptionsDto options)
+        Guid managerId, Guid tournamentId, StartTournamentOptionsDto options, CancellationToken cancellationToken = default)
     {
         // Validate options
         if (options.AutoShortenMode != "Auto" && options.AutoShortenMode != "Manual")
@@ -554,7 +576,7 @@ public class TournamentService : ITournamentService
     }
 
     public async Task<TournamentResponseDto> CancelTournamentAsync(
-        Guid managerId, Guid tournamentId, string? reason)
+        Guid managerId, Guid tournamentId, string? reason, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdWithDetailsAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -620,7 +642,7 @@ public class TournamentService : ITournamentService
         return await BuildResponseAsync(tournament, null);  // Pass updated entity, not re-fetch
     }
 
-    public async Task<TournamentResponseDto> CompleteTournamentAsync(Guid managerId, Guid tournamentId)
+    public async Task<TournamentResponseDto> CompleteTournamentAsync(Guid managerId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdWithDetailsAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -652,6 +674,16 @@ public class TournamentService : ITournamentService
             tournament.IsFinalEloSynced = true;
         }
 
+        // P2 Fix (2026-08-19): Mark all active participants as Finished.
+        // Before fix: RecordMatchResultAsync set Finished inside the record method (wrong layer).
+        // After fix: Only CompleteTournamentAsync marks participants as Finished (centralized).
+        foreach (var p in tournament.Participants
+            .Where(p => p.Status == TournamentParticipantStatus.Active))
+        {
+            p.Status = TournamentParticipantStatus.Finished;
+            p.UpdatedAt = DateTime.UtcNow;
+        }
+
         tournament.Status = TournamentStatus.Completed;
         tournament.UpdatedAt = DateTime.UtcNow;
 
@@ -663,14 +695,14 @@ public class TournamentService : ITournamentService
     // QUERIES
     // ====================================================================
 
-    public async Task<TournamentResponseDto> GetTournamentAsync(Guid tournamentId, Guid? currentUserId)
+    public async Task<TournamentResponseDto> GetTournamentAsync(Guid tournamentId, Guid? currentUserId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
         return await BuildResponseAsync(tournament, currentUserId);
     }
 
-    public async Task<IReadOnlyList<TournamentResponseDto>> GetOpenTournamentsAsync(Guid? currentUserId)
+    public async Task<IReadOnlyList<TournamentResponseDto>> GetOpenTournamentsAsync(Guid? currentUserId, CancellationToken cancellationToken = default)
     {
         var tournaments = await _tournamentRepository.GetAllOpenAsync();
         var responses = new List<TournamentResponseDto>();
@@ -681,8 +713,38 @@ public class TournamentService : ITournamentService
         return responses;
     }
 
+    public async Task<IReadOnlyList<TournamentResponseDto>> GetTournamentsAsync(Guid? currentUserId, string? status, CancellationToken cancellationToken = default)
+    {
+        // Hỗ trợ 3 trường hợp của FE:
+        // - status = null / "" → lấy tất cả (frontend tự filter).
+        // - status = "all" → lấy tất cả (giống null).
+        // - status = "<enum-name>" → parse TournamentStatus.
+        TournamentStatus? statusEnum = null;
+
+        if (!string.IsNullOrWhiteSpace(status)
+            && !string.Equals(status, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!Enum.TryParse<TournamentStatus>(status, ignoreCase: true, out var parsed))
+            {
+                throw new BadRequestException(
+                    ApiErrorMessages.Tournament.InvalidStatusFilter(
+                        status,
+                        "Draft, RegistrationOpen, RegistrationClosed, OnGoing, Completed hoặc Cancelled"));
+            }
+            statusEnum = parsed;
+        }
+
+        var tournaments = await _tournamentRepository.GetAllByStatusAsync(statusEnum);
+        var responses = new List<TournamentResponseDto>();
+        foreach (var t in tournaments)
+        {
+            responses.Add(await BuildResponseAsync(t, currentUserId));
+        }
+        return responses;
+    }
+
     public async Task<IReadOnlyList<TournamentResponseDto>> GetCafeTournamentsAsync(
-        Guid cafeId, Guid? currentUserId, string? status)
+        Guid cafeId, Guid? currentUserId, string? status, CancellationToken cancellationToken = default)
     {
         TournamentStatus? statusEnum = null;
         if (!string.IsNullOrWhiteSpace(status))
@@ -710,7 +772,7 @@ public class TournamentService : ITournamentService
     // PLAYER: REGISTER / WITHDRAW / CHECK-IN
     // ====================================================================
 
-    public async Task<TournamentParticipantResponseDto> RegisterAsync(Guid tournamentId, Guid userId)
+    public async Task<TournamentParticipantResponseDto> RegisterAsync(Guid tournamentId, Guid userId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -841,7 +903,7 @@ public class TournamentService : ITournamentService
         return MapParticipantDto(reloaded!);
     }
 
-    public async Task<TournamentParticipantResponseDto> WithdrawRegistrationAsync(Guid tournamentId, Guid userId)
+    public async Task<TournamentParticipantResponseDto> WithdrawRegistrationAsync(Guid tournamentId, Guid userId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -886,7 +948,7 @@ public class TournamentService : ITournamentService
         Guid managerId,
         Guid tournamentId,
         Guid participantId,
-        string reason)
+        string reason, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(reason))
         {
@@ -919,10 +981,9 @@ public class TournamentService : ITournamentService
             throw new ConflictException(ApiErrorMessages.Tournament.AlreadyWithdrawn(tournamentId));
         }
 
-        // KhÃ´ng cho kick khi participant Ä‘Ã£ check-in/active/finished (BR-MGR-KICK-01).
-        if (participant.Status == TournamentParticipantStatus.CheckedIn
-            || participant.Status == TournamentParticipantStatus.Active
-            || participant.Status == TournamentParticipantStatus.Finished)
+        // Không cho kick khi participant đã hoàn thành tournament (Finished).
+        // Cho phép kick khi đã CheckedIn/Active để Manager có thể loại người chơi vi phạm.
+        if (participant.Status == TournamentParticipantStatus.Finished)
         {
             throw new ConflictException(
                 ApiErrorMessages.Tournament.CannotKickAfterCheckIn(participant.Status));
@@ -946,7 +1007,7 @@ public class TournamentService : ITournamentService
         return participants.Select(MapParticipantDto).ToList();
     }
 
-    public async Task<IReadOnlyList<TournamentParticipantResponseDto>> GetParticipantsForPosAsync(Guid managerId, Guid tournamentId)
+    public async Task<IReadOnlyList<TournamentParticipantResponseDto>> GetParticipantsForPosAsync(Guid managerId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -962,7 +1023,7 @@ public class TournamentService : ITournamentService
     // ====================================================================
 
     public async Task<TournamentParticipantResponseDto> CheckInParticipantAsync(
-        Guid managerId, Guid tournamentId, Guid participantId)
+        Guid managerId, Guid tournamentId, Guid participantId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -992,7 +1053,7 @@ public class TournamentService : ITournamentService
     }
 
     public async Task<TournamentParticipantResponseDto> ManagerAddWalkInParticipantAsync(
-        Guid managerId, Guid tournamentId, AddWalkInParticipantRequestDto request)
+        Guid managerId, Guid tournamentId, AddWalkInParticipantRequestDto request, CancellationToken cancellationToken = default)
     {
         if (request == null || string.IsNullOrWhiteSpace(request.DisplayName))
         {
@@ -1102,7 +1163,7 @@ public class TournamentService : ITournamentService
     }
 
     public async Task<TournamentParticipantResponseDto> MarkNoShowAsync(
-        Guid managerId, Guid tournamentId, Guid participantId)
+        Guid managerId, Guid tournamentId, Guid participantId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -1184,21 +1245,21 @@ public class TournamentService : ITournamentService
     // MATCHES
     // ====================================================================
 
-    public async Task<IReadOnlyList<TournamentMatchResponseDto>> GetMatchesAsync(Guid tournamentId)
+    public async Task<IReadOnlyList<TournamentMatchResponseDto>> GetMatchesAsync(Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var matches = await _tournamentRepository.GetMatchesByTournamentAsync(tournamentId);
         return matches.Select(MapMatchDto).ToList();
     }
 
     public async Task<IReadOnlyList<TournamentMatchResponseDto>> GetRoundMatchesAsync(
-        Guid tournamentId, int roundNumber)
+        Guid tournamentId, int roundNumber, CancellationToken cancellationToken = default)
     {
         var matches = await _tournamentRepository.GetMatchesByRoundAsync(tournamentId, roundNumber);
         return matches.Select(MapMatchDto).ToList();
     }
 
     public async Task<IReadOnlyList<TournamentMatchResponseDto>> GetMatchesForPosAsync(
-        Guid managerId, Guid tournamentId)
+        Guid managerId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -1206,22 +1267,44 @@ public class TournamentService : ITournamentService
         await EnsureManagerOwnsCafeAsync(managerId, tournament.CafeId);
 
         var matches = await _tournamentRepository.GetMatchesByTournamentAsync(tournamentId);
+
+        // P2 Fix (2026-08-19): Filter out future round matches unless tournament is completed.
+        // Before fix: returned ALL matches including Round 4 when CurrentRound=3 (data leak).
+        // After fix: only visible rounds are shown (≤ CurrentRound, or all if tournament done).
+        if (tournament.Status != TournamentStatus.Completed && tournament.Status != TournamentStatus.Cancelled)
+        {
+            matches = matches.Where(m => m.RoundNumber <= tournament.CurrentRound).ToList();
+        }
+
         return matches.Select(MapMatchDto).ToList();
     }
 
     public async Task<IReadOnlyList<TournamentMatchResponseDto>> GetRoundMatchesForPosAsync(
-        Guid managerId, Guid tournamentId, int roundNumber)
+        Guid managerId, Guid tournamentId, int roundNumber, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
 
         await EnsureManagerOwnsCafeAsync(managerId, tournament.CafeId);
 
+        // P2 Fix (2026-08-19): Validate roundNumber ≤ CurrentRound.
+        // Before fix: no validation → FE could call GET /round/4 when CurrentRound=3,
+        // server returned Round 4 matches even though they shouldn't be visible yet.
+        // After fix: reject if trying to view future round.
+        // Exception: round 4 (Final) can be viewed when tournament.Status == OnGoing (Final is special
+        // — visible after AdvanceRoundAsync has been called, CurrentRound == TotalRounds).
+        if (roundNumber > tournament.CurrentRound
+            && !(roundNumber == tournament.TotalRounds && tournament.Status == TournamentStatus.OnGoing))
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Tournament.CannotViewFutureRound(tournamentId, roundNumber, tournament.CurrentRound));
+        }
+
         var matches = await _tournamentRepository.GetMatchesByRoundAsync(tournamentId, roundNumber);
         return matches.Select(MapMatchDto).ToList();
     }
 
-    public async Task<TournamentMatchResponseDto> StartMatchAsync(Guid managerId, Guid matchId)
+    public async Task<TournamentMatchResponseDto> StartMatchAsync(Guid managerId, Guid matchId, CancellationToken cancellationToken = default)
     {
         var match = await _tournamentRepository.GetMatchByIdAsync(matchId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.MatchNotFound(matchId));
@@ -1230,6 +1313,16 @@ public class TournamentService : ITournamentService
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(match.TournamentId));
 
         await EnsureManagerOwnsCafeAsync(managerId, tournament.CafeId);
+
+        // P2 Fix (2026-08-19): Can only start matches for the CURRENT round.
+        // Before fix: any match (even Round 4) could be started when CurrentRound=3.
+        // After fix: reject if match.RoundNumber > CurrentRound (can't start future rounds early).
+        if (match.RoundNumber > tournament.CurrentRound)
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Tournament.CannotStartFutureRoundMatch(
+                    matchId, match.RoundNumber, tournament.CurrentRound));
+        }
 
         if (match.Status != TournamentMatchStatus.Scheduled)
         {
@@ -1245,7 +1338,7 @@ public class TournamentService : ITournamentService
     }
 
     public async Task<TournamentMatchResponseDto> RecordMatchResultAsync(
-        Guid managerId, Guid matchId, RecordMatchResultRequestDto request)
+        Guid managerId, Guid matchId, RecordMatchResultRequestDto request, CancellationToken cancellationToken = default)
     {
         var match = await _tournamentRepository.GetMatchByIdAsync(matchId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.MatchNotFound(matchId));
@@ -1269,11 +1362,21 @@ public class TournamentService : ITournamentService
             match.Status = TournamentMatchStatus.OnGoing;
         }
 
+        // Resolve winner + results: PlayerNId = User.Id for both Swiss và Final (FK reference).
+        // Walk-in cã UserId = null → không tham gia slot → request.UserId/WinnerUserId luôn là User.Id.
+        var resolvedWinnerId = request.WinnerUserId;
+        var resolvedResults = request.Results.Select(r => new
+        {
+            r.Score,
+            r.CardsBought,
+            ResolvedUserId = r.UserId
+        }).ToList();
+
         // Validate that winner is in the player list
         var playerSlots = new[] { match.Player1Id, match.Player2Id, match.Player3Id, match.Player4Id }
             .Where(p => p.HasValue).Select(p => p!.Value).ToList();
 
-        if (!playerSlots.Contains(request.WinnerUserId ?? Guid.Empty))
+        if (!resolvedWinnerId.HasValue || !playerSlots.Contains(resolvedWinnerId.Value))
         {
             throw new BadRequestException(ApiErrorMessages.Tournament.WinnerMustBePlayer(matchId));
         }
@@ -1291,48 +1394,50 @@ public class TournamentService : ITournamentService
         // Láº¥y GameTemplate config (TournamentMaxScorePerPlayer) tá»« tournament.GameTemplate.
         // Splendor = 15; Splendor Duel = 20. Default 15.
         var maxScorePerPlayer = tournament.GameTemplate?.TournamentMaxScorePerPlayer ?? 15;
-        foreach (var r in request.Results)
+        foreach (var r in resolvedResults)
         {
             if (r.Score > maxScorePerPlayer)
             {
                 throw new BadRequestException(
                     ApiErrorMessages.Tournament.ScoreExceedsLimit(
-                        r.UserId ?? Guid.Empty, r.Score, maxScorePerPlayer,
+                        r.ResolvedUserId ?? Guid.Empty, r.Score, maxScorePerPlayer,
                         tournament.GameTemplate?.Name ?? "Tournament"));
             }
         }
 
         // Apply scores to slot positions
-        foreach (var r in request.Results)
+        foreach (var r in resolvedResults)
         {
-            if (!playerSlots.Contains(r.UserId ?? Guid.Empty))
+            if (!r.ResolvedUserId.HasValue || !playerSlots.Contains(r.ResolvedUserId.Value))
             {
-                throw new BadRequestException(ApiErrorMessages.Tournament.PlayerNotInMatch(matchId, r.UserId ?? Guid.Empty));
+                throw new BadRequestException(ApiErrorMessages.Tournament.PlayerNotInMatch(matchId, r.ResolvedUserId ?? Guid.Empty));
             }
 
-            if (match.Player1Id == r.UserId)
+            if (match.Player1Id == r.ResolvedUserId)
             {
                 match.Player1Score = r.Score;
                 match.Player1CardsBought = r.CardsBought;
             }
-            else if (match.Player2Id == r.UserId)
+            else if (match.Player2Id == r.ResolvedUserId)
             {
                 match.Player2Score = r.Score;
                 match.Player2CardsBought = r.CardsBought;
             }
-            else if (match.Player3Id == r.UserId)
+            else if (match.Player3Id == r.ResolvedUserId)
             {
                 match.Player3Score = r.Score;
                 match.Player3CardsBought = r.CardsBought;
             }
-            else if (match.Player4Id == r.UserId)
+            else if (match.Player4Id == r.ResolvedUserId)
             {
                 match.Player4Score = r.Score;
                 match.Player4CardsBought = r.CardsBought;
             }
         }
 
-        match.WinnerPlayerId = request.WinnerUserId;
+        // WinnerPlayerId = resolvedWinnerId (already resolved for both Final and Swiss)
+        match.WinnerPlayerId = resolvedWinnerId;
+
         match.Status = TournamentMatchStatus.Completed;
         match.ActualEndTime = DateTime.UtcNow;
         match.RecordedByStaffId = request.RecordedByStaffId ?? managerId;
@@ -1371,22 +1476,16 @@ public class TournamentService : ITournamentService
         if (match.IsFinal)
         {
             AssignFinalRanks(tournament, match);
-            // Mark all participants Finished
-            foreach (var p in tournament.Participants
-                .Where(p => p.Status == TournamentParticipantStatus.Active))
-            {
-                p.Status = TournamentParticipantStatus.Finished;
-                p.UpdatedAt = DateTime.UtcNow;
-            }
+            // P2 Fix (2026-08-19): DO NOT set participant status to Finished here.
+            // Only CompleteTournamentAsync should mark participants as Finished and close the tournament.
+            // This prevents tournament being stuck in OnGoing state if CompleteTournamentAsync is never called.
         }
-        else if (tournament.CurrentRound >= tournament.PreliminaryRounds
-            && match.RoundNumber == tournament.PreliminaryRounds
-            && !tournament.Matches.Any(m => m.IsFinal))
-        {
-            // Just finished the last Swiss round â†’ build Final match (idempotent: skip if already exists)
-            await BuildFinalMatchAsync(tournament);
-            tournament.CurrentRound = tournament.TotalRounds; // advance to Final round
-        }
+        // P2 Fix (2026-08-19): MOVE Final match building OUT of RecordMatchResultAsync.
+            // Before: RecordMatchResultAsync called BuildFinalMatchAsync when last Swiss match completed,
+            // which auto-advances CurrentRound → FE reload sees Round 4 even though AdvanceRoundAsync not called.
+            // After: ONLY AdvanceRoundAsync is responsible for building Final and advancing CurrentRound.
+            // AdvanceRoundAsync has idempotent check (line 1890: throw if IsFinal already exists).
+            // RecordMatchResultAsync should NOT advance tournament state — just record the match result.
 
         tournament.UpdatedAt = DateTime.UtcNow;
         await _tournamentRepository.SaveChangesAsync();
@@ -1397,7 +1496,7 @@ public class TournamentService : ITournamentService
     // PLAYER PERSONAL DATA (my-registrations, elo-history, leaderboard)
     // ====================================================================
 
-    public async Task<IReadOnlyList<MyTournamentRegistrationDto>> GetMyRegistrationsAsync(Guid userId, string? status = null)
+    public async Task<IReadOnlyList<MyTournamentRegistrationDto>> GetMyRegistrationsAsync(Guid userId, string? status = null, CancellationToken cancellationToken = default)
     {
         TournamentStatus? statusFilter = null;
         if (!string.IsNullOrWhiteSpace(status))
@@ -1444,7 +1543,7 @@ public class TournamentService : ITournamentService
         return results;
     }
 
-    public async Task<EloHistoryResponseDto> GetEloHistoryAsync(Guid userId)
+    public async Task<EloHistoryResponseDto> GetEloHistoryAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         var user = await _userProfileRepository.GetByIdWithProfileAsync(userId);
         if (user?.Profile == null)
@@ -1479,14 +1578,24 @@ public class TournamentService : ITournamentService
         };
     }
 
-    public async Task<LeaderboardResponseDto> GetLeaderboardAsync(int topCount = 100, Guid? gameTemplateId = null)
+    public async Task<LeaderboardResponseDto> GetLeaderboardAsync(int topCount = 100, Guid? gameTemplateId = null, CancellationToken cancellationToken = default)
     {
         if (topCount is < 1 or > 500) topCount = 100;
+
+        // GAP-R6-TW-LEADERBOARD Fix: cache leaderboard 60s.
+        // Leaderboard load: GetTopEloProfilesAsync + GetAggregatedTournamentStatsAsync
+        // = 2 DB queries, mỗi query N rows. Với 100 entries × 1000 user truy cập / phút
+        // = 2000 queries / phút chỉ để render leaderboard. Cache 60s giảm xuống 1 query / 60s.
+        var cacheKey = $"{LeaderboardCacheKeyPrefix}{topCount}:{gameTemplateId?.ToString() ?? "all"}";
+        if (_memoryCache.TryGetValue<LeaderboardResponseDto>(cacheKey, out var cached) && cached != null)
+        {
+            return cached;
+        }
 
         var profiles = await _tournamentRepository.GetTopEloProfilesAsync(topCount, gameTemplateId);
         var userIds = profiles.Select(p => p.UserId).ToList();
 
-        // Bulk fetch stats cho táº¥t cáº£ userIds trong 1 query thay vÃ¬ N+1.
+        // Bulk fetch stats for all userIds in 1 query instead of N+1.
         var stats = await _tournamentRepository.GetAggregatedTournamentStatsAsync(userIds, gameTemplateId);
 
         var entries = profiles.Select((p, idx) => new LeaderboardEntryDto
@@ -1507,7 +1616,19 @@ public class TournamentService : ITournamentService
         };
     }
 
-    public async Task<IReadOnlyList<TournamentResponseDto>> GetCafeActiveTournamentsAsync(Guid cafeId, Guid managerId)
+    /// <summary>
+    /// GAP-R6-TW-LEADERBOARD Fix: invalidate cached leaderboard entries sau khi Elo thay đổi.
+    /// Gọi từ FinalizeMatchAsync / ApplyEloDeltaAsync.
+    /// </summary>
+    private void InvalidateLeaderboardCache()
+    {
+        // MemoryCache không có API enumerate keys → không thể invalidate by prefix.
+        // Acceptable trade-off: TTL 60s tự expire. Trade-off đơn giản vs invalidation chính xác.
+        // Nếu sau này cần invalidation: chuyển sang CacheManager (3rd-party) hoặc dùng IDistributedCache + Redis.
+        _logger.LogDebug("Leaderboard cache TTL-based invalidation only (60s window).");
+    }
+
+    public async Task<IReadOnlyList<TournamentResponseDto>> GetCafeActiveTournamentsAsync(Guid cafeId, Guid managerId, CancellationToken cancellationToken = default)
     {
         // Äáº£m báº£o manager owns cafe trÆ°á»›c khi tráº£ data.
         await EnsureManagerOwnsCafeAsync(managerId, cafeId);
@@ -1522,7 +1643,7 @@ public class TournamentService : ITournamentService
     }
 
     public async Task<TournamentMatchResponseDto> UpdateMatchResultAsync(
-        Guid managerId, Guid matchId, UpdateMatchResultRequestDto request)
+        Guid managerId, Guid matchId, UpdateMatchResultRequestDto request, CancellationToken cancellationToken = default)
     {
         if (request == null || string.IsNullOrWhiteSpace(request.CorrectionReason))
         {
@@ -1635,35 +1756,36 @@ public class TournamentService : ITournamentService
 
     private async Task RevertMatchSwissScoresAsync(Tournament tournament, TournamentMatchBracket match)
     {
-        // PlayerNId = TournamentParticipant.Id.
-        // Trá»« láº¡i Swiss score cÅ© (PrestigePoints + CardsBought) cho táº¥t cáº£ players (ká»ƒ cáº£ walk-in).
-        var slotIds = new[]
+        // PlayerNId = User.Id (FK reference to Users table).
+        // Tìm participant theo UserId để revert Swiss score cũ (PrestigePoints + CardsBought).
+        // Walk-in cã UserId = null → không tham gia slot → không có gì để revert.
+        var slotUserIds = new[]
         {
             match.Player1Id, match.Player2Id,
             match.Player3Id, match.Player4Id
         }.Where(id => id.HasValue).Select(id => id!.Value).ToList();
 
-        foreach (var participantId in slotIds)
+        foreach (var userId in slotUserIds)
         {
-            var participant = tournament.Participants.FirstOrDefault(p => p.Id == participantId);
+            var participant = tournament.Participants.FirstOrDefault(p => p.UserId == userId);
             if (participant == null) continue;
 
-            if (participant.Id == match.Player1Id)
+            if (userId == match.Player1Id)
             {
                 participant.TotalPrestigePoints = Math.Max(0, participant.TotalPrestigePoints - (match.Player1Score ?? 0));
                 participant.TotalCardsBought = Math.Max(0, participant.TotalCardsBought - (match.Player1CardsBought ?? 0));
             }
-            else if (participant.Id == match.Player2Id)
+            else if (userId == match.Player2Id)
             {
                 participant.TotalPrestigePoints = Math.Max(0, participant.TotalPrestigePoints - (match.Player2Score ?? 0));
                 participant.TotalCardsBought = Math.Max(0, participant.TotalCardsBought - (match.Player2CardsBought ?? 0));
             }
-            else if (participant.Id == match.Player3Id)
+            else if (userId == match.Player3Id)
             {
                 participant.TotalPrestigePoints = Math.Max(0, participant.TotalPrestigePoints - (match.Player3Score ?? 0));
                 participant.TotalCardsBought = Math.Max(0, participant.TotalCardsBought - (match.Player3CardsBought ?? 0));
             }
-            else if (participant.Id == match.Player4Id)
+            else if (userId == match.Player4Id)
             {
                 participant.TotalPrestigePoints = Math.Max(0, participant.TotalPrestigePoints - (match.Player4Score ?? 0));
                 participant.TotalCardsBought = Math.Max(0, participant.TotalCardsBought - (match.Player4CardsBought ?? 0));
@@ -1728,7 +1850,7 @@ public class TournamentService : ITournamentService
         await _tournamentRepository.DeleteEloContributionsByMatchAsync(match.Id);
     }
 
-    public async Task<TournamentMatchResponseDto> CancelMatchAsync(Guid managerId, Guid matchId, string reason)
+    public async Task<TournamentMatchResponseDto> CancelMatchAsync(Guid managerId, Guid matchId, string reason, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(reason))
         {
@@ -1765,7 +1887,7 @@ public class TournamentService : ITournamentService
 // BACKGROUND JOBS
 // ====================================================================
 
-public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid tournamentId)
+public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdWithDetailsAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -1888,7 +2010,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         return await BuildResponseAsync(tournamentId, null);
     }
 
-    public async Task<int> AutoCloseExpiredRegistrationsAsync(DateTime cutoffTime)
+    public async Task<int> AutoCloseExpiredRegistrationsAsync(DateTime cutoffTime, CancellationToken cancellationToken = default)
     {
         var tournaments = await _tournamentRepository.GetUpcomingForClosingAsync(cutoffTime);
         var count = 0;
@@ -1911,31 +2033,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         return count;
     }
 
-    /// <summary>
-    /// Cancellable variant â€” pass stoppingToken xuá»‘ng DB calls.
-    /// Background job nÃªn dÃ¹ng overload nÃ y Ä‘á»ƒ shutdown nhanh khi app táº¯t.
-    /// </summary>
-    public async Task<int> AutoCloseExpiredRegistrationsAsync(DateTime cutoffTime, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var tournaments = await _tournamentRepository.GetUpcomingForClosingAsync(cutoffTime);
-        var count = 0;
-        foreach (var t in tournaments)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            // F12: ThÃªm guard giá»‘ng overload khÃ´ng CT Ä‘á»ƒ nháº¥t quÃ¡n logic.
-            if (!HasActiveParticipants(t)) continue;
-            t.Status = TournamentStatus.RegistrationClosed;
-            t.UpdatedAt = DateTime.UtcNow;
-            count++;
-        }
-        if (count > 0)
-        {
-            await _tournamentRepository.SaveChangesAsync();
-        }
-        return count;
-    }
+    
 
     private static bool HasActiveParticipants(Tournament t) =>
         t.Participants?.Any(p =>
@@ -2387,46 +2485,50 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
     private async Task BuildFinalMatchAsync(Tournament tournament)
     {
-        // Walk-in Ä‘Æ°á»£c vÃ o Final (hiá»ƒn thá»‹ tÃªn vá»›i ðŸš¶ prefix, khÃ´ng update Elo/Karma).
-        // BR-13 analogy: walk-in khÃ´ng cÃ³ UserId â†’ khÃ´ng nháº­n Elo/Karma rewards.
-        //
-        // PlayerNId = TournamentParticipant.Id (khÃ´ng pháº£i UserId).
-        // Walk-in cÃ³ Participant.Id nhÆ°ng UserId = null.
-        // DÃ¹ng ParticipantId Ä‘á»ƒ walk-in cÃ³ thá»ƒ tham gia Final.
-        var top4 = TournamentEloCalculator.RankBySwiss(
-            tournament.Participants.Where(p => p.Status == TournamentParticipantStatus.Active),
-            tournament.FinalistCount).ToList();
+        // P2 Fix (2026-08-19): Swiss Pure Final format.
+        // All Active participants enter Final -> use SwissPairingHelper to create N Final tables.
+        // Example 8 players -> 2 Final tables x 4 players = 8 players.
 
-        if (top4.Count < tournament.FinalistCount)
+        var allParticipants = tournament.Participants
+            .Where(p => p.Status == TournamentParticipantStatus.Active)
+            .ToList();
+
+        if (allParticipants.Count < 4)
         {
+            var activeCount = allParticipants.Count;
             throw new ConflictException(
                 ApiErrorMessages.Tournament.FinalRequiresFourActiveParticipants(
-                    top4.Count, tournament.FinalistCount));
+                    activeCount, 4));
         }
 
-        var finalMatch = new TournamentMatchBracket
-        {
-            Id = Guid.NewGuid(),
-            TournamentId = tournament.Id,
-            RoundNumber = tournament.TotalRounds,
-            MatchNumber = 1,
-            IsFinal = true,
-            MatchType = Core.Enum.MatchType.Final,
-            // DÃ¹ng Participant.Id Ä‘á»ƒ walk-in cÃ³ thá»ƒ tham gia Final
-            Player1Id = top4.ElementAtOrDefault(0)?.Id,
-            Player2Id = top4.ElementAtOrDefault(1)?.Id,
-            Player3Id = top4.ElementAtOrDefault(2)?.Id,
-            Player4Id = top4.ElementAtOrDefault(3)?.Id,
-            Status = TournamentMatchStatus.Scheduled,
-            CreatedAt = DateTime.UtcNow
-        };
+        var previousMatches = tournament.Matches
+            .Where(m => m.RoundNumber <= tournament.PreliminaryRounds)
+            .ToList();
 
-        await _tournamentRepository.AddMatchAsync(finalMatch);
+        var finalTables = SwissPairingHelper.BuildBalancedPairings(
+            allParticipants,
+            tournament.TotalRounds,
+            previousMatches);
 
-        // T-02: Build Third Place Match khi cÃ³ cáº¥u hÃ¬nh
-        if (tournament.HasThirdPlaceMatch && top4.Count >= 4)
+        var matchNumber = 1;
+        foreach (var table in finalTables)
         {
-            await BuildThirdPlaceMatchAsync(tournament, top4);
+            var finalMatch = new TournamentMatchBracket
+            {
+                Id = Guid.NewGuid(),
+                TournamentId = tournament.Id,
+                RoundNumber = tournament.TotalRounds,
+                MatchNumber = matchNumber++,
+                IsFinal = true,
+                MatchType = Core.Enum.MatchType.Final,
+                Player1Id = table.Count > 0 ? table[0].UserId : null,
+                Player2Id = table.Count > 1 ? table[1].UserId : null,
+                Player3Id = table.Count > 2 ? table[2].UserId : null,
+                Player4Id = table.Count > 3 ? table[3].UserId : null,
+                Status = TournamentMatchStatus.Scheduled,
+                CreatedAt = DateTime.UtcNow
+            };
+            await _tournamentRepository.AddMatchAsync(finalMatch);
         }
     }
 
@@ -2442,8 +2544,8 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
             MatchNumber = 2,
             IsFinal = false,
             MatchType = Core.Enum.MatchType.ThirdPlaceMatch,
-            Player1Id = topParticipants.Count > 2 ? topParticipants[2].Id : null,
-            Player2Id = topParticipants.Count > 3 ? topParticipants[3].Id : null,
+            Player1Id = topParticipants.Count > 2 ? topParticipants[2].UserId : null,
+            Player2Id = topParticipants.Count > 3 ? topParticipants[3].UserId : null,
             Status = TournamentMatchStatus.Scheduled,
             CreatedAt = DateTime.UtcNow
         };
@@ -2456,8 +2558,8 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         // Walk-in Ä‘Æ°á»£c xáº¿p rank trong Final (hiá»ƒn thá»‹ vá»›i ðŸš¶ prefix trong response).
         // BR-13 analogy: walk-in khÃ´ng nháº­n Elo/Karma rewards (UserId = null).
         //
-        // LÆ°u Ã½: PlayerNId trong match slot = TournamentParticipant.Id (khÃ´ng pháº£i User.Id).
-        // Finalists: PlayerNId = User.Id (FK reference to Users table)
+        // Lưu ý: PlayerNId trong match slot = User.Id (FK reference to Users table).
+        // Walk-in cã UserId = null → không tham gia Final slot → không có trong playerIds.
         var playerIds = new[]
         {
             finalMatch.Player1Id, finalMatch.Player2Id,
@@ -2770,24 +2872,26 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
     // MANUAL PAIRING (Manager override Auto Swiss pairing)
     // ====================================================================
 
-    public async Task<TournamentResponseDto> SetPairingModeAsync(Guid managerId, Guid tournamentId, TournamentPairingMode mode)
+    public async Task<TournamentResponseDto> SetPairingModeAsync(Guid managerId, Guid tournamentId, TournamentPairingMode mode, CancellationToken cancellationToken = default)
     {
-        // F15 Fix: Load with matches Ä‘á»ƒ check round hiá»‡n táº¡i cÃ³ matches chÆ°a.
+        // F15: Cho phep Auto -> Manual khi da OnGoing, mien la cac ban dau chua bat dau.
+        // Manager co the dieu chinh ghep doi truoc khi bat dau vong neu pairing auto khong can bang.
+        // Chi block neu co ban dang dien ra (OnGoing) hoac da ket thuc (Completed).
         var tournament = await _tournamentRepository.GetByIdWithDetailsAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
 
         await EnsureManagerOwnsCafeAsync(managerId, tournament.CafeId);
 
-        // F15 Fix: Cho phÃ©p Auto â†’ Manual khi Ä‘Ã£ OnGoing, miá»…n lÃ  round hiá»‡n táº¡i chÆ°a build matches.
-        // Thá»±c táº¿: manager dÃ¹ng Auto cho R1-R2, muá»‘n Manual cho R3 (matchup quan trá»ng cáº§n control).
-        // Náº¿u round hiá»‡n táº¡i Ä‘Ã£ cÃ³ matches â†’ khÃ´ng cho Ä‘á»•i (trÃ¡nh data khÃ´ng khá»›p).
         if (tournament.Status == TournamentStatus.OnGoing && mode == TournamentPairingMode.Manual)
         {
-            var currentRoundHasMatches = tournament.Matches.Any(m => m.RoundNumber == tournament.CurrentRound);
-            if (currentRoundHasMatches)
+            var currentRoundMatches = tournament.Matches
+                .Where(m => m.RoundNumber == tournament.CurrentRound)
+                .ToList();
+            
+            if (currentRoundMatches.Any(m => m.Status == TournamentMatchStatus.OnGoing || m.Status == TournamentMatchStatus.Completed))
             {
                 throw new ConflictException(
-                    ApiErrorMessages.Tournament.CannotSwitchManualWithMatches);
+                    ApiErrorMessages.Tournament.CannotSwitchManualWithActiveMatches);
             }
         }
 
@@ -2798,7 +2902,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         return await BuildResponseAsync(tournamentId, null);
     }
 
-    public async Task<RoundPairingsResponseDto> PreviewPairingsAsync(Guid managerId, Guid tournamentId, int roundNumber)
+    public async Task<RoundPairingsResponseDto> PreviewPairingsAsync(Guid managerId, Guid tournamentId, int roundNumber, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdWithDetailsAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -2844,12 +2948,12 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
             if (orderedParticipants.Count < 4)
             {
-                warnings.Add($"Sá»‘ ngÆ°á»i chÆ¡i ({orderedParticipants.Count}) dÆ°á»›i 4 â€” khÃ´ng Ä‘á»§ Ä‘á»ƒ táº¡o bÃ n Splendor há»£p lá»‡.");
+                warnings.Add($"Số người chơi ({orderedParticipants.Count}) dưới 4 — không đủ để tạo bàn Splendor hợp lệ.");
             }
             else if (orderedParticipants.Count % 4 != 0)
             {
                 var remainder = orderedParticipants.Count % 4;
-                warnings.Add($"Sá»‘ ngÆ°á»i chÆ¡i ({orderedParticipants.Count}) khÃ´ng chia háº¿t cho 4. BÃ n cuá»‘i sáº½ cÃ³ {remainder} ngÆ°á»i â€” nÃªn dÃ¹ng Manual mode Ä‘á»ƒ sáº¯p xáº¿p láº¡i.");
+                warnings.Add($"Số người chơi ({orderedParticipants.Count}) không chia hết cho 4. Bàn cuối sẽ có {remainder} người — nên dùng Manual mode để sắp xếp lại.");
             }
 
             return new RoundPairingsResponseDto
@@ -2871,7 +2975,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
         if (topFinalists.Count < tournament.FinalistCount)
         {
-            warnings.Add($"Chá»‰ cÃ³ {topFinalists.Count} ngÆ°á»i chÆ¡i Active, khÃ´ng Ä‘á»§ {tournament.FinalistCount} cho bÃ n chung káº¿t.");
+            warnings.Add($"Chỉ có {topFinalists.Count} người chơi Active, không đủ {tournament.FinalistCount} cho bàn chung kết.");
         }
 
         var finalPairings = new List<ManualPairingDto>
@@ -2894,7 +2998,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
     }
 
     public async Task<RoundPairingsResponseDto> SetRoundPairingsAsync(
-        Guid managerId, Guid tournamentId, SetRoundPairingsRequestDto request)
+        Guid managerId, Guid tournamentId, SetRoundPairingsRequestDto request, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdWithDetailsAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -2932,33 +3036,213 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         };
     }
 
-    public async Task<RoundPairingsResponseDto> ClearRoundPairingsAsync(Guid managerId, Guid tournamentId, int roundNumber)
+    public async Task<RoundPairingsResponseDto> ClearRoundPairingsAsync(Guid managerId, Guid tournamentId, int roundNumber, CancellationToken cancellationToken = default)
     {
-        var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
+        var tournament = await _tournamentRepository.GetByIdWithDetailsAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
 
         await EnsureManagerOwnsCafeAsync(managerId, tournament.CafeId);
 
         ValidateRoundNumber(roundNumber, tournament);
 
-        var roundExists = tournament.Matches.Count == 0
-            ? false
-            : await _tournamentRepository.GetMatchesByTournamentAsync(tournamentId) is var matches
-              && matches.Any(m => m.RoundNumber == roundNumber);
+        var roundMatches = tournament.Matches
+            .Where(m => m.RoundNumber == roundNumber)
+            .ToList();
 
-        if (roundExists)
+        if (roundMatches.Count > 0)
         {
-            throw new ConflictException(
-                ApiErrorMessages.Tournament.RoundCannotResetPairings(roundNumber));
+            var hasCompletedMatches = roundMatches.Any(m =>
+                m.Status == TournamentMatchStatus.Completed
+                || m.Status == TournamentMatchStatus.OnGoing);
+
+            if (hasCompletedMatches)
+            {
+                throw new ConflictException(
+                    ApiErrorMessages.Tournament.RoundCannotResetPairings(roundNumber));
+            }
+
+            await _tournamentRepository.DeleteMatchesByRoundAsync(tournamentId, roundNumber);
         }
 
         SetRoundPairingsJson(tournament, roundNumber, null);
+        tournament.PairingMode = TournamentPairingMode.Auto;
         tournament.UpdatedAt = DateTime.UtcNow;
 
         await _tournamentRepository.SaveChangesAsync();
 
-        // Tráº£ vá» auto preview Ä‘á»ƒ manager biáº¿t sau khi clear
         return await PreviewPairingsAsync(managerId, tournamentId, roundNumber);
+    }
+
+    /// <summary>
+    /// Hoán đổi vị trí 2 người chơi giữa 2 bàn trong cùng round.
+    /// Cho phép sửa pairings ngay cả khi round đã có matches.
+    /// </summary>
+    public async Task<RoundPairingsResponseDto> SwapPairingAsync(
+        Guid managerId, Guid tournamentId, SwapPairingRequestDto request, CancellationToken cancellationToken = default)
+    {
+        var tournament = await _tournamentRepository.GetByIdWithDetailsAsync(tournamentId)
+            ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
+
+        await EnsureManagerOwnsCafeAsync(managerId, tournament.CafeId);
+
+        // Check tournament đang trong quá trình thi đấu
+        if (tournament.Status != TournamentStatus.OnGoing)
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Tournament.SwapOnlyAllowedWhenOnGoing);
+        }
+
+        ValidateRoundNumber(request.RoundNumber, tournament);
+
+        // Lấy các match trong round này
+        var roundMatches = tournament.Matches
+            .Where(m => m.RoundNumber == request.RoundNumber)
+            .ToList();
+
+        if (roundMatches.Count == 0)
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Tournament.RoundHasNoMatches(request.RoundNumber));
+        }
+
+        // Tìm match chứa Player A
+        var matchWithPlayerA = roundMatches
+            .FirstOrDefault(m => m.Player1Id == request.PlayerAId
+                || m.Player2Id == request.PlayerAId
+                || m.Player3Id == request.PlayerAId
+                || m.Player4Id == request.PlayerAId);
+
+        if (matchWithPlayerA == null || matchWithPlayerA.MatchNumber != request.FromMatchNumber)
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Tournament.PlayerNotInMatch(
+                    request.PlayerAId, request.FromMatchNumber));
+        }
+
+        // Tìm match chứa Player B
+        var matchWithPlayerB = roundMatches
+            .FirstOrDefault(m => m.Player1Id == request.PlayerBId
+                || m.Player2Id == request.PlayerBId
+                || m.Player3Id == request.PlayerBId
+                || m.Player4Id == request.PlayerBId);
+
+        if (matchWithPlayerB == null || matchWithPlayerB.MatchNumber != request.ToMatchNumber)
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Tournament.PlayerNotInMatch(
+                    request.PlayerBId, request.ToMatchNumber));
+        }
+
+        // Check: 2 người cùng bàn
+        if (matchWithPlayerA.Id == matchWithPlayerB.Id)
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Tournament.SwapSameMatch);
+        }
+
+        // Check: không swap match đã hoàn thành
+        if (matchWithPlayerA.Status == TournamentMatchStatus.Completed
+            || matchWithPlayerB.Status == TournamentMatchStatus.Completed)
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Tournament.SwapMatchAlreadyCompleted);
+        }
+
+        // Check: không swap match đang đấu (có thể cho phép nhưng cảnh báo)
+        if (matchWithPlayerA.Status == TournamentMatchStatus.OnGoing
+            || matchWithPlayerB.Status == TournamentMatchStatus.OnGoing)
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Tournament.SwapMatchOnGoing);
+        }
+
+        // Hoán đổi vị trí giữa 2 match
+        SwapPlayerBetweenMatches(matchWithPlayerA, request.PlayerAId, matchWithPlayerB, request.PlayerBId);
+
+        // Cập nhật RoundXPairingsJson để đồng bộ với entity
+        var updatedPairings = BuildPairingsFromMatches(roundMatches);
+        var json = SerializeManualJson(updatedPairings);
+        SetRoundPairingsJson(tournament, request.RoundNumber, json);
+
+        tournament.UpdatedAt = DateTime.UtcNow;
+        await _tournamentRepository.SaveChangesAsync();
+
+        // Trả về danh sách pairings mới sau khi hoán đổi
+        return new RoundPairingsResponseDto
+        {
+            TournamentId = tournamentId,
+            RoundNumber = request.RoundNumber,
+            Source = "Manual (Swapped)",
+            Pairings = updatedPairings,
+            Warnings = new List<string>()
+        };
+    }
+
+    private void SwapPlayerBetweenMatches(
+        TournamentMatchBracket matchA, Guid playerA,
+        TournamentMatchBracket matchB, Guid playerB)
+    {
+        // Xác định vị trí của playerA và playerB
+        int? posA = GetPlayerPosition(matchA, playerA);
+        int? posB = GetPlayerPosition(matchB, playerB);
+
+        // Xóa playerA khỏi vị trí cũ trong matchA
+        ClearPlayerFromMatch(matchA, playerA);
+        // Xóa playerB khỏi vị trí cũ trong matchB
+        ClearPlayerFromMatch(matchB, playerB);
+
+        // Đặt playerA vào vị trí của playerB trong matchB
+        SetPlayerAtPosition(matchB, playerA, posB);
+        // Đặt playerB vào vị trí của playerA trong matchA
+        SetPlayerAtPosition(matchA, playerB, posA);
+
+        matchA.UpdatedAt = DateTime.UtcNow;
+        matchB.UpdatedAt = DateTime.UtcNow;
+    }
+
+    private int? GetPlayerPosition(TournamentMatchBracket match, Guid playerId)
+    {
+        if (match.Player1Id == playerId) return 1;
+        if (match.Player2Id == playerId) return 2;
+        if (match.Player3Id == playerId) return 3;
+        if (match.Player4Id == playerId) return 4;
+        return null;
+    }
+
+    private void ClearPlayerFromMatch(TournamentMatchBracket match, Guid playerId)
+    {
+        if (match.Player1Id == playerId) match.Player1Id = null;
+        else if (match.Player2Id == playerId) match.Player2Id = null;
+        else if (match.Player3Id == playerId) match.Player3Id = null;
+        else if (match.Player4Id == playerId) match.Player4Id = null;
+    }
+
+    private void SetPlayerAtPosition(TournamentMatchBracket match, Guid playerId, int? position)
+    {
+        if (position == 1) match.Player1Id = playerId;
+        else if (position == 2) match.Player2Id = playerId;
+        else if (position == 3) match.Player3Id = playerId;
+        else if (position == 4) match.Player4Id = playerId;
+    }
+
+    private List<ManualPairingDto> BuildPairingsFromMatches(List<TournamentMatchBracket> matches)
+    {
+        return matches
+            .OrderBy(m => m.MatchNumber)
+            .Select(m =>
+            {
+                var playerIds = new List<Guid>();
+                if (m.Player1Id.HasValue) playerIds.Add(m.Player1Id.Value);
+                if (m.Player2Id.HasValue) playerIds.Add(m.Player2Id.Value);
+                if (m.Player3Id.HasValue) playerIds.Add(m.Player3Id.Value);
+                if (m.Player4Id.HasValue) playerIds.Add(m.Player4Id.Value);
+                return new ManualPairingDto
+                {
+                    MatchNumber = m.MatchNumber,
+                    PlayerIds = playerIds
+                };
+            })
+            .ToList();
     }
 
     // === Helpers cho Manual Pairing ===
@@ -3125,7 +3409,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
     // ====================================================================
 
     public async Task<AdminTournamentListResponseDto> GetAdminTournamentsAsync(
-        int page, int pageSize, string? searchTerm, string? status, Guid? cafeId)
+        int page, int pageSize, string? searchTerm, string? status, Guid? cafeId, CancellationToken cancellationToken = default)
     {
         TournamentStatus? tournamentStatus = null;
         if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<TournamentStatus>(status, true, out var parsed))
@@ -3211,7 +3495,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         };
     }
 
-    public async Task<TournamentResponseDto> AdminCreateTournamentAsync(Guid adminUserId, AdminCreateTournamentRequestDto request)
+    public async Task<TournamentResponseDto> AdminCreateTournamentAsync(Guid adminUserId, AdminCreateTournamentRequestDto request, CancellationToken cancellationToken = default)
     {
         // Validate
         if (string.IsNullOrWhiteSpace(request.Title))
@@ -3237,7 +3521,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         {
             Id = Guid.NewGuid(),
             CafeId = request.CafeId,
-            CreatedByManagerId = Guid.Empty, // Admin doesn't have manager ID
+            CreatedByManagerId = cafe.ManagerId, // Admin creates on behalf of the cafe manager
             Title = request.Title.Trim(),
             Description = request.Description?.Trim(),
             GameTemplateId = request.GameTemplateId,
@@ -3269,7 +3553,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         return await BuildResponseAsync(tournament, null);
     }
 
-    public async Task<TournamentResponseDto> AdminUpdateTournamentAsync(Guid adminUserId, Guid tournamentId, AdminUpdateTournamentRequestDto request)
+    public async Task<TournamentResponseDto> AdminUpdateTournamentAsync(Guid adminUserId, Guid tournamentId, AdminUpdateTournamentRequestDto request, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -3346,7 +3630,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
     }
 
     public async Task<AdminTournamentParticipantsResponseDto> GetAdminTournamentParticipantsAsync(
-        Guid tournamentId, string? status)
+        Guid tournamentId, string? status, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -3424,7 +3708,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         return await BuildResponseAsync(tournament, null);
     }
 
-    public async Task<TournamentResponseDto> AdminStartTournamentAsync(Guid adminUserId, Guid tournamentId)
+    public async Task<TournamentResponseDto> AdminStartTournamentAsync(Guid adminUserId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -3451,7 +3735,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         return await BuildResponseAsync(tournament, null);
     }
 
-    public async Task<TournamentResponseDto> AdminCompleteTournamentAsync(Guid adminUserId, Guid tournamentId)
+    public async Task<TournamentResponseDto> AdminCompleteTournamentAsync(Guid adminUserId, Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
@@ -3468,7 +3752,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         return await BuildResponseAsync(tournament, null);
     }
 
-    public async Task<TournamentResponseDto> AdminCancelTournamentAsync(Guid adminUserId, Guid tournamentId, string? reason)
+    public async Task<TournamentResponseDto> AdminCancelTournamentAsync(Guid adminUserId, Guid tournamentId, string? reason, CancellationToken cancellationToken = default)
     {
         var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
             ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));

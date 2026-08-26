@@ -43,9 +43,21 @@ public class OutboxEventConfiguration : IEntityTypeConfiguration<OutboxEvent>
         builder.Property(e => e.LastError)
             .HasMaxLength(2000);
 
+        /// <summary>
+        /// GAP-R4-A8 Fix: Next retry timestamp (exponential backoff).
+        /// Event chỉ được fetch khi <c>NextRetryAt &lt;= now()</c> hoặc null.
+        /// Backoff: 10s × 2^(retry-1), capped 300s.
+        /// </summary>
+        builder.Property(e => e.NextRetryAt);
+
         // Indexes phục vụ worker poll.
         builder.HasIndex(e => new { e.Processed, e.CreatedAt })
             .HasDatabaseName("IX_OutboxEvents_Processed_CreatedAt");
+
+        // GAP-R4-A8 Fix: Index phụ để filter theo NextRetryAt
+        // (worker query: Processed=false AND (NextRetryAt IS NULL OR NextRetryAt <= now())).
+        builder.HasIndex(e => e.NextRetryAt)
+            .HasDatabaseName("IX_OutboxEvents_NextRetryAt");
 
         builder.HasIndex(e => e.IdempotencyKey)
             .IsUnique()

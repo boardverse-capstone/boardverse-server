@@ -5,6 +5,7 @@ using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.Services;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class AdminMasterCatalogServiceTests
@@ -36,7 +37,7 @@ public class AdminMasterCatalogServiceTests
     [Fact]
     public async Task GetCategoriesAsync_ReturnsMappedList()
     {
-        _categoryRepo.Setup(r => r.GetAllAsync(true)).ReturnsAsync(new List<Category>
+        _categoryRepo.Setup(r => r.GetAllAsync(true, It.IsAny<CancellationToken>())).ReturnsAsync(new List<Category>
         {
             BuildCategory(Guid.NewGuid(), "Strategy", "strategy"),
             BuildCategory(Guid.NewGuid(), "Family", "family")
@@ -63,7 +64,7 @@ public class AdminMasterCatalogServiceTests
     [Fact]
     public async Task CreateCategoryAsync_WhenSlugTaken_ThrowsConflict()
     {
-        _categoryRepo.Setup(r => r.SlugExistsAsync("strategy", null)).ReturnsAsync(true);
+        _categoryRepo.Setup(r => r.SlugExistsAsync("strategy", null, It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
         var svc = CreateService();
 
@@ -77,11 +78,11 @@ public class AdminMasterCatalogServiceTests
     [Fact]
     public async Task CreateCategoryAsync_WithoutSlug_GeneratesFromNameAndPersists()
     {
-        _categoryRepo.Setup(r => r.SlugExistsAsync(It.IsAny<string>(), null)).ReturnsAsync(false);
+        _categoryRepo.Setup(r => r.SlugExistsAsync(It.IsAny<string>(), null, It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
         Category? captured = null;
-        _categoryRepo.Setup(r => r.AddAsync(It.IsAny<Category>()))
-            .Callback<Category>(c => captured = c)
+        _categoryRepo.Setup(r => r.AddAsync(It.IsAny<Category>(), It.IsAny<CancellationToken>()))
+            .Callback<Category, CancellationToken>((c, _) => captured = c)
             .Returns(Task.CompletedTask);
 
         var svc = CreateService();
@@ -96,7 +97,7 @@ public class AdminMasterCatalogServiceTests
         Assert.Equal("chien-thuat", captured!.Slug);
         Assert.Equal("Chiến Thuật", captured.Name);
         Assert.True(captured.IsActive);
-        _categoryRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _categoryRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         Assert.Equal("chien-thuat", result.Slug);
     }
 
@@ -104,7 +105,7 @@ public class AdminMasterCatalogServiceTests
     public async Task UpdateCategoryAsync_WhenNotFound_ThrowsNotFound()
     {
         var id = Guid.NewGuid();
-        _categoryRepo.Setup(r => r.GetByIdAsync(id)).ReturnsAsync((Category?)null);
+        _categoryRepo.Setup(r => r.GetByIdAsync(id, It.IsAny<CancellationToken>())).ReturnsAsync((Category?)null);
 
         var svc = CreateService();
 
@@ -116,7 +117,7 @@ public class AdminMasterCatalogServiceTests
     {
         var id = Guid.NewGuid();
         var category = BuildCategory(id, "Strategy", "strategy");
-        _categoryRepo.Setup(r => r.GetByIdAsync(id)).ReturnsAsync(category);
+        _categoryRepo.Setup(r => r.GetByIdAsync(id, It.IsAny<CancellationToken>())).ReturnsAsync(category);
 
         var svc = CreateService();
 
@@ -132,14 +133,14 @@ public class AdminMasterCatalogServiceTests
         Assert.Equal("Updated description", category.Description);
         Assert.Equal(10, category.SortOrder);
         Assert.False(category.IsActive);
-        _categoryRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _categoryRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
     public async Task DeleteCategoryAsync_NotFound_ThrowsNotFound()
     {
         var id = Guid.NewGuid();
-        _categoryRepo.Setup(r => r.GetByIdAsync(id)).ReturnsAsync((Category?)null);
+        _categoryRepo.Setup(r => r.GetByIdAsync(id, It.IsAny<CancellationToken>())).ReturnsAsync((Category?)null);
 
         var svc = CreateService();
 
@@ -151,14 +152,14 @@ public class AdminMasterCatalogServiceTests
     {
         var id = Guid.NewGuid();
         var category = BuildCategory(id);
-        _categoryRepo.Setup(r => r.GetByIdAsync(id)).ReturnsAsync(category);
+        _categoryRepo.Setup(r => r.GetByIdAsync(id, It.IsAny<CancellationToken>())).ReturnsAsync(category);
 
         var svc = CreateService();
 
         await svc.DeleteCategoryAsync(id);
 
         Assert.False(category.IsActive);
-        _categoryRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _categoryRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -169,7 +170,7 @@ public class AdminMasterCatalogServiceTests
     public async Task GetGameComponentsAsync_GameMissing_ThrowsNotFound()
     {
         var gameId = Guid.NewGuid();
-        _gameRepo.Setup(r => r.ExistsAsync(gameId)).ReturnsAsync(false);
+        _gameRepo.Setup(r => r.ExistsAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
         var svc = CreateService();
 
@@ -180,8 +181,8 @@ public class AdminMasterCatalogServiceTests
     public async Task GetGameComponentsAsync_WhenExists_ReturnsComponents()
     {
         var gameId = Guid.NewGuid();
-        _gameRepo.Setup(r => r.ExistsAsync(gameId)).ReturnsAsync(true);
-        _componentRepo.Setup(r => r.GetByGameTemplateIdAsync(gameId)).ReturnsAsync(new List<GameComponentTemplate>
+        _gameRepo.Setup(r => r.ExistsAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _componentRepo.Setup(r => r.GetByGameTemplateIdAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<GameComponentTemplate>
         {
             new()
             {
@@ -206,7 +207,7 @@ public class AdminMasterCatalogServiceTests
     public async Task CreateGameComponentAsync_InvalidKind_ThrowsBadRequest()
     {
         var gameId = Guid.NewGuid();
-        _gameRepo.Setup(r => r.ExistsAsync(gameId)).ReturnsAsync(true);
+        _gameRepo.Setup(r => r.ExistsAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
         var svc = CreateService();
 
@@ -222,11 +223,11 @@ public class AdminMasterCatalogServiceTests
     public async Task CreateGameComponentAsync_NoKind_ResolvesFromNameAndAdds()
     {
         var gameId = Guid.NewGuid();
-        _gameRepo.Setup(r => r.ExistsAsync(gameId)).ReturnsAsync(true);
+        _gameRepo.Setup(r => r.ExistsAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
         GameComponentTemplate? captured = null;
-        _componentRepo.Setup(r => r.AddAsync(It.IsAny<GameComponentTemplate>()))
-            .Callback<GameComponentTemplate>(c => captured = c)
+        _componentRepo.Setup(r => r.AddAsync(It.IsAny<GameComponentTemplate>(), It.IsAny<CancellationToken>()))
+            .Callback<GameComponentTemplate, CancellationToken>((c, _) => captured = c)
             .Returns(Task.CompletedTask);
 
         var svc = CreateService();
@@ -240,7 +241,7 @@ public class AdminMasterCatalogServiceTests
         Assert.NotNull(captured);
         Assert.Equal("Dice", captured!.ComponentName);
         Assert.Equal(2, captured.DefaultQuantity);
-        _componentRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _componentRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         Assert.Equal("Dice", result.ComponentName);
     }
 
@@ -249,8 +250,8 @@ public class AdminMasterCatalogServiceTests
     {
         var gameId = Guid.NewGuid();
         var compId = Guid.NewGuid();
-        _gameRepo.Setup(r => r.ExistsAsync(gameId)).ReturnsAsync(true);
-        _componentRepo.Setup(r => r.GetByIdAndGameTemplateIdAsync(compId, gameId)).ReturnsAsync((GameComponentTemplate?)null);
+        _gameRepo.Setup(r => r.ExistsAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _componentRepo.Setup(r => r.GetByIdAndGameTemplateIdAsync(compId, gameId, It.IsAny<CancellationToken>())).ReturnsAsync((GameComponentTemplate?)null);
 
         var svc = CreateService();
 
@@ -271,8 +272,8 @@ public class AdminMasterCatalogServiceTests
             DefaultQuantity = 10,
             CreatedAt = DateTime.UtcNow
         };
-        _gameRepo.Setup(r => r.ExistsAsync(gameId)).ReturnsAsync(true);
-        _componentRepo.Setup(r => r.GetByIdAndGameTemplateIdAsync(compId, gameId)).ReturnsAsync(component);
+        _gameRepo.Setup(r => r.ExistsAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _componentRepo.Setup(r => r.GetByIdAndGameTemplateIdAsync(compId, gameId, It.IsAny<CancellationToken>())).ReturnsAsync(component);
 
         var svc = CreateService();
 
@@ -284,7 +285,7 @@ public class AdminMasterCatalogServiceTests
 
         Assert.Equal("New", component.ComponentName);
         Assert.Equal(20, component.DefaultQuantity);
-        _componentRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _componentRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -292,9 +293,9 @@ public class AdminMasterCatalogServiceTests
     {
         var gameId = Guid.NewGuid();
         var compId = Guid.NewGuid();
-        _gameRepo.Setup(r => r.ExistsAsync(gameId)).ReturnsAsync(true);
-        _componentRepo.Setup(r => r.GetByIdAndGameTemplateIdAsync(compId, gameId)).ReturnsAsync(new GameComponentTemplate { Id = compId, GameTemplateId = gameId });
-        _componentRepo.Setup(r => r.IsReferencedByInventoryPenaltyAsync(compId)).ReturnsAsync(true);
+        _gameRepo.Setup(r => r.ExistsAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _componentRepo.Setup(r => r.GetByIdAndGameTemplateIdAsync(compId, gameId, It.IsAny<CancellationToken>())).ReturnsAsync(new GameComponentTemplate { Id = compId, GameTemplateId = gameId });
+        _componentRepo.Setup(r => r.IsReferencedByInventoryPenaltyAsync(compId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
         var svc = CreateService();
 
@@ -307,16 +308,16 @@ public class AdminMasterCatalogServiceTests
         var gameId = Guid.NewGuid();
         var compId = Guid.NewGuid();
         var component = new GameComponentTemplate { Id = compId, GameTemplateId = gameId };
-        _gameRepo.Setup(r => r.ExistsAsync(gameId)).ReturnsAsync(true);
-        _componentRepo.Setup(r => r.GetByIdAndGameTemplateIdAsync(compId, gameId)).ReturnsAsync(component);
-        _componentRepo.Setup(r => r.IsReferencedByInventoryPenaltyAsync(compId)).ReturnsAsync(false);
+        _gameRepo.Setup(r => r.ExistsAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _componentRepo.Setup(r => r.GetByIdAndGameTemplateIdAsync(compId, gameId, It.IsAny<CancellationToken>())).ReturnsAsync(component);
+        _componentRepo.Setup(r => r.IsReferencedByInventoryPenaltyAsync(compId, It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
         var svc = CreateService();
 
         await svc.DeleteGameComponentAsync(gameId, compId);
 
         _componentRepo.Verify(r => r.Remove(component), Times.Once);
-        _componentRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _componentRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion
@@ -327,7 +328,7 @@ public class AdminMasterCatalogServiceTests
     public async Task GetGameCategoriesAsync_WhenGameMissing_Throws()
     {
         var gameId = Guid.NewGuid();
-        _gameRepo.Setup(r => r.GetByIdWithComponentsAsync(gameId)).ReturnsAsync((GameTemplate?)null);
+        _gameRepo.Setup(r => r.GetByIdWithComponentsAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync((GameTemplate?)null);
 
         var svc = CreateService();
 
@@ -347,7 +348,7 @@ public class AdminMasterCatalogServiceTests
                 new() { GameTemplateId = gameId, Category = BuildCategory(Guid.NewGuid(), "Inactive", "i", isActive: false), CategoryId = Guid.NewGuid() }
             }
         };
-        _gameRepo.Setup(r => r.GetByIdWithComponentsAsync(gameId)).ReturnsAsync(game);
+        _gameRepo.Setup(r => r.GetByIdWithComponentsAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync(game);
 
         var svc = CreateService();
 
@@ -361,7 +362,7 @@ public class AdminMasterCatalogServiceTests
     public async Task SetGameCategoriesAsync_GameMissing_Throws()
     {
         var gameId = Guid.NewGuid();
-        _gameRepo.Setup(r => r.GetByIdWithCategoriesForUpdateAsync(gameId)).ReturnsAsync((GameTemplate?)null);
+        _gameRepo.Setup(r => r.GetByIdWithCategoriesForUpdateAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync((GameTemplate?)null);
 
         var svc = CreateService();
 
@@ -376,8 +377,8 @@ public class AdminMasterCatalogServiceTests
         var cat1 = Guid.NewGuid();
         var cat2 = Guid.NewGuid();
         var game = new GameTemplate { Id = gameId, Categories = new List<GameTemplateCategory>() };
-        _gameRepo.Setup(r => r.GetByIdWithCategoriesForUpdateAsync(gameId)).ReturnsAsync(game);
-        _categoryRepo.Setup(r => r.CountByIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), true)).ReturnsAsync(2);
+        _gameRepo.Setup(r => r.GetByIdWithCategoriesForUpdateAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync(game);
+        _categoryRepo.Setup(r => r.CountByIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), true, It.IsAny<CancellationToken>())).ReturnsAsync(2);
         // After updating, service calls GetGameCategoriesAsync which uses GetByIdWithComponentsAsync; populate active categories
         var refreshedGame = new GameTemplate
         {
@@ -388,7 +389,7 @@ public class AdminMasterCatalogServiceTests
                 new() { GameTemplateId = gameId, Category = BuildCategory(cat2, "B", "b"), CategoryId = cat2 }
             }
         };
-        _gameRepo.Setup(r => r.GetByIdWithComponentsAsync(gameId)).ReturnsAsync(refreshedGame);
+        _gameRepo.Setup(r => r.GetByIdWithComponentsAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync(refreshedGame);
 
         var svc = CreateService();
 
@@ -398,14 +399,14 @@ public class AdminMasterCatalogServiceTests
         });
 
         Assert.Equal(2, game.Categories.Count);
-        _gameRepo.Verify(r => r.SaveChangesAsync(), Times.AtLeastOnce);
+        _gameRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.AtLeastOnce);
     }
 
     [Fact]
     public async Task UpdateBoardGameAsync_WhenGameMissing_Throws()
     {
         var gameId = Guid.NewGuid();
-        _gameRepo.Setup(r => r.GetByIdForUpdateAsync(gameId)).ReturnsAsync((GameTemplate?)null);
+        _gameRepo.Setup(r => r.GetByIdForUpdateAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync((GameTemplate?)null);
 
         var svc = CreateService();
 
@@ -424,7 +425,7 @@ public class AdminMasterCatalogServiceTests
             MaxPlayers = 4,
             PlayTime = 60
         };
-        _gameRepo.Setup(r => r.GetByIdForUpdateAsync(gameId)).ReturnsAsync(game);
+        _gameRepo.Setup(r => r.GetByIdForUpdateAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync(game);
 
         var svc = CreateService();
 
@@ -442,7 +443,7 @@ public class AdminMasterCatalogServiceTests
         Assert.Equal(6, game.MaxPlayers);
         Assert.Equal(90, game.PlayTime);
         Assert.False(game.IsActive);
-        _gameRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _gameRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         Assert.Equal("New Name", result.Name);
     }
 
@@ -451,7 +452,7 @@ public class AdminMasterCatalogServiceTests
     {
         var gameId = Guid.NewGuid();
         var game = new GameTemplate { Id = gameId, Name = "X" };
-        _gameRepo.Setup(r => r.GetByIdForUpdateAsync(gameId)).ReturnsAsync(game);
+        _gameRepo.Setup(r => r.GetByIdForUpdateAsync(gameId, It.IsAny<CancellationToken>())).ReturnsAsync(game);
 
         var svc = CreateService();
 
@@ -461,7 +462,7 @@ public class AdminMasterCatalogServiceTests
         });
 
         Assert.Equal("https://cdn.example/x.png", game.ThumbnailUrl);
-        _gameRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _gameRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         Assert.Equal("https://cdn.example/x.png", result.ThumbnailUrl);
     }
 

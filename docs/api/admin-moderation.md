@@ -475,3 +475,91 @@ Lịch sử riskScore 365 ngày (BR-RISK-11) cho chart trend admin dashboard.
 | `toUtc` | DateTime | No | Mặc định now |
 
 **Response 200:** array gồm `riskScore`, `riskLevel`, `snapshotDate`, `signals` (JSON), `createdAt`.
+
+---
+
+## POST /api/v1/admin/reservations/{reservationId}/override-refund *(Phase 7 — BR-REFUND-07)*
+
+Admin override refund amount cho reservation đã completed. Cho phép refund một phần hoặc toàn bộ số BVC đã capture.
+
+Ghi `AdminCredit` ledger entry + `PlayerActionHistory` audit (BR-RISK-05). Idempotent theo `Idempotency-Key` header.
+
+### Path Parameters
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `reservationId` | Guid | ReservationId cần override refund |
+
+### Headers
+
+| Header | Required | Description |
+|--------|----------|-------------|
+| `Idempotency-Key` | Yes | Key chống trùng xử lý |
+
+### Request Body
+
+```json
+{
+  "refundAmount": 120,
+  "reason": "Customer complaint - component was already missing before session"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `refundAmount` | long (BVC) | Yes | Số BVC refund cho host. Phải <= deposit đã capture |
+| `reason` | string | Yes | Lý do override (>= 5 ký tự) |
+
+### Response 200
+
+```json
+{
+  "data": {
+    "reservationId": "guid",
+    "originalCapturedAmount": 500,
+    "refundAmount": 120,
+    "forfeitAmount": 380,
+    "actualRefundAmount": 120,
+    "refundPolicyApplied": "AdminOverride",
+    "refundBreakdown": {
+      "returnedToAvailableBalance": 120,
+      "forfeitedToCafe": 380
+    },
+    "adminActionId": "guid",
+    "adminActionType": "AdminCredit",
+    "performedAt": "2026-08-17T15:00:00Z"
+  }
+}
+```
+
+### Validation
+
+- `refundAmount >= 0` và `<= deposit` đã capture
+- `reason >= 5` ký tự
+- Reservation phải ở trạng thái `Completed`
+- Header `Idempotency-Key` bắt buộc
+
+### Business Rules
+
+- **BR-REFUND-07**: Admin override refund — không giới hạn mốc thời gian
+- **BR-RISK-05**: Mọi admin action phải ghi audit log vĩnh viễn vào `PlayerActionHistory`
+
+### Lỗi
+
+| Code | Mô tả |
+|------|--------|
+| 400 | Dữ liệu không hợp lệ (refundAmount > deposit, reason < 5 ký tự) |
+| 401 | Thiếu token |
+| 403 | Không phải Admin |
+| 404 | Reservation không tìm thấy |
+| 409 | Reservation không ở trạng thái Completed |
+
+---
+
+## Mapping: Controller → Doc
+
+| Controller | Doc File |
+|------------|----------|
+| `AdminModerationController` | `admin-moderation.md` |
+| `AdminReservationController` | `admin-moderation.md` |
+| `AdminWalletController` | `admin-moderation.md` (xem `user-management.md`) |

@@ -10,7 +10,7 @@ namespace BoardVerse.Services.Services;
 
 /// <summary>
 /// Triển khai các API booking cho mobile Player (booking-payment-gaps.md #1, #2).
-/// Read-only: không mutate state. Chỉ query Booking + ActiveSession để tính capacity.
+/// Read-only: không mutate state. Query Booking + ActiveSession + Reservation + WalkIn để tính capacity.
 /// </summary>
 public class CafeBookingService : ICafeBookingService
 {
@@ -19,26 +19,32 @@ public class CafeBookingService : ICafeBookingService
     private readonly IBookingRepository _bookingRepository;
     private readonly IActiveSessionRepository _activeSessionRepository;
     private readonly ICafePosRepository _posRepository;
+    private readonly IReservationRepository _reservationRepository;
+    private readonly IWalkInWindowRepository _walkInWindowRepository;
 
     public CafeBookingService(
         ICafeRepository cafeRepository,
         ICafeTableRepository cafeTableRepository,
         IBookingRepository bookingRepository,
         IActiveSessionRepository activeSessionRepository,
-        ICafePosRepository posRepository)
+        ICafePosRepository posRepository,
+        IReservationRepository reservationRepository,
+        IWalkInWindowRepository walkInWindowRepository)
     {
         _cafeRepository = cafeRepository;
         _cafeTableRepository = cafeTableRepository;
         _bookingRepository = bookingRepository;
         _activeSessionRepository = activeSessionRepository;
         _posRepository = posRepository;
+        _reservationRepository = reservationRepository;
+        _walkInWindowRepository = walkInWindowRepository;
     }
 
     public async Task<IReadOnlyList<AvailableCafeTableDto>> GetAvailableTablesAsync(
         Guid cafeId,
         DateTime scheduledStartTime,
         DateTime scheduleEndTime,
-        int seatCount)
+        int seatCount, CancellationToken cancellationToken = default)
     {
         if (scheduleEndTime <= scheduledStartTime)
         {
@@ -96,7 +102,8 @@ public class CafeBookingService : ICafeBookingService
         DateTime startTime,
         DateTime endTime,
         int seatCount,
-        Guid? gameTemplateId)
+        Guid? gameTemplateId,
+        CancellationToken cancellationToken = default)
     {
         if (endTime <= startTime)
         {
@@ -108,26 +115,52 @@ public class CafeBookingService : ICafeBookingService
             seatCount = 1;
         }
 
-        var cafe = await _cafeRepository.GetActiveByIdAsync(cafeId)
+        var cafe = await _cafeRepository.GetActiveByIdAsync(cafeId, cancellationToken)
             ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
 
         // TotalSeats: tổng SeatCount của các bàn active.
-        var tables = (await _cafeTableRepository.GetByCafeIdAsync(cafeId))
+        var tables = (await _cafeTableRepository.GetByCafeIdAsync(cafeId, cancellationToken))
             .Where(t => t.IsActive)
             .ToList();
         var totalSeats = tables.Sum(t => t.SeatCount);
+        var duration = endTime - startTime;
 
         // Overlap từ Booking (Confirmed/CheckedIn chưa cancel) + ActiveSession (Active/Checking).
         var overlappingBookings = await _bookingRepository.GetOverlappingBookingsAsync(
-            cafeId, startTime, endTime);
-        var activeSessions = await _activeSessionRepository.GetActiveSessionsAsync(cafeId, null);
+            cafeId, startTime, endTime, cancellationToken);
+
+        // GAP-R4-A12 Fix: Pre-fetch sessions cho cả range bao gồm alternative slots
+        // (4 slot × 30min = max 2 giờ sau startTime). Trước đây mỗi slot gọi GetActiveSessionsAsync
+        // riêng → 4 queries. Bây giờ 1 query duy nhất, filter in-memory theo slot.
+        var altSlotsEndTime = startTime.Add(duration).AddMinutes(30 * 4);
+        var allSessionsInRange = await _activeSessionRepository.GetActiveSessionsInRangeAsync(
+            cafeId, startTime.AddMinutes(-duration.TotalMinutes), altSlotsEndTime, cancellationToken);
+        var activeSessions = FilterSessionsByRange(allSessionsInRange, startTime, endTime);
 
         var bookedSeats = overlappingBookings.Sum(b => b.PlayerQuantity);
         var sessionSeats = activeSessions
             .Where(s => s.CafeTableId.HasValue)
             .Sum(s => tables.FirstOrDefault(t => t.Id == s.CafeTableId)?.SeatCount ?? 0);
 
-        var availableSeats = Math.Max(0, totalSeats - bookedSeats - sessionSeats);
+        // Flow A — Reservation: giữ ghế qua SeatInventory.HeldSeats (đã được ReservationService
+        // trừ khi ConfirmAsync), không liên quan tới CafeTable. Đếm overlap từ Reservation entity.
+        var overlappingReservations = await _reservationRepository.GetOverlappingReservationsAsync(
+            cafeId, startTime, endTime, cancellationToken);
+        var reservationHeldSeats = overlappingReservations
+            .Where(r => r.Status == ReservationStatus.Holding
+                     || r.Status == ReservationStatus.Confirmed
+                     || r.Status == ReservationStatus.AwaitingDeposit)
+            .Sum(r => r.MaxPlayers);
+
+        // WalkIn giữ ghế qua WalkInWindow.HeldSeats.
+        var overlappingWindows = await _walkInWindowRepository.GetOverlappingAsync(
+            cafeId, startTime, endTime, cancellationToken);
+        var walkInHeldSeats = overlappingWindows
+            .Where(w => w.Status == WalkInWindowStatus.Available || w.Status == WalkInWindowStatus.Full)
+            .Sum(w => w.HeldSeats);
+
+        var availableSeats = Math.Max(0,
+            totalSeats - bookedSeats - sessionSeats - reservationHeldSeats - walkInHeldSeats);
         var hasCapacity = availableSeats >= seatCount;
 
         // Game box count nếu có filter gameTemplateId.
@@ -135,7 +168,7 @@ public class CafeBookingService : ICafeBookingService
         NearbyCafeGameAvailabilityStatus? gameStatus = null;
         if (gameTemplateId.HasValue)
         {
-            var boxes = await _posRepository.GetBoxesAsync(cafeId, gameTemplateId);
+            var boxes = await _posRepository.GetBoxesAsync(cafeId, gameTemplateId, cancellationToken);
             availableGameBoxCount = boxes.Count;
             gameStatus = availableGameBoxCount > 0
                 ? NearbyCafeGameAvailabilityStatus.GameAvailable
@@ -143,19 +176,34 @@ public class CafeBookingService : ICafeBookingService
         }
 
         // Alternative slots: khảo sát 4 slot kế tiếp (mỗi slot cách 30 phút).
+        // GAP-R4-A12 Fix: Dùng pre-fetched sessions + filter in-memory thay vì query mỗi slot.
         var altSlots = new List<CafeAvailabilitySlotDto>();
-        var duration = endTime - startTime;
         for (int i = 1; i <= 4 && altSlots.Count < 2; i++)
         {
             var altStart = startTime.AddMinutes(30 * i);
             var altEnd = altStart.Add(duration);
-            var altBookings = await _bookingRepository.GetOverlappingBookingsAsync(cafeId, altStart, altEnd);
-            var altSessions = await _activeSessionRepository.GetActiveSessionsAsync(cafeId, null);
+            var altBookings = await _bookingRepository.GetOverlappingBookingsAsync(cafeId, altStart, altEnd, cancellationToken);
+            var altSessions = FilterSessionsByRange(allSessionsInRange, altStart, altEnd);
+            var altReservations = await _reservationRepository.GetOverlappingReservationsAsync(
+                cafeId, altStart, altEnd, cancellationToken);
+            var altWindows = await _walkInWindowRepository.GetOverlappingAsync(
+                cafeId, altStart, altEnd, cancellationToken);
+
             var altBookedSeats = altBookings.Sum(b => b.PlayerQuantity);
             var altSessionSeats = altSessions
                 .Where(s => s.CafeTableId.HasValue)
                 .Sum(s => tables.FirstOrDefault(t => t.Id == s.CafeTableId)?.SeatCount ?? 0);
-            var altAvailable = Math.Max(0, totalSeats - altBookedSeats - altSessionSeats);
+            var altReservationSeats = altReservations
+                .Where(r => r.Status == ReservationStatus.Holding
+                         || r.Status == ReservationStatus.Confirmed
+                         || r.Status == ReservationStatus.AwaitingDeposit)
+                .Sum(r => r.MaxPlayers);
+            var altWalkInSeats = altWindows
+                .Where(w => w.Status == WalkInWindowStatus.Available || w.Status == WalkInWindowStatus.Full)
+                .Sum(w => w.HeldSeats);
+
+            var altAvailable = Math.Max(0,
+                totalSeats - altBookedSeats - altSessionSeats - altReservationSeats - altWalkInSeats);
             if (altAvailable >= seatCount)
             {
                 altSlots.Add(new CafeAvailabilitySlotDto
@@ -180,5 +228,17 @@ public class CafeBookingService : ICafeBookingService
             SelectedGameAvailabilityStatus = gameStatus,
             AlternativeSlots = altSlots
         };
+    }
+
+    /// <summary>
+    /// GAP-R4-A12 Fix: Filter active sessions overlap với [start, end] từ pre-fetched list.
+    /// </summary>
+    private static List<ActiveSession> FilterSessionsByRange(
+        List<ActiveSession> sessions, DateTime start, DateTime end)
+    {
+        return sessions
+            .Where(s => s.StartedAt < end
+                && (!s.EndedAt.HasValue || s.EndedAt.Value > start))
+            .ToList();
     }
 }

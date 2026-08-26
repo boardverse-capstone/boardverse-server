@@ -1,6 +1,7 @@
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 
+using System.Threading;
 namespace BoardVerse.Core.IRepositories;
 
 /// <summary>
@@ -11,41 +12,50 @@ namespace BoardVerse.Core.IRepositories;
 /// </summary>
 public interface IReservationRepository
 {
-    Task<Reservation?> GetByIdAsync(Guid reservationId, bool includeRelations = false);
+    Task<Reservation?> GetByIdAsync(Guid reservationId, bool includeRelations = false, CancellationToken cancellationToken = default);
 
-    Task<Reservation?> GetByIdempotencyKeyAsync(string idempotencyKey);
+    Task<Reservation?> GetByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// BR §21A.7: POS scan QR check-in dùng ReservationCode (8-char alphanumeric unique).
     /// Trả null nếu không tìm thấy.
     /// </summary>
-    Task<Reservation?> GetByReservationCodeAsync(string reservationCode);
+    Task<Reservation?> GetByReservationCodeAsync(string reservationCode, CancellationToken cancellationToken = default);
 
-    Task<Reservation?> GetByLobbyIdAsync(Guid lobbyId);
+    Task<Reservation?> GetByLobbyIdAsync(Guid lobbyId, CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<Reservation>> GetByHostAndPlayDateAsync(Guid hostId, DateOnly playDate);
+    Task<IReadOnlyList<Reservation>> GetByHostAndPlayDateAsync(Guid hostId, DateOnly playDate, CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<Reservation>> GetActiveByCafePlayDateSlotAsync(Guid cafeId, DateOnly playDate, TimeSlot timeSlot);
+    Task<IReadOnlyList<Reservation>> GetActiveByCafePlayDateAsync(Guid cafeId, DateOnly playDate, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<Reservation>> GetActiveByCafePlayDateSlotAsync(Guid cafeId, DateOnly playDate, TimeOnly preferredStartTime, TimeOnly preferredEndTime, CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<Reservation>> GetActiveByHostAsync(Guid hostId);
+    Task<IReadOnlyList<Reservation>> GetActiveByHostAsync(Guid hostId, CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<Reservation>> GetJoinedByUserAsync(Guid userId);
+    Task<IReadOnlyList<Reservation>> GetJoinedByUserAsync(Guid userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lấy reservation overlap với [startTime, endTime] cho 1 cafe.
+    /// Dùng cho CafeBookingService.GetAvailabilityAsync (Flow B) để tính capacity chính xác
+    /// khi cả Flow A (Reservation) và Flow B (Booking) cùng giữ ghế.
+    /// </summary>
+    Task<IReadOnlyList<Reservation>> GetOverlappingReservationsAsync(
+        Guid cafeId, DateTime startTime, DateTime endTime, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// BR §21A.5: lấy các reservation đang Holding mà recruitmentDeadline ≤ cutoff.
     /// Dùng cho RecruitmentDeadlineJob.
     /// </summary>
-    Task<IReadOnlyList<Reservation>> GetDueForDeadlineAsync(DateTime cutoff, int limit = 100);
+    Task<IReadOnlyList<Reservation>> GetDueForDeadlineAsync(DateTime cutoff, int limit = 100, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// BR-NEW-11 §XII: lobby pendingCafeApproval quá 24h.
     /// </summary>
-    Task<IReadOnlyList<Reservation>> GetDueForCafeApprovalExpiryAsync(DateTime cutoff, int limit = 100);
+    Task<IReadOnlyList<Reservation>> GetDueForCafeApprovalExpiryAsync(DateTime cutoff, int limit = 100, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// BR §21A.9: lấy reservation Confirmed mà scheduledTime + grace &lt; cutoff (chưa check-in).
     /// </summary>
-    Task<IReadOnlyList<Reservation>> GetDueForNoShowAsync(DateTime cutoff, int limit = 100);
+    Task<IReadOnlyList<Reservation>> GetDueForNoShowAsync(DateTime cutoff, int limit = 100, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// BR-NEW-11: lấy lobby pending cafe approval cho manager.
@@ -56,17 +66,28 @@ public interface IReservationRepository
         Guid? cafeId,
         DateOnly? playDate,
         int page,
-        int pageSize);
+        int pageSize, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// BR-NEW-11: Lấy 1 reservation pending cafe approval theo ID.
     /// </summary>
-    Task<Reservation?> GetPendingCafeApprovalByIdAsync(Guid reservationId);
+    Task<Reservation?> GetPendingCafeApprovalByIdAsync(Guid reservationId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// BR-NEW-05: đếm số lần tạo + hủy của host cho cùng playDate.
     /// </summary>
-    Task<int> CountHostActionsForPlayDateAsync(Guid hostId, DateOnly playDate);
+    Task<int> CountHostActionsForPlayDateAsync(Guid hostId, DateOnly playDate, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lấy danh sách reservation của 1 cafe cho Manager dashboard.
+    /// Filter theo status và playDate, có phân trang.
+    /// </summary>
+    Task<(IReadOnlyList<Reservation> Items, int TotalCount)> GetByCafeAsync(
+        Guid cafeId,
+        List<ReservationStatus>? statuses,
+        DateOnly? playDate,
+        int page,
+        int pageSize, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// BR-CHECKIN-02: Lấy danh sách Reservation Confirmed nhưng đã quá 30 phút
@@ -87,11 +108,27 @@ public interface IReservationRepository
         DateOnly? playDate,
         Guid? cafeId,
         int page,
-        int pageSize);
+        int pageSize, CancellationToken cancellationToken = default);
 
-    Task AddAsync(Reservation reservation);
+    /// <summary>
+    /// Tìm kiếm reservation theo tên game hoặc ngày tháng.
+    /// BR-USER-LIMIT-01: user chỉ thấy reservation mình host hoặc có tham gia.
+    /// </summary>
+    Task<(IReadOnlyList<Reservation> Items, int TotalCount)> SearchAsync(
+        Guid userId,
+        string? gameName,
+        DateOnly? fromDate,
+        DateOnly? toDate,
+        List<ReservationStatus>? statuses,
+        Guid? cafeId,
+        bool hostedByMe,
+        bool joinedByMe,
+        int page,
+        int pageSize, CancellationToken cancellationToken = default);
 
-    Task UpdateAsync(Reservation reservation);
+    Task AddAsync(Reservation reservation, CancellationToken cancellationToken = default);
 
-    Task SaveChangesAsync();
+    Task UpdateAsync(Reservation reservation, CancellationToken cancellationToken = default);
+
+    Task SaveChangesAsync(CancellationToken cancellationToken = default);
 }

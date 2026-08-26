@@ -1,6 +1,5 @@
 using System.Data;
 using BoardVerse.Core.Entities;
-using BoardVerse.Core.Enum;
 using BoardVerse.Data;
 using BoardVerse.Tests.Helpers;
 using FluentAssertions;
@@ -54,7 +53,8 @@ public class ConcurrencyStressTests : IClassFixture<ConcurrencyStressTests.Stres
         var cafeId = _fixture.SeedCafeId;
         var gameId = _fixture.SeedGameId;
         var playDate = _fixture.SeedPlayDate;
-        var timeSlot = TimeSlot.Evening;
+        var scheduledStart = new TimeOnly(17, 0);
+        var scheduledEnd = new TimeOnly(23, 0);
         const int totalSeats = 30;
         const int concurrentUsers = 50;
         const int maxPlayersPerReservation = 1; // 1 user = 1 ghế để maximize concurrency
@@ -100,7 +100,7 @@ public class ConcurrencyStressTests : IClassFixture<ConcurrencyStressTests.Stres
         await using (var pre = new FakeDbContext())
         {
             var seatPre = await pre.SeatInventories
-                .Where(s => s.CafeId == cafeId && s.PlayDate == playDate && s.TimeSlot == timeSlot)
+                .Where(s => s.CafeId == cafeId && s.PlayDate == playDate && s.ScheduledStartTime == scheduledStart && s.ScheduledEndTime == scheduledEnd)
                 .FirstAsync();
             preSeatAvailable = seatPre.TotalSeats - seatPre.HeldSeats - seatPre.InUseSeats;
         }
@@ -121,9 +121,9 @@ public class ConcurrencyStressTests : IClassFixture<ConcurrencyStressTests.Stres
                 // Replicate ExecuteConfirmTransactionAsync inventory lock.
                 var seat = await db.SeatInventories
                     .FromSqlRaw(@"SELECT * FROM ""SeatInventories""
-                                  WHERE ""CafeId"" = {0} AND ""PlayDate"" = {1} AND ""TimeSlot"" = {2}
+                                  WHERE ""CafeId"" = {0} AND ""PlayDate"" = {1} AND ""ScheduledStartTime"" = {2} AND ""ScheduledEndTime"" = {3}
                                   FOR UPDATE",
-                        cafeId, playDate, (int)timeSlot)
+                        cafeId, playDate, scheduledStart, scheduledEnd)
                     .FirstAsync();
                 // AvailableSeats = TotalSeats - HeldSeats - InUseSeats (computed, không có column DB).
                 var avail = seat.TotalSeats - seat.HeldSeats - seat.InUseSeats;
@@ -153,7 +153,7 @@ public class ConcurrencyStressTests : IClassFixture<ConcurrencyStressTests.Stres
         // Verify final state: AvailableSeats + HeldSeats = totalSeats
         await using var post = new FakeDbContext();
         var finalSeat = await post.SeatInventories
-            .Where(s => s.CafeId == cafeId && s.PlayDate == playDate && s.TimeSlot == timeSlot)
+            .Where(s => s.CafeId == cafeId && s.PlayDate == playDate && s.ScheduledStartTime == scheduledStart && s.ScheduledEndTime == scheduledEnd)
             .FirstAsync();
 
         _output.WriteLine($"=== RACE 1 (Confirm + inventory lock) ===");
@@ -416,7 +416,7 @@ public class ConcurrencyStressTests : IClassFixture<ConcurrencyStressTests.Stres
 
     /// <summary>
     /// xUnit fixture: setup schema + seed 1 cafe + 1 game + 30 ghế SeatInventory
-    /// cho (CafeId, _playDate, TimeSlot.Evening). Fixtures chạy 1 lần cho cả class.
+    /// cho (CafeId, _playDate, Evening time range). Fixtures chạy 1 lần cho cả class.
     /// </summary>
     public sealed class StressTestFixture : IAsyncLifetime
     {
@@ -490,25 +490,27 @@ public class ConcurrencyStressTests : IClassFixture<ConcurrencyStressTests.Stres
                 nowUtc,
                 nowUtc);
 
-            // 4. Seed SeatInventory — 30 ghế cho (CafeId, PlayDate, TimeSlot.Evening).
+            // 4. Seed SeatInventory — 30 ghế cho (CafeId, PlayDate, ScheduledStartTime, ScheduledEndTime).
             await db.Database.ExecuteSqlRawAsync(
-                "INSERT INTO \"SeatInventories\" (\"Id\", \"CafeId\", \"PlayDate\", \"TimeSlot\", \"TotalSeats\", \"HeldSeats\", \"InUseSeats\", \"RowVersion\", \"CreatedAt\", \"UpdatedAt\") " +
-                "VALUES ({0}, {1}, {2}, {3}, 30, 0, 0, 0, {4}, {4}) ON CONFLICT (\"Id\") DO NOTHING;",
+                "INSERT INTO \"SeatInventories\" (\"Id\", \"CafeId\", \"PlayDate\", \"ScheduledStartTime\", \"ScheduledEndTime\", \"TotalSeats\", \"HeldSeats\", \"InUseSeats\", \"RowVersion\", \"CreatedAt\", \"UpdatedAt\") " +
+                "VALUES ({0}, {1}, {2}, {3}, {4}, 30, 0, 0, 0, {5}, {5}) ON CONFLICT (\"Id\") DO NOTHING;",
                 seatInventoryId,
                 SeedCafeId,
                 SeedPlayDate,
-                (int)TimeSlot.Evening,
+                new TimeOnly(17, 0),
+                new TimeOnly(23, 0),
                 nowUtc);
 
-            // 5. Seed GameInventory — 5 copy cho (CafeId, GameId, PlayDate, TimeSlot.Evening).
+            // 5. Seed GameInventory — 5 copy cho (CafeId, GameId, PlayDate, ScheduledStartTime, ScheduledEndTime).
             await db.Database.ExecuteSqlRawAsync(
-                "INSERT INTO \"GameInventories\" (\"Id\", \"CafeId\", \"GameId\", \"PlayDate\", \"TimeSlot\", \"TotalCopies\", \"HeldCopies\", \"InUseCopies\", \"RowVersion\", \"CreatedAt\", \"UpdatedAt\") " +
-                "VALUES ({0}, {1}, {2}, {3}, {4}, 5, 0, 0, 0, {5}, {5}) ON CONFLICT (\"Id\") DO NOTHING;",
+                "INSERT INTO \"GameInventories\" (\"Id\", \"CafeId\", \"GameId\", \"PlayDate\", \"ScheduledStartTime\", \"ScheduledEndTime\", \"TotalCopies\", \"HeldCopies\", \"InUseCopies\", \"RowVersion\", \"CreatedAt\", \"UpdatedAt\") " +
+                "VALUES ({0}, {1}, {2}, {3}, {4}, {5}, 5, 0, 0, 0, {6}, {6}) ON CONFLICT (\"Id\") DO NOTHING;",
                 gameInventoryId,
                 SeedCafeId,
                 SeedGameId,
                 SeedPlayDate,
-                (int)TimeSlot.Evening,
+                new TimeOnly(17, 0),
+                new TimeOnly(23, 0),
                 nowUtc);
         }
 

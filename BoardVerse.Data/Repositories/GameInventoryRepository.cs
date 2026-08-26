@@ -1,5 +1,4 @@
 using BoardVerse.Core.Entities;
-using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,28 +13,37 @@ public class GameInventoryRepository : IGameInventoryRepository
         _db = db;
     }
 
-    public Task<GameInventory?> GetAsync(Guid cafeId, Guid gameId, DateOnly playDate, TimeSlot timeSlot)
+    public Task<GameInventory?> GetAsync(Guid cafeId, Guid gameId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime, CancellationToken cancellationToken = default)
     {
         return _db.GameInventories
             .FirstOrDefaultAsync(g => g.CafeId == cafeId
                 && g.GameId == gameId
                 && g.PlayDate == playDate
-                && g.TimeSlot == timeSlot);
+                && g.ScheduledStartTime == scheduledStartTime
+                && g.ScheduledEndTime == scheduledEndTime);
     }
 
-    public Task<GameInventory?> GetForUpdateAsync(Guid cafeId, Guid gameId, DateOnly playDate, TimeSlot timeSlot)
+    public Task<GameInventory?> GetForUpdateAsync(Guid cafeId, Guid gameId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime, CancellationToken cancellationToken = default)
     {
         return _db.GameInventories.FromSqlRaw(
             @"SELECT * FROM ""GameInventories""
-              WHERE ""CafeId"" = {0} AND ""GameId"" = {1} AND ""PlayDate"" = {2} AND ""TimeSlot"" = {3}
+              WHERE ""CafeId"" = {0} AND ""GameId"" = {1} AND ""PlayDate"" = {2} AND ""ScheduledStartTime"" = {3} AND ""ScheduledEndTime"" = {4}
               FOR UPDATE",
-            cafeId, gameId, playDate, (int)timeSlot)
+            cafeId, gameId, playDate, scheduledStartTime, scheduledEndTime)
             .FirstOrDefaultAsync();
     }
 
-    public async Task EnsureRowAsync(Guid cafeId, Guid gameId, DateOnly playDate, TimeSlot timeSlot, int totalCopies)
+    public Task<GameInventory?> GetByIdForUpdateAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var existing = await GetAsync(cafeId, gameId, playDate, timeSlot);
+        return _db.GameInventories.FromSqlRaw(
+            @"SELECT * FROM ""GameInventories"" WHERE ""Id"" = {0} FOR UPDATE",
+            id)
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task EnsureRowAsync(Guid cafeId, Guid gameId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime, int totalCopies, CancellationToken cancellationToken = default)
+    {
+        var existing = await GetAsync(cafeId, gameId, playDate, scheduledStartTime, scheduledEndTime);
         if (existing == null)
         {
             existing = new GameInventory
@@ -44,7 +52,8 @@ public class GameInventoryRepository : IGameInventoryRepository
                 CafeId = cafeId,
                 GameId = gameId,
                 PlayDate = playDate,
-                TimeSlot = timeSlot,
+                ScheduledStartTime = scheduledStartTime,
+                ScheduledEndTime = scheduledEndTime,
                 TotalCopies = totalCopies,
                 HeldCopies = 0,
                 InUseCopies = 0,
@@ -55,7 +64,7 @@ public class GameInventoryRepository : IGameInventoryRepository
         }
     }
 
-    public Task UpdateAsync(GameInventory gameInventory)
+    public Task UpdateAsync(GameInventory gameInventory, CancellationToken cancellationToken = default)
     {
         gameInventory.UpdatedAt = DateTime.UtcNow;
         gameInventory.RowVersion++;
@@ -63,7 +72,7 @@ public class GameInventoryRepository : IGameInventoryRepository
         return Task.CompletedTask;
     }
 
-    public Task SaveChangesAsync()
+    public Task SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         return _db.SaveChangesAsync();
     }

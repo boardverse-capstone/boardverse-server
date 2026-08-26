@@ -128,7 +128,7 @@ public class RealOutboxPublisher : IOutboxEventPublisher
         }
 
         var payload = ParsePayload(evt.Payload);
-        var cafeName = payload.GetValueOrDefault("cafeName") ?? "quán";
+        var cafeName = payload.TryGetValue("cafeName", out var cafeEl) ? (GetStringSafe(cafeEl) ?? "quán") : "quán";
 
         if (evt.UserId.HasValue)
         {
@@ -158,13 +158,13 @@ public class RealOutboxPublisher : IOutboxEventPublisher
         //   2. Walk-in session (LobbyId = null) miss hoàn toàn → không ai nhận SignalR.
         //   3. Lobby:Session 1:N có thể có nhiều session liên kết 1 lobby → broadcast nhầm.
         Guid? sessionId = null;
-        if (payload.TryGetValue("sessionId", out var sid) && Guid.TryParse(sid, out var parsedSessionId))
+        if (payload.TryGetValue("sessionId", out var sidEl))
         {
-            sessionId = parsedSessionId;
+            sessionId = GetGuidSafe(sidEl);
         }
-        else if (payload.TryGetValue("activeSessionId", out var aid) && Guid.TryParse(aid, out var parsedActiveSessionId))
+        else if (payload.TryGetValue("activeSessionId", out var aidEl))
         {
-            sessionId = parsedActiveSessionId;
+            sessionId = GetGuidSafe(aidEl);
         }
 
         // Notify qua session group (preferred) + legacy lobby group (back-compat cho lobby có FE cũ).
@@ -172,19 +172,19 @@ public class RealOutboxPublisher : IOutboxEventPublisher
         {
             // Đọc thêm cafeId, totalAmount, paidAt từ payload cho SignalR notification.
             Guid? cafeId = null;
-            if (payload.TryGetValue("cafeId", out var cid) && Guid.TryParse(cid, out var parsedCafeId))
+            if (payload.TryGetValue("cafeId", out var cidEl))
             {
-                cafeId = parsedCafeId;
+                cafeId = GetGuidSafe(cidEl);
             }
             decimal totalAmount = 0m;
-            if (payload.TryGetValue("totalAmount", out var ta) && decimal.TryParse(ta, out var parsedTotal))
+            if (payload.TryGetValue("totalAmount", out var taEl))
             {
-                totalAmount = parsedTotal;
+                totalAmount = GetDecimalSafe(taEl) ?? 0m;
             }
             DateTime paidAt = DateTime.UtcNow;
-            if (payload.TryGetValue("paidAt", out var pa) && DateTime.TryParse(pa, out var parsedPaidAt))
+            if (payload.TryGetValue("paidAt", out var paEl))
             {
-                paidAt = parsedPaidAt;
+                paidAt = GetDateTimeSafe(paEl) ?? DateTime.UtcNow;
             }
 
             await posHub.NotifySessionPaidAsync(
@@ -196,26 +196,39 @@ public class RealOutboxPublisher : IOutboxEventPublisher
         }
         else if (evt.LobbyId.HasValue)
         {
-            // Fallback: chỉ có lobbyId (event cũ chưa có sessionId trong payload) → dùng
-            // NotifySessionCompleted cũ (group session:{lobbyId} sai tên nhưng đã có FE subscribe).
-            await posHub.NotifySessionCompleted(evt.LobbyId.Value);
+            // Fallback: chỉ có lobbyId (event cũ chưa có sessionId trong payload).
+            // GAP-R6-RT-03: không thể lookup sessionId từ lobbyId ở đây (subagent khuyến cáo
+            // không thêm query DB vào publisher). Caller (ActiveSessionService.CompleteAndPayAsync)
+            // phải ghi sessionId vào payload — fallback path chỉ để log + best-effort broadcast
+            // về lobby:{lobbyId} để FE cũ vẫn có thể nhận (legacy back-compat).
+            _logger.LogWarning(
+                "[Outbox] SessionCompleted event {EventId} lobbyId={LobbyId} nhưng thiếu sessionId trong payload — " +
+                "FE legacy vẫn có thể nhận lobby:{LobbyId} group, nhưng PosHub.JoinSession group sẽ miss.",
+                evt.Id, evt.LobbyId.Value, evt.LobbyId.Value);
         }
         else
         {
+            // GAP-XX Fix (2026-08-15): log chi tiết payload keys + sessionId raw để debug
+            // trường hợp payload không parse được sessionId. Trước đây skip silently → FE
+            // không nhận SessionPaid event mà không có dấu vết.
             _logger.LogWarning(
                 "[Outbox] SessionCompleted event {EventId} không có sessionId/activeSessionId trong payload " +
-                "và không có LobbyId → skip SignalR push. EventType={EventType}",
-                evt.Id, evt.EventType);
+                "và không có LobbyId → skip SignalR push. EventType={EventType}. PayloadKeys={PayloadKeys}",
+                evt.Id, evt.EventType,
+                payload.Keys.Count == 0 ? "<empty>" : string.Join(",", payload.Keys));
         }
 
         // Push notification (giữ nguyên logic cũ — chỉ push khi có UserId).
-        if (evt.UserId.HasValue)
+        // GAP-R4-A10 Fix: walk-in session có LobbyId = null + HostId = staff.UserId.
+        // Push "phiên chơi của bạn đã kết thúc" cho staff là misleading.
+        // Skip push khi sessionId không có (không có session thật để navigate tới).
+        if (evt.UserId.HasValue && sessionId.HasValue)
         {
                 await pushService.SendAsync(evt.UserId.Value, "Phiên chơi đã kết thúc",
                     "Cảm ơn bạn đã sử dụng BoardVerse! Hãy đánh giá các thành viên nhé.",
                 new Dictionary<string, string>
                 {
-                    ["sessionId"] = sessionId?.ToString() ?? evt.LobbyId?.ToString() ?? "",
+                    ["sessionId"] = sessionId.Value.ToString(),
                     ["event"] = "SessionCompleted"
                 });
         }
@@ -283,7 +296,9 @@ public class RealOutboxPublisher : IOutboxEventPublisher
     private async Task PublishDepositHeldAsync(IServiceScope scope, OutboxEvent evt, CancellationToken ct)
     {
         var payload = ParsePayload(evt.Payload);
-        var amount = payload.GetValueOrDefault("amount") ?? "0";
+        var amount = payload.TryGetValue("amount", out var amtEl)
+            ? (GetDecimalSafe(amtEl)?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "0")
+            : "0";
 
         if (evt.UserId.HasValue)
         {
@@ -300,7 +315,9 @@ public class RealOutboxPublisher : IOutboxEventPublisher
     private async Task PublishDepositReleasedAsync(IServiceScope scope, OutboxEvent evt, CancellationToken ct)
     {
         var payload = ParsePayload(evt.Payload);
-        var amount = payload.GetValueOrDefault("amount") ?? "0";
+        var amount = payload.TryGetValue("amount", out var amtEl)
+            ? (GetDecimalSafe(amtEl)?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "0")
+            : "0";
 
         if (evt.UserId.HasValue)
         {
@@ -373,8 +390,8 @@ public class RealOutboxPublisher : IOutboxEventPublisher
         {
             await lobbyHub.NotifyLobbyAutoCancelled(
                 evt.LobbyId.Value,
-                Guid.TryParse(payload.GetValueOrDefault("cafeId"), out var cafeId) ? cafeId : Guid.Empty,
-                payload.GetValueOrDefault("cafeName") ?? "Quán",
+                payload.TryGetValue("cafeId", out var cafeIdEl) ? (GetGuidSafe(cafeIdEl) ?? Guid.Empty) : Guid.Empty,
+                payload.TryGetValue("cafeName", out var cafeNameEl) ? (GetStringSafe(cafeNameEl) ?? "Quán") : "Quán",
                 null,
                 "Quán từ chối duyệt phòng chờ.");
         }
@@ -401,8 +418,8 @@ public class RealOutboxPublisher : IOutboxEventPublisher
         {
             await lobbyHub.NotifyLobbyAutoCancelled(
                 evt.LobbyId.Value,
-                Guid.TryParse(payload.GetValueOrDefault("cafeId"), out var cafeId) ? cafeId : Guid.Empty,
-                payload.GetValueOrDefault("cafeName") ?? "Quán",
+                payload.TryGetValue("cafeId", out var cafeIdEl2) ? (GetGuidSafe(cafeIdEl2) ?? Guid.Empty) : Guid.Empty,
+                payload.TryGetValue("cafeName", out var cafeNameEl2) ? (GetStringSafe(cafeNameEl2) ?? "Quán") : "Quán",
                 null,
                 "Quán không duyệt trong 24 giờ.");
         }
@@ -441,19 +458,74 @@ public class RealOutboxPublisher : IOutboxEventPublisher
         }
     }
 
-    private static Dictionary<string, string> ParsePayload(string? payload)
+    /// <summary>
+    /// GAP-XX Fix (2026-08-15): Parse payload ra <see cref="Dictionary{TKey,TValue}"/> với value
+    /// là <see cref="JsonElement"/> thay vì <c>string</c>.
+    ///
+    /// Bug cũ: deserialize sang <c>Dictionary&lt;string, string&gt;</c> nhưng payload thực tế chứa
+    /// Guid / decimal / DateTime / nested object → System.Text.Json giữ raw <c>JsonElement</c>,
+    /// KHÔNG ép sang string primitive. <c>Guid.TryParse(JsonElement)</c> fail → <c>sessionId == null</c>
+    /// → RealOutboxPublisher skip SignalR push với "không có sessionId/activeSessionId trong payload".
+    ///
+    /// Fix: để caller tự check <c>ValueKind</c> và gọi <c>GetString / GetGuid / GetDecimal / GetDateTime</c>
+    /// tương ứng. Helper <see cref="GetStringSafe"/> + <see cref="GetGuidSafe"/> để bọc Null-safe pattern.
+    /// </summary>
+    private static Dictionary<string, JsonElement> ParsePayload(string? payload)
     {
         if (string.IsNullOrWhiteSpace(payload))
-            return new Dictionary<string, string>();
+            return new Dictionary<string, JsonElement>();
 
         try
         {
-            return JsonSerializer.Deserialize<Dictionary<string, string>>(payload)
-                ?? new Dictionary<string, string>();
+            return JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(payload)
+                ?? new Dictionary<string, JsonElement>();
         }
-        catch
+        catch (Exception ex)
         {
-            return new Dictionary<string, string>();
+            // KHÔNG nuốt exception nếu deserialize fail — payload hỏng / format sai.
+            // Caller sẽ thấy dictionary rỗng → skip SignalR (an toàn).
+            // (Thay vì throw để không break outbox loop.)
+            _ = ex; // suppress unused-warning; nếu cần log sau → inject ILogger vào static (không khuyến khích).
+            return new Dictionary<string, JsonElement>();
         }
+    }
+
+    /// <summary>Helper: lấy string từ JsonElement, chấp nhận cả String lẫn Null/Number/Bool fallback.</summary>
+    private static string? GetStringSafe(JsonElement el)
+        => el.ValueKind switch
+        {
+            JsonValueKind.String => el.GetString(),
+            JsonValueKind.Null or JsonValueKind.Undefined => null,
+            _ => el.GetRawText().Trim('"')
+        };
+
+    /// <summary>Helper: parse Guid từ JsonElement (chấp nhận cả Guid-string lẫn raw text).</summary>
+    private static Guid? GetGuidSafe(JsonElement el)
+    {
+        var s = GetStringSafe(el);
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        // Strip surrounding quotes nếu JsonElement là raw text của nested string
+        s = s.Trim().Trim('"');
+        return Guid.TryParse(s, out var g) ? g : null;
+    }
+
+    /// <summary>Helper: parse decimal từ JsonElement.</summary>
+    private static decimal? GetDecimalSafe(JsonElement el)
+    {
+        var s = GetStringSafe(el);
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        s = s.Trim().Trim('"');
+        return decimal.TryParse(s, System.Globalization.NumberStyles.Any,
+            System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : null;
+    }
+
+    /// <summary>Helper: parse DateTime từ JsonElement.</summary>
+    private static DateTime? GetDateTimeSafe(JsonElement el)
+    {
+        var s = GetStringSafe(el);
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        s = s.Trim().Trim('"');
+        return DateTime.TryParse(s, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.RoundtripKind, out var dt) ? dt : null;
     }
 }

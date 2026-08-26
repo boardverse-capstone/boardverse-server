@@ -6,6 +6,7 @@ using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.Services;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class FriendNoteServiceTests
@@ -41,7 +42,7 @@ public class FriendNoteServiceTests
     {
         var meId = Guid.NewGuid();
         var friendId = Guid.NewGuid();
-        _userRepo.Setup(r => r.GetByIdAsync(friendId)).ReturnsAsync((User?)null);
+        _userRepo.Setup(r => r.GetByIdAsync(friendId, It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         var svc = CreateService();
 
@@ -55,14 +56,14 @@ public class FriendNoteServiceTests
         var meId = Guid.NewGuid();
         var friendId = Guid.NewGuid();
         var friend = BuildUser(friendId, "alice");
-        _userRepo.Setup(r => r.GetByIdAsync(friendId)).ReturnsAsync(friend);
-        _noteRepo.Setup(r => r.GetByOwnerAndFriendAsync(meId, friendId)).ReturnsAsync((FriendNote?)null);
+        _userRepo.Setup(r => r.GetByIdAsync(friendId, It.IsAny<CancellationToken>())).ReturnsAsync(friend);
+        _noteRepo.Setup(r => r.GetByOwnerAndFriendAsync(meId, friendId, It.IsAny<CancellationToken>())).ReturnsAsync((FriendNote?)null);
 
         FriendNote? captured = null;
-        _noteRepo.Setup(r => r.AddAsync(It.IsAny<FriendNote>()))
-            .Callback<FriendNote>(n => captured = n)
+        _noteRepo.Setup(r => r.AddAsync(It.IsAny<FriendNote>(), It.IsAny<CancellationToken>()))
+            .Callback<FriendNote, CancellationToken>((n, _) => captured = n)
             .Returns(Task.CompletedTask);
-        _noteRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((FriendNote?)null);
+        _noteRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((FriendNote?)null);
 
         var svc = CreateService();
 
@@ -77,7 +78,7 @@ public class FriendNoteServiceTests
         Assert.Equal("alice-the-catan", captured!.Alias);
         Assert.Equal("chơi tốt", captured.Note);
         Assert.Equal("Catan,Wingman", captured.Tags);
-        _noteRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _noteRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         Assert.Equal(friendId, result.FriendUserId);
         Assert.Equal("alice-the-catan", result.Alias);
     }
@@ -99,9 +100,9 @@ public class FriendNoteServiceTests
             CreatedAt = DateTime.UtcNow.AddDays(-1),
             UpdatedAt = DateTime.UtcNow.AddDays(-1)
         };
-        _userRepo.Setup(r => r.GetByIdAsync(friendId)).ReturnsAsync(friend);
-        _noteRepo.Setup(r => r.GetByOwnerAndFriendAsync(meId, friendId)).ReturnsAsync(existing);
-        _noteRepo.Setup(r => r.GetByIdAsync(existing.Id)).ReturnsAsync(existing);
+        _userRepo.Setup(r => r.GetByIdAsync(friendId, It.IsAny<CancellationToken>())).ReturnsAsync(friend);
+        _noteRepo.Setup(r => r.GetByOwnerAndFriendAsync(meId, friendId, It.IsAny<CancellationToken>())).ReturnsAsync(existing);
+        _noteRepo.Setup(r => r.GetByIdAsync(existing.Id, It.IsAny<CancellationToken>())).ReturnsAsync(existing);
 
         var svc = CreateService();
 
@@ -116,7 +117,7 @@ public class FriendNoteServiceTests
         Assert.Equal("new-note", existing.Note);
         Assert.Equal("new", existing.Tags);
         _noteRepo.Verify(r => r.Update(existing), Times.Once);
-        _noteRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _noteRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         Assert.Equal("new-alias", result.Alias);
     }
 
@@ -124,7 +125,7 @@ public class FriendNoteServiceTests
     public async Task DeleteNoteAsync_WhenNoteNotFound_ThrowsNotFound()
     {
         var meId = Guid.NewGuid();
-        _noteRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((FriendNote?)null);
+        _noteRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((FriendNote?)null);
 
         var svc = CreateService();
 
@@ -137,7 +138,7 @@ public class FriendNoteServiceTests
         var meId = Guid.NewGuid();
         var otherId = Guid.NewGuid();
         var note = new FriendNote { Id = Guid.NewGuid(), OwnerUserId = otherId, FriendUserId = Guid.NewGuid(), Alias = "x" };
-        _noteRepo.Setup(r => r.GetByIdAsync(note.Id)).ReturnsAsync(note);
+        _noteRepo.Setup(r => r.GetByIdAsync(note.Id, It.IsAny<CancellationToken>())).ReturnsAsync(note);
 
         var svc = CreateService();
 
@@ -149,21 +150,21 @@ public class FriendNoteServiceTests
     {
         var meId = Guid.NewGuid();
         var note = new FriendNote { Id = Guid.NewGuid(), OwnerUserId = meId, FriendUserId = Guid.NewGuid(), Alias = "x" };
-        _noteRepo.Setup(r => r.GetByIdAsync(note.Id)).ReturnsAsync(note);
+        _noteRepo.Setup(r => r.GetByIdAsync(note.Id, It.IsAny<CancellationToken>())).ReturnsAsync(note);
 
         var svc = CreateService();
 
         await svc.DeleteNoteAsync(meId, note.Id);
 
         _noteRepo.Verify(r => r.Remove(note), Times.Once);
-        _noteRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _noteRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
     public async Task GetMyNotesAsync_ReturnsEmpty_WhenNoNotes()
     {
         var meId = Guid.NewGuid();
-        _noteRepo.Setup(r => r.GetByOwnerAsync(meId)).ReturnsAsync(new List<FriendNote>());
+        _noteRepo.Setup(r => r.GetByOwnerAsync(meId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<FriendNote>());
 
         var svc = CreateService();
 
@@ -192,7 +193,7 @@ public class FriendNoteServiceTests
                 Friend = BuildUser(friendId, "alice-real")
             }
         };
-        _noteRepo.Setup(r => r.GetByOwnerAsync(meId)).ReturnsAsync(notes);
+        _noteRepo.Setup(r => r.GetByOwnerAsync(meId, It.IsAny<CancellationToken>())).ReturnsAsync(notes);
 
         var svc = CreateService();
 

@@ -1,6 +1,7 @@
 using BoardVerse.Core.DTOs.WalkIn;
 using BoardVerse.Core.Entities;
 
+using System.Threading;
 namespace BoardVerse.Services.IServices;
 
 /// <summary>
@@ -12,26 +13,26 @@ public interface IWalkInService
     /// Lấy danh sách WalkInWindow đang Available/Partial của 1 cafe + date.
     /// </summary>
     Task<WalkInWindowsResponseDto> GetWalkInWindowsAsync(
-        Guid cafeId, DateOnly date, CancellationToken ct = default);
+        Guid cafeId, DateOnly date, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Tạo WalkInBooking từ POS.
     /// </summary>
     Task<WalkInBookingResponseDto> CreateWalkInBookingAsync(
-        CreateWalkInBookingRequestDto request, Guid posStaffId, CancellationToken ct = default);
+        CreateWalkInBookingRequestDto request, Guid posStaffId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Tạo WalkInWindow từ early checkout / no-show.
     /// </summary>
     Task<WalkInWindow> CreateWindowFromReservationAsync(
-        Reservation reservation, int releasedSeats, DateTime windowStart, CancellationToken ct = default);
+        Reservation reservation, int releasedSeats, DateTime windowStart, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// GAP-14 Fix: Lấy WalkInWindow đang active cho 1 Reservation (dùng cho idempotency check).
     /// Trả về null nếu không có window active.
     /// </summary>
     Task<WalkInWindow?> GetActiveWindowByReservationIdAsync(
-        Guid reservationId, CancellationToken ct = default);
+        Guid reservationId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Cleanup expired WalkInWindows (gọi bởi background job).

@@ -29,10 +29,10 @@ namespace BoardVerse.Services.Services
             KarmaViolationCategory? violationCategory,
             DateTime? fromUtc,
             DateTime? toUtc,
-            PaginationParams pagination) =>
+            PaginationParams pagination, CancellationToken cancellationToken = default) =>
             _repository.GetKarmaLogsAsync(userId, violationCategory, fromUtc, toUtc, pagination);
 
-        public Task<IReadOnlyList<UserKarmaAlertDto>> GetKarmaAlertsAsync() =>
+        public Task<IReadOnlyList<UserKarmaAlertDto>> GetKarmaAlertsAsync(CancellationToken cancellationToken = default) =>
             _repository.GetKarmaAlertsAsync(SystemConfigKeys.KarmaSafetyThreshold);
 
         public Task<PaginatedResponse<PlayerActionHistoryDto>> GetPlayerActionHistoryAsync(PlayerActionHistoryQuery query) =>
@@ -41,7 +41,7 @@ namespace BoardVerse.Services.Services
         public async Task<AdminPunishUserResponseDto> PunishUserAsync(
             Guid adminUserId,
             Guid targetUserId,
-            AdminPunishUserRequestDto request)
+            AdminPunishUserRequestDto request, CancellationToken cancellationToken = default)
         {
             var user = await _repository.GetUserWithProfileForUpdateAsync(targetUserId);
             if (user == null)
@@ -170,7 +170,7 @@ namespace BoardVerse.Services.Services
         public async Task<AdminAdjustKarmaResponseDto> AdjustKarmaAsync(
             Guid adminUserId,
             Guid targetUserId,
-            AdminAdjustKarmaRequestDto request)
+            AdminAdjustKarmaRequestDto request, CancellationToken cancellationToken = default)
         {
             // K-07: Enforce karma adjustment range [-100, 100] at server-side.
             if (request.Amount < -100 || request.Amount > 100)

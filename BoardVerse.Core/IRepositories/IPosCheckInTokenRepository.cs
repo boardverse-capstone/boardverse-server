@@ -1,5 +1,6 @@
 using BoardVerse.Core.Entities;
 
+using System.Threading;
 namespace BoardVerse.Core.IRepositories;
 
 /// <summary>
@@ -8,13 +9,13 @@ namespace BoardVerse.Core.IRepositories;
 /// </summary>
 public interface IPosCheckInTokenRepository
 {
-    Task<PosCheckInToken?> GetByIdAsync(Guid id);
+    Task<PosCheckInToken?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
-    Task<PosCheckInToken?> GetByTokenAsync(string token);
+    Task<PosCheckInToken?> GetByTokenAsync(string token, CancellationToken cancellationToken = default);
 
-    Task<List<PosCheckInToken>> GetActiveTokensForCafeAsync(Guid cafeId);
+    Task<List<PosCheckInToken>> GetActiveTokensForCafeAsync(Guid cafeId, CancellationToken cancellationToken = default);
 
-    Task AddAsync(PosCheckInToken token);
+    Task AddAsync(PosCheckInToken token, CancellationToken cancellationToken = default);
 
-    Task<bool> TokenExistsAsync(string token);
+    Task<bool> TokenExistsAsync(string token, CancellationToken cancellationToken = default);
 }

@@ -14,7 +14,7 @@ public class FriendshipRepository : IFriendshipRepository
         _db = db;
     }
 
-    public async Task<Friendship?> GetByIdAsync(Guid id)
+    public async Task<Friendship?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _db.Friendships
             .Include(f => f.Requester).ThenInclude(u => u.Profile)
@@ -22,7 +22,7 @@ public class FriendshipRepository : IFriendshipRepository
             .FirstOrDefaultAsync(f => f.Id == id);
     }
 
-    public async Task<Friendship?> GetByPairAsync(Guid userAId, Guid userBId)
+    public async Task<Friendship?> GetByPairAsync(Guid userAId, Guid userBId, CancellationToken cancellationToken = default)
     {
         return await _db.Friendships
             .FirstOrDefaultAsync(f =>
@@ -30,7 +30,7 @@ public class FriendshipRepository : IFriendshipRepository
                 (f.RequesterId == userBId && f.AddresseeId == userAId));
     }
 
-    public async Task<IReadOnlyList<Friendship>> GetByUserAsync(Guid userId, FriendshipStatus? status = null)
+    public async Task<IReadOnlyList<Friendship>> GetByUserAsync(Guid userId, FriendshipStatus? status = null, CancellationToken cancellationToken = default)
     {
         var query = _db.Friendships
             .Include(f => f.Requester).ThenInclude(u => u.Profile)
@@ -45,7 +45,7 @@ public class FriendshipRepository : IFriendshipRepository
         return await query.OrderByDescending(f => f.UpdatedAt).ToListAsync();
     }
 
-    public async Task<IReadOnlyList<Friendship>> GetFriendsAsync(Guid userId)
+    public async Task<IReadOnlyList<Friendship>> GetFriendsAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         return await _db.Friendships
             .Include(f => f.Requester).ThenInclude(u => u.Profile)
@@ -56,14 +56,14 @@ public class FriendshipRepository : IFriendshipRepository
             .ToListAsync();
     }
 
-    public async Task<int> CountFriendsAsync(Guid userId)
+    public async Task<int> CountFriendsAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         return await _db.Friendships
             .CountAsync(f => f.Status == FriendshipStatus.Accepted &&
                              (f.RequesterId == userId || f.AddresseeId == userId));
     }
 
-    public async Task<IReadOnlyList<Guid>> GetFriendUserIdsAsync(Guid userId)
+    public async Task<IReadOnlyList<Guid>> GetFriendUserIdsAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         var friends = await _db.Friendships
             .Where(f => f.Status == FriendshipStatus.Accepted &&
@@ -74,7 +74,8 @@ public class FriendshipRepository : IFriendshipRepository
     }
 
     public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<Guid>>> GetFriendsForUsersAsync(
-        IReadOnlyCollection<Guid> userIds)
+        IReadOnlyCollection<Guid> userIds,
+        CancellationToken cancellationToken = default)
     {
         if (userIds == null || userIds.Count == 0)
         {
@@ -112,7 +113,7 @@ public class FriendshipRepository : IFriendshipRepository
         return result.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<Guid>)kv.Value);
     }
 
-    public async Task<int> CountMutualFriendsAsync(Guid userAId, Guid userBId)
+    public async Task<int> CountMutualFriendsAsync(Guid userAId, Guid userBId, CancellationToken cancellationToken = default)
     {
         var aFriends = (await GetFriendUserIdsAsync(userAId)).ToHashSet();
         if (aFriends.Count == 0) return 0;
@@ -120,7 +121,7 @@ public class FriendshipRepository : IFriendshipRepository
         return bFriends.Count(aFriends.Contains);
     }
 
-    public async Task<IReadOnlyList<Guid>> GetMutualFriendIdsAsync(Guid currentUserId, Guid otherUserId)
+    public async Task<IReadOnlyList<Guid>> GetMutualFriendIdsAsync(Guid currentUserId, Guid otherUserId, CancellationToken cancellationToken = default)
     {
         var currentFriends = (await GetFriendUserIdsAsync(currentUserId)).ToHashSet();
         if (currentFriends.Count == 0) return Array.Empty<Guid>();
@@ -128,14 +129,14 @@ public class FriendshipRepository : IFriendshipRepository
         return otherFriends.Where(currentFriends.Contains).ToList();
     }
 
-    public async Task<IReadOnlyList<Friendship>> GetExpiredPendingAsync(DateTime cutoff)
+    public async Task<IReadOnlyList<Friendship>> GetExpiredPendingAsync(DateTime cutoff, CancellationToken cancellationToken = default)
     {
         return await _db.Friendships
             .Where(f => f.Status == FriendshipStatus.Pending && f.CreatedAt <= cutoff)
             .ToListAsync();
     }
 
-    public async Task<IReadOnlyList<Guid>> GetBlockedUserIdsAsync(Guid userId)
+    public async Task<IReadOnlyList<Guid>> GetBlockedUserIdsAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         // Cả 2 chiều: tôi chặn họ (BlockerUserId = me) HOẶC họ chặn tôi (BlockerUserId != me nhưng tôi là Requester/Addressee)
         return await _db.Friendships
@@ -149,7 +150,7 @@ public class FriendshipRepository : IFriendshipRepository
     }
 
     // M2: Kiểm tra user có phải bạn bè Accepted của bất kỳ candidate không — single query.
-    public async Task<bool> IsAcceptedFriendOfAnyAsync(Guid userId, IReadOnlyCollection<Guid> candidateUserIds)
+    public async Task<bool> IsAcceptedFriendOfAnyAsync(Guid userId, IReadOnlyCollection<Guid> candidateUserIds, CancellationToken cancellationToken = default)
     {
         if (candidateUserIds == null || candidateUserIds.Count == 0)
         {
@@ -164,7 +165,7 @@ public class FriendshipRepository : IFriendshipRepository
     public async Task<IReadOnlyList<Friendship>> GetByDirectionAsync(
         Guid currentUserId,
         FriendshipRelationshipDirection direction,
-        int limit = 50)
+        int limit = 50, CancellationToken cancellationToken = default)
     {
         var query = _db.Friendships
             .Include(f => f.Requester).ThenInclude(u => u.Profile)
@@ -205,13 +206,13 @@ public class FriendshipRepository : IFriendshipRepository
             .ToListAsync();
     }
 
-    public Task AddAsync(Friendship friendship)
+    public Task AddAsync(Friendship friendship, CancellationToken cancellationToken = default)
     {
         _db.Friendships.Add(friendship);
         return Task.CompletedTask;
     }
 
-    public Task SaveChangesAsync()
+    public Task SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         return _db.SaveChangesAsync();
     }

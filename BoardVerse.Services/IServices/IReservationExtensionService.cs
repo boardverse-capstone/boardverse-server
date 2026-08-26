@@ -1,5 +1,6 @@
 using BoardVerse.Core.DTOs.Reservation;
 
+using System.Threading;
 namespace BoardVerse.Services.IServices;
 
 /// <summary>
@@ -11,11 +12,11 @@ public interface IReservationExtensionService
     /// Check availability trước khi extend (không thay đổi DB).
     /// </summary>
     Task<ExtendAvailabilityDto> CheckAvailabilityAsync(
-        Guid reservationId, int extensionMinutes, CancellationToken ct = default);
+        Guid reservationId, int extensionMinutes, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Extend thời gian reservation.
     /// </summary>
     Task<ExtendReservationResponseDto> ExtendAsync(
-        ExtendReservationRequestDto request, Guid userId, CancellationToken ct = default);
+        ExtendReservationRequestDto request, Guid userId, CancellationToken cancellationToken = default);
 }

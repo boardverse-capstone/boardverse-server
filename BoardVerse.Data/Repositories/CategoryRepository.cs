@@ -13,14 +13,14 @@ namespace BoardVerse.Data.Repositories
             _context = context;
         }
 
-        public Task<List<Category>> GetAllActiveAsync() =>
+        public Task<List<Category>> GetAllActiveAsync(CancellationToken cancellationToken = default) =>
             _context.Categories
                 .AsNoTracking()
                 .Where(c => c.IsActive)
                 .OrderBy(c => c.SortOrder)
                 .ToListAsync();
 
-        public Task<List<Category>> GetAllAsync(bool includeInactive)
+        public Task<List<Category>> GetAllAsync(bool includeInactive, CancellationToken cancellationToken = default)
         {
             var query = _context.Categories.AsNoTracking().AsQueryable();
             if (!includeInactive)
@@ -29,17 +29,17 @@ namespace BoardVerse.Data.Repositories
             return query.OrderBy(c => c.SortOrder).ToListAsync();
         }
 
-        public Task<Category?> GetByIdAsync(Guid id) =>
+        public Task<Category?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
             _context.Categories.FirstOrDefaultAsync(c => c.Id == id);
 
-        public Task<Category?> GetBySlugAsync(string slug) =>
+        public Task<Category?> GetBySlugAsync(string slug, CancellationToken cancellationToken = default) =>
             _context.Categories.FirstOrDefaultAsync(c => c.Slug == slug);
 
-        public Task<bool> SlugExistsAsync(string slug, Guid? excludeId = null) =>
+        public Task<bool> SlugExistsAsync(string slug, Guid? excludeId = null, CancellationToken cancellationToken = default) =>
             _context.Categories.AnyAsync(c =>
                 c.Slug == slug && (!excludeId.HasValue || c.Id != excludeId.Value));
 
-        public Task<int> CountByIdsAsync(IReadOnlyCollection<Guid> ids, bool activeOnly = true)
+        public Task<int> CountByIdsAsync(IReadOnlyCollection<Guid> ids, bool activeOnly = true, CancellationToken cancellationToken = default)
         {
             if (ids.Count == 0)
                 return Task.FromResult(0);
@@ -51,11 +51,11 @@ namespace BoardVerse.Data.Repositories
             return query.CountAsync();
         }
 
-        public async Task AddAsync(Category category)
+        public async Task AddAsync(Category category, CancellationToken cancellationToken = default)
         {
             await _context.Categories.AddAsync(category);
         }
 
-        public Task SaveChangesAsync() => _context.SaveChangesAsync();
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default) => _context.SaveChangesAsync();
     }
 }

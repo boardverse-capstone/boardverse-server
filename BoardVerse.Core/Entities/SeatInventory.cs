@@ -2,7 +2,7 @@ namespace BoardVerse.Core.Entities;
 
 /// <summary>
 /// Tồn kho ghế theo cafe × playDate × timeSlot (BR-RESERVATION-01 §V + §19.11).
-/// Dùng cho pessimistic / optimistic concurrency khi confirm reservation.
+/// BR-NEW-15 (2026-08-18): Dùng ScheduledStartTime/ScheduledEndTime (TimeOnly) thay vì TimeSlot enum.
 /// </summary>
 public class SeatInventory
 {
@@ -14,8 +14,11 @@ public class SeatInventory
     /// <summary>BR-NEW-04: ngày dự kiến chơi (chỉ ngày).</summary>
     public DateOnly PlayDate { get; set; }
 
-    /// <summary>BR-NEW-15: khung giờ cố định.</summary>
-    public Core.Enum.TimeSlot TimeSlot { get; set; }
+    /// <summary>BR-NEW-15: Giờ bắt đầu dự kiến (thay vì TimeSlot enum).</summary>
+    public TimeOnly ScheduledStartTime { get; set; }
+
+    /// <summary>BR-NEW-15: Giờ kết thúc dự kiến.</summary>
+    public TimeOnly ScheduledEndTime { get; set; }
 
     /// <summary>Tổng số ghế của cafe trong khung này (snapshot từ CafeCapacity).</summary>
     public int TotalSeats { get; set; }

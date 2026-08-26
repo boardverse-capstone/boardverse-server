@@ -1,6 +1,7 @@
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
+using BoardVerse.Services.Helpers;
 using BoardVerse.Services.IServices;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -40,6 +41,11 @@ public class ReservationNoShowDetectionJob : BackgroundService
             {
                 await RunDetectionAsync(stoppingToken);
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("ReservationNoShowDetectionJob stopped (host shutdown).");
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "ReservationNoShowDetectionJob: error during detection");
@@ -57,6 +63,17 @@ public class ReservationNoShowDetectionJob : BackgroundService
         var walkInService = scope.ServiceProvider.GetRequiredService<IWalkInService>();
         var outboxRepo = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
         var karmaService = scope.ServiceProvider.GetRequiredService<IPlayerKarmaService>();
+        var configProvider = scope.ServiceProvider.GetRequiredService<ISystemConfigurationProvider>();
+
+        // Skip no-show detection nếu bypass đang bật (dev/test only).
+        if (await TimeWindowGuard.ShouldBypassAsync(
+                configProvider, _logger,
+                operation: "ReservationNoShowDetectionJob"))
+        {
+            _logger.LogInformation(
+                "ReservationNoShowDetectionJob: skipped because bypass-time-window is enabled.");
+            return;
+        }
 
         var now = DateTime.UtcNow;
         var cutoff = now.AddMinutes(-30); // BR-CHECKIN-02: grace 30 phút
@@ -194,8 +211,10 @@ public class ReservationNoShowDetectionJob : BackgroundService
         var seatInvRepo = scope.ServiceProvider.GetRequiredService<ISeatInventoryRepository>();
         var gameInvRepo = scope.ServiceProvider.GetRequiredService<IGameInventoryRepository>();
 
-        // Release seats: use (cafeId, playDate, timeSlot)
-        var seatInv = await seatInvRepo.GetAsync(reservation.CafeId, reservation.PlayDate, reservation.TimeSlot);
+        // Release seats: use (cafeId, playDate, startTime, endTime)
+        var startTime = reservation.PreferredStartTime ?? TimeOnly.FromDateTime(reservation.ScheduledStartTime);
+        var endTime = reservation.PreferredEndTime ?? TimeOnly.FromDateTime(reservation.ScheduledEndTime);
+        var seatInv = await seatInvRepo.GetAsync(reservation.CafeId, reservation.PlayDate, startTime, endTime);
         if (seatInv != null)
         {
             seatInv.HeldSeats = Math.Max(0, seatInv.HeldSeats - reservation.MaxPlayers);
@@ -203,9 +222,9 @@ public class ReservationNoShowDetectionJob : BackgroundService
             await seatInvRepo.UpdateAsync(seatInv);
         }
 
-        // Release game copy: use (cafeId, gameId, playDate, timeSlot)
+        // Release game copy: use (cafeId, gameId, playDate, startTime, endTime)
         var gameInv = await gameInvRepo.GetAsync(
-            reservation.CafeId, reservation.GameId, reservation.PlayDate, reservation.TimeSlot);
+            reservation.CafeId, reservation.GameId, reservation.PlayDate, startTime, endTime);
         if (gameInv != null)
         {
             gameInv.HeldCopies = Math.Max(0, gameInv.HeldCopies - 1);

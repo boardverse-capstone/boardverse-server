@@ -43,7 +43,8 @@ public class PlayerCheckInServiceTests
         _lobbyRepo.Object,
         _posService.Object,
         _db,
-        _logger.Object);
+        _logger.Object,
+        new Mock<ISystemConfigurationProvider>().Object);
 
     private static PosCheckInToken BuildValidToken(
         Guid cafeId,
@@ -73,7 +74,7 @@ public class PlayerCheckInServiceTests
     [Fact]
     public async Task CheckInByToken_TokenNotFound_ThrowsNotFound()
     {
-        _tokenRepo.Setup(r => r.GetByTokenAsync(It.IsAny<string>())).ReturnsAsync((PosCheckInToken?)null);
+        _tokenRepo.Setup(r => r.GetByTokenAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((PosCheckInToken?)null);
 
         var svc = CreateService();
         var playerId = Guid.NewGuid();
@@ -87,7 +88,7 @@ public class PlayerCheckInServiceTests
     public async Task CheckInByToken_TokenRevoked_ThrowsConflict()
     {
         var token = BuildValidToken(Guid.NewGuid(), Guid.NewGuid(), isRevoked: true);
-        _tokenRepo.Setup(r => r.GetByTokenAsync(token.Token)).ReturnsAsync(token);
+        _tokenRepo.Setup(r => r.GetByTokenAsync(token.Token, It.IsAny<CancellationToken>())).ReturnsAsync(token);
 
         var svc = CreateService();
 
@@ -101,7 +102,7 @@ public class PlayerCheckInServiceTests
     {
         var token = BuildValidToken(Guid.NewGuid(), Guid.NewGuid(),
             expiresAt: DateTime.UtcNow.AddMinutes(-1));
-        _tokenRepo.Setup(r => r.GetByTokenAsync(token.Token)).ReturnsAsync(token);
+        _tokenRepo.Setup(r => r.GetByTokenAsync(token.Token, It.IsAny<CancellationToken>())).ReturnsAsync(token);
 
         var svc = CreateService();
 
@@ -117,7 +118,7 @@ public class PlayerCheckInServiceTests
             consumedAt: DateTime.UtcNow.AddSeconds(-30),
             consumedByUserId: Guid.NewGuid(),
             resultSessionId: Guid.NewGuid());
-        _tokenRepo.Setup(r => r.GetByTokenAsync(token.Token)).ReturnsAsync(token);
+        _tokenRepo.Setup(r => r.GetByTokenAsync(token.Token, It.IsAny<CancellationToken>())).ReturnsAsync(token);
 
         var svc = CreateService();
         var anotherPlayer = Guid.NewGuid();
@@ -137,7 +138,7 @@ public class PlayerCheckInServiceTests
             consumedAt: consumedAt,
             consumedByUserId: playerId,
             resultSessionId: existingSessionId);
-        _tokenRepo.Setup(r => r.GetByTokenAsync(token.Token)).ReturnsAsync(token);
+        _tokenRepo.Setup(r => r.GetByTokenAsync(token.Token, It.IsAny<CancellationToken>())).ReturnsAsync(token);
 
         var svc = CreateService();
         var result = await svc.CheckInByTokenAsync(playerId,
@@ -147,7 +148,7 @@ public class PlayerCheckInServiceTests
         Assert.Equal(consumedAt, result.CheckedInAt);
         // Idempotent replay KHÔNG gọi lại POS check-in.
         _posService.Verify(p => p.CheckInByCodeAsync(
-            It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CheckInRequestDto>()),
+            It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CheckInRequestDto>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -162,7 +163,7 @@ public class PlayerCheckInServiceTests
             consumedByUserId: playerId,
             resultSessionId: existingSessionId);
 
-        _tokenRepo.Setup(r => r.GetByTokenAsync("ABCDEFGHJKLMNPQR")).ReturnsAsync(token);
+        _tokenRepo.Setup(r => r.GetByTokenAsync("ABCDEFGHJKLMNPQR", It.IsAny<CancellationToken>())).ReturnsAsync(token);
 
         var svc = CreateService();
         var result = await svc.CheckInByTokenAsync(playerId,
@@ -176,7 +177,7 @@ public class PlayerCheckInServiceTests
     {
         var token = BuildValidToken(Guid.NewGuid(), Guid.NewGuid());
         token.ReservationId = null;
-        _tokenRepo.Setup(r => r.GetByTokenAsync(token.Token)).ReturnsAsync(token);
+        _tokenRepo.Setup(r => r.GetByTokenAsync(token.Token, It.IsAny<CancellationToken>())).ReturnsAsync(token);
 
         var svc = CreateService();
 

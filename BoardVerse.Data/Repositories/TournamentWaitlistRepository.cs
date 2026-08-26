@@ -15,7 +15,7 @@ public class TournamentWaitlistRepository : ITournamentWaitlistRepository
         _context = context;
     }
 
-    public async Task<TournamentWaitlist?> GetByIdAsync(Guid id)
+    public async Task<TournamentWaitlist?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _context.TournamentWaitlists
             .Include(w => w.User)
@@ -23,7 +23,7 @@ public class TournamentWaitlistRepository : ITournamentWaitlistRepository
             .FirstOrDefaultAsync(w => w.Id == id);
     }
 
-    public async Task<TournamentWaitlist?> GetPendingByUserAsync(Guid tournamentId, Guid userId)
+    public async Task<TournamentWaitlist?> GetPendingByUserAsync(Guid tournamentId, Guid userId, CancellationToken cancellationToken = default)
     {
         return await _context.TournamentWaitlists
             .FirstOrDefaultAsync(w =>
@@ -33,7 +33,7 @@ public class TournamentWaitlistRepository : ITournamentWaitlistRepository
     }
 
     public async Task<IReadOnlyList<TournamentWaitlist>> GetByTournamentAsync(
-        Guid tournamentId, TournamentWaitlistStatus? status = null)
+        Guid tournamentId, TournamentWaitlistStatus? status = null, CancellationToken cancellationToken = default)
     {
         var query = _context.TournamentWaitlists
             .Include(w => w.User)
@@ -45,7 +45,7 @@ public class TournamentWaitlistRepository : ITournamentWaitlistRepository
         return await query.OrderBy(w => w.Position).ToListAsync();
     }
 
-    public async Task<int> GetNextPositionAsync(Guid tournamentId)
+    public async Task<int> GetNextPositionAsync(Guid tournamentId, CancellationToken cancellationToken = default)
     {
         var max = await _context.TournamentWaitlists
             .Where(w => w.TournamentId == tournamentId)
@@ -53,25 +53,25 @@ public class TournamentWaitlistRepository : ITournamentWaitlistRepository
         return (max ?? 0) + 1;
     }
 
-    public async Task AddAsync(TournamentWaitlist entry)
+    public async Task AddAsync(TournamentWaitlist entry, CancellationToken cancellationToken = default)
     {
         _context.TournamentWaitlists.Add(entry);
     }
 
-    public Task UpdateAsync(TournamentWaitlist entry)
+    public Task UpdateAsync(TournamentWaitlist entry, CancellationToken cancellationToken = default)
     {
         _context.TournamentWaitlists.Update(entry);
         return Task.CompletedTask;
     }
 
-    public async Task DeleteAsync(Guid id)
+    public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var entry = await _context.TournamentWaitlists.FindAsync(id);
         if (entry != null)
             _context.TournamentWaitlists.Remove(entry);
     }
 
-    public async Task SaveChangesAsync()
+    public async Task SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         await _context.SaveChangesAsync();
     }

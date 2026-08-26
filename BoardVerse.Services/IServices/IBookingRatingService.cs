@@ -1,5 +1,6 @@
 using BoardVerse.Core.DTOs.Booking;
 
+using System.Threading;
 namespace BoardVerse.Services.IServices;
 
 /// <summary>
@@ -15,7 +16,7 @@ public interface IBookingRatingService
     /// - Idempotent: voter vote lần 2 sẽ UPDATE (không insert).
     /// </summary>
     Task<NoShowVoteResponseDto> SubmitNoShowVoteAsync(
-        Guid bookingId, Guid voterUserId, SubmitNoShowVoteRequestDto request);
+        Guid bookingId, Guid voterUserId, SubmitNoShowVoteRequestDto request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gửi lượt chấm điểm chéo cho booking. Mobile gap #5.
@@ -25,13 +26,13 @@ public interface IBookingRatingService
     /// - Idempotent: voter submit lần 2 = update.
     /// </summary>
     Task<BookingRatingResponseDto> SubmitRatingsAsync(
-        Guid bookingId, Guid voterUserId, SubmitBookingRatingsRequestDto request);
+        Guid bookingId, Guid voterUserId, SubmitBookingRatingsRequestDto request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lấy trạng thái rating của voter trong booking (đã rate ai, còn ai chưa, deadline).
     /// </summary>
     Task<BookingRatingStatusDto> GetRatingStatusAsync(
-        Guid bookingId, Guid voterUserId);
+        Guid bookingId, Guid voterUserId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Tổng hợp Karma + audit log cho booking sau khi session kết thúc (staff check-out).
@@ -53,5 +54,5 @@ public interface IBookingRatingService
     /// Trả về summary gồm số user được cộng/trừ Karma, lý do, totalDelta.
     /// </summary>
     Task<BookingRatingAggregationResultDto> AggregateBookingOutcomesAsync(
-        Guid bookingId);
+        Guid bookingId, CancellationToken cancellationToken = default);
 }

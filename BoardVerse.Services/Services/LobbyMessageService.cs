@@ -26,7 +26,7 @@ namespace BoardVerse.Services.Services
             _userManagementRepository = userManagementRepository;
         }
 
-        public async Task<LobbyMessageDto> SendMessageAsync(Guid lobbyId, Guid senderId, string content)
+        public async Task<LobbyMessageDto> SendMessageAsync(Guid lobbyId, Guid senderId, string content, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(content) || content.Length > 1000)
             {
@@ -73,7 +73,7 @@ namespace BoardVerse.Services.Services
             return dto;
         }
 
-        public async Task<IReadOnlyList<LobbyMessageDto>> GetMessagesAsync(Guid lobbyId, DateTime? beforeCursor, int limit = 50)
+        public async Task<IReadOnlyList<LobbyMessageDto>> GetMessagesAsync(Guid lobbyId, DateTime? beforeCursor, int limit = 50, CancellationToken cancellationToken = default)
         {
             if (limit is < 1 or > 200) limit = 50;
 
@@ -94,7 +94,7 @@ namespace BoardVerse.Services.Services
             }).ToList();
         }
 
-        public async Task AddSystemMessageAsync(Guid lobbyId, string content)
+        public async Task AddSystemMessageAsync(Guid lobbyId, string content, CancellationToken cancellationToken = default)
         {
             var msg = new LobbyMessage
             {
@@ -120,7 +120,7 @@ namespace BoardVerse.Services.Services
             });
         }
 
-        public async Task AddMemberJoinedMessageAsync(Guid lobbyId, Guid userId)
+        public async Task AddMemberJoinedMessageAsync(Guid lobbyId, Guid userId, CancellationToken cancellationToken = default)
         {
             var user = await _userManagementRepository.GetByIdAsync(userId);
             var name = user?.Username ?? "Một người dùng";

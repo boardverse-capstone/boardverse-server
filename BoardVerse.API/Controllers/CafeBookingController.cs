@@ -75,7 +75,7 @@ public class CafeBookingController : BaseApiController
         [FromQuery] Guid? gameTemplateId = null)
     {
         var result = await _cafeBookingService.GetAvailabilityAsync(
-            cafeId, startTime, endTime, seatCount, gameTemplateId);
+            cafeId, startTime, endTime, seatCount, gameTemplateId, HttpContext.RequestAborted);
         return NewResponse(200, "Khảo sát capacity quán thành công.", result);
     }
 }

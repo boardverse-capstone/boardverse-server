@@ -1,5 +1,4 @@
 using BoardVerse.Core.DTOs.CafeSchedule;
-using BoardVerse.Core.Enum;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;
@@ -8,8 +7,8 @@ using Microsoft.AspNetCore.Mvc;
 namespace BoardVerse.API.Controllers;
 
 /// <summary>
-/// Quản lý lịch cafe (override slot time / đóng slot).
-/// BR-NEW-15: 4 time slot cố định, cafe override start/end hoặc IsClosed.
+/// Quản lý lịch cafe (override ngày cụ thể).
+/// BR-NEW-15 (2026-08-18): BỎ TimeSlot - dùng ApplyDate/OpenTime/CloseTime.
 /// </summary>
 [ApiController]
 [Route("api/v1/cafes/{cafeId:guid}/schedule-overrides")]
@@ -24,14 +23,13 @@ public class CafeScheduleController : BaseApiController
     }
 
     /// <summary>
-    /// Lấy toàn bộ lịch (4 slot) của cafe, kèm override nếu có. [Role: Cafe Manager — chỉ chủ cafe.]
+    /// Lấy toàn bộ lịch override của cafe. [Role: Cafe Manager.]
     /// </summary>
     /// <param name="cafeId">Mã định danh cafe.</param>
     /// <response code="200">Lấy lịch cafe thành công.</response>
-    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+    /// <response code="401">Thiếu token.</response>
     /// <response code="403">Không phải chủ cafe.</response>
     /// <response code="404">Không tìm thấy cafe.</response>
-    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
     [HttpGet]
     public async Task<IActionResult> GetSchedule(Guid cafeId)
     {
@@ -41,16 +39,15 @@ public class CafeScheduleController : BaseApiController
     }
 
     /// <summary>
-    /// Tạo hoặc cập nhật override cho 1 slot. [Role: Cafe Manager — chỉ chủ cafe.]
+    /// Tạo hoặc cập nhật override cho 1 ngày. [Role: Cafe Manager.]
     /// </summary>
     /// <param name="cafeId">Mã định danh cafe.</param>
-    /// <param name="request">TimeSlot, StartTime, EndTime, IsClosed, EffectiveFrom/To.</param>
+    /// <param name="request">ApplyDate, OpenTime, CloseTime, IsClosed.</param>
     /// <response code="200">Cập nhật override thành công.</response>
-    /// <response code="400">Dữ liệu không hợp lệ (vd: StartTime == EndTime khi mở slot).</response>
-    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+    /// <response code="400">Dữ liệu không hợp lệ.</response>
+    /// <response code="401">Thiếu token.</response>
     /// <response code="403">Không phải chủ cafe.</response>
     /// <response code="404">Không tìm thấy cafe.</response>
-    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
     [HttpPost]
     public async Task<IActionResult> UpsertOverride(
         Guid cafeId,
@@ -62,21 +59,20 @@ public class CafeScheduleController : BaseApiController
     }
 
     /// <summary>
-    /// Xóa override cho 1 slot → cafe quay về dùng lịch mặc định. [Role: Cafe Manager — chỉ chủ cafe.]
+    /// Xóa override cho 1 ngày. [Role: Cafe Manager.]
     /// </summary>
     /// <param name="cafeId">Mã định danh cafe.</param>
-    /// <param name="timeSlot">Slot cần xóa override (morning/afternoon/evening/night).</param>
+    /// <param name="applyDate">Ngày cần xóa override.</param>
     /// <response code="204">Xóa override thành công.</response>
-    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+    /// <response code="401">Thiếu token.</response>
     /// <response code="403">Không phải chủ cafe.</response>
     /// <response code="404">Không tìm thấy cafe hoặc override.</response>
-    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
-    [HttpDelete("{timeSlot}")]
+    [HttpDelete("{applyDate}")]
     [ProducesResponseType(204)]
-    public async Task<IActionResult> DeleteOverride(Guid cafeId, TimeSlot timeSlot)
+    public async Task<IActionResult> DeleteOverride(Guid cafeId, DateOnly applyDate)
     {
         var managerUserId = GetUserIdFromClaims();
-        await _cafeScheduleService.DeleteOverrideAsync(cafeId, managerUserId, timeSlot);
+        await _cafeScheduleService.DeleteOverrideAsync(cafeId, managerUserId, applyDate);
         return NoContent();
     }
 }

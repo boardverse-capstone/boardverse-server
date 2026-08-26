@@ -13,16 +13,16 @@ public class FriendReportRepository : IFriendReportRepository
         _db = db;
     }
 
-    public Task<FriendReport?> GetByIdAsync(Guid id)
+    public Task<FriendReport?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
         => _db.FriendReports.FirstOrDefaultAsync(r => r.Id == id);
 
-    public Task<FriendReport?> GetPendingByReporterAndTargetAsync(Guid reporterId, Guid targetUserId)
+    public Task<FriendReport?> GetPendingByReporterAndTargetAsync(Guid reporterId, Guid targetUserId, CancellationToken cancellationToken = default)
         => _db.FriendReports.FirstOrDefaultAsync(r =>
             r.ReporterId == reporterId &&
             r.TargetUserId == targetUserId &&
             r.Status == "Pending");
 
-    public async Task<IReadOnlyList<FriendReport>> GetByReporterAsync(Guid reporterId)
+    public async Task<IReadOnlyList<FriendReport>> GetByReporterAsync(Guid reporterId, CancellationToken cancellationToken = default)
         => await _db.FriendReports
             .Where(r => r.ReporterId == reporterId)
             .OrderByDescending(r => r.CreatedAt)
@@ -31,7 +31,7 @@ public class FriendReportRepository : IFriendReportRepository
     public async Task<(IReadOnlyList<FriendReport> Items, int Total)> GetAllForAdminAsync(
         string? status,
         int offset,
-        int limit)
+        int limit, CancellationToken cancellationToken = default)
     {
         var query = _db.FriendReports.AsQueryable();
         if (!string.IsNullOrWhiteSpace(status))
@@ -47,7 +47,7 @@ public class FriendReportRepository : IFriendReportRepository
         return (items, total);
     }
 
-    public Task AddAsync(FriendReport report)
+    public Task AddAsync(FriendReport report, CancellationToken cancellationToken = default)
     {
         _db.FriendReports.Add(report);
         return Task.CompletedTask;
@@ -55,5 +55,5 @@ public class FriendReportRepository : IFriendReportRepository
 
     public void Update(FriendReport report) => _db.FriendReports.Update(report);
 
-    public Task SaveChangesAsync() => _db.SaveChangesAsync();
+    public Task SaveChangesAsync(CancellationToken cancellationToken = default) => _db.SaveChangesAsync();
 }

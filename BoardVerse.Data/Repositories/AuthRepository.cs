@@ -17,47 +17,47 @@ namespace BoardVerse.Data.Repositories
             _context = context;
         }
 
-        public Task<bool> UserExistsAsync(string email, string username)
+        public Task<bool> UserExistsAsync(string email, string username, CancellationToken cancellationToken = default)
         {
             return _context.Users.AnyAsync(u => u.Email == email || u.Username == username);
         }
 
-        public Task<User?> GetByUsernameOrEmailAsync(string usernameOrEmail)
+        public Task<User?> GetByUsernameOrEmailAsync(string usernameOrEmail, CancellationToken cancellationToken = default)
         {
             return _context.Users.FirstOrDefaultAsync(u => u.Username == usernameOrEmail || u.Email == usernameOrEmail);
         }
 
-        public Task<User?> GetByProviderAsync(string provider, string providerId)
+        public Task<User?> GetByProviderAsync(string provider, string providerId, CancellationToken cancellationToken = default)
         {
             return _context.Users.FirstOrDefaultAsync(u => u.Provider == provider && u.ProviderId == providerId);
         }
 
-        public Task<User?> GetByEmailAsync(string email)
+        public Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken = default)
         {
             return _context.Users.FirstOrDefaultAsync(u => u.Email == email);
         }
 
-        public Task<User?> GetByIdAsync(Guid userId)
+        public Task<User?> GetByIdAsync(Guid userId, CancellationToken cancellationToken = default)
         {
             return _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
         }
 
-        public Task<User?> GetByEmailVerificationTokenAsync(string token)
+        public Task<User?> GetByEmailVerificationTokenAsync(string token, CancellationToken cancellationToken = default)
         {
             return _context.Users.FirstOrDefaultAsync(u => u.EmailVerificationToken == token);
         }
 
-        public Task<User?> GetByPasswordResetTokenAsync(string token)
+        public Task<User?> GetByPasswordResetTokenAsync(string token, CancellationToken cancellationToken = default)
         {
             return _context.Users.FirstOrDefaultAsync(u => u.PasswordResetToken == token);
         }
 
-        public Task<RefreshToken?> GetActiveRefreshTokenAsync(string token)
+        public Task<RefreshToken?> GetActiveRefreshTokenAsync(string token, CancellationToken cancellationToken = default)
         {
             return _context.RefreshTokens.FirstOrDefaultAsync(r => r.Token == token && !r.IsRevoked);
         }
 
-        public async Task<bool> HasActiveProfileAsync(Guid userId)
+        public async Task<bool> HasActiveProfileAsync(Guid userId, CancellationToken cancellationToken = default)
         {
             var user = await _context.Users
                 .AsNoTracking()
@@ -76,19 +76,19 @@ namespace BoardVerse.Data.Repositories
             return ProfileCompletionRules.ResolveHasProfile(user.Role, hasActiveProfile);
         }
 
-        public Task AddUserAsync(User user)
+        public Task AddUserAsync(User user, CancellationToken cancellationToken = default)
         {
             _context.Users.Add(user);
             return Task.CompletedTask;
         }
 
-        public Task AddRefreshTokenAsync(RefreshToken refreshToken)
+        public Task AddRefreshTokenAsync(RefreshToken refreshToken, CancellationToken cancellationToken = default)
         {
             _context.RefreshTokens.Add(refreshToken);
             return Task.CompletedTask;
         }
 
-        public async Task DeleteStaleRefreshTokensForUserAsync(Guid userId, DateTime utcNow)
+        public async Task DeleteStaleRefreshTokensForUserAsync(Guid userId, DateTime utcNow, CancellationToken cancellationToken = default)
         {
             var stale = await _context.RefreshTokens
                 .Where(r => r.UserId == userId && (r.IsRevoked || r.ExpiresAt <= utcNow))
@@ -100,12 +100,12 @@ namespace BoardVerse.Data.Repositories
             _context.RefreshTokens.RemoveRange(stale);
         }
 
-        public Task<int> DeleteAllStaleRefreshTokensAsync(DateTime utcNow) =>
+        public Task<int> DeleteAllStaleRefreshTokensAsync(DateTime utcNow, CancellationToken cancellationToken = default) =>
             _context.RefreshTokens
                 .Where(r => r.IsRevoked || r.ExpiresAt <= utcNow)
                 .ExecuteDeleteAsync();
 
-        public Task SaveChangesAsync()
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default)
         {
             return _context.SaveChangesAsync();
         }

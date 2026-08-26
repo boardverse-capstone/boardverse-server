@@ -15,56 +15,69 @@ namespace BoardVerse.Data.Repositories
             _db = db;
         }
 
-        public async Task<BookingDeposit?> GetByIdAsync(Guid depositId)
+        public async Task<BookingDeposit?> GetByIdAsync(Guid depositId, CancellationToken cancellationToken = default)
         {
             return await _db.BookingDeposits
                 .Include(d => d.Cafe)
                 .FirstOrDefaultAsync(d => d.Id == depositId);
         }
 
-        public async Task<BookingDeposit?> GetByOrderIdAsync(string orderId)
+        /// <summary>
+        /// GAP-XX Fix (2026-08-15): SePay BankAPINotify strip dấu '-' khỏi transfer content
+        /// → webhook OrderId = "BV3382750A787C4AEF" (mất '-'). DB lưu "BV-3382750A787C4AEF".
+        /// Exact match fail → "deposit not matched" → webhook skip → staff manual confirm.
+        /// Normalize cả 2 phía (strip '-', uppercase) để match đúng.
+        /// </summary>
+        public async Task<BookingDeposit?> GetByOrderIdAsync(string orderId, CancellationToken cancellationToken = default)
         {
+            if (string.IsNullOrWhiteSpace(orderId))
+            {
+                return null;
+            }
+
+            var normalized = orderId.Replace("-", "").Trim().ToUpperInvariant();
             return await _db.BookingDeposits
                 .Include(d => d.Cafe)
-                .FirstOrDefaultAsync(d => d.OrderId == orderId);
+                .FirstOrDefaultAsync(d => d.OrderId != null
+                    && d.OrderId.Replace("-", "").ToUpper() == normalized);
         }
 
         /// <summary>
         /// Host-led check-in: Tìm booking deposit theo mã đặt chỗ (BookingCode = OrderId).
         /// </summary>
-        public async Task<BookingDeposit?> GetByBookingCodeAsync(string bookingCode)
+        public async Task<BookingDeposit?> GetByBookingCodeAsync(string bookingCode, CancellationToken cancellationToken = default)
         {
             return await _db.BookingDeposits
                 .Include(d => d.Cafe)
                 .FirstOrDefaultAsync(d => d.OrderId == bookingCode);
         }
 
-        public async Task<BookingDeposit?> GetByActiveSessionIdAsync(Guid activeSessionId)
+        public async Task<BookingDeposit?> GetByActiveSessionIdAsync(Guid activeSessionId, CancellationToken cancellationToken = default)
         {
             return await _db.BookingDeposits
                 .FirstOrDefaultAsync(d => d.ActiveSessionId == activeSessionId);
         }
 
-        public async Task<BookingDeposit?> GetBySePayTransactionIdAsync(string sePayTransactionId)
+        public async Task<BookingDeposit?> GetBySePayTransactionIdAsync(string sePayTransactionId, CancellationToken cancellationToken = default)
         {
             return await _db.BookingDeposits
                 .FirstOrDefaultAsync(d => d.SePayTransactionId == sePayTransactionId);
         }
 
         /// <summary>BR-05: Lấy deposit theo BookingId.</summary>
-        public async Task<BookingDeposit?> GetByBookingIdAsync(Guid bookingId)
+        public async Task<BookingDeposit?> GetByBookingIdAsync(Guid bookingId, CancellationToken cancellationToken = default)
         {
             return await _db.BookingDeposits
                 .FirstOrDefaultAsync(d => d.BookingId == bookingId);
         }
 
-        public Task AddAsync(BookingDeposit deposit)
+        public Task AddAsync(BookingDeposit deposit, CancellationToken cancellationToken = default)
         {
             _db.BookingDeposits.Add(deposit);
             return Task.CompletedTask;
         }
 
-        public Task UpdateAsync(BookingDeposit deposit)
+        public Task UpdateAsync(BookingDeposit deposit, CancellationToken cancellationToken = default)
         {
             deposit.UpdatedAt = DateTime.UtcNow;
             _db.BookingDeposits.Update(deposit);
@@ -76,7 +89,7 @@ namespace BoardVerse.Data.Repositories
         /// Dùng FOR UPDATE SKIP LOCKED — multi-instance không pick trùng.
         /// Caller phải wrap batch transaction.
         /// </summary>
-        public async Task<IReadOnlyList<BookingDeposit>> GetPendingExpiredAsync(DateTime cutoffTime, int limit = 100)
+        public async Task<IReadOnlyList<BookingDeposit>> GetPendingExpiredAsync(DateTime cutoffTime, int limit = 100, CancellationToken cancellationToken = default)
         {
             return await _db.BookingDeposits
                 .FromSqlRaw(
@@ -89,7 +102,7 @@ namespace BoardVerse.Data.Repositories
                 .ToListAsync();
         }
 
-        public Task SaveChangesAsync()
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default)
         {
             return _db.SaveChangesAsync();
         }
@@ -100,7 +113,7 @@ namespace BoardVerse.Data.Repositories
         // the same source status; PG row lock guarantees serialization. RowsAffected=0 means the
         // caller is the loser (or duplicate) → return without mutation.
 
-        public async Task<int> TryMarkAsPaidAsync(Guid depositId, string? sePayTransactionId, DateTime paidAtUtc)
+        public async Task<int> TryMarkAsPaidAsync(Guid depositId, string? sePayTransactionId, DateTime paidAtUtc, CancellationToken cancellationToken = default)
         {
             return await _db.BookingDeposits
                 .Where(d => d.Id == depositId && d.Status == BookingDepositStatus.Pending)
@@ -111,7 +124,7 @@ namespace BoardVerse.Data.Repositories
                     .SetProperty(d => d.UpdatedAt, paidAtUtc));
         }
 
-        public async Task<int> TryMarkAsRefundedAsync(Guid depositId, DateTime refundedAtUtc)
+        public async Task<int> TryMarkAsRefundedAsync(Guid depositId, DateTime refundedAtUtc, CancellationToken cancellationToken = default)
         {
             return await _db.BookingDeposits
                 .Where(d => d.Id == depositId && d.Status == BookingDepositStatus.Paid)
@@ -121,7 +134,7 @@ namespace BoardVerse.Data.Repositories
                     .SetProperty(d => d.UpdatedAt, refundedAtUtc));
         }
 
-        public async Task<int> TryForfeitAsync(Guid depositId, DateTime forfeitedAtUtc)
+        public async Task<int> TryForfeitAsync(Guid depositId, DateTime forfeitedAtUtc, CancellationToken cancellationToken = default)
         {
             return await _db.BookingDeposits
                 .Where(d => d.Id == depositId && d.Status == BookingDepositStatus.Paid)
@@ -131,7 +144,7 @@ namespace BoardVerse.Data.Repositories
                     .SetProperty(d => d.UpdatedAt, forfeitedAtUtc));
         }
 
-        public async Task<int> TryExpireAsync(Guid depositId, DateTime refundedAtUtc)
+        public async Task<int> TryExpireAsync(Guid depositId, DateTime refundedAtUtc, CancellationToken cancellationToken = default)
         {
             return await _db.BookingDeposits
                 .Where(d => d.Id == depositId && d.Status == BookingDepositStatus.Pending)
@@ -141,7 +154,7 @@ namespace BoardVerse.Data.Repositories
                     .SetProperty(d => d.UpdatedAt, refundedAtUtc));
         }
 
-        public async Task<int> CountByStatusAsync(BookingDepositStatus status, DateTime? fromUtc, DateTime? toUtc)
+        public async Task<int> CountByStatusAsync(BookingDepositStatus status, DateTime? fromUtc, DateTime? toUtc, CancellationToken cancellationToken = default)
         {
             var query = _db.BookingDeposits.Where(d => d.Status == status);
             if (fromUtc.HasValue)
@@ -155,7 +168,7 @@ namespace BoardVerse.Data.Repositories
             return await query.CountAsync();
         }
 
-        public async Task<(int Count, decimal TotalAmount)> SumByStatusAsync(BookingDepositStatus status, DateTime? fromUtc, DateTime? toUtc)
+        public async Task<(int Count, decimal TotalAmount)> SumByStatusAsync(BookingDepositStatus status, DateTime? fromUtc, DateTime? toUtc, CancellationToken cancellationToken = default)
         {
             var query = _db.BookingDeposits.Where(d => d.Status == status);
             if (fromUtc.HasValue)

@@ -14,27 +14,27 @@ public class CafeTableRepository : ICafeTableRepository
         _db = db;
     }
 
-    public async Task<CafeTable?> GetByIdAsync(Guid tableId)
+    public async Task<CafeTable?> GetByIdAsync(Guid tableId, CancellationToken cancellationToken = default)
     {
-        return await _db.CafeTables.FirstOrDefaultAsync(t => t.Id == tableId);
+        return await _db.CafeTables.FirstOrDefaultAsync(t => t.Id == tableId, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<CafeTable>> GetByCafeIdAsync(Guid cafeId)
+    public async Task<IReadOnlyList<CafeTable>> GetByCafeIdAsync(Guid cafeId, CancellationToken cancellationToken = default)
     {
         return await _db.CafeTables
             .Where(t => t.CafeId == cafeId)
             .OrderBy(t => t.SortOrder)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
-    public Task UpdateAsync(CafeTable table)
+    public Task UpdateAsync(CafeTable table, CancellationToken cancellationToken = default)
     {
         _db.CafeTables.Update(table);
         return Task.CompletedTask;
     }
 
-    public Task SaveChangesAsync()
+    public async Task SaveChangesAsync(CancellationToken cancellationToken = default)
     {
-        return _db.SaveChangesAsync();
+        await _db.SaveChangesAsync(cancellationToken);
     }
 }

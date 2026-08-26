@@ -17,19 +17,19 @@ namespace BoardVerse.Data.Repositories
             _context = context;
         }
 
-        public Task AddAsync(CafePartnerApplication application)
+        public Task AddAsync(CafePartnerApplication application, CancellationToken cancellationToken = default)
         {
             _context.CafePartnerApplications.Add(application);
             return Task.CompletedTask;
         }
 
-        public Task AddCafeAsync(Cafe cafe)
+        public Task AddCafeAsync(Cafe cafe, CancellationToken cancellationToken = default)
         {
             _context.Cafes.Add(cafe);
             return Task.CompletedTask;
         }
 
-        public async Task<CafePartnerApplication?> GetByIdAsync(Guid id)
+        public async Task<CafePartnerApplication?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
         {
             return await _context.CafePartnerApplications
                 .Include(a => a.SubmittedByUser)
@@ -39,7 +39,7 @@ namespace BoardVerse.Data.Repositories
                 .FirstOrDefaultAsync(a => a.Id == id);
         }
 
-        public async Task<CafePartnerApplication?> GetApprovedByManagerUserIdAsync(Guid managerUserId)
+        public async Task<CafePartnerApplication?> GetApprovedByManagerUserIdAsync(Guid managerUserId, CancellationToken cancellationToken = default)
         {
             return await _context.CafePartnerApplications
                 .Include(a => a.CreatedCafe)
@@ -48,7 +48,7 @@ namespace BoardVerse.Data.Repositories
                     a.Status == CafePartnerApplicationStatus.Approved);
         }
 
-        public async Task<bool> HasOpenApplicationByEmailAsync(string email)
+        public async Task<bool> HasOpenApplicationByEmailAsync(string email, CancellationToken cancellationToken = default)
         {
             var normalized = email.Trim().ToLowerInvariant();
             return await _context.CafePartnerApplications.AnyAsync(a =>
@@ -56,7 +56,7 @@ namespace BoardVerse.Data.Repositories
                 a.Status == CafePartnerApplicationStatus.PendingApproval);
         }
 
-        public async Task<bool> HasSevereDuplicateAsync(string businessLicense, string normalizedAddress, Guid? excludeApplicationId = null)
+        public async Task<bool> HasSevereDuplicateAsync(string businessLicense, string normalizedAddress, Guid? excludeApplicationId = null, CancellationToken cancellationToken = default)
         {
             var license = businessLicense.Trim().ToUpperInvariant();
             var address = normalizedAddress.Trim().ToLowerInvariant();
@@ -93,7 +93,7 @@ namespace BoardVerse.Data.Repositories
                 a.Address.Trim().ToLower() == address);
         }
 
-        public async Task<PaginatedResponse<CafePartnerApplication>> GetPagedAsync(AdminCafePartnerApplicationQueryDto query)
+        public async Task<PaginatedResponse<CafePartnerApplication>> GetPagedAsync(AdminCafePartnerApplicationQueryDto query, CancellationToken cancellationToken = default)
         {
             var applicationsQuery = _context.CafePartnerApplications
                 .AsNoTracking()
@@ -140,7 +140,7 @@ namespace BoardVerse.Data.Repositories
             };
         }
 
-        public async Task SaveChangesAsync()
+        public async Task SaveChangesAsync(CancellationToken cancellationToken = default)
         {
             await _context.SaveChangesAsync();
         }

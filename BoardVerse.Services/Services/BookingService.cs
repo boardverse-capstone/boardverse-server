@@ -45,7 +45,7 @@ public class BookingService : IBookingService
         _logger = logger;
     }
 
-    public async Task<BookingResponseDto> CreateBookingAsync(Guid hostUserId, CreateBookingRequestDto request)
+    public async Task<BookingResponseDto> CreateBookingAsync(Guid hostUserId, CreateBookingRequestDto request, CancellationToken cancellationToken = default)
     {
         Lobby? lobby = null;
 
@@ -166,13 +166,13 @@ public class BookingService : IBookingService
         }
     }
 
-    public async Task<BookingResponseDto?> GetByIdAsync(Guid bookingId)
+    public async Task<BookingResponseDto?> GetByIdAsync(Guid bookingId, CancellationToken cancellationToken = default)
     {
         var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true);
         return booking == null ? null : BookingResponseDto.FromEntity(booking);
     }
 
-    public async Task<BookingResponseDto?> GetByIdForCallerAsync(Guid bookingId, Guid callerUserId, string callerRole)
+    public async Task<BookingResponseDto?> GetByIdForCallerAsync(Guid bookingId, Guid callerUserId, string callerRole, CancellationToken cancellationToken = default)
     {
         var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true);
         if (booking == null)
@@ -188,13 +188,13 @@ public class BookingService : IBookingService
         return BookingResponseDto.FromEntity(booking);
     }
 
-    public async Task<BookingResponseDto?> GetByLobbyIdAsync(Guid lobbyId)
+    public async Task<BookingResponseDto?> GetByLobbyIdAsync(Guid lobbyId, CancellationToken cancellationToken = default)
     {
         var booking = await _bookingRepository.GetByLobbyIdAsync(lobbyId);
         return booking == null ? null : BookingResponseDto.FromEntity(booking);
     }
 
-    public async Task<BookingResponseDto?> GetByLobbyIdForCallerAsync(Guid lobbyId, Guid callerUserId, string callerRole)
+    public async Task<BookingResponseDto?> GetByLobbyIdForCallerAsync(Guid lobbyId, Guid callerUserId, string callerRole, CancellationToken cancellationToken = default)
     {
         var booking = await _bookingRepository.GetByLobbyIdAsync(lobbyId);
         if (booking == null)
@@ -254,7 +254,7 @@ public class BookingService : IBookingService
         return false;
     }
 
-    public async Task<IReadOnlyList<BookingResponseDto>> GetByCafeIdAsync(Guid cafeId, Guid? requestingUserId = null, bool isStaffOrManager = false)
+    public async Task<IReadOnlyList<BookingResponseDto>> GetByCafeIdAsync(Guid cafeId, Guid? requestingUserId = null, bool isStaffOrManager = false, CancellationToken cancellationToken = default)
     {
         // GAP-C1: IDOR guard. Non-staff users (Player) get a sanitized list rendered by the controller;
         // here we still require the cafe to exist so we can return a clean 404 instead of an empty array
@@ -285,7 +285,7 @@ public class BookingService : IBookingService
     public async Task<BookingResponseDto> UpdateBookingAsync(
         Guid bookingId,
         Guid requestingUserId,
-        UpdateBookingRequestDto request)
+        UpdateBookingRequestDto request, CancellationToken cancellationToken = default)
     {
         var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
             ?? throw new NotFoundException(ApiErrorMessages.Booking.NotFound(bookingId));
@@ -435,7 +435,7 @@ public class BookingService : IBookingService
     public async Task<BookingResponseDto> CancelBookingAsync(
         Guid bookingId,
         Guid requestingUserId,
-        string? reason = null)
+        string? reason = null, CancellationToken cancellationToken = default)
     {
         var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
             ?? throw new NotFoundException(ApiErrorMessages.Booking.NotFound(bookingId));
@@ -499,16 +499,16 @@ public class BookingService : IBookingService
     }
 
     [Obsolete("Deprecated — BR mới dùng Reservation BVC flow. POS check-in qua CafePosService.StartSessionFromBookingAsync (ReservationCode).")]
-    public Task<BookingResponseDto> CheckInAsync(Guid bookingId, Guid staffUserId)
+    public Task<BookingResponseDto> CheckInAsync(Guid bookingId, Guid staffUserId, CancellationToken cancellationToken = default)
         => throw new NotSupportedException(
             "BookingService.CheckInAsync đã deprecated. POS scan QR giờ dùng ReservationCode (BVC flow) qua CafePosService.StartSessionFromBookingAsync.");
 
     [Obsolete("Deprecated — đã thay bằng ReservationService.CompleteAndCaptureAsync (BR-REVENUE-01).")]
-    public Task<BookingResponseDto> CheckOutAsync(Guid bookingId, Guid staffUserId)
+    public Task<BookingResponseDto> CheckOutAsync(Guid bookingId, Guid staffUserId, CancellationToken cancellationToken = default)
         => throw new NotSupportedException(
             "BookingService.CheckOutAsync đã deprecated. Capture BVC deposit giờ do ReservationService xử lý (BR-REVENUE-01).");
 
-    public async Task<Booking> ConfirmBookingAsync(Guid bookingId)
+    public async Task<Booking> ConfirmBookingAsync(Guid bookingId, CancellationToken cancellationToken = default)
     {
         var booking = await _bookingRepository.GetByIdAsync(bookingId)
             ?? throw new NotFoundException(ApiErrorMessages.Booking.NotFound(bookingId));
@@ -526,7 +526,7 @@ public class BookingService : IBookingService
         return booking;
     }
 
-    public async Task<Booking> MarkAsNoShowAsync(Guid bookingId)
+    public async Task<Booking> MarkAsNoShowAsync(Guid bookingId, CancellationToken cancellationToken = default)
     {
         var booking = await _bookingRepository.GetByIdAsync(bookingId)
             ?? throw new NotFoundException(ApiErrorMessages.Booking.NotFound(bookingId));
@@ -544,7 +544,7 @@ public class BookingService : IBookingService
         return booking;
     }
 
-    public async Task<BookingSessionStatusResponseDto> GetSessionStatusAsync(Guid bookingId, Guid requestingUserId)
+    public async Task<BookingSessionStatusResponseDto> GetSessionStatusAsync(Guid bookingId, Guid requestingUserId, CancellationToken cancellationToken = default)
     {
         var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
             ?? throw new NotFoundException(ApiErrorMessages.Booking.NotFound(bookingId));

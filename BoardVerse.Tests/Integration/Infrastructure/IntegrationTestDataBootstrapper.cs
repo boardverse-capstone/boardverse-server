@@ -136,18 +136,26 @@ internal static class IntegrationTestDataBootstrapper
 
     private static async Task EnsureSeatInventoryAsync(BoardVerseDbContext db)
     {
-        // Pre-create seat inventory rows for today + all 4 timeSlots so any
-        // reservation test can target any timeSlot without manual setup.
+        // Pre-create seat inventory rows for today + all time ranges so any
+        // reservation test can target any time range without manual setup.
         // TotalSeats=30 = Capacity; HeldSeats/InUseSeats reset to 0 on each run.
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var timeSlots = new[] { TimeSlot.Morning, TimeSlot.Afternoon, TimeSlot.Evening, TimeSlot.LateNight };
+        // Map TimeSlot → (ScheduledStartTime, ScheduledEndTime) for backward compat
+        var ranges = new[]
+        {
+            (TimeSlot.Morning.GetStartTime(), TimeSlot.Morning.GetEndTime()),
+            (TimeSlot.Afternoon.GetStartTime(), TimeSlot.Afternoon.GetEndTime()),
+            (TimeSlot.Evening.GetStartTime(), TimeSlot.Evening.GetEndTime()),
+            (TimeSlot.LateNight.GetStartTime(), TimeSlot.LateNight.GetEndTime()),
+        };
 
-        foreach (var slot in timeSlots)
+        foreach (var (scheduledStart, scheduledEnd) in ranges)
         {
             var existing = await db.SeatInventories.FirstOrDefaultAsync(s =>
                 s.CafeId == IntegrationTestFixtures.DemoCafeId
                 && s.PlayDate == today
-                && s.TimeSlot == slot);
+                && s.ScheduledStartTime == scheduledStart
+                && s.ScheduledEndTime == scheduledEnd);
 
             if (existing == null)
             {
@@ -156,7 +164,8 @@ internal static class IntegrationTestDataBootstrapper
                     Id = Guid.NewGuid(),
                     CafeId = IntegrationTestFixtures.DemoCafeId,
                     PlayDate = today,
-                    TimeSlot = slot,
+                    ScheduledStartTime = scheduledStart,
+                    ScheduledEndTime = scheduledEnd,
                     TotalSeats = 30,
                     HeldSeats = 0,
                     InUseSeats = 0,
@@ -199,15 +208,22 @@ internal static class IntegrationTestDataBootstrapper
         }
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var timeSlots = new[] { TimeSlot.Morning, TimeSlot.Afternoon, TimeSlot.Evening, TimeSlot.LateNight };
+        var ranges = new[]
+        {
+            (TimeSlot.Morning.GetStartTime(), TimeSlot.Morning.GetEndTime()),
+            (TimeSlot.Afternoon.GetStartTime(), TimeSlot.Afternoon.GetEndTime()),
+            (TimeSlot.Evening.GetStartTime(), TimeSlot.Evening.GetEndTime()),
+            (TimeSlot.LateNight.GetStartTime(), TimeSlot.LateNight.GetEndTime()),
+        };
 
-        foreach (var slot in timeSlots)
+        foreach (var (scheduledStart, scheduledEnd) in ranges)
         {
             var existing = await db.GameInventories.FirstOrDefaultAsync(g =>
                 g.CafeId == IntegrationTestFixtures.DemoCafeId
                 && g.GameId == catanId
                 && g.PlayDate == today
-                && g.TimeSlot == slot);
+                && g.ScheduledStartTime == scheduledStart
+                && g.ScheduledEndTime == scheduledEnd);
 
             if (existing == null)
             {
@@ -217,7 +233,8 @@ internal static class IntegrationTestDataBootstrapper
                     CafeId = IntegrationTestFixtures.DemoCafeId,
                     GameId = catanId,
                     PlayDate = today,
-                    TimeSlot = slot,
+                    ScheduledStartTime = scheduledStart,
+                    ScheduledEndTime = scheduledEnd,
                     TotalCopies = 2,
                     HeldCopies = 0,
                     InUseCopies = 0,
@@ -1114,15 +1131,21 @@ internal static class IntegrationTestDataBootstrapper
             posTable.UpdatedAt = DateTime.UtcNow;
         }
 
-        // Clean up old sessions - handle both old and new schema gracefully
+        // Clean up old sessions - handle both old and new schema gracefully.
+        // Use CASCADE to handle any FK chain (ActiveSessionMembers, IndividualSessions, SessionGames).
         try
         {
-            // Delete members first (table may not exist in old schema)
             await db.Database.ExecuteSqlRawAsync(@"
                 DO $$
                 BEGIN
                     IF EXISTS (SELECT FROM pg_tables WHERE tablename = 'ActiveSessionMembers') THEN
                         DELETE FROM ""ActiveSessionMembers"" WHERE ""ActiveSessionId"" IN (SELECT ""Id"" FROM ""ActiveSessions"" WHERE ""CafeId"" = {0});
+                    END IF;
+                    IF EXISTS (SELECT FROM pg_tables WHERE tablename = 'IndividualSessions') THEN
+                        DELETE FROM ""IndividualSessions"" WHERE ""ActiveSessionId"" IN (SELECT ""Id"" FROM ""ActiveSessions"" WHERE ""CafeId"" = {0});
+                    END IF;
+                    IF EXISTS (SELECT FROM pg_tables WHERE tablename = 'SessionGames') THEN
+                        DELETE FROM ""SessionGames"" WHERE ""SessionId"" IN (SELECT ""Id"" FROM ""ActiveSessions"" WHERE ""CafeId"" = {0});
                     END IF;
                 END $$;
                 DELETE FROM ""ActiveSessions"" WHERE ""CafeId"" = {0};
@@ -1130,7 +1153,7 @@ internal static class IntegrationTestDataBootstrapper
         }
         catch
         {
-            // Schema might be incomplete, ignore
+            // Schema might be incomplete or FK chain unexpected, ignore
         }
 
         // Reset ALL boxes in demo cafe to Available - not just Catan

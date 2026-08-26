@@ -2,16 +2,17 @@ using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.User;
 using BoardVerse.Core.Entities;
 
+using System.Threading;
 namespace BoardVerse.Core.IRepositories
 {
     public interface IUserManagementRepository
     {
-        Task<bool> UserExistsAsync(string email, string username);
-        Task<bool> UsernameExistsAsync(string username, Guid? excludedUserId = null);
-        Task<bool> EmailExistsAsync(string email, Guid? excludedUserId = null);
-        Task<PaginatedResponse<User>> GetAdminUsersAsync(AdminUserQueryDto query);
-        Task<User?> GetByIdAsync(Guid userId);
-        Task<User?> GetByIdWithProfileAsync(Guid userId);
+        Task<bool> UserExistsAsync(string email, string username, CancellationToken cancellationToken = default);
+        Task<bool> UsernameExistsAsync(string username, Guid? excludedUserId = null, CancellationToken cancellationToken = default);
+        Task<bool> EmailExistsAsync(string email, Guid? excludedUserId = null, CancellationToken cancellationToken = default);
+        Task<PaginatedResponse<User>> GetAdminUsersAsync(AdminUserQueryDto query, CancellationToken cancellationToken = default);
+        Task<User?> GetByIdAsync(Guid userId, CancellationToken cancellationToken = default);
+        Task<User?> GetByIdWithProfileAsync(Guid userId, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Tìm user theo username (case-insensitive contains) cho friend search.
@@ -23,19 +24,19 @@ namespace BoardVerse.Core.IRepositories
             string keyword,
             Guid excludeUserId,
             int limit = 20,
-            IReadOnlyCollection<Guid>? blockedUserIds = null);
+            IReadOnlyCollection<Guid>? blockedUserIds = null, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Lấy danh sách user theo danh sách UserId (cho friend suggestions, mutual friends, activity).
         /// </summary>
-        Task<IReadOnlyList<User>> GetByIdsAsync(IReadOnlyCollection<Guid> userIds);
+        Task<IReadOnlyList<User>> GetByIdsAsync(IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Cập nhật LastActiveAt của user (gọi từ middleware hoặc background job).
         /// </summary>
-        Task UpdateLastActiveAsync(Guid userId, DateTime lastActiveAt);
+        Task UpdateLastActiveAsync(Guid userId, DateTime lastActiveAt, CancellationToken cancellationToken = default);
 
-        Task AddUserAsync(User user);
-        Task SaveChangesAsync();
+        Task AddUserAsync(User user, CancellationToken cancellationToken = default);
+        Task SaveChangesAsync(CancellationToken cancellationToken = default);
     }
 }

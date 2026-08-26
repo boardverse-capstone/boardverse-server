@@ -68,9 +68,9 @@ public class ReservationController : BaseApiController
     /// Tạo quote cho reservation. [Role: Player]
     /// Quote chỉ validate + tính toán, KHÔNG tạo row DB. Idempotent theo IdempotencyKey.
     /// </summary>
-    /// <param name="request">CafeId, GameId, PlayDate, TimeSlot, MinPlayers, MaxPlayers, PreferredStartTime, IdempotencyKey.</param>
+    /// <param name="request">CafeId, GameId, PlayDate, MinPlayers, MaxPlayers, PreferredStartTime, PreferredEndTime, IdempotencyKey.</param>
     /// <response code="200">Trả quote gồm số BVC cần hold, balance hiện tại, missing amount, buffer, expiresAt.</response>
-    /// <response code="400">Request không hợp lệ (playDate ngoài [today, +7], minPlayers &lt; 1, maxPlayers &lt; 1, timeSlot không đúng, preferredStartTime không nằm trong timeSlot window).</response>
+    /// <response code="400">Request không hợp lệ (playDate ngoài [today, +7], minPlayers &lt; 1, maxPlayers &lt; 1, preferredStartTime không n�m trong cafe schedule).</response>
     /// <response code="401">Thiếu token.</response>
     /// <response code="403">User bị suspended/banned hoặc vượt cap tổng heldBalance.</response>
     /// <response code="404">Cafe/Game không tồn tại hoặc cafe không có game này.</response>
@@ -97,7 +97,7 @@ public class ReservationController : BaseApiController
     /// Trừ BVC từ ví, giữ seat + game copy, tạo Reservation + Lobby trong 1 transaction.
     /// Lobby có playDate &gt; 2 ngày sẽ vào trạng thái PendingCafeApproval (BR-NEW-11).
     /// </summary>
-    /// <param name="request">CafeId, GameId, PlayDate, TimeSlot, MinPlayers, MaxPlayers, ExpectedFinalDeposit, IdempotencyKey.</param>
+    /// <param name="request">CafeId, GameId, PlayDate, MinPlayers, MaxPlayers, PreferredStartTime, PreferredEndTime, ExpectedFinalDeposit, IdempotencyKey.</param>
     /// <response code="201">Reservation + Lobby đã được tạo trong transaction, trả ReservationId, LobbyId, RecruitmentDeadline, RequiresCafeApproval, CafeApprovalDeadline, HeldBvc.</response>
     /// <response code="400">Quote đã thay đổi (ExpectedFinalDeposit sai), buffer quá ngắn, insufficient balance, validate thất bại.</response>
     /// <response code="401">Thiếu token.</response>
@@ -154,6 +154,29 @@ public class ReservationController : BaseApiController
         var userId = GetUserIdFromClaims();
         var result = await _reservationService.GetListAsync(userId, request);
         return this.NewResponse(200, "ReservationsRetrieved", result);
+    }
+
+    /// <summary>
+    /// Tìm kiếm lịch hẹn theo tên game hoặc ngày tháng. [Role: Player]
+    /// </summary>
+    /// <param name="request">
+    /// - gameName: từ khóa tìm kiếm theo tên game (fuzzy search).
+    /// - fromDate: ngày bắt đầu filter (inclusive).
+    /// - toDate: ngày kết thúc filter (inclusive).
+    /// - statuses: filter theo trạng thái.
+    /// - cafeId: filter theo cafe.
+    /// - hostedByMe: chỉ lấy reservation do user host (default true).
+    /// - joinedByMe: chỉ lấy reservation user tham gia (default false).
+    /// </param>
+    /// <response code="200">Danh sách reservation tìm được (phân trang).</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpGet("search")]
+    public async Task<IActionResult> SearchReservations([FromQuery] ReservationSearchRequestDto request)
+    {
+        var userId = GetUserIdFromClaims();
+        var result = await _reservationService.SearchAsync(userId, request);
+        return this.NewResponse(200, "ReservationsSearched", result);
     }
 
     /// <summary>
@@ -393,6 +416,40 @@ public class ReservationController : BaseApiController
                 ActiveSessionId = request.ActiveSessionId,
                 IdempotencyKey = request.IdempotencyKey
             });
+            return this.NewResponse(200, "ReservationCheckedIn", result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            var statusCode = GetStatusCodeForError(ex.Message);
+            return this.NewResponse(statusCode, ex.Message, null);
+        }
+    }
+
+    /// <summary>
+    /// BR §21A.7: POS scan QR check-in theo ReservationCode. [Role: Cafe Staff]
+    /// Endpoint thay thế cho FE không biết reservationId, chỉ cần ReservationCode từ QR.
+    /// Atomic transition Reservation.Status = Confirmed → CheckedIn, Lobby.Status = InProgress.
+    /// Idempotent theo ReservationCode.
+    /// </summary>
+    /// <param name="reservationCode">Mã 8-char alphanumeric từ QR code.</param>
+    /// <param name="request">CafeId, ActiveSessionId, TableNumber, IdempotencyKey.</param>
+    /// <response code="200">Check-in thành công.</response>
+    /// <response code="400">Request không hợp lệ.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải staff của cafe.</response>
+    /// <response code="404">Không tìm thấy reservation.</response>
+    /// <response code="409">Reservation không thuộc cafe hoặc đã check-in rồi.</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpPost("by-code/{reservationCode}/check-in")]
+    [Authorize(Roles = "Manager,CafeStaff")]
+    public async Task<IActionResult> CheckInByCode(
+        string reservationCode,
+        [FromBody] CheckInByCodeRequestDto request)
+    {
+        try
+        {
+            var userId = GetUserIdFromClaims();
+            var result = await _reservationService.CheckInByCodeAsync(userId, reservationCode, request);
             return this.NewResponse(200, "ReservationCheckedIn", result);
         }
         catch (InvalidOperationException ex)

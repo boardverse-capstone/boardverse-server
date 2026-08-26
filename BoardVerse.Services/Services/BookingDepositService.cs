@@ -39,7 +39,7 @@ public class BookingDepositService : IBookingDepositService
         decimal amount,
         DepositRefundPolicy refundPolicy,
         DateTime? scheduledAt = null,
-        Guid? bookingId = null)
+        Guid? bookingId = null, CancellationToken cancellationToken = default)
     {
         var cafe = await _cafeRepository.GetActiveByIdAsync(cafeId)
             ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
@@ -127,7 +127,7 @@ public class BookingDepositService : IBookingDepositService
         return deposit;
     }
 
-    public async Task<BookingDeposit> MarkAsRefundedAsync(Guid depositId)
+    public async Task<BookingDeposit> MarkAsRefundedAsync(Guid depositId, CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;
         var rowsAffected = await _depositRepository.TryMarkAsRefundedAsync(depositId, now);
@@ -161,7 +161,7 @@ public class BookingDepositService : IBookingDepositService
         return deposit;
     }
 
-    public async Task<BookingDeposit> ForfeitAsync(Guid depositId)
+    public async Task<BookingDeposit> ForfeitAsync(Guid depositId, CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;
         var rowsAffected = await _depositRepository.TryForfeitAsync(depositId, now);
@@ -194,7 +194,7 @@ public class BookingDepositService : IBookingDepositService
         return deposit;
     }
 
-    public async Task ExpireAsync(Guid depositId)
+    public async Task ExpireAsync(Guid depositId, CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;
         var rowsAffected = await _depositRepository.TryExpireAsync(depositId, now);
@@ -209,7 +209,7 @@ public class BookingDepositService : IBookingDepositService
         _logger.LogInformation("BookingDeposit expired. DepositId={DepositId}", depositId);
     }
 
-    public async Task ProcessExpiredDepositsAsync()
+    public async Task ProcessExpiredDepositsAsync(CancellationToken cancellationToken = default)
     {
         const int BatchSize = 50;
         var now = DateTime.UtcNow;
@@ -272,28 +272,28 @@ public class BookingDepositService : IBookingDepositService
         }
     }
 
-    public async Task<BookingDeposit?> GetByIdAsync(Guid depositId)
+    public async Task<BookingDeposit?> GetByIdAsync(Guid depositId, CancellationToken cancellationToken = default)
     {
         return await _depositRepository.GetByIdAsync(depositId);
     }
 
-    public async Task<BookingDeposit?> GetByOrderIdAsync(string orderId)
+    public async Task<BookingDeposit?> GetByOrderIdAsync(string orderId, CancellationToken cancellationToken = default)
     {
         return await _depositRepository.GetByOrderIdAsync(orderId);
     }
 
-    public async Task<BookingDeposit?> GetBySePayTransactionIdAsync(string sePayTransactionId)
+    public async Task<BookingDeposit?> GetBySePayTransactionIdAsync(string sePayTransactionId, CancellationToken cancellationToken = default)
     {
         return await _depositRepository.GetBySePayTransactionIdAsync(sePayTransactionId);
     }
 
     /// <summary>BR-05: Lấy đơn cọc theo BookingId.</summary>
-    public async Task<BookingDeposit?> GetByBookingIdAsync(Guid bookingId)
+    public async Task<BookingDeposit?> GetByBookingIdAsync(Guid bookingId, CancellationToken cancellationToken = default)
     {
         return await _depositRepository.GetByBookingIdAsync(bookingId);
     }
 
-    public async Task UpdateQrInfoAsync(Guid depositId, string qrUrl, DateTime? qrExpiresAt, string? transferContent = null)
+    public async Task UpdateQrInfoAsync(Guid depositId, string qrUrl, DateTime? qrExpiresAt, string? transferContent = null, CancellationToken cancellationToken = default)
     {
         var deposit = await _depositRepository.GetByIdAsync(depositId)
             ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);

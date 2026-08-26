@@ -21,7 +21,7 @@ namespace BoardVerse.Data.Repositories
             KarmaViolationCategory? violationCategory,
             DateTime? fromUtc,
             DateTime? toUtc,
-            PaginationParams pagination)
+            PaginationParams pagination, CancellationToken cancellationToken = default)
         {
             var query = _context.KarmaLogs
                 .AsNoTracking()
@@ -84,7 +84,7 @@ namespace BoardVerse.Data.Repositories
             };
         }
 
-        public async Task<IReadOnlyList<UserKarmaAlertDto>> GetKarmaAlertsAsync(int threshold)
+        public async Task<IReadOnlyList<UserKarmaAlertDto>> GetKarmaAlertsAsync(int threshold, CancellationToken cancellationToken = default)
         {
             return await _context.UserProfiles
                 .AsNoTracking()
@@ -107,22 +107,22 @@ namespace BoardVerse.Data.Repositories
                 .ToListAsync();
         }
 
-        public Task<User?> GetUserWithProfileForUpdateAsync(Guid userId) =>
+        public Task<User?> GetUserWithProfileForUpdateAsync(Guid userId, CancellationToken cancellationToken = default) =>
             _context.Users
                 .Include(u => u.Profile)
                 .FirstOrDefaultAsync(u => u.Id == userId);
 
-        public Task<UserProfile?> GetProfileForUpdateAsync(Guid userId) =>
+        public Task<UserProfile?> GetProfileForUpdateAsync(Guid userId, CancellationToken cancellationToken = default) =>
             _context.UserProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
 
-        public async Task AddKarmaLogAsync(KarmaLog log)
+        public async Task AddKarmaLogAsync(KarmaLog log, CancellationToken cancellationToken = default)
         {
             await _context.KarmaLogs.AddAsync(log);
         }
 
-        public Task SaveChangesAsync() => _context.SaveChangesAsync();
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default) => _context.SaveChangesAsync();
 
-        public async Task<PaginatedResponse<CoolingOffUserDto>> GetCoolingOffUsersAsync(PaginationParams pagination)
+        public async Task<PaginatedResponse<CoolingOffUserDto>> GetCoolingOffUsersAsync(PaginationParams pagination, CancellationToken cancellationToken = default)
         {
             var query = _context.Wallets
                 .AsNoTracking()
@@ -165,10 +165,10 @@ namespace BoardVerse.Data.Repositories
             };
         }
 
-        public Task<Wallet?> GetWalletForUpdateAsync(Guid userId) =>
+        public Task<Wallet?> GetWalletForUpdateAsync(Guid userId, CancellationToken cancellationToken = default) =>
             _context.Wallets.FirstOrDefaultAsync(w => w.UserId == userId);
 
-        public async Task<PaginatedResponse<PlayerActionHistoryDto>> GetPlayerActionHistoryAsync(PlayerActionHistoryQuery q)
+        public async Task<PaginatedResponse<PlayerActionHistoryDto>> GetPlayerActionHistoryAsync(PlayerActionHistoryQuery q, CancellationToken cancellationToken = default)
         {
             var query = _context.PlayerActionHistories.AsNoTracking().AsQueryable();
 

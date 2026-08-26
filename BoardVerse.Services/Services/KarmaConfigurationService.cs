@@ -12,10 +12,10 @@ namespace BoardVerse.Services.Services
             _configurationProvider = configurationProvider;
         }
 
-        public Task<int> GetLateCancelPenaltyAsync() =>
+        public Task<int> GetLateCancelPenaltyAsync(CancellationToken cancellationToken = default) =>
             _configurationProvider.GetIntAsync(SystemConfigKeys.KarmaPenaltyCancel, -3);
 
-        public Task<int> GetNoShowPenaltyAsync() =>
+        public Task<int> GetNoShowPenaltyAsync(CancellationToken cancellationToken = default) =>
             _configurationProvider.GetIntAsync(SystemConfigKeys.KarmaPenaltyNoshow, -5);
     }
 }

@@ -28,7 +28,8 @@ public class DeviceTokenService : IDeviceTokenService
 
     public async Task<DeviceTokenResponseDto> RegisterAsync(
         Guid userId,
-        RegisterDeviceTokenRequestDto request)
+        RegisterDeviceTokenRequestDto request,
+        CancellationToken cancellationToken = default)
     {
         if (!AllowedPlatforms.Contains(request.Platform))
         {
@@ -71,7 +72,7 @@ public class DeviceTokenService : IDeviceTokenService
         return DeviceTokenResponseDto.FromEntity(token);
     }
 
-    public async Task<bool> DeleteAsync(Guid userId, Guid tokenId)
+    public async Task<bool> DeleteAsync(Guid userId, Guid tokenId, CancellationToken cancellationToken = default)
     {
         var tokens = await _repository.GetByUserIdAsync(userId);
         var existing = tokens.FirstOrDefault(t => t.Id == tokenId);

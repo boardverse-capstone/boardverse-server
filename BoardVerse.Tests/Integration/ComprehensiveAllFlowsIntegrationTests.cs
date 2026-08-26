@@ -758,19 +758,19 @@ public class ComprehensiveAllFlowsIntegrationTests
 
         var tournamentRequest = new
         {
-            name = $"Comprehensive Tournament {Guid.NewGuid():N}".Substring(0, 30),
+            title = $"Comprehensive Tournament {Guid.NewGuid():N}".Substring(0, 30),
+            cafeId = IntegrationTestFixtures.DemoCafeId,
             gameTemplateId = catanId,
             description = "Test tournament",
             maxParticipants = 16,
             minParticipants = 4,
-            entryFee = 50000,
-            prizePool = 500000,
-            scheduledStartTime = DateTime.UtcNow.AddDays(7),
+            entryFee = 50000m,
+            startTime = DateTime.UtcNow.AddDays(7),
             registrationDeadline = DateTime.UtcNow.AddDays(5),
-            format = "Swiss"
+            pairingMode = "Auto"
         };
 
-        var createResponse = await ApiTestClient.PostJsonAsync(_client, "/api/v1/tournaments", tournamentRequest);
+        var createResponse = await ApiTestClient.PostJsonAsync(_client, "/api/v1/admin/tournaments", tournamentRequest);
 
         if (createResponse.StatusCode == HttpStatusCode.Created)
         {
@@ -781,7 +781,7 @@ public class ComprehensiveAllFlowsIntegrationTests
             var playerToken = await IntegrationTestAuth.AsPlayer1Async(_client);
             ApiTestClient.Authorize(_client, playerToken);
             var registerRequest = new { tournamentId = tournamentId };
-            var registerResponse = await ApiTestClient.PostJsonAsync(_client, "/api/v1/tournaments/register", registerRequest);
+            var registerResponse = await ApiTestClient.PostJsonAsync(_client, $"/api/v1/tournaments/{tournamentId}/register", registerRequest);
             Assert.True(registerResponse.StatusCode == HttpStatusCode.OK ||
                        registerResponse.StatusCode == HttpStatusCode.BadRequest ||
                        registerResponse.StatusCode == HttpStatusCode.NotFound ||
@@ -791,10 +791,7 @@ public class ComprehensiveAllFlowsIntegrationTests
         }
         else
         {
-            Assert.True(createResponse.StatusCode == HttpStatusCode.BadRequest ||
-                       createResponse.StatusCode == HttpStatusCode.Forbidden ||
-                       createResponse.StatusCode == HttpStatusCode.Conflict ||
-                       createResponse.StatusCode == HttpStatusCode.NotFound,
+            Assert.True(createResponse.StatusCode == HttpStatusCode.Created,
                        $"Create tournament returned: {(int)createResponse.StatusCode}");
         }
     }

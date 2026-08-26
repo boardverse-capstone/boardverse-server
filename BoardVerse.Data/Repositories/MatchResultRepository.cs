@@ -20,7 +20,7 @@ namespace BoardVerse.Data.Repositories
             _context = context;
         }
 
-        public Task<Lobby?> GetLobbyForMatchAsync(Guid lobbyId) =>
+        public Task<Lobby?> GetLobbyForMatchAsync(Guid lobbyId, CancellationToken cancellationToken = default) =>
             _context.Lobbies
                 .AsNoTracking()
                 .Include(l => l.Members.Where(m => m.IsActive))
@@ -28,49 +28,49 @@ namespace BoardVerse.Data.Repositories
                 .Include(l => l.GameTemplate)
                 .FirstOrDefaultAsync(l => l.Id == lobbyId);
 
-        public Task<bool> IsActiveLobbyMemberAsync(Guid lobbyId, Guid userId) =>
+        public Task<bool> IsActiveLobbyMemberAsync(Guid lobbyId, Guid userId, CancellationToken cancellationToken = default) =>
             _context.LobbyMembers
                 .AsNoTracking()
                 .AnyAsync(m => m.LobbyId == lobbyId && m.UserId == userId && m.IsActive);
 
-        public Task<bool> GameSupportsMatchResultsAsync(Guid gameTemplateId) =>
+        public Task<bool> GameSupportsMatchResultsAsync(Guid gameTemplateId, CancellationToken cancellationToken = default) =>
             _context.GameTemplateCategories
                 .AsNoTracking()
                 .AnyAsync(gtc =>
                     gtc.GameTemplateId == gameTemplateId
                     && CompetitiveCategoryIds.Contains(gtc.CategoryId));
 
-        public Task<MatchResult?> GetSubmissionAsync(Guid lobbyId, Guid userId) =>
+        public Task<MatchResult?> GetSubmissionAsync(Guid lobbyId, Guid userId, CancellationToken cancellationToken = default) =>
             _context.MatchResults
                 .FirstOrDefaultAsync(r => r.LobbyId == lobbyId && r.UserId == userId);
 
-        public async Task<IReadOnlyList<MatchResult>> GetSubmissionsAsync(Guid lobbyId) =>
+        public async Task<IReadOnlyList<MatchResult>> GetSubmissionsAsync(Guid lobbyId, CancellationToken cancellationToken = default) =>
             await _context.MatchResults
                 .AsNoTracking()
                 .Where(r => r.LobbyId == lobbyId)
                 .ToListAsync();
 
-        public Task<MatchHistory?> GetFinalizedHistoryAsync(Guid lobbyId) =>
+        public Task<MatchHistory?> GetFinalizedHistoryAsync(Guid lobbyId, CancellationToken cancellationToken = default) =>
             _context.MatchHistories
                 .AsNoTracking()
                 .Include(h => h.Participants)
                 .FirstOrDefaultAsync(h => h.LobbyId == lobbyId);
 
-        public Task AddSubmissionAsync(MatchResult submission)
+        public Task AddSubmissionAsync(MatchResult submission, CancellationToken cancellationToken = default)
         {
             _context.MatchResults.Add(submission);
             return Task.CompletedTask;
         }
 
-        public Task AddMatchHistoryAsync(MatchHistory history)
+        public Task AddMatchHistoryAsync(MatchHistory history, CancellationToken cancellationToken = default)
         {
             _context.MatchHistories.Add(history);
             return Task.CompletedTask;
         }
 
-        public Task<UserProfile?> GetProfileForUpdateAsync(Guid userId) =>
+        public Task<UserProfile?> GetProfileForUpdateAsync(Guid userId, CancellationToken cancellationToken = default) =>
             _context.UserProfiles.FirstOrDefaultAsync(p => p.UserId == userId);
 
-        public Task SaveChangesAsync() => _context.SaveChangesAsync();
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default) => _context.SaveChangesAsync();
     }
 }

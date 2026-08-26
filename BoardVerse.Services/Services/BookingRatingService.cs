@@ -45,7 +45,7 @@ public class BookingRatingService : IBookingRatingService
     }
 
     public async Task<NoShowVoteResponseDto> SubmitNoShowVoteAsync(
-        Guid bookingId, Guid voterUserId, SubmitNoShowVoteRequestDto request)
+        Guid bookingId, Guid voterUserId, SubmitNoShowVoteRequestDto request, CancellationToken cancellationToken = default)
     {
         if (request.BookingId != bookingId)
         {
@@ -181,7 +181,7 @@ public class BookingRatingService : IBookingRatingService
     }
 
     public async Task<BookingRatingResponseDto> SubmitRatingsAsync(
-        Guid bookingId, Guid voterUserId, SubmitBookingRatingsRequestDto request)
+        Guid bookingId, Guid voterUserId, SubmitBookingRatingsRequestDto request, CancellationToken cancellationToken = default)
     {
         if (request.BookingId != bookingId)
         {
@@ -278,7 +278,7 @@ public class BookingRatingService : IBookingRatingService
     }
 
     public async Task<BookingRatingStatusDto> GetRatingStatusAsync(
-        Guid bookingId, Guid voterUserId)
+        Guid bookingId, Guid voterUserId, CancellationToken cancellationToken = default)
     {
         var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
             ?? throw new NotFoundException(ApiErrorMessages.Booking.BookingNotFoundById(bookingId));
@@ -333,7 +333,7 @@ public class BookingRatingService : IBookingRatingService
     private const int CrossRatingMultiplier = 10;
 
     public async Task<BookingRatingAggregationResultDto> AggregateBookingOutcomesAsync(
-        Guid bookingId)
+        Guid bookingId, CancellationToken cancellationToken = default)
     {
         var booking = await _bookingRepository.GetByIdAsync(bookingId, includeRelations: true)
             ?? throw new NotFoundException(ApiErrorMessages.Booking.BookingNotFoundById(bookingId));

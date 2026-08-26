@@ -31,7 +31,7 @@ namespace BoardVerse.Services.Services
             _logger = logger!;
         }
 
-        public async Task<ProfileDto> GetPublicProfileAsync(Guid userId)
+        public async Task<ProfileDto> GetPublicProfileAsync(Guid userId, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.Profile.UserNotFoundPublic);
@@ -69,7 +69,7 @@ namespace BoardVerse.Services.Services
             };
         }
 
-        public async Task<ProfileDetailDto> GetInternalProfileAsync(Guid userId)
+        public async Task<ProfileDetailDto> GetInternalProfileAsync(Guid userId, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.Profile.UserNotFoundPrivate);
@@ -101,7 +101,7 @@ namespace BoardVerse.Services.Services
             };
         }
 
-        public async Task<ProfileDto> CreateProfileAsync(Guid userId, ProfileCreateDto request)
+        public async Task<ProfileDto> CreateProfileAsync(Guid userId, ProfileCreateDto request, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.Profile.UserNotFoundCreate);
@@ -141,7 +141,7 @@ namespace BoardVerse.Services.Services
             return await GetPublicProfileAsync(userId);
         }
 
-        public async Task<ProfileDto> UpdateProfileAsync(Guid userId, ProfileUpdateDto request)
+        public async Task<ProfileDto> UpdateProfileAsync(Guid userId, ProfileUpdateDto request, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.Profile.UserNotFoundUpdate);
@@ -168,7 +168,7 @@ namespace BoardVerse.Services.Services
             return await GetPublicProfileAsync(userId);
         }
 
-        public async Task<ProfileDto> UpdateProgressAsync(Guid userId, ProfileProgressUpdateDto request)
+        public async Task<ProfileDto> UpdateProgressAsync(Guid userId, ProfileProgressUpdateDto request, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.Profile.UserNotFoundUpdateProgress);
@@ -192,7 +192,7 @@ namespace BoardVerse.Services.Services
             return await GetPublicProfileAsync(userId);
         }
 
-        public async Task DeleteProfileAsync(Guid userId)
+        public async Task DeleteProfileAsync(Guid userId, CancellationToken cancellationToken = default)
         {
             var profile = await _userRepository.GetProfileByUserIdAsync(userId);
             if (profile == null) return;
@@ -202,7 +202,7 @@ namespace BoardVerse.Services.Services
             await _userRepository.SaveChangesAsync();
         }
 
-        public async Task<ProfileDto> UpdateAvatarAsync(Guid userId, UpdateAvatarRequestDto request)
+        public async Task<ProfileDto> UpdateAvatarAsync(Guid userId, UpdateAvatarRequestDto request, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.Profile.UserNotFoundUpdateAvatar);
@@ -228,7 +228,7 @@ namespace BoardVerse.Services.Services
             return await GetPublicProfileAsync(userId);
         }
 
-        public async Task<KarmaStateDto> GetKarmaStateAsync(Guid userId)
+        public async Task<KarmaStateDto> GetKarmaStateAsync(Guid userId, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.Profile.UserNotFoundKarma);
@@ -259,7 +259,7 @@ namespace BoardVerse.Services.Services
             };
         }
 
-        public async Task<ProfileDto> CreateOrGetProfileAsync(Guid userId)
+        public async Task<ProfileDto> CreateOrGetProfileAsync(Guid userId, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.Profile.UserNotFoundCreateOrGet);
@@ -280,7 +280,7 @@ namespace BoardVerse.Services.Services
             return await GetPublicProfileAsync(userId);
         }
 
-        public async Task<PlayerLocationDto> GetCurrentLocationAsync(Guid userId)
+        public async Task<PlayerLocationDto> GetCurrentLocationAsync(Guid userId, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
             if (user == null)
@@ -293,7 +293,7 @@ namespace BoardVerse.Services.Services
 
         public async Task<PlayerLocationDto> UpdateCurrentLocationAsync(
             Guid userId,
-            UpdatePlayerLocationRequestDto request)
+            UpdatePlayerLocationRequestDto request, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
             if (user == null)
@@ -372,7 +372,7 @@ namespace BoardVerse.Services.Services
             return MapToPlayerLocationDto(profile);
         }
 
-        public async Task ClearCurrentLocationAsync(Guid userId)
+        public async Task ClearCurrentLocationAsync(Guid userId, CancellationToken cancellationToken = default)
         {
             var profile = await _userRepository.GetProfileByUserIdAsync(userId);
             if (profile == null)
@@ -460,7 +460,7 @@ namespace BoardVerse.Services.Services
         /// </summary>
         public async Task<PlayerProfileWithStatsDto> UpdatePlayerProfileAsync(
             Guid userId,
-            UpdatePlayerProfileDto request)
+            UpdatePlayerProfileDto request, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByIdWithProfileAsync(userId);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.Profile.UserNotFoundUpdate);

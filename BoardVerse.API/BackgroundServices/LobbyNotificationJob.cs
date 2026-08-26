@@ -43,6 +43,11 @@ public class LobbyNotificationJob : BackgroundService
             {
                 await ProcessNotificationsAsync(stoppingToken);
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("LobbyNotificationJob stopped (host shutdown).");
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in LobbyNotificationJob");

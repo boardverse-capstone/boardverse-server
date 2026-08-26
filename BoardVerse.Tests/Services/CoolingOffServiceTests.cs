@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 /// <summary>
@@ -61,12 +62,12 @@ public class CoolingOffServiceTests
         // Arrange
         var userId = Guid.NewGuid();
         _lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(
-                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.TimeoutFailed))
+                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.TimeoutFailed, It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
         _lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(
-                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.HostCancelled))
+                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.HostCancelled, It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
-        _ledgerRepo.Setup(r => r.SumForfeitAsync(userId, It.IsAny<DateTime>()))
+        _ledgerRepo.Setup(r => r.SumForfeitAsync(userId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0m);
 
         // Act
@@ -84,12 +85,12 @@ public class CoolingOffServiceTests
         // Arrange
         var userId = Guid.NewGuid();
         _lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(
-                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.TimeoutFailed))
+                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.TimeoutFailed, It.IsAny<CancellationToken>()))
             .ReturnsAsync(3);
         _lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(
-                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.HostCancelled))
+                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.HostCancelled, It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
-        _ledgerRepo.Setup(r => r.SumForfeitAsync(userId, It.IsAny<DateTime>()))
+        _ledgerRepo.Setup(r => r.SumForfeitAsync(userId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0m);
 
         // Act
@@ -105,9 +106,9 @@ public class CoolingOffServiceTests
         // Arrange: SumForfeitAsync returns decimal (theo interface).
         var userId = Guid.NewGuid();
         _lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(
-                It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<LobbyStatus?>()))
+                It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<LobbyStatus?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
-        _ledgerRepo.Setup(r => r.SumForfeitAsync(userId, It.IsAny<DateTime>()))
+        _ledgerRepo.Setup(r => r.SumForfeitAsync(userId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(750.75m);
 
         // Act
@@ -125,16 +126,16 @@ public class CoolingOffServiceTests
         // Arrange: 1 wallet, 3 timeout failures (≥ threshold).
         var userId = Guid.NewGuid();
         var wallet = CreateWallet(userId);
-        _walletRepo.Setup(r => r.GetActiveWalletsPagedAsync(It.IsAny<int>()))
+        _walletRepo.Setup(r => r.GetActiveWalletsPagedAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Wallet> { wallet });
 
         _lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(
-                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.TimeoutFailed))
+                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.TimeoutFailed, It.IsAny<CancellationToken>()))
             .ReturnsAsync(3);
         _lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(
-                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.HostCancelled))
+                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.HostCancelled, It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
-        _ledgerRepo.Setup(r => r.SumForfeitAsync(userId, It.IsAny<DateTime>()))
+        _ledgerRepo.Setup(r => r.SumForfeitAsync(userId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0m);
 
         // Act
@@ -155,16 +156,16 @@ public class CoolingOffServiceTests
         // Arrange: 3 host-cancelled → activate.
         var userId = Guid.NewGuid();
         var wallet = CreateWallet(userId);
-        _walletRepo.Setup(r => r.GetActiveWalletsPagedAsync(It.IsAny<int>()))
+        _walletRepo.Setup(r => r.GetActiveWalletsPagedAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Wallet> { wallet });
 
         _lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(
-                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.TimeoutFailed))
+                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.TimeoutFailed, It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
         _lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(
-                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.HostCancelled))
+                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.HostCancelled, It.IsAny<CancellationToken>()))
             .ReturnsAsync(3);
-        _ledgerRepo.Setup(r => r.SumForfeitAsync(userId, It.IsAny<DateTime>()))
+        _ledgerRepo.Setup(r => r.SumForfeitAsync(userId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0m);
 
         // Act
@@ -181,16 +182,16 @@ public class CoolingOffServiceTests
         // Arrange: forfeit = 600 BVC (> 500 threshold = 500.000 VND).
         var userId = Guid.NewGuid();
         var wallet = CreateWallet(userId);
-        _walletRepo.Setup(r => r.GetActiveWalletsPagedAsync(It.IsAny<int>()))
+        _walletRepo.Setup(r => r.GetActiveWalletsPagedAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Wallet> { wallet });
 
         _lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(
-                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.TimeoutFailed))
+                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.TimeoutFailed, It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
         _lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(
-                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.HostCancelled))
+                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.HostCancelled, It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
-        _ledgerRepo.Setup(r => r.SumForfeitAsync(userId, It.IsAny<DateTime>()))
+        _ledgerRepo.Setup(r => r.SumForfeitAsync(userId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(600m);
 
         // Act
@@ -207,16 +208,16 @@ public class CoolingOffServiceTests
         // Arrange: 2 timeout (below 3) + 100 forfeit (below 500 BVC).
         var userId = Guid.NewGuid();
         var wallet = CreateWallet(userId);
-        _walletRepo.Setup(r => r.GetActiveWalletsPagedAsync(It.IsAny<int>()))
+        _walletRepo.Setup(r => r.GetActiveWalletsPagedAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Wallet> { wallet });
 
         _lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(
-                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.TimeoutFailed))
+                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.TimeoutFailed, It.IsAny<CancellationToken>()))
             .ReturnsAsync(2);
         _lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(
-                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.HostCancelled))
+                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.HostCancelled, It.IsAny<CancellationToken>()))
             .ReturnsAsync(1);
-        _ledgerRepo.Setup(r => r.SumForfeitAsync(userId, It.IsAny<DateTime>()))
+        _ledgerRepo.Setup(r => r.SumForfeitAsync(userId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(100m);
 
         // Act
@@ -225,7 +226,7 @@ public class CoolingOffServiceTests
         // Assert
         Assert.Equal(0, activated);
         Assert.False(wallet.IsCoolingOff);
-        _walletRepo.Verify(r => r.SaveChangesAsync(), Times.Never);
+        _walletRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -234,7 +235,7 @@ public class CoolingOffServiceTests
         // Arrange: wallet đã cooling-off.
         var userId = Guid.NewGuid();
         var wallet = CreateWallet(userId, isCoolingOff: true);
-        _walletRepo.Setup(r => r.GetActiveWalletsPagedAsync(It.IsAny<int>()))
+        _walletRepo.Setup(r => r.GetActiveWalletsPagedAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Wallet> { wallet });
 
         // Act
@@ -244,7 +245,7 @@ public class CoolingOffServiceTests
         Assert.Equal(0, activated);
         // Không query signals (vì đã skip).
         _lobbyRepo.Verify(r => r.CountFailuresByTypeForHostAsync(
-            It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<LobbyStatus?>()),
+            It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<LobbyStatus?>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -255,16 +256,16 @@ public class CoolingOffServiceTests
         var userId = Guid.NewGuid();
         var wallet = CreateWallet(userId);
         wallet.RiskMultiplier = 1.5m;
-        _walletRepo.Setup(r => r.GetActiveWalletsPagedAsync(It.IsAny<int>()))
+        _walletRepo.Setup(r => r.GetActiveWalletsPagedAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Wallet> { wallet });
 
         _lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(
-                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.TimeoutFailed))
+                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.TimeoutFailed, It.IsAny<CancellationToken>()))
             .ReturnsAsync(3);
         _lobbyRepo.Setup(r => r.CountFailuresByTypeForHostAsync(
-                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.HostCancelled))
+                userId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), LobbyStatus.HostCancelled, It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
-        _ledgerRepo.Setup(r => r.SumForfeitAsync(userId, It.IsAny<DateTime>()))
+        _ledgerRepo.Setup(r => r.SumForfeitAsync(userId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0m);
 
         // Act
@@ -286,7 +287,7 @@ public class CoolingOffServiceTests
         var wallet2 = CreateWallet(Guid.NewGuid(), isCoolingOff: true);
         wallet2.CoolingOffExpiresAt = DateTime.UtcNow.AddHours(-5);
 
-        _walletRepo.Setup(r => r.GetActiveCoolingOffWalletsPagedAsync(It.IsAny<int>()))
+        _walletRepo.Setup(r => r.GetActiveCoolingOffWalletsPagedAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Wallet> { wallet1, wallet2 });
 
         // Act
@@ -298,14 +299,14 @@ public class CoolingOffServiceTests
         Assert.Null(wallet1.CoolingOffExpiresAt);
         Assert.False(wallet2.IsCoolingOff);
         Assert.Null(wallet2.CoolingOffExpiresAt);
-        _walletRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _walletRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
     public async Task ExpireOverdueAsync_Should_ReturnZero_When_NoOverdueWallets()
     {
         // Arrange
-        _walletRepo.Setup(r => r.GetActiveCoolingOffWalletsPagedAsync(It.IsAny<int>()))
+        _walletRepo.Setup(r => r.GetActiveCoolingOffWalletsPagedAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Wallet>());
 
         // Act
@@ -313,7 +314,7 @@ public class CoolingOffServiceTests
 
         // Assert
         Assert.Equal(0, deactivated);
-        _walletRepo.Verify(r => r.SaveChangesAsync(), Times.Never);
+        _walletRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // ===== EscalateAsync =====
@@ -327,7 +328,7 @@ public class CoolingOffServiceTests
         wallet.RiskMultiplier = 2.0m;
         wallet.CoolingOffExpiresAt = DateTime.UtcNow.AddDays(15);
 
-        _walletRepo.Setup(r => r.GetByUserIdForUpdateAsync(userId))
+        _walletRepo.Setup(r => r.GetByUserIdForUpdateAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(wallet);
 
         // Act
@@ -352,7 +353,7 @@ public class CoolingOffServiceTests
         var wallet = CreateWallet(userId, isCoolingOff: true);
         wallet.RiskMultiplier = 3.0m;
 
-        _walletRepo.Setup(r => r.GetByUserIdForUpdateAsync(userId))
+        _walletRepo.Setup(r => r.GetByUserIdForUpdateAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(wallet);
 
         // Act
@@ -367,12 +368,12 @@ public class CoolingOffServiceTests
     {
         // Arrange
         var userId = Guid.NewGuid();
-        _walletRepo.Setup(r => r.GetByUserIdForUpdateAsync(userId))
+        _walletRepo.Setup(r => r.GetByUserIdForUpdateAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((Wallet?)null);
 
         // Act + Assert: không throw, không save.
         await _sut.EscalateAsync(userId, "test");
-        _walletRepo.Verify(r => r.SaveChangesAsync(), Times.Never);
+        _walletRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -381,12 +382,12 @@ public class CoolingOffServiceTests
         // Arrange: wallet không trong cooling-off (false positive).
         var userId = Guid.NewGuid();
         var wallet = CreateWallet(userId, isCoolingOff: false);
-        _walletRepo.Setup(r => r.GetByUserIdForUpdateAsync(userId))
+        _walletRepo.Setup(r => r.GetByUserIdForUpdateAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(wallet);
 
         // Act + Assert: không thay đổi gì.
         await _sut.EscalateAsync(userId, "test");
         Assert.False(wallet.IsCoolingOff);
-        _walletRepo.Verify(r => r.SaveChangesAsync(), Times.Never);
+        _walletRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 }

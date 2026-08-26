@@ -42,6 +42,11 @@ public class LobbyTimeoutJob : BackgroundService
             {
                 await ProcessTimedOutLobbiesAsync(stoppingToken);
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("LobbyTimeoutJob stopped (host shutdown).");
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in LobbyTimeoutJob");
@@ -51,11 +56,19 @@ public class LobbyTimeoutJob : BackgroundService
         }
     }
 
+    // GAP #16 fix: SKIP LOCKED chỉ có hiệu lực trong transaction. Mở transaction 1 lần cho cả batch,
+// commit sau khi đã flip status. Foreach loop chỉ mutate entity đã lock trong tx này.
+//
+// GAP-R4-D1 Fix: Mở transaction TRƯỚC khi chạy 3 query FOR UPDATE SKIP LOCKED.
+// Postgres chỉ giữ row lock trong khi transaction còn sống — nếu query nằm ngoài tx, lock
+// release ngay và cluster deploy sẽ có 2 instance pick cùng batch → duplicate notify + push.
     private async Task ProcessTimedOutLobbiesAsync(CancellationToken stoppingToken)
     {
         using var scope = _serviceProvider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<BoardVerseDbContext>();
         var hubService = scope.ServiceProvider.GetRequiredService<ILobbyHubService>();
+
+        await using var batchTx = await db.Database.BeginTransactionAsync(stoppingToken);
 
         var now = DateTime.UtcNow;
 
@@ -118,14 +131,13 @@ public class LobbyTimeoutJob : BackgroundService
             .ToList();
 
         if (timedOutLobbies.Count == 0)
+        {
+            await batchTx.CommitAsync(stoppingToken);
             return;
+        }
 
         _logger.LogInformation("Found {Count} lobbies to check for timeout (scheduled={Scheduled}, orphan={Orphan}, fullNotReady={FullNotReady})",
             timedOutLobbies.Count, scheduledTimedOut.Count, orphanTimedOut.Count, fullButNotReadyFiltered.Count);
-
-        // GAP #16 fix: SKIP LOCKED chỉ có hiệu lực trong transaction. Mở transaction 1 lần cho cả batch,
-        // commit sau khi đã flip status. Foreach loop chỉ mutate entity đã lock trong tx này.
-        await using var batchTx = await db.Database.BeginTransactionAsync(stoppingToken);
 
         var transitioned = new List<(Guid LobbyId, Guid? CafeId, string CafeName, DateTime? ScheduledTime, string Reason, List<Guid> MemberIds)>();
 

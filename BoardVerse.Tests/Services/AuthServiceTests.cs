@@ -10,6 +10,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 public class AuthServiceTests
@@ -58,7 +59,7 @@ public class AuthServiceTests
     [Fact]
     public async Task RegisterAsync_WhenUserExists_ThrowsUserAlreadyExists()
     {
-        _userRepo.Setup(r => r.UserExistsAsync("alice@boardverse.test", "alice")).ReturnsAsync(true);
+        _userRepo.Setup(r => r.UserExistsAsync("alice@boardverse.test", "alice", It.IsAny<CancellationToken>())).ReturnsAsync(true);
         var svc = CreateService();
 
         await Assert.ThrowsAsync<UserAlreadyExistsException>(() => svc.RegisterAsync(new RegisterRequestDto
@@ -73,13 +74,13 @@ public class AuthServiceTests
     [Fact]
     public async Task RegisterAsync_ValidRequest_HashesPasswordAndReturnsTokens()
     {
-        _userRepo.Setup(r => r.UserExistsAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(false);
+        _userRepo.Setup(r => r.UserExistsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
         User? captured = null;
-        _userRepo.Setup(r => r.AddUserAsync(It.IsAny<User>()))
-            .Callback<User>(u => captured = u)
+        _userRepo.Setup(r => r.AddUserAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()))
+            .Callback<User, CancellationToken>((u, _) => captured = u)
             .Returns(Task.CompletedTask);
-        _userRepo.Setup(r => r.HasActiveProfileAsync(It.IsAny<Guid>())).ReturnsAsync(false);
+        _userRepo.Setup(r => r.HasActiveProfileAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
         var svc = CreateService();
 
@@ -112,7 +113,7 @@ public class AuthServiceTests
         Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Testing");
         try
         {
-            _userRepo.Setup(r => r.GetByUsernameOrEmailAsync("alice")).ReturnsAsync((User?)null);
+            _userRepo.Setup(r => r.GetByUsernameOrEmailAsync("alice", It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
             var svc = new AuthService(_userRepo.Object, config, _cache.Object, _emailService.Object, _logger.Object);
 
@@ -134,7 +135,7 @@ public class AuthServiceTests
         Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Testing");
         try
         {
-            _userRepo.Setup(r => r.GetByUsernameOrEmailAsync("alice")).ReturnsAsync(BuildUser());
+            _userRepo.Setup(r => r.GetByUsernameOrEmailAsync("alice", It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser());
 
             var svc = CreateService();
 
@@ -157,8 +158,8 @@ public class AuthServiceTests
         try
         {
             var user = BuildUser("alice");
-            _userRepo.Setup(r => r.GetByUsernameOrEmailAsync("alice")).ReturnsAsync(user);
-            _userRepo.Setup(r => r.HasActiveProfileAsync(user.Id)).ReturnsAsync(true);
+            _userRepo.Setup(r => r.GetByUsernameOrEmailAsync("alice", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+            _userRepo.Setup(r => r.HasActiveProfileAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
             var svc = CreateService();
 
@@ -185,7 +186,7 @@ public class AuthServiceTests
     [Fact]
     public async Task ExchangeRefreshTokenAsync_WhenTokenMissing_ThrowsExpired()
     {
-        _userRepo.Setup(r => r.GetActiveRefreshTokenAsync("bad")).ReturnsAsync((RefreshToken?)null);
+        _userRepo.Setup(r => r.GetActiveRefreshTokenAsync("bad", It.IsAny<CancellationToken>())).ReturnsAsync((RefreshToken?)null);
 
         var svc = CreateService();
 
@@ -205,9 +206,9 @@ public class AuthServiceTests
             Token = "valid",
             ExpiresAt = DateTime.UtcNow.AddHours(1)
         };
-        _userRepo.Setup(r => r.GetActiveRefreshTokenAsync("valid")).ReturnsAsync(rt);
-        _userRepo.Setup(r => r.GetByIdAsync(userId)).ReturnsAsync(BuildUser());
-        _userRepo.Setup(r => r.HasActiveProfileAsync(userId)).ReturnsAsync(false);
+        _userRepo.Setup(r => r.GetActiveRefreshTokenAsync("valid", It.IsAny<CancellationToken>())).ReturnsAsync(rt);
+        _userRepo.Setup(r => r.GetByIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser());
+        _userRepo.Setup(r => r.HasActiveProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
         var svc = CreateService();
 
@@ -219,7 +220,7 @@ public class AuthServiceTests
     [Fact]
     public async Task ExchangeRefreshTokenAsync_WhenMissing_ThrowsExpired()
     {
-        _userRepo.Setup(r => r.GetActiveRefreshTokenAsync("missing")).ReturnsAsync((RefreshToken?)null);
+        _userRepo.Setup(r => r.GetActiveRefreshTokenAsync("missing", It.IsAny<CancellationToken>())).ReturnsAsync((RefreshToken?)null);
 
         var svc = CreateService();
 
@@ -238,9 +239,9 @@ public class AuthServiceTests
             Token = "valid",
             ExpiresAt = DateTime.UtcNow.AddDays(1)
         };
-        _userRepo.Setup(r => r.GetActiveRefreshTokenAsync("valid")).ReturnsAsync(oldRt);
-        _userRepo.Setup(r => r.GetByIdAsync(userId)).ReturnsAsync(BuildUser());
-        _userRepo.Setup(r => r.HasActiveProfileAsync(userId)).ReturnsAsync(false);
+        _userRepo.Setup(r => r.GetActiveRefreshTokenAsync("valid", It.IsAny<CancellationToken>())).ReturnsAsync(oldRt);
+        _userRepo.Setup(r => r.GetByIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(BuildUser());
+        _userRepo.Setup(r => r.HasActiveProfileAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
         var svc = CreateService();
 
@@ -259,20 +260,20 @@ public class AuthServiceTests
     [Fact]
     public async Task RevokeRefreshTokenAsync_WhenMissing_NoOp()
     {
-        _userRepo.Setup(r => r.GetActiveRefreshTokenAsync("missing")).ReturnsAsync((RefreshToken?)null);
+        _userRepo.Setup(r => r.GetActiveRefreshTokenAsync("missing", It.IsAny<CancellationToken>())).ReturnsAsync((RefreshToken?)null);
 
         var svc = CreateService();
 
         await svc.RevokeRefreshTokenAsync("missing"); // does not throw
 
-        _userRepo.Verify(r => r.SaveChangesAsync(), Times.Never);
+        _userRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
     public async Task RevokeRefreshTokenAsync_WhenExists_RevokesAndSaves()
     {
         var rt = new RefreshToken { Id = Guid.NewGuid(), UserId = Guid.NewGuid(), Token = "x", ExpiresAt = DateTime.UtcNow.AddDays(1) };
-        _userRepo.Setup(r => r.GetActiveRefreshTokenAsync("x")).ReturnsAsync(rt);
+        _userRepo.Setup(r => r.GetActiveRefreshTokenAsync("x", It.IsAny<CancellationToken>())).ReturnsAsync(rt);
 
         var svc = CreateService();
 
@@ -280,13 +281,13 @@ public class AuthServiceTests
 
         Assert.True(rt.IsRevoked);
         Assert.NotNull(rt.RevokedAt);
-        _userRepo.Verify(r => r.SaveChangesAsync(), Times.Once);
+        _userRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
     public async Task SendEmailVerificationAsync_WhenUserNotFound_ThrowsUserNotFound()
     {
-        _userRepo.Setup(r => r.GetByEmailAsync("missing@test.com")).ReturnsAsync((User?)null);
+        _userRepo.Setup(r => r.GetByEmailAsync("missing@test.com", It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         var svc = CreateService();
 
@@ -299,7 +300,7 @@ public class AuthServiceTests
     {
         var user = BuildUser();
         user.IsEmailVerified = false;
-        _userRepo.Setup(r => r.GetByEmailAsync(user.Email)).ReturnsAsync(user);
+        _userRepo.Setup(r => r.GetByEmailAsync(user.Email, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var svc = CreateService();
 
@@ -307,14 +308,14 @@ public class AuthServiceTests
 
         Assert.NotNull(user.EmailVerificationToken);
         Assert.NotNull(user.EmailVerificationTokenExpiresAt);
-        _emailService.Verify(s => s.SendEmailAsync(user.Email, It.IsAny<string>(), It.IsAny<string>(), false), Times.Once);
+        _emailService.Verify(s => s.SendEmailAsync(user.Email, It.IsAny<string>(), It.IsAny<string>(), false, It.IsAny<CancellationToken>()), Times.Once);
         Assert.False(string.IsNullOrWhiteSpace(result));
     }
 
     [Fact]
     public async Task VerifyEmailAsync_WhenTokenMissing_ThrowsInvalidToken()
     {
-        _userRepo.Setup(r => r.GetByEmailVerificationTokenAsync("bad")).ReturnsAsync((User?)null);
+        _userRepo.Setup(r => r.GetByEmailVerificationTokenAsync("bad", It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         var svc = CreateService();
 
@@ -328,7 +329,7 @@ public class AuthServiceTests
         var user = BuildUser();
         user.EmailVerificationToken = "123456";
         user.EmailVerificationTokenExpiresAt = DateTime.UtcNow.AddMinutes(-5);
-        _userRepo.Setup(r => r.GetByEmailVerificationTokenAsync("123456")).ReturnsAsync(user);
+        _userRepo.Setup(r => r.GetByEmailVerificationTokenAsync("123456", It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var svc = CreateService();
 
@@ -342,7 +343,7 @@ public class AuthServiceTests
         var user = BuildUser();
         user.EmailVerificationToken = "123456";
         user.EmailVerificationTokenExpiresAt = DateTime.UtcNow.AddMinutes(5);
-        _userRepo.Setup(r => r.GetByEmailVerificationTokenAsync("123456")).ReturnsAsync(user);
+        _userRepo.Setup(r => r.GetByEmailVerificationTokenAsync("123456", It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var svc = CreateService();
 
@@ -355,7 +356,7 @@ public class AuthServiceTests
     [Fact]
     public async Task RequestPasswordResetAsync_WhenUserMissing_Throws()
     {
-        _userRepo.Setup(r => r.GetByEmailAsync("none@test.com")).ReturnsAsync((User?)null);
+        _userRepo.Setup(r => r.GetByEmailAsync("none@test.com", It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         var svc = CreateService();
 
@@ -368,7 +369,7 @@ public class AuthServiceTests
     {
         var user = BuildUser();
         user.IsEmailVerified = false;
-        _userRepo.Setup(r => r.GetByEmailAsync(user.Email)).ReturnsAsync(user);
+        _userRepo.Setup(r => r.GetByEmailAsync(user.Email, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var svc = CreateService();
 
@@ -381,20 +382,20 @@ public class AuthServiceTests
     {
         var user = BuildUser();
         user.IsEmailVerified = true;
-        _userRepo.Setup(r => r.GetByEmailAsync(user.Email)).ReturnsAsync(user);
+        _userRepo.Setup(r => r.GetByEmailAsync(user.Email, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var svc = CreateService();
 
         await svc.RequestPasswordResetAsync(new RequestPasswordResetDto { Email = user.Email });
 
         Assert.NotNull(user.PasswordResetToken);
-        _emailService.Verify(s => s.SendEmailAsync(user.Email, It.IsAny<string>(), It.IsAny<string>(), false), Times.Once);
+        _emailService.Verify(s => s.SendEmailAsync(user.Email, It.IsAny<string>(), It.IsAny<string>(), false, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
     public async Task ResetPasswordAsync_WhenTokenInvalid_ThrowsInvalidToken()
     {
-        _userRepo.Setup(r => r.GetByPasswordResetTokenAsync("bad")).ReturnsAsync((User?)null);
+        _userRepo.Setup(r => r.GetByPasswordResetTokenAsync("bad", It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         var svc = CreateService();
 
@@ -408,7 +409,7 @@ public class AuthServiceTests
         var user = BuildUser();
         user.PasswordResetToken = "654321";
         user.PasswordResetTokenExpiresAt = DateTime.UtcNow.AddMinutes(10);
-        _userRepo.Setup(r => r.GetByPasswordResetTokenAsync("654321")).ReturnsAsync(user);
+        _userRepo.Setup(r => r.GetByPasswordResetTokenAsync("654321", It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var svc = CreateService();
 
@@ -426,7 +427,7 @@ public class AuthServiceTests
     [Fact]
     public async Task ChangePasswordAsync_WhenUserMissing_Throws()
     {
-        _userRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((User?)null);
+        _userRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         var svc = CreateService();
 
@@ -443,7 +444,7 @@ public class AuthServiceTests
     public async Task ChangePasswordAsync_OAuthUserWithoutPassword_ThrowsBadRequest()
     {
         var user = BuildUser(withPassword: false);
-        _userRepo.Setup(r => r.GetByIdAsync(user.Id)).ReturnsAsync(user);
+        _userRepo.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var svc = CreateService();
 
@@ -460,7 +461,7 @@ public class AuthServiceTests
     public async Task ChangePasswordAsync_CurrentPasswordWrong_Throws()
     {
         var user = BuildUser();
-        _userRepo.Setup(r => r.GetByIdAsync(user.Id)).ReturnsAsync(user);
+        _userRepo.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var svc = CreateService();
 
@@ -477,7 +478,7 @@ public class AuthServiceTests
     public async Task ChangePasswordAsync_NewSameAsCurrent_Throws()
     {
         var user = BuildUser();
-        _userRepo.Setup(r => r.GetByIdAsync(user.Id)).ReturnsAsync(user);
+        _userRepo.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var svc = CreateService();
 
@@ -495,7 +496,7 @@ public class AuthServiceTests
     {
         var user = BuildUser();
         var oldHash = user.PasswordHash;
-        _userRepo.Setup(r => r.GetByIdAsync(user.Id)).ReturnsAsync(user);
+        _userRepo.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var svc = CreateService();
 

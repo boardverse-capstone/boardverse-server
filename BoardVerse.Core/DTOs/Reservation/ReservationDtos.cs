@@ -4,9 +4,9 @@ using BoardVerse.Core.Enum;
 namespace BoardVerse.Core.DTOs.Reservation;
 
 /// <summary>
-/// Request t?o quote cho 1 reservation (?21A.2).
-/// BR-DEPOSIT-01: Host tr? to?n b? c?c.
-/// BR-NEW-15: timeSlot c? ??nh.
+/// Request tạo quote cho 1 reservation (§21A.2).
+/// BR-DEPOSIT-01: Host trả toàn bộ cọc.
+/// BR-NEW-15 (2026-08-18): BỎ TimeSlot enum - dùng preferredStartTime/preferredEndTime.
 /// </summary>
 public class ReservationQuoteRequestDto
 {
@@ -19,16 +19,15 @@ public class ReservationQuoteRequestDto
     [Required]
     public DateOnly PlayDate { get; set; }
 
+    /// <summary>Start time bắt buộc, nằm trong giờ mở cửa cafe.</summary>
     [Required]
-    public TimeSlot TimeSlot { get; set; }
+    public TimeOnly PreferredStartTime { get; set; }
 
-    /// <summary>Start time bắt buộc, nằm trong [timeSlot.startTime, timeSlot.endTime].</summary>
+    /// <summary>
+    /// End time bắt buộc. Nếu nhỏ hơn PreferredStartTime, hệ thống hiểu là kết thúc vào ngày hôm sau.
+    /// </summary>
     [Required]
-    public TimeOnly? PreferredStartTime { get; set; }
-
-    /// <summary>End time bắt buộc, nằm trong [PreferredStartTime, timeSlot.endTime], cùng ngày playDate.</summary>
-    [Required]
-    public TimeOnly? PreferredEndTime { get; set; }
+    public TimeOnly PreferredEndTime { get; set; }
 
     /// <summary>
     /// 1-30 players. MinPlayers m?c ??nh 2 ?? ??m b?o lobby ?? ng??i.
@@ -68,13 +67,11 @@ public class ReservationQuoteDto
     public Guid CafeId { get; set; }
     public Guid GameId { get; set; }
     public DateOnly PlayDate { get; set; }
-    public TimeSlot TimeSlot { get; set; }
-    public TimeOnly? PreferredStartTime { get; set; }
-    public TimeOnly? PreferredEndTime { get; set; }
+    public TimeOnly PreferredStartTime { get; set; }
+    public TimeOnly PreferredEndTime { get; set; }
 
     /// <summary>
-    /// BR-RESV-02: ScheduledStartTime + ScheduledEndTime luu DB luc <c>ConfirmAsync</c>.
-    /// FE d?ng ?? hi?n th? th?i gian ??u-cu?i phi?n (?? qua ??m v?i slot <c>LateNight</c>).
+    /// BR-RESV-02: ScheduledStartTime + ScheduledEndTime lưu DB lúc ConfirmAsync.
     /// </summary>
     public DateTime ScheduledStartTime { get; set; }
     public DateTime ScheduledEndTime { get; set; }
@@ -153,9 +150,10 @@ public class EarlyCheckoutRefundPreview
 }
 
 /// <summary>
-/// Request x?c nh?n reservation ? atomic hold BVC + seat + game copy (?21A.3).
-/// Server t? t?nh l?i quote + t?o Reservation + Lobby trong 1 transaction.
-/// IdempotencyKey ch?ng double-confirm (BR ?XVII.1).
+/// Request xác nhận reservation - atomic hold BVC + seat + game copy (§21A.3).
+/// Server tính lại quote + tạo Reservation + Lobby trong 1 transaction.
+/// IdempotencyKey chống double-confirm (BR §XVII.1).
+/// BR-NEW-15 (2026-08-18): BỎ TimeSlot - dùng preferredStartTime/preferredEndTime.
 /// </summary>
 public class ReservationConfirmRequestDto
 {
@@ -168,16 +166,15 @@ public class ReservationConfirmRequestDto
     [Required]
     public DateOnly PlayDate { get; set; }
 
+    /// <summary>Start time bắt buộc, nằm trong giờ mở cửa cafe.</summary>
     [Required]
-    public TimeSlot TimeSlot { get; set; }
+    public TimeOnly PreferredStartTime { get; set; }
 
-    /// <summary>Start time bắt buộc, nằm trong [timeSlot.startTime, timeSlot.endTime].</summary>
+    /// <summary>
+    /// End time bắt buộc. Nếu nhỏ hơn PreferredStartTime, hệ thống hiểu là kết thúc vào ngày hôm sau.
+    /// </summary>
     [Required]
-    public TimeOnly? PreferredStartTime { get; set; }
-
-    /// <summary>End time bắt buộc, nằm trong [PreferredStartTime, timeSlot.endTime], cùng ngày playDate.</summary>
-    [Required]
-    public TimeOnly? PreferredEndTime { get; set; }
+    public TimeOnly PreferredEndTime { get; set; }
 
     /// <summary>
     /// 1-30 players. MinPlayers m?c ??nh 2 ?? ??m b?o lobby ?? ng??i.
@@ -352,7 +349,25 @@ public class ReservationCheckInRequestDto
 }
 
 /// <summary>
-/// Response sau check-in ? tr? ActiveSession ?? li?n k?t v?i Reservation.
+/// Request check-in theo ReservationCode (thay vi reservationId).
+/// Danh cho FE/POS chi co QR code, khong can biet reservationId.
+/// </summary>
+public class CheckInByCodeRequestDto
+{
+    [Required]
+    public Guid CafeId { get; set; }
+
+    [Required]
+    public Guid ActiveSessionId { get; set; }
+
+    public int? TableNumber { get; set; }
+
+    [StringLength(128, MinimumLength = 8)]
+    public string? IdempotencyKey { get; set; }
+}
+
+/// <summary>
+/// Response sau check-in tra ve ActiveSession de lien ket voi Reservation.
 /// </summary>
 public class ReservationCheckInResponseDto
 {
@@ -385,11 +400,10 @@ public class ReservationDetailDto
     public string GameName { get; set; } = string.Empty;
 
     public DateOnly PlayDate { get; set; }
-    public TimeSlot TimeSlot { get; set; }
-    public TimeOnly? PreferredStartTime { get; set; }
-    public TimeOnly? PreferredEndTime { get; set; }
+    public TimeOnly PreferredStartTime { get; set; }
+    public TimeOnly PreferredEndTime { get; set; }
 
-    /// <summary>BR-RESV-02: scheduledStartTime + scheduledEndTime l?u DB.</summary>
+    /// <summary>BR-RESV-02: scheduledStartTime + scheduledEndTime lưu DB.</summary>
     public DateTime ScheduledStartTime { get; set; }
     public DateTime ScheduledEndTime { get; set; }
 
@@ -464,7 +478,8 @@ public class ReservationListItemDto
     public string GameName { get; set; } = string.Empty;
 
     public DateOnly PlayDate { get; set; }
-    public TimeSlot TimeSlot { get; set; }
+    public TimeOnly PreferredStartTime { get; set; }
+    public TimeOnly PreferredEndTime { get; set; }
 
     public int CurrentPlayers { get; set; }
     public int MaxPlayers { get; set; }
@@ -546,15 +561,8 @@ public class LobbyPendingApprovalItemDto
     public string GameName { get; set; } = string.Empty;
 
     public DateOnly PlayDate { get; set; }
-    public TimeSlot TimeSlot { get; set; }
-    public string TimeSlotDisplay => TimeSlot switch
-    {
-        TimeSlot.Morning => "Sáng (06:00 - 12:00)",
-        TimeSlot.Afternoon => "Chiều (12:00 - 17:00)",
-        TimeSlot.Evening => "Tối (17:00 - 23:00)",
-        TimeSlot.LateNight => "Khuya (23:00 - 06:00)",
-        _ => TimeSlot.ToString()
-    };
+    public TimeOnly PreferredStartTime { get; set; }
+    public TimeOnly PreferredEndTime { get; set; }
 
     public int MinPlayers { get; set; }
     public int MaxPlayers { get; set; }
@@ -642,4 +650,137 @@ public class EndReservationResponseDto
 
     /// <summary>True n?u player b? tr? Karma (Phase 7).</summary>
     public bool KarmaRecorded { get; set; }
+}
+
+/// <summary>
+/// Request lấy danh sách reservation của 1 cafe cho Manager.
+/// </summary>
+public class CafeReservationsRequestDto
+{
+    /// <summary>Filter theo trạng thái. Null = all non-terminal.</summary>
+    public List<ReservationStatus>? Statuses { get; set; }
+
+    /// <summary>Filter theo ngày. Null = hôm nay.</summary>
+    public DateOnly? PlayDate { get; set; }
+
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; } = 20;
+}
+
+/// <summary>
+/// Response paginated cho danh sách reservation của cafe.
+/// </summary>
+public class CafeReservationsResponseDto
+{
+    public List<ReservationListItemDto> Items { get; set; } = [];
+    public int TotalCount { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalPages => (int)Math.Ceiling((double)TotalCount / PageSize);
+}
+
+/// <summary>
+/// Request lấy danh sách lobby của 1 cafe cho Manager.
+/// </summary>
+public class CafeLobbiesRequestDto
+{
+    /// <summary>Filter theo trạng thái lobby. Null = all.</summary>
+    public List<LobbyStatus>? LobbyStatuses { get; set; }
+
+    /// <summary>Filter theo ngày. Null = hôm nay.</summary>
+    public DateOnly? PlayDate { get; set; }
+
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; } = 20;
+}
+
+/// <summary>
+/// Lobby item cho dashboard của Manager.
+/// </summary>
+public class CafeLobbyItemDto
+{
+    public Guid LobbyId { get; set; }
+    public Guid? ReservationId { get; set; }
+
+    public Guid HostId { get; set; }
+    public string HostName { get; set; } = string.Empty;
+
+    public Guid GameId { get; set; }
+    public string GameName { get; set; } = string.Empty;
+
+    public DateOnly PlayDate { get; set; }
+    public TimeOnly PreferredStartTime { get; set; }
+    public TimeOnly PreferredEndTime { get; set; }
+
+    public int CurrentPlayers { get; set; }
+    public int MinPlayers { get; set; }
+    public int MaxPlayers { get; set; }
+
+    public LobbyStatus Status { get; set; }
+    public string StatusDisplay => Status.ToString();
+
+    public bool IsPrivate { get; set; }
+    public string? ShareCode { get; set; }
+
+    public DateTime ScheduledStartTime { get; set; }
+    public DateTime ScheduledEndTime { get; set; }
+    public DateTime RecruitmentDeadline { get; set; }
+
+    public long DepositAmount { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+}
+
+/// <summary>
+/// Response paginated cho danh sách lobby của cafe.
+/// </summary>
+public class CafeLobbiesResponseDto
+{
+    public List<CafeLobbyItemDto> Items { get; set; } = [];
+    public int TotalCount { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalPages => (int)Math.Ceiling((double)TotalCount / PageSize);
+}
+
+/// <summary>
+/// Request tìm kiếm lịch hẹn theo tên game hoặc ngày tháng.
+/// </summary>
+public class ReservationSearchRequestDto
+{
+    /// <summary>Từ khóa tìm kiếm theo tên game (fuzzy search).</summary>
+    public string? GameName { get; set; }
+
+    /// <summary>Ngày bắt đầu filter (inclusive). Null = không giới hạn.</summary>
+    public DateOnly? FromDate { get; set; }
+
+    /// <summary>Ngày kết thúc filter (inclusive). Null = không giới hạn.</summary>
+    public DateOnly? ToDate { get; set; }
+
+    /// <summary>Filter theo trạng thái. Null = all.</summary>
+    public List<ReservationStatus>? Statuses { get; set; }
+
+    /// <summary>Filter theo cafe. Null = all.</summary>
+    public Guid? CafeId { get; set; }
+
+    /// <summary>Chỉ lấy reservation do user host. Default true.</summary>
+    public bool HostedByMe { get; set; } = true;
+
+    /// <summary>Chỉ lấy reservation user tham gia (member). Default false.</summary>
+    public bool JoinedByMe { get; set; }
+
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; } = 20;
+}
+
+/// <summary>
+/// Response paginated cho tìm kiếm lịch hẹn.
+/// </summary>
+public class ReservationSearchResponseDto
+{
+    public List<ReservationListItemDto> Items { get; set; } = [];
+    public int TotalCount { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalPages => (int)Math.Ceiling((double)TotalCount / PageSize);
 }

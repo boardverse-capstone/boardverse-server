@@ -39,7 +39,6 @@ public class DepositCalculatorTests
 
     private static ReservationQuoteRequestDto BuildRequest(
         DateOnly playDate,
-        TimeSlot slot = TimeSlot.Evening,
         int minPlayers = 2,
         int maxPlayers = 6)
     {
@@ -48,195 +47,65 @@ public class DepositCalculatorTests
             CafeId = Guid.NewGuid(),
             GameId = Guid.NewGuid(),
             PlayDate = playDate,
-            TimeSlot = slot,
+            PreferredStartTime = new TimeOnly(18, 0),
+            PreferredEndTime = new TimeOnly(22, 0),
             MinPlayers = minPlayers,
             MaxPlayers = maxPlayers,
             IdempotencyKey = $"quote-{Guid.NewGuid():N}"
         };
     }
 
-    // ===== BR-DEPOSIT-02: baseDeposit = ratePerPerson × maxPlayers =====
+    // ===== BR-DEPOSIT-02 v2 (2026-08-18): baseDeposit = 20% × cafeBasePrice =====
 
     [Fact]
-    public void Calculate_SameDay_NormalRisk_BasesOnRatePerPerson()
+    public void Calculate_SameDay_Returns20PercentOfBasePriceInBvc()
     {
         // Arrange
         var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
         var request = BuildRequest(DateOnly.FromDateTime(now.Date), maxPlayers: 6);
         var config = BuildCafeConfig(ratePerPerson: 5);
 
-        // Act
+        // Act: cafeBasePrice = 100,000 VND → 20% = 20,000 VND → 20 BVC
         var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, walletRiskMultiplier: 1.0m, isCoolingOff: false, isPrivateLobby: false, now: now);
 
-        // Assert
-        Assert.Equal(30, result.BaseDeposit); // 5 × 6
-        Assert.Equal(1.0m, result.RiskMultiplier);
+        // Assert: new formula 2026-08-18 — no rate × maxPlayers, no minDeposit dominance
+        Assert.Equal(20, result.BaseDeposit);
+        Assert.Equal(1.0m, result.RiskMultiplier); // deprecated, hardcoded
         Assert.Equal(DistanceBucket.SameDay, result.Distance);
-        Assert.Equal(50, result.FinalDeposit); // minDeposit = 50 BVC dominates
-        Assert.Equal(50, result.MinDepositApplied);
-    }
-
-    // ===== BR-NEW-01 §VIII: minDeposit theo khoảng cách playDate =====
-
-    [Theory]
-    [InlineData(0, 50)] // SameDay
-    [InlineData(1, 50)] // OneDay
-    [InlineData(2, 100)] // TwoDays
-    [InlineData(3, 150)] // 3 days
-    [InlineData(4, 150)] // 4 days
-    [InlineData(5, 200)] // 5 days
-    [InlineData(7, 200)] // 7 days
-    public void Calculate_MinDeposit_MatchesDistanceBucket(int daysInFuture, long expectedMinDeposit)
-    {
-        // Arrange
-        var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
-        var playDate = DateOnly.FromDateTime(now.Date).AddDays(daysInFuture);
-        var request = BuildRequest(playDate, maxPlayers: 6);
-        var config = BuildCafeConfig(ratePerPerson: 1); // rate × 6 = 6 BVC, much below minDeposit
-
-        // Act
-        var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, 1.0m, false, false, now);
-
-        // Assert
-        Assert.Equal(expectedMinDeposit, result.MinDepositApplied);
-        Assert.Equal(expectedMinDeposit, result.FinalDeposit);
-    }
-
-    // ===== BR-NEW-01 §VIII: maxPlayers clamped theo khoảng cách =====
-
-    [Fact]
-    public void Calculate_MaxPlayersOverLimit_Distance2Days_ClampsTo15()
-    {
-        // Arrange
-        var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
-        var playDate = DateOnly.FromDateTime(now.Date).AddDays(2);
-        var request = BuildRequest(playDate, maxPlayers: 30); // yêu cầu 30
-        var config = BuildCafeConfig(ratePerPerson: 1);
-
-        // Act
-        var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, 1.0m, false, false, now);
-
-        // Assert
-        Assert.Equal(15, result.MaxPlayersApplied); // clamped xuống 15
-        Assert.Equal(DistanceBucket.TwoDays, result.Distance);
+        Assert.Equal(20, result.FinalDeposit);
+        Assert.Equal(0, result.MinDepositApplied); // deprecated
     }
 
     [Fact]
-    public void Calculate_MaxPlayersOverLimit_5Days_ClampsTo6()
+    public void Calculate_SmallBasePrice_FloorsToMin1Bvc()
     {
-        // Arrange
+        // Arrange: cafeBasePrice = 2,000 VND → 20% = 400 VND → 0.4 BVC → floor 1 BVC
         var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
-        var playDate = DateOnly.FromDateTime(now.Date).AddDays(5);
-        var request = BuildRequest(playDate, maxPlayers: 20);
-        var config = BuildCafeConfig(ratePerPerson: 1);
+        var request = BuildRequest(DateOnly.FromDateTime(now.Date), maxPlayers: 6);
+        var config = BuildCafeConfig();
 
         // Act
-        var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, 1.0m, false, false, now);
+        var result = _calculator.Calculate(request, config, cafeBasePrice: 2_000m, 1.0m, false, false, now);
 
-        // Assert
-        Assert.Equal(6, result.MaxPlayersApplied);
-        Assert.Equal(DistanceBucket.FiveToSevenDays, result.Distance);
-    }
-
-    // ===== BR-DEPOSIT-04 + BR-RISK-03: riskMultiplier áp dụng =====
-
-    [Fact]
-    public void Calculate_RiskMultiplier1_5_IncreasesAdjustedDeposit()
-    {
-        // Arrange: rate=10, maxPlayers=100 → base=1000; riskMultiplier=1.5 → adjusted=1500
-        // minDeposit = 200 dominating, nên test minDeposit=0 để thấy adjusted
-        var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
-        var playDate = DateOnly.FromDateTime(now.Date).AddDays(5); // 5 days
-        var request = BuildRequest(playDate, maxPlayers: 6);
-        var config = BuildCafeConfig(ratePerPerson: 10);
-        config.MinDeposit5To7Days = 0; // tắt minDeposit để thấy adjusted
-
-        // Act
-        var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, walletRiskMultiplier: 1.5m, isCoolingOff: false, isPrivateLobby: false, now: now);
-
-        // Assert
-        Assert.Equal(60, result.BaseDeposit); // 10 × 6
-        Assert.Equal(1.5m, result.RiskMultiplier);
-        Assert.Equal(90, result.FinalDeposit); // 60 × 1.5 = 90
+        // Assert: Math.Max(1, RoundToBvc(400/1000)) = Math.Max(1, 0) = 1 BVC
+        Assert.Equal(1, result.FinalDeposit);
     }
 
     [Fact]
-    public void Calculate_RiskMultiplierAbove2_ClampsTo2()
+    public void Calculate_VariousBasePrices_ConvertsCorrectly()
     {
         // Arrange
         var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
-        var playDate = DateOnly.FromDateTime(now.Date); // same day
-        var request = BuildRequest(playDate, maxPlayers: 4);
-        var config = BuildCafeConfig(ratePerPerson: 1);
-        config.MinDepositSameDay = 0;
+        var request = BuildRequest(DateOnly.FromDateTime(now.Date));
+        var config = BuildCafeConfig();
 
-        // Act
-        var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, walletRiskMultiplier: 5.0m, isCoolingOff: false, isPrivateLobby: false, now: now);
-
-        // Assert
-        Assert.Equal(2.0m, result.RiskMultiplier); // clamped
-        Assert.Equal(8, result.FinalDeposit); // 1 × 4 × 2 = 8
-    }
-
-    // ===== BR-NEW-10: cooling-off × 2 riskMultiplier =====
-
-    [Fact]
-    public void Calculate_CoolingOff_DoublesEffectiveRiskMultiplier()
-    {
-        // Arrange
-        var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
-        var playDate = DateOnly.FromDateTime(now.Date);
-        var request = BuildRequest(playDate, maxPlayers: 4);
-        var config = BuildCafeConfig(ratePerPerson: 1);
-        config.MinDepositSameDay = 0;
-
-        // Act
-        var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, walletRiskMultiplier: 1.0m, isCoolingOff: true, isPrivateLobby: false, now: now);
-
-        // Assert
-        Assert.Equal(2.0m, result.RiskMultiplier); // 1.0 × 2 = 2.0 (clamped at 2.0)
-        Assert.Equal(8, result.FinalDeposit); // 1 × 4 × 2 = 8
-    }
-
-    [Fact]
-    public void Calculate_CoolingOff_WithHalfRisk_StillDoublesTo2()
-    {
-        // Arrange: riskMultiplier = 1.25 → cooling-off = 2.5 → clamped to 2.0
-        var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
-        var playDate = DateOnly.FromDateTime(now.Date);
-        var request = BuildRequest(playDate, maxPlayers: 4);
-        var config = BuildCafeConfig(ratePerPerson: 1);
-        config.MinDepositSameDay = 0;
-
-        // Act
-        var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, walletRiskMultiplier: 1.25m, isCoolingOff: true, isPrivateLobby: false, now: now);
-
-        // Assert
-        Assert.Equal(2.0m, result.RiskMultiplier);
-    }
-
-    // ===== BR-DEPOSIT-03: rate per person ∈ [1, 100] =====
-
-    [Theory]
-    [InlineData(0, 1)] // below min → clamp to 1
-    [InlineData(1, 1)]
-    [InlineData(50, 50)]
-    [InlineData(100, 100)]
-    [InlineData(150, 100)] // above max → clamp to 100
-    public void Calculate_RatePerPerson_ClampedToValidRange(int rawRate, int expectedAppliedRate)
-    {
-        // Arrange
-        var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
-        var playDate = DateOnly.FromDateTime(now.Date);
-        var request = BuildRequest(playDate, maxPlayers: 6);
-        var config = BuildCafeConfig(ratePerPerson: rawRate);
-        config.MinDepositSameDay = 0;
-
-        // Act
-        var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, 1.0m, false, false, now);
-
-        // Assert
-        Assert.Equal((long)expectedAppliedRate * 6, result.BaseDeposit);
+        // Act & Assert
+        // 50,000 VND → 20% = 10,000 VND → 10 BVC
+        Assert.Equal(10, _calculator.Calculate(request, config, cafeBasePrice: 50_000m, 1.0m, false, false, now).FinalDeposit);
+        // 150,000 VND → 20% = 30,000 VND → 30 BVC
+        Assert.Equal(30, _calculator.Calculate(request, config, cafeBasePrice: 150_000m, 1.0m, false, false, now).FinalDeposit);
+        // 200,000 VND → 20% = 40,000 VND → 40 BVC
+        Assert.Equal(40, _calculator.Calculate(request, config, cafeBasePrice: 200_000m, 1.0m, false, false, now).FinalDeposit);
     }
 
     // ===== BR-NEW-11: cafe approval =====
@@ -310,28 +179,11 @@ public class DepositCalculatorTests
     [Fact]
     public void Calculate_BufferUnder2HoursButOver1Hour_SetsBufferWarning()
     {
-        // Arrange: now = 16:00, playDate evening 17:00 → scheduledTime = 17:00
-        // recruitmentDeadline = 17:00 - 20min = 16:40 → buffer = 40 phút (< 60 → reject)
+        // Arrange: now = 16:00, preferredStart = 18:00
+        // recruitmentDeadline = 18:00 - 20min = 17:40 → buffer = 100 phút (>= 60 → warning)
         var now = new DateTime(2026, 8, 2, 16, 0, 0, DateTimeKind.Utc);
         var playDate = DateOnly.FromDateTime(now.Date);
-        var request = BuildRequest(playDate, TimeSlot.Evening, maxPlayers: 6);
-        var config = BuildCafeConfig(ratePerPerson: 1);
-
-        // Act
-        var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, 1.0m, false, false, now);
-
-        // Assert
-        Assert.Equal(40, result.BufferMinutes);
-        Assert.False(result.BufferWarning); // 40 < 60 → không warning, reject
-    }
-
-    [Fact]
-    public void Calculate_BufferBetween60And120_SetsBufferWarningTrue()
-    {
-        // Arrange: now = 15:00, scheduledTime = 17:00 → buffer = 17:00 - 20min - 15:00 = 100 phút
-        var now = new DateTime(2026, 8, 2, 15, 0, 0, DateTimeKind.Utc);
-        var playDate = DateOnly.FromDateTime(now.Date);
-        var request = BuildRequest(playDate, TimeSlot.Evening, maxPlayers: 6);
+        var request = BuildRequest(playDate, maxPlayers: 6);
         var config = BuildCafeConfig(ratePerPerson: 1);
 
         // Act
@@ -339,7 +191,25 @@ public class DepositCalculatorTests
 
         // Assert
         Assert.Equal(100, result.BufferMinutes);
-        Assert.True(result.BufferWarning);
+        Assert.True(result.BufferWarning); // >= 60 → warning
+    }
+
+    [Fact]
+    public void Calculate_BufferUnder1Hour_Rejects()
+    {
+        // Arrange: now = 17:30, preferredStart = 18:00
+        // recruitmentDeadline = 18:00 - 20min = 17:40 → buffer = 10 phút (< 60 → reject/warning false)
+        var now = new DateTime(2026, 8, 2, 17, 30, 0, DateTimeKind.Utc);
+        var playDate = DateOnly.FromDateTime(now.Date);
+        var request = BuildRequest(playDate, maxPlayers: 6);
+        var config = BuildCafeConfig(ratePerPerson: 1);
+
+        // Act
+        var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, 1.0m, false, false, now);
+
+        // Assert
+        Assert.Equal(10, result.BufferMinutes);
+        Assert.False(result.BufferWarning); // < 60 → reject, no warning
     }
 
     // ===== Validation throws =====
@@ -420,11 +290,22 @@ public class DepositCalculatorTests
     [Fact]
     public void Calculate_BufferMinutes_MatchesDefaultLeadTimeMinutes()
     {
-        // Arrange: now=10:00 today, slot Morning (06:00) tomorrow
+        // Arrange: now=10:00 today, preferredStart=06:00 tomorrow
         // scheduledTime = tomorrow 06:00
         // deadline = 06:00 - 20 = 05:40 tomorrow → buffer = 19h40m = 1180 phút
         var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
-        var request = BuildRequest(DateOnly.FromDateTime(now.Date).AddDays(1), slot: TimeSlot.Morning);
+        var playDate = DateOnly.FromDateTime(now.Date).AddDays(1);
+        var request = new ReservationQuoteRequestDto
+        {
+            CafeId = Guid.NewGuid(),
+            GameId = Guid.NewGuid(),
+            PlayDate = playDate,
+            PreferredStartTime = new TimeOnly(6, 0), // Morning start
+            PreferredEndTime = new TimeOnly(10, 0),
+            MinPlayers = 2,
+            MaxPlayers = 6,
+            IdempotencyKey = $"quote-{Guid.NewGuid():N}"
+        };
         var config = BuildCafeConfig();
 
         // Act
@@ -438,10 +319,21 @@ public class DepositCalculatorTests
     [Fact]
     public void Calculate_BufferMinutes_10_BelowThreshold_NoWarning()
     {
-        // For 10p test: now=16:30, slot Evening (17:00) → deadline = 17:00 - 20 = 16:40
+        // For 10p test: now=16:30, preferredStart=17:00 → deadline = 17:00 - 20 = 16:40
         // buffer = 16:40 - 16:30 = 10p
         var now = new DateTime(2026, 8, 2, 16, 30, 0, DateTimeKind.Utc);
-        var request = BuildRequest(DateOnly.FromDateTime(now.Date), slot: TimeSlot.Evening);
+        var playDate = DateOnly.FromDateTime(now.Date);
+        var request = new ReservationQuoteRequestDto
+        {
+            CafeId = Guid.NewGuid(),
+            GameId = Guid.NewGuid(),
+            PlayDate = playDate,
+            PreferredStartTime = new TimeOnly(17, 0), // Evening start
+            PreferredEndTime = new TimeOnly(21, 0),
+            MinPlayers = 2,
+            MaxPlayers = 6,
+            IdempotencyKey = $"quote-{Guid.NewGuid():N}"
+        };
         var config = BuildCafeConfig();
 
         // Act
@@ -455,10 +347,21 @@ public class DepositCalculatorTests
     [Fact]
     public void Calculate_BufferMinutes_70_RaisesWarning()
     {
-        // Arrange: now=4:30, slot Morning (06:00) same day
+        // Arrange: now=4:30, preferredStart=06:00 same day
         // deadline = 06:00 - 20 = 05:40 → buffer = 70 phút
         var now = new DateTime(2026, 8, 2, 4, 30, 0, DateTimeKind.Utc);
-        var request = BuildRequest(DateOnly.FromDateTime(now.Date), slot: TimeSlot.Morning);
+        var playDate = DateOnly.FromDateTime(now.Date);
+        var request = new ReservationQuoteRequestDto
+        {
+            CafeId = Guid.NewGuid(),
+            GameId = Guid.NewGuid(),
+            PlayDate = playDate,
+            PreferredStartTime = new TimeOnly(6, 0), // Morning start
+            PreferredEndTime = new TimeOnly(10, 0),
+            MinPlayers = 2,
+            MaxPlayers = 6,
+            IdempotencyKey = $"quote-{Guid.NewGuid():N}"
+        };
         var config = BuildCafeConfig();
 
         // Act

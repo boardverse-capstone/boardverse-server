@@ -39,6 +39,11 @@ public class AlertExpiryCleanupJob : BackgroundService
                         "AlertExpiryCleanupJob dismissed {Count} stale alerts.", dismissed);
                 }
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("AlertExpiryCleanupJob stopped (host shutdown).");
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "AlertExpiryCleanupJob tick failed");

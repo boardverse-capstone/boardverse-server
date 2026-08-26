@@ -36,11 +36,17 @@ public class WalkInWindowRepository : IWalkInWindowRepository
     {
         var startOfDay = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
         var endOfDay = date.ToDateTime(TimeOnly.MaxValue, DateTimeKind.Utc);
+        var now = DateTime.UtcNow;
 
+        // GAP-R6-TW Fix: filter WindowEnd > now (UtcNow) để loại bỏ windows đã expire
+        // nhưng background job chưa flip sang Closed/Expired status.
+        // Trước đây: WindowEnd > startOfDay (đầu ngày) → trả về cả windows của hôm qua
+        // đã hết hạn từ lâu → leak window cũ vào discovery / POS view.
         return await _db.WalkInWindows
             .Where(w => w.CafeId == cafeId
                 && w.WindowStart < endOfDay
                 && w.WindowEnd > startOfDay
+                && w.WindowEnd > now
                 && w.Status != WalkInWindowStatus.Closed
                 && w.Status != WalkInWindowStatus.Expired)
             .OrderBy(w => w.WindowStart)

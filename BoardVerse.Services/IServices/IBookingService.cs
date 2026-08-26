@@ -1,6 +1,7 @@
 using BoardVerse.Core.DTOs.Booking;
 using BoardVerse.Core.Entities;
 
+using System.Threading;
 namespace BoardVerse.Services.IServices;
 
 public interface IBookingService
@@ -10,12 +11,12 @@ public interface IBookingService
     /// Flow: Lobby (Full) -> Host tạo Booking (PendingDeposit).
     /// Đồng thời update Lobby.BookingId = bookingId.
     /// </summary>
-    Task<BookingResponseDto> CreateBookingAsync(Guid hostUserId, CreateBookingRequestDto request);
+    Task<BookingResponseDto> CreateBookingAsync(Guid hostUserId, CreateBookingRequestDto request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lấy chi tiết booking theo ID.
     /// </summary>
-    Task<BookingResponseDto?> GetByIdAsync(Guid bookingId);
+    Task<BookingResponseDto?> GetByIdAsync(Guid bookingId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lấy chi tiết booking theo ID và kiểm tra quyền truy cập.
@@ -24,33 +25,33 @@ public interface IBookingService
     /// Admin: xem tất cả.
     /// Trả về null nếu booking không tồn tại hoặc caller không có quyền.
     /// </summary>
-    Task<BookingResponseDto?> GetByIdForCallerAsync(Guid bookingId, Guid callerUserId, string callerRole);
+    Task<BookingResponseDto?> GetByIdForCallerAsync(Guid bookingId, Guid callerUserId, string callerRole, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lấy booking theo lobby ID.
     /// </summary>
-    Task<BookingResponseDto?> GetByLobbyIdAsync(Guid lobbyId);
+    Task<BookingResponseDto?> GetByLobbyIdAsync(Guid lobbyId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lấy booking theo lobby ID, kiểm tra quyền caller là member của lobby hoặc Manager cafe / Admin.
     /// </summary>
-    Task<BookingResponseDto?> GetByLobbyIdForCallerAsync(Guid lobbyId, Guid callerUserId, string callerRole);
+    Task<BookingResponseDto?> GetByLobbyIdForCallerAsync(Guid lobbyId, Guid callerUserId, string callerRole, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lấy danh sách booking của cafe.
     /// </summary>
-    Task<IReadOnlyList<BookingResponseDto>> GetByCafeIdAsync(Guid cafeId, Guid? requestingUserId = null, bool isStaffOrManager = false);
+    Task<IReadOnlyList<BookingResponseDto>> GetByCafeIdAsync(Guid cafeId, Guid? requestingUserId = null, bool isStaffOrManager = false, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Cập nhật booking (chỉ một số trường được phép).
     /// Chỉ Owner (host) mới được sửa, và chỉ khi status cho phép.
     /// </summary>
-    Task<BookingResponseDto> UpdateBookingAsync(Guid bookingId, Guid requestingUserId, UpdateBookingRequestDto request);
+    Task<BookingResponseDto> UpdateBookingAsync(Guid bookingId, Guid requestingUserId, UpdateBookingRequestDto request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Hủy booking bởi user.
     /// </summary>
-    Task<BookingResponseDto> CancelBookingAsync(Guid bookingId, Guid requestingUserId, string? reason = null);
+    Task<BookingResponseDto> CancelBookingAsync(Guid bookingId, Guid requestingUserId, string? reason = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Check-in tại quán (Manager/Staff).
@@ -58,7 +59,7 @@ public interface IBookingService
     /// qua `CafePosService.StartSessionFromBookingAsync` (BVC flow).
     /// </summary>
     [Obsolete("Deprecated — BR mới dùng Reservation BVC. POS scan QR qua CafePosService.StartSessionFromBookingAsync.")]
-    Task<BookingResponseDto> CheckInAsync(Guid bookingId, Guid staffUserId);
+    Task<BookingResponseDto> CheckInAsync(Guid bookingId, Guid staffUserId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Check-out tại quán (Manager/Staff).
@@ -66,22 +67,22 @@ public interface IBookingService
     /// (BR-REVENUE-01: capture BVC deposit về doanh thu quán).
     /// </summary>
     [Obsolete("Deprecated — đã thay bằng ReservationService.CompleteAndCaptureAsync (BR-REVENUE-01).")]
-    Task<BookingResponseDto> CheckOutAsync(Guid bookingId, Guid staffUserId);
+    Task<BookingResponseDto> CheckOutAsync(Guid bookingId, Guid staffUserId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Xác nhận booking khi đã thanh toán cọc (internal, gọi từ PaymentService).
     /// </summary>
-    Task<Booking> ConfirmBookingAsync(Guid bookingId);
+    Task<Booking> ConfirmBookingAsync(Guid bookingId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Đánh dấu NoShow khi khách không đến sau buffer time.
     /// </summary>
-    Task<Booking> MarkAsNoShowAsync(Guid bookingId);
+    Task<Booking> MarkAsNoShowAsync(Guid bookingId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Mobile task #8: GET /api/bookings/{id}/session-status
     /// Trả về ActiveSession realtime status (ActiveSession + members) cho member lobby xem.
     /// BR-12: Trả về bill về sớm của member nào đã partial-checkout.
     /// </summary>
-    Task<BookingSessionStatusResponseDto> GetSessionStatusAsync(Guid bookingId, Guid requestingUserId);
+    Task<BookingSessionStatusResponseDto> GetSessionStatusAsync(Guid bookingId, Guid requestingUserId, CancellationToken cancellationToken = default);
 }

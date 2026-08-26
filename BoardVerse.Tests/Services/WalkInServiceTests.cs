@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 /// <summary>
@@ -57,7 +58,7 @@ public class WalkInServiceTests : IDisposable
             CreateWindow(cafeId, WalkInWindowStatus.Partial)
         };
 
-        _windowRepo.Setup(r => r.GetActiveByCafeAsync(cafeId, date, default))
+        _windowRepo.Setup(r => r.GetActiveByCafeAsync(cafeId, date, It.IsAny<CancellationToken>()))
             .ReturnsAsync(windows);
 
         // Act
@@ -80,7 +81,7 @@ public class WalkInServiceTests : IDisposable
             Seats = 2
         };
 
-        _windowRepo.Setup(r => r.GetByIdAsync(request.WalkInWindowId, default))
+        _windowRepo.Setup(r => r.GetByIdAsync(request.WalkInWindowId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((WalkInWindow?)null);
 
         // Act & Assert
@@ -103,7 +104,7 @@ public class WalkInServiceTests : IDisposable
         var window = CreateWindow(windowId, WalkInWindowStatus.Full);
         window.AvailableSeats = 0;
 
-        _windowRepo.Setup(r => r.GetByIdAsync(windowId, default))
+        _windowRepo.Setup(r => r.GetByIdAsync(windowId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(window);
 
         // Act & Assert
@@ -128,7 +129,7 @@ public class WalkInServiceTests : IDisposable
         var window = CreateWindow(windowId, WalkInWindowStatus.Available);
         window.AvailableSeats = 5;
 
-        _windowRepo.Setup(r => r.GetByIdAsync(windowId, default))
+        _windowRepo.Setup(r => r.GetByIdAsync(windowId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(window);
 
         // Act & Assert
@@ -156,13 +157,13 @@ public class WalkInServiceTests : IDisposable
         window.Version = 1;
         window.CafeId = cafeId;
 
-        _windowRepo.Setup(r => r.GetByIdAsync(windowId, default))
+        _windowRepo.Setup(r => r.GetByIdAsync(windowId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(window);
 
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId))
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Cafe { Id = cafeId, Name = "Test Cafe", IsActive = true, Address = "Test Address" });
 
-        _windowRepo.Setup(r => r.TryHoldSeatsAsync(windowId, 2, 1, default))
+        _windowRepo.Setup(r => r.TryHoldSeatsAsync(windowId, 2, 1, It.IsAny<CancellationToken>()))
             .ReturnsAsync(false); // OCC fails
 
         // Act & Assert
@@ -191,16 +192,16 @@ public class WalkInServiceTests : IDisposable
         window.Version = 1;
         window.CafeId = cafeId;
 
-        _windowRepo.Setup(r => r.GetByIdAsync(windowId, default))
+        _windowRepo.Setup(r => r.GetByIdAsync(windowId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(window);
 
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId))
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Cafe { Id = cafeId, Name = "Test Cafe", IsActive = true, Address = "Test Address" });
 
-        _windowRepo.Setup(r => r.TryHoldSeatsAsync(windowId, 2, 1, default))
+        _windowRepo.Setup(r => r.TryHoldSeatsAsync(windowId, 2, 1, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
-        _bookingRepo.Setup(r => r.AddAsync(It.IsAny<WalkInBooking>(), default))
+        _bookingRepo.Setup(r => r.AddAsync(It.IsAny<WalkInBooking>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((WalkInBooking b, CancellationToken _) => b);
 
         // Act
@@ -224,18 +225,18 @@ public class WalkInServiceTests : IDisposable
         var window1 = CreateWindow(Guid.NewGuid(), WalkInWindowStatus.Available);
         var window2 = CreateWindow(Guid.NewGuid(), WalkInWindowStatus.Partial);
 
-        _windowRepo.Setup(r => r.GetExpiredAsync(default))
+        _windowRepo.Setup(r => r.GetExpiredAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<WalkInWindow> { window1, window2 });
 
-        _windowRepo.Setup(r => r.CloseAsync(It.IsAny<Guid>(), default))
+        _windowRepo.Setup(r => r.CloseAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         // Act
         await _service.CleanupExpiredWindowsAsync();
 
         // Assert
-        _windowRepo.Verify(r => r.CloseAsync(window1.Id, default), Times.Once);
-        _windowRepo.Verify(r => r.CloseAsync(window2.Id, default), Times.Once);
+        _windowRepo.Verify(r => r.CloseAsync(window1.Id, It.IsAny<CancellationToken>()), Times.Once);
+        _windowRepo.Verify(r => r.CloseAsync(window2.Id, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // ===== CreateWindowFromReservationAsync =====
@@ -251,7 +252,7 @@ public class WalkInServiceTests : IDisposable
             ScheduledEndTime = DateTime.UtcNow.AddHours(2)
         };
 
-        _windowRepo.Setup(r => r.AddAsync(It.IsAny<WalkInWindow>(), default))
+        _windowRepo.Setup(r => r.AddAsync(It.IsAny<WalkInWindow>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((WalkInWindow w, CancellationToken _) => w);
 
         // Act
@@ -285,7 +286,7 @@ public class WalkInServiceTests : IDisposable
 
         // Assert
         Assert.Null(window);
-        _windowRepo.Verify(r => r.AddAsync(It.IsAny<WalkInWindow>(), default), Times.Never);
+        _windowRepo.Verify(r => r.AddAsync(It.IsAny<WalkInWindow>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // ===== CloseWindowAsync =====
@@ -295,7 +296,7 @@ public class WalkInServiceTests : IDisposable
     {
         // Arrange
         var windowId = Guid.NewGuid();
-        _windowRepo.Setup(r => r.GetByIdAsync(windowId, default))
+        _windowRepo.Setup(r => r.GetByIdAsync(windowId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((WalkInWindow?)null);
 
         // Act & Assert
@@ -310,16 +311,16 @@ public class WalkInServiceTests : IDisposable
         var windowId = Guid.NewGuid();
         var window = CreateWindow(windowId, WalkInWindowStatus.Available);
 
-        _windowRepo.Setup(r => r.GetByIdAsync(windowId, default))
+        _windowRepo.Setup(r => r.GetByIdAsync(windowId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(window);
-        _windowRepo.Setup(r => r.CloseAsync(windowId, default))
+        _windowRepo.Setup(r => r.CloseAsync(windowId, It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         // Act
         await _service.CloseWindowAsync(windowId, "Manual close");
 
         // Assert
-        _windowRepo.Verify(r => r.CloseAsync(windowId, default), Times.Once);
+        _windowRepo.Verify(r => r.CloseAsync(windowId, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // ===== CancelWalkInBookingAsync =====
@@ -329,7 +330,7 @@ public class WalkInServiceTests : IDisposable
     {
         // Arrange
         var bookingId = Guid.NewGuid();
-        _bookingRepo.Setup(r => r.GetByIdAsync(bookingId, default))
+        _bookingRepo.Setup(r => r.GetByIdAsync(bookingId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((WalkInBooking?)null);
 
         // Act & Assert
@@ -354,13 +355,13 @@ public class WalkInServiceTests : IDisposable
             Status = WalkInBookingStatus.Completed, // đã thanh toán
             StartTime = DateTime.UtcNow
         };
-        _bookingRepo.Setup(r => r.GetByIdAsync(bookingId, default))
+        _bookingRepo.Setup(r => r.GetByIdAsync(bookingId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(booking);
 
         // Act & Assert
         await Assert.ThrowsAsync<ConflictException>(
             () => _service.CancelWalkInBookingAsync(bookingId));
-        _bookingRepo.Verify(r => r.UpdateAsync(It.IsAny<WalkInBooking>(), default), Times.Never);
+        _bookingRepo.Verify(r => r.UpdateAsync(It.IsAny<WalkInBooking>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -377,7 +378,7 @@ public class WalkInServiceTests : IDisposable
             Status = WalkInBookingStatus.Cancelled,
             StartTime = DateTime.UtcNow
         };
-        _bookingRepo.Setup(r => r.GetByIdAsync(bookingId, default))
+        _bookingRepo.Setup(r => r.GetByIdAsync(bookingId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(booking);
 
         await Assert.ThrowsAsync<ConflictException>(
@@ -404,13 +405,13 @@ public class WalkInServiceTests : IDisposable
         window.AvailableSeats = 0; // đã bị booking giữ hết
         window.HeldSeats = 2;
 
-        _bookingRepo.Setup(r => r.GetByIdAsync(bookingId, default))
+        _bookingRepo.Setup(r => r.GetByIdAsync(bookingId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(booking);
-        _windowRepo.Setup(r => r.GetByIdAsync(windowId, default))
+        _windowRepo.Setup(r => r.GetByIdAsync(windowId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(window);
-        _windowRepo.Setup(r => r.TryReleaseSeatsAsync(windowId, 2, window.Version, default))
+        _windowRepo.Setup(r => r.TryReleaseSeatsAsync(windowId, 2, window.Version, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
-        _bookingRepo.Setup(r => r.UpdateAsync(booking, default))
+        _bookingRepo.Setup(r => r.UpdateAsync(booking, It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         // Act
@@ -418,8 +419,8 @@ public class WalkInServiceTests : IDisposable
 
         // Assert
         Assert.Equal(WalkInBookingStatus.Cancelled, booking.Status);
-        _windowRepo.Verify(r => r.TryReleaseSeatsAsync(windowId, 2, window.Version, default), Times.Once);
-        _bookingRepo.Verify(r => r.UpdateAsync(booking, default), Times.Once);
+        _windowRepo.Verify(r => r.TryReleaseSeatsAsync(windowId, 2, window.Version, It.IsAny<CancellationToken>()), Times.Once);
+        _bookingRepo.Verify(r => r.UpdateAsync(booking, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -440,11 +441,11 @@ public class WalkInServiceTests : IDisposable
             StartTime = DateTime.UtcNow
         };
 
-        _bookingRepo.Setup(r => r.GetByIdAsync(bookingId, default))
+        _bookingRepo.Setup(r => r.GetByIdAsync(bookingId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(booking);
-        _windowRepo.Setup(r => r.GetByIdAsync(windowId, default))
+        _windowRepo.Setup(r => r.GetByIdAsync(windowId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((WalkInWindow?)null);
-        _bookingRepo.Setup(r => r.UpdateAsync(booking, default))
+        _bookingRepo.Setup(r => r.UpdateAsync(booking, It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         // Act
@@ -452,8 +453,8 @@ public class WalkInServiceTests : IDisposable
 
         // Assert
         Assert.Equal(WalkInBookingStatus.Cancelled, booking.Status);
-        _windowRepo.Verify(r => r.TryReleaseSeatsAsync(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<uint>(), default), Times.Never);
-        _bookingRepo.Verify(r => r.UpdateAsync(booking, default), Times.Once);
+        _windowRepo.Verify(r => r.TryReleaseSeatsAsync(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<uint>(), It.IsAny<CancellationToken>()), Times.Never);
+        _bookingRepo.Verify(r => r.UpdateAsync(booking, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -475,13 +476,13 @@ public class WalkInServiceTests : IDisposable
         };
         var window = CreateWindow(windowId, WalkInWindowStatus.Available);
 
-        _bookingRepo.Setup(r => r.GetByIdAsync(bookingId, default))
+        _bookingRepo.Setup(r => r.GetByIdAsync(bookingId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(booking);
-        _windowRepo.Setup(r => r.GetByIdAsync(windowId, default))
+        _windowRepo.Setup(r => r.GetByIdAsync(windowId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(window);
-        _windowRepo.Setup(r => r.TryReleaseSeatsAsync(windowId, 2, window.Version, default))
+        _windowRepo.Setup(r => r.TryReleaseSeatsAsync(windowId, 2, window.Version, It.IsAny<CancellationToken>()))
             .ReturnsAsync(false); // OCC conflict
-        _bookingRepo.Setup(r => r.UpdateAsync(booking, default))
+        _bookingRepo.Setup(r => r.UpdateAsync(booking, It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         // Act
@@ -489,7 +490,7 @@ public class WalkInServiceTests : IDisposable
 
         // Assert
         Assert.Equal(WalkInBookingStatus.Cancelled, booking.Status);
-        _bookingRepo.Verify(r => r.UpdateAsync(booking, default), Times.Once);
+        _bookingRepo.Verify(r => r.UpdateAsync(booking, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // ===== Helper =====

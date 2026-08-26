@@ -39,6 +39,11 @@ public class LobbyCleanupJob : BackgroundService
                 await ExpireInvitesAsync(db, hubService);
                 await TimeoutLobbiesAsync(db, lobbyRepo, hubService);
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("LobbyCleanupJob stopped (host shutdown).");
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "LobbyCleanupJob failed");

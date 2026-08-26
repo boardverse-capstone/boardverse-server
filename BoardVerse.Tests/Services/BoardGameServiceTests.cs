@@ -16,7 +16,7 @@ public class BoardGameServiceTests
     public async Task GetPlayConfigurationAsync_SoloGame_ExposesSoloAndGroupModes()
     {
         var gameRepo = new Mock<IGameTemplateRepository>();
-        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameId))
+        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new GameTemplate
             {
                 Id = GameId,
@@ -38,7 +38,7 @@ public class BoardGameServiceTests
     public async Task ResolvePlayNavigationAsync_SoloOnMultiplayerGame_ThrowsBadRequest()
     {
         var gameRepo = new Mock<IGameTemplateRepository>();
-        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameId))
+        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new GameTemplate
             {
                 Id = GameId,
@@ -61,7 +61,7 @@ public class BoardGameServiceTests
     public async Task ResolvePlayNavigationAsync_GroupMode_ReturnsLobbyCreation()
     {
         var gameRepo = new Mock<IGameTemplateRepository>();
-        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameId))
+        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new GameTemplate
             {
                 Id = GameId,

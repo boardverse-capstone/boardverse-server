@@ -32,6 +32,10 @@ namespace BoardVerse.Data.Configurations
             builder.HasIndex(s => s.ActiveSessionId);
             builder.HasIndex(s => s.BookingDepositId);
             builder.HasIndex(s => s.CafeManagerId).HasDatabaseName("IX_CafeSettlements_CafeManagerId"); // L5
+
+            // W-06: Tối ưu GET /admin/settlements/failed sort UpdatedAt DESC.
+            builder.HasIndex(s => new { s.Status, s.UpdatedAt })
+                .HasDatabaseName("IX_CafeSettlements_Status_UpdatedAt");
         }
     }
 }

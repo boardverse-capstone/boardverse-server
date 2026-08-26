@@ -35,7 +35,7 @@ public class AdminReportService : IAdminReportService
         _dbContext = dbContext;
     }
 
-    public async Task<AdminDashboardOverviewDto> GetDashboardOverviewAsync()
+    public async Task<AdminDashboardOverviewDto> GetDashboardOverviewAsync(CancellationToken cancellationToken = default)
     {
         // --- Bookings & Lobbies (counters) ---
         var totalBookings = await _bookingRepository.CountAllAsync(null, null);
@@ -50,9 +50,12 @@ public class AdminReportService : IAdminReportService
         var hostCancelledFailures = await _lobbyRepository.CountFailuresByTypeAsync(null, null, LobbyStatus.HostCancelled);
         var rejectedByCafeFailures = await _lobbyRepository.CountFailuresByTypeAsync(null, null, LobbyStatus.RejectedByCafe);
         var expiredByCafeFailures = await _lobbyRepository.CountFailuresByTypeAsync(null, null, LobbyStatus.ExpiredByCafe);
+        // BR-NEW-10 §XI.1: Dissolved lobbies được tính vào cooling-off signals
+        // (CoolingOffService.DetectSignalsAsync đã count; dashboard đồng bộ cho admin thấy).
+        var dissolvedFailures = await _lobbyRepository.CountFailuresByTypeAsync(null, null, LobbyStatus.Dissolved);
 
         var totalLobbies = await _dbContext.Lobbies.CountAsync();
-        var failedLobbies = timeoutFailures + hostCancelledFailures + rejectedByCafeFailures + expiredByCafeFailures;
+        var failedLobbies = timeoutFailures + hostCancelledFailures + rejectedByCafeFailures + expiredByCafeFailures + dissolvedFailures;
 
         // --- Users & Cafes ---
         var totalUsers = await _userProfileRepository.CountUsersAsync();
@@ -116,6 +119,7 @@ public class AdminReportService : IAdminReportService
             HostCancelledFailures = hostCancelledFailures,
             RejectedByCafeFailures = rejectedByCafeFailures,
             ExpiredByCafeFailures = expiredByCafeFailures,
+            DissolvedFailures = dissolvedFailures,
             // Audit
             GeneratedAt = DateTime.UtcNow
         };
@@ -126,7 +130,7 @@ public class AdminReportService : IAdminReportService
         int pageSize,
         DateTime? fromUtc,
         DateTime? toUtc,
-        string? failureType)
+        string? failureType, CancellationToken cancellationToken = default)
     {
         LobbyStatus? status = null;
         if (!string.IsNullOrWhiteSpace(failureType) && Enum.TryParse<LobbyStatus>(failureType, true, out var parsed))
@@ -153,6 +157,10 @@ public class AdminReportService : IAdminReportService
         var expiredByCafeCount = status == null || status == LobbyStatus.ExpiredByCafe
             ? await _lobbyRepository.CountFailuresByTypeAsync(fromUtc, toUtc, LobbyStatus.ExpiredByCafe)
             : 0;
+        // BR-NEW-10 §XI.1: Dissolved count cho breakdown (matches CoolingOffService signals).
+        var dissolvedCount = status == null || status == LobbyStatus.Dissolved
+            ? await _lobbyRepository.CountFailuresByTypeAsync(fromUtc, toUtc, LobbyStatus.Dissolved)
+            : 0;
 
         return new AdminLobbyFailuresReportDto
         {
@@ -175,7 +183,8 @@ public class AdminReportService : IAdminReportService
             TimeoutCount = timeoutCount,
             HostCancelledCount = hostCancelledCount,
             RejectedByCafeCount = rejectedByCafeCount,
-            ExpiredByCafeCount = expiredByCafeCount
+            ExpiredByCafeCount = expiredByCafeCount,
+            DissolvedCount = dissolvedCount
         };
     }
 
@@ -183,7 +192,7 @@ public class AdminReportService : IAdminReportService
         int page,
         int pageSize,
         DateTime? fromUtc,
-        DateTime? toUtc)
+        DateTime? toUtc, CancellationToken cancellationToken = default)
     {
         var baseQuery = _dbContext.BookingDeposits.AsNoTracking().AsQueryable();
         if (fromUtc.HasValue)
@@ -268,7 +277,7 @@ public class AdminReportService : IAdminReportService
         int page,
         int pageSize,
         string sortBy,
-        bool sortDescending)
+        bool sortDescending, CancellationToken cancellationToken = default)
     {
         var (cafeItems, totalCount) = await _cafeRepository.GetAdminListAsync(
             page, pageSize, null, true, null);
@@ -359,7 +368,7 @@ public class AdminReportService : IAdminReportService
     public async Task<AdminCafePerformanceDto?> GetCafePerformanceDetailAsync(
         Guid cafeId,
         DateTime? fromUtc,
-        DateTime? toUtc)
+        DateTime? toUtc, CancellationToken cancellationToken = default)
     {
         var cafe = await _cafeRepository.GetAdminDetailAsync(cafeId);
         if (cafe == null)
@@ -426,6 +435,7 @@ public class AdminReportService : IAdminReportService
             LobbyStatus.HostCancelled => "Host Cancelled",
             LobbyStatus.RejectedByCafe => "Rejected by Cafe",
             LobbyStatus.ExpiredByCafe => "Expired by Cafe",
+            LobbyStatus.Dissolved => "Host Dissolved",
             _ => status.ToString()
         };
     }

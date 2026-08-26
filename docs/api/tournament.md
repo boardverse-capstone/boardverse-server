@@ -11,6 +11,7 @@ API Tournament dành cho mobile app (Player): xem danh sách giải đang mở, 
 | Endpoint | Method | Mô tả |
 |----------|--------|--------|
 | `/open` | GET | Danh sách giải đang mở đăng ký (mọi game) |
+| `/` | GET | Danh sách tất cả tournament, có thể filter theo `?status=` (status optional — frontend tự filter) |
 | `/{tournamentId}` | GET | Chi tiết giải đấu |
 | `/{tournamentId}/participants` | GET | Danh sách người chơi đã đăng ký |
 | `/{tournamentId}/matches` | GET | Danh sách toàn bộ bàn đấu |
@@ -24,6 +25,83 @@ API Tournament dành cho mobile app (Player): xem danh sách giải đang mở, 
 | `/{tournamentId}/spectators/me` | GET | Spectate entry của tôi |
 | `/{tournamentId}/spectators` | POST | Bắt đầu spectate |
 | `/{tournamentId}/spectators` | DELETE | Rời khỏi spectate |
+
+---
+
+## GET /api/v1/tournaments
+
+Lấy danh sách tournament, có thể filter theo status. Thay thế cho việc phải tạo nhiều endpoint riêng
+(`/open`, `/ongoing`, `/completed`, ...) — frontend chỉ cần gọi 1 endpoint kèm query `status` để hiển thị
+theo tab/bộ lọc mà không cần backend triển khai thêm route mới cho từng status enum.
+
+**So sánh với `/open`:**
+
+| Endpoint | Trả về |
+|----------|--------|
+| `GET /tournaments/open` | Chỉ giải đang `RegistrationOpen + deadline còn hạn`. Sort by StartTime asc. |
+| `GET /tournaments?status=RegistrationOpen` | Tất cả giải ở status `RegistrationOpen` — **bao gồm cả giải có deadline đã qua** (manager chưa đóng đăng ký). |
+| `GET /tournaments?status=All` (hoặc không truyền) | Tất cả tournament (mọi status) — sort by StartTime asc. |
+| `GET /tournaments` (no query) | Tương đương `status=All`. |
+
+**Query:**
+
+| Param | Type | Required | Mô tả |
+|-------|------|----------|--------|
+| `status` | string | ❌ | Filter theo `TournamentStatus`. Hỗ trợ: `Draft`, `RegistrationOpen`, `RegistrationClosed`, `OnGoing`, `Completed`, `Cancelled`. Case-insensitive. Nếu không truyền, truyền rỗng hoặc truyền `"all"` → trả tất cả. |
+
+**Response 200:** danh sách `TournamentResponseDto`, sắp xếp theo `startTime` tăng dần.
+
+**Lỗi:**
+- `400` nếu `status` không phải giá trị hợp lệ của enum.
+- `401` thiếu token.
+- `500` lỗi hệ thống.
+
+**Ví dụ:**
+
+```bash
+# Tất cả
+curl -X GET 'https://api.boardverse.dev/api/v1/tournaments' \
+  -H "Authorization: Bearer <player-token>"
+
+# Chỉ các giải đang diễn ra
+curl -X GET 'https://api.boardverse.dev/api/v1/tournaments?status=OnGoing' \
+  -H "Authorization: Bearer <player-token>"
+
+# Case-insensitive
+curl -X GET 'https://api.boardverse.dev/api/v1/tournaments?status=completed' \
+  -H "Authorization: Bearer <player-token>"
+```
+
+**Sample response:**
+
+```json
+{
+  "statusCode": 200,
+  "message": "Lấy danh sách giải đấu thành công.",
+  "data": [
+    {
+      "id": "guid",
+      "title": "Splendor Cup Thủ Đức - August 2026",
+      "gameName": "Splendor",
+      "cafeName": "BoardVerse Cafe Thủ Đức",
+      "status": "RegistrationOpen",
+      "startTime": "2026-08-25T13:00:00Z",
+      "registrationDeadline": "2026-08-24T13:00:00Z",
+      "currentRound": 0,
+      "minParticipants": 4,
+      "maxParticipants": 8,
+      "registeredCount": 0,
+      "checkedInCount": 0,
+      "currentUserRegistered": false,
+      "winnerKarmaBonus": 50,
+      "finalistKarmaBonus": 20,
+      "noShowKarmaPenalty": -10,
+      "minKarmaRequirement": 0,
+      "pairingMode": "Auto"
+    }
+  ]
+}
+```
 
 ---
 

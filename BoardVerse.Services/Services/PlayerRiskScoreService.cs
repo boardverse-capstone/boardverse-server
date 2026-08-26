@@ -136,6 +136,16 @@ public class PlayerRiskScoreService : IPlayerRiskScoreService
                 await RecomputeForUserAsync(userId, now, ct);
                 processed++;
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // GAP-R6-RT-NEW fix v5: app shutdown / job tick bị huỷ giữa SaveChanges
+                // (Npgsql connection pool bị dispose). Đây là behavior bình thường
+                // khi host shutdown, KHÔNG phải lỗi logic. Log info + dừng batch.
+                _logger.LogInformation(
+                    "RecomputeBatchAsync cancelled (likely app shutdown). Processed={Processed}.",
+                    processed);
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "RecomputeForUser failed userId={UserId}", userId);
@@ -144,10 +154,10 @@ public class PlayerRiskScoreService : IPlayerRiskScoreService
         return processed;
     }
 
-    public Task<PlayerRiskScore?> GetCurrentAsync(Guid userId) =>
+    public Task<PlayerRiskScore?> GetCurrentAsync(Guid userId, CancellationToken cancellationToken = default) =>
         _riskRepo.GetByUserIdAsync(userId);
 
-    public Task<IReadOnlyList<RiskScoreHistory>> GetHistoryAsync(Guid userId, DateOnly fromDate, DateOnly toDate) =>
+    public Task<IReadOnlyList<RiskScoreHistory>> GetHistoryAsync(Guid userId, DateOnly fromDate, DateOnly toDate, CancellationToken cancellationToken = default) =>
         _riskRepo.GetHistoryByUserIdAndDateRangeAsync(userId, fromDate, toDate);
 
     /// <summary>

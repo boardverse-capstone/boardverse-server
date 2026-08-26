@@ -6,6 +6,7 @@ using BoardVerse.Data;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
 using BoardVerse.Tests.Helpers;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Moq;
 
@@ -37,21 +38,23 @@ public class CafePosCreateCheckInTokenTests
         _db = new FakeDbContext();
 
         // Default: staff có quyền POS.
-        _posRepo.Setup(r => r.CanOperateCafeAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>()))
+        _posRepo.Setup(r => r.CanOperateCafeAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
         // Default: token unique ngay lần thử đầu.
-        _tokenRepo.Setup(r => r.TokenExistsAsync(It.IsAny<string>()))
+        _tokenRepo.Setup(r => r.TokenExistsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
     }
 
     private void SetupActiveCafe(Cafe cafe)
     {
         // EnsurePosAccessAsync gọi GetActiveByIdAsync (filter IsActive = true).
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id)).ReturnsAsync(cafe);
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
         // CreateCheckInTokenAsync cũng gọi GetByIdAsync để validate cafe tồn tại.
-        _cafeRepo.Setup(r => r.GetByIdAsync(cafe.Id)).ReturnsAsync(cafe);
+        _cafeRepo.Setup(r => r.GetByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
     }
+
+    private static readonly MemoryCache MemoryCache = new(new MemoryCacheOptions());
 
     private CafePosService CreateService() => new(
         _posRepo.Object,
@@ -66,6 +69,7 @@ public class CafePosCreateCheckInTokenTests
         _reservationService.Object,
         _reservationRepo.Object,
         _tokenRepo.Object,
+        MemoryCache,
         _logger.Object,
         _db);
 
@@ -83,7 +87,7 @@ public class CafePosCreateCheckInTokenTests
     {
         var cafeId = Guid.NewGuid();
         var staffId = Guid.NewGuid();
-        _posRepo.Setup(r => r.CanOperateCafeAsync(cafeId, staffId, "CafeStaff"))
+        _posRepo.Setup(r => r.CanOperateCafeAsync(cafeId, staffId, "CafeStaff", It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
         // Đảm bảo EnsurePosAccessAsync không throw NotFoundException trước khi tới check quyền.
         var cafe = BuildCafe(cafeId, Guid.NewGuid());
@@ -100,8 +104,8 @@ public class CafePosCreateCheckInTokenTests
     {
         var cafeId = Guid.NewGuid();
         // Đảm bảo cả GetActiveByIdAsync và GetByIdAsync đều trả null.
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId)).ReturnsAsync((Cafe?)null);
-        _cafeRepo.Setup(r => r.GetByIdAsync(cafeId)).ReturnsAsync((Cafe?)null);
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync((Cafe?)null);
+        _cafeRepo.Setup(r => r.GetByIdAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync((Cafe?)null);
 
         var svc = CreateService();
 
@@ -119,8 +123,8 @@ public class CafePosCreateCheckInTokenTests
         SetupActiveCafe(cafe);
 
         PosCheckInToken? captured = null;
-        _tokenRepo.Setup(r => r.AddAsync(It.IsAny<PosCheckInToken>()))
-            .Callback<PosCheckInToken>(t => captured = t)
+        _tokenRepo.Setup(r => r.AddAsync(It.IsAny<PosCheckInToken>(), It.IsAny<CancellationToken>()))
+            .Callback<PosCheckInToken, CancellationToken>((t, _) => captured = t)
             .Returns(Task.CompletedTask);
 
         var beforeCall = DateTime.UtcNow;
@@ -178,11 +182,11 @@ public class CafePosCreateCheckInTokenTests
         var reservation = new Reservation { Id = reservationId, CafeId = cafeId };
 
         SetupActiveCafe(cafe);
-        _reservationRepo.Setup(r => r.GetByIdAsync(reservationId, false)).ReturnsAsync(reservation);
+        _reservationRepo.Setup(r => r.GetByIdAsync(reservationId, false, It.IsAny<CancellationToken>())).ReturnsAsync(reservation);
 
         PosCheckInToken? captured = null;
-        _tokenRepo.Setup(r => r.AddAsync(It.IsAny<PosCheckInToken>()))
-            .Callback<PosCheckInToken>(t => captured = t)
+        _tokenRepo.Setup(r => r.AddAsync(It.IsAny<PosCheckInToken>(), It.IsAny<CancellationToken>()))
+            .Callback<PosCheckInToken, CancellationToken>((t, _) => captured = t)
             .Returns(Task.CompletedTask);
 
         var svc = CreateService();
@@ -200,7 +204,7 @@ public class CafePosCreateCheckInTokenTests
         var cafeId = Guid.NewGuid();
         var cafe = BuildCafe(cafeId, Guid.NewGuid());
         SetupActiveCafe(cafe);
-        _reservationRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), false))
+        _reservationRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), false, It.IsAny<CancellationToken>()))
             .ReturnsAsync((Reservation?)null);
 
         var svc = CreateService();
@@ -219,7 +223,7 @@ public class CafePosCreateCheckInTokenTests
         var reservation = new Reservation { Id = Guid.NewGuid(), CafeId = otherCafeId };
 
         SetupActiveCafe(cafe);
-        _reservationRepo.Setup(r => r.GetByIdAsync(reservation.Id, false)).ReturnsAsync(reservation);
+        _reservationRepo.Setup(r => r.GetByIdAsync(reservation.Id, false, It.IsAny<CancellationToken>())).ReturnsAsync(reservation);
 
         var svc = CreateService();
         var request = new CreatePosCheckInTokenRequestDto { ReservationId = reservation.Id };
@@ -237,7 +241,7 @@ public class CafePosCreateCheckInTokenTests
 
         // Lần 1 và 2: đã tồn tại. Lần 3: unique.
         var callCount = 0;
-        _tokenRepo.Setup(r => r.TokenExistsAsync(It.IsAny<string>()))
+        _tokenRepo.Setup(r => r.TokenExistsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => ++callCount <= 2);
 
         var svc = CreateService();
@@ -246,7 +250,7 @@ public class CafePosCreateCheckInTokenTests
 
         Assert.NotNull(result);
         Assert.Equal(16, result.Token.Length);
-        _tokenRepo.Verify(r => r.AddAsync(It.IsAny<PosCheckInToken>()), Times.Once);
+        _tokenRepo.Verify(r => r.AddAsync(It.IsAny<PosCheckInToken>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -257,7 +261,7 @@ public class CafePosCreateCheckInTokenTests
         SetupActiveCafe(cafe);
 
         // Luôn trả về đã tồn tại → retry 5 lần đều fail.
-        _tokenRepo.Setup(r => r.TokenExistsAsync(It.IsAny<string>())).ReturnsAsync(true);
+        _tokenRepo.Setup(r => r.TokenExistsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
         var svc = CreateService();
 

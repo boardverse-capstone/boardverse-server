@@ -1,38 +1,25 @@
 using BoardVerse.Core.Entities;
-using BoardVerse.Core.Enum;
 
+using System.Threading;
 namespace BoardVerse.Core.IRepositories;
 
 /// <summary>
-/// Repository cho <see cref="CafeScheduleOverride"/> — cho phép cafe bật/tắt <see cref="TimeSlot"/>
-/// hoặc đổi giờ mặc định từ <c>CafeSchedule</c>.
+/// Repository cho CafeScheduleOverride.
+/// BR-NEW-15 (2026-08-18): BỎ TimeSlot - dùng ApplyDate/OpenTime/CloseTime.
 /// </summary>
 public interface ICafeScheduleOverrideRepository
 {
     /// <summary>
-    /// Lấy override áp dụng cho (cafe, slot, playDate) — filter EffectiveFrom/EffectiveTo tại runtime.
-    /// Trả null nếu không có override, caller sẽ fallback về default <c>CafeSchedule</c>.
+    /// Lấy override cho (cafe, applyDate).
     /// </summary>
-    Task<CafeScheduleOverride?> GetActiveAsync(Guid cafeId, TimeSlot slot, DateOnly playDate);
+    Task<CafeScheduleOverride?> GetByApplyDateAsync(Guid cafeId, DateOnly applyDate, CancellationToken cancellationToken = default);
 
-    /// <summary>Lấy tất cả override của cafe (cho UI quản lý).</summary>
-    Task<IReadOnlyList<CafeScheduleOverride>> ListByCafeAsync(Guid cafeId);
+    /// <summary>Lấy tất cả override của cafe.</summary>
+    Task<IReadOnlyList<CafeScheduleOverride>> ListByCafeAsync(Guid cafeId, CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Lấy override cụ thể cho (cafe, slot) — bất kể EffectiveFrom/EffectiveTo.
-    /// Trả null nếu cafe chưa có override cho slot này.
-    /// Dùng cho UI quản lý (GET single override, PUT partial update).
-    /// </summary>
-    Task<CafeScheduleOverride?> GetByCafeAndSlotAsync(Guid cafeId, TimeSlot slot);
+    Task AddAsync(CafeScheduleOverride overrideEntity, CancellationToken cancellationToken = default);
+    Task UpdateAsync(CafeScheduleOverride overrideEntity, CancellationToken cancellationToken = default);
+    Task DeleteByIdAsync(Guid overrideId, CancellationToken cancellationToken = default);
 
-    Task AddAsync(CafeScheduleOverride overrideEntity);
-    Task UpdateAsync(CafeScheduleOverride overrideEntity);
-
-    /// <summary>Xóa override theo (cafe, slot) — dùng khi cafe muốn quay về default.</summary>
-    Task DeleteAsync(Guid cafeId, TimeSlot slot);
-
-    /// <summary>Xóa override theo Id — dùng cho DELETE endpoint chuẩn REST.</summary>
-    Task DeleteByIdAsync(Guid overrideId);
-
-    Task SaveChangesAsync();
+    Task SaveChangesAsync(CancellationToken cancellationToken = default);
 }

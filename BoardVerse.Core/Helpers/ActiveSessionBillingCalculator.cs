@@ -12,9 +12,10 @@ namespace BoardVerse.Core.Helpers;
 /// Tách ra đây để (1) unit test pure logic, (2) share giữa ActiveSessionService + CafePosService.
 /// </summary>
 /// <remarks>
-/// Quy tắc (BR-15 + BR-16):
+/// Quy tắc (BR-15 + BR-16 + anti-abuse mở bàn rồi nghỉ):
 /// <list type="bullet">
-///   <item><description>FlatEntry: subtotal = BasePrice (không quan tâm elapsedMinutes, trừ khi = 0).</description></item>
+///   <item><description>Anti-abuse: elapsedMinutes = 0 vẫn trả BasePrice (không trả 0) — chống player mở bàn rồi nghỉ.</description></item>
+///   <item><description>FlatEntry: subtotal = BasePrice (giá vé vào cổng duy nhất).</description></item>
 ///   <item><description>TimeBased + elapsed ≤ 60: subtotal = BasePrice (giờ đầu).</description></item>
 ///   <item><description>TimeBased + elapsed &gt; 60: subtotal = BasePrice + ⌈(elapsed - 60) / TieredBlockMinutes⌉ × TieredBlockRate.</description></item>
 /// </list>
@@ -26,12 +27,12 @@ public static class ActiveSessionBillingCalculator
     /// </summary>
     /// <param name="cafe">Cafe config (BasePrice, BillingModel, TieredBlockMinutes/Rate).</param>
     /// <param name="elapsedMinutes">Số phút chơi. Phải ≥ 0.</param>
-    /// <returns>Subtotal VND. Tối thiểu = 0 nếu elapsedMinutes = 0.</returns>
+    /// <returns>Subtotal VND. Tối thiểu = BasePrice (kể cả khi elapsedMinutes = 0, để chống player mở bàn rồi nghỉ).</returns>
     public static decimal CalculateRealtimeBilling(Cafe cafe, int elapsedMinutes)
     {
-        if (elapsedMinutes <= 0)
+        if (elapsedMinutes < 0)
         {
-            return 0m;
+            throw new ArgumentOutOfRangeException(nameof(elapsedMinutes), elapsedMinutes, "Số phút chơi phải >= 0.");
         }
 
         // FlatEntry: giá vé vào cổng duy nhất, không cộng block.
@@ -40,7 +41,7 @@ public static class ActiveSessionBillingCalculator
             return cafe.BasePrice;
         }
 
-        // TimeBased ≤ 60 phút: giờ đầu.
+        // TimeBased ≤ 60 phút: giờ đầu (gồm cả elapsed = 0 — chống mở bàn rồi nghỉ).
         if (elapsedMinutes <= 60)
         {
             return cafe.BasePrice;

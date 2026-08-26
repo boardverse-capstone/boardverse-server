@@ -29,6 +29,11 @@ public class BvcTopUpExpiryJob : BackgroundService
             {
                 await ProcessExpiredTopUpsAsync(stoppingToken);
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("BvcTopUpExpiryJob stopped (host shutdown).");
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in BvcTopUpExpiryJob");

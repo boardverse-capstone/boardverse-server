@@ -9,7 +9,7 @@ namespace BoardVerse.Data.Repositories;
 /// Adapter wrapping EF Core IDbContextTransaction thành IDatabaseTransactionContext của Core.
 /// Tránh Core phải reference EF Core.
 /// </summary>
-internal sealed class EfTransactionContextAdapter : IDatabaseTransactionContext
+public sealed class EfTransactionContextAdapter : IDatabaseTransactionContext
 {
     private readonly IDbContextTransaction _inner;
     private bool _completed;

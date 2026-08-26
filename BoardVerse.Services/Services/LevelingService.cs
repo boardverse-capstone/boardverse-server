@@ -67,7 +67,7 @@ namespace BoardVerse.Services.Services
         /// <summary>
         /// Stub - actual implementation is in UserProfileService.AddExpAndUpdateLevelAsync
         /// </summary>
-        public Task UpdateUserLevelAsync(Guid userId, long expToAdd)
+        public Task UpdateUserLevelAsync(Guid userId, long expToAdd, CancellationToken cancellationToken = default)
         {
             return Task.CompletedTask;
         }

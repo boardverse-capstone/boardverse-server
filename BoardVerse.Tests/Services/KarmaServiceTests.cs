@@ -70,7 +70,7 @@ public class KarmaServiceTests : IDisposable
         // Arrange
         var userId = Guid.NewGuid();
         var profile = new UserProfile { UserId = userId, KarmaPoints = karmaPoints };
-        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId))
+        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(profile);
 
         // Act
@@ -84,7 +84,7 @@ public class KarmaServiceTests : IDisposable
     public async Task GetUserKarmaLevelAsync_Should_ReturnAverage_WhenProfileNotFound()
     {
         var userId = Guid.NewGuid();
-        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId))
+        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((UserProfile?)null);
 
         var level = await _service.GetUserKarmaLevelAsync(userId);
@@ -100,7 +100,7 @@ public class KarmaServiceTests : IDisposable
         // Arrange
         var userId = Guid.NewGuid();
         var profile = new UserProfile { UserId = userId, KarmaPoints = 60 };
-        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId))
+        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(profile);
         _recordRepoMock.Setup(r => r.GetActiveCountByUserAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(3);
@@ -119,7 +119,7 @@ public class KarmaServiceTests : IDisposable
     {
         var userId = Guid.NewGuid();
         var profile = new UserProfile { UserId = userId, KarmaPoints = 60 };
-        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId))
+        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(profile);
         _recordRepoMock.Setup(r => r.GetActiveCountByUserAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(2);
@@ -135,7 +135,7 @@ public class KarmaServiceTests : IDisposable
     {
         var userId = Guid.NewGuid();
         var profile = new UserProfile { UserId = userId, KarmaPoints = 60 };
-        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId))
+        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(profile);
         _recordRepoMock.Setup(r => r.GetActiveCountByUserAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(5);
@@ -155,7 +155,7 @@ public class KarmaServiceTests : IDisposable
             KarmaPoints = 60,
             LastWarningAt = DateTime.UtcNow.AddDays(-2)
         };
-        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId))
+        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(profile);
         _recordRepoMock.Setup(r => r.GetActiveCountByUserAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(3);
@@ -173,7 +173,7 @@ public class KarmaServiceTests : IDisposable
     {
         var userId = Guid.NewGuid();
         var profile = new UserProfile { UserId = userId, KarmaPoints = 30 };
-        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId))
+        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(profile);
         _recordRepoMock.Setup(r => r.GetActiveCountByUserAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(5);
@@ -191,7 +191,7 @@ public class KarmaServiceTests : IDisposable
     {
         var userId = Guid.NewGuid();
         var profile = new UserProfile { UserId = userId, KarmaPoints = 30 };
-        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId))
+        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(profile);
         _recordRepoMock.Setup(r => r.GetActiveCountByUserAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(4);
@@ -212,7 +212,7 @@ public class KarmaServiceTests : IDisposable
             KarmaPoints = 30,
             KarmaRestrictedUntil = DateTime.UtcNow.AddDays(15)
         };
-        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId))
+        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(profile);
         _recordRepoMock.Setup(r => r.GetActiveCountByUserAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(7);
@@ -372,7 +372,7 @@ public class KarmaServiceTests : IDisposable
     {
         var userId = Guid.NewGuid();
         var profile = new UserProfile { UserId = userId, KarmaPoints = 75 };
-        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId))
+        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(profile);
 
         var points = await _service.GetUserKarmaPointsAsync(userId);
@@ -384,7 +384,7 @@ public class KarmaServiceTests : IDisposable
     public async Task GetUserKarmaPointsAsync_Should_ReturnDefault100_WhenProfileNotFound()
     {
         var userId = Guid.NewGuid();
-        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId))
+        _userProfileRepoMock.Setup(r => r.GetProfileByUserIdAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((UserProfile?)null);
 
         var points = await _service.GetUserKarmaPointsAsync(userId);

@@ -39,6 +39,9 @@ Tuân thủ business rules:
 - [REST Endpoints](#rest-endpoints)
 - [SignalR Hub](#signalr-hub)
 - [Luồng tích hợp](#luồng-tích-hợp)
+- [POST /api/v1/lobbies/{lobbyId}/share-code/regenerate](#post-apiv1lobbieslobbyidshare-coderegenerate)
+- [POST /api/v1/lobbies/{lobbyId}/change-timeslot](#post-apiv1lobbieslobbyidchange-timeslot)
+- [POST /api/v1/lobbies/{lobbyId}/boost](#post-apiv1lobbieslobbyidboost)
 - [State machine](#state-machine)
 
 ---
@@ -108,8 +111,7 @@ Xem chi tiết API:
 | `/{lobbyId}/share-info` | GET | Lấy Lobby ID + Share Code để copy | Member |
 | `/join-by-code` | POST | Join lobby bằng share code | Player |
 | `/discoverable` | GET | Browse lobby public đang mở (filter optional geo + game) | Player |
-| `/hosted` | GET | Lobby do user đang host | Player |
-| `/joined` | GET | Lobby user đang tham gia làm member | Player |
+| `/my` | GET | Tất cả lobby của user (host hoặc member, active) | Player |
 | `/{lobbyId}` | PATCH | Host cập nhật thông tin lobby (description, maxMembers, isPrivate, minKarmaScore, ...) | Host |
 | `/{lobbyId}/transfer-host` | POST | Host chuyển quyền host cho member khác | Host |
 | `/{lobbyId}/kick` | POST | Host kick thành viên khỏi lobby | Host |
@@ -296,7 +298,7 @@ Authorization: Bearer <jwt>
 
 **Khi nào dùng:**
 - Màn hình "Browse lobbies" / "Khám phá" — list tất cả phòng public mở gần user.
-- Kết hợp với `GET /hosted` + `GET /joined` để hiển thị đầy đủ các lobby liên quan tới user trên mobile.
+- Kết hợp với `GET /my` để hiển thị tất cả lobbies liên quan tới user trên mobile.
 
 ---
 
@@ -526,37 +528,20 @@ Xem tại [Lobby.md#discoverable](#get-apiv1lobbiesdiscoverable) — đã có �
 
 ---
 
-## GET /api/v1/lobbies/hosted
+## GET /api/v1/lobbies/my
 
-Lấy danh sách lobby do user hiện tại host (cả còn active lẫn đã đóng).
+Lấy tất cả lobby của user hiện tại (host hoặc member, chỉ active).
 
 **Role:** Player — đã đăng nhập
 
-**Response 200:** `LobbyResponseDto[]` — sắp xếp theo `CreatedAt` desc.
+**Response 200:** `LobbyResponseDto[]` — chỉ trả lobby còn active (status: `PendingActivation`, `PendingCafeApproval`, `Open`, `Viable`, `Full`, `InProgress`).
 
 **Response codes:**
 - `200` — Trả danh sách (có thể rỗng)
 - `401` — Thiếu token
 - `500` — Lỗi hệ thống
 
-**Use case:** Mobile tab "Phòng của tôi" — hiển thị lobby host đang tuyển + đã đóng.
-
----
-
-## GET /api/v1/lobbies/joined
-
-Lấy danh sách lobby user hiện tại đang tham gia với vai trò member.
-
-**Role:** Player — đã đăng nhập
-
-**Response 200:** `LobbyResponseDto[]` — chỉ trả lobby còn active, status khác `Closed`/`Cancelled`.
-
-**Response codes:**
-- `200` — Trả danh sách
-- `401` — Thiếu token
-- `500` — Lỗi hệ thống
-
-**Use case:** Mobile tab "Đang tham gia" — danh sách lobby member.
+**Use case:** Mobile tab "Phòng của tôi" — hiển thị lobby user đang host hoặc tham gia.
 
 ---
 
@@ -795,6 +780,137 @@ Lấy lịch sử chat (cursor pagination).
 - `403` — Không phải host hoặc active member
 - `404` — Không tìm thấy lobby
 - `500` — Lỗi hệ thống
+
+---
+
+## POST /api/v1/lobbies/{lobbyId}/share-code/regenerate
+
+Host tạo lại mã chia sẻ (invalidate mã cũ, sinh mã mới). Dùng khi mã bị leak hoặc muốn reset. Chỉ áp dụng khi lobby đang Open hoặc Full.
+
+### Request
+
+- Method: `POST`
+- Path: `/api/v1/lobbies/{lobbyId}/share-code/regenerate`
+- Auth: Player (JWT) — chỉ Host
+
+### Response 200
+
+```json
+{
+  "statusCode": 200,
+  "message": "Mã chia sẻ đã được tạo mới.",
+  "data": {
+    "lobbyId": "guid",
+    "shareCode": "A3K9P2X7",
+    "regeneratedAt": "2026-08-15T10:00:00Z"
+  }
+}
+```
+
+### Lỗi
+
+| Code | Mô tả |
+|------|--------|
+| 401 | Thiếu token |
+| 403 | Không phải Host |
+| 404 | Không tìm thấy lobby |
+| 409 | Lobby không trong trạng thái Open/Full |
+
+---
+
+## POST /api/v1/lobbies/{lobbyId}/change-timeslot
+
+Host đổi timeSlot và/hoặc preferred time của lobby. Chỉ áp dụng khi lobby chưa check-in (status = Open/Viable/Full/PendingCafeApproval). Recalculate RecruitmentDeadline theo newTimeSlot.
+
+### Request
+
+- Method: `POST`
+- Path: `/api/v1/lobbies/{lobbyId}/change-timeslot`
+- Auth: Player (JWT) — chỉ Host
+
+### Request Body
+
+```json
+{
+  "newTimeSlot": "evening",
+  "preferredStartTime": "19:00",
+  "preferredEndTime": "22:00"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `newTimeSlot` | string | No | `morning`, `afternoon`, `evening`, `night` |
+| `preferredStartTime` | string | No | Giờ bắt đầu ưu tiên (HH:mm) |
+| `preferredEndTime` | string | No | Giờ kết thúc ưu tiên (HH:mm) |
+
+### Response 200
+
+```json
+{
+  "statusCode": 200,
+  "message": "Đã cập nhật thời gian thành công.",
+  "data": {
+    "lobbyId": "guid",
+    "previousTimeSlot": "afternoon",
+    "newTimeSlot": "evening",
+    "previousRecruitmentDeadline": "2026-08-15T11:00:00Z",
+    "newRecruitmentDeadline": "2026-08-15T17:40:00Z",
+    "previousScheduledTime": "2026-08-15T13:00:00Z",
+    "newScheduledTime": "2026-08-15T18:00:00Z"
+  }
+}
+```
+
+### Validation
+
+- Buffer không đủ 60 phút → từ chối
+- preferredStartTime/EndTime phải nằm trong slot range
+
+### Lỗi
+
+| Code | Mô tả |
+|------|--------|
+| 400 | Buffer không đủ 60 phút hoặc preferredTime ngoài slot range |
+| 401 | Thiếu token |
+| 403 | Không phải Host |
+| 404 | Không tìm thấy lobby |
+| 409 | Lobby đã đóng/đang chơi |
+
+---
+
+## POST /api/v1/lobbies/{lobbyId}/boost
+
+Boost lobby — tăng visibility trong search/discovery. Chỉ áp dụng khi lobby đang Open. Cooldown 6 giờ giữa các lần boost.
+
+### Request
+
+- Method: `POST`
+- Path: `/api/v1/lobbies/{lobbyId}/boost`
+- Auth: Player (JWT) — chỉ Host
+
+### Response 200
+
+```json
+{
+  "statusCode": 200,
+  "message": "Đã boost phòng chờ. Phòng của bạn sẽ hiện ở vị trí cao hơn trong kết quả tìm kiếm!",
+  "data": {
+    "lobbyId": "guid",
+    "boostedAt": "2026-08-15T10:00:00Z",
+    "nextBoostAvailableAt": "2026-08-15T16:00:00Z"
+  }
+}
+```
+
+### Lỗi
+
+| Code | Mô tả |
+|------|--------|
+| 401 | Thiếu token |
+| 403 | Không phải Host |
+| 404 | Không tìm thấy lobby |
+| 409 | Lobby không mở hoặc đang trong cooldown |
 
 ---
 

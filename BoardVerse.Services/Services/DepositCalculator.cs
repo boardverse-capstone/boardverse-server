@@ -1,39 +1,28 @@
 using BoardVerse.Core.Constants;
 using BoardVerse.Core.DTOs.Reservation;
 using BoardVerse.Core.Entities;
-using BoardVerse.Core.Enum;
 using BoardVerse.Core.Messages;
 
 namespace BoardVerse.Services.Services;
 
 /// <summary>
-/// Tính toán cọc thuần (BR-DEPOSIT-02..04, BR-NEW-01).
-/// Stateless, không phụ thuộc DB — chỉ映射 BR §VIII, §IV, §XI.
-///
-/// Quy tắc:
-/// - BR-DEPOSIT-02: baseDeposit = ratePerPerson × maxPlayers; finalDeposit = base × riskMultiplier.
-/// - BR-NEW-01: finalDeposit = max(minDeposit(distance), ratePerPerson × maxPlayers × riskMultiplier).
-/// - BR-DEPOSIT-03: rate per person ∈ [1, 100] BVC.
-/// - BR-DEPOSIT-04 + BR-RISK-03: riskMultiplier ∈ [1.0, 2.0].
-/// - BR-NEW-10: cooling-off × 2 riskMultiplier.
-/// - BR-NEW-15: timeSlot cố định 4 khung, dùng StartTime để tính scheduledTime.
-/// - BR-NEW-11: lobby > 2 ngày cần cafe duyệt.
+/// Tính toán cọc đơn giản: deposit = 20% × ticketPrice.
+/// 
+/// Công thức (2026-08-18):
+/// - deposit = 20% × cafeBasePrice (VND)
+/// - Ví dụ: ticketPrice = 20,000 VND → deposit = 4,000 VND = 4 BVC
+/// - Không phụ thuộc maxPlayers, khoảng cách, hay riskMultiplier
+/// BR-NEW-15 (2026-08-18): BỎ TimeSlot - dùng preferredStartTime/preferredEndTime.
 /// </summary>
 public class DepositCalculator
 {
-    private const int MaxBvcPerPerson = 100;
-    private const int MinBvcPerPerson = 1;
-    private const int DefaultLeadTimeMinutes = 20;
     private const int BufferTooShortMinutes = 60;
     private const int BufferWarningMinutes = 120;
     private const int MaxDaysInFuture = 7;
-    private const decimal MaxRiskMultiplier = 2.0m;
-    private const decimal MinRiskMultiplier = 1.0m;
 
     /// <summary>
     /// Tính quote cho 1 reservation (§21A.2).
     /// Trả về DepositQuoteResult — caller (ReservationService) tự quyết định allow hay throw.
-    /// Dùng giờ bắt đầu mặc định từ <c>CafeSchedule</c>. Không tính override.
     /// </summary>
     public DepositQuoteResult Calculate(
         ReservationQuoteRequestDto request,
@@ -43,63 +32,6 @@ public class DepositCalculator
         bool isCoolingOff,
         bool isPrivateLobby,
         DateTime now)
-    {
-        return CalculateCore(
-            request,
-            cafeConfig,
-            cafeBasePrice,
-            walletRiskMultiplier,
-            isCoolingOff,
-            isPrivateLobby,
-            now,
-            CafeSchedule.GetStartTime(request.TimeSlot));
-    }
-
-    /// <summary>
-    /// Overload có áp dụng <c>CafeScheduleOverride</c> qua <see cref="IScheduleResolver"/>.
-    /// Caller (ReservationService) gọi khi có <c>cafeId</c> + muốn lịch cafe override.
-    /// </summary>
-    public async Task<DepositQuoteResult> CalculateWithScheduleAsync(
-        ReservationQuoteRequestDto request,
-        CafeConfig cafeConfig,
-        decimal cafeBasePrice,
-        decimal walletRiskMultiplier,
-        bool isCoolingOff,
-        bool isPrivateLobby,
-        DateTime now,
-        IScheduleResolver scheduleResolver,
-        Guid cafeId)
-    {
-        var schedule = await scheduleResolver.ResolveAsync(cafeId, request.PlayDate, request.TimeSlot);
-        if (schedule.IsClosed)
-        {
-            throw new ArgumentException(
-                ApiErrorMessages.Reservation.CafeScheduleSlotClosed(request.TimeSlot.ToString(), cafeId));
-        }
-
-        return CalculateCore(
-            request,
-            cafeConfig,
-            cafeBasePrice,
-            walletRiskMultiplier,
-            isCoolingOff,
-            isPrivateLobby,
-            now,
-            schedule.StartTime);
-    }
-
-    /// <summary>
-    /// Core logic cho cả default và override path.
-    /// </summary>
-    private DepositQuoteResult CalculateCore(
-        ReservationQuoteRequestDto request,
-        CafeConfig cafeConfig,
-        decimal cafeBasePrice,
-        decimal walletRiskMultiplier,
-        bool isCoolingOff,
-        bool isPrivateLobby,
-        DateTime now,
-        TimeOnly scheduledStartTime)
     {
         if (request.PlayDate < DateOnly.FromDateTime(now.Date))
         {
@@ -111,13 +43,11 @@ public class DepositCalculator
             throw new ArgumentException(ApiErrorMessages.Reservation.MinGreaterThanMax(request.MinPlayers, request.MaxPlayers));
         }
 
-        // Solo play (MinPlayers = 1) được phép cho trường hợp chơi một mình.
         if (request.MinPlayers < 1)
         {
             throw new ArgumentException(ApiErrorMessages.Reservation.MinPlayersAtLeastTwo);
         }
 
-        var rate = NormalizeRatePerPerson((int)cafeConfig.DepositRatePerPerson);
         var distance = MapDistanceBucket(request.PlayDate, now);
         var maxAllowed = (cafeConfig.MaxPlayersPerLobbySameDay, cafeConfig.MaxPlayersPerLobby1Day,
                                   cafeConfig.MaxPlayersPerLobby2Days, cafeConfig.MaxPlayersPerLobby3To4Days,
@@ -130,15 +60,6 @@ public class DepositCalculator
             _ => cafeConfig.MaxPlayersPerLobby5To7Days
         };
 
-        var minDeposit = distance switch
-        {
-            DistanceBucket.SameDay => cafeConfig.MinDepositSameDay,
-            DistanceBucket.OneDay => cafeConfig.MinDeposit1Day,
-            DistanceBucket.TwoDays => cafeConfig.MinDeposit2Days,
-            DistanceBucket.ThreeToFourDays => cafeConfig.MinDeposit3To4Days,
-            _ => cafeConfig.MinDeposit5To7Days
-        };
-
         var finalMaxPlayers = Math.Min(request.MaxPlayers, maxAllowed);
         if (finalMaxPlayers > cafeConfig.Capacity)
         {
@@ -146,35 +67,22 @@ public class DepositCalculator
                 finalMaxPlayers, cafeConfig.Capacity));
         }
 
-        var baseDeposit = checked(rate * finalMaxPlayers);
+        // CÔNG THỨC ĐƠN GIẢN (2026-08-18):
+        // 1. Tính tiền cọc ở VND: depositVnd = 20% × cafeBasePrice.
+        // 2. Quy đổi sang BVC (1 BVC = 1.000 VND, BR §II).
+        // 3. Floor tối thiểu 1 BVC (= 1.000 VND) — tránh edge case cafeBasePrice quá nhỏ → 0 BVC.
+        // Ví dụ: cafeBasePrice = 20.000 VND → 4.000 VND = 4 BVC.
+        // Ví dụ: cafeBasePrice = 2.000 VND → 400 VND = 0.4 BVC → floor 1 BVC.
+        var depositVnd = cafeBasePrice * 0.20m;
+        var finalDeposit = Math.Max(1L, RoundToBvc(depositVnd / 1000m));
 
-        var effectiveRiskMultiplier = ClampRiskMultiplier(walletRiskMultiplier);
-        if (isCoolingOff)
-        {
-            effectiveRiskMultiplier = Math.Min(MaxRiskMultiplier, effectiveRiskMultiplier * 2m);
-        }
-
-        var adjustedDeposit = RoundToBvc(baseDeposit * effectiveRiskMultiplier);
-        var minDepositApplied = minDeposit;
-        var finalDeposit = Math.Max(minDepositApplied, adjustedDeposit);
-
-        // BR-03: Cọc không được vượt quá 50% giá trị giờ chơi đầu tiên.
-        // Áp dụng ở final stage: nếu finalDeposit > 50% × cafe.BasePrice thì clamp về 50%.
-        if (cafeBasePrice > 0)
-        {
-            var maxDepositAllowed = RoundToBvc(cafeBasePrice * 0.5m);
-            if (finalDeposit > maxDepositAllowed)
-            {
-                finalDeposit = maxDepositAllowed;
-            }
-        }
-
-        var scheduledTime = request.PlayDate.ToDateTime(scheduledStartTime);
+        // Calculate buffer từ preferredStartTime
+        var scheduledTime = request.PlayDate.ToDateTime(request.PreferredStartTime);
+        const int DefaultLeadTimeMinutes = 20;
         var recruitmentDeadline = scheduledTime.AddMinutes(-DefaultLeadTimeMinutes);
         var bufferMinutes = (int)Math.Floor((recruitmentDeadline - now).TotalMinutes);
 
-        // BR-NEW-11: Private lobby không cần cafe duyệt (chỉ invited friends mới thấy).
-        // Public lobby mới cần cafe duyệt nếu playDate > 2 ngày.
+        // BR-NEW-11: Private lobby không cần cafe duyệt
         var requiresCafeApproval = !isPrivateLobby && (distance switch
         {
             DistanceBucket.TwoDays => finalMaxPlayers > 10 || cafeConfig.RequireApprovalForDistant,
@@ -185,10 +93,14 @@ public class DepositCalculator
 
         return new DepositQuoteResult
         {
-            BaseDeposit = baseDeposit,
-            MinDepositApplied = minDepositApplied,
-            RiskMultiplier = effectiveRiskMultiplier,
+            // Công thức đơn giản 2026-08-18: chỉ có finalDeposit = 20% × BasePrice.
+            // BaseDeposit = finalDeposit (không còn nhân maxPlayers hay riskMultiplier).
+            BaseDeposit = finalDeposit,
+            MinDepositApplied = 0, // deprecated (BR-NEW-01 không còn dùng với formula mới)
+            RiskMultiplier = 1.0m, // deprecated
             FinalDeposit = finalDeposit,
+            CafeBasePriceVnd = cafeBasePrice, // raw VND từ Cafe.BasePrice, FE render breakdown
+            DepositPercentage = 0.20m,        // công thức hiện tại = 20% × BasePrice
             Distance = distance,
             MaxPlayersApplied = finalMaxPlayers,
             BufferMinutes = bufferMinutes,
@@ -241,31 +153,6 @@ public class DepositCalculator
             >= 5 and <= MaxDaysInFuture => DistanceBucket.FiveToSevenDays,
             _ => DistanceBucket.OutOfRange
         };
-    }
-
-    private static int NormalizeRatePerPerson(int rate)
-    {
-        if (rate < MinBvcPerPerson)
-        {
-            rate = MinBvcPerPerson;
-        }
-
-        if (rate > MaxBvcPerPerson)
-        {
-            rate = MaxBvcPerPerson;
-        }
-
-        return rate;
-    }
-
-    private static decimal ClampRiskMultiplier(decimal riskMultiplier)
-    {
-        if (riskMultiplier < MinRiskMultiplier)
-        {
-            return MinRiskMultiplier;
-        }
-
-        return riskMultiplier > MaxRiskMultiplier ? MaxRiskMultiplier : riskMultiplier;
     }
 
     /// <summary>

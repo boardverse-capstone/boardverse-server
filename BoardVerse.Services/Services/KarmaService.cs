@@ -1,3 +1,4 @@
+using BoardVerse.Core.Constants;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
@@ -45,7 +46,8 @@ public class KarmaService : IKarmaService
     public async Task<int> GetUserKarmaPointsAsync(Guid userId, CancellationToken ct = default)
     {
         var profile = await _userProfileRepo.GetProfileByUserIdAsync(userId);
-        return profile?.KarmaPoints ?? 100;
+        // GAP-R6-KARMA-08 Fix: magic 100 → KarmaLevelThresholds.Default.
+        return profile?.KarmaPoints ?? KarmaLevelThresholds.Default;
     }
 
     /// <inheritdoc />
@@ -162,19 +164,22 @@ public class KarmaService : IKarmaService
             return false;
         }
 
-        // BR-KARMA-03: chỉ cho đặt slot >= 4h (240 phút)
-        return scheduledMinutes < 240;
+        // BR-KARMA-03: chỉ cho đặt slot >= 4h (240 phút).
+        // GAP-R6-KARMA-08 Fix: magic 240 → KarmaLevelThresholds.RestrictedMinimumMinutes.
+        return scheduledMinutes < KarmaLevelThresholds.RestrictedMinimumMinutes;
     }
 
     private static KarmaLevel CalculateLevel(int karmaPoints)
     {
         return karmaPoints switch
         {
-            >= 90 => KarmaLevel.Excellent,
-            >= 70 => KarmaLevel.Good,
-            >= 50 => KarmaLevel.Average,
-            >= 30 => KarmaLevel.Low,
-            >= 10 => KarmaLevel.Poor,
+            // GAP-R6-KARMA-08 Fix: magic numbers → named constants.
+            // Tên và threshold theo BR-KARMA-02 / spec.
+            >= KarmaLevelThresholds.Excellent => KarmaLevel.Excellent,
+            >= KarmaLevelThresholds.Good => KarmaLevel.Good,
+            >= KarmaLevelThresholds.Average => KarmaLevel.Average,
+            >= KarmaLevelThresholds.Low => KarmaLevel.Low,
+            >= KarmaLevelThresholds.Poor => KarmaLevel.Poor,
             _ => KarmaLevel.Critical
         };
     }

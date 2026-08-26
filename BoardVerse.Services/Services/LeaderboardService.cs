@@ -22,7 +22,7 @@ namespace BoardVerse.Services.Services
         }
 
         /// <summary>K-06: Backwards-compatible simple karma leaderboard (no paging, no rank lookup).</summary>
-        public Task<KarmaLeaderboardDto> GetKarmaLeaderboardAsync(int limit = 100)
+        public Task<KarmaLeaderboardDto> GetKarmaLeaderboardAsync(int limit = 100, CancellationToken cancellationToken = default)
         {
             return GetKarmaLeaderboardPagedAsync(0, NormaliseLimit(limit), viewerUserId: null)
                 .ContinueWith(t => new KarmaLeaderboardDto
@@ -43,7 +43,7 @@ namespace BoardVerse.Services.Services
         }
 
         /// <summary>K-06: Backwards-compatible simple elo leaderboard.</summary>
-        public Task<EloLeaderboardDto> GetEloLeaderboardAsync(int limit = 100)
+        public Task<EloLeaderboardDto> GetEloLeaderboardAsync(int limit = 100, CancellationToken cancellationToken = default)
         {
             return GetEloLeaderboardPagedAsync(0, NormaliseLimit(limit), viewerUserId: null)
                 .ContinueWith(t => new EloLeaderboardDto
@@ -66,7 +66,7 @@ namespace BoardVerse.Services.Services
 
         /// <summary>K-06: Karma leaderboard with paging (top/offset) and optional viewer rank.</summary>
         public async Task<LeaderboardPagedDto<KarmaLeaderboardEntryDto>> GetKarmaLeaderboardPagedAsync(
-            int offset, int limit, Guid? viewerUserId)
+            int offset, int limit, Guid? viewerUserId, CancellationToken cancellationToken = default)
         {
             offset = Math.Max(0, offset);
             limit = NormaliseLimit(limit);
@@ -96,7 +96,7 @@ namespace BoardVerse.Services.Services
 
         /// <summary>K-06: Elo leaderboard with paging (top/offset) and optional viewer rank.</summary>
         public async Task<LeaderboardPagedDto<EloLeaderboardEntryDto>> GetEloLeaderboardPagedAsync(
-            int offset, int limit, Guid? viewerUserId)
+            int offset, int limit, Guid? viewerUserId, CancellationToken cancellationToken = default)
         {
             offset = Math.Max(0, offset);
             limit = NormaliseLimit(limit);
@@ -127,7 +127,7 @@ namespace BoardVerse.Services.Services
         /// <summary>K-06: Level leaderboard with paging (top/offset) and optional viewer rank.
         /// Sắp xếp theo Level DESC, CurrentExp DESC, Username ASC (tie-break).</summary>
         public async Task<LeaderboardPagedDto<LeaderboardEntryDto>> GetLevelLeaderboardPagedAsync(
-            int offset, int limit, Guid? viewerUserId)
+            int offset, int limit, Guid? viewerUserId, CancellationToken cancellationToken = default)
         {
             offset = Math.Max(0, offset);
             limit = NormaliseLimit(limit);

@@ -42,6 +42,7 @@ public class TournamentNoShowDetectionJob : BackgroundService
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
+                _logger.LogInformation("TournamentNoShowDetectionJob stopped (host shutdown).");
                 break;
             }
             catch (Exception ex)

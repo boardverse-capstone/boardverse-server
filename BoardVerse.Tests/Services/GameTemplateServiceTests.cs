@@ -50,7 +50,7 @@ public class GameTemplateServiceTests
     public async Task GetMasterGameByIdAsync_WhenNotFound_ThrowsBoardGameNotFound()
     {
         var id = Guid.NewGuid();
-        _gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(id)).ReturnsAsync((GameTemplate?)null);
+        _gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(id, It.IsAny<CancellationToken>())).ReturnsAsync((GameTemplate?)null);
 
         var svc = CreateService();
 
@@ -62,7 +62,7 @@ public class GameTemplateServiceTests
     {
         var id = Guid.NewGuid();
         var game = BuildGameTemplate(id);
-        _gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(id)).ReturnsAsync(game);
+        _gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(id, It.IsAny<CancellationToken>())).ReturnsAsync(game);
 
         var svc = CreateService();
 
@@ -81,8 +81,8 @@ public class GameTemplateServiceTests
         var id = Guid.NewGuid();
         var cafeId = Guid.NewGuid();
         var game = BuildGameTemplate(id);
-        _gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(id)).ReturnsAsync(game);
-        _inventoryRepo.Setup(r => r.GetActiveGameTemplateIdsByCafeAsync(cafeId)).ReturnsAsync(new HashSet<Guid> { id });
+        _gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(id, It.IsAny<CancellationToken>())).ReturnsAsync(game);
+        _inventoryRepo.Setup(r => r.GetActiveGameTemplateIdsByCafeAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(new HashSet<Guid> { id });
 
         var svc = CreateService();
 
@@ -97,8 +97,8 @@ public class GameTemplateServiceTests
         var id = Guid.NewGuid();
         var cafeId = Guid.NewGuid();
         var game = BuildGameTemplate(id);
-        _gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(id)).ReturnsAsync(game);
-        _inventoryRepo.Setup(r => r.GetActiveGameTemplateIdsByCafeAsync(cafeId)).ReturnsAsync(new HashSet<Guid>());
+        _gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(id, It.IsAny<CancellationToken>())).ReturnsAsync(game);
+        _inventoryRepo.Setup(r => r.GetActiveGameTemplateIdsByCafeAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(new HashSet<Guid>());
 
         var svc = CreateService();
 
@@ -116,7 +116,7 @@ public class GameTemplateServiceTests
             Data = new List<GameTemplate> { BuildGameTemplate(Guid.NewGuid()) },
             Meta = new PaginationMeta { CurrentPage = 1, PageSize = 20, TotalItems = 1, TotalPages = 1 }
         };
-        _gameRepo.Setup(r => r.GetPagedAsync(query)).ReturnsAsync(paged);
+        _gameRepo.Setup(r => r.GetPagedAsync(query, It.IsAny<CancellationToken>())).ReturnsAsync(paged);
 
         var svc = CreateService();
 
@@ -125,7 +125,7 @@ public class GameTemplateServiceTests
         Assert.Single(result.Data);
         Assert.Equal(1, result.Meta.TotalItems);
         Assert.Null(result.Data.First().AlreadyInInventory);
-        _inventoryRepo.Verify(r => r.GetActiveGameTemplateIdsByCafeAsync(It.IsAny<Guid>()), Times.Never);
+        _inventoryRepo.Verify(r => r.GetActiveGameTemplateIdsByCafeAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -140,8 +140,8 @@ public class GameTemplateServiceTests
             Data = new List<GameTemplate> { BuildGameTemplate(idInInventory), BuildGameTemplate(idNotInInventory) },
             Meta = new PaginationMeta { CurrentPage = 1, PageSize = 20, TotalItems = 2, TotalPages = 1 }
         };
-        _gameRepo.Setup(r => r.GetPagedAsync(query)).ReturnsAsync(paged);
-        _inventoryRepo.Setup(r => r.GetActiveGameTemplateIdsByCafeAsync(cafeId)).ReturnsAsync(new HashSet<Guid> { idInInventory });
+        _gameRepo.Setup(r => r.GetPagedAsync(query, It.IsAny<CancellationToken>())).ReturnsAsync(paged);
+        _inventoryRepo.Setup(r => r.GetActiveGameTemplateIdsByCafeAsync(cafeId, It.IsAny<CancellationToken>())).ReturnsAsync(new HashSet<Guid> { idInInventory });
 
         var svc = CreateService();
 

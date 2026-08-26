@@ -1,7 +1,10 @@
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
+using BoardVerse.Data;
 using BoardVerse.Services.IServices;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -44,6 +47,11 @@ public class AutoReleaseExpiredSessionsJob : BackgroundService
             {
                 await RunReleaseAsync(stoppingToken);
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("AutoReleaseExpiredSessionsJob stopped (host shutdown).");
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "AutoReleaseExpiredSessionsJob: error during release");
@@ -53,39 +61,27 @@ public class AutoReleaseExpiredSessionsJob : BackgroundService
         }
     }
 
-    private async Task RunReleaseAsync(CancellationToken ct)
+        private async Task RunReleaseAsync(CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();
         var sessionRepo = scope.ServiceProvider.GetRequiredService<IActiveSessionRepository>();
-        var reservationRepo = scope.ServiceProvider.GetRequiredService<IReservationRepository>();
-        var walkInService = scope.ServiceProvider.GetRequiredService<IWalkInService>();
+        var dbContext = scope.ServiceProvider.GetRequiredService<BoardVerseDbContext>();
 
         var now = DateTime.UtcNow;
         var cutoff = now.AddMinutes(-30); // BR-END-05: grace 30 phút
 
-        // Lấy Active sessions
-        var activeSessions = await sessionRepo.GetExpiredAsync(cutoff, ct);
+        // GAP-R4-A4 Fix: Mở transaction TRƯỚC khi fetch batch để FOR UPDATE SKIP LOCKED
+        // có hiệu lực trên Postgres. Nếu deploy cluster, 2 instance sẽ skip qua row đã lock
+        // → mỗi session chỉ được release đúng 1 lần.
+        // Lưu ý: ProcessAutoReleaseAsync tạo scope riêng (mỗi session 1 scope) — sẽ tái sử dụng
+        // sessionRepo ở đây cho cluster-safe fetch, nhưng flow thực thi vẫn tách scope để đảm bảo
+        // Dispose kịp thời các DbContext. Mỗi session trong batch vẫn được process với scope riêng.
+        await using var batchTx = await dbContext.Database.BeginTransactionAsync(ct);
 
-        // BR-END-05: Auto-release session quá ExtendedEndTime + grace 30 phút.
-        // Sử dụng Reservation.ExtendedEndTime ?? ScheduledEndTime làm baseline.
-        var expiredSessions = new List<ActiveSession>();
-        foreach (var session in activeSessions)
-        {
-            if (!session.LobbyId.HasValue) continue;
-
-            // BR-END-05: resolve reservation từ Lobby (session.LobbyId = lobby.Id).
-            var reservation = await reservationRepo.GetByLobbyIdAsync(session.LobbyId.Value);
-            if (reservation == null) continue;
-
-            var endTime = reservation.ExtendedEndTime ?? reservation.ScheduledEndTime;
-            if (endTime.AddMinutes(30) < now)
-            {
-                expiredSessions.Add(session);
-            }
-        }
-
+        var expiredSessions = await sessionRepo.GetExpiredForUpdateAsync(cutoff, ct);
         if (expiredSessions.Count == 0)
         {
+            await batchTx.CommitAsync(ct);
             _logger.LogDebug("AutoReleaseExpiredSessionsJob: No expired sessions found");
             return;
         }
@@ -94,95 +90,200 @@ public class AutoReleaseExpiredSessionsJob : BackgroundService
             "AutoReleaseExpiredSessionsJob: Found {Count} expired sessions to auto-release",
             expiredSessions.Count);
 
+        // GAP-R6-BJ-01 Fix: phải SaveChanges trước khi commit batchTx.
+        // Trước đây: process từng session bằng cách load lại GetByIdAsync rồi mutate trong
+        // scope riêng. Sau khi batchTx.Commit ở đây → mất FOR UPDATE SKIP LOCKED lock,
+        // 2 instance cluster có thể pick cùng sessionId và process trùng.
+        // Fix: dùng atomic TryUpdateStatusAsync (UPDATE...WHERE Status=Active RETURNING)
+        // để flip Closed ở ngoài batchTx. Sau đó mới commit batchTx → side effects chỉ chạy 1 lần.
+        var nowEpoch = now;
+        var sessionIds = new List<Guid>(expiredSessions.Count);
         foreach (var session in expiredSessions)
+        {
+            // Atomic flip Active → Closed, RETURNING id nếu flip thành công.
+            var flipped = await sessionRepo.TryUpdateStatusAsync(
+                session.Id,
+                GroupSessionStatus.Active,
+                GroupSessionStatus.Closed,
+                ct);
+            if (flipped)
+            {
+                sessionIds.Add(session.Id);
+            }
+        }
+
+        await batchTx.CommitAsync(ct);
+
+        if (sessionIds.Count == 0)
+        {
+            _logger.LogDebug(
+                "AutoReleaseExpiredSessionsJob: All {Count} sessions were already closed by another instance",
+                expiredSessions.Count);
+            return;
+        }
+
+        foreach (var sessionId in sessionIds)
         {
             ct.ThrowIfCancellationRequested();
 
             try
             {
-                await ProcessAutoReleaseAsync(session, now, walkInService, ct);
+                await ProcessAutoReleaseSideEffectsAsync(sessionId, nowEpoch, ct);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex,
-                    "AutoReleaseExpiredSessionsJob: Failed to auto-release session {SessionId}",
-                    session.Id);
+                    "AutoReleaseExpiredSessionsJob: Failed to process side effects for session {SessionId}",
+                    sessionId);
             }
         }
     }
 
-    private async Task ProcessAutoReleaseAsync(
-        ActiveSession session,
+    /// <summary>
+    /// GAP-R6-BJ-01: side effects (reservation update, walk-in window, release table/box) sau khi
+    /// session đã atomic-flipped sang Closed. KHÔNG bao gồm session status update (đã làm ở ngoài).
+    /// Failure của side effects KHÔNG roll back status flip — đã là best-effort cleanup.
+    /// </summary>
+    private async Task ProcessAutoReleaseSideEffectsAsync(
+        Guid sessionId,
         DateTime now,
-        IWalkInService walkInService,
         CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();
         var sessionRepo = scope.ServiceProvider.GetRequiredService<IActiveSessionRepository>();
         var reservationRepo = scope.ServiceProvider.GetRequiredService<IReservationRepository>();
+        var walkInService = scope.ServiceProvider.GetRequiredService<IWalkInService>();
+        var lobbyRepo = scope.ServiceProvider.GetRequiredService<ILobbyRepository>();
+        var dbContext = scope.ServiceProvider.GetRequiredService<BoardVerseDbContext>();
 
-        _logger.LogInformation(
-            "AutoReleaseExpiredSessionsJob: Auto-releasing session {SessionId}, lobby {LobbyId}",
-            session.Id, session.LobbyId);
-
-        // Update session → Closed
-        session.Status = GroupSessionStatus.Closed;
-        await sessionRepo.SaveChangesAsync();
-
-        // Release table and box back to Available (they were never released since payment never happened).
-        await sessionRepo.ReleaseSessionTableAndBoxAsync(session.Id);
-
-        // BR-END-05: Mark reservation as AutoReleased (SessionEndReason.AutoReleased).
-        if (session.LobbyId.HasValue)
+        var session = await sessionRepo.GetByIdAsync(sessionId);
+        if (session == null)
         {
-            var reservation = await reservationRepo.GetByLobbyIdAsync(session.LobbyId.Value);
-            if (reservation != null)
-            {
-                reservation.Status = ReservationStatus.Completed;
-                reservation.ActualEndAt = now;
-                reservation.EndReason = SessionEndReason.AutoReleased;
-                reservation.PlayedRatio = 1.0m; // Session reached end
-                await reservationRepo.UpdateAsync(reservation);
-            }
+            _logger.LogWarning(
+                "AutoReleaseExpiredSessionsJob: Session {SessionId} disappeared between flip and side effects",
+                sessionId);
+            return;
         }
 
-        // EC-09: Create WalkInWindow for remaining time
-        // This handles the case where session was never properly checked in
-        // or staff forgot to end - we release the seats for walk-in opportunity
-        if (session.LobbyId.HasValue)
+        // Re-check guard — nếu instance khác đã xử lý rồi (race khi delay giữa flip và side effects).
+        if (session.Status != GroupSessionStatus.Closed)
         {
-            try
+            _logger.LogWarning(
+                "AutoReleaseExpiredSessionsJob: Session {SessionId} status is {Status} (expected Closed) — skipping side effects",
+                sessionId, session.Status);
+            return;
+        }
+
+        _logger.LogInformation(
+            "AutoReleaseExpiredSessionsJob: Processing side effects for session {SessionId}, lobby {LobbyId}",
+            session.Id, session.LobbyId);
+
+        IDbContextTransaction? ownedTx = null;
+        try
+        {
+            ownedTx = await dbContext.Database.BeginTransactionAsync(ct);
+
+            // Release table and box back to Available.
+            await sessionRepo.ReleaseSessionTableAndBoxAsync(session.Id);
+
+            // BR-END-05: Mark reservation as AutoReleased if linked.
+            Reservation? reservation = null;
+            Lobby? lobby = null;
+            if (session.LobbyId.HasValue)
             {
-                var reservation = await reservationRepo.GetByLobbyIdAsync(session.LobbyId.Value);
+                reservation = await reservationRepo.GetByLobbyIdAsync(session.LobbyId.Value);
+
+                // FIX 2026-08-24: Đồng bộ Lobby.Status = Closed khi Reservation → Completed.
+                // Trước đây AutoRelease chỉ update Reservation, để Lobby ở InProgress → FE
+                // hiển thị lịch hẹn "Completed" nhưng lobby vẫn "InProgress" → inconsistent state.
+                // (Issue từ data thật: reservation.Status=Completed, endReason=AutoReleased,
+                // lobbyStatus=InProgress trong cùng payload.)
+                lobby = await lobbyRepo.GetByIdAsync(session.LobbyId.Value);
+
                 if (reservation != null)
                 {
-                    // Get seat count from session members
-                    var releasedSeats = session.Members?.Count ?? reservation.MaxPlayers;
+                    reservation.Status = ReservationStatus.Completed;
+                    reservation.ActualEndAt = now;
+                    reservation.EndReason = SessionEndReason.AutoReleased;
+                    reservation.PlayedRatio = 1.0m;
+                    await reservationRepo.UpdateAsync(reservation);
+                    // GAP-R6-BJ-01 Fix: SaveChangesAsync TRƯỚC CommitAsync — nếu thiếu, EF
+                    // không flush UPDATE Reservations vào DB → AutoReleased status bị mất.
+                    await reservationRepo.SaveChangesAsync(ct);
+                }
 
+                if (lobby != null
+                    && lobby.Status != LobbyStatus.Closed
+                    && lobby.Status != LobbyStatus.TimeoutFailed
+                    && lobby.Status != LobbyStatus.HostCancelled
+                    && lobby.Status != LobbyStatus.RejectedByCafe
+                    && lobby.Status != LobbyStatus.ExpiredByCafe)
+                {
+                    lobby.Status = LobbyStatus.Closed;
+                    lobby.ClosedAt = now;
+                    lobby.UpdatedAt = now;
+
+                    // Deactivate members tương tự ReservationService.CompleteAndCaptureAsync
+                    // để các API list lobby không trả về member "active" cho lobby đã đóng.
+                    if (lobby.Members != null)
+                    {
+                        foreach (var member in lobby.Members.Where(m => m.IsActive))
+                        {
+                            member.IsActive = false;
+                            member.Status = LobbyMemberStatus.LobbyTerminated;
+                            member.LeftAt ??= now;
+                        }
+                    }
+
+                    await lobbyRepo.UpdateAsync(lobby);
+                    await lobbyRepo.SaveChangesAsync(ct);
+
+                    _logger.LogInformation(
+                        "AutoReleaseExpiredSessionsJob: Lobby {LobbyId} status synced to Closed",
+                        lobby.Id);
+                }
+            }
+
+            await ownedTx.CommitAsync(ct);
+
+            // EC-09: Create WalkInWindow cho phần thời gian còn lại (sau commit, side effect best-effort).
+            if (reservation != null)
+            {
+                try
+                {
+                    var releasedSeats = session.Members?
+                        .Count(m => !m.IsGuestSlot
+                            && m.Status != IndividualSessionStatus.SuspendedMutation
+                            && m.Status != IndividualSessionStatus.Finished) ?? 0;
                     var window = await walkInService.CreateWindowFromReservationAsync(
-                        reservation,
-                        releasedSeats,
-                        now);
-
+                        reservation, releasedSeats, now);
                     if (window != null)
                     {
                         _logger.LogInformation(
-                            "AutoRelease WalkInWindow created: {WindowId}, {Seats} seats, {Start} - {End}",
-                            window.Id, releasedSeats, now, reservation.ScheduledEndTime);
+                            "AutoRelease WalkInWindow created: {WindowId}, {Seats} seats",
+                            window.Id, releasedSeats);
                     }
                 }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Failed to create WalkInWindow for session {SessionId}", session.Id);
+                }
             }
-            catch (Exception ex)
-            {
-                // Non-blocking: log warning, don't fail the auto-release
-                _logger.LogWarning(ex,
-                    "Failed to create WalkInWindow for auto-released session {SessionId}",
-                    session.Id);
-            }
+        }
+        catch
+        {
+            if (ownedTx != null)
+                await ownedTx.RollbackAsync(ct);
+            throw;
+        }
+        finally
+        {
+            if (ownedTx != null)
+                await ownedTx.DisposeAsync();
         }
 
         _logger.LogInformation(
-            "AutoReleaseExpiredSessionsJob: Session {SessionId} auto-released, table/box released",
-            session.Id);
+            "AutoReleaseExpiredSessionsJob: Session {SessionId} side effects completed", session.Id);
     }
 }

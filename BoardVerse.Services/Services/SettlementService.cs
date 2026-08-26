@@ -1,3 +1,5 @@
+using BoardVerse.Core.Common;
+using BoardVerse.Core.DTOs.Admin;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
@@ -59,7 +61,7 @@ public class SettlementService : ISettlementService
     public async Task<CafeSettlement> ReleaseSessionDepositAsync(
         Guid cafeId,
         Guid sessionId,
-        Guid activeSessionId)
+        Guid activeSessionId, CancellationToken cancellationToken = default)
     {
         var cafe = await _cafeRepository.GetActiveByIdAsync(cafeId)
             ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
@@ -86,8 +88,38 @@ public class SettlementService : ISettlementService
                 ApiErrorMessages.Pos.SePayBankNotConfigured(cafe.Name ?? ""));
         }
 
-        var deposit = await _depositRepository.GetByActiveSessionIdAsync(activeSessionId)
-            ?? throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
+        // GAP #4 FIX: Lookup deposit via ActiveSessionId, fallback to Lobby chain
+        // This handles both legacy flows (deposit.ActiveSessionId set directly)
+        // and new Reservation flow (need to traverse Lobby → BookingDeposit)
+        BookingDeposit? deposit = null;
+
+        // Strategy 1: Direct ActiveSessionId lookup
+        if (activeSessionId != Guid.Empty)
+        {
+            deposit = await _depositRepository.GetByActiveSessionIdAsync(activeSessionId);
+        }
+
+        // Strategy 2: Fallback - traverse ActiveSession → Lobby → BookingDeposit
+        // session entity đã include Lobby (line 69-70 calls GetByIdAsync which includes Lobby)
+        if (deposit == null && session?.LobbyId != null)
+        {
+            var lobby = session.Lobby;
+            if (lobby?.BookingId != null)
+            {
+                deposit = await _depositRepository.GetByIdAsync(lobby.BookingId.Value);
+            }
+        }
+
+        // Strategy 3: Fallback - direct BookingDeposit lookup by sessionId (Reservation.Id)
+        if (deposit == null && sessionId != Guid.Empty)
+        {
+            deposit = await _depositRepository.GetByIdAsync(sessionId);
+        }
+
+        if (deposit == null)
+        {
+            throw new NotFoundException(ApiErrorMessages.Pos.DepositMissingForSettlement);
+        }
 
         if (deposit.Status != BookingDepositStatus.Paid)
         {
@@ -220,10 +252,16 @@ public class SettlementService : ISettlementService
     }
 
     /// <summary>
+    /// W-06: Admin list settlements với filter + phân trang.
+    /// </summary>
+    public Task<PaginatedResponse<SettlementListItemDto>> GetPagedAsync(SettlementListQuery query, CancellationToken cancellationToken = default) =>
+        _settlementRepository.GetPagedAsync(query);
+
+    /// <summary>
     /// W-06: Admin manually override a failed settlement after retry exhaustion.
     /// Sets Status = Overridden, OverrideBy = adminId, OverrideAt = now.
     /// </summary>
-    public async Task<CafeSettlement> OverrideSettlementAsync(Guid settlementId, Guid adminUserId)
+    public async Task<CafeSettlement> OverrideSettlementAsync(Guid settlementId, Guid adminUserId, CancellationToken cancellationToken = default)
     {
         var settlement = await _settlementRepository.GetByIdAsync(settlementId)
             ?? throw new NotFoundException(ApiErrorMessages.Settlement.NotFound(settlementId));

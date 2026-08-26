@@ -43,6 +43,11 @@ public class CoolingOffJob : BackgroundService
             {
                 await RunAllSchedulersAsync(stoppingToken);
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("CoolingOffJob stopped (host shutdown).");
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in CoolingOffJob tick");
@@ -67,16 +72,18 @@ public class CoolingOffJob : BackgroundService
         await RunSchedulerAsync(
             tickName: "DetectAndActivate",
             invocation: sp => sp.GetRequiredService<ICoolingOffService>()
-                .DetectAndActivateAsync(DateTime.UtcNow, BatchSize, ct));
+                .DetectAndActivateAsync(DateTime.UtcNow, BatchSize, ct),
+            ct: ct);
 
         // 2. Expire cooling-off quá hạn.
         await RunSchedulerAsync(
             tickName: "ExpireOverdue",
             invocation: sp => sp.GetRequiredService<ICoolingOffService>()
-                .ExpireOverdueAsync(DateTime.UtcNow, BatchSize, ct));
+                .ExpireOverdueAsync(DateTime.UtcNow, BatchSize, ct),
+            ct: ct);
     }
 
-    private async Task RunSchedulerAsync(string tickName, Func<IServiceProvider, Task<int>> invocation)
+    private async Task RunSchedulerAsync(string tickName, Func<IServiceProvider, Task<int>> invocation, CancellationToken ct)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
@@ -91,6 +98,13 @@ public class CoolingOffJob : BackgroundService
                     "[{Tick}] CoolingOffJob processed {Count} wallets in {ElapsedMs}ms",
                     tickName, processed, sw.ElapsedMilliseconds);
             }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            sw.Stop();
+            _logger.LogInformation(
+                "[{Tick}] CoolingOffJob cancelled after {ElapsedMs}ms (likely host shutdown).",
+                tickName, sw.ElapsedMilliseconds);
         }
         catch (Exception ex)
         {

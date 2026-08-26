@@ -1,5 +1,6 @@
 using BoardVerse.Core.DTOs.Reservation;
 
+using System.Threading;
 namespace BoardVerse.Services.IServices;
 
 public interface IPlayerCheckInService
@@ -10,5 +11,5 @@ public interface IPlayerCheckInService
     /// </summary>
     Task<PlayerScanTokenResponseDto> CheckInByTokenAsync(
         Guid playerUserId,
-        PlayerScanTokenRequestDto request);
+        PlayerScanTokenRequestDto request, CancellationToken cancellationToken = default);
 }

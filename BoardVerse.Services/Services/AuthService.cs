@@ -101,7 +101,7 @@ namespace BoardVerse.Services.Services
             _distributedCache.Set(key, newBytes, options);
         }
 
-        public async Task<LoginResponseDto> RegisterAsync(RegisterRequestDto request)
+        public async Task<LoginResponseDto> RegisterAsync(RegisterRequestDto request, CancellationToken cancellationToken = default)
         {
             // R-Bug-027 / BR-11 Fix: enforce minimum age of 13 years at registration.
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
@@ -145,7 +145,7 @@ namespace BoardVerse.Services.Services
             return await BuildLoginResponseAsync(user);
         }
 
-        public async Task<LoginResponseDto> LoginAsync(LoginRequestDto request)
+        public async Task<LoginResponseDto> LoginAsync(LoginRequestDto request, CancellationToken cancellationToken = default)
         {
             var throttleKey = $"login:{request.UsernameOrEmail}";
             if (IsLoginThrottled(throttleKey))
@@ -175,7 +175,7 @@ namespace BoardVerse.Services.Services
             return await BuildLoginResponseAsync(user);
         }
 
-        public async Task<LoginResponseDto> GoogleLoginAsync(GoogleAuthRequestDto request)
+        public async Task<LoginResponseDto> GoogleLoginAsync(GoogleAuthRequestDto request, CancellationToken cancellationToken = default)
         {
             GoogleJsonWebSignature.Payload payload;
             try
@@ -287,7 +287,7 @@ namespace BoardVerse.Services.Services
             }
         }
 
-        public async Task<RefreshTokenResponseDto> ExchangeRefreshTokenAsync(RefreshTokenRequestDto request)
+        public async Task<RefreshTokenResponseDto> ExchangeRefreshTokenAsync(RefreshTokenRequestDto request, CancellationToken cancellationToken = default)
         {
             var rt = await _userRepository.GetActiveRefreshTokenAsync(request.RefreshToken);
             if (rt == null || rt.ExpiresAt < DateTime.UtcNow)
@@ -319,7 +319,7 @@ namespace BoardVerse.Services.Services
             };
         }
 
-        public async Task RevokeRefreshTokenAsync(string refreshToken)
+        public async Task RevokeRefreshTokenAsync(string refreshToken, CancellationToken cancellationToken = default)
         {
             var rt = await _userRepository.GetActiveRefreshTokenAsync(refreshToken);
             if (rt == null) return;
@@ -331,7 +331,7 @@ namespace BoardVerse.Services.Services
             await _userRepository.SaveChangesAsync();
         }
 
-        public async Task<string> SendEmailVerificationAsync(SendEmailVerificationRequestDto request)
+        public async Task<string> SendEmailVerificationAsync(SendEmailVerificationRequestDto request, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByEmailAsync(request.Email);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.Auth.SendVerificationUserNotFound);
@@ -352,7 +352,7 @@ namespace BoardVerse.Services.Services
             return ApiErrorMessages.Auth.VerificationEmailSent;
         }
 
-        public async Task VerifyEmailAsync(VerifyEmailRequestDto request)
+        public async Task VerifyEmailAsync(VerifyEmailRequestDto request, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByEmailVerificationTokenAsync(request.Token);
             if (user == null) throw new InvalidTokenException(ApiErrorMessages.Auth.VerifyEmailInvalidToken);
@@ -368,7 +368,7 @@ namespace BoardVerse.Services.Services
             await _userRepository.SaveChangesAsync();
         }
 
-        public async Task<string> RequestPasswordResetAsync(RequestPasswordResetDto request)
+        public async Task<string> RequestPasswordResetAsync(RequestPasswordResetDto request, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByEmailAsync(request.Email);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.Auth.RequestPasswordResetUserNotFound);
@@ -390,7 +390,7 @@ namespace BoardVerse.Services.Services
             return ApiErrorMessages.Auth.PasswordResetEmailSent;
         }
 
-        public async Task ResetPasswordAsync(ResetPasswordDto request)
+        public async Task ResetPasswordAsync(ResetPasswordDto request, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByPasswordResetTokenAsync(request.Token);
             if (user == null) throw new InvalidTokenException(ApiErrorMessages.Auth.ResetPasswordInvalidToken);
@@ -406,7 +406,7 @@ namespace BoardVerse.Services.Services
             await _userRepository.SaveChangesAsync();
         }
 
-        public async Task ChangePasswordAsync(Guid userId, ChangePasswordDto request)
+        public async Task ChangePasswordAsync(Guid userId, ChangePasswordDto request, CancellationToken cancellationToken = default)
         {
             var user = await _userRepository.GetByIdAsync(userId);
             if (user == null) throw new UserNotFoundException(ApiErrorMessages.Auth.ChangePasswordUserNotFound);
@@ -429,7 +429,7 @@ namespace BoardVerse.Services.Services
             await _userRepository.SaveChangesAsync();
         }
 
-        public async Task<LoginResponseDto> LinkGoogleAccountAsync(LinkGoogleRequestDto request)
+        public async Task<LoginResponseDto> LinkGoogleAccountAsync(LinkGoogleRequestDto request, CancellationToken cancellationToken = default)
         {
             GoogleJsonWebSignature.Payload payload;
             try

@@ -2,6 +2,7 @@ using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.Admin;
 using BoardVerse.Core.Enum;
 
+using System.Threading;
 namespace BoardVerse.Services.IServices
 {
     public interface IAdminModerationService
@@ -11,19 +12,19 @@ namespace BoardVerse.Services.IServices
             KarmaViolationCategory? violationCategory,
             DateTime? fromUtc,
             DateTime? toUtc,
-            PaginationParams pagination);
+            PaginationParams pagination, CancellationToken cancellationToken = default);
 
-        Task<IReadOnlyList<UserKarmaAlertDto>> GetKarmaAlertsAsync();
+        Task<IReadOnlyList<UserKarmaAlertDto>> GetKarmaAlertsAsync(CancellationToken cancellationToken = default);
 
         Task<AdminPunishUserResponseDto> PunishUserAsync(
             Guid adminUserId,
             Guid targetUserId,
-            AdminPunishUserRequestDto request);
+            AdminPunishUserRequestDto request, CancellationToken cancellationToken = default);
 
         Task<AdminAdjustKarmaResponseDto> AdjustKarmaAsync(
             Guid adminUserId,
             Guid targetUserId,
-            AdminAdjustKarmaRequestDto request);
+            AdminAdjustKarmaRequestDto request, CancellationToken cancellationToken = default);
 
         Task<PaginatedResponse<CoolingOffUserDto>> GetCoolingOffUsersAsync(PaginationParams pagination);
 

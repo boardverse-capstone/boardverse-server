@@ -3,7 +3,7 @@ using BoardVerse.Core.Entities;
 namespace BoardVerse.Core.IRepositories;
 
 /// <summary>
-/// GAP-10 Fix: Repository cho PaymentWebhookAudit table.
+/// GAP-10 + Fix #2: Repository cho PaymentWebhookAudit table.
 /// Cho phép admin query lịch sử webhook để debug/refund.
 /// </summary>
 public interface IPaymentWebhookAuditRepository
@@ -24,6 +24,12 @@ public interface IPaymentWebhookAuditRepository
     /// </summary>
     Task<IReadOnlyList<PaymentWebhookAudit>> GetByOrderIdAsync(
         string orderId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Fix #2: Tìm audit record theo GatewayTransactionId để detect duplicate webhook.
+    /// </summary>
+    Task<PaymentWebhookAudit?> GetByGatewayTransactionIdAsync(
+        string gatewayTransactionId, CancellationToken ct = default);
 
     /// <summary>
     /// GAP-11 Fix: Đếm số lượng amount_mismatch trong 1 khoảng thời gian.

@@ -8,9 +8,11 @@ using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
 using BoardVerse.Tests.Helpers;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Moq;
 
+using System.Threading;
 namespace BoardVerse.Tests.Services;
 
 /// <summary>
@@ -56,15 +58,17 @@ public class CafePosComponentCheckGapTests
     public CafePosComponentCheckGapTests()
     {
         _db = new FakeDbContext();
-        _posRepo.Setup(r => r.CanOperateCafeAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>()))
+        _posRepo.Setup(r => r.CanOperateCafeAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
     }
+
+    private static readonly MemoryCache MemoryCache = new(new MemoryCacheOptions());
 
     private CafePosService CreateService() => new(
         _posRepo.Object, _cafeRepo.Object, _depositRepo.Object, _bookingRepo.Object,
         _activeSessionRepo.Object, _activeSessionService.Object, _posHubService.Object,
         _lobbyRepo.Object, _userProfileRepo.Object, _reservationService.Object,
-        _reservationRepo.Object, _tokenRepo.Object, _logger.Object, _db);
+        _reservationRepo.Object, _tokenRepo.Object, MemoryCache, _logger.Object, _db);
 
     private static Cafe BuildCafe() => new()
     {
@@ -137,16 +141,16 @@ public class CafePosComponentCheckGapTests
         var sessionGame = BuildSessionGame(gt);
         sessionGame.ActiveSession = session;
 
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id)).ReturnsAsync(cafe);
-        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId))
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
 
         // SaveChangesAsync ném DbUpdateException mô phỏng Postgres 23505 unique violation.
-        _posRepo.Setup(r => r.AddComponentCheckResultsAsync(It.IsAny<List<ComponentCheckResult>>()))
+        _posRepo.Setup(r => r.AddComponentCheckResultsAsync(It.IsAny<List<ComponentCheckResult>>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
-        _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId))
+        _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<Guid, ComponentCheckResult>());
-        _posRepo.Setup(r => r.SaveChangesAsync())
+        _posRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()))
             .ThrowsAsync(new DbUpdateException(
                 "duplicate key value violates unique constraint \"IX_ComponentCheckResults_ActiveSessionGameId_GameComponentTemplateId\"",
                 new MockPostgresUniqueViolationException()));
@@ -197,11 +201,11 @@ var memberX = new ActiveSessionMember
         var sessionGame = BuildSessionGame(gt);
         sessionGame.ActiveSession = session;
 
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id)).ReturnsAsync(cafe);
-        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId))
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
         _posRepo.Setup(r => r.GetComponentPenaltiesByCafeGameAsync(
-                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<List<Guid>>()))
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<List<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<Guid, CafeGameComponentPenalty>());
 
         var service = CreateService();
@@ -248,16 +252,16 @@ var memberX = new ActiveSessionMember
         var sessionGame = BuildSessionGame(gt);
         sessionGame.ActiveSession = session;
 
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id)).ReturnsAsync(cafe);
-        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId))
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
-        _posRepo.Setup(r => r.AddComponentCheckResultsAsync(It.IsAny<List<ComponentCheckResult>>()))
+        _posRepo.Setup(r => r.AddComponentCheckResultsAsync(It.IsAny<List<ComponentCheckResult>>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
-        _posRepo.Setup(r => r.SaveChangesAsync()).Returns(Task.CompletedTask);
+        _posRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         _posRepo.Setup(r => r.GetComponentPenaltiesByCafeGameAsync(
-                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<List<Guid>>()))
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<List<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<Guid, CafeGameComponentPenalty>());
-        _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId))
+        _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<Guid, ComponentCheckResult>());
 
         var service = CreateService();
@@ -302,13 +306,13 @@ var memberX = new ActiveSessionMember
         var sessionGame = BuildSessionGame(gt);
         sessionGame.ActiveSession = session;
 
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id)).ReturnsAsync(cafe);
-        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId))
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
 
         // W-4: latestByComponent có thể null nếu repo không setup hoặc DB chưa có data.
         // Service hiện không defensive — test thêm setup trả empty dict để test pass.
-        _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId))
+        _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<Guid, ComponentCheckResult>());
 
         var service = CreateService();
@@ -351,8 +355,8 @@ var memberX = new ActiveSessionMember
         var sessionGame = BuildSessionGame(gt);
         sessionGame.ActiveSession = session;
 
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id)).ReturnsAsync(cafe);
-        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId))
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
 
         var service = CreateService();
@@ -373,10 +377,10 @@ var memberX = new ActiveSessionMember
         var sessionGame = BuildSessionGame(gt);
         sessionGame.ActiveSession = session;
 
-        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id)).ReturnsAsync(cafe);
-        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId))
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
-        _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId))
+        _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<Guid, ComponentCheckResult>());
 
         var service = CreateService();

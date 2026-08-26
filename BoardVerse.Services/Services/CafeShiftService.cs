@@ -19,7 +19,7 @@ public class CafeShiftService : ICafeShiftService
         _cafeRepository = cafeRepository;
     }
 
-    public async Task<CafeShiftResponseDto> OpenShiftAsync(Guid cafeId, Guid userId, decimal openingCashBalance)
+    public async Task<CafeShiftResponseDto> OpenShiftAsync(Guid cafeId, Guid userId, decimal openingCashBalance, CancellationToken cancellationToken = default)
     {
         var cafe = await _cafeRepository.GetByIdAsync(cafeId);
         if (cafe == null)
@@ -47,7 +47,7 @@ public class CafeShiftService : ICafeShiftService
         return MapToDto(shift);
     }
 
-    public async Task<CafeShiftResponseDto> CloseShiftAsync(Guid shiftId, Guid userId, decimal closingCashBalance)
+    public async Task<CafeShiftResponseDto> CloseShiftAsync(Guid shiftId, Guid userId, decimal closingCashBalance, CancellationToken cancellationToken = default)
     {
         var shift = await _shiftRepository.GetByIdAsync(shiftId);
         if (shift == null)
@@ -95,7 +95,7 @@ public class CafeShiftService : ICafeShiftService
         throw new ForbiddenException(ApiErrorMessages.Cafe.ManagerForbidden(cafeId));
     }
 
-    public async Task<CafeShiftResponseDto?> GetCurrentShiftAsync(Guid cafeId, Guid callerUserId, bool isAdmin)
+    public async Task<CafeShiftResponseDto?> GetCurrentShiftAsync(Guid cafeId, Guid callerUserId, bool isAdmin, CancellationToken cancellationToken = default)
     {
         await EnsureCallerCanReadCafeShiftsAsync(cafeId, callerUserId, isAdmin);
 
@@ -103,7 +103,7 @@ public class CafeShiftService : ICafeShiftService
         return shift == null ? null : MapToDto(shift);
     }
 
-    public async Task<CafeShiftHistoryResponseDto> GetShiftHistoryAsync(Guid cafeId, int page, int pageSize, Guid callerUserId, bool isAdmin)
+    public async Task<CafeShiftHistoryResponseDto> GetShiftHistoryAsync(Guid cafeId, int page, int pageSize, Guid callerUserId, bool isAdmin, CancellationToken cancellationToken = default)
     {
         await EnsureCallerCanReadCafeShiftsAsync(cafeId, callerUserId, isAdmin);
 
