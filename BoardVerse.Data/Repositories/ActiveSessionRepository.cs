@@ -20,6 +20,7 @@ namespace BoardVerse.Data.Repositories
             return await _db.ActiveSessions
                 .Include(s => s.Members)
                     .ThenInclude(m => m.User)
+                        .ThenInclude(u => u.Profile)
                 .Include(s => s.Games)
                     .ThenInclude(g => g.CafeInventoryBox)
                 .Include(s => s.Games)
@@ -41,6 +42,7 @@ namespace BoardVerse.Data.Repositories
             return await _db.ActiveSessions
                 .Include(s => s.Members)
                     .ThenInclude(m => m.User)
+                        .ThenInclude(u => u.Profile)
                 .Include(s => s.Games)
                     .ThenInclude(g => g.CafeInventoryBox)
                 .Include(s => s.Games)
@@ -78,6 +80,7 @@ namespace BoardVerse.Data.Repositories
             return await _db.ActiveSessions
                 .Include(s => s.Members)
                     .ThenInclude(m => m.User)
+                        .ThenInclude(u => u.Profile)
                 .Include(s => s.Games)
                 .Include(s => s.CafeTable)
                 .Include(s => s.CafeInventoryBox)
@@ -119,6 +122,7 @@ namespace BoardVerse.Data.Repositories
             return await _db.ActiveSessions
                 .Include(s => s.Members)
                     .ThenInclude(m => m.User)
+                        .ThenInclude(u => u.Profile)
                 .Include(s => s.Games)
                     .ThenInclude(g => g.CafeInventoryBox)
                 .Include(s => s.Games)
@@ -133,6 +137,7 @@ namespace BoardVerse.Data.Repositories
             var query = _db.ActiveSessions
                 .Include(s => s.Members)
                     .ThenInclude(m => m.User)
+                        .ThenInclude(u => u.Profile)
                 .Include(s => s.Games)
                     .ThenInclude(g => g.CafeInventoryBox)
                 .Include(s => s.Games)
@@ -463,6 +468,7 @@ namespace BoardVerse.Data.Repositories
             return await _db.ActiveSessions
                 .Include(s => s.Members)
                     .ThenInclude(m => m.User)
+                        .ThenInclude(u => u.Profile)
                 .Include(s => s.Games)
                     .ThenInclude(g => g.GameTemplate)
                 .Include(s => s.Cafe)
@@ -491,6 +497,7 @@ namespace BoardVerse.Data.Repositories
             var query = _db.ActiveSessions
                 .Include(s => s.Members)
                     .ThenInclude(m => m.User)
+                        .ThenInclude(u => u.Profile)
                 .Include(s => s.Games)
                     .ThenInclude(g => g.GameTemplate)
                 .Include(s => s.Cafe)

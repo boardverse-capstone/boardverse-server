@@ -13,6 +13,43 @@ API phòng chờ trực tuyến: tạo phòng, tham gia, rời phòng, tìm phò
 > - [lobby-invite.md](./lobby-invite.md) — Invite + share code
 > - [friend.md](./friend.md) — Friend system (cho invite private lobby)
 
+---
+
+## Schema — `LobbyResponseDto`
+
+Tất cả endpoint trả về lobby đều dùng schema này (xem `BoardVerse.Core/DTOs/Lobby/LobbyResponseDto.cs`):
+
+| Field | Type | Nullable | Mô tả |
+|---|---|---|---|
+| `id` | Guid | ❌ | Lobby ID |
+| `hostUserId` | Guid | ❌ | User ID của host |
+| `gameTemplateId` | Guid | ❌ | Game ID |
+| `gameName` | string | ✅ | Tên game (vd "Splendor"), join sẵn từ `GameTemplate` |
+| `cafeId` | Guid | ✅ | Cafe ID; `null` cho lobby không gắn quán (legacy/test) |
+| `cafeName` | string | ✅ | **Tên cafe** — join sẵn từ `Cafe.Name`. `null` khi cafe đã bị ẩn/xóa. |
+| `bookingId` | Guid | ✅ | Booking Deposit ID (BR-22 flow). `null` nếu lobby không qua Booking. |
+| `scheduledStartTime` | DateTime | ✅ | Giờ dự kiến chơi |
+| `maxMembers` | int | ❌ | Số người tối đa |
+| `minPlayers` | int | ❌ | Số người tối thiểu để confirmed |
+| `seatCount` | int | ✅ | BR-22 deposit quota; `null` cho legacy lobby |
+| `activeSessionId` | Guid | ✅ | Session ID khi `status = InProgress` |
+| `status` | `LobbyStatus` enum | ❌ | `PendingActivation` / `Open` / `Viable` / `Full` / `InProgress` / `Closed` / ... |
+| `latitude` / `longitude` | double | ✅ | Toạ độ lobby (search geo) |
+| `distanceKm` | double | ✅ | Haversine distance; chỉ có khi search có geo |
+| `isPrivate` | bool | ❌ | Private (chỉ invite) hay public |
+| `shareCode` | string | ❌ | 8-char alphanumeric share code |
+| `description` | string | ✅ | Host's note |
+| `coverImageUrl` | string | ✅ | URL ảnh lobby |
+| `cancellationLeadTimeMinutes` | int | ❌ | Phút trước giờ chơi mà host vẫn được hủy full-refund |
+| `minKarmaScore` | int | ✅ | BR-10: Karma tối thiểu (null = không yêu cầu) |
+| `closedAt` / `closedReason` | DateTime / string | ✅ | Terminal status info |
+| `createdAt` / `updatedAt` | DateTime | ❌ | Audit |
+| `members` | `LobbyMemberDto[]` | ❌ | Danh sách thành viên active (host + members); join sẵn `User.Profile` (avatar, karma) |
+
+**Note quan trọng cho Flutter:**
+- Từ trước tới nay frontend phải gọi thêm `GET /api/v1/cafes/{cafeId}` để hiển thị tên quán. Hiện tại `cafeName` đã có sẵn trong mọi response → bỏ được round-trip phụ.
+- `members[].avatarUrl` và `members[].karmaPoints` đã chính xác (fix bug include Profile navigation ngày 2026-08-26).
+
 > **⚠️ DEPRECATION NOTICE — Phase 2 (BR §XXI-B.1)**
 >
 > - `POST /api/v1/lobbies` (CreateLobby) **đã deprecated** trả về `410 Gone`.
@@ -542,6 +579,58 @@ Lấy tất cả lobby của user hiện tại (host hoặc member, chỉ active
 - `500` — Lỗi hệ thống
 
 **Use case:** Mobile tab "Phòng của tôi" — hiển thị lobby user đang host hoặc tham gia.
+
+**Ví dụ response:**
+
+```json
+[
+  {
+    "id": "a383c615-2012-41e7-8989-132f9602cb36",
+    "hostUserId": "82f49998-d57e-4fdf-b37c-3a14f9c5b76c",
+    "gameTemplateId": "44444444-4444-4444-4444-444444444444",
+    "gameName": "Splendor",
+    "cafeId": "a1aae9db-4f1b-44af-ac86-6038d085df94",
+    "cafeName": "BoardVerse Cafe Thủ Đức",
+    "bookingId": null,
+    "scheduledStartTime": "2026-08-24T23:00:00Z",
+    "maxMembers": 2,
+    "minPlayers": 2,
+    "seatCount": null,
+    "activeSessionId": null,
+    "status": "InProgress",
+    "latitude": null,
+    "longitude": null,
+    "distanceKm": null,
+    "isPrivate": false,
+    "shareCode": "J2T2GE9F",
+    "description": null,
+    "coverImageUrl": null,
+    "cancellationLeadTimeMinutes": 120,
+    "minKarmaScore": null,
+    "closedAt": null,
+    "closedReason": null,
+    "createdAt": "2026-08-24T15:11:45.660112Z",
+    "updatedAt": "2026-08-24T16:10:44.450078Z",
+    "members": [
+      {
+        "id": "1a25abf2-94e8-4dd1-b618-a20c158937e3",
+        "userId": "82f49998-d57e-4fdf-b37c-3a14f9c5b76c",
+        "userName": "player7",
+        "avatarUrl": "https://...",
+        "karmaPoints": 100,
+        "joinedAt": "2026-08-24T15:11:45.660112Z",
+        "readyAt": "2026-08-24T16:08:29.615235Z",
+        "isActive": true,
+        "isHost": true,
+        "status": "Ready"
+      }
+    ]
+  }
+]
+```
+
+**Lưu ý cho Flutter:**
+- Từ 2026-08-26, response đã bao gồm `cafeName` và `members[].avatarUrl` / `members[].karmaPoints`. Bỏ qua call `GET /api/v1/cafes/{cafeId}` khi đã có `cafeId`.
 
 ---
 

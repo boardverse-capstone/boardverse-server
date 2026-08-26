@@ -25,6 +25,7 @@ namespace BoardVerse.Data.Repositories
                 .AsNoTracking()
                 .Include(l => l.Members.Where(m => m.IsActive))
                     .ThenInclude(m => m.User)
+                        .ThenInclude(u => u.Profile)
                 .Include(l => l.GameTemplate)
                 .FirstOrDefaultAsync(l => l.Id == lobbyId);
 

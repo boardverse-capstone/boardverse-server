@@ -111,6 +111,7 @@ namespace BoardVerse.Data.Repositories
                 .Include(s => s.Host)
                 .Include(s => s.Members)
                     .ThenInclude(m => m.User)
+                        .ThenInclude(u => u.Profile)
                 .Include(s => s.GameTemplate)
                 .Include(s => s.Games)
                     .ThenInclude(g => g.CafeInventoryBox)

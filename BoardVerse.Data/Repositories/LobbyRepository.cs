@@ -58,6 +58,7 @@ namespace BoardVerse.Data.Repositories
             return await _db.Lobbies
                 .Include(l => l.Members)
                     .ThenInclude(m => m.User)
+                        .ThenInclude(u => u.Profile)
                 .FirstOrDefaultAsync(l => l.ActiveSessionId == activeSessionId);
         }
 
@@ -69,6 +70,7 @@ namespace BoardVerse.Data.Repositories
                 .AsNoTracking()
                 .Include(l => l.Members)
                     .ThenInclude(m => m.User)
+                        .ThenInclude(u => u.Profile)
                 .Include(l => l.GameTemplate)
                 .FirstOrDefaultAsync(l => l.Id == lobbyId);
         }
@@ -81,7 +83,9 @@ namespace BoardVerse.Data.Repositories
             return await _db.Lobbies
                 .Include(l => l.Members)
                     .ThenInclude(m => m.User)
+                        .ThenInclude(u => u.Profile)
                 .Include(l => l.GameTemplate)
+                .Include(l => l.Cafe)
                 .FirstOrDefaultAsync(l => l.ShareCode == shareCode.ToUpperInvariant());
         }
 
@@ -100,6 +104,7 @@ namespace BoardVerse.Data.Repositories
                 .Include(l => l.Members)
                     .ThenInclude(m => m.User)
                         .ThenInclude(u => u.Profile)
+                .Include(l => l.Cafe)
                 .Where(l => l.GameTemplateId == gameTemplateId && l.Status == LobbyStatus.Open);
 
             if (excludeLobbyId.HasValue)
@@ -129,6 +134,7 @@ namespace BoardVerse.Data.Repositories
                 .Include(l => l.GameTemplate)
                 .Include(l => l.HostUser)
                     .ThenInclude(u => u.Profile)
+                .Include(l => l.Cafe)
                 .Where(l => !l.IsPrivate && l.Status == LobbyStatus.Open);
 
             if (gameTemplateId.HasValue)
@@ -196,6 +202,7 @@ namespace BoardVerse.Data.Repositories
                     .ThenInclude(m => m.User)
                         .ThenInclude(u => u.Profile)
                 .Include(l => l.GameTemplate)
+                .Include(l => l.Cafe)
                 .Where(l => l.GameTemplateId == gameTemplateId && l.Status == LobbyStatus.Open)
                 .Where(l => l.Latitude.HasValue && l.Longitude.HasValue)
                 .Where(l => l.Latitude >= minLat && l.Latitude <= maxLat
@@ -239,7 +246,9 @@ namespace BoardVerse.Data.Repositories
             return await _db.Lobbies
                 .Include(l => l.Members)
                     .ThenInclude(m => m.User)
+                        .ThenInclude(u => u.Profile)
                 .Include(l => l.GameTemplate)
+                .Include(l => l.Cafe)
                 .Where(l => l.HostUserId == hostUserId)
                 .OrderByDescending(l => l.CreatedAt)
                 .Take(50)
@@ -251,7 +260,9 @@ namespace BoardVerse.Data.Repositories
             return await _db.Lobbies
                 .Include(l => l.Members)
                     .ThenInclude(m => m.User)
+                        .ThenInclude(u => u.Profile)
                 .Include(l => l.GameTemplate)
+                .Include(l => l.Cafe)
                 .Where(l => ActiveLobbyStatuses.Contains(l.Status)
                     && (l.HostUserId == userId
                         || l.Members.Any(m => m.UserId == userId && m.IsActive)))
