@@ -352,6 +352,8 @@ Join lobby bằng share code (6 ký tự).
 
 **Response 200:** `LobbyResponseDto` — current user đã trở thành thành viên.
 
+> Schema đầy đủ xem [`lobby.md`](./lobby.md#schema--lobbyresponsedto). Lưu ý response bao gồm `cafeName` (join sẵn từ `Cafe.Name`) — không cần gọi thêm `/api/v1/cafes/{cafeId}`.
+
 **Lỗi:**
 - `400` share code trống / sai format.
 - `404` share code không tồn tại.
