@@ -52,7 +52,7 @@ Backend lookup token trong DB, xác minh token còn hiệu lực, xác minh play
 |--------|-----------|
 | `400` | Token không đúng định dạng (16-char alphanumeric uppercase, loại trừ 0/1/I/O). |
 | `401` | Thiếu token, token hết hạn hoặc token không hợp lệ. |
-| `403` | Player không phải thành viên của reservation liên kết với QR này. |
+| `403` | Player không phải host hoặc thành viên active của reservation liên kết với QR này. |
 | `404` | Không tìm thấy token hoặc reservation liên kết không tồn tại. |
 | `409` | Token đã được sử dụng trước đó (bởi user khác). |
 | `410` | Token đã hết hạn TTL hoặc đã bị thu hồi (revoked). |
@@ -88,7 +88,7 @@ Token còn hiệu lực + Player là thành viên?
             ├── Player scan lần 2 (cùng token, cùng user) → 200 idempotent replay
             └── Lần đầu scan
                     ├── Auto-pick bàn + box available
-                    ├── Gọi CheckInByCodeAsync nội bộ
+                    ├── Gọi CheckInByReservationCodeForPlayerAsync nội bộ (bypass PosAccess check)
                     ├── Mark token consumed
                     └── 200 ActiveSession info
 ```

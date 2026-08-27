@@ -1356,10 +1356,13 @@ POST /api/check-in/scan-qr
 # → Backend lookup token, validate còn hiệu lực
 # → Player là host/member của reservation
 # → Auto-pick bàn + box available
-# → Gọi CheckInByCodeAsync với reservationCode nội bộ
+# → Gọi CheckInByReservationCodeForPlayerAsync với reservationCode nội bộ
+#   (bypass EnsurePosAccessAsync — player không có role Manager/CafeStaff)
 # → Mark token consumed, trả ActiveSession info
 # → Player thấy "Đang chơi tại quán X"
 ```
+
+> **Lưu ý (2026-08-27):** Method `CheckInByCodeAsync` dành cho POS staff (role Manager/CafeStaff) và gọi `EnsurePosAccessAsync`. Player flow gọi method mới `CheckInByReservationCodeForPlayerAsync` — chỉ verify player là host/member của reservation, không check `PosAccess` (vì PosAccess là quyền vận hành quán, không phải quyền của player). Method này vẫn có idempotency + nonce check để chống double-tap / replay attack.
 
 ### Luồng 2: Vào quán với BookingCode (legacy VND)
 

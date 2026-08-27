@@ -171,6 +171,12 @@ public class PlayerCheckInService : IPlayerCheckInService
 
         // Build CheckInRequestDto rồi gọi POS service.
         // Dùng ReservationCode (8-char) thay vì token để tái sử dụng flow check-in có sẵn.
+        //
+        // BUG FIX 2026-08-27: Gọi CheckInByReservationCodeForPlayerAsync (bypass EnsurePosAccessAsync)
+        // thay vì CheckInByCodeAsync. CheckInByCodeAsync dành cho POS staff (Manager/CafeStaff role)
+        // và gọi EnsurePosAccessAsync → reject player với 403 "Từ chối truy cập POS".
+        // Player đã được verify là host/member của reservation ở trên (line 117-129) nên
+        // không cần check PosAccess — đó là quyền vận hành quán, không phải quyền của player.
         var idempotencyKey = $"player-scan:{tokenEntity.Id}";
         var nonce = Guid.NewGuid().ToString("N");
 
@@ -183,10 +189,9 @@ public class PlayerCheckInService : IPlayerCheckInService
             Nonce = nonce
         };
 
-        var activeSession = await _posService.CheckInByCodeAsync(
+        var activeSession = await _posService.CheckInByReservationCodeForPlayerAsync(
             tokenEntity.CafeId,
             playerUserId,
-            "Player",
             checkInRequest);
 
         // CRITICAL Fix: Atomic mark token consumed using ExecuteUpdateAsync with WHERE clause.

@@ -17,7 +17,8 @@ Thay thế luồng cũ `BookingDeposit` (VND/SePay) — flow mới dùng BVC ato
 Tuân thủ business rules:
 
 - **BR-DEPOSIT-01**: Host trả toàn bộ cọc.
-- **BR-DEPOSIT-02..04**: `finalDeposit = ratePerPerson × maxPlayers × riskMultiplier` (nhưng ≥ `minDeposit`).
+- **BR-DEPOSIT-02 (2026-08-27)**: `finalDeposit = round(20% × cafeBasePrice / 1000, floor ≥ 1) × finalMaxPlayers` (BVC). Cọc tỷ lệ với quy mô nhóm và giá vé cơ bản của cafe.
+- **BR-DEPOSIT-02 (2026-08-27 — chỉnh)**: Backend trả về `finalDeposit` (BVC tổng) + `cafeBasePriceVnd` (VND/người) + `maxPlayers`. FE không còn hiển thị breakdown theo công thức `% × giá × số người` (bỏ `depositPerPerson`, `depositPercentage`, `depositRatePerPerson`, `baseDeposit`, `riskMultiplier`, `minDepositApplied`).
 - **BR-NEW-01**: `maxPlayers` + `minDeposit` theo khoảng cách `playDate`.
 - **BR-LOBBY-01a/b**: Buffer ≥ 120 phút OK, 60–120 cảnh báo, < 60 từ chối.
 - **BR-USER-LIMIT-01..05**: 1 host lobby + 1 member lobby = tối đa 2 active; cap tổng heldBalance.
@@ -468,23 +469,36 @@ Tạo quote cho reservation. **KHÔNG tạo row DB** — chỉ validate + tính 
     "recruitmentDeadline": "2026-08-04T17:40:00Z",
     "minPlayers": 4,
     "maxPlayers": 6,
-    "depositRatePerPerson": 5,
-    "baseDeposit": 30,
-    "riskMultiplier": 1.0,
-    "minDepositApplied": 100000,
-    "finalDeposit": 100000,
+    "cafeBasePriceVnd": 50000,
+    "finalDeposit": 60,
     "currentBalance": 50000,
-    "missingAmount": 50000,
+    "missingAmount": 0,
     "bufferMinutes": 240,
     "bufferWarning": false,
     "requiresCafeApproval": false,
     "riskLevel": "low",
-    "riskMultiplier": 1.0,
     "expiresAt": "2026-08-02T11:00:00Z",
     "warnings": []
   }
 }
 ```
+
+### Deposit breakdown
+
+FE hiển thị breakdown cho người chơi (2026-08-27 — chỉ render `FinalDeposit` + `CafeBasePriceVnd`, không hiển thị công thức % nữa):
+
+```
+Tiền cọc: {FinalDeposit} BVC
+Giá vé cơ bản: {CafeBasePriceVnd:N0}đ / người
+Số người tối đa: {MaxPlayers}
+```
+
+Với ví dụ trên (cafeBasePrice = 50.000đ, 6 người):
+- `cafeBasePriceVnd = 50.000đ`
+- `maxPlayers = 6`
+- `finalDeposit = 60 BVC` (= 20% × 50.000đ × 6 người = 60.000đ tổng cọc)
+
+> **Lưu ý (2026-08-27):** Các field `DepositPercentage`, `DepositPerPerson`, `DepositRatePerPerson`, `BaseDeposit`, `RiskMultiplier`, `MinDepositApplied` không còn được trả về cho FE nữa (giữ trong response với giá trị mặc định = 0 cho backward compat). FE chỉ cần `FinalDeposit` + `CafeBasePriceVnd` + `MaxPlayers` để hiển thị breakdown.
 
 ### Quote warnings
 
@@ -1050,6 +1064,18 @@ Host hủy reservation sau khi đã check-in. Áp dụng refund theo playedRatio
 | `< 50%` | 0% (forfeit 100%) | Giảm nhẹ |
 | `≥ 50%` | 30% | Không phạt |
 | `≥ 90%` | 0% (treated as on-time) | Không phạt |
+
+### Lifecycle metadata (BR-END-02, fix 2026-08-27)
+
+Khi staff nhấn Pay tại POS → `ActiveSessionService.PaySessionAsync` gọi `ReservationService.CompleteAndCaptureAsync`, hệ thống **BẮT BUỘC** populate 3 field lifecycle metadata trên Reservation row:
+
+- `ActualEndAt`: timestamp thực tế đóng session.
+- `PlayedRatio`: `clamp((actualEndAt - checkedInAt) / (scheduledEndTime - scheduledStartTime), 0, 1)`.
+- `EndReason`: `EarlyLeave` / `OnTime` / `StaffOverride` (dựa trên `PlayedRatio` thresholds ở trên).
+
+**Bug đã fix (2026-08-27):** Trước fix, `ExecuteCompleteAndCaptureTransactionAsync` chỉ flip `Status = Completed` mà KHÔNG set `ActualEndAt`, `PlayedRatio`, `EndReason`. Audit/karma/refund reports đọc NULL → "bàn tự dưng closed". Fix được bảo vệ bởi `ReservationCompleteCaptureFixTests` (9 test cases cover edge cases: zero-duration, negative ratio, > 100%, missing `CheckedInAt`, 90% boundary, 50% boundary).
+
+**Side effect:** Nếu `CheckedInAt` cũng NULL (bug upstream trong `ExecuteCheckInTransactionAsync` step 9 — fixed trong cùng change-set), `EndAndSettleAsync` sẽ throw. Test `MissingCheckedInAt_FallbackToScheduledStart_AvoidsDivideByZero` đảm bảo fallback `checkedInAt ?? scheduledStart` để tránh chia cho 0.
 
 ### Lỗi
 

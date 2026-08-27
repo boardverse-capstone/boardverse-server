@@ -870,6 +870,96 @@ namespace BoardVerse.Services.Services
         }
 
         /// <summary>
+        /// BR §21A.7 — Player check-in flow (chiều thứ 2).
+        /// KHÔNG gọi <c>EnsurePosAccessAsync</c> — dành cho mobile app gọi với JWT của player
+        /// (player có role = "Player", không phải Manager/CafeStaff).
+        /// Caller (PlayerCheckInService) phải đã verify player là host/member trước đó.
+        /// </summary>
+        public async Task<ActiveSessionDto> CheckInByReservationCodeForPlayerAsync(
+            Guid cafeId,
+            Guid playerUserId,
+            CheckInRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            // BUG FIX: KHÔNG gọi EnsurePosAccessAsync — player flow không có quyền vận hành POS.
+            // Player đã được xác thực là host/member của reservation ở PlayerCheckInService
+            // trước khi gọi method này.
+
+            // GAP-1/GAP-37 Fix: IdempotencyKey chống double-tap.
+            if (!string.IsNullOrWhiteSpace(request.IdempotencyKey))
+            {
+                var idempotentSession = await _posRepository.GetSessionByIdempotencyKeyAsync(request.IdempotencyKey, cancellationToken);
+                if (idempotentSession != null)
+                {
+                    _logger.LogInformation(
+                        "PlayerCheckIn idempotent replay. IdempotencyKey={Key}, ExistingSessionId={SessionId}",
+                        request.IdempotencyKey, idempotentSession.Id);
+                    // Reload session DTO thông qua GetSessionByIdAsync. Vì đây là player flow (không có role),
+                    // ta không gọi GetSessionByIdAsync với userRole; thay vào đó build DTO thủ công.
+                    var session = await _activeSessionRepository.GetByIdWithMembersAsync(idempotentSession.Id, cancellationToken);
+                    if (session != null)
+                    {
+                        return MapSession(session, DateTime.UtcNow);
+                    }
+                }
+            }
+
+            // GAP-1/GAP-37 Fix: Nonce chống replay attack.
+            if (!string.IsNullOrWhiteSpace(request.Nonce))
+            {
+                var nonceUsed = await _posRepository.IsNonceUsedAsync(request.Nonce, cancellationToken);
+                if (nonceUsed)
+                {
+                    throw new ConflictException(ApiErrorMessages.System.QrAlreadyUsed);
+                }
+            }
+
+            var code = request.Code.Trim();
+
+            // Player flow chỉ support ReservationCode (BVC mới). BookingCode legacy VND không
+            // áp dụng cho mobile scan — POS staff đã handle flow đó ở CheckInByCodeAsync.
+            var codeType = ReservationCodeDetector.Detect(code);
+            if (codeType != ReservationCodeDetector.CodeType.Reservation)
+            {
+                throw new BadRequestException(
+                    "Player check-in chỉ hỗ trợ ReservationCode (8 ký tự). Vui lòng quét QR POS mới.");
+            }
+
+            // Reuse existing logic — đã validate player ownership ở PlayerCheckInService.
+            var result = await StartSessionFromReservationAsync(cafeId, playerUserId, code, request);
+
+            // GAP-1/GAP-37 Fix: Lưu IdempotencyKey + Nonce sau khi thành công.
+            if (!string.IsNullOrWhiteSpace(request.IdempotencyKey))
+            {
+                try
+                {
+                    await _posRepository.SaveIdempotencyKeyAsync(result.Id, request.IdempotencyKey, cancellationToken);
+                }
+                catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+                {
+                    _logger.LogWarning(
+                        "PlayerCheckIn duplicate IdempotencyKey race detected. Key={Key}",
+                        request.IdempotencyKey);
+                    var existing = await _posRepository.GetSessionByIdempotencyKeyAsync(request.IdempotencyKey, cancellationToken);
+                    if (existing != null && existing.Id != result.Id)
+                    {
+                        var existingSession = await _activeSessionRepository.GetByIdWithMembersAsync(existing.Id, cancellationToken);
+                        if (existingSession != null)
+                        {
+                            return MapSession(existingSession, DateTime.UtcNow);
+                        }
+                    }
+                }
+            }
+            if (!string.IsNullOrWhiteSpace(request.Nonce))
+            {
+                await _posRepository.MarkNonceUsedAsync(request.Nonce, cancellationToken);
+            }
+
+            return result;
+        }
+
+        /// <summary>
         /// BR §21A.7: ReservationCode → ReservationService.CheckInAsync (atomic + outbox).
         /// Sau check-in: tạo ActiveSession + ActiveSessionMember ở flow POS (giống legacy).
         /// </summary>

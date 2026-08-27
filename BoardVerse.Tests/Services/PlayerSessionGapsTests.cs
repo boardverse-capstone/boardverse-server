@@ -144,6 +144,77 @@ public class PlayerSessionGapsTests
         Assert.Equal(0, result.JoinedAtOffset.Minute);
     }
 
+    // ===== Group total (host sees 16k for 8 members × 2k) =====
+
+    private static List<ActiveSessionMember> CreateMembers(IEnumerable<Guid> userIds, IndividualSessionStatus status, DateTime joinedAt, int minutes, decimal subtotalEach)
+    {
+        return userIds.Select(id => new ActiveSessionMember
+        {
+            Id = Guid.NewGuid(),
+            UserId = id,
+            Status = status,
+            JoinedAt = joinedAt,
+            TotalMinutesPlayed = minutes,
+            Subtotal = subtotalEach,
+            PenaltyAmount = 0m,
+            DepositAppliedAmount = 0m,
+            TotalAmount = subtotalEach,
+            User = CreateUser(id)
+        }).ToList();
+    }
+
+    [Fact]
+    public async Task GetCurrentSessionAsync_ReturnsGroupTotalAmount_ForUnpaidSession()
+    {
+        // Arrange: 8 members × 2000 = 16000 total, session already Unpaid after Checkout
+        var hostId = Guid.NewGuid();
+        var cafeId = Guid.NewGuid();
+        var joinedAt = DateTime.UtcNow.AddMinutes(-30);
+
+        var memberIds = Enumerable.Range(0, 7).Select(_ => Guid.NewGuid()).ToList();
+        memberIds.Insert(0, hostId);   // host is also a member for lookup
+        var members = CreateMembers(memberIds, IndividualSessionStatus.Playing, joinedAt, 26, 2000m);
+
+        var session = new ActiveSession
+        {
+            Id = Guid.NewGuid(),
+            CafeId = cafeId,
+            HostId = hostId,
+            Status = GroupSessionStatus.Unpaid,       // Already checked out → TotalAmount persisted
+            StartedAt = joinedAt,
+            EndedAt = joinedAt.AddMinutes(26),
+            TotalAmount = 16000m,                    // 8 × 2000 from CompleteCheckoutAsync
+            Subtotal = 16000m,
+            PenaltyAmount = 0m,
+            DepositAppliedAmount = 0m,
+            Cafe = new Cafe
+            {
+                Id = cafeId, Name = "Boss cafe", BasePrice = 2000m,
+                BillingModel = CafePartnerBillingModel.ByHour, TieredBlockMinutes = 15, TieredBlockRate = 1500m,
+                IsActive = true, PartnerOperationalStatus = CafePartnerOperationalStatus.Active, Address = "123 St"
+            },
+            Games = new List<ActiveSessionGame> { new() { GameTemplate = new GameTemplate { Id = Guid.NewGuid(), Name = "Werewolf" } } },
+            Members = members
+        };
+
+        var sessionRepo = new Mock<IActiveSessionRepository>();
+        sessionRepo.Setup(r => r.GetByUserIdWithMembersAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(session);
+
+        var (svc, extRepo) = CreateServiceWithExt(sessionRepo);
+        extRepo.Setup(r => r.GetAllBySessionIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<SessionExtensionRequest>());
+        extRepo.Setup(r => r.GetPendingBySessionIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<SessionExtensionRequest>());
+
+        var result = await svc.GetCurrentSessionAsync(hostId);
+
+        Assert.NotNull(result);
+        Assert.Equal(GroupSessionStatus.Unpaid, result!.SessionStatus);
+        Assert.Equal(8, result.TotalGroupMembers);
+        Assert.Equal(16000m, result.GroupTotalAmount);   // Host sees 16k total, not 2k personal
+    }
+
     // ===== GAP-7/8: History pagination + date filter =====
 
     [Fact]

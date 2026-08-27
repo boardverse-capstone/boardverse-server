@@ -1819,6 +1819,7 @@ namespace BoardVerse.Services.Services
                 CostEstimate = costEstimate,
                 GameName = gameName,
                 TotalGroupMembers = session.Members.Count,
+                GroupTotalAmount = session.TotalAmount,
                 CanExtend = isActiveSession && session.Status == GroupSessionStatus.Active,
                 CanPay = isActiveSession && session.Status == GroupSessionStatus.Unpaid,
                 IsPaid = isPaid,

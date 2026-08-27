@@ -145,7 +145,7 @@ namespace BoardVerse.Data.Repositories
                 .Include(s => s.CafeTable)
                 .Include(s => s.CafeInventoryBox)
                 .Include(s => s.GameTemplate)
-                .Where(s => s.CafeId == cafeId && s.Status != GroupSessionStatus.Paid);
+                .Where(s => s.CafeId == cafeId && s.Status != GroupSessionStatus.Paid && s.Status != GroupSessionStatus.Closed);
 
             if (gameTemplateId.HasValue)
             {
@@ -438,21 +438,32 @@ namespace BoardVerse.Data.Repositories
         }
 
         /// <summary>
+        /// BR-END-05: Lấy session Active mà đã quá deadline end + grace 30 phút.
+        /// Deadline = COALESCE(Reservation.ExtendedEndTime, Reservation.ScheduledEndTime)
+        /// (JOIN qua Lobby vì ActiveSession không có FK trực tiếp tới Reservation).
+        ///
         /// GAP-R4-A4 Fix: Cluster-safe variant dùng cho background job.
         /// Dùng <c>FOR UPDATE SKIP LOCKED</c> trong transaction — nếu deploy cluster với 2+ instance,
         /// instance A lock session row, instance B skip → mỗi session chỉ release đúng 1 lần.
         /// Caller phải mở transaction trước khi gọi method này (Postgres chỉ giữ row lock khi tx còn sống).
+        ///
+        /// Session walk-in không có Reservation → bỏ qua (deadline dựa trên Reservation).
         /// </summary>
         public async Task<IReadOnlyList<ActiveSession>> GetExpiredForUpdateAsync(DateTime cutoff, CancellationToken ct = default)
         {
-            // Postgres-specific SQL. batchSize mặc định 50 (background job batch).
-            // Lock scope: chỉ row Active session expired, không ảnh hưởng các session khác.
+            // Postgres-specific SQL.
+            // Logic: deadline = COALESCE(R.ExtendedEndTime, R.ScheduledEndTime).
+            //        expired = deadline + INTERVAL '30 minutes' < cutoff.
+            // Chỉ release session link với Reservation (có LobbyId); session walk-in
+            // (LobbyId IS NULL) bỏ qua vì không có ScheduledEndTime để so sánh.
             var sql =
-                "SELECT * FROM \"ActiveSessions\" WHERE \"Status\" = {0} " +
-                "AND \"IsPaused\" = false " +
-                "AND ((\"EndedAt\" IS NOT NULL AND \"EndedAt\" + INTERVAL '30 minutes' < {1}) " +
-                "OR (\"EndedAt\" IS NULL AND \"StartedAt\" + INTERVAL '30 minutes' < {1})) " +
-                "FOR UPDATE SKIP LOCKED";
+                "SELECT a.* FROM \"ActiveSessions\" AS a " +
+                "INNER JOIN \"Lobbies\" AS l ON l.\"Id\" = a.\"LobbyId\" " +
+                "INNER JOIN \"Reservations\" AS r ON r.\"LobbyId\" = l.\"Id\" " +
+                "WHERE a.\"Status\" = {0} " +
+                "AND a.\"IsPaused\" = false " +
+                "AND COALESCE(r.\"ExtendedEndTime\", r.\"ScheduledEndTime\") + INTERVAL '30 minutes' < {1} " +
+                "FOR UPDATE OF a SKIP LOCKED";
             return await _db.ActiveSessions
                 .FromSqlRaw(sql, (int)GroupSessionStatus.Active, cutoff)
                 .AsNoTracking()

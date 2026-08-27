@@ -81,18 +81,52 @@ public class ReservationQuoteDto
     public int MaxPlayers { get; set; }
 
     /// <summary>
+    /// [2026-08-27] Giá vé cơ bản của cafe (VND). FE dùng để render breakdown.
+    /// </summary>
+    public decimal CafeBasePriceVnd { get; set; }
+
+    /// <summary>
     /// Th?i l??ng slot (ph?t).
     /// BR-BOOK-02: Max 6 hours (360 minutes).
     /// </summary>
     public int DurationMinutes { get; set; }
 
-    /// <summary>Lu?n = "BVC" ? 1 BVC = 1.000 VND (BR ?II.2).</summary>
+    /// <summary>Luôn = "BVC" — 1 BVC = 1.000 VND (BR §II.2).</summary>
     public string DepositUnit { get; set; } = "BVC";
 
+    /// <summary>
+    /// [2026-08-27 — đã bỏ hiển thị] % tính cọc (0.20 = 20% × cafeBasePrice). Không trả FE nữa.
+    /// </summary>
+    [Obsolete("FE không hiển thị breakdown theo công thức % nữa. Field giữ để backward compat (default 0).")]
+    public decimal DepositPercentage { get; set; }
+
+    /// <summary>
+    /// [2026-08-27 — đã bỏ hiển thị] BVC cọc/người = round(20% × cafeBasePrice / 1000), floor ≥ 1.
+    /// Backend không trả FE nữa — FE hiển thị chỉ dựa trên FinalDeposit + CafeBasePriceVnd.
+    /// </summary>
+    [Obsolete("FE không hiển thị DepositPerPerson nữa. Field giữ default = 0 cho backward compat.")]
+    public long DepositPerPerson { get; set; }
+
+    /// <summary>Deprecated — không dùng trong flow mới.</summary>
+    [Obsolete("Field cũ từ BR-DEPOSIT-02 (ratePerPerson). FE không dùng.")]
     public long DepositRatePerPerson { get; set; }
+
+    /// <summary>Deprecated — không dùng trong flow mới.</summary>
+    [Obsolete("Field cũ từ BR-DEPOSIT-02 (baseDeposit). FE không dùng.")]
     public long BaseDeposit { get; set; }
+
+    /// <summary>Deprecated — riskMultiplier hiện áp dụng nội bộ, không trả FE.</summary>
+    [Obsolete("RiskMultiplier hiện áp dụng nội bộ trong calculator. FE không cần biết.")]
     public decimal RiskMultiplier { get; set; }
+
+    /// <summary>Deprecated — BR-NEW-01 không còn dùng với formula mới.</summary>
+    [Obsolete("BR-NEW-01 không còn áp dụng với formula 20% × BasePrice. Field giữ default = 0.")]
     public long MinDepositApplied { get; set; }
+
+    /// <summary>
+    /// Tổng BVC phải cọc (= finalMaxPlayers × baseDepositPerPerson).
+    /// FE hiển thị "Tiền cọc: {FinalDeposit} BVC".
+    /// </summary>
     public long FinalDeposit { get; set; }
 
     public long CurrentBalance { get; set; }

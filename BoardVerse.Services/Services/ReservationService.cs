@@ -2126,7 +2126,13 @@ public class ReservationService : IReservationService
             await _gameInventoryRepository.UpdateAsync(gameInventory);
 
             // 9. Update reservation.
+            // FIX 2026-08-27: set CheckedInAt để downstream (CompleteAndCaptureAsync,
+            // EndAndSettleAsync, Karma aggregation) tính playedRatio chính xác.
+            // Trước đây field này không được set → reservation.CheckedInAt = NULL trong DB
+            // → playedRatio fallback về ScheduledStartTime, âm hoặc sai semantic khi
+            // check-in muộn hơn scheduledStart. Đây là root cause của "bàn tự đóng".
             reservation.Status = ReservationStatus.CheckedIn;
+            reservation.CheckedInAt = now;
             reservation.TableNumber = request.TableNumber;
             reservation.UpdatedAt = now;
             await _reservationRepository.UpdateAsync(reservation);
@@ -2144,6 +2150,9 @@ public class ReservationService : IReservationService
             await _lobbyRepository.UpdateAsync(lobby);
 
             // 11. Outbox event LobbyCheckedIn (BR-REQUIRED §17.5).
+            // FIX 2026-08-27: dùng reservation.CheckedInAt (đã set ở step 9) thay vì raw `now`
+            // để outbox payload nhất quán với entity, tránh trường hợp `now` bị drift.
+            var checkedInAt = reservation.CheckedInAt ?? now;
             var payload = System.Text.Json.JsonSerializer.Serialize(new
             {
                 reservationId = reservation.Id,
@@ -2152,7 +2161,7 @@ public class ReservationService : IReservationService
                 staffUserId,
                 hostId = reservation.HostId,
                 cafeId = reservation.CafeId,
-                checkedInAt = now,
+                checkedInAt,
                 heldBvc = reservation.DepositAmount,
                 maxPlayers = reservation.MaxPlayers
             });
@@ -2183,7 +2192,7 @@ public class ReservationService : IReservationService
                 ActiveSessionId = request.ActiveSessionId,
                 ReservationStatus = reservation.Status.ToString(),
                 LobbyStatus = lobby.Status.ToString(),
-                CheckedInAt = now,
+                CheckedInAt = checkedInAt,
                 HeldBvc = reservation.DepositAmount,
                 TableNumber = request.TableNumber
             };
@@ -3172,10 +3181,95 @@ public class ReservationService : IReservationService
             gameInventory.UpdatedAt = now;
             await _gameInventoryRepository.UpdateAsync(gameInventory);
 
-            // 5. Update reservation → Completed.
+            // 5. Update reservation → Completed + compute lifecycle metadata.
+            // FIX 2026-08-27: phải set ActualEndAt / CheckedInAt / PlayedRatio / EndReason
+            // trên entity để audit/karma/refund report downstream đọc đúng.
+            // Trước đây chỉ set Status + UpdatedAt → các field này = NULL trong DB → "bàn tự đóng".
+            // Root cause: status flip trước khi load session, không tính được playedRatio.
+            // FIX: load session + tính playedRatio trước, rồi set tất cả field cùng 1 UpdateAsync.
+            var session = await _activeSessionRepository.GetByIdAsync(activeSessionId);
+            var scheduledEnd = reservation.ExtendedEndTime ?? reservation.ScheduledEndTime;
+            var scheduledStart = reservation.ScheduledStartTime;
+            var scheduledMinutes = (int)(scheduledEnd - scheduledStart).TotalMinutes;
+
+            // BR-END-02: ActualEndAt = session.EndedAt (single source of truth); fallback về now
+            // khi session không load được (legacy / demo flow).
+            var actualEndAt = session?.EndedAt ?? now;
+            reservation.ActualEndAt = actualEndAt;
+
+            // Safety net: nếu ExecuteCheckInTransactionAsync chưa set CheckedInAt (legacy/demo),
+            // fallback về ScheduledStartTime để tránh divide-by-zero / negative playedRatio.
+            // BR-END-02 yêu cầu CheckedInAt — đây là safety net cho upstream bug đã fix ở
+            // ExecuteCheckInTransactionAsync step 9 (set reservation.CheckedInAt = now).
+            var checkedInAt = reservation.CheckedInAt ?? scheduledStart;
+            if (!reservation.CheckedInAt.HasValue)
+            {
+                _logger.LogWarning(
+                    "CompleteAndCapture: Reservation {ReservationId} missing CheckedInAt — fallback to ScheduledStartTime={ScheduledStart}. Check ExecuteCheckInTransactionAsync step 9.",
+                    reservation.Id, scheduledStart);
+                reservation.CheckedInAt = checkedInAt;
+            }
+
+            // BR-END-02: playedRatio = (EndedAt - CheckedInAt) / (ScheduledEndTime - ScheduledStartTime).
+            // Clamp [0, 1] để consistent với EndAndSettleAsync (line 3567) — tránh data corruption khi
+            // EndedAt ở tương lai (sessions kéo dài) → ratio > 1 → semantic sai ở nhánh refund.
+            decimal playedRatio = 0m;
+            if (scheduledMinutes > 0)
+            {
+                var playedMinutes = (decimal)(actualEndAt - checkedInAt).TotalMinutes;
+                var rawRatio = playedMinutes / scheduledMinutes;
+                playedRatio = Math.Max(0m, Math.Min(1m, rawRatio));
+            }
+            reservation.PlayedRatio = playedRatio;
+
+            // BR-END-02: EndReason mapping.
+            // <0.9 → EarlyLeave (bao gồm <0.5 vẫn là EarlyLeave về mặt session lifecycle;
+            //         forfeit policy được xử lý ở wallet layer captureAmount bên dưới).
+            // ≥0.9 → OnTime (treated as on-time per BR-REFUND-06).
+            reservation.EndReason = playedRatio >= 0.9m
+                ? SessionEndReason.OnTime
+                : SessionEndReason.EarlyLeave;
+
             reservation.Status = ReservationStatus.Completed;
             reservation.UpdatedAt = now;
             await _reservationRepository.UpdateAsync(reservation);
+
+            // EC-09: playedRatio < 0.5 → tạo WalkInWindow cho phần thời gian còn lại.
+            // Mirror ActiveSessionService.TryCreateWalkInWindowAsync semantics:
+            // - WindowStart = session.StartedAt (tính từ lúc check-in)
+            // - WindowEnd = reservation.ScheduledEndTime
+            // - Seats = released (tính từ members Playing chưa Finished/SuspendedMutation, trừ GuestSlot).
+            //
+            // Best-effort: tạo trước commit, fail thì log warning + không rollback capture
+            // (capture là best-effort side-effect, WalkInWindow cũng vậy).
+            if (playedRatio < 0.5m)
+            {
+                try
+                {
+                    var releasedSeats = session?.Members?
+                        .Count(m => !m.IsGuestSlot
+                            && m.Status != IndividualSessionStatus.SuspendedMutation
+                            && m.Status != IndividualSessionStatus.Finished) ?? 0;
+                    if (releasedSeats > 0)
+                    {
+                        var window = await _walkInService.CreateWindowFromReservationAsync(
+                            reservation, releasedSeats, actualEndAt);
+                        if (window != null)
+                        {
+                            reservation.WalkInWindowId = window.Id;
+                            _logger.LogInformation(
+                                "CompleteAndCapture: Created WalkInWindow {WindowId} ({Seats} seats) for Reservation {ReservationId} (playedRatio={Ratio:P1})",
+                                window.Id, releasedSeats, reservation.Id, playedRatio);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "CompleteAndCapture: Failed to create WalkInWindow for Reservation {ReservationId}. Capture continues.",
+                        reservation.Id);
+                }
+            }
 
             // 6. Update lobby → Closed.
             var lobby = await _lobbyRepository.GetByIdAsync(reservation.LobbyId ?? Guid.Empty);
@@ -3188,34 +3282,24 @@ public class ReservationService : IReservationService
                 await _lobbyRepository.UpdateAsync(lobby);
             }
 
-            // 7. Tính playedRatio để xác định capture amount (BR-REFUND-04/05/06).
+            // 7. Tính captureAmount / refundAmount từ playedRatio đã tính ở step 5.
+            // FIX 2026-08-27: dùng lại playedRatio từ step 5 (đã set lên reservation.PlayedRatio)
+            // thay vì tính lại — tránh divergence giữa reservation.PlayedRatio và captureAmount.
             // BR-REFUND-04: playedRatio < 0.5 → forfeit 100%
             // BR-REFUND-05: 0.5 ≤ playedRatio < 0.9 → forfeit 70%, refund 30%
             // BR-REFUND-06: playedRatio ≥ 0.9 → forfeit 100% (on-time)
-            var session = await _activeSessionRepository.GetByIdAsync(activeSessionId);
-            var scheduledEnd = reservation.ExtendedEndTime ?? reservation.ScheduledEndTime;
-            var scheduledStart = reservation.ScheduledStartTime;
-            var scheduledMinutes = (int)(scheduledEnd - scheduledStart).TotalMinutes;
             long captureAmount = reservation.DepositAmount;
             long refundAmount = 0;
 
-            if (session != null && scheduledMinutes > 0)
+            if (reservation.PlayedRatio.HasValue)
             {
-                var playedMinutes = (session.EndedAt.HasValue)
-                    ? (decimal)(session.EndedAt.Value - session.StartedAt).TotalMinutes
-                    : 0m;
-                // Clamp to [0, 1] (line 3549 dùng Math.Max/Min tương tự trong EndAndSettleAsync).
-                // Tránh data corruption (EndedAt ở tương lai, sessions kéo dài) → playedRatio > 1
-                // → nhánh refund dù vẫn đúng logic (>=0.9 → forfeit 100%) nhưng semantic sai.
-                var rawRatio = playedMinutes / scheduledMinutes;
-                var playedRatio = Math.Max(0m, Math.Min(1m, rawRatio));
-
-                if (playedRatio < 0.5m)
+                var ratio = reservation.PlayedRatio.Value;
+                if (ratio < 0.5m)
                 {
                     // BR-REFUND-04: Forfeit 100%
                     captureAmount = reservation.DepositAmount;
                 }
-                else if (playedRatio < 0.9m)
+                else if (ratio < 0.9m)
                 {
                     // BR-REFUND-05: Forfeit 70%, refund 30%
                     // Match RefundCalculationService dùng MidpointRounding.AwayFromZero.
@@ -3231,7 +3315,7 @@ public class ReservationService : IReservationService
                 _logger.LogInformation(
                     "CompleteAndCapture: ReservationId={ReservationId}, PlayedRatio={PlayedRatio:P1}, " +
                     "CaptureAmount={Capture}, RefundAmount={Refund}",
-                    reservation.Id, playedRatio, captureAmount, refundAmount);
+                    reservation.Id, ratio, captureAmount, refundAmount);
             }
 
             // 7a. Capture BVC (BR-REVENUE-01: phần quy định về quán).

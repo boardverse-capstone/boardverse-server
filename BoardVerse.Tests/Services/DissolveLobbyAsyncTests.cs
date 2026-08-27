@@ -48,6 +48,7 @@ public class DissolveLobbyAsyncTests
             new Mock<BoardVerseDbContext>(new DbContextOptions<BoardVerseDbContext>()).Object,
             new EligibilityValidator(),
             new Mock<IUserProfileService>().Object,
+            new Mock<IPlayerKarmaService>().Object,
             new Mock<ILogger<LobbyService>>().Object);
     }
 
@@ -93,6 +94,7 @@ public class DissolveLobbyAsyncTests
             new Mock<BoardVerseDbContext>(new DbContextOptions<BoardVerseDbContext>()).Object,
             new EligibilityValidator(),
             new Mock<IUserProfileService>().Object,
+            new Mock<IPlayerKarmaService>().Object,
             new Mock<ILogger<LobbyService>>().Object);
 
         return (service, outboxRepo);

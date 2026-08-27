@@ -2,6 +2,7 @@ using BoardVerse.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
+using Npgsql;
 
 namespace BoardVerse.Tests.Helpers;
 
@@ -16,6 +17,8 @@ namespace BoardVerse.Tests.Helpers;
 public class FakeDbContext : BoardVerseDbContext
 {
     private static readonly string? RealConnectionString = LoadConnectionString();
+    private static readonly bool IsTestingDb = RealConnectionString?.Contains("morning-darkness") == true;
+    private static readonly object CleanupLock = new();
 
     public FakeDbContext() : base(BuildOptions())
     {
@@ -54,5 +57,39 @@ public class FakeDbContext : BoardVerseDbContext
             .Build();
 
         return config.GetConnectionString("DefaultConnection");
+    }
+
+    /// <summary>
+    /// Cleanup test rows từ testing DB (morning-darkness) trước mỗi test run.
+    /// Chỉ chạy khi connected tới testing DB — an toàn tuyệt đối với production.
+    /// </summary>
+    public static async Task ResetTestDataAsync(CancellationToken ct = default)
+    {
+        if (!IsTestingDb || string.IsNullOrWhiteSpace(RealConnectionString)) return;
+
+        await using var conn = new NpgsqlConnection(RealConnectionString);
+        await conn.OpenAsync(ct);
+
+        // Truncate tables theo thứ tự đúng (FK constraints).
+        var tables = new[]
+        {
+            "LobbyMembers",
+            "Lobbies",
+            "Reservations",
+            "PosCheckInTokens",
+        };
+
+        foreach (var table in tables)
+        {
+            try
+            {
+                await using var cmd = new NpgsqlCommand($"TRUNCATE TABLE \"{table}\" CASCADE;", conn);
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+            catch (PostgresException ex) when (ex.SqlState == "42P01") // table not found
+            {
+                // Table chưa tồn tại trong schema — skip.
+            }
+        }
     }
 }

@@ -195,9 +195,17 @@ public class ReservationRepository : IReservationRepository
     public async Task<IReadOnlyList<Reservation>> GetNoShowCandidatesAsync(DateTime cutoff, CancellationToken ct = default)
     {
         // BR-CHECKIN-02: ScheduledStartTime < cutoff AND Status = Confirmed
+        // AND CHƯA check-in: không có ActiveSession liên kết qua LobbyId.
+        // Lý do: nếu đã có ActiveSession (status=Active/Checking) thì khách ĐÃ check-in rồi
+        // → KHÔNG đánh no-show. ActiveSession sẽ do AutoReleaseExpiredSessionsJob xử lý.
+        // Walk-in reservation (LobbyId IS NULL) → không có ActiveSession, vẫn áp dụng no-show.
         return await _db.Reservations
             .Where(r => r.ScheduledStartTime < cutoff
-                && r.Status == ReservationStatus.Confirmed)
+                && r.Status == ReservationStatus.Confirmed
+                && !_db.ActiveSessions.Any(s =>
+                    s.LobbyId != null
+                    && r.LobbyId != null
+                    && s.LobbyId == r.LobbyId))
             .ToListAsync(ct);
     }
 

@@ -6,12 +6,14 @@ using BoardVerse.Core.Messages;
 namespace BoardVerse.Services.Services;
 
 /// <summary>
-/// Tính toán cọc đơn giản: deposit = 20% × ticketPrice.
-/// 
-/// Công thức (2026-08-18):
-/// - deposit = 20% × cafeBasePrice (VND)
-/// - Ví dụ: ticketPrice = 20,000 VND → deposit = 4,000 VND = 4 BVC
-/// - Không phụ thuộc maxPlayers, khoảng cách, hay riskMultiplier
+/// Tính toán cọc theo công thức 20% × cafeBasePrice × maxPlayers.
+///
+/// Công thức (2026-08-27):
+/// - baseDeposit (BVC/người) = round(20% × cafeBasePrice / 1000), floor ≥ 1
+/// - finalDeposit (BVC tổng) = baseDeposit × maxPlayers
+/// - Ví dụ: cafeBasePrice = 50.000 VND, maxPlayers = 8
+///   → baseDeposit = 10 BVC/người, finalDeposit = 80 BVC
+/// - BR-DEPOSIT-02 (cập nhật 2026-08-27): cọc tỷ lệ với quy mô nhóm.
 /// BR-NEW-15 (2026-08-18): BỎ TimeSlot - dùng preferredStartTime/preferredEndTime.
 /// </summary>
 public class DepositCalculator
@@ -67,14 +69,18 @@ public class DepositCalculator
                 finalMaxPlayers, cafeConfig.Capacity));
         }
 
-        // CÔNG THỨC ĐƠN GIẢN (2026-08-18):
-        // 1. Tính tiền cọc ở VND: depositVnd = 20% × cafeBasePrice.
-        // 2. Quy đổi sang BVC (1 BVC = 1.000 VND, BR §II).
-        // 3. Floor tối thiểu 1 BVC (= 1.000 VND) — tránh edge case cafeBasePrice quá nhỏ → 0 BVC.
-        // Ví dụ: cafeBasePrice = 20.000 VND → 4.000 VND = 4 BVC.
-        // Ví dụ: cafeBasePrice = 2.000 VND → 400 VND = 0.4 BVC → floor 1 BVC.
-        var depositVnd = cafeBasePrice * 0.20m;
-        var finalDeposit = Math.Max(1L, RoundToBvc(depositVnd / 1000m));
+        // CÔNG THỨC MỚI (2026-08-27):
+        // baseDeposit (BVC/người) = 20% × cafeBasePrice (VND) → quy đổi BVC.
+        // finalDeposit (BVC tổng) = baseDeposit × maxPlayers.
+        // Ví dụ: cafeBasePrice = 50.000 VND, maxPlayers = 8
+        //   depositVndPerPerson = 10.000 VND (= 20% × 50.000)
+        //   baseDepositPerPerson = 10 BVC (= 10.000 / 1.000)
+        //   finalDeposit = 80 BVC (= 10 × 8)
+        // BR-DEPOSIT-02 (đã cập nhật): cọc tỷ lệ với quy mô nhóm.
+        var depositVndPerPerson = cafeBasePrice * 0.20m;
+        var baseDepositPerPerson = Math.Max(1L, RoundToBvc(depositVndPerPerson / 1000m));
+        // [2026-08-27] finalDeposit là field duy nhất trả FE — baseDepositPerPerson chỉ dùng nội bộ để tính finalDeposit.
+        var finalDeposit = baseDepositPerPerson * finalMaxPlayers;
 
         // Calculate buffer từ preferredStartTime
         var scheduledTime = request.PlayDate.ToDateTime(request.PreferredStartTime);
@@ -93,14 +99,13 @@ public class DepositCalculator
 
         return new DepositQuoteResult
         {
-            // Công thức đơn giản 2026-08-18: chỉ có finalDeposit = 20% × BasePrice.
-            // BaseDeposit = finalDeposit (không còn nhân maxPlayers hay riskMultiplier).
-            BaseDeposit = finalDeposit,
+            // baseDeposit = 20% × basePrice (BVC/người), finalDeposit = baseDeposit × maxPlayers (BVC tổng)
+            // [2026-08-27 — bỏ hiển thị] DepositPerPerson/BaseDeposit/DepositPercentage: bỏ gán, default = 0.
+            // FE chỉ render FinalDeposit + CafeBasePriceVnd.
             MinDepositApplied = 0, // deprecated (BR-NEW-01 không còn dùng với formula mới)
-            RiskMultiplier = 1.0m, // deprecated
+            RiskMultiplier = 1.0m, // deprecated (RiskMultiplier hiện áp dụng nội bộ)
             FinalDeposit = finalDeposit,
-            CafeBasePriceVnd = cafeBasePrice, // raw VND từ Cafe.BasePrice, FE render breakdown
-            DepositPercentage = 0.20m,        // công thức hiện tại = 20% × BasePrice
+            CafeBasePriceVnd = cafeBasePrice, // raw VND từ Cafe.BasePrice, FE render "Giá vé cơ bản: {CafeBasePriceVnd:N0}đ"
             Distance = distance,
             MaxPlayersApplied = finalMaxPlayers,
             BufferMinutes = bufferMinutes,

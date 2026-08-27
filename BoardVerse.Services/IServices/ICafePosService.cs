@@ -100,6 +100,29 @@ namespace BoardVerse.Services.IServices
             CheckInRequestDto request, CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// Player check-in flow (BR §21A.7 — chiều thứ 2): Player quét QR POS → server tự lookup token,
+        /// verify player là host/member của reservation, sau đó gọi nội bộ flow reservation check-in.
+        ///
+        /// Khác với <see cref="CheckInByCodeAsync"/>:
+        /// <list type="bullet">
+        ///   <item><description>KHÔNG gọi <c>EnsurePosAccessAsync</c> — player không có role Manager/CafeStaff,
+        ///   service này dành cho mobile app gọi trực tiếp với JWT của player.</description></item>
+        ///   <item><description>Chỉ accept <c>ReservationCode</c> (BVC flow mới) — không hỗ trợ BookingCode legacy VND.</description></item>
+        ///   <item><description>Vẫn có idempotency + nonce check để chống double-tap / replay attack.</description></item>
+        /// </list>
+        ///
+        /// Caller (PlayerCheckInService) phải đã verify player là host/member trước khi gọi method này.
+        /// </summary>
+        /// <param name="cafeId">Cafe ID lưu trong PosCheckInToken.</param>
+        /// <param name="playerUserId">UserId của player gọi (host hoặc member).</param>
+        /// <param name="request">CheckInRequestDto với ReservationCode, CafeTableId, Barcode, IdempotencyKey, Nonce.</param>
+        Task<ActiveSessionDto> CheckInByReservationCodeForPlayerAsync(
+            Guid cafeId,
+            Guid playerUserId,
+            CheckInRequestDto request,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
         /// Preview booking info trước khi check-in.
         /// AC 1.1: Hiển thị danh sách thành viên + game info TRƯỚC khi check-in.
         /// </summary>

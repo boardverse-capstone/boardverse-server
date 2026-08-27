@@ -36,7 +36,7 @@ namespace BoardVerse.API.Controllers
         /// <response code="200">Check-in thành công, trả về thông tin ActiveSession cho player.</response>
         /// <response code="400">Token không đúng định dạng (16-char alphanumeric uppercase, loại trừ 0/1/I/O).</response>
         /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
-        /// <response code="403">Player không phải thành viên của reservation liên kết với QR này.</response>
+        /// <response code="403">Player không phải host hoặc thành viên active của reservation liên kết với QR này.</response>
         /// <response code="404">Không tìm thấy token hoặc reservation liên kết không tồn tại.</response>
         /// <response code="409">Token đã được sử dụng trước đó (consumed).</response>
         /// <response code="410">Token đã hết hạn TTL hoặc đã bị thu hồi (revoked).</response>

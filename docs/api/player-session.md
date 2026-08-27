@@ -39,6 +39,7 @@ Lấy thông tin phiên chơi hiện tại của player (đang active/playing/su
     },
     "gameName": "Catan",
     "totalGroupMembers": 4,
+    "groupTotalAmount": 16000,
     "canExtend": true,
     "canPay": false,
     "isPaid": false,
@@ -78,6 +79,8 @@ Lấy thông tin phiên chơi hiện tại của player (đang active/playing/su
 | `joinedAt` | UTC timestamp. |
 | `joinedAtOffset` | ISO 8601 với timezone (UTC+7 cho VN). FE dùng để hiển thị local time. |
 | `lastExtensionRequest` | Yêu cầu gia hạn gần nhất (Pending/Approved/Rejected/Expired). Null nếu chưa từng yêu cầu. |
+| `totalGroupMembers` | Số thành viên trong phiên (tính cả host). |
+| `groupTotalAmount` | Tổng tiền cả nhóm (`session.TotalAmount`). Host dùng để xem tổng cần thu (ví dụ: 8 người × 2.000 = 16.000 VND). Trả `0` khi session chưa checkout. |
 
 ---
 
@@ -349,6 +352,7 @@ FE nên ưu tiên dùng `*Offset` field để hiển thị local time chính xá
 | 1.0 | 2026-08-12 | Initial — me/current, me/extend, me/pay, me/history. |
 | 1.1 | 2026-08-22 | GAP-3 timezone, GAP-7 cursor, GAP-8 date range, GAP-9 lastExtensionRequest, GAP-11 invoice breakdown, GAP-13 LeftAt, GAP-18 response 500 docs, GAP-19 audit, GAP-20 rate-limit. |
 | 1.2 | 2026-08-22 | Controller path `/api/v1/sessions` (đồng bộ với `PlayerSessionController.cs`). DTO `GetCurrentSessionResponseDto` thêm `TotalGroupMembers` và `IsPaid`; `LastExtensionRequestDto` thêm `RequestedAtUtc` + `ProcessedAtOffset`. ExtendSession trả `ExtendSessionResponseDto` với `Success`, `Message`, `NewEndTime`, `TotalMinutesBooked`, `EstimatedAdditionalCost`. PaySession trả `PlayerPaySessionResponseDto` với `Invoice.LineItems` (`InvoiceLineItemDto`: Type/Description/Minutes/RatePerMinute/Amount), `BvcDeducted`, `RemainingBvcBalance`, `PaymentMethod`. History trả `SessionHistoryResponseDto` (TotalAmountDue thay vì TotalAmount, MemberStatus cho biết về sớm/no-show). Rate-limit policy = `PaymentPolicy` (10 lần/5 phút). |
+| 1.3 | 2026-08-27 | `GET /me/current` thêm `groupTotalAmount` (tổng tiền cả nhóm) để host xem tổng cần thu khi trả hết lobby. |
 
 ---
 

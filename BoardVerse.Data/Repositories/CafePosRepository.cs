@@ -183,7 +183,7 @@ namespace BoardVerse.Data.Repositories
         public async Task<IReadOnlyList<ActiveSession>> GetActiveSessionsAsync(Guid cafeId, Guid? gameTemplateId, CancellationToken cancellationToken = default)
         {
             var sessionQuery = _context.ActiveSessions
-                .Where(s => s.CafeId == cafeId && s.Status != GroupSessionStatus.Paid);
+                .Where(s => s.CafeId == cafeId && s.Status != GroupSessionStatus.Paid && s.Status != GroupSessionStatus.Closed);
 
             if (gameTemplateId.HasValue)
             {

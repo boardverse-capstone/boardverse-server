@@ -38,6 +38,11 @@ namespace BoardVerse.Core.DTOs.Session
         public string GameName { get; set; } = string.Empty;
         public int TotalGroupMembers { get; set; }
 
+        /// <summary>
+        /// Tổng tiền cả nhóm (Subtotal + Penalty - Deposit). Dùng để host xem tổng cần thu.
+        /// </summary>
+        public decimal GroupTotalAmount { get; set; }
+
         /// <summary>Player có thể gia hạn thêm thời gian không.</summary>
         public bool CanExtend { get; set; }
 
