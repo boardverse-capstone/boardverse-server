@@ -1893,6 +1893,12 @@ namespace BoardVerse.Services.Services
 
             // Tính additional cost
             var cafe = session.Cafe ?? await _cafeRepository.GetActiveByIdAsync(session.CafeId);
+            // GAP-21 Fix (mirror GetCurrentSessionAsync line 1756-1758): Nếu cafe null → throw rõ ràng.
+            // Trước đây không check → pricePerMinute = 0, additionalCost = 0 → Staff gia hạn FREE.
+            if (cafe == null)
+            {
+                throw new InternalServerErrorException($"Cafe {session.CafeId} not found for session {session.Id}. This is a data integrity issue.");
+            }
 
             // GAP-12 Fix: Phiên đang tạm dừng → không thể gia hạn
             if (session.IsPaused)
@@ -1900,8 +1906,8 @@ namespace BoardVerse.Services.Services
                 throw new ConflictException(ApiErrorMessages.Session.SessionPausedCannotExtend);
             }
 
-            var pricePerMinute = cafe?.BillingModel == CafePartnerBillingModel.TimeBased
-                ? (cafe?.BasePrice ?? 0) / 60m
+            var pricePerMinute = cafe.BillingModel == CafePartnerBillingModel.TimeBased
+                ? cafe.BasePrice / 60m
                 : 0;
             var additionalCost = pricePerMinute * extensionMinutes;
 
@@ -1999,10 +2005,10 @@ namespace BoardVerse.Services.Services
                 throw new ConflictException(ApiErrorMessages.Pos.SessionMustBeUnpaidForPayment);
             }
 
-            // GAP-11 Fix: Load cafe cho invoice line items
-            var cafe = session.Cafe ?? await _cafeRepository.GetActiveByIdAsync(session.CafeId);
-
             // Tính invoice
+            // GAP-11 Fix (cũ): cafe dùng để build invoice line items (RatePerMinute).
+            // subtotal/source-of-truth đã persist từ Checkout/CompleteCheckoutAsync.
+            var cafe = session.Cafe ?? await _cafeRepository.GetActiveByIdAsync(session.CafeId);
             var subtotal = member.Subtotal > 0 ? member.Subtotal : session.Subtotal / session.Members.Count(m => !m.IsGuestSlot);
             var penaltyAmount = member.PenaltyAmount;
             var depositApplied = member.DepositAppliedAmount;

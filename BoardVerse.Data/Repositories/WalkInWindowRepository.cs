@@ -74,7 +74,7 @@ public class WalkInWindowRepository : IWalkInWindowRepository
                 "Version" = "Version" + 1
             WHERE "Id" = {3}
               AND "Version" = {4}
-              AND "Status" IN ({0_alt}, {2})
+              AND "Status" IN ({5}, {2})
               AND "AvailableSeats" >= {0};
             """,
             seatsToHold,
@@ -82,7 +82,6 @@ public class WalkInWindowRepository : IWalkInWindowRepository
             (int)WalkInWindowStatus.Partial,
             windowId,
             (long)expectedVersion,
-            // alt slot {5} = Available (0) — tránh nhầm với seatsToHold param.
             (int)WalkInWindowStatus.Available);
 
         return rowsAffected > 0;

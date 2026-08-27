@@ -2706,7 +2706,11 @@ public class ReservationService : IReservationService
 
                 var userId = member.UserId.Value;
                 var playedMinutes = member.TotalMinutesPlayed;
-                var playedRatio = (decimal)playedMinutes / scheduledMinutes;
+                // Clamp to [0, 1] để consistent với các nơi khác (line 3203 trong CompleteAndCaptureAsync,
+                // line 3549 trong EndAndSettleAsync). Tránh data corruption khi TotalMinutesPlayed
+                // > scheduledMinutes (sessions merge/multi-group) → false positive short-play.
+                var rawRatio = scheduledMinutes > 0 ? (decimal)playedMinutes / scheduledMinutes : 0m;
+                var playedRatio = Math.Max(0m, Math.Min(1m, rawRatio));
 
                 // BR-KARMA-01: Chỉ ghi nhận nếu playedRatio < 0.5
                 if (playedRatio >= 0.5m) continue;
@@ -3199,8 +3203,12 @@ public class ReservationService : IReservationService
             {
                 var playedMinutes = (session.EndedAt.HasValue)
                     ? (decimal)(session.EndedAt.Value - session.StartedAt).TotalMinutes
-                    : 0;
-                var playedRatio = playedMinutes / scheduledMinutes;
+                    : 0m;
+                // Clamp to [0, 1] (line 3549 dùng Math.Max/Min tương tự trong EndAndSettleAsync).
+                // Tránh data corruption (EndedAt ở tương lai, sessions kéo dài) → playedRatio > 1
+                // → nhánh refund dù vẫn đúng logic (>=0.9 → forfeit 100%) nhưng semantic sai.
+                var rawRatio = playedMinutes / scheduledMinutes;
+                var playedRatio = Math.Max(0m, Math.Min(1m, rawRatio));
 
                 if (playedRatio < 0.5m)
                 {
@@ -3210,7 +3218,8 @@ public class ReservationService : IReservationService
                 else if (playedRatio < 0.9m)
                 {
                     // BR-REFUND-05: Forfeit 70%, refund 30%
-                    captureAmount = (long)Math.Round(reservation.DepositAmount * 0.7m);
+                    // Match RefundCalculationService dùng MidpointRounding.AwayFromZero.
+                    captureAmount = (long)Math.Round(reservation.DepositAmount * 0.7m, MidpointRounding.AwayFromZero);
                     refundAmount = reservation.DepositAmount - captureAmount;
                 }
                 else
