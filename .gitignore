@@ -58,3 +58,11 @@ temp_insert_boxes/
 temp_seed_boxes/
 agent1_assist.txt
 BoardVerse.Tests/TestResults/res_test2.trx
+
+# Report documents & design diagrams (not committed - stored locally)
+docs/**/*.docx
+docs/**/*.xlsx
+docs/**/*.drawio
+
+# XlsxGen tool (local test report generator)
+docs/test/XlsxGen/
