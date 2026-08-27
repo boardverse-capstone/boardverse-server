@@ -295,6 +295,12 @@ namespace BoardVerse.Data.Repositories
             LobbyStatus.Open,
             LobbyStatus.Viable,
             LobbyStatus.Full,
+            // P1 Fix (2026-08-27): Thêm WaitingCheckIn vào ActiveLobbyStatuses.
+            // BR-LOBBY-READY-01: Lobby WaitingCheckIn là "chờ check-in tại quán" — vẫn là
+            // ACTIVE (chưa vào phiên chơi). GetMyLobbiesAsync phải trả lobby này để user
+            // thấy "lobby đang chờ check-in" trong danh sách phòng của mình.
+            // Discoverable endpoint đã include WaitingCheckIn (LobbyService line 986).
+            LobbyStatus.WaitingCheckIn,
             LobbyStatus.InProgress
         };
 
@@ -395,6 +401,7 @@ namespace BoardVerse.Data.Repositories
                     && l.Status != LobbyStatus.RejectedByCafe
                     && l.Status != LobbyStatus.ExpiredByCafe
                     && l.Status != LobbyStatus.RatingOpen
+                    && l.Status != LobbyStatus.Dissolved
                     && (
                         l.HostUserId == userId
                         || l.Members.Any(m => m.UserId == userId && m.IsActive)
