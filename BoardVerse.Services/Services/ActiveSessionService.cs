@@ -841,8 +841,13 @@ namespace BoardVerse.Services.Services
                     {
                         ComponentId = r.GameComponentTemplateId,
                         ComponentName = r.GameComponentTemplate?.ComponentName ?? string.Empty,
+                        // ComponentCheckResult only tracks Expected vs Actual (no separate damaged count).
+                        // Missing = Expected - Actual. Damaged is 0 here because entity doesn't persist it.
+                        MissingQuantity = Math.Max(0, r.ExpectedQuantity - r.ActualQuantity),
+                        DamagedQuantity = 0,
                         PenaltyFee = r.PenaltyFee,
-                        TotalPenalty = r.PenaltyFee
+                        TotalPenalty = r.PenaltyFee,
+                        ResponsibleMemberId = r.ResponsibleMemberId
                     }).ToList());
 
             foreach (var member in session.Members)

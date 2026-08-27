@@ -598,6 +598,9 @@ public class BookingService : IBookingService
         // Members — bao gồm cả Guest_Slot
         foreach (var m in session.Members)
         {
+            // BR-15: PartialBillAmount = Subtotal + PenaltyAmount - DepositAppliedAmount.
+            // TODO: clamp to >= 0 nếu deposit > subtotal+penalty (hiếm, BR-15 không đề cập).
+            var partialBill = m.Subtotal + m.PenaltyAmount - m.DepositAppliedAmount;
             response.Members.Add(new BookingSessionMemberStatusDto
             {
                 UserId = m.UserId ?? Guid.Empty,
@@ -606,8 +609,9 @@ public class BookingService : IBookingService
                     : (m.User?.Username ?? "Unknown"),
                 Status = m.IsGuestSlot ? "GuestSlot" : m.Status.ToString(),
                 LeftAt = m.LeftAt,
-                PartialBillAmount = m.PenaltyAmount,
-                PartialBillPaid = m.IsPenaltyPaid && m.IsCheckedOut,
+                PartialBillAmount = partialBill,
+                // PartialBillPaid = true khi member đã về sớm + thanh toán phí phạt (BR-12).
+                PartialBillPaid = m.IsCheckedOut && m.IsPenaltyPaid,
                 MergedIntoSessionId = m.OriginalSessionId
             });
         }

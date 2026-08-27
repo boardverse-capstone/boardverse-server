@@ -516,8 +516,27 @@ namespace BoardVerse.Services.Services
                         });
                     }
 
-                    // Add other members if available (from lobby member list)
-                    // Note: LobbyMembers would be loaded separately if needed
+                    // Add other lobby members (excluding host which is already added above).
+                    // GAP-R5 Fix: Use lobby.Members (loaded by GetByActiveSessionIdAsync) instead of
+                    // building members only from host — CurrentMemberCount previously only counted host,
+                    // causing lobby preview to show 1/4 instead of 3/4.
+                    var activeLobbyMembers = lobby.Members?.Where(m => m.IsActive && m.UserId != deposit.UserId).ToList()
+                        ?? [];
+                    foreach (var lm in activeLobbyMembers)
+                    {
+                        var lmProfile = lm.User?.Profile;
+                        var lmDisplayName = lmProfile != null
+                            ? $"{lmProfile.FirstName} {lmProfile.LastName}".Trim()
+                            : lm.User?.Username ?? "Member";
+                        members.Add(new BookingMemberInfoDto
+                        {
+                            UserId = lm.UserId,
+                            DisplayName = string.IsNullOrWhiteSpace(lmDisplayName) ? "Member" : lmDisplayName,
+                            AvatarUrl = lmProfile?.AvatarUrl,
+                            KarmaScore = lmProfile?.KarmaPoints ?? 0
+                        });
+                    }
+
                     lobbyInfo = new BookingLobbyInfoDto
                     {
                         LobbyId = lobby.Id,
@@ -560,6 +579,7 @@ namespace BoardVerse.Services.Services
                 RegisteredMemberCount = lobbyInfo?.Members?.Count ?? 1,
                 CanCheckIn = canCheckIn,
                 CannotCheckInReason = cannotCheckInReason,
+                TableNumber = null, // Set when staff selects table on POS check-in.
                 Host = new BookingMemberInfoDto
                 {
                     UserId = deposit.UserId,
@@ -1054,6 +1074,29 @@ namespace BoardVerse.Services.Services
             deposit.ActiveSessionId = session.Id;
             deposit.UpdatedAt = now;
 
+            // FIX 2026-08-27 (mirror ReservationService.CheckInAsync):
+            // Booking legacy từng bị "thiếu" 4 trường khi check-in: TableNumber / CheckedInAt /
+            // Status → CheckedIn / CheckedInByUserId. Không set → FE/POS nhìn booking vẫn ở
+            // status Confirmed mặc dù session đã ACTIVE, và tableNumber luôn null.
+            // BR-13: Booking entity không có CafeTable navigation → parse từ table.Name.
+            Booking? booking = null;
+            if (deposit.BookingId.HasValue)
+            {
+                booking = await _bookingRepository.GetByIdAsync(deposit.BookingId.Value);
+            }
+            if (booking != null)
+            {
+                booking.TableNumber = TableNumberHelper.Parse(table?.Name);
+                booking.CheckedInAt = now;
+                booking.CheckedInByUserId = userId;
+                booking.UpdatedAt = now;
+                // BR-22 (legacy): Booking.Status transition Confirmed → CheckedIn.
+                if (booking.Status == BookingStatus.Confirmed)
+                {
+                    booking.Status = BookingStatus.CheckedIn;
+                }
+            }
+
             try
             {
                 await _posRepository.AddSessionAsync(session);
@@ -1062,6 +1105,10 @@ namespace BoardVerse.Services.Services
                 await _posRepository.AddSessionMemberAsync(hostMember);
                 await _posRepository.AddSessionGameAsync(sessionGame);
                 await _posRepository.UpdateDepositAsync(deposit);
+                if (booking != null)
+                {
+                    await _bookingRepository.UpdateAsync(booking);
+                }
                 await _posRepository.SaveChangesAsync();
 
                 await transaction.CommitAsync();
@@ -1379,8 +1426,15 @@ namespace BoardVerse.Services.Services
                     TotalMinutesPlayed = m.Status == IndividualSessionStatus.Finished
                         ? m.TotalMinutesPlayed
                         : (int)Math.Floor((utcNow - m.JoinedAt).TotalMinutes),
-                    Subtotal = 0, // Per-member subtotal is recomputed at checkout (MapInvoices/PaySession).
+                    // FIX 2026-08-27 (mirror ActiveSessionService.MapToResponse): Copy financial fields từ entity vào DTO.
+                    // Trước đây MapSessionDto chỉ copy TotalMinutesPlayed + PenaltyAmount
+                    // → Subtotal/DepositAppliedAmount/TotalAmount = 0 mặc dù CompleteCheckoutAsync
+                    // đã tính và persist giá trị thật. POS checkout hiển thị "0đ" cho mỗi member.
+                    // BR-15: TotalAmount = Subtotal + PenaltyAmount - DepositAppliedAmount
+                    Subtotal = m.Subtotal,
                     PenaltyAmount = m.PenaltyAmount,
+                    DepositAppliedAmount = m.DepositAppliedAmount,
+                    TotalAmount = m.TotalAmount,
                     IsCheckedOut = m.IsCheckedOut,
                     CheckedOutAt = m.CheckedOutAt,
                     Status = m.Status
