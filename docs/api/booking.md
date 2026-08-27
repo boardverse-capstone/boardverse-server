@@ -133,7 +133,7 @@ Hệ thống BoardVerse hiện có **2 cách đặt chỗ** chạy song song, d�
 | `POST` | `/api/cafes/{cafeId}/pos/check-in` | Manager, CafeStaff | Check-in tại quán theo `code` (ReservationCode / BookingCode) |
 | `POST` | `/api/bookings/{bookingId}/check-out` | Manager, CafeStaff | ~~Removed~~ — `ReservationService.CompleteAndCaptureAsync` khi ActiveSession PAID (BR-REVENUE-01) |
 
-> ⚠️ **Technical debt**: `ReservationService` (Flow A) **không hoàn toàn độc lập** với `Booking` (Flow B). Ở cuối `CompleteAndCaptureAsync`, `TriggerKarmaAggregationAsync` được gọi — query `BookingDeposits` table trực tiếp và gọi `IBookingRatingService.AggregateBookingOutcomesAsync(bookingId)`. Điều này do 3 entity `BookingRating` / `BookingNoShowVote` / `KarmaShortPlayRecord` hiện chỉ có `BookingId` FK, chưa có `ReservationId`. Reservation-only lobby (không bao giờ tạo Booking) sẽ **skip Karma aggregation**. Xem chi tiết tại [`.cursor/rules/booking-vs-reservation.mdc` §II-A](../../.cursor/rules/booking-vs-reservation.mdc) — đang DEFER.
+> ✅ **Đã fix**: `ReservationId` FK đã được thêm vào 3 entity trên qua migration `20260812100000_AddReservationIdToKarmaAndLedger`. Karma aggregation giờ link được cả Reservation và Booking.
 
 
 ## REST Endpoints — `TimeSlotBookingController`

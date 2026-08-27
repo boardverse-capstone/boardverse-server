@@ -56,4 +56,24 @@ public class PaymentWebhookAuditRepository : IPaymentWebhookAuditRepository
             .Where(a => a.Result == "amount_mismatch" && a.ProcessedAt >= since)
             .CountAsync(ct);
     }
+
+    public async Task<bool> ExistsForDuplicateAsync(
+        string? orderId, string? gatewayTransactionId, CancellationToken ct = default)
+    {
+        // Match nếu có cùng GatewayTransactionId (preferred) hoặc cùng OrderId
+        // mà GatewayTransactionId trống (legacy SePay không gửi txn id).
+        if (!string.IsNullOrWhiteSpace(gatewayTransactionId))
+        {
+            return await _db.PaymentWebhookAudits
+                .AnyAsync(a => a.GatewayTransactionId == gatewayTransactionId, ct);
+        }
+
+        if (!string.IsNullOrWhiteSpace(orderId))
+        {
+            return await _db.PaymentWebhookAudits
+                .AnyAsync(a => a.OrderId == orderId, ct);
+        }
+
+        return false;
+    }
 }

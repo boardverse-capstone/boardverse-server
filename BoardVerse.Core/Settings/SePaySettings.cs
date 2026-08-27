@@ -30,6 +30,7 @@ public class SePaySettings
     /// <summary>Số tài khoản hiển thị trên VietQR.</summary>
     public string AccountNumber { get; set; } = string.Empty;
 
-    /// <summary>Tên chủ tài khoản hiển thị trên VietQR.</summary>
+    /// <summary>Tên chủ tài kảnh hiển thị trên VietQR.</summary>
     public string AccountHolder { get; set; } = string.Empty;
-}
+
+    }

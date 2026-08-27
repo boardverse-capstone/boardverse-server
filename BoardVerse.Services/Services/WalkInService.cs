@@ -151,7 +151,7 @@ public class WalkInService : IWalkInService
             TotalAmount = 0, // sẽ update khi tính tiền
             PaymentStatus = WalkInPaymentStatus.Unpaid,
             PosStaffId = posStaffId,
-            Status = WalkInBookingStatus.Active,
+            Status = WalkInBookingStatus.Pending,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -284,8 +284,8 @@ public class WalkInService : IWalkInService
             throw new NotFoundException(ApiErrorMessages.WalkIn.WalkInBookingNotFound(walkInBookingId));
         }
 
-        // Chỉ cho phép hủy khi Status = Active (chưa check-in)
-        if (booking.Status != WalkInBookingStatus.Active)
+        // Chỉ cho phép hủy khi Status = Pending (chưa check-in)
+        if (booking.Status != WalkInBookingStatus.Pending)
         {
             throw new ConflictException(
                 ApiErrorMessages.System.WalkInCancelInvalidStatus(booking.Status));

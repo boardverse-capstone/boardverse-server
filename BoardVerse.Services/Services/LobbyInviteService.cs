@@ -474,7 +474,7 @@ public class LobbyInviteService : ILobbyInviteService
                     ? LobbyInviteFriendStatus.BlockedByMe
                     : LobbyInviteFriendStatus.BlockedByThem;
                 result.Add(BuildDto(otherUserId, other, f, status,
-                    invite?.Id, invite?.Status.ToString()));
+                    invite?.Id, invite?.Status.ToString() ?? null));
                 continue;
             }
 
@@ -581,7 +581,7 @@ public class LobbyInviteService : ILobbyInviteService
             Username = other.Username,
             AvatarUrl = other.Profile?.AvatarUrl,
             KarmaPoints = other.Profile?.KarmaPoints ?? 100,
-            GamerTier = other.Profile?.GamerTier.ToString(),
+            GamerTier = other.Profile?.GamerTier.ToString() ?? null,
             LastActiveAt = lastActive,
             ActivityStatus = ComputeActivityStatus(lastActive),
             FriendsSince = f.AcceptedAt ?? f.UpdatedAt,

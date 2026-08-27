@@ -119,6 +119,7 @@ Lấy master account (BoardVerse central).
 | `cafeId` | Nếu `accountType=Cafe` | Guid của cafe |
 | `merchantId` | ❌ | Chỉ cần cho SePay Transfer API (settlement) |
 | `apiKey` / `secretKey` / `webhookToken` | ❌ | SePay credentials — chỉ cho settlement/verify webhook |
+| `webhookAuthType` | ❌ | Mode verify webhook. `0=None` (dev), `1=ApiKey`, `2=HmacSha256` (khuyến nghị). Default: `None`. Xem [sepay-webhook.md](./sepay-webhook.md) §"Webhook Signature Verification". |
 | `apiBaseUrl` | ❌ | Default: `https://pgapi.sepay.vn` |
 | `bankCode` / `accountNumber` / `accountHolder` | ⚠️ | Bắt buộc cho VietQR generation |
 | `environment` | ❌ | `Test` hoặc `Production`. Default: `Production` |
@@ -270,7 +271,7 @@ Chuyển đổi môi trường (Test ↔ Production) cho cafe mình.
 
 - `secretKey` / `apiKey` / `webhookToken` **không bao giờ** xuất hiện trong response — chỉ lưu DB và dùng nội bộ (PaymentService, SePayClient).
 - `accountNumber` trả về qua response bị **mask** (chỉ hiện 4 số cuối).
-- Webhook verification dùng `secretKey` để verify HMAC-SHA256 signature.
+- Webhook verification dùng `secretKey` (cho HMAC-SHA256 mode) hoặc `webhookToken` (cho ApiKey mode) tùy `WebhookAuthType`. Xem chi tiết [sepay-webhook.md](./sepay-webhook.md) §"Webhook Signature Verification".
 - Mỗi cafe chỉ có **1** SePay account active.
 
 ---

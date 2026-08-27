@@ -119,7 +119,7 @@ public class PaymentServiceTests
         var qrUrl = "https://vietqr.app/img?bank=MBBank&acc=0855199924&amount=40000";
 
         _mockDepositService.Setup(s => s.GetByIdAsync(depositId, It.IsAny<CancellationToken>())).ReturnsAsync(deposit);
-        _mockDepositService.Setup(s => s.UpdateQrInfoAsync(depositId, It.IsAny<string?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        _mockDepositService.Setup(s => s.UpdateQrInfoAsync(depositId, It.IsAny<string>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         _mockGateway.Setup(g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), default))
             .ReturnsAsync(new PaymentGatewayResult
             {
@@ -159,7 +159,7 @@ public class PaymentServiceTests
         };
 
         _mockDepositService.Setup(s => s.GetByIdAsync(depositId, It.IsAny<CancellationToken>())).ReturnsAsync(deposit);
-        _mockDepositService.Setup(s => s.UpdateQrInfoAsync(depositId, It.IsAny<string?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        _mockDepositService.Setup(s => s.UpdateQrInfoAsync(depositId, It.IsAny<string>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         _mockGateway.Setup(g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), default))
             .ReturnsAsync(new PaymentGatewayResult
             {
@@ -176,9 +176,9 @@ public class PaymentServiceTests
 
         _mockGateway.Verify(g => g.CreatePaymentAsync(
             It.Is<PaymentGatewayRequest>(p =>
-                p.Metadata["depositId"] == depositId.ToString() &&
-                p.Metadata["activeSessionId"] == sessionId.ToString() &&
-                p.Metadata["userId"] == userId.ToString() &&
+                p.Metadata!["depositId"] == depositId.ToString() &&
+                p.Metadata!["activeSessionId"] == sessionId.ToString() &&
+                p.Metadata!["userId"] == userId.ToString() &&
                 p.BankCode == "MBBank" &&
                 p.AccountNumber == "0855199924"),
             default), Times.Once);
@@ -227,24 +227,27 @@ public class PaymentServiceTests
     }
 
     [Fact]
-    public async Task HandleSePayWebhook_InvalidSignature_DoesNotProcess()
+    public async Task HandleSePayWebhook_WithoutSignature_SkipsVerificationAndProcesses()
     {
+        // Verify moved to controller. Service HandleSePayWebhookAsync now skips signature check
+        // (verification happens via VerifyWebhookRequestAsync called from Controller).
+        // This test ensures processing still happens when no signature is supplied (mock path).
         var webhook = new SePayWebhookDto
         {
             OrderId = "BV00001",
             GatewayTransactionId = "TXN001",
             Status = "success",
-            Amount = 50_000m,
-            Signature = "invalid-signature"
+            Amount = 50_000m
+            // No Signature — verifies that HandleSePayWebhookAsync no longer checks
         };
 
-        _mockSePayClient.Setup(c => c.VerifyWebhookAsync("invalid-signature", It.IsAny<string>()))
-            .ReturnsAsync(false);
+        var deposit = new BookingDeposit { Id = Guid.NewGuid(), Amount = 50_000m };
+        _mockDepositService.Setup(s => s.GetBySePayTransactionIdAsync("TXN001", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(deposit);
 
         await _service.HandleSePayWebhookAsync(webhook);
 
-        _mockDepositService.Verify(s => s.GetBySePayTransactionIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
-        _mockDepositService.Verify(s => s.GetByOrderIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _mockDepositService.Verify(s => s.GetBySePayTransactionIdAsync("TXN001", It.IsAny<CancellationToken>()), Times.AtLeastOnce);
     }
 
     [Fact]

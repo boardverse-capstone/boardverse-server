@@ -462,7 +462,7 @@ public class FriendService : IFriendService
                 Username = user.Username,
                 AvatarUrl = user.Profile?.AvatarUrl,
                 KarmaPoints = user.Profile?.KarmaPoints ?? 100,
-                FriendshipStatus = pair?.Status.ToString(),
+                FriendshipStatus = pair?.Status.ToString() ?? null,
                 RelationshipDirection = ResolveDirection(currentUserId, user.Id, pair),
                 MutualFriendsCount = mutualCount
             });
@@ -516,7 +516,7 @@ public class FriendService : IFriendService
                 Username = other.Username,
                 AvatarUrl = other.Profile?.AvatarUrl,
                 KarmaPoints = other.Profile?.KarmaPoints ?? 100,
-                GamerTier = other.Profile?.GamerTier.ToString(),
+                GamerTier = other.Profile?.GamerTier.ToString() ?? null,
                 LastActiveAt = lastActive,
                 ActivityStatus = ComputeActivityStatus(lastActive),
                 FriendsSince = f.AcceptedAt ?? f.UpdatedAt
@@ -592,7 +592,7 @@ public class FriendService : IFriendService
                     Username = u.Username,
                     AvatarUrl = u.Profile?.AvatarUrl,
                     KarmaPoints = u.Profile?.KarmaPoints ?? 100,
-                    GamerTier = u.Profile?.GamerTier.ToString(),
+                    GamerTier = u.Profile?.GamerTier.ToString() ?? null,
                     MutualFriendsCount = candidates.TryGetValue(id, out var c) ? c : 0,
                     Reason = reason
                 };
@@ -912,7 +912,7 @@ public class FriendService : IFriendService
             Username = other.Username,
             AvatarUrl = other.Profile?.AvatarUrl,
             KarmaPoints = other.Profile?.KarmaPoints ?? 100,
-            GamerTier = other.Profile?.GamerTier.ToString(),
+            GamerTier = other.Profile?.GamerTier.ToString() ?? null,
             FriendsSince = f.AcceptedAt ?? f.UpdatedAt,
             LastActiveAt = other.Profile?.LastActiveAt,
             ActivityStatus = ComputeActivityStatus(other.Profile?.LastActiveAt)

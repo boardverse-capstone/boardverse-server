@@ -49,7 +49,7 @@ public class WalkInBooking
     /// <summary>ActiveSession được tạo sau khi check-in (nullable cho đến khi check-in).</summary>
     public Guid? ActiveSessionId { get; set; }
 
-    public WalkInBookingStatus Status { get; set; } = WalkInBookingStatus.Active;
+    public WalkInBookingStatus Status { get; set; } = WalkInBookingStatus.Pending;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     // === Navigation ===

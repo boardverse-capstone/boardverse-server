@@ -32,7 +32,7 @@ public class AlertExpiryCleanupJob : BackgroundService
             {
                 using var scope = _serviceProvider.CreateScope();
                 var alertService = scope.ServiceProvider.GetRequiredService<IPlayerAlertService>();
-                var dismissed = await alertService.DismissStaleAlertsAsync(MaxAgeDays, BatchSize);
+                var dismissed = await alertService.DismissStaleAlertsAsync(MaxAgeDays, BatchSize, stoppingToken);
                 if (dismissed > 0)
                 {
                     _logger.LogInformation(

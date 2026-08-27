@@ -216,6 +216,7 @@ public class StateMachineTransitionIntegrationTests
         }
 
         var sessionData = await ApiTestClient.ReadApiResponseAsync<dynamic>(sessionResponse);
+        if (sessionData?.Data?.Id == null) { Assert.Fail("Session data missing"); return; }
         var sessionId = Guid.Parse(sessionData.Data.Id.ToString());
 
         // Add guest slot - BR-13: guest has no independent asset responsibility

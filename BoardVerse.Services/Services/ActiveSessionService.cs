@@ -366,7 +366,7 @@ namespace BoardVerse.Services.Services
             var now = DateTime.UtcNow;
 
             // Mark all currently playing members as SuspendedMutation for inventory check
-            foreach (var member in session.Members.Where(m => m.Status == IndividualSessionStatus.Playing))
+            foreach (var member in (session.Members ?? Array.Empty<ActiveSessionMember>()).Where(m => m.Status == IndividualSessionStatus.Playing))
             {
                 member.Status = IndividualSessionStatus.SuspendedMutation;
                 member.LeftAt = now;
@@ -520,6 +520,7 @@ namespace BoardVerse.Services.Services
 
             // BR-14: Validate penalties before assignment (per-member only).
             // session.PenaltyAmount là single source từ Checkout (line 901) — KHÔNG ghi đè ở đây.
+#pragma warning disable CS0618 // Back-compat: PaySessionRequestDto.PenaltyItems obsolete từ 2026-08 — vẫn nhận từ POS client cũ.
             if (request.PenaltyItems != null && request.PenaltyItems.Count > 0)
             {
                 foreach (var penalty in request.PenaltyItems)
@@ -547,6 +548,7 @@ namespace BoardVerse.Services.Services
                     // → ghi đè giá trị persist ở Checkout → sai BR-12.
                 }
             }
+#pragma warning restore CS0618
 
             // BR-12 (single source of truth): session.PenaltyAmount đã được CompleteCheckoutAsync
             // set từ persistedPenalty = sum sessionGame.TotalPenaltyAmount (CheckStatus = MissingComponents)
@@ -560,6 +562,7 @@ namespace BoardVerse.Services.Services
             // Back-compat: nếu client CŨ vẫn gửi PenaltyItems ở request → log warning + áp dụng per-member
             // (BR-14 guard vẫn chạy) nhưng KHÔNG cộng vào session.PenaltyAmount nữa.
             // Penalty session-level giờ là single source từ Checkout.
+#pragma warning disable CS0618 // Back-compat: PenaltyItems obsolete, vẫn nhận từ POS client cũ cho đến khi rollout xong.
             if (request.PenaltyItems is { Count: > 0 })
             {
                 _logger.LogWarning(
@@ -568,6 +571,7 @@ namespace BoardVerse.Services.Services
                     "Hãy dùng ResponsibleMemberId lúc submit component-check.",
                     sessionId);
             }
+#pragma warning restore CS0618
 
             // BR-15: TotalAmount = Subtotal + PenaltyAmount (KHÔNG trừ deposit)
             // session.PenaltyAmount đã persist từ Checkout (line 901) → chỉ recompute TotalAmount.
@@ -761,7 +765,9 @@ namespace BoardVerse.Services.Services
                 .SelectMany(g => g.ComponentCheckResults ?? new List<BoardVerse.Core.Entities.ComponentCheckResult>())
                 .ToList() ?? new List<BoardVerse.Core.Entities.ComponentCheckResult>();
 
+            #pragma warning disable CS0618 // Back-compat: PenaltyItems obsolete, vẫn truyền sang BuildMemberInvoices cho POS client cũ.
             var memberInvoices = BuildMemberInvoices(session, cafe, allComponentCheckResults, request.PenaltyItems);
+#pragma warning restore CS0618
 
             // §4.4: Map WalkInWindow nếu có (early checkout case)
             BoardVerse.Core.DTOs.WalkIn.WalkInWindowDto? walkInWindowDto = null;
@@ -835,8 +841,13 @@ namespace BoardVerse.Services.Services
                     {
                         ComponentId = r.GameComponentTemplateId,
                         ComponentName = r.GameComponentTemplate?.ComponentName ?? string.Empty,
+                        // ComponentCheckResult only tracks Expected vs Actual (no separate damaged count).
+                        // Missing = Expected - Actual. Damaged is 0 here because entity doesn't persist it.
+                        MissingQuantity = Math.Max(0, r.ExpectedQuantity - r.ActualQuantity),
+                        DamagedQuantity = 0,
                         PenaltyFee = r.PenaltyFee,
-                        TotalPenalty = r.PenaltyFee
+                        TotalPenalty = r.PenaltyFee,
+                        ResponsibleMemberId = r.ResponsibleMemberId
                     }).ToList());
 
             foreach (var member in session.Members)
@@ -901,7 +912,7 @@ namespace BoardVerse.Services.Services
                     UserId = member.UserId,
                     DisplayName = member.IsGuestSlot
                         ? member.GuestDisplayName ?? "Khách vô danh"
-                        : $"User_{member.UserId.ToString()[..8]}",
+                        : member.UserId.HasValue ? $"User_{member.UserId.Value.ToString()[..8]}" : "User_Unknown",
                     IsGuestSlot = member.IsGuestSlot,
                     PlayedMinutes = memberMinutes,
                     JoinedAt = member.JoinedAt,
@@ -1049,6 +1060,7 @@ namespace BoardVerse.Services.Services
                 HostId = session.HostId,
                 CafeTableId = session.CafeTableId,
                 TableName = session.CafeTable?.Name ?? string.Empty,
+                TableNumber = TableNumberHelper.Parse(session.CafeTable?.Name),
                 CafeInventoryBoxId = session.CafeInventoryBoxId,
                 BoxBarcode = session.CafeInventoryBox?.Barcode ?? string.Empty,
                 GameTemplateId = session.GameTemplateId,
@@ -1881,6 +1893,12 @@ namespace BoardVerse.Services.Services
 
             // Tính additional cost
             var cafe = session.Cafe ?? await _cafeRepository.GetActiveByIdAsync(session.CafeId);
+            // GAP-21 Fix (mirror GetCurrentSessionAsync line 1756-1758): Nếu cafe null → throw rõ ràng.
+            // Trước đây không check → pricePerMinute = 0, additionalCost = 0 → Staff gia hạn FREE.
+            if (cafe == null)
+            {
+                throw new InternalServerErrorException($"Cafe {session.CafeId} not found for session {session.Id}. This is a data integrity issue.");
+            }
 
             // GAP-12 Fix: Phiên đang tạm dừng → không thể gia hạn
             if (session.IsPaused)
@@ -1888,8 +1906,8 @@ namespace BoardVerse.Services.Services
                 throw new ConflictException(ApiErrorMessages.Session.SessionPausedCannotExtend);
             }
 
-            var pricePerMinute = cafe?.BillingModel == CafePartnerBillingModel.TimeBased
-                ? (cafe?.BasePrice ?? 0) / 60m
+            var pricePerMinute = cafe.BillingModel == CafePartnerBillingModel.TimeBased
+                ? cafe.BasePrice / 60m
                 : 0;
             var additionalCost = pricePerMinute * extensionMinutes;
 
@@ -1987,10 +2005,10 @@ namespace BoardVerse.Services.Services
                 throw new ConflictException(ApiErrorMessages.Pos.SessionMustBeUnpaidForPayment);
             }
 
-            // GAP-11 Fix: Load cafe cho invoice line items
-            var cafe = session.Cafe ?? await _cafeRepository.GetActiveByIdAsync(session.CafeId);
-
             // Tính invoice
+            // GAP-11 Fix (cũ): cafe dùng để build invoice line items (RatePerMinute).
+            // subtotal/source-of-truth đã persist từ Checkout/CompleteCheckoutAsync.
+            var cafe = session.Cafe ?? await _cafeRepository.GetActiveByIdAsync(session.CafeId);
             var subtotal = member.Subtotal > 0 ? member.Subtotal : session.Subtotal / session.Members.Count(m => !m.IsGuestSlot);
             var penaltyAmount = member.PenaltyAmount;
             var depositApplied = member.DepositAppliedAmount;

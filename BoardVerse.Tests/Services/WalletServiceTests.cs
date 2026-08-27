@@ -12,6 +12,7 @@ using BoardVerse.Tests.Helpers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Moq;
+using Npgsql;
 
 using System.Threading;
 namespace BoardVerse.Tests.Services;
@@ -350,6 +351,100 @@ public class WalletServiceTests
         _mockGateway.Verify(
             g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), It.IsAny<CancellationToken>()),
             Times.Never);
+    }
+
+    #endregion
+
+    #region GAP-R4-A2: Idempotency race condition regression
+
+    [Fact]
+    public async Task CreateTopUpAsync_GatewayReturnsOrderId_DuplicateSaveChangesTriggersReplayToExistingRequest()
+    {
+        // Regression test logic cho GAP-R4-A2 catch-block replay path:
+        // 1. Service insert BvcTopUpRequest mới.
+        // 2. SaveChangesAsync throw DbUpdateException với unique-violation (mô phỏng race
+        //    với request thứ 2 đã commit trước).
+        // 3. Service phải rollback transaction + replay: gọi lại CreateTopUpAsync → lần 2 sẽ
+        //    thấy existingTopUp và trả về OrderId cũ (KHÔNG tạo OrderId mới).
+        //
+        // Fix GAP-R4-A2: catch block gọi return await CreateTopUpAsync(userId, request);
+        // → lần replay sẽ lookup thấy existingTopUp và return sớm.
+        var userId = Guid.NewGuid();
+        var key = "race-replay-key-12345";
+
+        SetupUserWithoutWallet(userId);
+
+        // Track save attempts để lần đầu throw, lần sau pass.
+        var saveAttempts = 0;
+        var existingOrderId = "BVC-FIRST-INS-1234";
+        var existingTopUp = new BvcTopUpRequest
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            OrderId = existingOrderId,
+            AmountVnd = 100_000,
+            ExpectedBvc = 100,
+            IdempotencyKey = key,
+            Status = BvcTopUpStatus.Pending,
+            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(29)
+        };
+
+        _mockTopUpRepo.Setup(r => r.GetByIdempotencyKeyAsync(key, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                // Lần đầu: chưa có (lookup miss). Lần replay: trả existingTopUp.
+                saveAttempts++;
+                return saveAttempts == 1 ? null : existingTopUp;
+            });
+        _mockTopUpRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .Throws(() =>
+            {
+                // Mô phỏng unique-violation race: request thứ 1 đã commit insert với cùng
+                // IdempotencyKey. Postgres reject insert thứ 2 → Npgsql throw PostgresException
+                // với SqlState "23505" (unique_violation).
+                var pgEx = new Npgsql.PostgresException(
+                    messageText: "duplicate key value violates unique constraint \"UX_BvcTopUpRequests_IdempotencyKey\"",
+                    severity: "ERROR",
+                    invariantSeverity: "ERROR",
+                    sqlState: "23505");
+                return new DbUpdateException("Error saving changes", pgEx);
+            });
+
+        SetupLedgerNoExistingKey(key);
+        _mockSePayAccount.Setup(s => s.GetRawMasterAccountAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SePayAccount
+            {
+                IsActive = true,
+                BankCode = "MBBank",
+                AccountNumber = "0123456789",
+                AccountHolder = "BV MASTER"
+            });
+        _mockGateway.Setup(g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentGatewayResult
+            {
+                IsSuccess = true,
+                PaymentUrl = "https://pay.sepay.vn/never-used",
+                QrImageUrl = "https://qr.sepay.vn/never-used.png",
+                Gateway = PaymentGateway.SePay
+            });
+
+        var req = new TopUpRequestDto { AmountVnd = 100_000, IdempotencyKey = key };
+
+        // Act: gọi lần đầu → SaveChangesAsync throw 23505 → catch (IsUniqueViolation) match
+        // → rollback → gọi lại CreateTopUpAsync (replay) → lookup existingTopUp → return.
+        var dto = await _service.CreateTopUpAsync(userId, req);
+
+        // Assert: response replay trả OrderId của request đã tồn tại.
+        Assert.Equal(existingOrderId, dto.OrderId);
+        Assert.Equal(100, dto.ExpectedBvc);
+
+        // Gateway ĐÃ ĐƯỢC gọi 1 lần (cho request đầu tiên trước khi insert fail).
+        // Đây là trade-off: replay vẫn charge 1 lần cho request bị race; request thứ 2
+        // (đã commit trước) là request thật của user. Verify gateway được gọi đúng 1 lần.
+        _mockGateway.Verify(
+            g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     #endregion

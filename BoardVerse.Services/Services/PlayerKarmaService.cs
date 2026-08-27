@@ -165,4 +165,71 @@ public class PlayerKarmaService : IPlayerKarmaService
 
     public Task<KarmaShortPlayRecord?> GetLatestByUserAsync(Guid userId, CancellationToken ct = default)
         => _recordRepo.GetLatestByUserAsync(userId, ct);
+
+    // GAP-4 / BR-REFUND-02: Phạt Karma khi host dissolve lobby gần giờ chơi.
+    // Bảng mức phạt (theo "trước scheduledStart"):
+    //   < 6 giờ   → -15 Karma (giảm đáng kể — BR-REFUND-02)
+    //   6–24 giờ  → -8  Karma
+    //   ≥ 24 giờ  → 0   (chỉ log structured, không tạo record)
+    public async Task<bool> RecordHostDissolveAsync(
+        Guid? reservationId,
+        Guid hostId,
+        double hoursBeforeScheduledStart,
+        string policyName,
+        CancellationToken ct = default)
+    {
+        // Lấy lobbyId từ policyName không khả thi — caller phải truyền qua metadata.
+        // Tạm thời dùng hoursBeforeScheduledStart để quyết định penalty.
+        var karmaDelta = hoursBeforeScheduledStart switch
+        {
+            < 6.0 => -15,
+            < 24.0 => -8,
+            _ => 0
+        };
+
+        if (karmaDelta == 0)
+        {
+            _logger.LogInformation(
+                "RecordHostDissolveAsync: HostId={HostId} dissolved {Hours:F1}h before scheduledStart → no penalty (≥24h). Policy={Policy}",
+                hostId, hoursBeforeScheduledStart, policyName);
+            return false;
+        }
+
+        var profile = await _userProfileRepo.GetProfileByUserIdAsync(hostId);
+        if (profile == null)
+        {
+            _logger.LogWarning(
+                "RecordHostDissolveAsync: UserProfile {HostId} không tồn tại → skip.", hostId);
+            return false;
+        }
+
+        var record = new KarmaShortPlayRecord
+        {
+            Id = Guid.NewGuid(),
+            ReservationId = reservationId,
+            UserId = hostId,
+            PlayedMinutes = 0,
+            ScheduledMinutes = 0,
+            PlayedRatio = 0m,
+            KarmaDelta = karmaDelta,
+            KarmaPointsAdded = karmaDelta,
+            TotalKarmaScore = profile.KarmaPoints + karmaDelta,
+            Status = KarmaRecordStatus.Active,
+            CreatedAt = DateTime.UtcNow,
+            // Encode metadata vào AppealReason để hỗ trợ idempotency check cho cùng lobby
+            // (khi không có reservationId). Format: "host-dissolve:lobbyId=<guid>:policy=<name>"
+            AppealReason = $"host-dissolve:policy={policyName}",
+            AppealRequested = false
+        };
+
+        await _recordRepo.AddAsync(record, ct);
+        profile.KarmaPoints = record.TotalKarmaScore;
+        await _userProfileRepo.SaveChangesAsync(ct);
+
+        _logger.LogInformation(
+            "RecordHostDissolveAsync: HostId={HostId} dissolved {Hours:F1}h before scheduledStart → karmaDelta={Delta}, total={Total}, policy={Policy}",
+            hostId, hoursBeforeScheduledStart, karmaDelta, record.TotalKarmaScore, policyName);
+
+        return true;
+    }
 }

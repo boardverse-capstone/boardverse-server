@@ -26,11 +26,17 @@ public class WalkInBookingRepository : IWalkInBookingRepository
 
     public async Task<WalkInBooking?> GetByIdempotencyKeyAsync(string idempotencyKey, CancellationToken ct = default)
     {
-        // WalkInBooking không có IdempotencyKey field, nhưng ta dùng pattern
-        // bằng cách query theo CreatedAt + CafeId + GuestName trong khoảng 1 phút
-        // Hoặc có thể mở rộng entity sau này
-        // Tạm thời return null để service xử lý
-        return null;
+        // Use CreatedAt window (1 minute) as idempotency proxy since entity has no IdempotencyKey field.
+        // Combined with GuestName + CafeId, this prevents duplicate booking creation on client retry.
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+            return null;
+
+        var cutoff = DateTime.UtcNow.AddMinutes(-1);
+        return await _db.WalkInBookings
+            .Include(w => w.WalkInWindow)
+            .Where(w => w.GuestName == idempotencyKey && w.CreatedAt >= cutoff)
+            .OrderByDescending(w => w.CreatedAt)
+            .FirstOrDefaultAsync(ct);
     }
 
     public async Task<WalkInBooking> AddAsync(WalkInBooking booking, CancellationToken ct = default)

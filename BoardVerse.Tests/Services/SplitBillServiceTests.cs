@@ -431,11 +431,12 @@ public class SplitBillServiceTests : IDisposable
     #region ProcessMemberQrWebhookAsync Tests
 
     [Fact]
-    public async Task ProcessMemberQrWebhookAsync_WhenMemberNotFound_ThrowsNotFoundException()
+    public async Task ProcessMemberQrWebhookAsync_WhenMemberNotFound_ReturnsSilently_AndRecordsAudit()
     {
+        // Fix #6: ProcessMemberQrWebhookAsync returns 200 silently (no throw) when member not found
+        // to prevent SePay from retrying indefinitely. Audit record is still saved for observability.
         var memberId = Guid.NewGuid();
 
-        // Fix #1: GetByMemberIdWithSessionAsync instead of GetByIdWithMembersAsync
         _sessionRepoMock.Setup(r => r.GetByMemberIdWithSessionAsync(memberId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((ActiveSession?)null);
 
@@ -446,8 +447,11 @@ public class SplitBillServiceTests : IDisposable
             Status = "success"
         };
 
-        await Assert.ThrowsAsync<NotFoundException>(
-            () => _service.ProcessMemberQrWebhookAsync(webhook));
+        // Should NOT throw — silent return
+        await _service.ProcessMemberQrWebhookAsync(webhook);
+
+        // Verify audit record was saved
+        _webhookAuditRepoMock.Verify(r => r.AddAsync(It.IsAny<PaymentWebhookAudit>(), It.IsAny<CancellationToken>()), Times.AtLeastOnce);
     }
 
     [Fact]
@@ -485,8 +489,10 @@ public class SplitBillServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ProcessMemberQrWebhookAsync_WhenAmountMismatch_ThrowsConflictException()
+    public async Task ProcessMemberQrWebhookAsync_WhenAmountMismatch_ReturnsSilently_AndRecordsAudit()
     {
+        // Fix #6: Amount mismatch returns silently (no throw ConflictException) to prevent
+        // SePay from retrying. Audit record is saved for observability.
         var memberId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
 
@@ -509,12 +515,18 @@ public class SplitBillServiceTests : IDisposable
         var webhook = new MemberPaymentWebhookDto
         {
             MemberId = memberId,
-            Amount = 50000m, // Fix #8: Amount mismatch với tolerance
+            Amount = 50000m, // Mismatch with member.TotalAmount (100000)
             Status = "success"
         };
 
-        await Assert.ThrowsAsync<ConflictException>(
-            () => _service.ProcessMemberQrWebhookAsync(webhook));
+        // Should NOT throw — silent return
+        await _service.ProcessMemberQrWebhookAsync(webhook);
+
+        // Member payment status should remain NotPaid
+        Assert.Equal(MemberPaymentStatus.NotPaid, member.PaymentStatus);
+
+        // Verify audit record was saved with success=false
+        _webhookAuditRepoMock.Verify(r => r.AddAsync(It.IsAny<PaymentWebhookAudit>(), It.IsAny<CancellationToken>()), Times.AtLeastOnce);
     }
 
     [Fact]

@@ -36,9 +36,15 @@ namespace BoardVerse.Core.Entities
         public string? SecretKey { get; set; }
 
         /// <summary>
-        /// Webhook Token để xác thực webhook từ SePay.
+        /// Webhook Token / API Key dùng để xác thực webhook SePay (ApiKey mode).
         /// </summary>
         public string? WebhookToken { get; set; }
+
+        /// <summary>
+        /// Loại xác thực webhook SePay. Mặc định None (dev-only).
+        /// Production BẮT BUỘC set ApiKey hoặc HmacSha256.
+        /// </summary>
+        public SePayWebhookAuthType WebhookAuthType { get; set; } = SePayWebhookAuthType.None;
 
         /// <summary>
         /// Base URL của SePay API.

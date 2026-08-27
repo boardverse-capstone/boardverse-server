@@ -58,6 +58,7 @@ namespace BoardVerse.Data.Repositories
             return await _db.Lobbies
                 .Include(l => l.Members)
                     .ThenInclude(m => m.User)
+                        .ThenInclude(u => u.Profile)
                 .FirstOrDefaultAsync(l => l.ActiveSessionId == activeSessionId);
         }
 
@@ -69,6 +70,7 @@ namespace BoardVerse.Data.Repositories
                 .AsNoTracking()
                 .Include(l => l.Members)
                     .ThenInclude(m => m.User)
+                        .ThenInclude(u => u.Profile)
                 .Include(l => l.GameTemplate)
                 .FirstOrDefaultAsync(l => l.Id == lobbyId);
         }
@@ -81,7 +83,9 @@ namespace BoardVerse.Data.Repositories
             return await _db.Lobbies
                 .Include(l => l.Members)
                     .ThenInclude(m => m.User)
+                        .ThenInclude(u => u.Profile)
                 .Include(l => l.GameTemplate)
+                .Include(l => l.Cafe)
                 .FirstOrDefaultAsync(l => l.ShareCode == shareCode.ToUpperInvariant());
         }
 
@@ -100,6 +104,7 @@ namespace BoardVerse.Data.Repositories
                 .Include(l => l.Members)
                     .ThenInclude(m => m.User)
                         .ThenInclude(u => u.Profile)
+                .Include(l => l.Cafe)
                 .Where(l => l.GameTemplateId == gameTemplateId && l.Status == LobbyStatus.Open);
 
             if (excludeLobbyId.HasValue)
@@ -111,7 +116,10 @@ namespace BoardVerse.Data.Repositories
         }
 
         /// <summary>
-        /// Lấy các lobby public đang mở (IsPrivate=false, Status=Open) để bất kỳ player nào cũng có thể xem/join.
+        /// Lấy các lobby public CHƯA BẮT ĐẦU CHƠI để player khám phá và có thể join (BR-10 + BR-LOBBY-READY-02).
+        /// Phạm vi status: <c>Open</c>, <c>Viable</c>, <c>Full</c>, <c>WaitingCheckIn</c>.
+        /// Lobby private (<c>IsPrivate = true</c>) bị ẩn hoàn toàn.
+        /// Lobby đã <c>InProgress</c> trở lên (Closed / RatingOpen / TimeoutFailed / HostCancelled / Dissolved / ...) bị loại vì đang chơi hoặc kết thúc.
         /// Hỗ trợ filter optional theo game và khu vực địa lý (bounding-box pre-filter).
         /// Service sẽ áp dụng Haversine chính xác + sort theo khoảng cách.
         /// </summary>
@@ -122,6 +130,18 @@ namespace BoardVerse.Data.Repositories
             double? radiusKm,
             int limit, CancellationToken cancellationToken = default)
         {
+            // BR-10 + BR-LOBBY-READY-02 + yêu cầu UX (2026-08-27):
+            // Hiển thị lobby public CHƯA VÀO PHIÊN CHƠI — bao gồm Open/Viable/Full/WaitingCheckIn.
+            // Trước đây chỉ Open → lobby vừa đủ người biến mất khỏi discoverable, gây UX kém.
+            // Khi lobby vào quán (InProgress) mới ẩn khỏi kết quả discovery.
+            var prePlayStatuses = new[]
+            {
+                LobbyStatus.Open,
+                LobbyStatus.Viable,
+                LobbyStatus.Full,
+                LobbyStatus.WaitingCheckIn
+            };
+
             var query = _db.Lobbies
                 .Include(l => l.Members)
                     .ThenInclude(m => m.User)
@@ -129,7 +149,8 @@ namespace BoardVerse.Data.Repositories
                 .Include(l => l.GameTemplate)
                 .Include(l => l.HostUser)
                     .ThenInclude(u => u.Profile)
-                .Where(l => !l.IsPrivate && l.Status == LobbyStatus.Open);
+                .Include(l => l.Cafe)
+                .Where(l => !l.IsPrivate && prePlayStatuses.Contains(l.Status));
 
             if (gameTemplateId.HasValue)
             {
@@ -196,6 +217,7 @@ namespace BoardVerse.Data.Repositories
                     .ThenInclude(m => m.User)
                         .ThenInclude(u => u.Profile)
                 .Include(l => l.GameTemplate)
+                .Include(l => l.Cafe)
                 .Where(l => l.GameTemplateId == gameTemplateId && l.Status == LobbyStatus.Open)
                 .Where(l => l.Latitude.HasValue && l.Longitude.HasValue)
                 .Where(l => l.Latitude >= minLat && l.Latitude <= maxLat
@@ -239,7 +261,9 @@ namespace BoardVerse.Data.Repositories
             return await _db.Lobbies
                 .Include(l => l.Members)
                     .ThenInclude(m => m.User)
+                        .ThenInclude(u => u.Profile)
                 .Include(l => l.GameTemplate)
+                .Include(l => l.Cafe)
                 .Where(l => l.HostUserId == hostUserId)
                 .OrderByDescending(l => l.CreatedAt)
                 .Take(50)
@@ -251,7 +275,9 @@ namespace BoardVerse.Data.Repositories
             return await _db.Lobbies
                 .Include(l => l.Members)
                     .ThenInclude(m => m.User)
+                        .ThenInclude(u => u.Profile)
                 .Include(l => l.GameTemplate)
+                .Include(l => l.Cafe)
                 .Where(l => ActiveLobbyStatuses.Contains(l.Status)
                     && (l.HostUserId == userId
                         || l.Members.Any(m => m.UserId == userId && m.IsActive)))
@@ -269,6 +295,12 @@ namespace BoardVerse.Data.Repositories
             LobbyStatus.Open,
             LobbyStatus.Viable,
             LobbyStatus.Full,
+            // P1 Fix (2026-08-27): Thêm WaitingCheckIn vào ActiveLobbyStatuses.
+            // BR-LOBBY-READY-01: Lobby WaitingCheckIn là "chờ check-in tại quán" — vẫn là
+            // ACTIVE (chưa vào phiên chơi). GetMyLobbiesAsync phải trả lobby này để user
+            // thấy "lobby đang chờ check-in" trong danh sách phòng của mình.
+            // Discoverable endpoint đã include WaitingCheckIn (LobbyService line 986).
+            LobbyStatus.WaitingCheckIn,
             LobbyStatus.InProgress
         };
 
@@ -369,6 +401,7 @@ namespace BoardVerse.Data.Repositories
                     && l.Status != LobbyStatus.RejectedByCafe
                     && l.Status != LobbyStatus.ExpiredByCafe
                     && l.Status != LobbyStatus.RatingOpen
+                    && l.Status != LobbyStatus.Dissolved
                     && (
                         l.HostUserId == userId
                         || l.Members.Any(m => m.UserId == userId && m.IsActive)

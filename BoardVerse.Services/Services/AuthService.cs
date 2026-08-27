@@ -240,7 +240,7 @@ namespace BoardVerse.Services.Services
                     {
                         Id = Guid.NewGuid(),
                         Username = !string.IsNullOrWhiteSpace(payload.Name) ? payload.Name : (payload.Email?.Split('@').FirstOrDefault() ?? string.Empty),
-                        Email = payload.Email,
+                        Email = payload.Email ?? string.Empty,
                         Role = UserRole.Player,
                         Provider = "Google",
                         ProviderId = payload.Subject,

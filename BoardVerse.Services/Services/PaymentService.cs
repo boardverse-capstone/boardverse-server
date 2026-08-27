@@ -134,7 +134,7 @@ public class PaymentService : IPaymentService
             _logger.LogError(
                 "Payment gateway failed. OrderId={OrderId}, Error={Error}",
                 deposit.OrderId, result.ErrorMessage);
-            throw new PaymentException(ApiErrorMessages.Payment.GatewayCannotCreatePaymentWithError(result.ErrorMessage));
+            throw new PaymentException(ApiErrorMessages.Payment.GatewayCannotCreatePaymentWithError(result.ErrorMessage ?? string.Empty));
         }
 
         var paymentUrl = result.PaymentUrl ?? result.QrImageUrl ?? throw new PaymentException(ApiErrorMessages.Payment.GatewayQrUrlMissing);
@@ -244,7 +244,7 @@ public class PaymentService : IPaymentService
             _logger.LogError(
                 "Payment gateway failed on regenerate. OrderId={OrderId}, Error={Error}",
                 deposit.OrderId, result.ErrorMessage);
-            throw new PaymentException(ApiErrorMessages.Payment.GatewayCannotCreatePaymentWithError(result.ErrorMessage));
+            throw new PaymentException(ApiErrorMessages.Payment.GatewayCannotCreatePaymentWithError(result.ErrorMessage ?? string.Empty));
         }
 
         var paymentUrl = result.PaymentUrl ?? result.QrImageUrl ?? throw new PaymentException(ApiErrorMessages.Payment.GatewayQrUrlMissing);
@@ -259,7 +259,7 @@ public class PaymentService : IPaymentService
         {
             DepositId = deposit.Id,
             PaymentUrl = paymentUrl,
-            QrUrl = result.QrImageUrl,
+            QrUrl = result.QrImageUrl ?? string.Empty,
             OrderId = deposit.OrderId,
             TransferContent = transferContent,
             QrExpiresAt = null,
@@ -392,7 +392,7 @@ public class PaymentService : IPaymentService
             _logger.LogError(
                 "Payment gateway failed for session. SessionId={SessionId}, Error={Error}",
                 session.Id, result.ErrorMessage);
-            throw new PaymentException(ApiErrorMessages.Payment.GatewayCannotCreatePaymentWithError(result.ErrorMessage));
+            throw new PaymentException(ApiErrorMessages.Payment.GatewayCannotCreatePaymentWithError(result.ErrorMessage ?? string.Empty));
         }
 
         var paymentUrl = result.PaymentUrl ?? result.QrImageUrl ?? throw new PaymentException(ApiErrorMessages.Payment.GatewayQrUrlMissing);
@@ -499,7 +499,7 @@ public class PaymentService : IPaymentService
             _logger.LogError(
                 "Payment gateway failed completely for session regenerate. SessionId={SessionId}, Error={Error}",
                 session.Id, result.ErrorMessage);
-            throw new PaymentException(ApiErrorMessages.Payment.GatewayCannotCreatePaymentWithError(result.ErrorMessage));
+            throw new PaymentException(ApiErrorMessages.Payment.GatewayCannotCreatePaymentWithError(result.ErrorMessage ?? string.Empty));
         }
 
         var paymentUrl = result.PaymentUrl ?? result.QrImageUrl ?? throw new PaymentException(ApiErrorMessages.Payment.GatewayQrUrlMissing);
@@ -527,8 +527,30 @@ public class PaymentService : IPaymentService
         };
     }
 
+    /// <summary>
+    /// Verify webhook signature trước khi xử lý payload.
+    /// Trả về (isValid, errorMessage) — Controller dùng để reject request ngay.
+    /// </summary>
+    public async Task<(bool IsValid, string? ErrorMessage)> VerifyWebhookRequestAsync(
+        SePayWebhookVerificationRequest request, CancellationToken cancellationToken = default)
+    {
+        if (request == null)
+        {
+            return (false, "Webhook verification request missing.");
+        }
+
+        var isValid = await _sePayClient.VerifyWebhookAsync(request, cancellationToken);
+        if (!isValid)
+        {
+            return (false, "SePay webhook signature invalid.");
+        }
+
+        return (true, null);
+    }
+
     public async Task HandleSePayWebhookAsync(SePayWebhookDto webhook, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(webhook);
         // SePay BankAPINotify không gửi OrderId/Status riêng — đã được Normalize() tại
         // Controller derive từ content + transferType. Nếu vẫn rỗng (legacy mock cũ hoặc
         // payload lỗi) thì bỏ qua.
@@ -538,16 +560,8 @@ public class PaymentService : IPaymentService
             return;
         }
 
-        if (!string.IsNullOrWhiteSpace(webhook.Signature))
-        {
-            var rawBody = $"{webhook.OrderId}|{webhook.GatewayTransactionId}|{webhook.Amount}|{webhook.Status}";
-            var isValid = await _sePayClient.VerifyWebhookAsync(webhook.Signature, rawBody);
-            if (!isValid)
-            {
-                _logger.LogWarning("SePay webhook signature invalid. OrderId={OrderId}", webhook.OrderId);
-                return;
-            }
-        }
+        // Signature verification: chuyển sang VerifyWebhookRequestAsync với headers + raw body
+        // (đã verify ở Controller). Nếu không có thông tin signature (mock legacy path), skip.
 
         // Phase 2 v2: BVC top-up với OrderId dạng 18 hex chars (BVC-{18hex} bị SePay strip '-').
         // ExtractOrderId đã strip prefix → webhook.OrderId = 817488C746BE78FE58 (hex only).
@@ -587,12 +601,12 @@ public class PaymentService : IPaymentService
         // If deposit found, process deposit webhook
         if (deposit != null)
         {
-            await ProcessDepositWebhookAsync(webhook, deposit);
+            await ProcessDepositWebhookAsync(webhook, deposit, cancellationToken);
             return;
         }
 
         // Otherwise, try to process as session payment
-        await ProcessSessionPaymentWebhookAsync(webhook);
+        await ProcessSessionPaymentWebhookAsync(webhook, cancellationToken);
     }
 
     /// <summary>
@@ -600,7 +614,7 @@ public class PaymentService : IPaymentService
     /// Top-up đã được route trước đó qua FindPendingTopUpOrderIdAsync lookup.
     /// </summary>
 
-    private async Task ProcessDepositWebhookAsync(SePayWebhookDto webhook, BookingDeposit deposit)
+    private async Task ProcessDepositWebhookAsync(SePayWebhookDto webhook, BookingDeposit deposit, CancellationToken cancellationToken = default)
     {
         var normalizedStatus = webhook.Status?.Trim().ToLowerInvariant() ?? string.Empty;
 
@@ -641,7 +655,7 @@ public class PaymentService : IPaymentService
         }
     }
 
-    private async Task ProcessSessionPaymentWebhookAsync(SePayWebhookDto webhook)
+    private async Task ProcessSessionPaymentWebhookAsync(SePayWebhookDto webhook, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(webhook.OrderId))
         {
@@ -664,7 +678,7 @@ public class PaymentService : IPaymentService
         if (session == null)
         {
             _logger.LogWarning("SePay webhook session payment not matched. OrderId={OrderId}", webhook.OrderId);
-            await RecordAuditAsync(webhook, null, "session_not_found", $"OrderId={webhook.OrderId} không match session nào");
+            await RecordAuditAsync(webhook, null, "session_not_found", $"OrderId={webhook.OrderId} không match session nào", cancellationToken);
             return;
         }
 
@@ -681,7 +695,7 @@ public class PaymentService : IPaymentService
                     "SePay webhook currency not VND. Currency={Currency}, Expected=VND, SessionId={SessionId}, OrderId={OrderId}",
                     webhook.Currency, session.Id, webhook.OrderId);
                 await RecordAuditAsync(webhook, session.Id, "currency_invalid",
-                    $"Currency={webhook.Currency} không phải VND");
+                    $"Currency={webhook.Currency} không phải VND", cancellationToken);
                 return;
             }
 
@@ -696,7 +710,7 @@ public class PaymentService : IPaymentService
                     "SePay webhook amount mismatch > {Tolerance} VND. Expected={Expected}, Received={Received}, Diff={Diff}, SessionId={SessionId}",
                     AmountTolerance, session.TotalAmount, webhook.Amount, amountDiff, session.Id);
                 await RecordAuditAsync(webhook, session.Id, "amount_mismatch",
-                    $"Expected={session.TotalAmount}, Received={webhook.Amount}, Diff={amountDiff}");
+                    $"Expected={session.TotalAmount}, Received={webhook.Amount}, Diff={amountDiff}", cancellationToken);
                 return;
             }
 
@@ -711,7 +725,7 @@ public class PaymentService : IPaymentService
                     "SePay webhook success nhưng session đã Closed (terminal). Tiền đã vào SePay nhưng KHÔNG capture BVC, staff cần refund manual. SessionId={SessionId}, Amount={Amount}, OrderId={OrderId}",
                     session.Id, webhook.Amount, webhook.OrderId);
                 await RecordAuditAsync(webhook, session.Id, "session_terminal",
-                    $"Session Status={session.Status} → staff cần refund manual");
+                    $"Session Status={session.Status} → staff cần refund manual", cancellationToken);
                 return;
             }
 
@@ -728,8 +742,8 @@ public class PaymentService : IPaymentService
                     sessionId: session.Id,
                     request: new PaySessionRequestDto(),
                     trigger: PayTrigger.SePayWebhook,
-                    ct: default);
-                await RecordAuditAsync(webhook, session.Id, "success", "Payment committed");
+                    ct: cancellationToken);
+                await RecordAuditAsync(webhook, session.Id, "success", "Payment committed", cancellationToken);
             }
             catch (ConflictException ex) when (ex.Message.Contains(ApiErrorMessages.Pos.SessionMustBeUnpaidForPayment))
             {
@@ -738,7 +752,7 @@ public class PaymentService : IPaymentService
                     "SePay webhook session already paid (idempotent skip). SessionId={SessionId}, OrderId={OrderId}",
                     session.Id, webhook.OrderId);
                 await RecordAuditAsync(webhook, session.Id, "already_paid",
-                    "Session đã Paid trước đó (idempotent skip)");
+                    "Session đã Paid trước đó (idempotent skip)", cancellationToken);
             }
 
             return;
@@ -753,7 +767,7 @@ public class PaymentService : IPaymentService
                 "Session payment webhook failed/cancelled (no auto-handler). SessionId={SessionId}, Status={Status}",
                 session.Id, normalizedStatus);
             await RecordAuditAsync(webhook, session.Id, "failed_cancelled",
-                $"Status={normalizedStatus} - staff xử lý manual");
+                $"Status={normalizedStatus} - staff xử lý manual", cancellationToken);
         }
     }
 
@@ -762,10 +776,22 @@ public class PaymentService : IPaymentService
     // Note: Dùng anonymous object phẳng thay vì serialize SePayWebhookDto trực tiếp
     // (SnakeOrCamelConverter trên SePayWebhookDto gây stack overflow khi serialize).
     private async Task RecordAuditAsync(
-        SePayWebhookDto webhook, Guid? sessionId, string result, string detail)
+        SePayWebhookDto webhook, Guid? sessionId, string result, string detail,
+        CancellationToken cancellationToken = default)
     {
         try
         {
+            // Idempotent: nếu duplicate webhook (cùng OrderId/GatewayTransactionId) đã audit rồi,
+            // skip insert row mới — chỉ log info. Tránh bảng audit phình cho SePay retry storms.
+            if (await _webhookAuditRepository.ExistsForDuplicateAsync(
+                webhook.OrderId, webhook.GatewayTransactionId, cancellationToken))
+            {
+                _logger.LogInformation(
+                    "PaymentWebhookAudit duplicate detected (skip insert). OrderId={OrderId}, GatewayTransactionId={TxnId}, Result={Result}",
+                    webhook.OrderId, webhook.GatewayTransactionId, result);
+                return;
+            }
+
             // Plain object — không qua JsonConverter nào.
             var payloadObj = new
             {
@@ -802,7 +828,7 @@ public class PaymentService : IPaymentService
                 Detail = detail,
                 Payload = payloadJson,
                 ProcessedAt = DateTime.UtcNow
-            });
+            }, cancellationToken);
         }
         catch (Exception ex)
         {

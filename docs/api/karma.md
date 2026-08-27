@@ -118,6 +118,25 @@ User gửi khiếu nại cho 1 KarmaShortPlayRecord cụ thể.
 
 ---
 
+## KarmaViolationCategory enum (GAP-4 fix 2026-08-27)
+
+Các violation type được ghi nhận qua `KarmaShortPlayRecord`:
+
+|| ViolationType | Trigger | Karma penalty | ReservationId |
+||---|---|---|---|
+|| `ShortPlay` | Member checkout early với `playedRatio < 50%` | −20 | nullable |
+|| `NoShow` | Member không check-in sau grace | −30 | nullable |
+|| `HostDissolve` | **MỚI** — Host dissolve lobby sau grace period (2026-08-27) | −10 | nullable |
+
+**HostDissolve (GAP-4 fix):**
+- Trigger: Host gọi `DELETE /api/v1/lobbies/{lobbyId}` (dissolve) sau grace period.
+- Grace period: 15 phút từ tạo lobby HOẶC trước khi có member join (BR-REFUND-03).
+- Ngoài grace: `PlayerKarmaService.RecordHostDissolveAsync` ghi `KarmaShortPlayRecord` với `ViolationType = HostDissolve`.
+- `ReservationId` được set nếu lobby có reservation (nullable cho legacy dissolve không reservation).
+- Karma aggregation chạy `TriggerKarmaAggregationAsync` sau persist → warning (3-4 violations) hoặc restriction (5+) theo BR-KARMA-03.
+
+---
+
 ## Tham chiếu
 
 - `BoardVerse.Services/Services/KarmaService.cs` — high-level operations

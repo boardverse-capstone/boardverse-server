@@ -155,10 +155,10 @@ public class PlayerRiskScoreService : IPlayerRiskScoreService
     }
 
     public Task<PlayerRiskScore?> GetCurrentAsync(Guid userId, CancellationToken cancellationToken = default) =>
-        _riskRepo.GetByUserIdAsync(userId);
+        _riskRepo.GetByUserIdAsync(userId, cancellationToken);
 
     public Task<IReadOnlyList<RiskScoreHistory>> GetHistoryAsync(Guid userId, DateOnly fromDate, DateOnly toDate, CancellationToken cancellationToken = default) =>
-        _riskRepo.GetHistoryByUserIdAndDateRangeAsync(userId, fromDate, toDate);
+        _riskRepo.GetHistoryByUserIdAndDateRangeAsync(userId, fromDate, toDate, cancellationToken);
 
     /// <summary>
     /// Thu thập signals từ các nguồn dữ liệu hiện có.

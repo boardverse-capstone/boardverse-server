@@ -32,6 +32,14 @@ public interface IPaymentWebhookAuditRepository
         string gatewayTransactionId, CancellationToken ct = default);
 
     /// <summary>
+    /// GetByGatewayTransactionIdAsync là để detect duplicate; nhưng tách riêng hàm
+    /// EnsureExistsForDuplicate để update ProcessedAt nếu record đã có, tránh
+    /// tạo row thứ 2 cho cùng (OrderId, GatewayTransactionId).
+    /// </summary>
+    Task<bool> ExistsForDuplicateAsync(
+        string? orderId, string? gatewayTransactionId, CancellationToken ct = default);
+
+    /// <summary>
     /// GAP-11 Fix: Đếm số lượng amount_mismatch trong 1 khoảng thời gian.
     /// Alert nếu > threshold → có thể là attack hoặc bug.
     /// </summary>

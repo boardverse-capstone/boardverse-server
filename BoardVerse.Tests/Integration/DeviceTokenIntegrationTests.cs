@@ -45,7 +45,7 @@ public class DeviceTokenIntegrationTests
 
         Assert.True(data.TryGetProperty("id", out _));
         Assert.Equal("android", data.GetProperty("platform").GetString());
-        Assert.Equal(uniqueToken, data.GetProperty("deviceModel").GetString().Length > 0
+        Assert.Equal(uniqueToken, (data.GetProperty("deviceModel").GetString()?.Length ?? 0) > 0
             ? uniqueToken // sanity check
             : uniqueToken);
 

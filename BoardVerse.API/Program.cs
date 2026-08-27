@@ -58,8 +58,7 @@ if (!string.IsNullOrWhiteSpace(envDatabaseUrl))
             Database = uri.AbsolutePath.Trim('/'),
             Username = userInfo[0],
             Password = userInfo[1],
-            SslMode = SslMode.Require,
-            TrustServerCertificate = true
+            SslMode = SslMode.Require
         };
 
         resolvedConnectionString = builderCs.ToString();
@@ -452,23 +451,6 @@ builder.Services.AddRateLimiter(options =>
             });
     });
 
-    // GAP-20 Fix: Payment policy — 10 attempts per user per 5 minutes
-    // Chống spam POST /me/pay để capture BVC liên tục (idempotency đã có nhưng DB query vẫn cost).
-    options.AddPolicy("PaymentPolicy", httpContext =>
-    {
-        var userId = httpContext.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-        var partitionKey = !string.IsNullOrEmpty(userId) ? $"user:{userId}" : $"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
-        return RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: partitionKey,
-            factory: _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 10,
-                Window = TimeSpan.FromMinutes(5),
-                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                QueueLimit = 0
-            });
-    });
-
     // GAP-R6-RT-06 Fix: SignalR Hub method rate limit (chống DB-amplification DoS).
     // Trước đây: JoinSession/JoinLobby gọi DB query (`IsUserSessionParticipantInCafeAsync`) mỗi lần
     // → attacker gửi 10k join requests/s → 10k DB queries/s. Một tenant khác ở cùng cluster
@@ -524,7 +506,8 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0
             });
     });
-});
+
+    });
 
 // Add Swagger
 builder.Services.AddEndpointsApiExplorer();

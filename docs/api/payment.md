@@ -425,6 +425,22 @@ Staff xác nhận QR per-member đã được chuyển khoản thành công — 
 - Amount mismatch → log + dừng xử lý, không cập nhật trạng thái.
 - Lookup ưu tiên: `SePayTransactionId` → `OrderId` → `SessionId`/`OrderId` prefix.
 
+## SePayAccount Webhook Auth (2026-08-27 update)
+
+Cấu hình cách SePay xác thực webhook tại `SePayAccount.WebhookAuthType` (column `int`):
+
+| Mode | Value | Header | Use case |
+|---|---|---|---|
+| `None` | `0` | (none) | **Dev/test only** — production reject |
+| `ApiKey` | `1` | `Authorization: Apikey <WebhookToken>` | Auth đơn giản, không anti-replay |
+| `HmacSha256` | `2` | `X-SePay-Signature` + `X-SePay-Timestamp` | **SePay khuyến nghị**, có anti-replay ±300s |
+
+**Default cho account hiện hữu**: `None` (backward compat — tài khoản dev/test cũ vẫn hoạt động). **Production BẮT BUỘC** admin update sang `ApiKey` hoặc `HmacSha256` trước go-live.
+
+API cấu hình: `PUT /api/sepay-accounts/{id}` với body `{ "webhookAuthType": 2, "secretKey": "...", "webhookToken": "..." }`.
+
+Chi tiết verify flow + format signing → [sepay-webhook.md](./sepay-webhook.md) §"Webhook Signature Verification — 3 mode chi tiết".
+
 ## Session Payment Lifecycle Cleanup
 
 Khi phiên chơi (`ActiveSession`) được thanh toán thành công — dù qua cổng nào — hệ thống đảm bảo **giải phóng tài nguyên đã giữ** trong cùng transaction để tránh "ghost reservation":

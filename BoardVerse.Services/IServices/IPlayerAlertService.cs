@@ -31,7 +31,7 @@ public interface IPlayerAlertService
     /// <summary>Alert dashboard metrics.</summary>
     Task<PlayerAlertMetricsDto> GetMetricsAsync(CancellationToken cancellationToken = default);
 
-    Task<int> DismissStaleAlertsAsync(int maxAgeDays, int batchSize);
+    Task<int> DismissStaleAlertsAsync(int maxAgeDays, int batchSize, CancellationToken cancellationToken = default);
 }
 
 public class PlayerAlertMetricsDto

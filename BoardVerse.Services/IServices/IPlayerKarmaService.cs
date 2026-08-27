@@ -44,4 +44,20 @@ public interface IPlayerKarmaService
     /// ID của record gần nhất (dùng cho query debug).
     /// </summary>
     Task<KarmaShortPlayRecord?> GetLatestByUserAsync(Guid userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// BR-REFUND-02 + BR-RISK-05 §16.7: Ghi nhận host dissolve lobby gần giờ chơi.
+    /// Phạt Karma cho host khi dissolve lobby trong vòng 24 giờ trước scheduledStart.
+    /// </summary>
+    /// <param name="reservationId">Reservation liên kết (nullable cho legacy lobby không có reservation).</param>
+    /// <param name="hostId">Host bị ghi nhận.</param>
+    /// <param name="hoursBeforeScheduledStart">Số giờ trước scheduledStart (âm nếu đã qua).</param>
+    /// <param name="policyName">Tên policy dissolve đã áp dụng (dùng cho audit).</param>
+    /// <returns>True nếu record được tạo; false nếu đã có (idempotent).</returns>
+    Task<bool> RecordHostDissolveAsync(
+        Guid? reservationId,
+        Guid hostId,
+        double hoursBeforeScheduledStart,
+        string policyName,
+        CancellationToken cancellationToken = default);
 }

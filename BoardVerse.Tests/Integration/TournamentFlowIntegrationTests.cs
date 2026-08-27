@@ -914,7 +914,7 @@ public class TournamentFlowIntegrationTests
         var body = await ApiTestClient.ReadApiResponseAsync<LeaderboardResponseDto>(response);
 
         body.Data.Should().NotBeNull();
-        body.Data.Entries.Should().BeInDescendingOrder(e => e.GlobalElo);
+        body.Data!.Entries.Should().BeInDescendingOrder(e => e.GlobalElo);
     }
 
     [IntegrationFact]

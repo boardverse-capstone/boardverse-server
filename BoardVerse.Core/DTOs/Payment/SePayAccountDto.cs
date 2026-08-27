@@ -15,6 +15,7 @@ public class SePayAccountDto
     public string? AccountHolder { get; set; }
     public string? ReturnUrl { get; set; }
     public string? Environment { get; set; }
+    public SePayWebhookAuthType WebhookAuthType { get; set; }
     public bool IsActive { get; set; }
     public Guid? CreatedByUserId { get; set; }
     public Guid? UpdatedByUserId { get; set; }
@@ -38,6 +39,7 @@ public class CreateSePayAccountRequestDto
     public string? ApiKey { get; set; }
     public string? SecretKey { get; set; }
     public string? WebhookToken { get; set; }
+    public SePayWebhookAuthType WebhookAuthType { get; set; } = SePayWebhookAuthType.None;
     public string? ApiBaseUrl { get; set; }
     public string? BankCode { get; set; }
     public string? AccountNumber { get; set; }
@@ -100,6 +102,7 @@ public class UpdateSePayAccountRequestDto
     public string? ApiKey { get; set; }
     public string? SecretKey { get; set; }
     public string? WebhookToken { get; set; }
+    public SePayWebhookAuthType? WebhookAuthType { get; set; }
     public string? ApiBaseUrl { get; set; }
     public string? BankCode { get; set; }
     public string? AccountNumber { get; set; }

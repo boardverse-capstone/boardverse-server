@@ -10,6 +10,9 @@ namespace BoardVerse.Core.DTOs.Lobby
         public string? GameName { get; set; }
 
         public Guid? CafeId { get; set; }
+        /// <summary>Tên quán cafe (Cafe.Name). Trả null khi cafe đã bị xóa/ẩn.
+        /// Tiết kiệm 1 round-trip cho client: không cần gọi thêm /api/v1/cafes/{cafeId} để hiển thị tên.</summary>
+        public string? CafeName { get; set; }
         public Guid? BookingId { get; set; }
 
         public DateTime? ScheduledStartTime { get; set; }

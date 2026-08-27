@@ -48,9 +48,13 @@ public class DebugSePayController : ControllerBase
         var amountValue = amount ?? 100m;
 
         var masterAccount = await _sepayAccountService.GetRawMasterAccountAsync();
+        if (masterAccount == null)
+        {
+            return BadRequest(new { error = "Master account not configured." });
+        }
 
         var qrUrl = _vietQrClient.GenerateQrUrl(
-            masterAccount.BankCode ?? string.Empty,
+            masterAccount!.BankCode ?? string.Empty,
             masterAccount.AccountNumber ?? string.Empty,  // raw cho QR URL
             amountValue,
             description: $"BoardVerse debug test - {orderIdValue}",
@@ -87,6 +91,18 @@ public class DebugSePayController : ControllerBase
         if (!IsDebugEnabled()) return NotFound();
 
         var masterAccount = await _sepayAccountService.GetRawMasterAccountAsync();
+        if (masterAccount == null)
+        {
+            return Ok(new
+            {
+                environment = "N/A",
+                merchantId = "N/A",
+                webhookTokenSet = false,
+                apiBaseUrl = "N/A",
+                isProduction = false,
+                message = "Master account not configured."
+            });
+        }
 
         return Ok(new
         {
@@ -154,7 +170,7 @@ public class DebugSePayController : ControllerBase
              NULL, NULL, {(int)BookingDepositStatus.Pending}, '{transferContent}', '{now:O}')");
 
         var qrUrl = _vietQrClient.GenerateQrUrl(
-            masterAccount.BankCode ?? string.Empty,
+            masterAccount!.BankCode ?? string.Empty,
             masterAccount.AccountNumber ?? string.Empty,  // raw cho QR URL
             depositAmount,
             description: transferContent,
@@ -278,7 +294,7 @@ public class DebugSePayController : ControllerBase
              NULL, NULL, {(int)BookingDepositStatus.Pending}, '{transferContent}', '{now:O}')");
 
         var qrUrl = _vietQrClient.GenerateQrUrl(
-            masterAccount.BankCode ?? string.Empty,
+            masterAccount!.BankCode ?? string.Empty,
             masterAccount.AccountNumber ?? string.Empty,  // raw cho QR URL
             depositAmount,
             description: transferContent,
