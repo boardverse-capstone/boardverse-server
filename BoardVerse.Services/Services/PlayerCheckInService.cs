@@ -133,11 +133,11 @@ public class PlayerCheckInService : IPlayerCheckInService
         // windowStart = 1 giờ trước để player có thể scan sớm (linh hoạt).
         // windowEnd = 30 phút sau scheduledEndTime (grace period BR-06).
         var scheduledStart = reservation.ScheduledStartTime;
-        if (scheduledStart == default);
+        if (scheduledStart == default)
             throw new InternalServerErrorException(
                 ApiErrorMessages.ReservationExtension.CheckInMissingScheduledTime(reservation.Id));
         var scheduledEnd = reservation.ScheduledEndTime;
-        if (scheduledEnd == default);
+        if (scheduledEnd == default)
             throw new InternalServerErrorException(
                 ApiErrorMessages.ReservationExtension.CheckInMissingScheduledEndTime(reservation.Id));
         var windowStart = scheduledStart.AddHours(-1);

@@ -255,7 +255,7 @@ public class SettlementService : ISettlementService
     /// W-06: Admin list settlements với filter + phân trang.
     /// </summary>
     public Task<PaginatedResponse<SettlementListItemDto>> GetPagedAsync(SettlementListQuery query, CancellationToken cancellationToken = default) =>
-        _settlementRepository.GetPagedAsync(query);
+        _settlementRepository.GetPagedAsync(query, cancellationToken);
 
     /// <summary>
     /// W-06: Admin manually override a failed settlement after retry exhaustion.

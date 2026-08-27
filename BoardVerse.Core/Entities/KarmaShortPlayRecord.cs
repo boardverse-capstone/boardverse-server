@@ -10,8 +10,11 @@ public class KarmaShortPlayRecord
 {
     public Guid Id { get; set; } = Guid.NewGuid();
 
-    /// <summary>Reservation mà record này áp dụng.</summary>
-    public Guid ReservationId { get; set; }
+    /// <summary>
+    /// Reservation mà record này áp dụng.
+    /// Nullable cho host-dissolve records (BR-REFUND-02) khi lobby không link reservation.
+    /// </summary>
+    public Guid? ReservationId { get; set; }
 
     /// <summary>User bị ghi nhận short-play.</summary>
     public Guid UserId { get; set; }
@@ -52,6 +55,6 @@ public class KarmaShortPlayRecord
     public bool? AppealApproved { get; set; }
 
     // === Navigation ===
-    public virtual Reservation Reservation { get; set; } = null!;
+    public virtual Reservation? Reservation { get; set; }
     public virtual User User { get; set; } = null!;
 }

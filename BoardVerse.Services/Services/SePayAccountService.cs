@@ -114,6 +114,7 @@ throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountE
             ApiKey = request.ApiKey,
             SecretKey = request.SecretKey,
             WebhookToken = request.WebhookToken,
+            WebhookAuthType = request.WebhookAuthType,
             ApiBaseUrl = request.ApiBaseUrl,
             BankCode = request.BankCode,
             AccountNumber = request.AccountNumber,
@@ -142,6 +143,7 @@ throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountE
         if (request.ApiKey != null) account.ApiKey = request.ApiKey;
         if (request.SecretKey != null) account.SecretKey = request.SecretKey;
         if (request.WebhookToken != null) account.WebhookToken = request.WebhookToken;
+        if (request.WebhookAuthType.HasValue) account.WebhookAuthType = request.WebhookAuthType.Value;
         if (request.ApiBaseUrl != null) account.ApiBaseUrl = request.ApiBaseUrl;
         if (request.BankCode != null) account.BankCode = request.BankCode;
         if (request.AccountNumber != null) account.AccountNumber = request.AccountNumber;
@@ -334,6 +336,7 @@ throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountE
         if (request.ApiKey != null) account.ApiKey = request.ApiKey;
         if (request.SecretKey != null) account.SecretKey = request.SecretKey;
         if (request.WebhookToken != null) account.WebhookToken = request.WebhookToken;
+        if (request.WebhookAuthType.HasValue) account.WebhookAuthType = request.WebhookAuthType.Value;
         if (request.ApiBaseUrl != null) account.ApiBaseUrl = request.ApiBaseUrl;
         if (request.BankCode != null) account.BankCode = request.BankCode;
         if (request.AccountNumber != null) account.AccountNumber = request.AccountNumber;
@@ -398,6 +401,7 @@ throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountE
             AccountHolder = account.AccountHolder,
             ReturnUrl = account.ReturnUrl,
             Environment = account.Environment,
+            WebhookAuthType = account.WebhookAuthType,
             IsActive = account.IsActive,
             CreatedByUserId = account.CreatedByUserId,
             UpdatedByUserId = account.UpdatedByUserId,

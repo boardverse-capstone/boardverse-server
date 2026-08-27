@@ -21,6 +21,17 @@ public class KarmaShortPlayRecordRepository : IKarmaShortPlayRecordRepository
         => _db.KarmaShortPlayRecords
             .FirstOrDefaultAsync(r => r.ReservationId == reservationId && r.UserId == userId, ct);
 
+    // GAP-4: Lookup KarmaShortPlayRecord cho host-dissolve case. Idempotency check dựa trên
+    // AppealReason chứa lobbyId — record dissolve của cùng 1 lobby không tạo 2 lần.
+    public Task<KarmaShortPlayRecord?> GetLatestDissolveByHostAsync(Guid hostId, Guid lobbyId, CancellationToken ct = default)
+        => _db.KarmaShortPlayRecords
+            .Where(r => r.UserId == hostId
+                && r.ReservationId == null
+                && r.AppealReason != null
+                && r.AppealReason.Contains(lobbyId.ToString("N")))
+            .OrderByDescending(r => r.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+
     public Task<KarmaShortPlayRecord?> GetLatestByUserAsync(Guid userId, CancellationToken ct = default)
         => _db.KarmaShortPlayRecords
             .Where(r => r.UserId == userId)

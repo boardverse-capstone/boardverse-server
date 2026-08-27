@@ -13,10 +13,10 @@ namespace BoardVerse.API.Filters
             if (!context.ModelState.IsValid)
             {
                 var errors = context.ModelState
-                    .Where(kvp => kvp.Value.Errors.Count > 0)
+                    .Where(kvp => kvp.Value?.Errors.Count > 0)
                     .ToDictionary(
                         kvp => kvp.Key,
-                        kvp => kvp.Value.Errors.Select(e => e.ErrorMessage).ToArray()
+                        kvp => kvp.Value!.Errors.Select(e => e.ErrorMessage).ToArray()
                     );
 
                 var path = context.HttpContext.Request.Path.Value ?? string.Empty;

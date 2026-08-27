@@ -9,6 +9,12 @@ public interface IKarmaShortPlayRecordRepository
 {
     Task<KarmaShortPlayRecord?> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task<KarmaShortPlayRecord?> GetByReservationAndUserAsync(Guid reservationId, Guid userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// GAP-4: Lookup KarmaShortPlayRecord cho host-dissolve case (ReservationId = null).
+    /// Idempotent theo (UserId, AppealReason chứa lobbyId) — unique constraint qua filter index.
+    /// </summary>
+    Task<KarmaShortPlayRecord?> GetLatestDissolveByHostAsync(Guid hostId, Guid lobbyId, CancellationToken ct = default);
     Task<KarmaShortPlayRecord?> GetLatestByUserAsync(Guid userId, CancellationToken ct = default);
 
     /// <summary>BR-KARMA-02/03: Đếm số record ACTIVE của user (dùng để trigger warning/restriction).</summary>

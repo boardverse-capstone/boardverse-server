@@ -40,6 +40,11 @@ public class SePayAccountConfiguration : IEntityTypeConfiguration<SePayAccount>
         builder.Property(x => x.WebhookToken)
             .HasMaxLength(500);
 
+        builder.Property(x => x.WebhookAuthType)
+            .HasConversion<int>()
+            .IsRequired()
+            .HasDefaultValue(SePayWebhookAuthType.None);
+
         builder.Property(x => x.ApiBaseUrl)
             .HasMaxLength(500);
 

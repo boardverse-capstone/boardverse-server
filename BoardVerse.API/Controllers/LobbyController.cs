@@ -123,9 +123,11 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Khám phá các lobby public đang mở (status=Open, IsPrivate=false) để player khác có thể thấy và join.
-        /// Hỗ trợ filter optional theo game và khoảng cách địa lý.
-        /// Đây là API dành cho màn hình "Browse lobbies" trên mobile — không bắt buộc gameTemplateId như /search. [Role: Player]
+        /// Khám phá các lobby public CHƯA VÀO PHIÊN CHƠI để player có thể thấy và join.
+        /// Status bao gồm: <c>Open</c>, <c>Viable</c>, <c>Full</c>, <c>WaitingCheckIn</c>.
+        /// Khi lobby đã vào quán (<c>InProgress</c> trở lên) sẽ bị loại khỏi kết quả.
+        /// Hỗ trợ filter optional theo game và khoảng cách địa lý. Đây là API dành cho màn hình
+        /// "Browse lobbies" trên mobile — không bắt buộc gameTemplateId như /search. [Role: Player]
         /// BR-USER-LIMIT-02: excludeSelfOverlapping loại bỏ các lobby trùng lịch với user.
         /// </summary>
         /// <param name="gameTemplateId">Optional: chỉ lấy lobby của game này.</param>

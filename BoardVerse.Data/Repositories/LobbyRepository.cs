@@ -116,7 +116,10 @@ namespace BoardVerse.Data.Repositories
         }
 
         /// <summary>
-        /// Lấy các lobby public đang mở (IsPrivate=false, Status=Open) để bất kỳ player nào cũng có thể xem/join.
+        /// Lấy các lobby public CHƯA BẮT ĐẦU CHƠI để player khám phá và có thể join (BR-10 + BR-LOBBY-READY-02).
+        /// Phạm vi status: <c>Open</c>, <c>Viable</c>, <c>Full</c>, <c>WaitingCheckIn</c>.
+        /// Lobby private (<c>IsPrivate = true</c>) bị ẩn hoàn toàn.
+        /// Lobby đã <c>InProgress</c> trở lên (Closed / RatingOpen / TimeoutFailed / HostCancelled / Dissolved / ...) bị loại vì đang chơi hoặc kết thúc.
         /// Hỗ trợ filter optional theo game và khu vực địa lý (bounding-box pre-filter).
         /// Service sẽ áp dụng Haversine chính xác + sort theo khoảng cách.
         /// </summary>
@@ -127,6 +130,18 @@ namespace BoardVerse.Data.Repositories
             double? radiusKm,
             int limit, CancellationToken cancellationToken = default)
         {
+            // BR-10 + BR-LOBBY-READY-02 + yêu cầu UX (2026-08-27):
+            // Hiển thị lobby public CHƯA VÀO PHIÊN CHƠI — bao gồm Open/Viable/Full/WaitingCheckIn.
+            // Trước đây chỉ Open → lobby vừa đủ người biến mất khỏi discoverable, gây UX kém.
+            // Khi lobby vào quán (InProgress) mới ẩn khỏi kết quả discovery.
+            var prePlayStatuses = new[]
+            {
+                LobbyStatus.Open,
+                LobbyStatus.Viable,
+                LobbyStatus.Full,
+                LobbyStatus.WaitingCheckIn
+            };
+
             var query = _db.Lobbies
                 .Include(l => l.Members)
                     .ThenInclude(m => m.User)
@@ -135,7 +150,7 @@ namespace BoardVerse.Data.Repositories
                 .Include(l => l.HostUser)
                     .ThenInclude(u => u.Profile)
                 .Include(l => l.Cafe)
-                .Where(l => !l.IsPrivate && l.Status == LobbyStatus.Open);
+                .Where(l => !l.IsPrivate && prePlayStatuses.Contains(l.Status));
 
             if (gameTemplateId.HasValue)
             {

@@ -327,7 +327,7 @@ public class ReservationService : IReservationService
                             // Bind FK để heal
                             existing.LobbyId = orphanLobby.Id;
                             await _reservationRepository.UpdateAsync(existing);
-                            await _db.SaveChangesAsync(); // Lưu bind
+                            await _db.SaveChangesAsync(cancellationToken); // Lưu bind
                             _logger.LogInformation(
                                 "Self-healed orphan: Reservation '{Id:N}' bound to LobbyId='{LobbyId}'.",
                                 existing.Id, orphanLobby.Id);
@@ -336,7 +336,7 @@ public class ReservationService : IReservationService
                 }
             }
 
-            var existingLobbyId = existing.LobbyId
+            var existingLobbyId = existing!.LobbyId
                 ?? throw new InternalServerErrorException(
                     ApiErrorMessages.System.ReservationLobbyMissingOnIdempotent(existing.Id));
 
@@ -483,7 +483,7 @@ public class ReservationService : IReservationService
             try
             {
                 return await ExecuteConfirmTransactionAsync(
-                    hostId, request, quoteRequestDto, cafeConfig, wallet, quote, scheduledStartTime, scheduledEndTime, recruitmentDeadline, now);
+                    hostId, request, quoteRequestDto, cafeConfig, wallet, quote, scheduledStartTime, scheduledEndTime, recruitmentDeadline, now, cancellationToken);
             }
             catch (DbUpdateException dbx) when (IsSerializationFailure(dbx) && attempt < maxRetries)
             {
@@ -581,7 +581,8 @@ public class ReservationService : IReservationService
         DateTime scheduledStartTime,
         DateTime scheduledEndTime,
         DateTime recruitmentDeadline,
-        DateTime now)
+        DateTime now,
+        CancellationToken cancellationToken = default)
     {
         var (_, tx) = await BeginTransactionIfNeededAsync();
 
@@ -702,7 +703,7 @@ public class ReservationService : IReservationService
             // EF batch Reservation↔Lobby FK cycle.
             // Giai đoạn 1: insert Reservation (LobbyId=null) + Lobby (ReservationId=...).
             // Giai đoạn 2: update Reservation.LobbyId + insert LobbyMembers + các cập nhật khác.
-            await _db.SaveChangesAsync();
+            await _db.SaveChangesAsync(cancellationToken);
 
             // 14. Hold BVC (ledger + wallet mutation) — phải gọi SAU SaveChangesAsync đầu tiên
             // để có reservation.Id gán vào ledger entry.
@@ -813,7 +814,7 @@ public class ReservationService : IReservationService
                 CreatedAt = now
             });
 
-            await _db.SaveChangesAsync();
+            await _db.SaveChangesAsync(cancellationToken);
             await tx.CommitAsync();
 
             _logger.LogInformation(
@@ -1953,7 +1954,7 @@ public class ReservationService : IReservationService
 
     // ===== BR §21A.7 Check-in =====
 
-    public async Task<ReservationCheckInResponseDto> CheckInAsync(Guid staffUserId, ReservationCheckInRequestDto request)
+    public async Task<ReservationCheckInResponseDto> CheckInAsync(Guid staffUserId, ReservationCheckInRequestDto request, CancellationToken cancellationToken = default)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
 
@@ -2009,7 +2010,7 @@ public class ReservationService : IReservationService
         {
             try
             {
-                return await ExecuteCheckInTransactionAsync(reservation, staffUserId, request, now);
+                return await ExecuteCheckInTransactionAsync(reservation, staffUserId, request, now, cancellationToken);
             }
             catch (DbUpdateException dbx) when (IsSerializationFailure(dbx) && attempt < maxRetries)
             {
@@ -2030,7 +2031,8 @@ public class ReservationService : IReservationService
     public async Task<ReservationCheckInResponseDto> CheckInByCodeAsync(
         Guid staffUserId,
         string reservationCode,
-        CheckInByCodeRequestDto request)
+        CheckInByCodeRequestDto request,
+        CancellationToken cancellationToken = default)
     {
         // Chuyển đổi sang ReservationCheckInRequestDto để reuse logic
         var checkInRequest = new ReservationCheckInRequestDto
@@ -2050,7 +2052,8 @@ public class ReservationService : IReservationService
         Reservation reservation,
         Guid staffUserId,
         ReservationCheckInRequestDto request,
-        DateTime now)
+        DateTime now,
+        CancellationToken cancellationToken = default)
     {
         await using var tx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
 
@@ -2166,7 +2169,7 @@ public class ReservationService : IReservationService
                 CreatedAt = now
             });
 
-            await _db.SaveChangesAsync();
+            await _db.SaveChangesAsync(cancellationToken);
             await tx.CommitAsync();
 
             _logger.LogInformation(
@@ -2865,7 +2868,7 @@ public class ReservationService : IReservationService
             RefundPolicyApplied = string.Empty,
             LobbyId = reservation.LobbyId,
             LobbyShareCode = reservation.Lobby?.ShareCode,
-            LobbyStatus = reservation.Lobby?.Status.ToString(),
+            LobbyStatus = reservation.Lobby?.Status.ToString() ?? string.Empty,
             CafeRejectionReason = reservation.Lobby?.CafeRejectionReason,
             ReservationCode = reservation.ReservationCode,
             CreatedAt = reservation.CreatedAt,
@@ -2913,7 +2916,7 @@ public class ReservationService : IReservationService
             Status = r.Status.ToString(),
             DepositAmount = r.DepositAmount,
             LobbyId = r.LobbyId,
-            LobbyStatus = r.Lobby?.Status.ToString(),
+            LobbyStatus = r.Lobby?.Status.ToString() ?? null,
             ReservationCode = r.ReservationCode,
             ScheduledStartTime = r.ScheduledStartTime,
             ScheduledEndTime = r.ScheduledEndTime,
@@ -3282,9 +3285,9 @@ public class ReservationService : IReservationService
                 CreatedAt = now
             });
 
-            await _db.SaveChangesAsync();
+            await _db.SaveChangesAsync(ct);
 
-            // CRITICAL FIX (2026-08-18): chỉ commit transaction nếu method này TỰ MỞ
+// CRITICAL FIX (2026-08-18): chỉ commit transaction nếu method này TỰ MỞ
             // (ownedTx != null). Nếu đã có ambient transaction (gọi từ
             // ActiveSessionService.PaySessionCoreAsync trong cùng DbContext scope),
             // outer transaction sẽ commit toàn bộ — không gọi CommitAsync ở đây
@@ -3381,8 +3384,7 @@ public class ReservationService : IReservationService
             reason: $"[BR-REFUND-07] Admin override refund for Reservation {reservationId}: {request.Reason}",
             idempotencyKey: idempotencyKey);
 
-        // 5. Ghi PlayerActionHistory audit (BR-RISK-05).
-        // TODO: Add PlayerActionHistory logging if not already in AdminAdjustBalanceAsync.
+        // 5. Audit log: AdminAdjustBalanceAsync đã ghi PlayerActionHistory (BR-RISK-05).
 
         _logger.LogInformation(
             "AdminOverrideRefund: ReservationId={ReservationId}, AdminUserId={AdminId}, " +
@@ -3668,7 +3670,7 @@ public class ReservationService : IReservationService
             Status = r.Status.ToString(),
             DepositAmount = r.DepositAmount,
             LobbyId = r.LobbyId,
-            LobbyStatus = r.Lobby?.Status.ToString(),
+            LobbyStatus = r.Lobby?.Status.ToString() ?? null,
             ReservationCode = r.ReservationCode,
             ScheduledStartTime = r.ScheduledStartTime,
             ScheduledEndTime = r.ScheduledEndTime,
@@ -3724,7 +3726,7 @@ public class ReservationService : IReservationService
             Status = r.Status.ToString(),
             DepositAmount = r.DepositAmount,
             LobbyId = r.LobbyId,
-            LobbyStatus = r.Lobby?.Status.ToString(),
+            LobbyStatus = r.Lobby?.Status.ToString() ?? null,
             ReservationCode = r.ReservationCode,
             ScheduledStartTime = r.ScheduledStartTime,
             ScheduledEndTime = r.ScheduledEndTime,

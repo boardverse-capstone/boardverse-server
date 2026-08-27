@@ -71,7 +71,7 @@ public class PaymentController : BaseApiController
             ?? throw new NotFoundException(ApiErrorMessages.Payment.DepositNotFoundById(depositId));
 
         var userId = GetUserIdFromClaims();
-        var userRole = User.FindFirst(ClaimTypes.Role)?.Value;
+        var userRole = User.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty;
 
         // P2 Fix #14 + mobile gap #6: AuthZ theo role.
         // Admin: xem tất cả.
@@ -113,7 +113,7 @@ public class PaymentController : BaseApiController
             ?? throw new NotFoundException(ApiErrorMessages.Payment.DepositNotFoundByOrderId(orderId));
 
         var userId = GetUserIdFromClaims();
-        var userRole = User.FindFirst(ClaimTypes.Role)?.Value;
+        var userRole = User.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty;
         bool authorized = userRole switch
         {
             "Admin" => true,

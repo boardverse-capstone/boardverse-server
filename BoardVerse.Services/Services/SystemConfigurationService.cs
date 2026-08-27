@@ -81,7 +81,7 @@ namespace BoardVerse.Services.Services
             return map.TryGetValue(key, out var value) ? value : fallback;
         }
 
-        public Task InvalidateCacheAsync(CancellationToken cancellationToken = default) => _cache.RemoveAsync(CacheKey);
+        public Task InvalidateCacheAsync(CancellationToken cancellationToken = default) => _cache.RemoveAsync(CacheKey, cancellationToken);
 
         public async Task<IReadOnlyList<SystemConfigEntryDto>> GetAllConfigsAsync(CancellationToken cancellationToken = default)
         {

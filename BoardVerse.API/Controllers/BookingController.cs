@@ -238,9 +238,7 @@ public class BookingController : BaseApiController
         return NewResponse(200, "Hủy booking thành công.", result);
     }
 
-    /// <summary>
-    /// Removed legacy endpoints (BR §XXI-B.1, BR §21A.7):
-    /// - `POST /api/bookings/{bookingId}/check-in`  → dùng `POST /api/cafes/{cafeId}/pos/check-in`
-    /// - `POST /api/bookings/{bookingId}/check-out` → `ReservationService.CompleteAndCaptureAsync` khi ActiveSession PAID.
-    /// </summary>
+    // Removed legacy endpoints (BR §XXI-B.1, BR §21A.7):
+    // - `POST /api/bookings/{bookingId}/check-in`  → dùng `POST /api/cafes/{cafeId}/pos/check-in`
+    // - `POST /api/bookings/{bookingId}/check-out` → `ReservationService.CompleteAndCaptureAsync` khi ActiveSession PAID.
 }

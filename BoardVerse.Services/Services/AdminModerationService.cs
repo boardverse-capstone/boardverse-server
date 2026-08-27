@@ -30,10 +30,10 @@ namespace BoardVerse.Services.Services
             DateTime? fromUtc,
             DateTime? toUtc,
             PaginationParams pagination, CancellationToken cancellationToken = default) =>
-            _repository.GetKarmaLogsAsync(userId, violationCategory, fromUtc, toUtc, pagination);
+            _repository.GetKarmaLogsAsync(userId, violationCategory, fromUtc, toUtc, pagination, cancellationToken);
 
         public Task<IReadOnlyList<UserKarmaAlertDto>> GetKarmaAlertsAsync(CancellationToken cancellationToken = default) =>
-            _repository.GetKarmaAlertsAsync(SystemConfigKeys.KarmaSafetyThreshold);
+            _repository.GetKarmaAlertsAsync(SystemConfigKeys.KarmaSafetyThreshold, cancellationToken);
 
         public Task<PaginatedResponse<PlayerActionHistoryDto>> GetPlayerActionHistoryAsync(PlayerActionHistoryQuery query) =>
             _repository.GetPlayerActionHistoryAsync(query);

@@ -54,6 +54,7 @@ namespace BoardVerse.Services.Services
         private readonly BoardVerseDbContext _db;
         private readonly EligibilityValidator _eligibilityValidator;
         private readonly IUserProfileService _userProfileService;
+        private readonly IPlayerKarmaService _playerKarmaService; // GAP-4: Karma penalty cho host dissolve
         private readonly ILogger<LobbyService> _logger;
         private readonly ISystemConfigurationProvider _configProvider;
         private readonly IHttpContextAccessor _httpContextAccessor;
@@ -77,6 +78,7 @@ namespace BoardVerse.Services.Services
             BoardVerseDbContext db,
             EligibilityValidator eligibilityValidator,
             IUserProfileService userProfileService,
+            IPlayerKarmaService playerKarmaService,
 ILogger<LobbyService> logger,
             ISystemConfigurationProvider configProvider = null!,
             IHttpContextAccessor httpContextAccessor = null!)
@@ -98,6 +100,7 @@ ILogger<LobbyService> logger,
             _db = db;
             _eligibilityValidator = eligibilityValidator;
             _userProfileService = userProfileService;
+            _playerKarmaService = playerKarmaService;
             _logger = logger;
             _configProvider = configProvider;
             _httpContextAccessor = httpContextAccessor;
@@ -703,7 +706,10 @@ ILogger<LobbyService> logger,
             int limit = 50,
             Guid? requestingUserId = null, CancellationToken cancellationToken = default)
         {
-            // BR-10: Lobby phải là public + status Open. Private bị ẩn hoàn toàn.
+            // BR-10 + BR-LOBBY-READY-02 + yêu cầu UX (2026-08-27):
+            // Hiển thị lobby public CHƯA VÀO PHIÊN CHƠI (Open/Viable/Full/WaitingCheckIn).
+            // Private lobby bị ẩn hoàn toàn. Lobby đã InProgress trở lên (Closed / TimeoutFailed /
+            // HostCancelled / Dissolved / RatingOpen / RejectedByCafe / ExpiredByCafe) bị loại.
             // BR-USER-LIMIT-02: Loại bỏ các lobby trùng lịch với user (excludeSelfOverlapping)
             // Áp dụng bounding-box pre-filter trong repo, Haversine precise sort ở đây.
             var lobbies = await _lobbyRepository.GetDiscoverablePublicLobbiesAsync(
@@ -900,21 +906,21 @@ ILogger<LobbyService> logger,
             {
                 try
                 {
-                    return await ExecuteDissolveTransactionAsync(lobbyId, hostUserId, reason);
+                    return await ExecuteDissolveTransactionAsync(lobbyId, hostUserId, reason, cancellationToken);
                 }
                 catch (DbUpdateException ex) when (IsSerializationFailure(ex) && attempt < MaxRetries)
                 {
                     _logger.LogWarning(
                         "DissolveLobby serialization failure on attempt {Attempt}/{Max}. LobbyId={LobbyId}. Retrying...",
                         attempt, MaxRetries, lobbyId);
-                    await Task.Delay(TimeSpan.FromMilliseconds(50 * attempt));
+                    await Task.Delay(TimeSpan.FromMilliseconds(50 * attempt), cancellationToken);
                 }
                 catch (DbUpdateConcurrencyException) when (attempt < MaxRetries)
                 {
                     _logger.LogWarning(
                         "DissolveLobby concurrency failure on attempt {Attempt}/{Max}. LobbyId={LobbyId}. Retrying...",
                         attempt, MaxRetries, lobbyId);
-                    await Task.Delay(TimeSpan.FromMilliseconds(50 * attempt));
+                    await Task.Delay(TimeSpan.FromMilliseconds(50 * attempt), cancellationToken);
                 }
             }
 
@@ -923,7 +929,7 @@ ILogger<LobbyService> logger,
         }
 
         private async Task<DissolveLobbyResponseDto> ExecuteDissolveTransactionAsync(
-            Guid lobbyId, Guid hostUserId, string? reason)
+            Guid lobbyId, Guid hostUserId, string? reason, CancellationToken cancellationToken)
         {
             var now = DateTime.UtcNow;
 
@@ -1129,21 +1135,33 @@ ILogger<LobbyService> logger,
                     await tx.CommitAsync();
                 }
 
-                // Structured audit log (BR-RISK-05 §16.7 — logger thay cho PlayerActionHistory
-                // để đồng bộ pattern với ReservationService.CancelAsync — service cancel hiện
-                // không ghi PlayerActionHistory entity, chỉ log structured).
-                // TODO: Khi PlayerActionHistory được mở rộng cho lobby cancel/dissolve events
-                // (BR-RISK-05 + Gap #7), chuyển từ logger sang entity insert.
+                // GAP-4 (BR-REFUND-02): Phạt Karma cho host khi dissolve gần giờ chơi.
+                // Chạy NGOÀI transaction (sau commit) để failure không rollback domain mutation.
+                // RecordHostDissolveAsync tự idempotent theo (hostId + lobbyId qua AppealReason).
+                if (scheduledStart.HasValue)
+                {
+                    try
+                    {
+                        var hoursBefore = (scheduledStart.Value - now).TotalHours;
+                        await _playerKarmaService.RecordHostDissolveAsync(
+                            reservationId,
+                            hostUserId,
+                            hoursBefore,
+                            policyName,
+                            cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex,
+                            "RecordHostDissolveAsync failed (non-blocking). LobbyId={LobbyId}, HostId={HostId}",
+                            lobbyId, hostUserId);
+                    }
+                }
+
                 _logger.LogInformation(
                     "Lobby dissolved. LobbyId={LobbyId}, HostId={HostId}, Policy={Policy}, Refund={Refund} BVC, Forfeit={Forfeit} BVC, Deposit={Deposit} BVC, OutboxEvents={OutboxCount}, HasReservation={HasReservation}",
                     lobbyId, hostUserId, policyName, refundAmount, forfeitAmount, depositAmount,
                     outboxEvents.Count, reservation != null);
-
-                // TODO: Gap #8 — Karma penalty cho host khi dissolve <6h trước scheduledStart
-                // (BR-REFUND-02 bảng "giảm đáng kể"). Cần thêm hook vào IPlayerKarmaService
-                // (vd. RecordHostDissolveAsync) — phase tiếp theo vì chưa có sẵn.
-                // TODO: Gap #9 — Trigger KarmaAggregation sau dissolve. Hiện chưa có interface
-                // IBookingRatingService.AggregrateForLobbyAsync — phase tiếp theo.
 
                 return new DissolveLobbyResponseDto
                 {

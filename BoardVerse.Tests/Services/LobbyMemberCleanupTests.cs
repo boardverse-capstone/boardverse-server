@@ -112,7 +112,7 @@ public class LobbyMemberCleanupTests
         {
             Id = Guid.NewGuid(),
             Status = LobbyStatus.TimeoutFailed,
-            Members = null
+            Members = null!
         };
 
         // Should not throw.

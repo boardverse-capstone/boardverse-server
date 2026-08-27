@@ -22,46 +22,46 @@ namespace BoardVerse.Services.Services
         }
 
         /// <summary>K-06: Backwards-compatible simple karma leaderboard (no paging, no rank lookup).</summary>
-        public Task<KarmaLeaderboardDto> GetKarmaLeaderboardAsync(int limit = 100, CancellationToken cancellationToken = default)
+        public async Task<KarmaLeaderboardDto> GetKarmaLeaderboardAsync(int limit = 100, CancellationToken cancellationToken = default)
         {
-            return GetKarmaLeaderboardPagedAsync(0, NormaliseLimit(limit), viewerUserId: null)
-                .ContinueWith(t => new KarmaLeaderboardDto
-                {
-                    Entries = t.Result.Entries
-                        .Select(e => new KarmaLeaderboardEntryDto
-                        {
-                            Rank = e.Rank,
-                            UserId = e.UserId,
-                            Username = e.Username,
-                            AvatarUrl = e.AvatarUrl,
-                            KarmaPoints = e.KarmaPoints,
-                            GamerTier = e.GamerTier
-                        })
-                        .ToList(),
-                    GeneratedAt = t.Result.GeneratedAt
-                }, TaskScheduler.Default);
+            var paged = await GetKarmaLeaderboardPagedAsync(0, NormaliseLimit(limit), viewerUserId: null, cancellationToken);
+            return new KarmaLeaderboardDto
+            {
+                Entries = paged.Entries
+                    .Select(e => new KarmaLeaderboardEntryDto
+                    {
+                        Rank = e.Rank,
+                        UserId = e.UserId,
+                        Username = e.Username,
+                        AvatarUrl = e.AvatarUrl,
+                        KarmaPoints = e.KarmaPoints,
+                        GamerTier = e.GamerTier
+                    })
+                    .ToList(),
+                GeneratedAt = paged.GeneratedAt
+            };
         }
 
         /// <summary>K-06: Backwards-compatible simple elo leaderboard.</summary>
-        public Task<EloLeaderboardDto> GetEloLeaderboardAsync(int limit = 100, CancellationToken cancellationToken = default)
+        public async Task<EloLeaderboardDto> GetEloLeaderboardAsync(int limit = 100, CancellationToken cancellationToken = default)
         {
-            return GetEloLeaderboardPagedAsync(0, NormaliseLimit(limit), viewerUserId: null)
-                .ContinueWith(t => new EloLeaderboardDto
-                {
-                    Entries = t.Result.Entries
-                        .Select(e => new EloLeaderboardEntryDto
-                        {
-                            Rank = e.Rank,
-                            UserId = e.UserId,
-                            Username = e.Username,
-                            AvatarUrl = e.AvatarUrl,
-                            GlobalElo = e.GlobalElo,
-                            GamerTier = e.GamerTier,
-                            Level = e.Level
-                        })
-                        .ToList(),
-                    GeneratedAt = t.Result.GeneratedAt
-                }, TaskScheduler.Default);
+            var paged = await GetEloLeaderboardPagedAsync(0, NormaliseLimit(limit), viewerUserId: null, cancellationToken);
+            return new EloLeaderboardDto
+            {
+                Entries = paged.Entries
+                    .Select(e => new EloLeaderboardEntryDto
+                    {
+                        Rank = e.Rank,
+                        UserId = e.UserId,
+                        Username = e.Username,
+                        AvatarUrl = e.AvatarUrl,
+                        GlobalElo = e.GlobalElo,
+                        GamerTier = e.GamerTier,
+                        Level = e.Level
+                    })
+                    .ToList(),
+                GeneratedAt = paged.GeneratedAt
+            };
         }
 
         /// <summary>K-06: Karma leaderboard with paging (top/offset) and optional viewer rank.</summary>

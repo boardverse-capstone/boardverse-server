@@ -1935,7 +1935,7 @@ public class ActiveSessionServiceTests
 
         var sessionRepo = new Mock<IActiveSessionRepository>();
         sessionRepo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
-        sessionRepo.Setup(r => r.BeginTransactionAsync(It.IsAny<CancellationToken>())).Returns(Task.FromResult<Core.IRepositories.IDatabaseTransactionContext?>(null));
+        sessionRepo.Setup(r => r.BeginTransactionAsync(It.IsAny<CancellationToken>())).Returns(Task.FromResult<Core.IRepositories.IDatabaseTransactionContext>(null!));
 
         var posRepo = new Mock<ICafePosRepository>();
         posRepo.Setup(r => r.GetSessionGamesAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<ActiveSessionGame>());
@@ -2032,7 +2032,7 @@ public class ActiveSessionServiceTests
 
         var sessionRepo = new Mock<IActiveSessionRepository>();
         sessionRepo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
-        sessionRepo.Setup(r => r.BeginTransactionAsync(It.IsAny<CancellationToken>())).Returns(Task.FromResult<Core.IRepositories.IDatabaseTransactionContext?>(null));
+        sessionRepo.Setup(r => r.BeginTransactionAsync(It.IsAny<CancellationToken>())).Returns(Task.FromResult<Core.IRepositories.IDatabaseTransactionContext>(null!));
 
         var posRepo = new Mock<ICafePosRepository>();
         posRepo.Setup(r => r.GetSessionGamesAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(new List<ActiveSessionGame>());

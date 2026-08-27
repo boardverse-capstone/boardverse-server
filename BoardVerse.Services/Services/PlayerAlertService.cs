@@ -33,11 +33,11 @@ public class PlayerAlertService : IPlayerAlertService
     }
 
     public Task<PaginatedResponse<PlayerAlertDto>> GetPagedAsync(PlayerAlertQuery query, CancellationToken cancellationToken = default) =>
-        _alertRepo.GetPagedAsync(query);
+        _alertRepo.GetPagedAsync(query, cancellationToken);
 
     public async Task<PlayerAlertDto> AcknowledgeAsync(Guid alertId, Guid adminUserId, CancellationToken cancellationToken = default)
     {
-        var alert = await _alertRepo.GetByIdAsync(alertId);
+        var alert = await _alertRepo.GetByIdAsync(alertId, cancellationToken);
         if (alert == null)
         {
             throw new NotFoundException(ApiErrorMessages.AdminModeration.AlertNotFound(alertId));
@@ -51,14 +51,14 @@ public class PlayerAlertService : IPlayerAlertService
         alert.Status = PlayerAlertStatus.Acknowledged;
         alert.AcknowledgedBy = adminUserId;
         alert.AcknowledgedAt = DateTime.UtcNow;
-        await _db.SaveChangesAsync();
+        await _db.SaveChangesAsync(cancellationToken);
 
         return ToDto(alert);
     }
 
     public async Task<PlayerAlertDto> ResolveAsync(Guid alertId, Guid adminUserId, string note, CancellationToken cancellationToken = default)
     {
-        var alert = await _alertRepo.GetByIdAsync(alertId);
+        var alert = await _alertRepo.GetByIdAsync(alertId, cancellationToken);
         if (alert == null)
         {
             throw new NotFoundException(ApiErrorMessages.AdminModeration.AlertNotFound(alertId));
@@ -73,7 +73,7 @@ public class PlayerAlertService : IPlayerAlertService
         alert.AcknowledgedBy ??= adminUserId;
         alert.AcknowledgedAt ??= DateTime.UtcNow;
         alert.ResolutionNote = note?.Trim();
-        await _db.SaveChangesAsync();
+        await _db.SaveChangesAsync(cancellationToken);
 
         // BR-RISK-05: ghi PlayerActionHistory audit.
         _db.PlayerActionHistories.Add(new PlayerActionHistory
@@ -92,14 +92,14 @@ public class PlayerAlertService : IPlayerAlertService
             }),
             CreatedAt = DateTime.UtcNow
         });
-        await _db.SaveChangesAsync();
+        await _db.SaveChangesAsync(cancellationToken);
 
         return ToDto(alert);
     }
 
     public async Task<PlayerAlertDto> DismissAsync(Guid alertId, Guid adminUserId, string note, CancellationToken cancellationToken = default)
     {
-        var alert = await _alertRepo.GetByIdAsync(alertId);
+        var alert = await _alertRepo.GetByIdAsync(alertId, cancellationToken);
         if (alert == null)
         {
             throw new NotFoundException(ApiErrorMessages.AdminModeration.AlertNotFound(alertId));
@@ -109,7 +109,7 @@ public class PlayerAlertService : IPlayerAlertService
         alert.AcknowledgedBy ??= adminUserId;
         alert.AcknowledgedAt ??= DateTime.UtcNow;
         alert.ResolutionNote = note?.Trim();
-        await _db.SaveChangesAsync();
+        await _db.SaveChangesAsync(cancellationToken);
 
         _db.PlayerActionHistories.Add(new PlayerActionHistory
         {
@@ -126,7 +126,7 @@ public class PlayerAlertService : IPlayerAlertService
             }),
             CreatedAt = DateTime.UtcNow
         });
-        await _db.SaveChangesAsync();
+        await _db.SaveChangesAsync(cancellationToken);
 
         return ToDto(alert);
     }
@@ -151,7 +151,7 @@ public class PlayerAlertService : IPlayerAlertService
 
         var signalsKey = signalsJson ?? string.Empty;
         var shouldCreate = await _alertRepo.ShouldCreateAutoAlertAsync(
-            userId, PlayerAlertType.AutoThresholdCrossed, signalsKey, AutoAlertCooldownHours);
+            userId, PlayerAlertType.AutoThresholdCrossed, signalsKey, AutoAlertCooldownHours, cancellationToken);
 
         if (!shouldCreate) return;
 
@@ -167,8 +167,8 @@ public class PlayerAlertService : IPlayerAlertService
             CreatedAt = DateTime.UtcNow
         };
 
-        await _alertRepo.AddAsync(alert);
-        await _db.SaveChangesAsync();
+        await _alertRepo.AddAsync(alert, cancellationToken);
+        await _db.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation(
             "PlayerAlert created userId={UserId} riskScore={Score} signals={Signals}",
@@ -177,7 +177,7 @@ public class PlayerAlertService : IPlayerAlertService
 
     public async Task<PlayerAlertMetricsDto> GetMetricsAsync(CancellationToken cancellationToken = default)
     {
-        var alerts = await _db.PlayerAlerts.AsNoTracking().ToListAsync();
+        var alerts = await _db.PlayerAlerts.AsNoTracking().ToListAsync(cancellationToken);
         return new PlayerAlertMetricsDto
         {
             Total = alerts.Count,
@@ -189,9 +189,9 @@ public class PlayerAlertService : IPlayerAlertService
         };
     }
 
-    public async Task<int> DismissStaleAlertsAsync(int maxAgeDays, int batchSize)
+    public async Task<int> DismissStaleAlertsAsync(int maxAgeDays, int batchSize, CancellationToken cancellationToken = default)
     {
-        var stale = await _alertRepo.GetStaleAlertsForDismissalAsync(maxAgeDays, batchSize);
+        var stale = await _alertRepo.GetStaleAlertsForDismissalAsync(maxAgeDays, batchSize, cancellationToken);
         var now = DateTime.UtcNow;
         foreach (var alert in stale)
         {
@@ -213,7 +213,7 @@ public class PlayerAlertService : IPlayerAlertService
                 CreatedAt = now
             });
         }
-        await _db.SaveChangesAsync();
+        await _db.SaveChangesAsync(cancellationToken);
         return stale.Count;
     }
 

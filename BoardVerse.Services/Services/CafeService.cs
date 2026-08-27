@@ -547,17 +547,14 @@ namespace BoardVerse.Services.Services
                 var heldSeatsTask = _cafeRepository.CountHeldSeatsAsync(cafe.Id, today);
                 var inUseSeatsTask = _cafeRepository.CountInUseSeatsAsync(cafe.Id, today);
 
-                await Task.WhenAll(
-                    bookingsWeekTask, pendingApprovalTask,
-                    seatsBySlotTask, scheduleOverridesTask,
-                    heldSeatsTask, inUseSeatsTask);
-
-                var bookingsWeek = bookingsWeekTask.Result;
-                var pendingApproval = pendingApprovalTask.Result;
-                seatsBySlot = seatsBySlotTask.Result;
-                scheduleOverrides = scheduleOverridesTask.Result;
-                heldSeats = heldSeatsTask.Result;
-                inUseSeats = inUseSeatsTask.Result;
+                                // Sử dụng 6 await trực tiếp thay vì .Result để tránh deadlock risk
+                // (GAP-1 đã fix: trước đây dùng .Result sau Task.WhenAll).
+                var bookingsWeek = await bookingsWeekTask;
+                var pendingApproval = await pendingApprovalTask;
+                seatsBySlot = await seatsBySlotTask;
+                scheduleOverrides = await scheduleOverridesTask;
+                heldSeats = await heldSeatsTask;
+                inUseSeats = await inUseSeatsTask;
 
                 // Upcoming bookings = Confirmed/PendingDeposit chưa kết thúc trong 7 ngày tới
                 upcomingBookingsCount = bookingsWeek.Count(b =>

@@ -203,7 +203,7 @@ public class DebugSessionPaymentController : ControllerBase
     /// release table/box, close lobby, member invoices). Giờ giống flow thật 100%.
     /// </summary>
     [HttpPost("mock-success")]
-    public async Task<IActionResult> MockSuccess([FromQuery] Guid sessionId)
+    public async Task<IActionResult> MockSuccess([FromQuery] Guid sessionId, CancellationToken cancellationToken = default)
     {
         if (!IsDebugEnabled()) return NotFound();
 
@@ -233,7 +233,7 @@ public class DebugSessionPaymentController : ControllerBase
 
         try
         {
-            await _paymentService.HandleSePayWebhookAsync(webhook);
+            await _paymentService.HandleSePayWebhookAsync(webhook, cancellationToken);
         }
         catch (Exception ex)
         {

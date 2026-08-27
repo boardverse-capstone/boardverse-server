@@ -93,14 +93,14 @@ public interface IReservationService
     /// 7. Outbox event LobbyCheckedIn để mobile + POS biết.
     /// Idempotent theo ReservationCode (gọi 2 lần cùng code → trả kết quả cũ).
     /// </summary>
-    Task<ReservationCheckInResponseDto> CheckInAsync(Guid staffUserId, ReservationCheckInRequestDto request);
+    Task<ReservationCheckInResponseDto> CheckInAsync(Guid staffUserId, ReservationCheckInRequestDto request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// BR §21A.7: Check-in theo ReservationCode thay vi reservationId.
     /// Dành cho FE/POS chi co QR code, không can biet reservationId.
     /// Tim reservation theo code, validate cafe ownership, thuc hien check-in.
     /// </summary>
-    Task<ReservationCheckInResponseDto> CheckInByCodeAsync(Guid staffUserId, string reservationCode, CheckInByCodeRequestDto request);
+    Task<ReservationCheckInResponseDto> CheckInByCodeAsync(Guid staffUserId, string reservationCode, CheckInByCodeRequestDto request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// BR §21A.8 + BR-REVENUE-01: POS đóng phiên (ActiveSession → Paid) → capture BVC deposit

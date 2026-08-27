@@ -81,7 +81,7 @@ namespace BoardVerse.API.Controllers
                 return NewResponse(400, ApiErrorMessages.System.InvalidGranularity(0), null);
             }
 
-            var report = await _receiptService.GetRevenueReportAsync(cafeId, startDate, endDate, granularity);
+            var report = await _receiptService.GetRevenueReportAsync(cafeId, startDate, endDate, granularity!);
             return NewResponse(200, ApiSuccessMessages.Cafe.RevenueReportRetrieved, report);
         }
     }

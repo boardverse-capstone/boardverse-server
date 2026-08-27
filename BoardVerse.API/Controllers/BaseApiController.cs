@@ -57,7 +57,7 @@ namespace BoardVerse.API.Controllers
                 userId = parsed;
             }
 
-            var role = User.FindFirst(ClaimTypes.Role)?.Value;
+            var role = User.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty;
             return (userId, role);
         }
     }

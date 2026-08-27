@@ -707,9 +707,10 @@ Host hủy reservation. Refund theo BR-REFUND-02.
 |---|---|---|
 | Trong grace 15p + chưa có member | 100% | Không phạt |
 | ≥ 24 giờ trước `ScheduledStartTime` | 100% | Không phạt |
-| < 24 giờ trước `ScheduledStartTime` | 0% | Giảm đáng kể |
+| < 24 giờ trước `ScheduledStartTime` | 0% | Giảm −10 (HostDissolve violation, GAP-4 fix 2026-08-27) |
 
 > **Lưu ý:** Không còn bậc 50% (6-24h) nữa. Chỉ có 100% (grace/≥24h) hoặc 0% (<24h).
+> **HostDissolve (GAP-4 2026-08-27):** Khi host dissolve lobby (`DELETE /api/v1/lobbies/{id}`) ngoài grace, `PlayerKarmaService.RecordHostDissolveAsync` ghi `KarmaShortPlayRecord` với `ViolationType = HostDissolve`, `ReservationId` được set. Karma aggregation chạy `TriggerKarmaAggregationAsync` sau persist → warning (3-4 violations) hoặc restriction (5+) theo BR-KARMA-03.
 
 **H7 Fix (BR-REFUND-03 hasMembers, 2026-08-09):**
 - Điều kiện "chưa có member" check `members.Any(m => !m.IsHost && m.IsActive)` thay vì `members.Count > 1`.

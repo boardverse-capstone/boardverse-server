@@ -13,9 +13,9 @@ namespace BoardVerse.Services.Services
         }
 
         public Task<int> GetLateCancelPenaltyAsync(CancellationToken cancellationToken = default) =>
-            _configurationProvider.GetIntAsync(SystemConfigKeys.KarmaPenaltyCancel, -3);
+            _configurationProvider.GetIntAsync(SystemConfigKeys.KarmaPenaltyCancel, -3, cancellationToken);
 
         public Task<int> GetNoShowPenaltyAsync(CancellationToken cancellationToken = default) =>
-            _configurationProvider.GetIntAsync(SystemConfigKeys.KarmaPenaltyNoshow, -5);
+            _configurationProvider.GetIntAsync(SystemConfigKeys.KarmaPenaltyNoshow, -5, cancellationToken);
     }
 }

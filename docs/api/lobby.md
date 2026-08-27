@@ -292,11 +292,26 @@ BR-USER-LIMIT-02: Nếu `excludeSelfOverlapping = true`, loại bỏ các lobby 
 
 ## GET /api/v1/lobbies/discoverable
 
-Khám phá tất cả lobby **public + đang mở** (`IsPrivate = false`, `Status = Open`) để bất kỳ player nào cũng có thể thấy và join.
+Khám phá tất cả lobby **public + CHƯA VÀO PHIÊN CHƠI** (`IsPrivate = false`) để bất kỳ player nào cũng có thể thấy và join.
+
+Status được trả về (theo yêu cầu UX 2026-08-27):
+
+| Status | Hiển thị? | Lý do |
+|---|---|---|
+| `Open` | ✅ | Đang tuyển người |
+| `Viable` | ✅ | Đạt `minPlayers`, vẫn nhận thêm đến `maxPlayers` |
+| `Full` | ✅ | Đã đạt `maxPlayers`, chưa tới quán |
+| `WaitingCheckIn` | ✅ | Tất cả members đã Ready, đang chờ check-in tại quán |
+| `InProgress` | ❌ | Đã vào phiên chơi tại quán |
+| `Closed` / `RatingOpen` | ❌ | Phiên chơi đã kết thúc |
+| `TimeoutFailed` / `HostCancelled` / `Dissolved` | ❌ | Lobby đã giải tán |
+| `RejectedByCafe` / `ExpiredByCafe` | ❌ | Lobby bị cafe từ chối |
+| `PendingActivation` / `PendingCafeApproval` | ❌ | Lobby chưa publish — chỉ host thấy qua `/{lobbyId}` |
+| Private (`IsPrivate = true`) | ❌ | Ẩn hoàn toàn khỏi search/discovery |
 
 Khác với `POST /search`, endpoint này **không bắt buộc `gameTemplateId`** — phù hợp cho màn hình "Browse lobbies" trên mobile. Có thể filter optional theo game + bán kính địa lý, sort theo khoảng cách khi có geo.
 
-BR-USER-LIMIT-02: Nếu `excludeSelfOverlapping = true`, loại bỏ các lobby trùng lịch với user (+30 phút buffer).
+BR-USER-LIMIT-02: Nếu `excludeSelfOverlapping = true`, loại bỏ các lobby trùng lịch với user (+30 phút buffer). Lobby user đã join/host vẫn hiển thị cho chính user đó.
 
 **Role:** Player — đã đăng nhập
 
@@ -322,10 +337,11 @@ Authorization: Bearer <jwt>
 
 **Behavior:**
 - Lobby private bị **loại hoàn toàn** khỏi kết quả.
-- Lobby status khác `Open` (Full / InProgress / TimeoutFailed / Closed / HostCancelled) bị loại.
+- Lobby status CHƯA VÀO PHIÊN CHƠI (`Open`, `Viable`, `Full`, `WaitingCheckIn`) hiển thị.
+- Lobby status `InProgress` trở lên (Closed / RatingOpen / TimeoutFailed / HostCancelled / Dissolved / RejectedByCafe / ExpiredByCafe) bị loại.
 - Nếu có geo: áp dụng bounding-box pre-filter ở DB, sau đó Haversine precise + filter `distanceKm <= radiusKm`, sort theo distance asc.
 - Không có geo: sort theo `CreatedAt` desc.
-- Nếu `excludeSelfOverlapping = true`: loại bỏ các lobby trùng `playDate + timeSlot` với lịch hiện tại của user (+30 phút buffer).
+- Nếu `excludeSelfOverlapping = true`: loại bỏ các lobby trùng `playDate + timeSlot` với lịch hiện tại của user (+30 phút buffer). Lobby user đã join/host vẫn hiển thị.
 
 **Response codes:**
 - `200` — Trả về danh sách (có thể rỗng)
@@ -415,6 +431,7 @@ Giải phóng `Reservation` về `Holding` (nếu có) để host tạo lobby m�
 - `LobbyInvite` chuyển sang cancelled (qua `CancelAllPendingForLobbyAsync`).
 - `LobbyMessage` + `LobbyReport` **giữ nguyên** (audit trail).
 - `Reservation.Status` chuyển về `Holding` (nếu đang `Confirmed`).
+- **Karma penalty cho Host (GAP-4 fix 2026-08-27):** Nếu host dissolve lobby sau grace period (đã có member join HOẶC > 15 phút từ tạo) mà BVC không đủ refund → `PlayerKarmaService.RecordHostDissolveAsync` ghi `KarmaShortPlayRecord` với `ViolationType = HostDissolve`, `ReservationId` được set (nullable FK — legacy dissolve không có reservation sẽ null). Trigger warning/restriction nếu đủ 5+ violations (BR-KARMA-03). Karma aggregation chạy qua `TriggerKarmaAggregationAsync` sau khi record được persist.
 
 **Trạng thái không cho phép dissolve:**
 - `InProgress` — đang chơi

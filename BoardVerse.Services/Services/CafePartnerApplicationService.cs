@@ -801,7 +801,7 @@ namespace BoardVerse.Services.Services
                 Address = cafe.Address,
                 Latitude = cafe.Latitude,
                 Longitude = cafe.Longitude,
-                PhoneNumber = cafe.PhoneNumber ?? application?.PhoneNumber,
+                PhoneNumber = cafe.PhoneNumber ?? application?.PhoneNumber ?? string.Empty,
                 WorkingHours = MapWorkingHours(cafe),
                 NumberOfTables = numberOfTables,
                 NumberOfPrivateRooms = cafe.NumberOfPrivateRooms,

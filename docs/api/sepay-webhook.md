@@ -24,9 +24,14 @@ Endpoint nhận webhook từ cổng thanh toán SePay (server-to-server). Cập 
 
 ## POST /api/payments/sepay/webhook
 
-Nhận webhook từ SePay. Hệ thống xác thực **HMAC-SHA256 signature**, lookup theo `orderId`/`gatewayTransactionId`, cập nhật trạng thái thanh toán.
+Nhận webhook từ SePay. Hệ thống xác thực signature **3 mode** theo `SePayAccount.WebhookAuthType`, lookup theo `orderId`/`gatewayTransactionId`, cập nhật trạng thái thanh toán.
 
-**Request body:**
+> **⚠️ SECURITY UPDATE 2026-08-27:** Trước đây webhook chỉ support Base64-encoded `WebhookToken` đặt trong body field `signature` — sai cả format lẫn vị trí so với spec SePay 2024+. Đã refactor theo đúng spec:
+> - Signature đọc từ **HTTP header**, không từ JSON body
+> - Hỗ trợ 3 chế độ auth (None / ApiKey / HmacSha256) cấu hình qua `SePayAccount.WebhookAuthType`
+> - HMAC-SHA256 dùng format chuẩn `sha256=HMAC(secret, "{timestamp}.{rawBody}")` với anti-replay ±300s
+
+**Request body (JSON, parse từ raw stream):**
 ```json
 {
   "id": "webhook-event-id",
@@ -38,10 +43,20 @@ Nhận webhook từ SePay. Hệ thống xác thực **HMAC-SHA256 signature**, l
   "currency": "VND",
   "status": "success",
   "reference_code": "REF-...",
-  "signature": "hmac-sha256-base64",
   "paid_at": "2026-07-14T10:00:00Z"
 }
 ```
+
+**Lưu ý quan trọng:** Webhook controller đọc **raw body TR�ỚC** khi ASP.NET parse JSON, sau đó mới parse JSON từ raw string. Điều này đảm bảo signature HMAC được tính trên chính xác byte sequence SePay gửi, không bị parser reformat (escape, reorder key) làm vỡ hash.
+
+**Request headers (theo `WebhookAuthType`):**
+
+| Mode | Header | Value |
+|---|---|---|
+| `None` | (không yêu cầu) | Bypass — chỉ dev/test |
+| `ApiKey` | `Authorization` | `Apikey <WebhookToken>` (constant-time compare) |
+| `HmacSha256` | `X-SePay-Signature` | `sha256=<hex>` của HMAC-SHA256(SecretKey, `"{timestamp}.{rawBody}"`) |
+| `HmacSha256` | `X-SePay-Timestamp` | Unix epoch seconds (phải trong ±300s của server time, anti-replay) |
 
 **Status mapping:**
 
@@ -60,12 +75,51 @@ Nhận webhook từ SePay. Hệ thống xác thực **HMAC-SHA256 signature**, l
 
 **Response codes:**
 - `200` — Webhook xử lý thành công (kể cả duplicate)
+- `400` — JSON parse fail
+- `401` — Signature verification fail (header thiếu / timestamp skew / constant-time mismatch)
 - `500` — Lỗi xử lý (SePay sẽ retry)
 
-**Security:**
-- Signature phải dùng **cùng field order** với checkout request: `order_amount=...,merchant=...,currency=...,operation=...,order_description=...,order_invoice_number=...,customer_id=...,payment_method=...,success_url=...,error_url=...,cancel_url=...`
-- HMAC-SHA256 với `SecretKey`, trả Base64
-- Signature invalid → log warning + return (không update state)
+**Webhook Signature Verification — 3 mode chi tiết:**
+
+### Mode `None` (default cho tài khoản hiện hữu)
+
+- Bypass hoàn toàn verification — luôn trả `true`.
+- **CHỈ** chấp nhận khi `IHostEnvironment.IsDevelopment() == true`.
+- **Production reject**: Trong môi trường production-like (non-Development), `VerifyWebhookAsync` trả `false` → controller trả `401`. Log error level.
+- **Use case**: dev/test, smoke test local.
+- **⚠️ Production BẮT BUỘC upgrade** sang `ApiKey` hoặc `HmacSha256` trước khi go-live.
+
+### Mode `ApiKey`
+
+- SePay gửi `Authorization: Apikey <WebhookToken>`.
+- Controller extract phần sau `Apikey ` → so sánh constant-time với `SePayAccount.WebhookToken`.
+- Không có timestamp, không có anti-replay — phù hợp khi SePay chỉ cần auth đơn giản.
+- **Setup**: Admin set `WebhookAuthType = ApiKey` + đặt `WebhookToken` ngẫu nhiên (32+ chars) qua `PUT /api/sepay-accounts/{id}`.
+
+### Mode `HmacSha256` (SePay khuyến nghị)
+
+SePay gửi 2 header:
+- `X-SePay-Signature: sha256=<hex>` (lowercase hex, KHÔNG phải Base64)
+- `X-SePay-Timestamp: <unix-seconds>`
+
+Verification flow:
+1. Parse `X-SePay-Timestamp` thành `long unixSeconds`. Nếu thiếu hoặc `|now - unixSeconds| > 300` → reject (anti-replay).
+2. Reconstruct `expected = "sha256=" + HMAC-SHA256(SecretKey, UTF-8("{unixSeconds}.{rawBody}"))`.
+3. So sánh constant-time với header `X-SePay-Signature`.
+
+**Setup**:
+- Admin set `WebhookAuthType = HmacSha256`.
+- `SecretKey` = shared secret dùng cho cả checkout request và webhook (cùng key).
+- SePay dashboard config callback URL + secret trùng `SecretKey` trong DB.
+
+**Anti-replay rationale**: ±300s cho phép clock skew giữa SePay server và BoardVerse server, nhưng chặn replay attack sau khi signature đã lộ.
+
+Xem chi tiết triển khai tại `BoardVerse.Services/Services/Payments/SePayClient.cs` (`VerifyWebhookAsync`, `VerifyApiKey`, `VerifyHmacSha256`). 11 unit test trong `BoardVerse.Tests/Services/SePayClientWebhookVerificationTests.cs` cover cả 3 mode + edge cases (timestamp skew, missing headers, mismatch, replay).
+
+**SePayAccount config** (xem [sepay-account.md](./sepay-account.md)):
+- Column `WebhookAuthType` (int) trên `SePayAccounts` table — migration `20260826203024_AddSePayWebhookAuthType`.
+- Default = `None` (backward compat cho account cũ).
+- Production: admin update từng account sang `ApiKey` hoặc `HmacSha256` qua API.
 
 ---
 

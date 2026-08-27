@@ -103,7 +103,7 @@ public class BookingService : IBookingService
 
         // P1 Fix #6: Wrap booking creation in transaction with pessimistic locking
         // to prevent race conditions when multiple users book the same table simultaneously
-        await using var transaction = await _db.Database.BeginTransactionAsync();
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         try
         {
             // 6. Validate bàn không bị trùng giờ (với pessimistic lock)

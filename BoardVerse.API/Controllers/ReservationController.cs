@@ -449,7 +449,7 @@ public class ReservationController : BaseApiController
         try
         {
             var userId = GetUserIdFromClaims();
-            var result = await _reservationService.CheckInByCodeAsync(userId, reservationCode, request);
+            var result = await _reservationService.CheckInByCodeAsync(userId, reservationCode, request, HttpContext.RequestAborted);
             return this.NewResponse(200, "ReservationCheckedIn", result);
         }
         catch (InvalidOperationException ex)
