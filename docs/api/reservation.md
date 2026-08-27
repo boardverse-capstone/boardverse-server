@@ -92,8 +92,19 @@ Lấy chi tiết một reservation.
     "cafeRejectionReason": null,
     "requiresCafeApproval": false,
     "cafeApprovalDeadline": null,
+    "reservationCode": "K7H3NP9X",
     "createdAt": "2026-08-02T15:30:00Z",
-    "updatedAt": "2026-08-02T15:30:00Z"
+    "updatedAt": "2026-08-02T15:30:00Z",
+    "isHost": true,
+    "canCancel": true,
+    "checkedInAt": null,
+    "actualEndAt": null,
+    "playedRatio": null,
+    "endReason": null,
+    "walkInWindowId": null,
+    "cancelledBy": null,
+    "cancelReason": null,
+    "tableNumber": null
   }
 }
 ```

@@ -1055,6 +1055,7 @@ namespace BoardVerse.Services.Services
                 HostId = session.HostId,
                 CafeTableId = session.CafeTableId,
                 TableName = session.CafeTable?.Name ?? string.Empty,
+                TableNumber = TableNumberHelper.Parse(session.CafeTable?.Name),
                 CafeInventoryBoxId = session.CafeInventoryBoxId,
                 BoxBarcode = session.CafeInventoryBox?.Barcode ?? string.Empty,
                 GameTemplateId = session.GameTemplateId,

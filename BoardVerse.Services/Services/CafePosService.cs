@@ -873,6 +873,7 @@ namespace BoardVerse.Services.Services
                 CafeId = cafeId,
                 ReservationCode = reservationCode,
                 ActiveSessionId = session.Id,
+                TableNumber = TableNumberHelper.Parse(table?.Name),
                 IdempotencyKey = $"pos-checkin:{reservationCode}"
             };
 
@@ -1341,6 +1342,7 @@ namespace BoardVerse.Services.Services
                 LobbyId = session.LobbyId,
                 CafeTableId = session.CafeTableId,
                 TableName = session.CafeTable?.Name ?? string.Empty,
+                TableNumber = TableNumberHelper.Parse(session.CafeTable?.Name),
                 DefaultPlayTimeMinutes = playTime,
                 StartedAt = session.StartedAt,
                 ElapsedMinutes = Math.Max(0, elapsedMinutes),

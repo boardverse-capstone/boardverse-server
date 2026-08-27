@@ -414,6 +414,7 @@ public class ReservationController : BaseApiController
                 CafeId = request.CafeId,
                 ReservationCode = request.ReservationCode,
                 ActiveSessionId = request.ActiveSessionId,
+                TableNumber = request.TableNumber,
                 IdempotencyKey = request.IdempotencyKey
             });
             return this.NewResponse(200, "ReservationCheckedIn", result);
