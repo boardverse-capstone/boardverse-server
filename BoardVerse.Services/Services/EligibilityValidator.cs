@@ -38,12 +38,15 @@ public class EligibilityValidator
 
     /// <summary>
     /// Validate Host có thể tạo reservation. Throw với message nghiệp vụ nếu fail.
-    /// Method sync (không check demo mode) — giữ nguyên cho test/backward compat.
+    /// 
+    /// GAP-4 Fix: Removed sync wrapper — method này đã deprecated.
+    /// Caller nên dùng ValidateHostCanCreateAsync trực tiếp.
     /// </summary>
-    public void ValidateHostCanCreate(
-        HostReservationContext context)
+    [Obsolete("Use ValidateHostCanCreateAsync instead to avoid deadlock risk")]
+    public void ValidateHostCanCreate(HostReservationContext context)
     {
-        ValidateHostCanCreateInternal(context).GetAwaiter().GetResult();
+        throw new NotSupportedException(
+            "ValidateHostCanCreate sync method is deprecated. Use ValidateHostCanCreateAsync instead.");
     }
 
     /// <summary>

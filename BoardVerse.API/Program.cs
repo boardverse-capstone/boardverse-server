@@ -317,6 +317,7 @@ if (!builder.Environment.IsEnvironment("Testing"))
     builder.Services.AddHostedService<ReservationDeadlineJob>(); // GAP #17: deadline + cafe approval expiry + no-show
     builder.Services.AddHostedService<BvcTopUpExpiryJob>(); // BVC top-up pending expire sau 30 phút
     builder.Services.AddHostedService<SettlementRetryJob>();
+    builder.Services.AddHostedService<BvcCaptureRetryJob>(); // GAP-8 Fix: retry BVC capture for paid sessions
     builder.Services.AddHostedService<TournamentExpiryJob>();
     builder.Services.AddHostedService<LobbyCleanupJob>();
     builder.Services.AddHostedService<TournamentReminderJob>();

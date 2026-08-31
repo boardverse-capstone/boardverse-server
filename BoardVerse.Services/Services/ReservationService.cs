@@ -133,6 +133,15 @@ public class ReservationService : IReservationService
             throw new BadRequestException(timeError!);
         }
 
+        // BR-NEW-15: Validate với giờ mở/đóng thực tế của cafe (theo CafeScheduleOverride).
+        // Xử lý cả overnight sessions (validate preferredEnd với schedule ngày kế tiếp).
+        await ValidatePreferredTimesWithCafeScheduleAsync(
+            request.CafeId,
+            request.PlayDate,
+            request.PreferredStartTime,
+            request.PreferredEndTime,
+            cancellationToken);
+
         // Validate cafe + game tồn tại.
         await ValidateCafeAndGameAsync(request);
 
@@ -362,6 +371,15 @@ public class ReservationService : IReservationService
         {
             throw new BadRequestException(timeError!);
         }
+
+        // BR-NEW-15: Validate với giờ mở/đóng thực tế của cafe (theo CafeScheduleOverride).
+        // Xử lý cả overnight sessions (validate preferredEnd với schedule ngày kế tiếp).
+        await ValidatePreferredTimesWithCafeScheduleAsync(
+            request.CafeId,
+            request.PlayDate,
+            request.PreferredStartTime,
+            request.PreferredEndTime,
+            cancellationToken);
 
         var quoteRequest = new ReservationQuoteRequestDto
         {
@@ -2394,6 +2412,28 @@ public class ReservationService : IReservationService
             throw new BadRequestException(
                 ApiErrorMessages.Reservation.MinGreaterThanMaxPlayers(minPlayers, maxPlayers));
         }
+    }
+
+    /// <summary>
+    /// Validate preferredStartTime/preferredEndTime nằm trong giờ mở/đóng thực tế của cafe (theo CafeScheduleOverride).
+    /// BR-NEW-15: Dùng IScheduleResolver để lấy giờ resolved cho playDate.
+    /// Xử lý overnight: nếu preferredEnd < preferredStart, validate preferredEnd với schedule ngày kế tiếp.
+    /// </summary>
+    private async Task ValidatePreferredTimesWithCafeScheduleAsync(
+        Guid cafeId,
+        DateOnly playDate,
+        TimeOnly preferredStart,
+        TimeOnly preferredEnd,
+        CancellationToken cancellationToken = default)
+    {
+        // Delegate to shared helper
+        await Helpers.CafeScheduleValidator.ValidatePreferredTimesWithCafeScheduleAsync(
+            _scheduleResolver,
+            cafeId,
+            playDate,
+            preferredStart,
+            preferredEnd,
+            cancellationToken);
     }
 
     private static LobbyStatus DetermineInitialLobbyStatus(

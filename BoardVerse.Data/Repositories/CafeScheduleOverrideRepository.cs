@@ -31,15 +31,15 @@ public class CafeScheduleOverrideRepository : ICafeScheduleOverrideRepository
             .ToListAsync(cancellationToken);
     }
 
-    public Task AddAsync(CafeScheduleOverride overrideEntity, CancellationToken cancellationToken = default)
+    public async Task AddAsync(CafeScheduleOverride overrideEntity, CancellationToken cancellationToken = default)
     {
-        _db.CafeScheduleOverrides.Add(overrideEntity);
-        return Task.CompletedTask;
+        await _db.CafeScheduleOverrides.AddAsync(overrideEntity, cancellationToken);
     }
 
     public Task UpdateAsync(CafeScheduleOverride overrideEntity, CancellationToken cancellationToken = default)
     {
         overrideEntity.UpdatedAt = DateTime.UtcNow;
+        _db.CafeScheduleOverrides.Update(overrideEntity);
         return Task.CompletedTask;
     }
 

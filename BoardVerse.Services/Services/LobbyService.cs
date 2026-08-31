@@ -55,6 +55,7 @@ namespace BoardVerse.Services.Services
         private readonly EligibilityValidator _eligibilityValidator;
         private readonly IUserProfileService _userProfileService;
         private readonly IPlayerKarmaService _playerKarmaService; // GAP-4: Karma penalty cho host dissolve
+        private readonly IScheduleResolver _scheduleResolver; // GAP-5: Validate cafe schedule override
         private readonly ILogger<LobbyService> _logger;
         private readonly ISystemConfigurationProvider _configProvider;
         private readonly IHttpContextAccessor _httpContextAccessor;
@@ -79,7 +80,8 @@ namespace BoardVerse.Services.Services
             EligibilityValidator eligibilityValidator,
             IUserProfileService userProfileService,
             IPlayerKarmaService playerKarmaService,
-ILogger<LobbyService> logger,
+            IScheduleResolver scheduleResolver,
+            ILogger<LobbyService> logger,
             ISystemConfigurationProvider configProvider = null!,
             IHttpContextAccessor httpContextAccessor = null!)
         {
@@ -101,6 +103,7 @@ ILogger<LobbyService> logger,
             _eligibilityValidator = eligibilityValidator;
             _userProfileService = userProfileService;
             _playerKarmaService = playerKarmaService;
+            _scheduleResolver = scheduleResolver;
             _logger = logger;
             _configProvider = configProvider;
             _httpContextAccessor = httpContextAccessor;
@@ -1657,6 +1660,26 @@ ILogger<LobbyService> logger,
                 if (!validation.isValid)
                 {
                     throw new BadRequestException(validation.error!);
+                }
+
+                // GAP-5 FIX: Validate với giờ mở/đóng thực tế của cafe (CafeScheduleOverride)
+                // Lobby.CafeId có thể null (legacy) — lấy từ Reservation nếu có
+                var cafeId = lobby.CafeId;
+                if (!cafeId.HasValue && lobby.ReservationId.HasValue)
+                {
+                    var reservation = await _reservationRepository.GetByIdAsync(lobby.ReservationId.Value);
+                    cafeId = reservation?.CafeId;
+                }
+
+                if (cafeId.HasValue)
+                {
+                    await Helpers.CafeScheduleValidator.ValidatePreferredTimesWithCafeScheduleAsync(
+                        _scheduleResolver,
+                        cafeId.Value,
+                        playDate,
+                        effectiveStartTime.Value,
+                        effectiveEndTime.Value,
+                        cancellationToken);
                 }
             }
 

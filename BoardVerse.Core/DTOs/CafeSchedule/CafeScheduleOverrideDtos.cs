@@ -47,5 +47,11 @@ public class CafeScheduleOverrideResponseDto
 public class CafeScheduleResponseDto
 {
     public Guid CafeId { get; set; }
+
+    /// <summary>Giờ mở/đóng mặc định áp dụng cho ngày không có override.</summary>
+    public TimeOnly DefaultOpenTime { get; set; }
+    public TimeOnly DefaultCloseTime { get; set; }
+
+    /// <summary>Danh sách override theo ngày. Ngày không có trong list = dùng default.</summary>
     public List<CafeScheduleOverrideResponseDto> Days { get; set; } = new();
 }
