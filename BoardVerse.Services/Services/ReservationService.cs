@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 using BoardVerse.Core.Constants;
 using BoardVerse.Core.DTOs.Reservation;
 using BoardVerse.Core.DTOs.Wallet;
@@ -34,6 +36,7 @@ public class ReservationService : IReservationService
     private const int QuoteExpiryMinutes = 5;
     private const int NoShowGraceMinutes = 30;
     private const int ActiveLobbyStatusesCounted = 1; // active host lobby limit
+    private const int MaxAdvanceBookingDays = 7; // BR-NEW-01 + Q#19: playDate tối đa 7 ngày trong tương lai
 
     private readonly BoardVerseDbContext _db;
     private readonly IWalletService _walletService;
@@ -175,6 +178,18 @@ public class ReservationService : IReservationService
         var cafe = await _cafeRepository.GetActiveByIdAsync(request.CafeId)
             ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(request.CafeId));
 
+        // G3 fix: Validate preferred times với cafe schedule TRƯỚC khi tính deposit.
+        // Nếu preferredStartTime/preferredEndTime nằm ngoài giờ mở/đóng thực tế,
+        // không có nghĩa lý gì khi tính quote → reject sớm.
+        var resolvedScheduleForQuote = await _scheduleResolver.ResolveAsync(request.CafeId, request.PlayDate, cancellationToken);
+        if (resolvedScheduleForQuote.IsClosed)
+        {
+            throw new BadRequestException(ApiErrorMessages.Reservation.CafeScheduleClosedForPlayDate);
+        }
+        await ValidatePreferredTimesWithCafeScheduleAsync(
+            request.CafeId, request.PlayDate,
+            request.PreferredStartTime, request.PreferredEndTime, cancellationToken);
+
         // Tính quote.
         var quote = _depositCalculator.Calculate(
             request,
@@ -208,6 +223,12 @@ public class ReservationService : IReservationService
         var (scheduledStartTime, scheduledEndTime) = CafeSchedule.BuildScheduledStartEndFromPreferred(
             request.PlayDate, request.PreferredStartTime, request.PreferredEndTime);
 
+        // G13 fix: defensive assertion — scheduledStartTime phải thuộc playDate.
+        Debug.Assert(
+            DateOnly.FromDateTime(scheduledStartTime) == request.PlayDate,
+            $"[G13] scheduledStartTime {scheduledStartTime:yyyy-MM-dd} không thuộc playDate {request.PlayDate}. " +
+            "CafeSchedule.BuildScheduledStartEndFromPreferred có bug.");
+
         // Validate cafe mở cửa.
         var resolvedSchedule = await _scheduleResolver.ResolveAsync(request.CafeId, request.PlayDate);
         if (resolvedSchedule.IsClosed)
@@ -216,7 +237,7 @@ public class ReservationService : IReservationService
         }
 
         // Validate reservation time window.
-        ValidateReservationTimeWindow(scheduledStartTime, scheduledEndTime);
+        ValidateReservationTimeWindow(scheduledStartTime, scheduledEndTime, now);
 
         var recruitmentDeadline = scheduledStartTime.AddMinutes(-20);
 
@@ -487,8 +508,19 @@ public class ReservationService : IReservationService
         var (scheduledStartTime, scheduledEndTime) = CafeSchedule.BuildScheduledStartEndFromPreferred(
             quoteRequest.PlayDate, quoteRequest.PreferredStartTime, quoteRequest.PreferredEndTime);
 
+        // G13 fix: defensive assertion — scheduledStartTime phải thuộc playDate.
+        Debug.Assert(
+            DateOnly.FromDateTime(scheduledStartTime) == quoteRequest.PlayDate,
+            $"[G13] scheduledStartTime {scheduledStartTime:yyyy-MM-dd} không thuộc playDate {quoteRequest.PlayDate}. " +
+            "CafeSchedule.BuildScheduledStartEndFromPreferred có bug.");
+
+        // G3 fix: Validate preferred times với cafe schedule trước khi hold BVC.
+        await ValidatePreferredTimesWithCafeScheduleAsync(
+            request.CafeId, quoteRequest.PlayDate,
+            quoteRequest.PreferredStartTime, quoteRequest.PreferredEndTime, cancellationToken);
+
         // BR-RES-07/08/09: validate reservation có startTime+endTime, cùng ngày, preferred times hợp lệ.
-        ValidateReservationTimeWindow(scheduledStartTime, scheduledEndTime);
+        ValidateReservationTimeWindow(scheduledStartTime, scheduledEndTime, now);
 
         var recruitmentDeadline = scheduledStartTime.AddMinutes(-20); // BR-LOBBY-01 default leadTimeMinutes = 20
 
@@ -2387,10 +2419,10 @@ public class ReservationService : IReservationService
     private static void ValidatePlayDate(DateOnly playDate, DateTime now)
     {
         var today = DateOnly.FromDateTime(now.Date);
-        var maxDate = today.AddDays(7);
+        var maxDate = today.AddDays(MaxAdvanceBookingDays);
         if (playDate < today || playDate > maxDate)
         {
-            throw new BadRequestException(ApiErrorMessages.Reservation.PlayDateOutOfRange(7));
+            throw new BadRequestException(ApiErrorMessages.Reservation.PlayDateOutOfRange(MaxAdvanceBookingDays));
         }
     }
 
@@ -3592,18 +3624,66 @@ public class ReservationService : IReservationService
     /// BR-RES-07/08/09: validate rằng reservation có đầy đủ startTime + endTime,
     /// cùng ngày hoặc ngày kế tiếp nếu qua đêm, không dùng TimeSlot enum nữa.
     /// BR-NEW-15 (2026-08-18): derive overnight từ endTime &lt; startTime.
+    ///
+    /// G11 fix: scheduledStartTime phải trong tương lai (so với now).
+    /// G7 fix: thời lượng phiên không được vượt quá <paramref name="maxHours"/>.
+    /// G8 fix: thời lượng phiên phải tối thiểu <paramref name="minMinutes"/>.
+    ///
+    /// NOTE: Method này chỉ validate TIME RANGE của 1 reservation.
+    /// Không check overlap với reservation khác — overlap check nằm ở
+    /// <see cref="EligibilityValidator.ValidateHostCanCreateAsync"/> (BR-USER-LIMIT-02).
+    ///
     /// Throw BadRequestException với message tiếng Việt từ <see cref="ApiErrorMessages.Reservation"/>.
     /// </summary>
-    internal static void ValidateReservationTimeWindow(DateTime scheduledStartTime, DateTime scheduledEndTime)
+    /// <param name="scheduledStartTime">Thời gian bắt đầu dự kiến.</param>
+    /// <param name="scheduledEndTime">Thời gian kết thúc dự kiến.</param>
+    /// <param name="now">Thời điểm hiện tại (UTC) để so sánh.</param>
+    /// <param name="maxHours">Thời lượng tối đa cho phép (mặc định 12 giờ).</param>
+    /// <param name="minMinutes">Thời lượng tối thiểu cho phép (mặc định 30 phút).</param>
+    internal static void ValidateReservationTimeWindow(
+        DateTime scheduledStartTime,
+        DateTime scheduledEndTime,
+        DateTime now,
+        int maxHours = 12,
+        int minMinutes = 30)
     {
         if (scheduledStartTime == default || scheduledEndTime == default)
         {
             throw new BadRequestException(ApiErrorMessages.Reservation.ReservationRequiresStartAndEnd);
         }
 
+        // G5 fix: preferredEndTime == default (TimeOnly.MinValue → DateTime.MinValue) cần message riêng.
+        // Check riêng để message rõ ràng hơn "thời gian bắt đầu và kết thúc bắt buộc".
+        if (scheduledEndTime == default)
+        {
+            throw new BadRequestException(ApiErrorMessages.Reservation.PreferredEndTimeRequired);
+        }
+
         if (scheduledEndTime <= scheduledStartTime)
         {
             throw new BadRequestException(ApiErrorMessages.Reservation.PreferredTimesMustDiffer);
+        }
+
+        // G11 fix: scheduledStartTime phải trong tương lai.
+        if (scheduledStartTime <= now)
+        {
+            throw new BadRequestException(ApiErrorMessages.Reservation.StartTimeInPast);
+        }
+
+        var duration = scheduledEndTime - scheduledStartTime;
+
+        // G7 fix: max duration.
+        if (duration.TotalHours > maxHours)
+        {
+            throw new BadRequestException(
+                ApiErrorMessages.Reservation.DurationTooLong(maxHours));
+        }
+
+        // G8 fix: min duration.
+        if (duration.TotalMinutes < minMinutes)
+        {
+            throw new BadRequestException(
+                ApiErrorMessages.Reservation.DurationTooShort(minMinutes));
         }
 
         // Overnight khi giờ kết thúc nhỏ hơn giờ bắt đầu.
@@ -3673,7 +3753,8 @@ public class ReservationService : IReservationService
         // Validate BR-RES-08 (sanity check).
         ValidateReservationTimeWindow(
             reservation.ScheduledStartTime,
-            reservation.ScheduledEndTime);
+            reservation.ScheduledEndTime,
+            now);
 
         // Tính playedRatio.
         var playedMinutes = (actualEnd - reservation.CheckedInAt.Value).TotalMinutes;

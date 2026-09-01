@@ -2265,6 +2265,10 @@ public const string LobbyBoostOnlyWhenOpen =
         "Đặt chỗ bắt buộc phải có thời gian bắt đầu và thời gian kết thúc. " +
         "Vui lòng chọn đầy đủ preferredStartTime và preferredEndTime.";
 
+    // G5 fix: preferredEndTime == default
+    public const string PreferredEndTimeRequired =
+        "Thời gian kết thúc (preferredEndTime) là bắt buộc. Vui lòng chọn giờ kết thúc cho phiên chơi.";
+
     public const string PreferredTimesMustDiffer =
         "Thời gian kết thúc phải khác thời gian bắt đầu. Nếu chơi qua đêm, giờ kết thúc sẽ được hiểu là thuộc ngày hôm sau.";
 
@@ -2304,6 +2308,18 @@ public const string LobbyBoostOnlyWhenOpen =
  // ===== Play date range (BR § VIII: max 7 ngày trong tương lai) =====
  public static string PlayDateOutOfRange(int maxDaysAhead) =>
  $"Ngày dự kiến chơi phải nằm trong vòng {maxDaysAhead} ngày tới.";
+
+ // ===== Reservation time window duration (G7 + G8 + G11 fixes) =====
+ public static string StartTimeInPast =>
+     "Không thể đặt phiên chơi trong quá khứ hoặc tại thời điểm hiện tại. " +
+     "Vui lòng chọn giờ bắt đầu trong tương lai.";
+
+ public static string DurationTooLong(int maxHours) =>
+     $"Thời lượng phiên chơi không được vượt quá {maxHours} giờ. " +
+     $"Nếu cần chơi lâu hơn, vui lòng liên hệ quán để được hỗ trợ gia hạn.";
+
+ public static string DurationTooShort(int minMinutes) =>
+     $"Thời lượng phiên chơi tối thiểu là {minMinutes} phút.";
 
  public const string CafeConfigMissing =
  "Quán chưa được cấu hình BVC. Không thể đặt cọc. Liên hệ quản lý quán.";
