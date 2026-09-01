@@ -429,10 +429,10 @@ Xóa override cho 1 TimeSlot → cafe quay về dùng default. Idempotent (gọi
 
 | API bị ảnh hưởng | Hành vi |
 |------------------|---------|
-| `POST /api/v1/reservations/quote` | Nếu slot bị đóng (`isClosed = true` và `EffectiveFrom <= playDate <= EffectiveTo`) → trả `400` "Quán đã đóng khung giờ này cho ngày đã chọn". |
-| `POST /api/v1/reservations/confirm` | Tương tự — chặn tạo reservation. |
+| `POST /api/v1/reservations/quote` | Nếu slot bị đóng (`isClosed = true` và `EffectiveFrom <= playDate <= EffectiveTo`) → trả `400` "Quán đã đóng khung giờ này cho ngày đã chọn". Ngoài ra, validate `preferredStartTime >= OpenTime` + `preferredEndTime <= CloseTime` qua `CafeScheduleValidator` (xử lý overnight: end thuộc ngày kế tiếp validate với schedule ngày kế). (G3 fix 2026-09-01.) |
+| `POST /api/v1/reservations/confirm` | Tương tự — chặn tạo reservation + validate preferred times với `CafeSchedule`. |
 | `POST /api/v1/lobbies` (qua reservation flow) | `scheduledTime` và `recruitmentDeadline` được tính từ override (nếu có), không phải default. |
-| POS check-in | `ValidateCheckInTimeWindow` sử dụng resolved schedule — chặn check-in ngoài giờ mở cửa của cafe (override nếu có). |
+| POS check-in | `ValidateCheckInTimeWindow` sử dụng resolved schedule — chặn check-in ngoài giờ mở cửa của cafe (override nếu có). Có thêm `TimeWindowGuard` (per-request bypass) và `DemoGuard` (demo mode bypass). |
 
 ---
 

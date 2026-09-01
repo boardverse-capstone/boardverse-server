@@ -57,6 +57,26 @@ Tất cả endpoint trả về lobby đều dùng schema này (xem `BoardVerse.C
 > - Lobby hiện chỉ được tạo bởi `ReservationService.ConfirmAsync` (atomic transaction BR-REQUIRED §17.4).
 > - Toàn bộ endpoint khác (join, leave, search, cancel, transfer-host, kick, ready, messages…) vẫn hoạt động bình thường.
 
+### Validation chain cho `POST /reservations/confirm` (fix 2026-09-01)
+
+Server validate theo thứ tự trước khi hold BVC:
+
+1. Cafe mở cửa ngày `playDate` (`CafeScheduleResolver.IsClosed`) → 400.
+2. Preferred times hợp lệ với `CafeSchedule` (xử lý overnight, G3 fix).
+3. `playDate ∈ [today, today+7]` (G2 fix) → 400 `PlayDateOutOfRange`.
+4. `scheduledStartTime > now()` (G11 fix) → 400 `StartTimeInPast`.
+5. `scheduledEndTime > scheduledStartTime` → 400 `PreferredTimesMustDiffer`.
+6. Duration 30 phút ≤ d ≤ 12 giờ (G7/G8 fix) → 400.
+7. Overnight rule / Same-day rule → 400 nếu vi phạm.
+8. Buffer `recruitmentDeadline - now()`:
+   - `< 60 phút` → 400 `BufferTooShort` (BR-LOBBY-01b).
+   - `60–120 phút` → 200 với `bufferWarning = true` (BR-LOBBY-01c).
+   - `≥ 120 phút` → 200 (BR-LOBBY-01a).
+9. User eligibility (BR-USER-LIMIT-*, BR-NEW-05, BR-RISK-04, BR-NEW-10).
+10. `availableBalance ≥ finalDeposit` (BR-DEPOSIT-01).
+11. Seat + Game copy availability (BR-RESERVATION-01/02, Serializable retry tối đa 3 lần, G12).
+12. Atomic transaction: trừ BVC + insert Reservation + insert Lobby + hold seat + hold game.
+
 Tuân thủ business rules:
 - **BR-07:** `MaxMembers <= SeatCount` của booking liên kết
 - **BR-08:** Lobby timeout nếu trước gi� hẹn mà chưa đủ `MinPlayers`

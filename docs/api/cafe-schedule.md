@@ -165,8 +165,8 @@ Xóa override cho ngày, cafe quay về dùng default schedule.
 
 | API bị ảnh hưởng | Hành vi |
 |------------------|---------|
-| `POST /api/v1/reservations/quote` | Nếu ngày bị đóng (`isClosed = true`) → trả `400` "Quán đã đóng cửa ngày đã chọn." |
-| `POST /api/v1/reservations/confirm` | Tương tự — chặn tạo reservation. |
+| `POST /api/v1/reservations/quote` | Nếu ngày bị đóng (`isClosed = true`) → trả `400` "Quán đã đóng cửa ngày đã chọn." Ngoài ra, server còn validate `preferredStartTime >= OpenTime` + `preferredEndTime <= CloseTime` qua `CafeScheduleValidator.ValidatePreferredTimesWithCafeScheduleAsync` (xử lý overnight: end thuộc ngày kế tiếp validate với schedule ngày kế). (G3 fix 2026-09-01.) |
+| `POST /api/v1/reservations/confirm` | Tương tự — chặn tạo reservation + validate preferred times với `CafeSchedule`. |
 | `POST /api/v1/lobbies` (qua reservation flow) | `scheduledStartTime`/`scheduledEndTime` được tính từ override (nếu có), không phải default. |
 | POS check-in | `ValidateCheckInTimeWindow` sử dụng resolved schedule — chặn check-in ngoài giờ mở cửa của cafe (override nếu có). |
 

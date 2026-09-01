@@ -443,13 +443,28 @@ Tạo quote cho reservation. **KHÔNG tạo row DB** — chỉ validate + tính 
 |---|---|---|---|
 | `cafeId` | guid | Yes | Cafe còn hoạt động. |
 | `gameId` | guid | Yes | Game có trong `CafeGameInventory`. |
-| `playDate` | date | Yes | Trong khoảng `[today, today+7]`. |
-| `preferredStartTime` | time | Yes | `HH:mm`. Phải `>= CafeSchedule.DefaultOpenTime` (06:00). |
-| `preferredEndTime` | time | Yes | `HH:mm`. Nếu `> preferredStartTime` → cùng ngày; nếu `<` → hiểu là ngày kế tiếp (overnight). Nếu `==` → 400. |
-| `minPlayers` | int | Yes | ≥ 2. |
+| `playDate` | date | Yes | Trong khoảng `[today, today+7]` (cố định toàn hệ thống — BR-RES-08, G2 fix 2026-09-01). |
+| `preferredStartTime` | time | Yes | `HH:mm`. Phải `>= CafeSchedule.OpenTime` và `> now()` (G11 fix 2026-09-01). |
+| `preferredEndTime` | time | Yes | `HH:mm`. Phải > `preferredStartTime`. Nếu `> preferredStartTime` → cùng ngày; nếu `<` → hiểu là ngày kế tiếp (overnight). **KHÔNG ĐƯỢC** bỏ trống / mặc định `00:00` (G5 fix 2026-09-01). Nếu `==` → 400. |
+| `minPlayers` | int | Yes | ≥ 1 (cho phép solo play). |
 | `maxPlayers` | int | Yes | `minPlayers ≤ maxPlayers`. |
 | `isPrivate` | bool | No | `false` = public lobby (có thể cần cafe duyệt). `true` = private lobby (mời bạn, không cần cafe duyệt). Mặc định `false`. |
 | `idempotencyKey` | string | Yes | 8–128 ký tự. Idempotent theo key. |
+
+### Validation chain (BR-RES-07/08/09 + G2/G5/G7/G8/G11/G13 — fix 2026-09-01)
+
+Server validate theo thứ tự (fail sớm nhất):
+
+1. **Cafe mở cửa ngày đó** (`CafeSchedule.IsClosed`) → 400.
+2. **Preferred times nằm trong giờ mở/đóng thực tế** (`CafeScheduleValidator.ValidatePreferredTimesWithCafeScheduleAsync`, xử lý overnight) → 400 (G3 fix).
+3. **`playDate` trong [today, today+7]** → 400 (G2 fix — `MaxAdvanceBookingDays = 7`).
+4. **`scheduledStartTime > now()`** → 400 (`StartTimeInPast`) (G11 fix).
+5. **`scheduledEndTime > scheduledStartTime`** → 400 (`PreferredTimesMustDiffer`).
+6. **Duration ≤ 12 giờ** → 400 (`DurationTooLong`) (G7 fix).
+7. **Duration ≥ 30 phút** → 400 (`DurationTooShort`) (G8 fix).
+8. **Overnight rule**: nếu overnight, `scheduledEndTime.Date == scheduledStartTime.Date + 1` → 400 (`LateNightMustEndNextDay`).
+9. **Same-day rule**: nếu không overnight, `scheduledEndTime.Date == scheduledStartTime.Date` → 400 (`ReservationEndTimeDifferentDay`).
+10. **Defensive assertion**: `DateOnly.FromDateTime(scheduledStartTime) == playDate` (G13 fix — `Debug.Assert` trong dev).
 
 ### Response 200
 
@@ -526,12 +541,20 @@ Trường `warnings` chứa các cảnh báo từ server:
 
 | Status | Message rule | BR |
 |---|---|---|
-| `400` | `playDate` ngoài [today, +7] | - |
+| `400` | `playDate` ngoài `[today, today+7]` (cố định hệ thống — `MaxAdvanceBookingDays = 7`) | BR-RES-08 (G2 fix 2026-09-01) |
 | `400` | `minPlayers < 1` hoặc `maxPlayers > 30` | - |
 | `400` | `maxPlayers < minPlayers` | - |
-| `400` | `preferredStartTime < CafeSchedule.DefaultOpenTime` (06:00) | BR-RES-07 |
-| `400` | `preferredEndTime == preferredStartTime` (zero-duration) | BR-RES-07 |
-| `400` | `preferredEndTime > DefaultCloseTime` (23:00) khi không overnight | BR-RES-07 |
+| `400` | `playDate < today` (ngày trong quá khứ) | BR-RES-08 (G2 fix 2026-09-01) |
+| `400` | `PreferredStartBeforeOpen(<openTime>)` — start trước giờ mở cafe | BR-RES-07 (G3 fix) |
+| `400` | `PreferredEndAfterClose(<closeTime>)` — end sau giờ đóng cafe | BR-RES-07 (G3 fix) |
+| `400` | `PreferredTimesMustDiffer` (end == start, zero-duration) | BR-RES-07 |
+| `400` | `PreferredEndTimeRequired` (endTime bị default = 00:00 hoặc thiếu) | BR-RES-07 (G5 fix 2026-09-01) |
+| `400` | `StartTimeInPast` (`scheduledStartTime <= now()`) | BR-RES-07 (G11 fix 2026-09-01) |
+| `400` | `DurationTooLong(12)` — duration > 12 giờ | BR-RES-07 (G7 fix 2026-09-01) |
+| `400` | `DurationTooShort(30)` — duration < 30 phút | BR-RES-07 (G8 fix 2026-09-01) |
+| `400` | `LateNightMustEndNextDay` — overnight nhưng endDate != startDate+1 | BR-NEW-15 |
+| `400` | `ReservationEndTimeDifferentDay` — same-day nhưng endDate khác startDate | BR-RES-08 |
+| `400` | `CafeScheduleClosedForPlayDate` — cafe đóng ngày đó | - |
 | `400` | Buffer < 60 phút (từ chối) | BR-LOBBY-01b |
 | `400` | Buffer 60-120 phút (cảnh báo) | BR-LOBBY-01c |
 | `401` | Thiếu token | - |
@@ -605,6 +628,8 @@ Nếu `isPrivate: true`, lobby không cần cafe duyệt dù playDate cách xa.
 | Status | Message rule | BR |
 |---|---|---|
 | `400` | `expectedFinalDeposit` khác server (quote cũ) | BR §XVII.2 |
+| `400` | `PreferredStartBeforeOpen` / `PreferredEndAfterClose` (preferred times không khớp `CafeSchedule`) | BR-RES-07 (G3 fix) |
+| `400` | `StartTimeInPast` / `DurationTooLong(12)` / `DurationTooShort(30)` / `PreferredEndTimeRequired` | BR-RES-07 (G fix 2026-09-01) |
 | `400` | Buffer < 60 phút | BR-LOBBY-01b |
 | `400` | Insufficient `availableBalance` | - |
 | `401` | Thiếu token | - |
@@ -668,9 +693,13 @@ Lỗi thường gặp thêm (BR-RES-07/08):
 | Status | Message rule | BR |
 |---|---|---|
 | `400` | `PreferredTimesMustDiffer` (end == start, hoặc zero-duration) | BR-RES-07 |
-| `400` | `PreferredStartBeforeOpen(06:00)` | BR-RES-07 |
-| `400` | `PreferredEndAfterClose(23:00)` khi không overnight | BR-RES-07 |
+| `400` | `PreferredStartBeforeOpen(<openTime>)` | BR-RES-07 (G3 fix 2026-09-01 — dùng `CafeSchedule.OpenTime` thực tế, không phải hardcoded 06:00) |
+| `400` | `PreferredEndAfterClose(<closeTime>)` khi không overnight | BR-RES-07 (G3 fix) |
 | `400` | `ReservationEndTimeDifferentDay` (end > start nhưng lệch sang ngày khác) | BR-RES-08 |
+| `400` | `StartTimeInPast` (`scheduledStartTime <= now()`) | BR-RES-07 (G11 fix 2026-09-01) |
+| `400` | `DurationTooLong(12)` — duration vượt 12 giờ | BR-RES-07 (G7 fix 2026-09-01) |
+| `400` | `DurationTooShort(30)` — duration dưới 30 phút | BR-RES-07 (G8 fix 2026-09-01) |
+| `400` | `PreferredEndTimeRequired` (endTime bị default / thiếu) | BR-RES-07 (G5 fix 2026-09-01) |
 
 ### Idempotency strict params (fix 2026-08-06)
 

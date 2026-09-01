@@ -113,6 +113,19 @@ Backend trả về:
 }
 ```
 
+#### Bước 1.5 — Validation chain (BR-RES-07/08, fix 2026-09-01)
+
+Trước khi tính deposit, backend validate theo thứ tự:
+
+- **BR-RES-07** (preferred times với `CafeSchedule`): start ≥ `OpenTime`, end ≤ `CloseTime`; overnight → validate end với schedule ngày kế tiếp. (G3 fix: áp dụng cho cả `CreateQuoteAsync` và `ConfirmAsync`.)
+- **G2 fix:** `playDate ∈ [today, today+7]` (`MaxAdvanceBookingDays = 7`, cố định toàn hệ thống).
+- **G11 fix:** `scheduledStartTime > now()` → 400 `StartTimeInPast`.
+- **G7 fix:** duration ≤ 12 giờ → 400 `DurationTooLong(12)`.
+- **G8 fix:** duration ≥ 30 phút → 400 `DurationTooShort(30)`.
+- **G5 fix:** `preferredEndTime` không được là `default` (TimeOnly.MinValue) → 400 `PreferredEndTimeRequired`.
+- **BR-NEW-15:** Overnight rule (`endTime.Date == startTime.Date + 1`); Same-day rule (`endTime.Date == startTime.Date`).
+- **G13 fix:** Defensive `Debug.Assert(scheduledStartTime.Date == playDate)` — chỉ trigger khi `BuildScheduledStartEndFromPreferred` có bug.
+
 #### Bước 2 — Kiểm tra điều kiện (BR-USER-LIMIT)
 
 Trước khi confirm, backend validate:
@@ -120,7 +133,7 @@ Trước khi confirm, backend validate:
 - **BR-USER-LIMIT-01**: user chỉ được host 1 lobby active + member 1 lobby khác (tổng 2).
 - **BR-USER-LIMIT-02**: lịch không chồng lấn (+30 phút đệm).
 - **BR-USER-LIMIT-03**: tổng `heldBalance` ≤ 500k (user thường) / 1tr (VIP) / 200k (user có riskMultiplier ≥ 1.25).
-- **BR-LOBBY-01a/b/c**: buffer `recruitmentDeadline - now()` ≥ 120 phút (OK), 60–120 phút (cảnh báo), < 60 phút (từ chối).
+- **BR-LOBBY-01a/b/c**: buffer `recruitmentDeadline - now()` ≥ 120 phút (OK), 60–120 phút (cảnh báo), < 60 phút (từ chối). **G16 fix:** Demo mode (`X-Bypass-Demo-Locks` header) bypass toàn bộ buffer check.
 - **BR-NEW-02**: chỉ 1 lobby active / playDate / user.
 - **BR-NEW-11**: lobby public + playDate ≥ 2 ngày → chờ cafe duyệt.
 
