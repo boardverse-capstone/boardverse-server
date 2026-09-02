@@ -49,6 +49,7 @@ public class DissolveLobbyAsyncTests
             new EligibilityValidator(),
             new Mock<IUserProfileService>().Object,
             new Mock<IPlayerKarmaService>().Object,
+            new Mock<IScheduleResolver>().Object,
             new Mock<ILogger<LobbyService>>().Object);
     }
 
@@ -95,6 +96,7 @@ public class DissolveLobbyAsyncTests
             new EligibilityValidator(),
             new Mock<IUserProfileService>().Object,
             new Mock<IPlayerKarmaService>().Object,
+            new Mock<IScheduleResolver>().Object,
             new Mock<ILogger<LobbyService>>().Object);
 
         return (service, outboxRepo);

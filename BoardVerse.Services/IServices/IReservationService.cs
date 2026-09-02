@@ -138,6 +138,18 @@ public interface IReservationService
     Task<ReservationListResponseDto> GetListAsync(Guid userId, ReservationListRequestDto request, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Lấy tất cả reservation của user (cả host + member) cho màn hình lịch sử.
+    /// Mỗi item kèm field <c>ParticipationType</c> để FE phân biệt:
+    /// - <c>Host</c>: reservation do user tạo (host trả cọc).
+    /// - <c>Member</c>: reservation user tham gia làm thành viên.
+    /// Response bao gồm <c>HostedCount</c> + <c>JoinedCount</c> để FE render 2 tab summary.
+    /// </summary>
+    Task<MyReservationsResponseDto> GetMyReservationsAsync(
+        Guid userId,
+        MyReservationsRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// BR-NEW-11: Lấy chi tiết một reservation pending cafe approval.
     /// </summary>
     Task<LobbyPendingApprovalItemDto?> GetPendingCafeApprovalDetailAsync(

@@ -37,16 +37,13 @@ public class EligibilityValidator
     private const long MaxTotalDepositRisk = 200_000;
 
     /// <summary>
-    /// Validate Host có thể tạo reservation. Throw với message nghiệp vụ nếu fail.
-    /// 
-    /// GAP-4 Fix: Removed sync wrapper — method này đã deprecated.
-    /// Caller nên dùng ValidateHostCanCreateAsync trực tiếp.
+    /// Sync wrapper — chỉ phục vụ unit test (BR-USER-LIMIT-*). Production code phải dùng
+    /// ValidateHostCanCreateAsync để check demo mode.
     /// </summary>
-    [Obsolete("Use ValidateHostCanCreateAsync instead to avoid deadlock risk")]
+    [Obsolete("Use ValidateHostCanCreateAsync instead so demo mode is honored")]
     public void ValidateHostCanCreate(HostReservationContext context)
     {
-        throw new NotSupportedException(
-            "ValidateHostCanCreate sync method is deprecated. Use ValidateHostCanCreateAsync instead.");
+        ValidateHostCanCreateInternal(context).GetAwaiter().GetResult();
     }
 
     /// <summary>

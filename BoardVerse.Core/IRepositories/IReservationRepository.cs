@@ -100,15 +100,35 @@ public interface IReservationRepository
     /// Lấy danh sách reservation với filter + phân trang.
     /// BR-USER-LIMIT-01: user chỉ thấy reservation mình host hoặc có tham gia.
     /// </summary>
+    /// <param name="fromDate">Filter playDate ≥ fromDate (inclusive). Null = không giới hạn.</param>
+    /// <param name="toDate">Filter playDate ≤ toDate (inclusive). Null = không giới hạn.</param>
     Task<(IReadOnlyList<Reservation> Items, int TotalCount)> GetListAsync(
         Guid userId,
         bool hostedByMe,
         bool joinedByMe,
         List<ReservationStatus>? statuses,
         DateOnly? playDate,
+        DateOnly? fromDate,
+        DateOnly? toDate,
         Guid? cafeId,
         int page,
         int pageSize, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Đếm số reservation do user host + user join (member-only) áp dụng cùng filter
+    /// (statuses/cafeId/fromDate/toDate) cho summary count ở <c>GET /my</c>.
+    /// Trả về tuple <c>(HostedCount, JoinedCount)</c>.
+    /// </summary>
+    /// <remarks>
+    /// Member count EXCLUDE self-hosted (tránh double-count khi user vừa host vừa join cùng reservation).
+    /// </remarks>
+    Task<(int HostedCount, int JoinedCount)> GetParticipationCountsAsync(
+        Guid userId,
+        List<ReservationStatus>? statuses,
+        DateOnly? fromDate,
+        DateOnly? toDate,
+        Guid? cafeId,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Tìm kiếm reservation theo tên game hoặc ngày tháng.

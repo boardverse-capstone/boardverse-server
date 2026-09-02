@@ -215,6 +215,8 @@ public class ReservationRepository : IReservationRepository
         bool joinedByMe,
         List<ReservationStatus>? statuses,
         DateOnly? playDate,
+        DateOnly? fromDate,
+        DateOnly? toDate,
         Guid? cafeId,
         int page,
         int pageSize,
@@ -228,6 +230,13 @@ public class ReservationRepository : IReservationRepository
             .AsQueryable();
 
         // Filter: host hoặc joined
+        // Semantics:
+        //   hostedByMe=true, joinedByMe=false  → chỉ reservation do user host.
+        //   hostedByMe=false, joinedByMe=true  → reservation user tham gia VỚI VAI TRÒ MEMBER
+        //                                        (exclude self-hosted để tránh leak: user tự host
+        //                                         cũng có LobbyMember.IsActive=true cho chính mình).
+        //   hostedByMe=true, joinedByMe=true   → cả 2.
+        //   hostedByMe=false, joinedByMe=false  → fallback cả 2.
         if (hostedByMe && joinedByMe)
         {
             query = query.Where(r =>
@@ -240,8 +249,11 @@ public class ReservationRepository : IReservationRepository
         }
         else if (joinedByMe)
         {
+            // Member-only: phải có member IsActive=true VÀ KHÔNG phải do user host.
             query = query.Where(r =>
-                r.Lobby != null && r.Lobby.Members.Any(m => m.UserId == userId && m.IsActive));
+                r.HostId != userId
+                && r.Lobby != null
+                && r.Lobby.Members.Any(m => m.UserId == userId && m.IsActive));
         }
         else
         {
@@ -257,10 +269,29 @@ public class ReservationRepository : IReservationRepository
             query = query.Where(r => statuses.Contains(r.Status));
         }
 
-        // Filter: playDate
+        // Filter: playDate (1 ngày cụ thể — backward compat cho endpoint /reservations)
         if (playDate.HasValue)
         {
             query = query.Where(r => r.PlayDate == playDate.Value);
+        }
+
+        // Filter: fromDate/toDate (inclusive) — cho /reservations/my lịch sử.
+        // Defensive swap: nếu caller pass fromDate > toDate, swap lại để tránh query rỗng.
+        // Service GetMyReservationsAsync cũng swap trước khi gọi, nhưng safeguard ở repo
+        // giúp các caller khác (vd. admin tools) không bị bug im lặng.
+        if (fromDate.HasValue && toDate.HasValue && fromDate.Value > toDate.Value)
+        {
+            (fromDate, toDate) = (toDate, fromDate);
+        }
+
+        if (fromDate.HasValue)
+        {
+            query = query.Where(r => r.PlayDate >= fromDate.Value);
+        }
+
+        if (toDate.HasValue)
+        {
+            query = query.Where(r => r.PlayDate <= toDate.Value);
         }
 
         // Filter: cafe
@@ -273,8 +304,12 @@ public class ReservationRepository : IReservationRepository
         var totalCount = await query.CountAsync(cancellationToken);
 
         // Paginate
+        // Lịch sử user: ưu tiên reservation gần nhất (PlayDate desc, ScheduledStartTime desc).
+        // Endpoint /reservations/my đã dùng sort này; /reservations (legacy) cũng OK vì cùng semantic.
         var items = await query
-            .OrderByDescending(r => r.CreatedAt)
+            .OrderByDescending(r => r.PlayDate)
+            .ThenByDescending(r => r.ScheduledStartTime)
+            .ThenByDescending(r => r.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync(cancellationToken);
@@ -373,7 +408,7 @@ public class ReservationRepository : IReservationRepository
             .Include(r => r.Lobby)
             .AsQueryable();
 
-        // Filter: host hoặc joined
+        // Filter: host hoặc joined (cùng semantics với GetListAsync — Gap-2 fix).
         if (hostedByMe && joinedByMe)
         {
             query = query.Where(r =>
@@ -386,8 +421,11 @@ public class ReservationRepository : IReservationRepository
         }
         else if (joinedByMe)
         {
+            // Member-only: exclude self-hosted.
             query = query.Where(r =>
-                r.Lobby != null && r.Lobby.Members.Any(m => m.UserId == userId && m.IsActive));
+                r.HostId != userId
+                && r.Lobby != null
+                && r.Lobby.Members.Any(m => m.UserId == userId && m.IsActive));
         }
         else
         {
@@ -451,6 +489,69 @@ public class ReservationRepository : IReservationRepository
     {
         _db.Reservations.Add(reservation);
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Đếm số reservation do user host + user join (member-only) áp dụng cùng filter
+    /// (statuses/cafeId/fromDate/toDate) cho summary count ở <c>GET /my</c>.
+    /// </summary>
+    /// <remarks>
+    /// Member count EXCLUDE self-hosted (tránh double-count khi user vừa host vừa join cùng reservation).
+    /// Defensive swap từDate/toDate nếu truyền sai thứ tự.
+    /// </remarks>
+    public async Task<(int HostedCount, int JoinedCount)> GetParticipationCountsAsync(
+        Guid userId,
+        List<ReservationStatus>? statuses,
+        DateOnly? fromDate,
+        DateOnly? toDate,
+        Guid? cafeId,
+        CancellationToken cancellationToken = default)
+    {
+        // Defensive swap (giống GetListAsync) — caller nên swap trước nhưng repo safeguard.
+        if (fromDate.HasValue && toDate.HasValue && fromDate.Value > toDate.Value)
+        {
+            (fromDate, toDate) = (toDate, fromDate);
+        }
+
+        // Query Host-only: HostId == userId + filter.
+        var hostedQuery = _db.Reservations.AsNoTracking()
+            .Where(r => r.HostId == userId);
+
+        // Query Member-only: NOT host + lobby member IsActive + filter.
+        var joinedQuery = _db.Reservations.AsNoTracking()
+            .Where(r =>
+                r.HostId != userId
+                && r.Lobby != null
+                && r.Lobby.Members.Any(m => m.UserId == userId && m.IsActive));
+
+        if (statuses != null && statuses.Count > 0)
+        {
+            hostedQuery = hostedQuery.Where(r => statuses.Contains(r.Status));
+            joinedQuery = joinedQuery.Where(r => statuses.Contains(r.Status));
+        }
+
+        if (fromDate.HasValue)
+        {
+            hostedQuery = hostedQuery.Where(r => r.PlayDate >= fromDate.Value);
+            joinedQuery = joinedQuery.Where(r => r.PlayDate >= fromDate.Value);
+        }
+
+        if (toDate.HasValue)
+        {
+            hostedQuery = hostedQuery.Where(r => r.PlayDate <= toDate.Value);
+            joinedQuery = joinedQuery.Where(r => r.PlayDate <= toDate.Value);
+        }
+
+        if (cafeId.HasValue)
+        {
+            hostedQuery = hostedQuery.Where(r => r.CafeId == cafeId.Value);
+            joinedQuery = joinedQuery.Where(r => r.CafeId == cafeId.Value);
+        }
+
+        var hostedCount = await hostedQuery.CountAsync(cancellationToken);
+        var joinedCount = await joinedQuery.CountAsync(cancellationToken);
+
+        return (hostedCount, joinedCount);
     }
 
     public Task UpdateAsync(Reservation reservation, CancellationToken cancellationToken = default)

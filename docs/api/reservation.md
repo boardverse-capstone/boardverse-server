@@ -35,6 +35,7 @@ Tuân thủ business rules:
 
 - [GET /{id}](#get-id)
 - [GET /](#get-)
+- [GET /my](#get-my)
 - [GET /search](#get-search)
 - [GET /pending-cafe-approval](#get-pending-cafe-approval)
 - [GET /{id}/cafe-approval](#get-idcafe-approval)
@@ -206,6 +207,152 @@ Lấy danh sách reservation của user (host hoặc member). Có filter + phân
 |--------|---------|
 | `401` | Thiếu token |
 | `400` | `page` hoặc `pageSize` không hợp lệ |
+
+---
+
+## GET /my
+
+Lấy tất cả reservation của user cho màn hình lịch sử — **gộp cả reservation do user host lẫn reservation user tham gia làm member**. Mỗi item có field `participationType` để FE phân biệt "lịch hẹn do mình tạo" vs "lịch hẹn mình tham gia".
+
+Khác với `GET /api/v1/reservations` (mặc định chỉ host + 1 ngày):
+
+- Endpoint này mặc định lấy cả Host + Member.
+- Hỗ trợ filter `participationType` để lọc riêng Host hoặc Member.
+- Hỗ trợ `fromDate` / `toDate` để xem theo khoảng ngày (vd: 1 tuần qua, 1 tháng qua).
+- Filter push xuống SQL qua `ReservationRepository.GetListAsync` (server-authoritative, BR §XVII.2).
+- Sort: `PlayDate desc` → `ScheduledStartTime desc` → `CreatedAt desc` (lịch gần nhất trước).
+- Tự swap `fromDate` / `toDate` nếu truyền sai thứ tự (tránh query rỗng im lặng).
+
+### Request
+
+- Method: `GET`
+- Path: `/api/v1/reservations/my`
+- Auth: Player (JWT)
+
+### Query
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `participationType` | enum | No | `Host` \| `Member`. Null = lấy cả hai. |
+| `statuses` | enum[] | No | Filter theo trạng thái (vd: `Holding`, `Confirmed`, `Completed`, `CancelledByPlayer`). |
+| `cafeId` | guid | No | Filter theo cafe. |
+| `fromDate` | date | No | Ngày bắt đầu (inclusive). Null = không giới hạn dưới. |
+| `toDate` | date | No | Ngày kết thúc (inclusive). Null = không giới hạn trên. |
+| `page` | int | No | Số trang (≥ 1). Mặc định 1. |
+| `pageSize` | int | No | Số item/trang (1-100). Mặc định 20. |
+
+**Enum `ReservationParticipationType`:**
+
+| Value | Mô tả |
+|---|---|
+| `Host` | Reservation do user tạo (user trả cọc). |
+| `Member` | Reservation user tham gia với vai trò member (EXCLUDE reservation do chính user host — xem [Gap-2 fix 2026-09-02](#member-only-filter-excludes-self-hosted)). |
+
+**Binding note (2026-09-02):** ASP.NET Core bind enum theo string name **case-insensitive** — `participationType=host`, `Host`, `HOST` đều OK.
+
+### Member-only filter excludes self-hosted (Gap-2 fix 2026-09-02)
+
+Khi `participationType=Member`, query filter `r.HostId != userId && r.Lobby.Members.Any(m.UserId == userId && m.IsActive)`.
+
+Lý do: `LobbyMember.IsActive=true` được set cho cả host lẫn member khi host tạo lobby. Trước fix này, query `Lobby.Members.Any(...)` match cả self-hosted → `ParticipationType=Member` trả reservation do chính user host (sai semantics).
+
+Sau fix: `ParticipationType=Member` chỉ trả reservation user **tham gia vào lobby do người khác host**, loại bỏ self-hosted.
+
+### Response 200
+
+Response bao gồm 2 summary count (`hostedCount`, `joinedCount`) để FE render 2 tab "Tôi tạo (N) | Tôi tham gia (M)" mà không cần filter client-side. Counts áp dụng cùng filter (statuses/cafeId/fromDate/toDate) nhưng **độc lập với `participationType`** — khi user filter Host-only, `joinedCount` vẫn count full Member để summary tab không đổi khi đổi filter.
+
+```json
+{
+  "statusCode": 200,
+  "message": "MyReservationsRetrieved",
+  "data": {
+    "items": [
+      {
+        "id": "11111111-1111-1111-1111-111111111111",
+        "cafeId": "cafe-guid",
+        "cafeName": "BoardGame Cafe A",
+        "gameId": "game-guid",
+        "gameName": "Catan",
+        "playDate": "2026-09-15",
+        "preferredStartTime": "19:00:00",
+        "preferredEndTime": "23:00:00",
+        "scheduledStartTime": "2026-09-15T19:00:00Z",
+        "scheduledEndTime": "2026-09-15T23:00:00Z",
+        "recruitmentDeadline": "2026-09-15T18:40:00Z",
+        "currentPlayers": 3,
+        "maxPlayers": 4,
+        "status": "Holding",
+        "depositAmount": 50,
+        "lobbyId": "lobby-guid",
+        "lobbyStatus": "Open",
+        "reservationCode": "K7H3NP9X",
+        "createdAt": "2026-09-02T15:30:00Z",
+        "isHost": true,
+        "participationType": "Host",
+        "tableNumber": null
+      },
+      {
+        "id": "22222222-2222-2222-2222-222222222222",
+        "cafeId": "cafe-guid",
+        "cafeName": "BoardGame Cafe A",
+        "gameId": "game-guid",
+        "gameName": "Splendor",
+        "playDate": "2026-09-20",
+        "preferredStartTime": "14:00:00",
+        "preferredEndTime": "18:00:00",
+        "scheduledStartTime": "2026-09-20T14:00:00Z",
+        "scheduledEndTime": "2026-09-20T18:00:00Z",
+        "recruitmentDeadline": "2026-09-20T13:40:00Z",
+        "currentPlayers": 4,
+        "maxPlayers": 4,
+        "status": "Confirmed",
+        "depositAmount": 30,
+        "lobbyId": "lobby-guid-2",
+        "lobbyStatus": "Viable",
+        "reservationCode": "A8K3P9X",
+        "createdAt": "2026-09-01T10:00:00Z",
+        "isHost": false,
+        "participationType": "Member",
+        "tableNumber": null
+      }
+    ],
+    "page": 1,
+    "pageSize": 20,
+    "totalCount": 12,
+    "totalPages": 1,
+    "hostedCount": 5,
+    "joinedCount": 7
+  }
+}
+```
+
+### Lỗi thường gặp
+
+| Status | Message |
+|--------|---------|
+| `401` | Thiếu token |
+| `400` | `page` hoặc `pageSize` không hợp lệ |
+| `500` | Lỗi hệ thống |
+
+### Examples
+
+```bash
+# 1. Tất cả reservation (cả Host + Member) trong tháng 9
+GET /api/v1/reservations/my?fromDate=2026-09-01&toDate=2026-09-30
+
+# 2. Chỉ reservation do mình host, status Holding/Confirmed
+GET /api/v1/reservations/my?participationType=Host&statuses=Holding,Confirmed
+
+# 3. Reservation mình tham gia làm member trong 1 tuần qua
+GET /api/v1/reservations/my?participationType=Member&fromDate=2026-08-26&toDate=2026-09-02
+
+# 4. Phân trang
+GET /api/v1/reservations/my?page=2&pageSize=10
+
+# 5. Filter theo cafe
+GET /api/v1/reservations/my?cafeId=abc123-guid
+```
 
 ---
 

@@ -157,6 +157,35 @@ public class ReservationController : BaseApiController
     }
 
     /// <summary>
+    /// Lấy tất cả reservation của user cho màn hình lịch sử. [Role: Player]
+    /// Trả về cả reservation do user host lẫn reservation user tham gia làm member.
+    /// Mỗi item có field <c>participationType</c> (<c>Host</c>/<c>Member</c>) để FE phân biệt
+    /// "lịch hẹn do mình tạo" vs "lịch hẹn mình tham gia".
+    ///
+    /// Khác với <c>GET /api/v1/reservations</c> (mặc định chỉ host):
+    /// - Endpoint này mặc định lấy cả Host + Member.
+    /// - Hỗ trợ filter <c>participationType</c> để lọc riêng Host hoặc Member.
+    /// - Hỗ trợ <c>fromDate</c>/<c>toDate</c> để xem theo khoảng ngày (vd: 1 tuần qua, 1 tháng qua).
+    /// </summary>
+    /// <param name="request">
+    /// - statuses: filter theo trạng thái.
+    /// - participationType: Host | Member | null (cả 2).
+    /// - cafeId: filter theo cafe.
+    /// - fromDate / toDate: filter theo playDate range.
+    /// </param>
+    /// <response code="200">Danh sách reservation (phân trang) kèm participationType.</response>
+    /// <response code="400">page hoặc pageSize không hợp lệ.</response>
+    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+    [HttpGet("my")]
+    public async Task<IActionResult> GetMyReservations([FromQuery] MyReservationsRequestDto request)
+    {
+        var userId = GetUserIdFromClaims();
+        var result = await _reservationService.GetMyReservationsAsync(userId, request);
+        return this.NewResponse(200, "MyReservationsRetrieved", result);
+    }
+
+    /// <summary>
     /// Tìm kiếm lịch hẹn theo tên game hoặc ngày tháng. [Role: Player]
     /// </summary>
     /// <param name="request">

@@ -537,8 +537,49 @@ public class ReservationListItemDto
 
     public bool IsHost { get; set; }
 
+    /// <summary>
+    /// Loại tham gia của user với reservation này.
+    /// Host = user là người tạo reservation.
+    /// Member = user tham gia reservation do người khác tạo.
+    /// </summary>
+    public ReservationParticipationType ParticipationType { get; set; }
+
     /// <summary>Số bàn được staff gán khi check-in. Null nếu chưa check-in.</summary>
     public int? TableNumber { get; set; }
+}
+
+/// <summary>
+/// Request lấy tất cả reservation của user (cả host + member) cho lịch sử.
+/// Endpoint <c>GET /api/v1/reservations/my</c> trả về danh sách gộp cả
+/// reservation do user host và reservation user tham gia với vai trò member.
+/// </summary>
+public class MyReservationsRequestDto
+{
+    /// <summary>Filter theo trạng thái. Null = all.</summary>
+    public List<ReservationStatus>? Statuses { get; set; }
+
+    /// <summary>
+    /// Filter theo loại tham gia.
+    /// Null = all (cả Host và Member).
+    /// Chỉ truyền 1 giá trị (Host hoặc Member) để lọc riêng.
+    /// </summary>
+    public ReservationParticipationType? ParticipationType { get; set; }
+
+    /// <summary>Filter theo cafe. Null = all.</summary>
+    public Guid? CafeId { get; set; }
+
+    /// <summary>
+    /// Filter theo ngày từ (inclusive). Null = không giới hạn.
+    /// </summary>
+    public DateOnly? FromDate { get; set; }
+
+    /// <summary>
+    /// Filter theo ngày đến (inclusive). Null = không giới hạn.
+    /// </summary>
+    public DateOnly? ToDate { get; set; }
+
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; } = 20;
 }
 
 /// <summary>
@@ -549,8 +590,23 @@ public class ReservationListRequestDto
     /// <summary>Filter theo tr?ng th?i. Null = all non-terminal.</summary>
     public List<ReservationStatus>? Statuses { get; set; }
 
-    /// <summary>Filter theo ng?y. Null = all.</summary>
+    /// <summary>
+    /// Filter theo ngày (1 ngày cụ thể). Null = all.
+    /// Backward compat cho endpoint legacy <c>GET /api/v1/reservations</c>.
+    /// Nếu cần filter range, dùng <see cref="FromDate"/>/<see cref="ToDate"/> hoặc
+    /// endpoint mới <c>GET /api/v1/reservations/my</c>.
+    /// </summary>
     public DateOnly? PlayDate { get; set; }
+
+    /// <summary>
+    /// Filter theo ngày bắt đầu (inclusive). Null = không giới hạn dưới.
+    /// </summary>
+    public DateOnly? FromDate { get; set; }
+
+    /// <summary>
+    /// Filter theo ngày kết thúc (inclusive). Null = không giới hạn trên.
+    /// </summary>
+    public DateOnly? ToDate { get; set; }
 
     /// <summary>Filter theo cafe. Null = all.</summary>
     public Guid? CafeId { get; set; }
@@ -575,6 +631,39 @@ public class ReservationListResponseDto
     public int Page { get; set; }
     public int PageSize { get; set; }
     public int TotalPages => (int)Math.Ceiling((double)TotalCount / PageSize);
+}
+
+/// <summary>
+/// Response riêng cho endpoint <c>GET /api/v1/reservations/my</c> — lịch sử gộp Host + Member.
+/// Kế thừa <see cref="ReservationListResponseDto"/> + bổ sung 2 field summary để FE render
+/// 2 tab "Tôi tạo (N) | Tôi tham gia (M)" mà không cần filter client-side.
+///
+/// <para>
+/// Lưu ý: <c>HostedCount</c> + <c>JoinedCount</c> là TOTAL (không áp dụng filter page/pageSize),
+/// không trừ thành <c>TotalCount</c>. Filter applied trên cả Host + Member (giống default
+/// <c>ParticipationType=null</c>) nhưng vẫn tôn trọng <c>statuses</code>/<code>cafeId</code>/
+/// <c>fromDate</code>/<c>toDate</code> để summary khớp với filtered list.
+/// </para>
+/// </summary>
+public class MyReservationsResponseDto
+{
+    public List<ReservationListItemDto> Items { get; set; } = [];
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalCount { get; set; }
+    public int TotalPages => (int)Math.Ceiling((double)TotalCount / PageSize);
+
+    /// <summary>
+    /// Tổng reservation do user host (áp dụng statuses/cafeId/fromDate/toDate filter).
+    /// Không phụ thuộc vào <c>ParticipationType</c> request — luôn count Host-only.
+    /// </summary>
+    public int HostedCount { get; set; }
+
+    /// <summary>
+    /// Tổng reservation user tham gia với vai trò Member (áp dụng statuses/cafeId/fromDate/toDate filter).
+    /// Không phụ thuộc vào <c>ParticipationType</c> request — luôn count Member-only (exclude self-hosted).
+    /// </summary>
+    public int JoinedCount { get; set; }
 }
 
 /// <summary>

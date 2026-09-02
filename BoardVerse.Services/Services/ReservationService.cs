@@ -2976,17 +2976,134 @@ public class ReservationService : IReservationService
         var page = Math.Max(1, request.Page);
         var pageSize = Math.Clamp(request.PageSize, 1, 100);
 
+        // fromDate/toDate: range filter mới (2026-09-02 — sync với /my endpoint).
+        // Nếu user truyền cả 2 sai thứ tự → swap. Repository cũng có defensive swap.
+        DateOnly? fromDate = request.FromDate;
+        DateOnly? toDate = request.ToDate;
+        if (fromDate.HasValue && toDate.HasValue && fromDate.Value > toDate.Value)
+        {
+            (fromDate, toDate) = (toDate, fromDate);
+        }
+
         var (items, totalCount) = await _reservationRepository.GetListAsync(
             userId,
             request.HostedByMe,
             request.JoinedByMe,
             request.Statuses,
             request.PlayDate,
+            fromDate,
+            toDate,
             request.CafeId,
             page,
             pageSize);
 
-        var dtos = items.Select(r => new ReservationListItemDto
+        var dtos = items.Select(r => MapToListItemDto(r, userId)).ToList();
+
+        return new ReservationListResponseDto
+        {
+            Items = dtos,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize
+        };
+    }
+
+    /// <summary>
+    /// Lấy tất cả reservation của user (cả host + member) cho màn hình lịch sử.
+    /// Mỗi item có field <see cref="ReservationListItemDto.ParticipationType"/> để FE phân biệt
+    /// reservation user host vs reservation user join.
+    ///
+    /// Response bao gồm <c>HostedCount</c> + <c>JoinedCount</c> để FE render 2 tab summary
+    /// mà không cần filter client-side.
+    /// </summary>
+    public async Task<MyReservationsResponseDto> GetMyReservationsAsync(
+        Guid userId,
+        MyReservationsRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var page = Math.Max(1, request.Page);
+        var pageSize = Math.Clamp(request.PageSize, 1, 100);
+
+        // Xác định 2 cờ hosted/joined cho repository dựa trên filter ParticipationType.
+        bool hostedByMe;
+        bool joinedByMe;
+
+        if (request.ParticipationType == ReservationParticipationType.Host)
+        {
+            hostedByMe = true;
+            joinedByMe = false;
+        }
+        else if (request.ParticipationType == ReservationParticipationType.Member)
+        {
+            hostedByMe = false;
+            joinedByMe = true;
+        }
+        else
+        {
+            // Null = cả Host + Member
+            hostedByMe = true;
+            joinedByMe = true;
+        }
+
+        // fromDate/toDate filter push xuống SQL qua repository (BR §XVII.2 — server authoritative).
+        // Filter playDate: ưu tiên fromDate (range filter). Nếu user truyền cả 2, fromDate là min, toDate là max.
+        // Nếu fromDate > toDate → swap để tránh query trả về rỗng do sai thứ tự.
+        // Repository cũng có defensive swap (ReservationRepository.GetListAsync) — đây là lớp
+        // bảo vệ thứ 2, không thừa vì giúp code self-documenting.
+        DateOnly? fromDate = request.FromDate;
+        DateOnly? toDate = request.ToDate;
+        if (fromDate.HasValue && toDate.HasValue && fromDate.Value > toDate.Value)
+        {
+            (fromDate, toDate) = (toDate, fromDate);
+        }
+
+        // Populate list (theo ParticipationType filter).
+        var (items, totalCount) = await _reservationRepository.GetListAsync(
+            userId,
+            hostedByMe,
+            joinedByMe,
+            request.Statuses,
+            playDate: null,        // /my dùng range, không dùng 1-day filter
+            fromDate: fromDate,
+            toDate: toDate,
+            request.CafeId,
+            page,
+            pageSize,
+            cancellationToken);
+
+        // Populate HostedCount + JoinedCount áp dụng cùng filter (statuses/cafeId/range)
+        // nhưng KHÔNG phụ thuộc vào ParticipationType — luôn đếm cả Host và Member
+        // để summary tab không đổi khi user filter Host-only hoặc Member-only.
+        // Repository exclude self-hosted ở JoinedCount (xem GetParticipationCountsAsync).
+        var (hostedCount, joinedCount) = await _reservationRepository.GetParticipationCountsAsync(
+            userId,
+            request.Statuses,
+            fromDate,
+            toDate,
+            request.CafeId,
+            cancellationToken);
+
+        // Map sang DTO với ParticipationType.
+        var dtos = items.Select(r => MapToListItemDto(r, userId)).ToList();
+
+        return new MyReservationsResponseDto
+        {
+            Items = dtos,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize,
+            HostedCount = hostedCount,
+            JoinedCount = joinedCount
+        };
+    }
+
+    /// <summary>
+    /// Map từ Reservation entity sang ReservationListItemDto, kèm ParticipationType.
+    /// </summary>
+    private static ReservationListItemDto MapToListItemDto(Reservation r, Guid userId)
+    {
+        var isHost = r.HostId == userId;
+        return new ReservationListItemDto
         {
             Id = r.Id,
             CafeId = r.CafeId,
@@ -3007,16 +3124,9 @@ public class ReservationService : IReservationService
             ScheduledEndTime = r.ScheduledEndTime,
             RecruitmentDeadline = r.RecruitmentDeadline,
             CreatedAt = r.CreatedAt,
-            IsHost = r.HostId == userId,
+            IsHost = isHost,
+            ParticipationType = isHost ? ReservationParticipationType.Host : ReservationParticipationType.Member,
             TableNumber = r.TableNumber
-        }).ToList();
-
-        return new ReservationListResponseDto
-        {
-            Items = dtos,
-            TotalCount = totalCount,
-            Page = page,
-            PageSize = pageSize
         };
     }
 
