@@ -107,6 +107,9 @@ namespace BoardVerse.Data
         // P-03: Shift management
         public DbSet<CafeShift> CafeShifts => Set<CafeShift>();
 
+        // Discovery: Board game saved by player
+        public DbSet<PlayerBoardGameSave> PlayerBoardGameSaves => Set<PlayerBoardGameSave>();
+
         public BoardVerseDbContext(DbContextOptions<BoardVerseDbContext> options) : base(options)
     {
     }

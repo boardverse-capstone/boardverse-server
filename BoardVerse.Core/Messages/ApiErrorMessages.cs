@@ -3375,4 +3375,22 @@ public static class Settlement
                 "Phiên chơi đang tạm dừng, vui lòng liên hệ nhân viên để tiếp tục trước khi gia hạn.";
         }
     }
+
+    public static class Discovery
+    {
+        public const string PlayerCountInvalid =
+            "Số người chơi phải từ 1 đến 5.";
+
+        public const string SurveyNoResults =
+            "Không tìm thấy board game nào phù hợp với tiêu chí của bạn. Thử điều chỉnh số người hoặc bỏ bớt bộ lọc nhé!";
+
+        public static string GameNotSaved(Guid gameTemplateId) =>
+            $"Không thể lưu board game '{gameTemplateId}'. Game có thể đã bị vô hiệu hóa.";
+
+        public static string GameNotUnsaved(Guid saveId) =>
+            $"Không thể xóa bản lưu '{saveId}'. Bản ghi không tồn tại.";
+
+        public static string SaveNotFound(Guid saveId) =>
+            $"Không tìm thấy bản lưu '{saveId}'.";
+    }
 }

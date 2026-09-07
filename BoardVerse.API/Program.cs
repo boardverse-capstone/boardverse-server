@@ -261,8 +261,10 @@ builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
 builder.Services.AddScoped<IUserManagementService, UserManagementService>();
 builder.Services.AddScoped<IHealthService, HealthService>();
 builder.Services.AddScoped<IGameTemplateService, GameTemplateService>();
-builder.Services.AddScoped<IBoardGameService, BoardGameService>();
-builder.Services.AddScoped<ICafeService, CafeService>();
+        builder.Services.AddScoped<IBoardGameService, BoardGameService>();
+        builder.Services.AddScoped<IPlayerBoardGameSaveRepository, PlayerBoardGameSaveRepository>();
+        builder.Services.AddScoped<IBoardGameDiscoveryService, BoardGameDiscoveryService>();
+        builder.Services.AddScoped<ICafeService, CafeService>();
 builder.Services.AddScoped<ICafeInventoryService, CafeInventoryService>();
 builder.Services.AddScoped<ICafePosService, CafePosService>();
 builder.Services.AddScoped<IReceiptService, ReceiptService>(); // P-01 & P-02
