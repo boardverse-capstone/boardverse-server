@@ -41,6 +41,7 @@
             public const string StaffRemoved = "Xóa nhân viên thành công.";
             public const string OperationalStatusUpdated = "Cập nhật trạng thái vận hành quán thành công.";
             public const string RevenueReportRetrieved = "Lấy báo cáo doanh thu thành công."; // P-02
+            public const string ActiveGamesRetrieved = "Lấy danh sách board game đang hoạt động của quán thành công.";
         }
 
         public static class CafeSchedule

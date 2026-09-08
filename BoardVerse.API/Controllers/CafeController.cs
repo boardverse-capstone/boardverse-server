@@ -11,6 +11,7 @@ namespace BoardVerse.API.Controllers
 {
     [ApiController]
     [Route("api/cafes")]
+    [Tags("Cafes")]
     public class CafeController : BaseApiController
     {
         private readonly ICafeService _cafeService;
@@ -387,6 +388,32 @@ namespace BoardVerse.API.Controllers
             var userId = GetUserIdFromClaims();
             var result = await _lobbyService.GetCafeLobbiesAsync(userId, cafeId, request);
             return this.NewResponse(200, "CafeLobbiesRetrieved", result);
+        }
+
+        /// <summary>
+        /// Lấy danh sách board game đang hoạt động tại quán cafe (player browse).
+        /// Chỉ trả các game thỏa mãn đồng thời:
+        /// • Quán cafe tồn tại &amp; đang ACTIVE (IsActive=true, PartnerOperationalStatus=Active).
+        /// • CafeGameInventory.IsActive = true (quán chưa xóa mềm khỏi kho).
+        /// • GameTemplate.IsActive = true (master game vẫn active).
+        /// • Status ∈ {Available, InUse} — không bao gồm Damaged/Maintenance/Retired.
+        /// Hỗ trợ filter: categoryId, groupSize (MatchGroup), availableOnly, searchTerm; sort theo <see cref="CafeActiveGamesSort"/>.
+        /// [Role: Public — không yêu cầu đăng nhập.]
+        /// </summary>
+        /// <param name="cafeId">Mã định danh quán cafe.</param>
+        /// <param name="query">Filter tùy chọn: categoryId, groupSize, availableOnly, searchTerm, sortBy, pageNumber, pageSize.</param>
+        /// <response code="200">Danh sách board game đang hoạt động của quán (phân trang).</response>
+        /// <response code="404">Không tìm thấy quán hoặc quán đã bị vô hiệu hóa.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpGet("{cafeId:guid}/active-games")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(PaginatedResponse<CafeActiveGameDto>), 200)]
+        public async Task<IActionResult> GetActiveGamesByCafe(
+            Guid cafeId,
+            [FromQuery] CafeActiveGamesQueryDto query)
+        {
+            var result = await _cafeService.GetActiveGamesByCafeAsync(cafeId, query);
+            return this.NewResponse(200, ApiSuccessMessages.Cafe.ActiveGamesRetrieved, result);
         }
     }
 }

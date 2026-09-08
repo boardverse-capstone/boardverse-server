@@ -10,6 +10,7 @@
 | `/nearby/me` | GET | Player (dùng vị trí đã lưu trên profile) |
 | `/{id}` | GET | Public |
 | `/{id}` | PUT | Manager (chủ quán) |
+| `/{cafeId}/active-games` | GET | Public (player browse board game đang hoạt động) |
 | `/{cafeId}/staff` | POST | Manager (chủ quán) |
 | `/{cafeId}/staff/promote` | POST | Manager (chủ quán) |
 | `/{cafeId}/staff` | GET | Manager (chủ quán) |
@@ -693,3 +694,168 @@ Lấy danh sách lobby của 1 cafe cho Manager/CafeStaff. Filter theo lobby sta
 | 401 | Thiếu token |
 | 403 | Không phải manager/staff của cafe |
 | 404 | Không tìm thấy cafe |
+
+---
+
+## GET /api/cafes/{cafeId}/active-games
+
+Lấy danh sách board game đang hoạt động tại quán cafe cho player (public, không cần đăng nhập). Dùng cho màn hình "Game có sẵn tại quán" trên app. Hỗ trợ filter + sort.
+
+### Request
+
+- Method: `GET`
+- Path: `/api/cafes/{cafeId}/active-games`
+- Auth: Public (không yêu cầu token)
+
+### Query Parameters
+
+| Param | Type | Default | Mô tả |
+|-------|------|---------|-------|
+| `categoryId` | Guid? | — | Chỉ trả game có thể loại trùng `categoryId`. Bỏ trống → tất cả category. |
+| `groupSize` | int? | — | Số người chơi của nhóm player. Chỉ trả game có `MinPlayers <= groupSize`. Bỏ trống → không filter theo size. |
+| `availableOnly` | bool | `false` | `true` → chỉ trả game có ít nhất 1 hộp `Available` (còn trống để chơi ngay). `false` → trả cả `Available` + `InUse`. |
+| `searchTerm` | string? | — | Tìm theo tên game (case-insensitive, partial match). Bỏ trống → không search. |
+| `sortBy` | enum (`CafeActiveGamesSort`) | `Name` (0) | Sắp xếp. Các giá trị: `Name` (0, A→Z), `AvailableBoxesDesc` (1, hộp trống nhiều trước), `PlayTimeAsc` (2, game ngắn trước), `PlayerCountAsc` (3, `MinPlayers` tăng dần). |
+| `pageNumber` | int | `1` | Số trang. |
+| `pageSize` | int | `20` (max `100`) | Số item mỗi trang. Tự động clamp về `[1, 100]` bởi `PaginationParams`. |
+
+### Response
+
+- `200 OK` — `PaginatedResponse<CafeActiveGameDto>`
+- `404 Not Found` — Không tìm thấy quán hoặc quán đã bị vô hiệu hóa
+- `500 Internal Server Error` — Lỗi hệ thống không mong đợi
+
+### Tiêu chí board game "đang hoạt động"
+
+Endpoint chỉ trả các game thỏa mãn đồng thời:
+
+1. **Quán cafe tồn tại & đang ACTIVE** — `IsActive = true`, `PartnerOperationalStatus = Active`.
+2. **Game có trong kho quán & chưa bị xóa mềm** — `CafeGameInventory.IsActive = true`.
+3. **Master game vẫn active** — `GameTemplate.IsActive = true` (game chưa bị admin vô hiệu hóa).
+4. **Trạng thái vận hành hoạt động** — `CafeGameInventory.Status ∈ {Available, InUse}`.
+
+**Không bao gồm:** `Damaged`, `Maintenance`, `Retired`, và game **chưa được quán add vào kho**.
+
+### Shape mỗi item (`CafeActiveGameDto`)
+
+| Field | Type | Mô tả |
+|-------|------|-------|
+| `inventoryId` | Guid | Mã mục kho (CafeGameInventory.Id) |
+| `gameTemplateId` | Guid | Mã master game (GameTemplates.Id) |
+| `gameName` | string | Tên board game |
+| `thumbnailUrl` | string? | URL ảnh thumbnail |
+| `description` | string? | Mô tả ngắn |
+| `minPlayers` | int | Số người chơi tối thiểu |
+| `maxPlayers` | int | Số người chơi tối đa |
+| `playTime` | int | Thời lượng chơi trung bình (phút) |
+| `boxQuantity` | int | Tổng số hộp vật lý quán đang có |
+| `availableBoxCount` | int | Số hộp đang trống (Status=Available, IsActive=true) — player có thể đặt ngay |
+| `isAvailableNow` | bool *(computed)* | `true` ⇔ `availableBoxCount > 0`. Tiện cho UI không cần so sánh số. |
+| `fitsGroupSize` | bool? | `true` ⇔ `minPlayers <= groupSize` (khi client truyền `groupSize`); `null` khi không truyền. |
+| `status` | string | `Available` hoặc `InUse` |
+| `categories` | CategoryDto[] | Danh sách thể loại (sắp xếp theo SortOrder) |
+
+### Sort behavior
+
+| `sortBy` | Order | Tie-breaker |
+|---|---|---|
+| `Name` (0, mặc định) | `GameName` A→Z | — |
+| `AvailableBoxesDesc` (1) | `availableBoxCount` giảm dần | `GameName` A→Z |
+| `PlayTimeAsc` (2) | `playTime` tăng dần | `GameName` A→Z |
+| `PlayerCountAsc` (3) | `minPlayers` tăng dần → `maxPlayers` tăng dần | `GameName` A→Z |
+
+### Ví dụ
+
+**Request:**
+```http
+GET /api/cafes/3fa85f64-5717-4562-b3fc-2c963f66afa6/active-games?categoryId=c1111111-1111-1111-1111-111111111111&groupSize=4&availableOnly=true&sortBy=AvailableBoxesDesc&pageNumber=1&pageSize=20
+```
+
+**Response `200 OK`:**
+```json
+{
+  "statusCode": 200,
+  "message": "Lấy danh sách board game đang hoạt động của quán thành công.",
+  "data": {
+    "data": [
+      {
+        "inventoryId": "8a1f2b7c-1234-5678-9abc-def012345678",
+        "gameTemplateId": "11111111-1111-1111-1111-111111111111",
+        "gameName": "Catan",
+        "thumbnailUrl": "https://cdn.boardverse.vn/games/catan.jpg",
+        "description": "Game chiến thuật xây dựng đảo và giao thương.",
+        "minPlayers": 3,
+        "maxPlayers": 4,
+        "playTime": 90,
+        "boxQuantity": 3,
+        "availableBoxCount": 2,
+        "isAvailableNow": true,
+        "fitsGroupSize": true,
+        "status": "Available",
+        "categories": [
+          { "id": "c1111111-1111-1111-1111-111111111111", "name": "Strategy", "slug": "strategy", "sortOrder": 1 }
+        ]
+      }
+    ],
+    "meta": {
+      "currentPage": 1,
+      "pageSize": 20,
+      "totalItems": 1,
+      "totalPages": 1,
+      "hasPrevious": false,
+      "hasNext": false
+    }
+  },
+  "timestamp": "2026-09-08T14:30:00Z",
+  "path": "/api/cafes/3fa85f64-5717-4562-b3fc-2c963f66afa6/active-games"
+}
+```
+
+**Response `200 OK` — danh sách rỗng (cafe hợp lệ, không có active game nào match filter):**
+```json
+{
+  "statusCode": 200,
+  "message": "Lấy danh sách board game đang hoạt động của quán thành công.",
+  "data": {
+    "data": [],
+    "meta": {
+      "currentPage": 1,
+      "pageSize": 20,
+      "totalItems": 0,
+      "totalPages": 0,
+      "hasPrevious": false,
+      "hasNext": false
+    }
+  },
+  "timestamp": "2026-09-08T14:30:00Z",
+  "path": "/api/cafes/3fa85f64-5717-4562-b3fc-2c963f66afa6/active-games"
+}
+```
+
+**Response `404 Not Found` — cafe không tồn tại hoặc đã bị vô hiệu hóa:**
+```json
+{
+  "statusCode": 404,
+  "isSuccess": false,
+  "message": "Không tìm thấy quán cafe với mã '<cafe-id>' hoặc quán đã ngừng hoạt động.",
+  "data": null,
+  "timestamp": "2026-09-08T14:30:00Z",
+  "path": "/api/cafes/<cafe-id>/active-games"
+}
+```
+
+### Lỗi
+
+| Code | Mô tả |
+|------|--------|
+| 404 | Không tìm thấy quán hoặc quán đã bị vô hiệu hóa (IsActive=false, hoặc PartnerOperationalStatus ≠ Active) |
+| 500 | Lỗi hệ thống không mong đợi |
+
+### Lưu ý tích hợp
+
+- **So với `/api/cafes/{cafeId}/inventory`**: endpoint inventory cũ trả **đầy đủ** kho game của cafe (kể cả Damaged/Maintenance/Retired) cho manager/staff, có kèm `componentPenalties` (phí phạt linh kiện) và `boxes` (barcode). Endpoint mới này **player-facing**, chỉ trả game hoạt động.
+- **So với `/api/cafes/nearby?gameTemplateId={id}`**: nearby chỉ filter theo 1 game cụ thể + GPS, dùng cho discovery. Endpoint mới trả **nhiều** game của 1 cafe, dùng cho trang chi tiết cafe.
+- **Không tìm thấy cafe** → `404 Not Found`. **Cafe hợp lệ nhưng filter rỗng** → `200 OK` + `data: []` + `meta.totalItems: 0`. Phân biệt 2 case ở frontend.
+- **Consistency**: `AvailableBoxCount` được tính tại thời điểm query (eventual consistency). Nếu staff vừa chuyển box sang `InUse` ngay lúc player gọi, giá trị có thể stale — chấp nhận được cho read API.
+- **Logging**: service ghi structured log (Information) với `cafeId`, các filter params, số item trả về, và elapsed milliseconds — dùng để debug issue player báo "không thấy game X" và track query duration.
+

@@ -69,6 +69,18 @@ namespace BoardVerse.Services.IServices
         /// </summary>
         Task<PaginatedResponse<NearbyCafeDto>> GetAllActiveCafesAsync(PaginationParams paginationParams);
 
+        /// <summary>
+        /// Lấy danh sách board game đang hoạt động tại 1 cafe cho player (public browse).
+        /// "Đang hoạt động" = CafeGameInventory.IsActive = true, GameTemplate.IsActive = true,
+        /// Status ∈ {Available, InUse}.
+        /// Throw NotFound nếu cafe không tồn tại hoặc đã bị vô hiệu hóa.
+        /// Hỗ trợ filter: categoryId, groupSize, availableOnly, searchTerm; sort theo <see cref="CafeActiveGamesSort"/>.
+        /// </summary>
+        Task<PaginatedResponse<CafeActiveGameDto>> GetActiveGamesByCafeAsync(
+            Guid cafeId,
+            CafeActiveGamesQueryDto query,
+            CancellationToken cancellationToken = default);
+
         Task<AdminCafeOperationalStatusResultDto> SetOperationalStatusByAdminAsync(
             Guid cafeId,
             AdminSetCafeOperationalStatusRequestDto request, CancellationToken cancellationToken = default);

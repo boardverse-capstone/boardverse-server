@@ -9,6 +9,7 @@ using BoardVerse.Core.Helpers;
 using BoardVerse.Core.Messages;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.IServices;
+using Microsoft.Extensions.Logging;
 
 namespace BoardVerse.Services.Services
 {
@@ -22,6 +23,7 @@ namespace BoardVerse.Services.Services
         private readonly IPushNotificationService _pushNotificationService;
         private readonly ILobbyRepository _lobbyRepository;
         private readonly IReservationRepository _reservationRepository;
+        private readonly ILogger<CafeService> _logger;
 
         public CafeService(
             ICafeRepository cafeRepository,
@@ -31,7 +33,8 @@ namespace BoardVerse.Services.Services
             ILobbyHubService hubService,
             IPushNotificationService pushNotificationService,
             ILobbyRepository lobbyRepository,
-            IReservationRepository reservationRepository)
+            IReservationRepository reservationRepository,
+            ILogger<CafeService> logger)
         {
             _cafeRepository = cafeRepository;
             _userProfileRepository = userProfileRepository;
@@ -41,6 +44,7 @@ namespace BoardVerse.Services.Services
             _pushNotificationService = pushNotificationService;
             _lobbyRepository = lobbyRepository;
             _reservationRepository = reservationRepository;
+            _logger = logger;
         }
 
         public async Task<CafeDto> GetCafeAsync(Guid cafeId)
@@ -788,6 +792,53 @@ namespace BoardVerse.Services.Services
             PaginationParams paginationParams)
         {
             return await _cafeRepository.GetAllActiveCafesAsync(paginationParams);
+        }
+
+        public async Task<PaginatedResponse<CafeActiveGameDto>> GetActiveGamesByCafeAsync(
+            Guid cafeId,
+            CafeActiveGamesQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            // Validate cafe tồn tại + đang ACTIVE (không phải Inactive/Banned).
+            // Dùng GetActiveByIdAsync để vẫn trả NotFound cho cafe đã bị vô hiệu hóa (IsActive=false),
+            // tránh lộ thông tin tồn kho của quán đã ngừng hoạt động.
+            var cafe = await _cafeRepository.GetActiveByIdAsync(cafeId, cancellationToken);
+            if (cafe == null)
+            {
+                _logger.LogInformation(
+                    "GetActiveGames: cafe {CafeId} not found or not active.",
+                    cafeId);
+                throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
+            }
+
+            // Structured log: track request pattern + duration cho debug/optimization.
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var result = await _cafeRepository.GetActiveGamesByCafeAsync(
+                cafeId,
+                query,
+                cancellationToken);
+            stopwatch.Stop();
+
+            _logger.LogInformation(
+                "GetActiveGames: cafe={CafeId} categoryId={CategoryId} groupSize={GroupSize} availableOnly={AvailableOnly} searchTerm={SearchTerm} sortBy={SortBy} returnedItems={Count} totalItems={TotalItems} elapsedMs={ElapsedMs}",
+                cafeId,
+                query.CategoryId,
+                query.GroupSize,
+                query.AvailableOnly,
+                query.SearchTerm,
+                query.SortBy,
+                result.Data.Count(),
+                result.Meta.TotalItems,
+                stopwatch.ElapsedMilliseconds);
+
+            if (result.Meta.TotalItems == 0)
+            {
+                _logger.LogInformation(
+                    "GetActiveGames: empty result for cafe {CafeId}.",
+                    cafeId);
+            }
+
+            return result;
         }
 
         public async Task<PaginatedResponse<NearbyCafeDto>> SearchCafesAsync(

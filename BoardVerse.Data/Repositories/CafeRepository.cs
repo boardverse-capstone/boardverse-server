@@ -375,6 +375,170 @@ namespace BoardVerse.Data.Repositories
             };
         }
 
+        /// <summary>
+        /// Lấy danh sách board game đang hoạt động của 1 cafe (player browse).
+        /// Filter:
+        ///   • CafeGameInventory.IsActive = true (quán chưa xóa mềm).
+        ///   • GameTemplate.IsActive = true (master game vẫn active).
+        ///   • Status ∈ {Available, InUse} — không Damaged/Maintenance/Retired.
+        /// Trả kèm AvailableBoxCount (đếm từ CafeInventoryBox Status=Available &amp; IsActive).
+        /// Hỗ trợ filter: categoryId, groupSize, availableOnly, searchTerm; sort theo <see cref="CafeActiveGamesSort"/>.
+        /// </summary>
+        public async Task<PaginatedResponse<CafeActiveGameDto>> GetActiveGamesByCafeAsync(
+            Guid cafeId,
+            CafeActiveGamesQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            var inventoryQuery = _context.CafeGameInventories
+                .AsNoTracking()
+                .Where(i =>
+                    i.CafeId == cafeId
+                    && i.IsActive
+                    && i.GameTemplate.IsActive
+                    && (i.Status == CafeGameInventoryStatus.Available
+                        || i.Status == CafeGameInventoryStatus.InUse));
+
+            // === Filters ===
+
+            // 1. Category filter — game có ít nhất 1 thể loại trùng CategoryId.
+            if (query.CategoryId.HasValue)
+            {
+                var categoryId = query.CategoryId.Value;
+                inventoryQuery = inventoryQuery.Where(i =>
+                    i.GameTemplate.Categories.Any(c => c.CategoryId == categoryId));
+            }
+
+            // 2. Group size filter — game có MinPlayers <= groupSize.
+            if (query.GroupSize.HasValue && query.GroupSize.Value > 0)
+            {
+                var groupSize = query.GroupSize.Value;
+                inventoryQuery = inventoryQuery.Where(i => i.GameTemplate.MinPlayers <= groupSize);
+            }
+
+            // 3. Search filter — case-insensitive partial match trên Name.
+            if (!string.IsNullOrWhiteSpace(query.SearchTerm))
+            {
+                var term = query.SearchTerm.Trim().ToLower();
+                inventoryQuery = inventoryQuery.Where(i => i.GameTemplate.Name.ToLower().Contains(term));
+            }
+
+            var projected = inventoryQuery
+                .Select(i => new
+                {
+                    InventoryId = i.Id,
+                    GameTemplateId = i.GameTemplateId,
+                    Name = i.GameTemplate.Name,
+                    ThumbnailUrl = i.GameTemplate.ThumbnailUrl,
+                    Description = i.GameTemplate.Description,
+                    MinPlayers = i.GameTemplate.MinPlayers,
+                    MaxPlayers = i.GameTemplate.MaxPlayers,
+                    PlayTime = i.GameTemplate.PlayTime,
+                    BoxQuantity = i.BoxQuantity,
+                    AvailableBoxCount = _context.CafeInventoryBoxes.Count(b =>
+                        b.CafeGameInventoryId == i.Id
+                        && b.IsActive
+                        && b.Status == CafeGameInventoryStatus.Available),
+                    Status = i.Status,
+                    Categories = i.GameTemplate.Categories
+                        .Select(c => new CategoryDto
+                        {
+                            Id = c.Category.Id,
+                            Name = c.Category.Name,
+                            Slug = c.Category.Slug,
+                            Description = c.Category.Description,
+                            SortOrder = c.Category.SortOrder
+                        })
+                        .OrderBy(c => c.SortOrder)
+                        .ToList()
+                });
+
+            // 4. AvailableOnly filter — chỉ áp dụng sau projection vì cần count AvailableBoxCount.
+            // Dùng ToList + Where trong memory để giữ code rõ ràng; với dataset cafe-level
+            // (thường < 100 active games) overhead không đáng kể.
+            var allRows = await projected.ToListAsync(cancellationToken);
+
+            IReadOnlyCollection<CafeActiveGameDto> filteredRows;
+            if (query.AvailableOnly)
+            {
+                filteredRows = allRows
+                    .Where(r => r.AvailableBoxCount > 0)
+                    .Select(r => MapToDto(r, query.GroupSize))
+                    .ToList();
+            }
+            else
+            {
+                filteredRows = allRows
+                    .Select(r => MapToDto(r, query.GroupSize))
+                    .ToList();
+            }
+
+            // === Sort ===
+            filteredRows = query.SortBy switch
+            {
+                CafeActiveGamesSort.AvailableBoxesDesc
+                    => filteredRows.OrderByDescending(g => g.AvailableBoxCount).ThenBy(g => g.GameName).ToList(),
+                CafeActiveGamesSort.PlayTimeAsc
+                    => filteredRows.OrderBy(g => g.PlayTime).ThenBy(g => g.GameName).ToList(),
+                CafeActiveGamesSort.PlayerCountAsc
+                    => filteredRows.OrderBy(g => g.MinPlayers).ThenBy(g => g.MaxPlayers).ThenBy(g => g.GameName).ToList(),
+                _ // Name
+                    => filteredRows.OrderBy(g => g.GameName).ToList(),
+            };
+
+            var totalItems = filteredRows.Count;
+            var totalPages = totalItems == 0
+                ? 0
+                : (int)Math.Ceiling(totalItems / (double)query.PageSize);
+
+            var items = filteredRows
+                .Skip((query.PageNumber - 1) * query.PageSize)
+                .Take(query.PageSize)
+                .ToList();
+
+            return new PaginatedResponse<CafeActiveGameDto>
+            {
+                Data = items,
+                Meta = new PaginationMeta
+                {
+                    CurrentPage = query.PageNumber,
+                    PageSize = query.PageSize,
+                    TotalItems = totalItems,
+                    TotalPages = totalPages
+                }
+            };
+        }
+
+        private static CafeActiveGameDto MapToDto(
+            dynamic row,
+            int? groupSize)
+        {
+            int minPlayers = (int)row.MinPlayers;
+            bool? fitsGroup = groupSize.HasValue
+                ? minPlayers <= groupSize.Value
+                : (bool?)null;
+
+            int availableBoxCount = (int)row.AvailableBoxCount;
+            int status = (int)row.Status;
+            List<CategoryDto> categories = ((IEnumerable<CategoryDto>)row.Categories).ToList();
+
+            return new CafeActiveGameDto
+            {
+                InventoryId = (Guid)row.InventoryId,
+                GameTemplateId = (Guid)row.GameTemplateId,
+                GameName = (string)row.Name,
+                ThumbnailUrl = (string?)row.ThumbnailUrl,
+                Description = (string?)row.Description,
+                MinPlayers = minPlayers,
+                MaxPlayers = (int)row.MaxPlayers,
+                PlayTime = (int)row.PlayTime,
+                BoxQuantity = (int)row.BoxQuantity,
+                AvailableBoxCount = availableBoxCount,
+                FitsGroupSize = fitsGroup,
+                Status = ((CafeGameInventoryStatus)status).ToString(),
+                Categories = categories
+            };
+        }
+
         public async Task<PaginatedResponse<NearbyCafeDto>> SearchCafesAsync(
             string name,
             double? latitude,

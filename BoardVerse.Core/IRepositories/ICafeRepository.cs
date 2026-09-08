@@ -57,6 +57,21 @@ namespace BoardVerse.Core.IRepositories
         /// </summary>
         Task<PaginatedResponse<NearbyCafeDto>> GetAllActiveCafesAsync(
             PaginationParams paginationParams, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Lấy danh sách board game đang hoạt động của 1 cafe (player browse).
+        /// Board game "đang hoạt động" khi:
+        ///   • CafeGameInventory.IsActive = true (quán chưa xóa mềm).
+        ///   • GameTemplate.IsActive = true (master game vẫn active).
+        ///   • CafeGameInventory.Status ∈ {Available, InUse} (không Damaged/Maintenance/Retired).
+        /// Trả về shape <see cref="CafeActiveGameDto"/> có kèm AvailableBoxCount
+        /// (đếm từ <see cref="CafeInventoryBox"/> còn Available &amp; IsActive).
+        /// Hỗ trợ filter: categoryId, groupSize (MatchGroup), availableOnly, searchTerm; sort theo <see cref="CafeActiveGamesSort"/>.
+        /// </summary>
+        Task<PaginatedResponse<CafeActiveGameDto>> GetActiveGamesByCafeAsync(
+            Guid cafeId,
+            CafeActiveGamesQueryDto query,
+            CancellationToken cancellationToken = default);
         Task<List<Cafe>> GetNearbyCafesAsync(Guid excludeCafeId, double radiusKm, CancellationToken cancellationToken = default);
         Task EnrichNearbyWithGameWaitAsync(IList<NearbyCafeDto> cafes, Guid gameTemplateId, CancellationToken cancellationToken = default);
         Task<IReadOnlyList<NearbyAlternativeGameSuggestionDto>> GetAlternativeGameSuggestionsAsync(

@@ -8,6 +8,7 @@ using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
+using Microsoft.Extensions.Logging;
 using Moq;
 
 using System.Threading;
@@ -203,6 +204,134 @@ public class CafeServiceTests
         cafeRepo.Verify(r => r.GetAllActiveCafesAsync(pagination, It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Fact]
+    public async Task GetActiveGamesByCafeAsync_CafeNotFound_ThrowsNotFound()
+    {
+        var cafeId = Guid.NewGuid();
+        var cafeRepo = new Mock<ICafeRepository>();
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Cafe?)null);
+
+        var service = BuildService(cafeRepo: cafeRepo);
+
+        await Assert.ThrowsAsync<NotFoundException>(() =>
+            service.GetActiveGamesByCafeAsync(cafeId, new CafeActiveGamesQueryDto()));
+    }
+
+    [Fact]
+    public async Task GetActiveGamesByCafeAsync_CafeInactive_ThrowsNotFound()
+    {
+        var cafeId = Guid.NewGuid();
+        var cafeRepo = new Mock<ICafeRepository>();
+        // GetActiveByIdAsync trả null khi cafe đã IsActive=false hoặc PartnerOperationalStatus != Active.
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Cafe?)null);
+
+        var service = BuildService(cafeRepo: cafeRepo);
+
+        await Assert.ThrowsAsync<NotFoundException>(() =>
+            service.GetActiveGamesByCafeAsync(cafeId, new CafeActiveGamesQueryDto()));
+
+        // Đảm bảo repo KHÔNG gọi xuống GetActiveGamesByCafeAsync — phải fail-fast tại validation.
+        cafeRepo.Verify(
+            r => r.GetActiveGamesByCafeAsync(It.IsAny<Guid>(), It.IsAny<CafeActiveGamesQueryDto>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task GetActiveGamesByCafeAsync_CafeActive_DelegatesToRepository()
+    {
+        var cafeId = Guid.NewGuid();
+        var query = new CafeActiveGamesQueryDto
+        {
+            CategoryId = Guid.NewGuid(),
+            GroupSize = 5,
+            AvailableOnly = true,
+            SearchTerm = "  Catan  ",
+            SortBy = CafeActiveGamesSort.AvailableBoxesDesc,
+            PageNumber = 1,
+            PageSize = 10
+        };
+        var expected = new PaginatedResponse<CafeActiveGameDto>
+        {
+            Data = new List<CafeActiveGameDto>
+            {
+                new()
+                {
+                    InventoryId = Guid.NewGuid(),
+                    GameTemplateId = GameTemplateId,
+                    GameName = "Catan",
+                    BoxQuantity = 3,
+                    AvailableBoxCount = 2,
+                    FitsGroupSize = true,
+                    Status = "Available"
+                }
+            },
+            Meta = new PaginationMeta { CurrentPage = 1, PageSize = 10, TotalItems = 1, TotalPages = 1 }
+        };
+
+        var cafeRepo = new Mock<ICafeRepository>();
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Cafe { Id = cafeId, Name = "Active Cafe", Address = "123 Test Street" });
+        cafeRepo.Setup(r => r.GetActiveGamesByCafeAsync(
+                cafeId,
+                It.Is<CafeActiveGamesQueryDto>(q =>
+                    q.CategoryId == query.CategoryId
+                    && q.GroupSize == query.GroupSize
+                    && q.AvailableOnly == query.AvailableOnly
+                    && q.SearchTerm == query.SearchTerm
+                    && q.SortBy == query.SortBy),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expected)
+            .Verifiable();
+
+        var service = BuildService(cafeRepo: cafeRepo);
+
+        var result = await service.GetActiveGamesByCafeAsync(cafeId, query);
+
+        Assert.Same(expected, result);
+        cafeRepo.Verify(
+            r => r.GetActiveGamesByCafeAsync(cafeId, It.IsAny<CafeActiveGamesQueryDto>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task GetActiveGamesByCafeAsync_DefaultsApplied_WhenQueryIsEmpty()
+    {
+        var cafeId = Guid.NewGuid();
+        // Query không truyền gì → mặc định: PageNumber=1, PageSize=20, AvailableOnly=false,
+        // SortBy=Name, các filter khác null.
+        var rawQuery = new CafeActiveGamesQueryDto();
+
+        var capturedQuery = (CafeActiveGamesQueryDto?)null;
+        var cafeRepo = new Mock<ICafeRepository>();
+        cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Cafe { Id = cafeId, Name = "Cafe", Address = "Addr" });
+        cafeRepo.Setup(r => r.GetActiveGamesByCafeAsync(
+                cafeId,
+                It.IsAny<CafeActiveGamesQueryDto>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<Guid, CafeActiveGamesQueryDto, CancellationToken>((_, q, _) => capturedQuery = q)
+            .ReturnsAsync(new PaginatedResponse<CafeActiveGameDto>
+            {
+                Data = [],
+                Meta = new PaginationMeta { CurrentPage = 1, PageSize = 20, TotalItems = 0, TotalPages = 0 }
+            });
+
+        var service = BuildService(cafeRepo: cafeRepo);
+
+        await service.GetActiveGamesByCafeAsync(cafeId, rawQuery);
+
+        Assert.NotNull(capturedQuery);
+        Assert.Null(capturedQuery!.CategoryId);
+        Assert.Null(capturedQuery.GroupSize);
+        Assert.False(capturedQuery.AvailableOnly);
+        Assert.Null(capturedQuery.SearchTerm);
+        Assert.Equal(CafeActiveGamesSort.Name, capturedQuery.SortBy);
+        Assert.Equal(1, capturedQuery.PageNumber);
+        Assert.Equal(20, capturedQuery.PageSize);
+    }
+
     private static Mock<IPushNotificationService>? pushNotificationService;
 
     private static CafeService BuildService(
@@ -220,6 +349,7 @@ public class CafeServiceTests
         pushNotificationService ??= new Mock<IPushNotificationService>();
         var lobbyRepo = new Mock<ILobbyRepository>();
         var reservationRepo = new Mock<IReservationRepository>();
+        var logger = new Mock<ILogger<CafeService>>();
 
         config.Setup(c => c.GetDoubleAsync(SystemConfigKeys.MatchmakingRadiusKm, GeoLocationHelper.DefaultNearbyRadiusKm, It.IsAny<CancellationToken>()))
             .ReturnsAsync(GeoLocationHelper.DefaultNearbyRadiusKm);
@@ -232,6 +362,7 @@ public class CafeServiceTests
             hubService.Object,
             pushNotificationService.Object,
             lobbyRepo.Object,
-            reservationRepo.Object);
+            reservationRepo.Object,
+            logger.Object);
     }
 }
