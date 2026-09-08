@@ -1,4 +1,4 @@
-using BoardVerse.Core.DTOs.Lobby;
+﻿using BoardVerse.Core.DTOs.Lobby;
 using BoardVerse.Core.DTOs.Reservation;
 using BoardVerse.Core.Enum;
 
@@ -61,7 +61,6 @@ namespace BoardVerse.Services.IServices
         Task<DissolveLobbyResponseDto> DissolveLobbyAsync(Guid lobbyId, Guid hostUserId, string? reason = null, CancellationToken cancellationToken = default);
 
         Task<LobbyResponseDto> LockLobbyAsync(Guid lobbyId, Guid hostUserId, CancellationToken cancellationToken = default);
-        Task<LobbyResponseDto> OpenKarmaWindowAsync(Guid lobbyId, Guid hostUserId, CancellationToken cancellationToken = default);
         Task<LobbyResponseDto> TransitionToInProgressAsync(Guid lobbyId, Guid? activeSessionId, CancellationToken cancellationToken = default);
         Task<LobbyResponseDto> TransitionToClosedAsync(Guid lobbyId, CancellationToken cancellationToken = default);
 

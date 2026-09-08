@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Enum;
+﻿namespace BoardVerse.Core.Enum;
 
 /// <summary>
 /// Trạng thái của BVC top-up request. Lifecycle:

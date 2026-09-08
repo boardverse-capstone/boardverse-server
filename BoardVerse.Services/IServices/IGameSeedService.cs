@@ -1,4 +1,4 @@
-namespace BoardVerse.Services.IServices
+﻿namespace BoardVerse.Services.IServices
 {
     public interface IGameSeedService
     {

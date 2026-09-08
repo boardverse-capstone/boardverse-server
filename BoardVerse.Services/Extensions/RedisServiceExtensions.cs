@@ -1,4 +1,4 @@
-using BoardVerse.Core.Helpers;
+﻿using BoardVerse.Core.Helpers;
 using BoardVerse.Core.Settings;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;

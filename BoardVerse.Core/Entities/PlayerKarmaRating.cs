@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Entities
+﻿namespace BoardVerse.Core.Entities
 {
     /// <summary>Immutable record of a cross-rating submission (one rater → one target per lobby).</summary>
     public class PlayerKarmaRating

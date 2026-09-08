@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Entities;
+﻿namespace BoardVerse.Core.Entities;
 
 /// <summary>
 /// Loại report lobby.

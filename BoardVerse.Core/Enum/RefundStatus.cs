@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Enum;
+﻿namespace BoardVerse.Core.Enum;
 
 /// <summary>
 /// Trạng thái của một <c>RefundTransaction</c> (docs/time-slot-fixed-end-design (1).md §9.4).

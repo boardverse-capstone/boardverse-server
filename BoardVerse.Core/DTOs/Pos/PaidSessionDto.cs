@@ -1,4 +1,4 @@
-using System.Text.Json.Serialization;
+﻿using System.Text.Json.Serialization;
 using BoardVerse.Core.DTOs.Session;
 
 namespace BoardVerse.Core.DTOs.Pos;

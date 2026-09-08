@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Tournament;
+﻿namespace BoardVerse.Core.DTOs.Tournament;
 
 /// <summary>
 /// Options khi Manager bấm Start tournament với số người không đủ.

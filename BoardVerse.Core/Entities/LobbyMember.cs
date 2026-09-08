@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Entities;
+﻿namespace BoardVerse.Core.Entities;
 
 /// <summary>
 /// Trạng thái lobby member (readiness cho InProgress).

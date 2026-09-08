@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Tournament;
+﻿namespace BoardVerse.Core.DTOs.Tournament;
 
 /// <summary>
 /// Lịch sử Elo của user qua các tournament đã/đang tham gia.

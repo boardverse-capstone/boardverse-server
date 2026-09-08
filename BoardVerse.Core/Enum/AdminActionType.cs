@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Enum;
+﻿namespace BoardVerse.Core.Enum;
 
 /// <summary>
 /// Loại admin action ghi vào PlayerActionHistory — theo BR-RISK-05.

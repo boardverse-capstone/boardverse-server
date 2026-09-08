@@ -1,4 +1,4 @@
-using BoardVerse.Core.DTOs.Friend;
+﻿using BoardVerse.Core.DTOs.Friend;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;

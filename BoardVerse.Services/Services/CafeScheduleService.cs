@@ -1,4 +1,4 @@
-using BoardVerse.Core.Constants;
+﻿using BoardVerse.Core.Constants;
 using BoardVerse.Core.DTOs.CafeSchedule;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Exceptions;

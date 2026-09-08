@@ -1,4 +1,4 @@
-using BoardVerse.Data;
+﻿using BoardVerse.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;

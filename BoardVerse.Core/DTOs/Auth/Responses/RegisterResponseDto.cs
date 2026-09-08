@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Auth.Responses
+﻿namespace BoardVerse.Core.DTOs.Auth.Responses
 {
     public class RegisterResponseDto
     {

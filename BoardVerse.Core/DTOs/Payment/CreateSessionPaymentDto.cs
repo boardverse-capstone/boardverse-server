@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Payment
+﻿namespace BoardVerse.Core.DTOs.Payment
 {
     /// <summary>
     /// Request tạo thanh toán cho hóa đơn phiên chơi.

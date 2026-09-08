@@ -1,4 +1,4 @@
-namespace BoardVerse.Services.Services.Bgg
+﻿namespace BoardVerse.Services.Services.Bgg
 {
     internal sealed class BggThingData
     {

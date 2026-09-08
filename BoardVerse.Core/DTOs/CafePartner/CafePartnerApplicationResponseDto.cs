@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.CafePartner
+﻿namespace BoardVerse.Core.DTOs.CafePartner
 {
     /// <summary>Phase 1 application — submit, public lookup, admin review.</summary>
     public class CafePartnerApplicationResponseDto

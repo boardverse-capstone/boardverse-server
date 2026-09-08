@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Core.Entities;

@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Entities
+﻿namespace BoardVerse.Core.Entities
 {
     /// <summary>
     /// Bảng nối N-N giữa board game (GameTemplates) và thể loại (Categories).

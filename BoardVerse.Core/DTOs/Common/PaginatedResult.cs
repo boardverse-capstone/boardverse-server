@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Common;
+﻿namespace BoardVerse.Core.DTOs.Common;
 
 /// <summary>
 /// Kết quả phân trang chung cho các list endpoint.

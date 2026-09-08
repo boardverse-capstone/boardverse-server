@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Helpers;
+﻿namespace BoardVerse.Core.Helpers;
 
 /// <summary>
 /// Quy tắc tính Karma bonus/penalty cho tournament.

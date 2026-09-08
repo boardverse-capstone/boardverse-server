@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Constants;
+﻿namespace BoardVerse.Core.Constants;
 
 /// <summary>
 /// GAP-R6-KARMA-08 Fix: Centralized karma level thresholds.

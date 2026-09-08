@@ -1,4 +1,4 @@
-using BoardVerse.API.Authentication;
+﻿using BoardVerse.API.Authentication;
 using BoardVerse.Core.DTOs.Common;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.Messages;

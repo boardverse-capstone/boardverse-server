@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Helpers
+﻿namespace BoardVerse.Core.Helpers
 {
     public static class CafePartnerTableLayoutHelper
     {

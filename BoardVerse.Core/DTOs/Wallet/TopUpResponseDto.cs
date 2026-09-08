@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Wallet;
+﻿namespace BoardVerse.Core.DTOs.Wallet;
 
 /// <summary>
 /// Response sau khi tạo đơn top-up thành công — trả URL payment gateway + số BVC dự kiến.

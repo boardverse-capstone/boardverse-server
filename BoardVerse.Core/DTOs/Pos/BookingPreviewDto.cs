@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Pos;
+﻿namespace BoardVerse.Core.DTOs.Pos;
 
 /// <summary>
 /// DTO chứa thông tin booking để preview trước khi check-in.

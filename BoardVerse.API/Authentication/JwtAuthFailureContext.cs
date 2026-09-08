@@ -1,4 +1,4 @@
-namespace BoardVerse.API.Authentication
+﻿namespace BoardVerse.API.Authentication
 {
     internal static class JwtAuthFailureContext
     {

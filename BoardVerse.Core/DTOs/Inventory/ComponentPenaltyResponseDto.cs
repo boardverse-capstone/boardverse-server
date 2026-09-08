@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Inventory
+﻿namespace BoardVerse.Core.DTOs.Inventory
 {
     public class ComponentPenaltyResponseDto
     {

@@ -1,4 +1,4 @@
-using BoardVerse.API.Authentication;
+﻿using BoardVerse.API.Authentication;
 using BoardVerse.API.BackgroundServices;
 using BoardVerse.API.Hubs;
 using BoardVerse.Data;

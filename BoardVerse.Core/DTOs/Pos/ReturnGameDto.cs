@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Pos
+﻿namespace BoardVerse.Core.DTOs.Pos
 {
     /// <summary>
     /// Request cho return-game: mảng linh kiện lỗi từ POS.

@@ -386,3 +386,34 @@ GET /api/v1/board-games/categories
 
 - Manager nhập game vào quán: [Master Games](./master-games.md) → [Cafe Inventory](./cafe-inventory.md)
 - Player xem game tại quán: [Cafe Inventory — GET browse](./cafe-inventory.md#quyền-xem-kho-get) (đã kèm mô tả, thể loại, linh kiện)
+
+---
+
+## Service nội bộ — `BoardGameDiscoveryService`
+
+> **Trạng thái (2026-09-08):** Service `IBoardGameDiscoveryService` đã được implement với 3 method — `RunSurveyAsync`, `GetSavedGamesAsync`, `ToggleSaveAsync` — nhưng **chưa có controller action nào expose qua HTTP**. Endpoint survey POST `/api/v1/board-games/survey` đang chờ FE wiring.
+
+| Method (service) | Kiểu input | Dùng để |
+|---|---|---|
+| `RunSurveyAsync(request, userId, lat, lng, ct)` | `BoardGameSurveyRequestDto` (playerCount 1–5, categoryIds, preferredDurations, searchKeyword, experienceLevel) | Trả `BoardGameSurveyResponseDto` gồm `games[]` (scored 0–100), `categories`, `nearestCafe`, `openLobbies`. Gọi `ICafeService.GetNearbyCafesAsync(pageNumber=1, pageSize=1)` để lấy 1 cafe gần nhất có `gameTemplateId` của top-1 game. |
+| `GetSavedGamesAsync(userId, ct)` | `Guid` | Trả danh sách game user đã lưu (từ `IPlayerBoardGameSaveRepository`), kèm `hasOpenLobby` flag. |
+| `ToggleSaveAsync(userId, gameTemplateId, ct)` | `Guid`, `Guid` | Toggle save/un-save. Throw `BoardGameNotFoundException` nếu game không tồn tại. |
+
+### DTO liên quan
+
+- `BoardGameSurveyRequestDto`: `PlayerCount (1..5)`, `CategoryIds`, `PreferredDurations (string[] ∈ {under30, 30to60, over60})`, `SearchKeyword`, `ExperienceLevel (Beginner|Casual|Regular|Expert)`.
+- `BoardGameSurveyResponseDto`: `Games (DiscoveryBoardGameDto[])`, `TotalCount`, `SurveyedPlayerCount`, `AppliedFilters`, `NearestCafe`, `OpenLobbies`.
+- `DiscoveryBoardGameDto`: game + `MatchScore` + `IsSaved` + `HasOpenLobby`.
+
+### Error contract (đã verify build 2026-09-08)
+
+| Tình huống | Message (`ApiErrorMessages.Discovery.*`) |
+|---|---|
+| `PlayerCount < 1 \|\| > 5` | `PlayerCountInvalid` |
+| `PreferredDurations` không nằm trong `{under30, 30to60, over60}` | `BadRequestException` với message custom |
+| Game không tồn tại khi toggle save | `BoardGameNotFoundException` + `GameNotSaved(gameTemplateId)` |
+
+### Lưu ý implementation
+
+- `PaginationParams` chỉ có parameterless constructor + property init (`{ PageNumber, PageSize }`). Service `BoardGameDiscoveryService.RunSurveyAsync` gọi `new PaginationParams { PageNumber = 1, PageSize = 1 }` (sửa lỗi compile `CS1729` ngày 2026-09-08).
+- `NearbyCafeSearchResultDto` có property lồng `Cafes.Data` chứ không phải `Data` trực tiếp — dùng `cafeResult.Cafes.Data?.FirstOrDefault()` để lấy 1 cafe gần nhất.

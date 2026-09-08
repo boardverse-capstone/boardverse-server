@@ -114,10 +114,10 @@ public class BoardGameDiscoveryService : IBoardGameDiscoveryService
                     radiusKm: 15,
                     gameTemplateId: topGameId,
                     name: null,
-                    new PaginationParams(1, 1),
+                    new PaginationParams { PageNumber = 1, PageSize = 1 },
                     cancellationToken);
 
-                var firstCafe = cafeResult.Data?.FirstOrDefault();
+                var firstCafe = cafeResult.Cafes.Data?.FirstOrDefault();
                 if (firstCafe != null)
                 {
                     nearestCafe = MapToNearestCafe(firstCafe);

@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Tournament;
+﻿namespace BoardVerse.Core.DTOs.Tournament;
 
 public class TournamentSpectatorDto
 {

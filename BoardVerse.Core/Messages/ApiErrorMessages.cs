@@ -1,4 +1,4 @@
-using BoardVerse.Core.Enum;
+﻿using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Core.Messages
 {
@@ -393,6 +393,22 @@ public static string AccessForbidden(Guid cafeId) =>
  public static string ComponentNotBelongToGame(Guid componentId, Guid gameTemplateId) =>
  $"Linh kiện '{componentId}' không thuộc game template '{gameTemplateId}'.";
 
+ // BR-BGG-SYNC-01: Orphaned penalty validation errors
+ public static string OrphanedPenaltyNotFound(Guid penaltyId) =>
+ $"Không tìm thấy cấu hình phí đền bù '{penaltyId}' cho quán này.";
+
+ public static string OrphanedPenaltyDuplicateSubmission(Guid penaltyId) =>
+ $"Phí đền bù '{penaltyId}' đã được gửi trong request. Chỉ gửi mỗi penalty một lần.";
+
+ public const string OrphanedPenaltyNegativeQuantity =
+ "Số lượng linh kiện orphaned bị mất không được âm.";
+
+ public static string OrphanedPenaltyMemberNotInSession(Guid penaltyId, Guid memberId) =>
+ $"Không thể gán phí đền bù '{penaltyId}' vào thành viên '{memberId}': thành viên không thuộc phiên chơi này.";
+
+ public const string OrphanedPenaltyCannotAssignToGuestSlot =
+ "Không thể gán phí đền bù linh kiện orphaned cho khách vô danh. Gán vào hóa đơn của người khởi tạo hoặc thu tiền mặt trực tiếp từ người về sớm.";
+
  public static string InventoryChecklistNotRequired =>
  "Không cần kiểm tra linh kiện. Phiên chơi chưa bắt đầu kiểm kê.";
 
@@ -472,6 +488,15 @@ public const string SessionCannotResumeHasCheckedOutMembers =
         public const string CannotResumeWithMissingComponents =
             "Phiên đang được đánh dấu có linh kiện thiếu/hỏng. Hãy xử lý qua kiểm kê linh kiện hoặc thanh toán phí phạt trước khi khôi phục phiên về ACTIVE.";
 
+        // Gap 9: Block resume khi đã qua ComponentCheck (audit trail đã persist → không revert).
+        public const string CannotResumeAfterComponentCheck =
+            "Phiên đã qua bước kiểm kê linh kiện. Không thể khôi phục về ACTIVE vì lịch sử kiểm kê đã được ghi nhận. Vui lòng tạo phiên mới nếu cần chơi lại.";
+
+        // Gap 12: Block resume khi session rỗng members (tất cả đã kết thúc / bị xóa).
+        // Trước đây pass → status = Active nhưng members = [] → PaySessionAsync tính bill = 0.
+        public const string CannotResumeEmptySession =
+            "Session has no members left to resume. Please create a new session if customers want to play again.";
+
  public const string GuestSlotNotAllowedAfterSessionEnded =
  "Phiên chơi đã kết thúc. Không thể thêm khách vô danh.";
 
@@ -483,6 +508,32 @@ public const string SessionCannotResumeHasCheckedOutMembers =
 
  public const string AddMemberRequiresAtLeastOneUser =
  "Cần chọn ít nhất 1 thành viên để thêm vào phiên.";
+
+ // ============================================================
+ // SplitSession (Exception 4: A1, A2 về sớm; A3, A4 ở lại chơi tiếp)
+ // ============================================================
+
+ public static string SplitRequiresCheckingState(string currentStatus) =>
+ $"Chỉ có thể tách phiên khi session đang ở trạng thái Checking (đã kiểm kê linh kiện). Hiện tại: '{currentStatus}'.";
+
+ public const string SplitRequiresAtLeastOneButNotAll =
+ "Cần tách ít nhất 1 thành viên nhưng không phải tất cả. Tối thiểu 1 người phải ở lại session gốc để checkout.";
+
+ public static string SplitMemberNotPlaying(Guid memberId) =>
+ $"Thành viên '{memberId}' không ở trạng thái Playing nên không thể tách. Member đang SuspendedMutation (chờ thanh toán) phải checkout tại session gốc.";
+
+ public const string GuestSlotCannotSplit =
+ "Khách vô danh (BR-13) không thể độc lập trong session mới. Vui lòng tách khỏi danh sách hoặc checkout cùng session gốc.";
+
+ public static string SplitTargetInvalid(string reason) =>
+ $"Session nhận không hợp lệ: {reason}.";
+
+ public static string SplitGameMismatch(Guid sourceGameId, Guid targetGameId) =>
+ $"Session nhận đang chơi game '{targetGameId}' không khớp với session gốc '{sourceGameId}'. Hai nhóm phải chơi cùng tựa game để tách.";
+
+ // GAP 2 Fix: Box không ở trạng thái Available khi split
+ public static string BoxNotAvailableForSplit(string currentStatus) =>
+ $"Hộp game đang ở trạng thái '{currentStatus}', không thể dùng cho phiên mới sau khi tách. Hộp phải ở trạng thái Available.";
 
  public const string OnlyActiveSessionCanAddMembers =
  "Chỉ phiên đang hoạt động mới thêm được thành viên.";
@@ -520,11 +571,21 @@ public const string SessionCannotResumeHasCheckedOutMembers =
  public const string MergeCannotCrossCafes =
  "Không thể ghép thành viên sang phiên chơi của quán khác.";
 
+ public const string MergeSourceNotInCafe =
+ "Phiên chơi nguồn không thuộc quán hiện tại. Không thể ghép thành viên từ phiên của quán khác.";
+
  public const string MemberNotInSourceSession =
  "Thành viên không thuộc phiên chơi nguồn.";
 
  public const string MemberMustBeSuspendedMutationToMerge =
  "Thành viên phải ở trạng thái chờ ghép nhóm (SUSPENDED_MUTATION) để ghép vào nhóm mới.";
+
+ // GAP 4 Fix: Live merge — cho phép member Playing từ Active session merge sang Active session
+ public static string MemberMustBePlayingOrSuspendedToMerge =>
+ "Thành viên phải đang chờ ghép nhóm (SUSPENDED_MUTATION) HOẶC đang chơi (PLAYING) để ghép vào nhóm mới.";
+
+ public static string MergeLiveTransferRequiresGameMatch(Guid sourceGameId, Guid targetGameId) =>
+ $"Hai nhóm phải chơi cùng tựa game để ghép thành viên. Nguồn: '{sourceGameId}', Đích: '{targetGameId}'.";
 
  public static string SessionGameNotFoundInSession(Guid sessionGameId) =>
  $"Không tìm thấy game '{sessionGameId}' trong phiên chơi.";
@@ -2157,9 +2218,6 @@ public const string SePayBankInfoIncomplete =
  public const string LobbyNotOpenForLock =
  "Phòng chờ không ở trạng thái mở.";
 
- public const string OnlyHostCanOpenRating =
- "Chỉ Host mới có thể mở cửa sổ đánh giá.";
-
  public const string OnlyFullLobbyCanInProgress =
  "Chỉ phòng ở trạng thái FULL hoặc WAITING_CHECK_IN mới chuyển sang IN_PROGRESS được.";
 
@@ -3374,7 +3432,6 @@ public static class Settlement
             public const string SessionPausedCannotExtend =
                 "Phiên chơi đang tạm dừng, vui lòng liên hệ nhân viên để tiếp tục trước khi gia hạn.";
         }
-    }
 
     public static class Discovery
     {
@@ -3393,4 +3450,5 @@ public static class Settlement
         public static string SaveNotFound(Guid saveId) =>
             $"Không tìm thấy bản lưu '{saveId}'.";
     }
+}
 }

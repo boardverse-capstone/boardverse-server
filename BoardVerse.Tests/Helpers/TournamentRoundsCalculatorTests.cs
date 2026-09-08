@@ -1,4 +1,4 @@
-using BoardVerse.Core.Helpers;
+﻿using BoardVerse.Core.Helpers;
 using Xunit;
 
 namespace BoardVerse.Tests.Helpers;

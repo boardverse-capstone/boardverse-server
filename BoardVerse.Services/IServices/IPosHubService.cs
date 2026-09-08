@@ -1,4 +1,4 @@
-namespace BoardVerse.Services.IServices;
+﻿namespace BoardVerse.Services.IServices;
 
 /// <summary>
 /// Service để gửi real-time notifications qua SignalR PosHub.

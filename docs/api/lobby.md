@@ -1080,6 +1080,10 @@ stateDiagram-v2
 
 > **Chi tiết Cafe Approval:** Xem [reservation.md](./reservation.md#get-idcafe-approval)
 
+### Host tự động thêm làm LobbyMember khi cafe approve (fix 2026-09-08)
+
+Khi `ConfirmAsync` tạo lobby ở trạng thái `PendingCafeApproval`, step 18 skip insert host vào `LobbyMember` (vì lobby chưa publish). Khi cafe approve qua `POST /api/v1/reservations/{id}/cafe-approval` với `approve: true`, `HandleCafeApprovalAsync` tự động thêm host làm `LobbyMember` (`IsHost=true, IsActive=true, Status=Joined`) — idempotent, không tạo duplicate. Điều này đảm bảo host có thể gọi `GET /api/v1/users/ratings/karma/lobbies/{id}` và `POST /api/v1/users/ratings/karma` mà không bị 403 "không phải thành viên".
+
 ---
 
 ## Ví dụ tích hợp end-to-end

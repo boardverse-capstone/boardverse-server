@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 
 using BoardVerse.Core.Constants;
 using BoardVerse.Core.DTOs.Reservation;
@@ -533,7 +533,7 @@ public class ReservationService : IReservationService
             try
             {
                 return await ExecuteConfirmTransactionAsync(
-                    hostId, request, quoteRequestDto, cafeConfig, wallet, quote, scheduledStartTime, scheduledEndTime, recruitmentDeadline, now, cancellationToken);
+                    hostId, request, quoteRequestDto, cafeConfig, wallet, quote, scheduledStartTime, scheduledEndTime, recruitmentDeadline, now, cafe, cancellationToken);
             }
             catch (DbUpdateException dbx) when (IsSerializationFailure(dbx) && attempt < maxRetries)
             {
@@ -547,7 +547,7 @@ public class ReservationService : IReservationService
                 // Nạp lại wallet + cafe config (tracked instance cũ đã detached).
                 wallet = await GetOrCreateWalletEntityAsync(hostId, now);
                 cafeConfig = await _cafeConfigRepository.GetOrCreateDefaultAsync(request.CafeId);
-                var cafeRetry = await _cafeRepository.GetActiveByIdAsync(request.CafeId)
+                cafe = await _cafeRepository.GetActiveByIdAsync(request.CafeId)
                     ?? throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(request.CafeId));
                 quoteRequestDto = new ReservationQuoteRequestDto
                 {
@@ -564,7 +564,7 @@ public class ReservationService : IReservationService
                 quote = _depositCalculator.Calculate(
                     quoteRequestDto,
                     cafeConfig,
-                    cafeRetry.BasePrice,
+                    cafe.BasePrice,
                     wallet.RiskMultiplier,
                     wallet.IsCoolingOff,
                     request.IsPrivate,
@@ -606,7 +606,7 @@ public class ReservationService : IReservationService
                 quote = _depositCalculator.Calculate(
                     quoteRequestDto,
                     cafeConfig,
-                    cafeRetry.BasePrice,
+                    cafe.BasePrice,
                     wallet.RiskMultiplier,
                     wallet.IsCoolingOff,
                     request.IsPrivate,
@@ -632,6 +632,7 @@ public class ReservationService : IReservationService
         DateTime scheduledEndTime,
         DateTime recruitmentDeadline,
         DateTime now,
+        Cafe cafe,
         CancellationToken cancellationToken = default)
     {
         var (_, tx) = await BeginTransactionIfNeededAsync();
@@ -737,6 +738,8 @@ public class ReservationService : IReservationService
                 Status = initialLobbyStatus,
                 ShareCode = ShareCodeGenerator.Generate(),
                 IsPrivate = request.IsPrivate,
+                Latitude = cafe.Latitude,
+                Longitude = cafe.Longitude,
                 CancellationLeadTimeMinutes = cafeConfig.RecruitmentDeadlineBufferMinutes,
                 CreatedAt = now,
                 UpdatedAt = now
@@ -1473,6 +1476,23 @@ public class ReservationService : IReservationService
                 lobby.CafeApprovalDeadline = null;
                 lobby.CafeRejectionReason = null;
                 lobby.UpdatedAt = now;
+
+                // GAP fix: host was NOT added as LobbyMember during lobby creation (step 18 skips
+                // PendingCafeApproval). When cafe approves, add the host so they are a member
+                // and can rate other players without getting 403 "not a member of this lobby".
+                if (!lobby.Members.Any(m => m.UserId == reservation.HostId))
+                {
+                    lobby.Members.Add(new LobbyMember
+                    {
+                        Id = Guid.NewGuid(),
+                        LobbyId = lobby.Id,
+                        UserId = reservation.HostId,
+                        IsHost = true,
+                        IsActive = true,
+                        Status = LobbyMemberStatus.Joined,
+                        JoinedAt = now
+                    });
+                }
 
                 await _lobbyRepository.UpdateAsync(lobby);
                 await _lobbyRepository.SaveChangesAsync();
@@ -2390,15 +2410,10 @@ public class ReservationService : IReservationService
 
     private async Task ValidateCafeAndGameAsync(ReservationQuoteRequestDto request)
     {
-        var cafe = await _db.Cafes.FirstOrDefaultAsync(c => c.Id == request.CafeId);
+        var cafe = await _cafeRepository.GetActiveByIdAsync(request.CafeId);
         if (cafe == null)
         {
             throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(request.CafeId));
-        }
-
-        if (!cafe.IsActive)
-        {
-            throw new BadRequestException(ApiErrorMessages.Reservation.CafeNotActive);
         }
 
         var game = await _gameRepository.GetByIdAsync(request.GameId);
@@ -2408,9 +2423,9 @@ public class ReservationService : IReservationService
         }
 
         // Check cafe có game này chưa.
-        var hasGame = await _db.CafeGameInventories
-            .AnyAsync(cgi => cgi.CafeId == request.CafeId && cgi.GameTemplateId == request.GameId);
-        if (!hasGame)
+        var inventory = await _cafeInventoryRepository.GetByCafeAndGameTemplateAsync(
+            request.CafeId, request.GameId);
+        if (inventory == null)
         {
             throw new BadRequestException(ApiErrorMessages.Reservation.GameNotInCafeInventory);
         }

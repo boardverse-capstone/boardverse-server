@@ -30,32 +30,32 @@ public class ReservationQuoteRequestDto
     public TimeOnly PreferredEndTime { get; set; }
 
     /// <summary>
-    /// 1-30 players. MinPlayers m?c ??nh 2 ?? ??m b?o lobby ?? ng??i.
-    /// Solo play (MaxPlayers=1) ???c ph?p cho tr??ng h?p test ho?c ch?i m?t m?nh.
+    /// 1-30 players. MinPlayers mặc định 2 để đảm bảo lobby đủ người.
+    /// Solo play (MaxPlayers=1) được phép cho trường hợp test hoặc chơi một mình.
     /// </summary>
     [Range(1, 30)]
     public int MaxPlayers { get; set; }
 
     /// <summary>
-    /// BR-LOBBY-02: ??t minPlayers l? ?? ?? x?c nh?n lobby.
-    /// MinPlayers c? th? = 1 cho solo play, nh?ng m?c ??nh = 2.
+    /// BR-LOBBY-02: Đặt minPlayers là đủ để xác nhận lobby.
+    /// MinPlayers có thể = 1 cho solo play, nhưng mặc định = 2.
     /// </summary>
     [Range(1, 30)]
     public int MinPlayers { get; set; } = 2;
 
     /// <summary>
-    /// BR-NEW-11: Lobby ri?ng t? (m?i b?n) kh?ng c?n cafe duy?t.
-    /// Public lobby m?i c?n duy?t n?u playDate > 2 ng?y.
+    /// BR-NEW-11: Lobby riêng tư (mời bạn) không cần cafe duyệt.
+    /// Public lobby mới cần duyệt nếu playDate > 2 ngày.
     /// </summary>
     public bool IsPrivate { get; set; } = false;
 
-    /// <summary>Idempotency key cho quote ? cho ph?p client retry.</summary>
+    /// <summary>Idempotency key cho quote để cho phép client retry.</summary>
     [Required, StringLength(128, MinimumLength = 8)]
     public string IdempotencyKey { get; set; } = string.Empty;
 }
 
 /// <summary>
-/// Quote tr? v? cho client (?21A.2 + BR ?XVIII.1).
+/// Quote trả về cho client (§21A.2 + BR §XVIII.1).
 /// Theo time-slot-fixed-end-design.md Section 10.1.
 /// BR-BOOK-02: End time <= Start time + 6 hours.
 /// BR-REFUND-05: Early checkout refund preview.
@@ -86,7 +86,7 @@ public class ReservationQuoteDto
     public decimal CafeBasePriceVnd { get; set; }
 
     /// <summary>
-    /// Th?i l??ng slot (ph?t).
+    /// Thời lượng slot (phút).
     /// BR-BOOK-02: Max 6 hours (360 minutes).
     /// </summary>
     public int DurationMinutes { get; set; }
@@ -133,21 +133,21 @@ public class ReservationQuoteDto
     public long MissingAmount { get; set; }
 
     /// <summary>
-    /// Preview refund n?u early checkout (BR-REFUND-05).
-    /// refund = 30% n?u playedRatio >= 50%, = 0% n?u playedRatio &lt; 50%.
+    /// Preview refund nếu early checkout (BR-REFUND-05).
+    /// refund = 30% nếu playedRatio ≥ 50%, = 0% nếu playedRatio &lt; 50%.
     /// </summary>
     public EarlyCheckoutRefundPreview? EarlyCheckoutRefundPreview { get; set; }
 
-    /// <summary>Buffer t? now ??n recruitmentDeadline (ph?t). ?m = qu? kh?.</summary>
+    /// <summary>Buffer từ now đến recruitmentDeadline (phút). Âm = quá khứ.</summary>
     public int BufferMinutes { get; set; }
 
-    /// <summary>True khi buffer &lt; 120 nh?ng ? 60 (c?nh b?o BR-LOBBY-01c).</summary>
+    /// <summary>True khi buffer &lt; 120 nhưng ≥ 60 (cảnh báo BR-LOBBY-01c).</summary>
     public bool BufferWarning { get; set; }
 
-    /// <summary>True khi cafe c?n duy?t th? c?ng (BR-NEW-11).</summary>
+    /// <summary>True khi cafe cần duyệt thủ công (BR-NEW-11).</summary>
     public bool RequiresCafeApproval { get; set; }
 
-    /// <summary>Quote h?t h?n (BR ?XVIII.1 + 21A.2 ? 5 ph?t).</summary>
+    /// <summary>Quote hết hạn (BR §XVIII.1 + 21A.2 — 5 phút).</summary>
     public DateTime ExpiresAt { get; set; }
 
     public List<string> Warnings { get; set; } = [];
@@ -160,25 +160,25 @@ public class ReservationQuoteDto
 public class EarlyCheckoutRefundPreview
 {
     /// <summary>
-    /// T? l? th?i gian ch?i t?i thi?u ?? ???c refund 30%.
-    /// BR-REFUND-05: >= 50% played = eligible for 30% refund.
+    /// Tỷ lệ thời gian chơi tối thiểu để được refund 30%.
+    /// BR-REFUND-05: ≥ 50% played = eligible for 30% refund.
     /// </summary>
     public double MinimumPlayedRatio { get; set; } = 0.5;
 
     /// <summary>
-    /// T? l? refund khi ?? ?i?u ki?n.
-    /// BR-REFUND-05: 30% refund n?u playedRatio >= 50%.
-    /// BR-REFUND-06: 0% refund n?u playedRatio >= 90% (treated as on-time).
+    /// Tỷ lệ refund khi đủ điều kiện.
+    /// BR-REFUND-05: 30% refund nếu playedRatio ≥ 50%.
+    /// BR-REFUND-06: 0% refund nếu playedRatio ≥ 90% (treated as on-time).
     /// </summary>
     public decimal RefundPercentage { get; set; } = 0.30m;
 
     /// <summary>
-    /// S? BVC refund n?u early checkout ?? ?i?u ki?n.
+    /// Số BVC refund nếu early checkout đủ điều kiện.
     /// </summary>
     public long RefundAmount { get; set; }
 
     /// <summary>
-    /// M? t? ch?nh s?ch refund.
+    /// Mô tả chính sách refund.
     /// </summary>
     public string PolicyDescription { get; set; } = "Early checkout (>= 50% played): 30% refund";
 }
@@ -211,27 +211,27 @@ public class ReservationConfirmRequestDto
     public TimeOnly PreferredEndTime { get; set; }
 
     /// <summary>
-    /// 1-30 players. MinPlayers m?c ??nh 2 ?? ??m b?o lobby ?? ng??i.
-    /// Solo play (MaxPlayers=1) ???c ph?p cho tr??ng h?p test ho?c ch?i m?t m?nh.
+    /// 1-30 players. MinPlayers mặc định 2 để đảm bảo lobby đủ người.
+    /// Solo play (MaxPlayers=1) được phép cho trường hợp test hoặc chơi một mình.
     /// </summary>
     [Range(1, 30)]
     public int MaxPlayers { get; set; }
 
     /// <summary>
-    /// BR-LOBBY-02: ??t minPlayers l? ?? ?? x?c nh?n lobby.
-    /// MinPlayers c? th? = 1 cho solo play, nh?ng m?c ??nh = 2.
+    /// BR-LOBBY-02: Đặt minPlayers là đủ để xác nhận lobby.
+    /// MinPlayers có thể = 1 cho solo play, nhưng mặc định = 2.
     /// </summary>
     [Range(1, 30)]
     public int MinPlayers { get; set; } = 2;
 
     /// <summary>
-    /// BR-NEW-11: Lobby ri?ng t? (m?i b?n) kh?ng c?n cafe duy?t.
+    /// BR-NEW-11: Lobby riêng tư (mời bạn) không cần cafe duyệt.
     /// </summary>
     public bool IsPrivate { get; set; } = false;
 
     /// <summary>
-    /// Snapshot quote t? CreateQuoteAsync (BR ?XVIII.1).
-    /// Server d?ng gi? tr? n?y ?? validate + ch?ng client g?i sai s? BVC.
+    /// Snapshot quote từ CreateQuoteAsync (BR §XVIII.1).
+    /// Server dùng giá trị này để validate + chống client gửi sai số BVC.
     /// </summary>
     [Required]
     public long ExpectedFinalDeposit { get; set; }
@@ -241,7 +241,7 @@ public class ReservationConfirmRequestDto
 }
 
 /// <summary>
-/// Response sau khi confirm th?nh c?ng ? tr? lobbyId ?? client navigate LobbyPage.
+/// Response sau khi confirm thành công → trả lobbyId để client navigate LobbyPage.
 /// </summary>
 public class ReservationConfirmResponseDto
 {
@@ -254,7 +254,7 @@ public class ReservationConfirmResponseDto
 }
 
 /// <summary>
-/// Host h?y lobby (?21A.6).
+/// Host hủy lobby (§21A.6).
 /// </summary>
 public class CancelReservationRequestDto
 {
@@ -275,30 +275,30 @@ public class CancelReservationResponseDto
 }
 
 /// <summary>
-/// BR-REFUND-08 (?walk-in-override-design.md ?2.3):
-/// Host h?y booking SAU khi ?? check-in t?i qu?n (late cancel).
-/// ?p d?ng soft-release refund 30% n?u playedRatio ? 50% slot,
-/// forfeit to?n b? n?u playedRatio &lt; 50%.
+/// BR-REFUND-08 (§walk-in-override-design.md §2.3):
+/// Host hủy booking SAU khi đã check-in tại quán (late cancel).
+/// Áp dụng soft-release refund 30% nếu playedRatio ≥ 50% slot,
+/// forfeit toàn bộ nếu playedRatio &lt; 50%.
 ///
-/// Trigger: <c>Reservation.Status: CheckedIn ? CancelledByPlayer</c>
-/// (do player nh?n Cancel tr?n app, kh?ng ph?i POS staff).
+/// Trigger: <c>Reservation.Status: CheckedIn → CancelledByPlayer</c>
+/// (do player nhấn Cancel trên app, không phải POS staff).
 ///
-/// Kh?c BR-REFUND-02 (cancel tr??c check-in): BR-REFUND-08 ch? ?p d?ng cho
-/// session ?? check-in. N?u player cancel tr??c check-in ? BR-REFUND-02 (gi? nguy?n).
+/// Khác BR-REFUND-02 (cancel trước check-in): BR-REFUND-08 chỉ áp dụng cho
+/// session đã check-in. Nếu player cancel trước check-in → BR-REFUND-02 (giữ nguyên).
 /// </summary>
 public class CancelAfterCheckinRequestDto
 {
-    /// <summary>M? reservation c?n h?y sau check-in.</summary>
+    /// <summary>Mã reservation cần hủy sau check-in.</summary>
     [Required]
     public Guid ReservationId { get; set; }
 
-    /// <summary>L? do h?y (optional, l?u audit log).</summary>
+    /// <summary>Lý do hủy (optional, lưu audit log).</summary>
     [StringLength(500)]
     public string? Reason { get; set; }
 }
 
 /// <summary>
-/// Response c?a BR-REFUND-08 endpoint.
+/// Response của BR-REFUND-08 endpoint.
 /// </summary>
 public class CancelAfterCheckinResponseDto
 {
@@ -306,29 +306,29 @@ public class CancelAfterCheckinResponseDto
     public Guid LobbyId { get; set; }
     public Guid? ActiveSessionId { get; set; }
 
-    /// <summary>Minutes player ?? th?c s? ch?i (StartedAt ? now).</summary>
+    /// <summary>Minutes player đã thực sự chơi (StartedAt → now).</summary>
     public int PlayedMinutes { get; set; }
 
-    /// <summary>Scheduled slot duration (ph?t). Reservation.ScheduledEndTime - ScheduledStartTime.</summary>
+    /// <summary>Scheduled slot duration (phút). Reservation.ScheduledEndTime - ScheduledStartTime.</summary>
     public int ScheduledDurationMinutes { get; set; }
 
-    /// <summary>playedRatio (0.0 - 1.0). L?m tr?n 2 ch? s? th?p ph?n.</summary>
+    /// <summary>playedRatio (0.0 - 1.0). Làm tròn 2 chữ số thập phần.</summary>
     public decimal PlayedRatio { get; set; }
 
-    /// <summary>S? BVC refund cho host (30% deposit n?u playedRatio ? 0.5, ng??c l?i 0).</summary>
+    /// <summary>Số BVC refund cho host (30% deposit nếu playedRatio ≥ 0.5, ngược lại 0).</summary>
     public long RefundBvc { get; set; }
 
-    /// <summary>S? BVC forfeit v? doanh thu qu?n (70% deposit n?u playedRatio ? 0.5, 100% n?u &lt; 0.5).</summary>
+    /// <summary>Số BVC forfeit về doanh thu quán (70% deposit nếu playedRatio ≥ 0.5, 100% nếu &lt; 0.5).</summary>
     public long ForfeitBvc { get; set; }
 
-    /// <summary>Policy ???c ?p d?ng: <c>"BR-REFUND-08 ? 0.5"</c> ho?c <c>"BR-REFUND-08 &lt; 0.5"</c>.</summary>
+    /// <summary>Policy được áp dụng: <c>"BR-REFUND-08 ≥ 0.5"</c> hoặc <c>"BR-REFUND-08 &lt; 0.5"</c>.</summary>
     public string RefundPolicyApplied { get; set; } = string.Empty;
 
     public DateTime CancelledAt { get; set; }
 }
 
 /// <summary>
-/// Cafe duy?t/t? ch?i lobby pending (BR-NEW-11 ?XII).
+/// Cafe duyệt/từ chối lobby pending (BR-NEW-11 §XII).
 /// </summary>
 public class CafeApprovalRequestDto
 {
@@ -351,32 +351,32 @@ public class CafeApprovalResponseDto
 }
 
 /// <summary>
-/// POS scan QR check-in (?21A.7).
-/// Manager/CafeStaff qu?t ReservationCode (8-char alphanumeric) hi?n th? tr?n BookingSuccessPage.
+/// POS scan QR check-in (§21A.7).
+/// Manager/CafeStaff quét ReservationCode (8-char alphanumeric) hiển thị trên BookingSuccessPage.
 /// </summary>
 public class ReservationCheckInRequestDto
 {
     /// <summary>
-    /// GAP #1 fix: CafeId c?a POS staff ?ang qu?t QR ? d?ng validate ownership trong CheckInAsync.
-    /// Tr?nh staff cafe A scan QR reservation c?a cafe B.
+    /// GAP #1 fix: CafeId của POS staff đang quét QR — dùng validate ownership trong CheckInAsync.
+    /// Tránh staff cafe A scan QR reservation của cafe B.
     /// </summary>
     [Required]
     public Guid CafeId { get; set; }
 
-    /// <summary>M? 8-char alphanumeric do Reservation.ReservationCode cung c?p.</summary>
+    /// <summary>Mã 8-char alphanumeric do Reservation.ReservationCode cung cấp.</summary>
     [Required, StringLength(16, MinimumLength = 4)]
     public string ReservationCode { get; set; } = string.Empty;
 
-    /// <summary>Id c?a POS session g?n cho phi?n ch?i (FK ActiveSession).</summary>
+    /// <summary>Id của POS session gán cho phiên chơi (FK ActiveSession).</summary>
     [Required]
     public Guid ActiveSessionId { get; set; }
 
-    /// <summary>S? bàn staff gán cho nhóm. Null n?u ch?a gán.</summary>
+    /// <summary>Số bàn staff gán cho nhóm. Null nếu chưa gán.</summary>
     public int? TableNumber { get; set; }
 
     /// <summary>
-    /// Idempotency key cho check-in (BR ?XVII.1) ? format g?i ?: "pos-checkin:{reservationCode}".
-    /// GAP #6 fix: b? session.Id kh?i key ?? retry c?a c?ng POS attempt tr? c?ng response.
+    /// Idempotency key cho check-in (BR §XVII.1) — format gợi ý: "pos-checkin:{reservationCode}".
+    /// GAP #6 fix: bỏ session.Id khỏi key để retry của cùng POS attempt trả cùng response.
     /// </summary>
     [Required, StringLength(128, MinimumLength = 8)]
     public string IdempotencyKey { get; set; } = string.Empty;
@@ -418,7 +418,7 @@ public class ReservationCheckInResponseDto
 }
 
 /// <summary>
-/// Response tr? v? khi l?y chi ti?t 1 reservation.
+/// Response trả về khi lấy chi tiết 1 reservation.
 /// </summary>
 public class ReservationDetailDto
 {
@@ -457,7 +457,7 @@ public class ReservationDetailDto
     public string? LobbyShareCode { get; set; }
     public string? LobbyStatus { get; set; }
 
-    /// <summary>BR-NEW-11: L? do cafe t? ch?i lobby (khi status = CancelledByCafe).</summary>
+    /// <summary>BR-NEW-11: Lý do cafe từ chối lobby (khi status = CancelledByCafe).</summary>
     public string? CafeRejectionReason { get; set; }
 
     public string ReservationCode { get; set; } = string.Empty;
@@ -465,33 +465,33 @@ public class ReservationDetailDto
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
-    /// <summary>True n?u user hi?n t?i l? host c?a reservation n?y.</summary>
+    /// <summary>True nếu user hiện tại là host của reservation này.</summary>
     public bool IsHost { get; set; }
 
-    /// <summary>True n?u reservation ?ang ? tr?ng th?i cho ph?p h?y.</summary>
+    /// <summary>True nếu reservation đang ở trạng thái cho phép hủy.</summary>
     public bool CanCancel { get; set; }
 
-    // === 9 field m?i theo time-slot-fixed-end-design v2.0 ===
+    // === 9 field mới theo time-slot-fixed-end-design v2.0 ===
 
-    /// <summary>Th?i ?i?m POS staff x?c nh?n check-in (UTC). Null n?u ch?a check-in.</summary>
+    /// <summary>Thời điểm POS staff xác nhận check-in (UTC). Null nếu chưa check-in.</summary>
     public DateTime? CheckedInAt { get; set; }
 
-    /// <summary>Th?i ?i?m session th?c s? k?t th?c (UTC). Null n?u ch?a end.</summary>
+    /// <summary>Thời điểm session thực sự kết thúc (UTC). Null nếu chưa end.</summary>
     public DateTime? ActualEndAt { get; set; }
 
-    /// <summary>T? l? th?i gian ?? ch?i (0.0 - 1.0). Null n?u ch?a end.</summary>
+    /// <summary>Tỷ lệ thời gian đủ chơi (0.0 - 1.0). Null nếu chưa end.</summary>
     public decimal? PlayedRatio { get; set; }
 
-    /// <summary>L? do k?t th?c session (BR-END-*).</summary>
+    /// <summary>Lý do kết thúc session (BR-END-*).</summary>
     public string? EndReason { get; set; }
 
-    /// <summary>WalkInWindow ???c t?o khi early checkout / no-show (EC-09).</summary>
+    /// <summary>WalkInWindow được tạo khi early checkout / no-show (EC-09).</summary>
     public Guid? WalkInWindowId { get; set; }
 
-    /// <summary>UserId ng??i ?? h?y reservation (host ho?c admin).</summary>
+    /// <summary>UserId người đã hủy reservation (host hoặc admin).</summary>
     public Guid? CancelledBy { get; set; }
 
-    /// <summary>L? do h?y (host cancel, cafe cancel, no-show).</summary>
+    /// <summary>Lý do hủy (host cancel, cafe cancel, no-show).</summary>
     public string? CancelReason { get; set; }
 
     /// <summary>Số bàn được staff gán khi check-in. Null nếu chưa check-in.</summary>
@@ -499,7 +499,7 @@ public class ReservationDetailDto
 }
 
 /// <summary>
-/// Response tr? v? khi l?y danh s?ch reservation (list item).
+/// Response trả về khi lấy danh sách reservation (list item).
 /// </summary>
 public class ReservationListItemDto
 {
@@ -583,11 +583,11 @@ public class MyReservationsRequestDto
 }
 
 /// <summary>
-/// Request l?y danh s?ch reservation.
+/// Request lấy danh sách reservation.
 /// </summary>
 public class ReservationListRequestDto
 {
-    /// <summary>Filter theo tr?ng th?i. Null = all non-terminal.</summary>
+    /// <summary>Filter theo trạng thái. Null = all non-terminal.</summary>
     public List<ReservationStatus>? Statuses { get; set; }
 
     /// <summary>
@@ -611,10 +611,10 @@ public class ReservationListRequestDto
     /// <summary>Filter theo cafe. Null = all.</summary>
     public Guid? CafeId { get; set; }
 
-    /// <summary>Ch? l?y reservation do user host. Default true.</summary>
+    /// <summary>Chỉ lấy reservation do user host. Default true.</summary>
     public bool HostedByMe { get; set; } = true;
 
-    /// <summary>Ch? l?y reservation user tham gia (member). Default false.</summary>
+    /// <summary>Chỉ lấy reservation user tham gia (member). Default false.</summary>
     public bool JoinedByMe { get; set; }
 
     public int Page { get; set; } = 1;
@@ -622,7 +622,7 @@ public class ReservationListRequestDto
 }
 
 /// <summary>
-/// Response paginated cho danh s?ch reservation.
+/// Response paginated cho danh sách reservation.
 /// </summary>
 public class ReservationListResponseDto
 {
@@ -667,7 +667,7 @@ public class MyReservationsResponseDto
 }
 
 /// <summary>
-/// Lobby pending cafe approval item cho dashboard c?a Manager (BR-NEW-11).
+/// Lobby pending cafe approval item cho dashboard của Manager (BR-NEW-11).
 /// </summary>
 public class LobbyPendingApprovalItemDto
 {
@@ -704,17 +704,17 @@ public class LobbyPendingApprovalItemDto
 }
 
 /// <summary>
-/// Request l?y danh s?ch lobby pending cafe approval.
+/// Request lấy danh sách lobby pending cafe approval.
 /// </summary>
 public class LobbyPendingApprovalRequestDto
 {
-    /// <summary>Filter theo cafe. Null = all cafes c?a manager.</summary>
+    /// <summary>Filter theo cafe. Null = all cafes của manager.</summary>
     public Guid? CafeId { get; set; }
 
-    /// <summary>Filter theo ng?y. Null = today.</summary>
+    /// <summary>Filter theo ngày. Null = today.</summary>
     public DateOnly? PlayDate { get; set; }
 
-    /// <summary>Filter theo tr?ng th?i lobby: Open, Viable, Full. Null = all.</summary>
+    /// <summary>Filter theo trạng thái lobby: Open, Viable, Full. Null = all.</summary>
     public List<LobbyStatus>? LobbyStatuses { get; set; }
 
     public int Page { get; set; } = 1;
@@ -722,7 +722,7 @@ public class LobbyPendingApprovalRequestDto
 }
 
 /// <summary>
-/// Response paginated cho danh s?ch lobby pending cafe approval.
+/// Response paginated cho danh sách lobby pending cafe approval.
 /// </summary>
 public class LobbyPendingApprovalListResponseDto
 {
@@ -733,7 +733,7 @@ public class LobbyPendingApprovalListResponseDto
     public int TotalPages => (int)Math.Ceiling((double)TotalCount / PageSize);
 }
 /// <summary>
-/// BR-END-01..05 (?21A.8, ?3.4): POS end session + settle deposit.
+/// BR-END-01..05 (§21A.8, §3.4): POS end session + settle deposit.
 /// </summary>
 public class EndReservationRequestDto
 {
@@ -743,7 +743,7 @@ public class EndReservationRequestDto
     /// <summary>Optional. Default = UTC now.</summary>
     public DateTime? ActualEndAt { get; set; }
 
-    /// <summary>L? do end session (optional). VD: "staff_manual_close".</summary>
+    /// <summary>Lý do end session (optional). VD: "staff_manual_close".</summary>
     [MaxLength(500)]
     public string? Reason { get; set; }
 
@@ -768,10 +768,10 @@ public class EndReservationResponseDto
     public DateTime ScheduledStartTime { get; set; }
     public DateTime ScheduledEndTime { get; set; }
 
-    /// <summary>WalkInWindow du?c t?o n?u playedRatio &lt; 50% (EC-09).</summary>
+    /// <summary>WalkInWindow được tạo nếu playedRatio &lt; 50% (EC-09).</summary>
     public Guid? WalkInWindowId { get; set; }
 
-    /// <summary>True n?u player b? tr? Karma (Phase 7).</summary>
+    /// <summary>True nếu player bị trừ Karma (Phase 7).</summary>
     public bool KarmaRecorded { get; set; }
 }
 

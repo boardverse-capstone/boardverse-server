@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using BoardVerse.Core.DTOs.Lobby;
 using BoardVerse.Core.DTOs.Reservation;
 using BoardVerse.Core.Entities;
@@ -1394,25 +1394,6 @@ namespace BoardVerse.Services.Services
             await _lobbyRepository.SaveChangesAsync();
 
             await _hubService.NotifyLobbyFull(lobbyId);
-
-            return MapLobbyDto(lobby, null);
-        }
-
-        public async Task<LobbyResponseDto> OpenKarmaWindowAsync(Guid lobbyId, Guid hostUserId, CancellationToken cancellationToken = default)
-        {
-            var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
-                ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
-
-            if (lobby.HostUserId != hostUserId)
-            {
-                throw new ForbiddenException(ApiErrorMessages.Lobby.OnlyHostCanOpenRating);
-            }
-
-            lobby.Status = LobbyStatus.RatingOpen;
-            lobby.RatingOpenedAt = DateTime.UtcNow;
-            lobby.UpdatedAt = DateTime.UtcNow;
-
-            await _lobbyRepository.SaveChangesAsync();
 
             return MapLobbyDto(lobby, null);
         }

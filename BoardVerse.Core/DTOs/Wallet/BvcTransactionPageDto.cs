@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Wallet;
+﻿namespace BoardVerse.Core.DTOs.Wallet;
 
 /// <summary>Phản hồi phân trang cho lịch sử giao dịch BVC.</summary>
 public class BvcTransactionPageDto

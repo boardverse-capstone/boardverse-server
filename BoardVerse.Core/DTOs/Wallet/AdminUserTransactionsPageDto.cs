@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Wallet;
+﻿namespace BoardVerse.Core.DTOs.Wallet;
 
 /// <summary>
 /// Lịch sử giao dịch BVC của một user — dùng cho admin xem user khác.

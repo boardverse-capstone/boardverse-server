@@ -1,4 +1,4 @@
-using BoardVerse.Core.Data;
+﻿using BoardVerse.Core.Data;
 using BoardVerse.Core.DTOs.Bgg;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
@@ -96,6 +96,7 @@ namespace BoardVerse.Services.Services.Bgg
 
             var syncedAt = DateTime.UtcNow;
             var created = existing == null;
+            var preservedCount = 0;
 
             if (existing == null)
             {
@@ -133,10 +134,15 @@ namespace BoardVerse.Services.Services.Bgg
                 existing.UpdatedAt = syncedAt;
                 ApplySearchAliases(existing);
 
-                _context.GameComponentTemplates.RemoveRange(existing.Components);
-                existing.Components.Clear();
-                ApplyComponents(existing, preview.Components);
+                var preservedCountForBranch = await MergeComponentsAsync(existing, preview.Components, syncedAt);
+                preservedCount = preservedCountForBranch;
                 await ApplyCategoriesAsync(existing, thing, replaceExisting: true);
+
+                _logger.LogInformation(
+                    "BGG overwrite for GameTemplate {GameId} (BggId={BggId}) preserved {PreservedCount} component(s) referenced by CafeGameComponentPenalties.",
+                    existing.Id,
+                    request.BggId,
+                    preservedCount);
             }
             else
             {
@@ -162,8 +168,92 @@ namespace BoardVerse.Services.Services.Bgg
                 CategoryCount = existing.Categories.Count,
                 PrimaryComponentSource = preview.HasCuratedComponents
                     ? GameComponentCatalogSource.CuratedCatalog
-                    : preview.Components.FirstOrDefault()?.Source ?? GameComponentCatalogSource.Unknown
+                    : preview.Components.FirstOrDefault()?.Source ?? GameComponentCatalogSource.Unknown,
+                PreservedComponentCount = preservedCount
             };
+        }
+
+        /// <summary>
+        /// Merge components từ BGG vào GameTemplate hiện có thay vì xóa + tạo lại.
+        /// Bảo toàn ID của các component đang được <see cref="CafeGameComponentPenalty"/> tham chiếu
+        /// (FK RESTRICT trên <c>FK_CafeGameComponentPenalties_GameComponentTemplates_GameCompon</c>).
+        /// </summary>
+        /// <remarks>
+        /// Quy tắc merge:
+        /// <list type="bullet">
+        /// <item>Khớp theo cặp <c>(ComponentName, ComponentKind)</c> → cập nhật <c>DefaultQuantity</c> tại chỗ (giữ ID).</item>
+        /// <item>Component mới từ BGG không khớp → thêm mới.</item>
+        /// <item>Component cũ không có trong BGG và không có FK reference → xóa.</item>
+        /// <item>Component cũ không có trong BGG nhưng đang được <see cref="CafeGameComponentPenalty"/> tham chiếu → giữ lại, log warning.</item>
+        /// </list>
+        /// </remarks>
+        /// <returns>Số component được giữ lại do đang có FK reference từ CafeGameComponentPenalties.</returns>
+        private async Task<int> MergeComponentsAsync(
+            GameTemplate game,
+            IReadOnlyList<BggResolvedComponentDto> newComponents,
+            DateTime syncedAt)
+        {
+            var existingIds = game.Components.Select(c => c.Id).ToList();
+
+            // 1. Tìm các component ID đang được CafeGameComponentPenalty tham chiếu (FK RESTRICT — không thể xóa).
+            var protectedIds = new HashSet<Guid>();
+            if (existingIds.Count > 0)
+            {
+                var referencedIds = await _context.CafeGameComponentPenalties
+                    .Where(p => existingIds.Contains(p.GameComponentTemplateId))
+                    .Select(p => p.GameComponentTemplateId)
+                    .ToListAsync();
+                protectedIds = referencedIds.ToHashSet();
+            }
+
+            // 2. Index các component hiện có theo (Name, Kind).
+            var existingByKey = game.Components
+                .ToDictionary(c => (Name: c.ComponentName, Kind: c.ComponentKind));
+
+            // 3. Track các key xuất hiện trong dữ liệu BGG mới.
+            var newKeys = new HashSet<(string Name, BoardGameComponentKind? Kind)>(newComponents.Count);
+
+            foreach (var newComp in newComponents)
+            {
+                var key = (newComp.Name, newComp.Kind);
+                newKeys.Add(key);
+
+                if (existingByKey.TryGetValue(key, out var existingComp))
+                {
+                    // Cập nhật tại chỗ — giữ nguyên ID để không phá FK reference từ CafeGameComponentPenalties.
+                    existingComp.DefaultQuantity = newComp.DefaultQuantity;
+                }
+                else
+                {
+                    // Component hoàn toàn mới.
+                    game.Components.Add(new GameComponentTemplate
+                    {
+                        Id = Guid.NewGuid(),
+                        GameTemplateId = game.Id,
+                        ComponentName = newComp.Name,
+                        ComponentKind = newComp.Kind,
+                        DefaultQuantity = newComp.DefaultQuantity,
+                        CreatedAt = syncedAt
+                    });
+                }
+            }
+
+            // 4. Xóa các component cũ không còn trong BGG, trừ khi đang có FK reference.
+            var toRemove = game.Components
+                .Where(c => !newKeys.Contains((c.ComponentName, c.ComponentKind)) && !protectedIds.Contains(c.Id))
+                .ToList();
+
+            foreach (var comp in toRemove)
+            {
+                game.Components.Remove(comp);
+                _context.GameComponentTemplates.Remove(comp);
+            }
+
+            // 5. Đếm component được bảo toàn do FK reference (có trong DB nhưng không có trong BGG mới).
+            var preservedCount = game.Components
+                .Count(c => !newKeys.Contains((c.ComponentName, c.ComponentKind)) && protectedIds.Contains(c.Id));
+
+            return preservedCount;
         }
 
         private async Task ApplyCategoriesAsync(

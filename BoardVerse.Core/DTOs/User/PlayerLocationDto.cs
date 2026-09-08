@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.User
+﻿namespace BoardVerse.Core.DTOs.User
 {
     /// <summary>
     /// Thông tin vị trí của player cho <c>GET/PUT /api/userprofile/me/location</c>.

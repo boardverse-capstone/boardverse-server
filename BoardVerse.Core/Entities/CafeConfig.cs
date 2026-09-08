@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Entities;
+﻿namespace BoardVerse.Core.Entities;
 
 /// <summary>
 /// Cấu hình hạn mức riêng của từng cafe (BR-NEW-12 §XIII).

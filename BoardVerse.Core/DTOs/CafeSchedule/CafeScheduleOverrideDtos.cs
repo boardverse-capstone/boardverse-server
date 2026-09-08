@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.CafeSchedule;
+﻿namespace BoardVerse.Core.DTOs.CafeSchedule;
 
 /// <summary>
 /// Request tạo/sửa CafeScheduleOverride.

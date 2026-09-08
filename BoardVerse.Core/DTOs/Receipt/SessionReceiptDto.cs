@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Receipt
+﻿namespace BoardVerse.Core.DTOs.Receipt
 {
     /// <summary>
     /// Receipt chi tiết cho một phiên chơi đã thanh toán.

@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Payment;
+﻿namespace BoardVerse.Core.DTOs.Payment;
 
 public class MockWebhookRequestDto
 {

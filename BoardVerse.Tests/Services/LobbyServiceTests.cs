@@ -1,4 +1,4 @@
-using BoardVerse.Core.DTOs.Lobby;
+﻿using BoardVerse.Core.DTOs.Lobby;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
@@ -661,57 +661,6 @@ public class LobbyServiceTests
         var result = await service.CloseLobbyAsync(lobbyId, hostId, null);
 
         Assert.Equal(LobbyStatus.Closed, result.Status);
-    }
-
-    #endregion
-
-    #region OpenKarmaWindowAsync
-
-    [Fact]
-    public async Task OpenKarmaWindowAsync_OnlyHostCanOpen_ThrowsForbiddenException()
-    {
-        var lobbyId = Guid.NewGuid();
-        var nonHostId = Guid.NewGuid();
-
-        var lobby = new Lobby
-        {
-            Id = lobbyId,
-            HostUserId = Guid.NewGuid(),
-            Status = LobbyStatus.Closed,
-            Members = new List<LobbyMember>()
-        };
-
-        var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
-        var gameRepo = new Mock<IGameTemplateRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<IPlayerKarmaService>().Object, new Mock<IScheduleResolver>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
-
-        await Assert.ThrowsAsync<ForbiddenException>(
-            () => service.OpenKarmaWindowAsync(lobbyId, nonHostId));
-    }
-
-    [Fact]
-    public async Task OpenKarmaWindowAsync_ValidRequest_SetsRatingOpenedAt()
-    {
-        var lobbyId = Guid.NewGuid();
-        var hostId = Guid.NewGuid();
-
-        var lobby = new Lobby
-        {
-            Id = lobbyId,
-            HostUserId = hostId,
-            Status = LobbyStatus.Closed,
-            Members = new List<LobbyMember>()
-        };
-
-        var lobbyRepo = new Mock<ILobbyRepository>();
-        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
-        var gameRepo = new Mock<IGameTemplateRepository>();
-        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<IPlayerKarmaService>().Object, new Mock<IScheduleResolver>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object);
-
-        var result = await service.OpenKarmaWindowAsync(lobbyId, hostId);
-
-        lobbyRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion

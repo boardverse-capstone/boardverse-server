@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Booking;
+﻿namespace BoardVerse.Core.DTOs.Booking;
 
 /// <summary>
 /// Mobile task #8: GET /api/bookings/{bookingId}/session-status

@@ -1,4 +1,4 @@
-using BoardVerse.Core.DTOs.Game;
+﻿using BoardVerse.Core.DTOs.Game;
 
 namespace BoardVerse.Core.DTOs.Cafe
 {

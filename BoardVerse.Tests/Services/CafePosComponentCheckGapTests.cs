@@ -1,4 +1,4 @@
-using BoardVerse.Core.DTOs.Pos;
+﻿using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
@@ -53,6 +53,8 @@ public class CafePosComponentCheckGapTests
     private static readonly Guid ComponentBId = Guid.Parse("22222222-2222-2222-2222-222222222222");
     private static readonly Guid MemberXId = Guid.Parse("33333333-3333-3333-3333-333333333333");
     private static readonly Guid GuestSlotId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+    private static readonly Guid CafeGameInventoryId = Guid.Parse("66666666-6666-6666-6666-666666666666");
+
     private static readonly Guid ManagerId = Guid.Parse("77777777-7777-7777-7777-777777777777");
 
     public CafePosComponentCheckGapTests()
@@ -124,7 +126,14 @@ public class CafePosComponentCheckGapTests
         GameTemplateId = GameTemplateId,
         CafeInventoryBoxId = BoxId,
         CheckStatus = ComponentCheckStatus.NotChecked,
-        GameTemplate = gt
+        GameTemplate = gt,
+        CafeInventoryBox = new CafeInventoryBox
+        {
+            Id = BoxId,
+            CafeGameInventoryId = CafeGameInventoryId,
+            Barcode = "CATA-001",
+            Status = CafeGameInventoryStatus.InUse
+        }
     };
 
     // ============================================================
@@ -382,10 +391,382 @@ var memberX = new ActiveSessionMember
             .ReturnsAsync(sessionGame);
         _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<Guid, ComponentCheckResult>());
+        _posRepo.Setup(r => r.GetOrphanedPenaltiesAsync(CafeGameInventoryId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<CafeGameComponentPenalty>());
 
         var service = CreateService();
 
         var dto = await service.GetComponentChecklistAsync(CafeId, ManagerId, "Manager", SessionGameId);
         Assert.Equal(2, dto.Components.Count);
+        Assert.Empty(dto.OrphanedPenaltyItems);
+    }
+
+    // ============================================================
+    // BR-BGG-SYNC-01: Orphaned penalties (component đã bị xóa khỏi BGG
+    // nhưng penalty vẫn còn). Staff có thể gán penalty trên POS.
+    // ============================================================
+
+    [Fact]
+    public async Task GetComponentChecklist_WithOrphanedPenalties_ReturnsOrphanedItems()
+    {
+        var cafe = BuildCafe();
+        var gt = BuildGameTemplate();
+        var session = BuildSession(cafe, status: GroupSessionStatus.Checking);
+        var sessionGame = BuildSessionGame(gt);
+        sessionGame.ActiveSession = session;
+
+        // 5 component đã bị xóa khỏi BGG nhưng penalty vẫn còn.
+        var orphanedComponentId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        var orphanedPenalties = new List<CafeGameComponentPenalty>
+        {
+            new()
+            {
+                Id = Guid.NewGuid(),
+                CafeGameInventoryId = CafeGameInventoryId,
+                GameComponentTemplateId = orphanedComponentId,
+                PenaltyFee = 15000m,
+                GameComponentTemplate = new GameComponentTemplate
+                {
+                    Id = orphanedComponentId,
+                    ComponentName = "Old Hex Tile",
+                    GameTemplateId = GameTemplateId
+                }
+            }
+        };
+
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(sessionGame);
+        _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, ComponentCheckResult>());
+        _posRepo.Setup(r => r.GetOrphanedPenaltiesAsync(CafeGameInventoryId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(orphanedPenalties);
+
+        var service = CreateService();
+
+        var dto = await service.GetComponentChecklistAsync(CafeId, ManagerId, "Manager", SessionGameId);
+
+        // 2 component active vẫn trong checklist.
+        Assert.Equal(2, dto.Components.Count);
+        // 1 orphaned penalty được trả về.
+        Assert.Single(dto.OrphanedPenaltyItems);
+        Assert.Equal("Old Hex Tile", dto.OrphanedPenaltyItems[0].ComponentName);
+        Assert.Equal(15000m, dto.OrphanedPenaltyItems[0].PenaltyFee);
+    }
+
+    [Fact]
+    public async Task GetComponentChecklist_OrphanedPenalty_NoTemplateName_FallsBackToPlaceholder()
+    {
+        var cafe = BuildCafe();
+        var gt = BuildGameTemplate();
+        var session = BuildSession(cafe, status: GroupSessionStatus.Checking);
+        var sessionGame = BuildSessionGame(gt);
+        sessionGame.ActiveSession = session;
+
+        // Orphaned penalty với GameComponentTemplate = null (template đã bị xóa hoàn toàn).
+        var orphanedPenalties = new List<CafeGameComponentPenalty>
+        {
+            new()
+            {
+                Id = Guid.NewGuid(),
+                CafeGameInventoryId = CafeGameInventoryId,
+                GameComponentTemplateId = Guid.NewGuid(),
+                PenaltyFee = 25000m,
+                GameComponentTemplate = null!  // Template đã bị xóa
+            }
+        };
+
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(sessionGame);
+        _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, ComponentCheckResult>());
+        _posRepo.Setup(r => r.GetOrphanedPenaltiesAsync(CafeGameInventoryId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(orphanedPenalties);
+
+        var service = CreateService();
+
+        var dto = await service.GetComponentChecklistAsync(CafeId, ManagerId, "Manager", SessionGameId);
+
+        Assert.Single(dto.OrphanedPenaltyItems);
+        Assert.StartsWith("[Component ", dto.OrphanedPenaltyItems[0].ComponentName);
+        Assert.Contains(orphanedPenalties[0].GameComponentTemplateId.ToString(), dto.OrphanedPenaltyItems[0].ComponentName);
+    }
+
+    [Fact]
+    public async Task GetComponentChecklist_NoOrphanedPenalties_ReturnsEmptyOrphanedList()
+    {
+        var cafe = BuildCafe();
+        var gt = BuildGameTemplate();
+        var session = BuildSession(cafe, status: GroupSessionStatus.Checking);
+        var sessionGame = BuildSessionGame(gt);
+        sessionGame.ActiveSession = session;
+
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(sessionGame);
+        _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, ComponentCheckResult>());
+        _posRepo.Setup(r => r.GetOrphanedPenaltiesAsync(CafeGameInventoryId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<CafeGameComponentPenalty>());
+
+        var service = CreateService();
+
+        var dto = await service.GetComponentChecklistAsync(CafeId, ManagerId, "Manager", SessionGameId);
+
+        Assert.Empty(dto.OrphanedPenaltyItems);
+    }
+
+    // ============================================================
+    // BR-BGG-SYNC-01: Orphaned penalty submission (POST component-check)
+    // ============================================================
+
+    private static readonly Guid OrphanedPenaltyAId = Guid.Parse("aaaaaaaa-1111-1111-1111-111111111111");
+    private static readonly Guid OrphanedPenaltyBId = Guid.Parse("aaaaaaaa-2222-2222-2222-222222222222");
+    private static readonly Guid DeletedTemplateAId = Guid.Parse("aaaaaaaa-3333-3333-3333-333333333333");
+    private static readonly Guid DeletedTemplateBId = Guid.Parse("aaaaaaaa-4444-4444-4444-444444444444");
+
+    [Fact]
+    public async Task SubmitComponentCheck_WithOrphanedPenalty_Valid_AddsPenaltyFeeAndMissingComponents()
+    {
+        // Arrange: Staff báo mất 1 linh kiện orphaned (component đã bị xóa khỏi BGG).
+        var cafe = BuildCafe();
+        var gt = BuildGameTemplate();
+        var memberX = new ActiveSessionMember { Id = MemberXId, IsGuestSlot = false };
+        var session = BuildSession(cafe, members: new List<ActiveSessionMember> { memberX });
+        var sessionGame = BuildSessionGame(gt);
+        sessionGame.ActiveSession = session;
+
+        var orphanedPenaltyA = new CafeGameComponentPenalty
+        {
+            Id = OrphanedPenaltyAId,
+            GameComponentTemplateId = DeletedTemplateAId,
+            PenaltyFee = 15000m
+        };
+
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(sessionGame);
+        _posRepo.Setup(r => r.GetComponentPenaltiesByCafeGameAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<List<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, CafeGameComponentPenalty>());
+        _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, ComponentCheckResult>());
+        _posRepo.Setup(r => r.GetOrphanedPenaltiesAsync(CafeGameInventoryId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<CafeGameComponentPenalty> { orphanedPenaltyA });
+        _posRepo.Setup(r => r.AddComponentCheckResultsAsync(It.IsAny<List<ComponentCheckResult>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        _posRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var service = CreateService();
+
+        var result = await service.SubmitComponentCheckAsync(
+            CafeId, ManagerId, "Manager",
+            new SubmitComponentCheckRequestDto
+            {
+                SessionGameId = SessionGameId,
+                MarkAllValid = false,
+                Results = new List<ComponentCheckResultItemDto>
+                {
+                    new() { ComponentId = ComponentAId, ActualQuantity = 15 }, // đủ
+                    new() { ComponentId = ComponentBId, ActualQuantity = 18 }  // thiếu 2
+                },
+                OrphanedPenaltyResults = new List<OrphanedPenaltyResultItemDto>
+                {
+                    new() { PenaltyId = OrphanedPenaltyAId, MissingQuantity = 1 }
+                }
+            });
+
+        // Assert: Orphaned penalty được ghi nhận.
+        Assert.Single(result.OrphanedPenaltyResults);
+        Assert.Equal(OrphanedPenaltyAId, result.OrphanedPenaltyResults[0].PenaltyId);
+        Assert.Equal(1, result.OrphanedPenaltyResults[0].MissingQuantity);
+        Assert.Equal(15000m, result.OrphanedPenaltyResults[0].PenaltyFee);
+        Assert.Equal(ComponentCheckStatus.MissingComponents, result.CheckStatus);
+        // TotalPenalty = penalty orphaned (15000) + penalty ComponentB (2 × penaltyBFee, hoặc 0 nếu không có config)
+        Assert.True(result.TotalPenaltyAmount > 0);
+    }
+
+    [Fact]
+    public async Task SubmitComponentCheck_WithOrphanedPenalty_PenaltyNotFound_ThrowsBadRequest()
+    {
+        var cafe = BuildCafe();
+        var gt = BuildGameTemplate();
+        var memberX = new ActiveSessionMember { Id = MemberXId, IsGuestSlot = false };
+        var session = BuildSession(cafe, members: new List<ActiveSessionMember> { memberX });
+        var sessionGame = BuildSessionGame(gt);
+        sessionGame.ActiveSession = session;
+
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(sessionGame);
+        _posRepo.Setup(r => r.GetOrphanedPenaltiesAsync(CafeGameInventoryId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            // Không có orphaned penalty nào → PenaltyId không hợp lệ
+            .ReturnsAsync(new List<CafeGameComponentPenalty>());
+
+        var service = CreateService();
+
+        var ex = await Assert.ThrowsAsync<BadRequestException>(() => service.SubmitComponentCheckAsync(
+            CafeId, ManagerId, "Manager",
+            new SubmitComponentCheckRequestDto
+            {
+                SessionGameId = SessionGameId,
+                MarkAllValid = false,
+                Results = new List<ComponentCheckResultItemDto>
+                {
+                    new() { ComponentId = ComponentAId, ActualQuantity = 15 },
+                    new() { ComponentId = ComponentBId, ActualQuantity = 20 }
+                },
+                OrphanedPenaltyResults = new List<OrphanedPenaltyResultItemDto>
+                {
+                    new() { PenaltyId = OrphanedPenaltyAId, MissingQuantity = 1 }
+                }
+            }));
+
+        Assert.Contains("Không tìm thấy cấu hình phí đền bù", ex.Message);
+    }
+
+    [Fact]
+    public async Task SubmitComponentCheck_WithOrphanedPenalty_GuestSlotResponsible_ThrowsBadRequest()
+    {
+        // BR-14: Không được gán penalty cho Guest_Slot.
+        var cafe = BuildCafe();
+        var gt = BuildGameTemplate();
+        var memberX = new ActiveSessionMember { Id = MemberXId, IsGuestSlot = false };
+        var guestSlot = new ActiveSessionMember { Id = GuestSlotId, IsGuestSlot = true };
+        var session = BuildSession(cafe, members: new List<ActiveSessionMember> { memberX, guestSlot });
+        var sessionGame = BuildSessionGame(gt);
+        sessionGame.ActiveSession = session;
+
+        var orphanedPenaltyA = new CafeGameComponentPenalty
+        {
+            Id = OrphanedPenaltyAId,
+            GameComponentTemplateId = DeletedTemplateAId,
+            PenaltyFee = 15000m
+        };
+
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(sessionGame);
+        _posRepo.Setup(r => r.GetOrphanedPenaltiesAsync(CafeGameInventoryId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<CafeGameComponentPenalty> { orphanedPenaltyA });
+
+        var service = CreateService();
+
+        var ex = await Assert.ThrowsAsync<BadRequestException>(() => service.SubmitComponentCheckAsync(
+            CafeId, ManagerId, "Manager",
+            new SubmitComponentCheckRequestDto
+            {
+                SessionGameId = SessionGameId,
+                MarkAllValid = false,
+                Results = new List<ComponentCheckResultItemDto>
+                {
+                    new() { ComponentId = ComponentAId, ActualQuantity = 15 },
+                    new() { ComponentId = ComponentBId, ActualQuantity = 20 }
+                },
+                OrphanedPenaltyResults = new List<OrphanedPenaltyResultItemDto>
+                {
+                    new() { PenaltyId = OrphanedPenaltyAId, MissingQuantity = 1, ResponsibleMemberId = GuestSlotId }
+                }
+            }));
+
+        Assert.Contains("khách vô danh", ex.Message);
+    }
+
+    [Fact]
+    public async Task SubmitComponentCheck_WithOrphanedPenalty_MemberNotInSession_ThrowsBadRequest()
+    {
+        var cafe = BuildCafe();
+        var gt = BuildGameTemplate();
+        var memberX = new ActiveSessionMember { Id = MemberXId, IsGuestSlot = false };
+        var session = BuildSession(cafe, members: new List<ActiveSessionMember> { memberX });
+        var sessionGame = BuildSessionGame(gt);
+        sessionGame.ActiveSession = session;
+
+        var orphanedPenaltyA = new CafeGameComponentPenalty
+        {
+            Id = OrphanedPenaltyAId,
+            GameComponentTemplateId = DeletedTemplateAId,
+            PenaltyFee = 15000m
+        };
+
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(sessionGame);
+        _posRepo.Setup(r => r.GetOrphanedPenaltiesAsync(CafeGameInventoryId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<CafeGameComponentPenalty> { orphanedPenaltyA });
+
+        var service = CreateService();
+        var nonExistentMemberId = Guid.Parse("99999999-9999-9999-9999-999999999999");
+
+        var ex = await Assert.ThrowsAsync<BadRequestException>(() => service.SubmitComponentCheckAsync(
+            CafeId, ManagerId, "Manager",
+            new SubmitComponentCheckRequestDto
+            {
+                SessionGameId = SessionGameId,
+                MarkAllValid = false,
+                Results = new List<ComponentCheckResultItemDto>
+                {
+                    new() { ComponentId = ComponentAId, ActualQuantity = 15 },
+                    new() { ComponentId = ComponentBId, ActualQuantity = 20 }
+                },
+                OrphanedPenaltyResults = new List<OrphanedPenaltyResultItemDto>
+                {
+                    new() { PenaltyId = OrphanedPenaltyAId, MissingQuantity = 1, ResponsibleMemberId = nonExistentMemberId }
+                }
+            }));
+
+        Assert.Contains("Không thể gán phí đền bù", ex.Message);
+    }
+
+    [Fact]
+    public async Task SubmitComponentCheck_WithOrphanedPenalty_MarkAllValid_StillProcessesOrphaned()
+    {
+        // MarkAllValid = true nhưng vẫn gửi orphaned penalty → orphaned vẫn được xử lý.
+        var cafe = BuildCafe();
+        var gt = BuildGameTemplate();
+        var memberX = new ActiveSessionMember { Id = MemberXId, IsGuestSlot = false };
+        var session = BuildSession(cafe, members: new List<ActiveSessionMember> { memberX });
+        var sessionGame = BuildSessionGame(gt);
+        sessionGame.ActiveSession = session;
+
+        var orphanedPenaltyA = new CafeGameComponentPenalty
+        {
+            Id = OrphanedPenaltyAId,
+            GameComponentTemplateId = DeletedTemplateAId,
+            PenaltyFee = 20000m
+        };
+
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(sessionGame);
+        _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<Guid, ComponentCheckResult>());
+        _posRepo.Setup(r => r.GetOrphanedPenaltiesAsync(CafeGameInventoryId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<CafeGameComponentPenalty> { orphanedPenaltyA });
+        _posRepo.Setup(r => r.AddComponentCheckResultsAsync(It.IsAny<List<ComponentCheckResult>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        _posRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var service = CreateService();
+
+        var result = await service.SubmitComponentCheckAsync(
+            CafeId, ManagerId, "Manager",
+            new SubmitComponentCheckRequestDto
+            {
+                SessionGameId = SessionGameId,
+                MarkAllValid = true,
+                Results = new List<ComponentCheckResultItemDto>(), // MarkAllValid → không cần gửi components
+                OrphanedPenaltyResults = new List<OrphanedPenaltyResultItemDto>
+                {
+                    new() { PenaltyId = OrphanedPenaltyAId, MissingQuantity = 1 }
+                }
+            });
+
+        // Assert: Orphaned penalty được ghi nhận, box vào Maintenance.
+        Assert.Single(result.OrphanedPenaltyResults);
+        Assert.Equal(20000m, result.OrphanedPenaltyResults[0].PenaltyFee);
+        Assert.Equal(20000m, result.TotalPenaltyAmount);
+        Assert.Equal(ComponentCheckStatus.MissingComponents, result.CheckStatus);
     }
 }

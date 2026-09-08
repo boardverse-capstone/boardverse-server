@@ -1,4 +1,4 @@
-using Npgsql;
+﻿using Npgsql;
 
 var connString = "Host=ep-morning-darkness-aof95ckg.c-2.ap-southeast-1.aws.neon.tech;Port=5432;Database=neondb;Username=neondb_owner;Password=npg_GgPKb1sMxn7S;SSL Mode=Require;Trust Server Certificate=true;";
 

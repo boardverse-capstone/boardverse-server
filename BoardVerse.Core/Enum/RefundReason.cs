@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Enum;
+﻿namespace BoardVerse.Core.Enum;
 
 /// <summary>
 /// Lý do refund (docs/time-slot-fixed-end-design (1).md §3.4 + §9.4 BR-REFUND-01..07).

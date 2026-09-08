@@ -1,4 +1,4 @@
-using BoardVerse.Core.Settings;
+﻿using BoardVerse.Core.Settings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 

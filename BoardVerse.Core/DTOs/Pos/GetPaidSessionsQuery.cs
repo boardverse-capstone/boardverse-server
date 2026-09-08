@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Pos;
+﻿namespace BoardVerse.Core.DTOs.Pos;
 
 /// <summary>
 /// Query cho GET /sessions/paid. Hỗ trợ filter theo ngày thanh toán

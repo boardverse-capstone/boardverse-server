@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Rating
+﻿namespace BoardVerse.Core.DTOs.Rating
 {
     /// <summary>Payload for AC 3.1 — mobile push when POS completes billing (push delivery is client-side).</summary>
     public class LobbyKarmaRatingNotificationDto

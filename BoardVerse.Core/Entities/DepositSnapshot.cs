@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Entities;
+﻿namespace BoardVerse.Core.Entities;
 
 /// <summary>
 /// Snapshot cấu hình cọc tại thời điểm host bấm confirm (§4 + §19.1).

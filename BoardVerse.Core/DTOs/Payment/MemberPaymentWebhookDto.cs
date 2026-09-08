@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Payment
+﻿namespace BoardVerse.Core.DTOs.Payment
 {
     /// <summary>
     /// Webhook payload cho thanh toán QR của một thành viên cụ thể.

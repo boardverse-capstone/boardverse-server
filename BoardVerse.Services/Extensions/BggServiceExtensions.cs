@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using BoardVerse.Core.Settings;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services.Bgg;

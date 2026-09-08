@@ -1,4 +1,4 @@
-using BoardVerse.Core.DTOs.Match;
+﻿using BoardVerse.Core.DTOs.Match;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
@@ -114,6 +114,55 @@ public class MatchResultServiceTests
             service.GetMatchResultStatusAsync(outsider, LobbyId));
     }
 
+    /// <summary>
+    /// GAP-1 regression: sau khi POS đóng phiên, ReservationService.MarkLobbyMembersInactive
+    /// set IsActive=false + Status=LobbyTerminated cho members. Member vẫn phải đọc được
+    /// status match result, không throw 403.
+    /// </summary>
+    [Fact]
+    public async Task GetMatchResultStatusAsync_PostSessionClosedLobbyWithTerminatedMembers_DoesNotThrow403()
+    {
+        var repo = new Mock<IMatchResultRepository>();
+        var lobby = BuildLobbyWithTerminatedMembers(LobbyStatus.Closed);
+
+        repo.Setup(r => r.GetLobbyForMatchAsync(LobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
+        repo.Setup(r => r.GameSupportsMatchResultsAsync(GameId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        repo.Setup(r => r.GetFinalizedHistoryAsync(LobbyId, It.IsAny<CancellationToken>())).ReturnsAsync((MatchHistory?)null);
+        repo.Setup(r => r.GetSubmissionsAsync(LobbyId, It.IsAny<CancellationToken>())).ReturnsAsync([]);
+
+        var service = new MatchResultService(repo.Object, Mock.Of<ISystemConfigurationProvider>());
+
+        var result = await service.GetMatchResultStatusAsync(Player1, LobbyId);
+
+        Assert.NotNull(result);
+        Assert.Equal(LobbyId, result.LobbyId);
+        Assert.Equal(2, result.RequiredCount); // Cả 2 terminated members đều count vào required
+    }
+
+    /// <summary>
+    /// GAP-1 regression: Kicked member không được phép submit match result,
+    /// dù lobby đã ở trạng thái terminal.
+    /// </summary>
+    [Fact]
+    public async Task SubmitMatchResultAsync_KickedMember_ThrowsForbidden()
+    {
+        var repo = new Mock<IMatchResultRepository>();
+        var lobby = BuildLobbyWithTerminatedMembers(LobbyStatus.Closed);
+        // Đánh dấu Player1 là Kicked
+        lobby.Members.First(m => m.UserId == Player1).Status = LobbyMemberStatus.Kicked;
+
+        repo.Setup(r => r.GetLobbyForMatchAsync(LobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
+
+        var service = new MatchResultService(repo.Object, Mock.Of<ISystemConfigurationProvider>());
+
+        await Assert.ThrowsAsync<ForbiddenException>(() =>
+            service.SubmitMatchResultAsync(Player1, new SubmitMatchResultRequestDto
+            {
+                LobbyId = LobbyId,
+                Outcome = MatchOutcome.Win
+            }));
+    }
+
     private static Lobby BuildLobby(LobbyStatus status) =>
         new()
         {
@@ -134,6 +183,28 @@ public class MatchResultServiceTests
                 new LobbyMember { UserId = Player2, IsActive = true }
             ]
         };
+
+    /// <summary>
+    /// GAP-1 helper: lobby sau khi ReservationService.MarkLobbyMembersInactive chạy.
+    /// Members có IsActive=false + Status=LobbyTerminated (giả lập post-POS-close state).
+    /// </summary>
+    private static Lobby BuildLobbyWithTerminatedMembers(LobbyStatus status)
+    {
+        var lobby = BuildLobby(status);
+        foreach (var member in lobby.Members)
+        {
+            member.IsActive = false;
+            member.Status = LobbyMemberStatus.LobbyTerminated;
+            member.LeftAt = DateTime.UtcNow;
+            member.User ??= new User
+            {
+                Id = member.UserId,
+                Username = $"player_{member.UserId.ToString("N")[..6]}",
+                Email = $"player_{member.UserId:N}@test.local"
+            };
+        }
+        return lobby;
+    }
 
     private static MatchResult BuildSubmission(Guid userId, MatchOutcome outcome) =>
         new()

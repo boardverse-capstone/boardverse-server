@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using BoardVerse.Core.Helpers;
 using BoardVerse.Core.Settings;
 using Microsoft.Extensions.Caching.Distributed;

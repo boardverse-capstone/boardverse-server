@@ -1,4 +1,4 @@
-using BoardVerse.Core.Data;
+﻿using BoardVerse.Core.Data;
 using BoardVerse.Core.DTOs.Match;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
@@ -22,6 +22,15 @@ namespace BoardVerse.Services.Services
             new() { Outcome = MatchOutcome.Loss, Label = "Thua" },
             new() { Outcome = MatchOutcome.Draw, Label = "Hòa" }
         ];
+
+        /// <summary>
+        /// GAP-1 fix: Member đủ điều kiện submit match result khi KHÔNG bị Kicked/Left.
+        /// IsActive flag bị ReservationService.MarkLobbyMembersInactive flip=false sau khi
+        /// POS đóng phiên (Status → LobbyTerminated) nhưng member vẫn là participant hợp lệ
+        /// cho MatchResult flow (cần tính Elo consensus).
+        /// </summary>
+        private static bool IsMatchEligibleMember(LobbyMember member) =>
+            member.Status is not LobbyMemberStatus.Kicked and not LobbyMemberStatus.Left;
 
         private readonly IMatchResultRepository _matchResultRepository;
         private readonly ISystemConfigurationProvider _systemConfigurationProvider;
@@ -68,7 +77,7 @@ namespace BoardVerse.Services.Services
             var finalized = await _matchResultRepository.GetFinalizedHistoryAsync(lobbyId);
             var submissions = await _matchResultRepository.GetSubmissionsAsync(lobbyId);
             var submissionLookup = submissions.ToDictionary(s => s.UserId, s => s.Outcome);
-            var requiredCount = lobby.Members.Count(m => m.IsActive);
+            var requiredCount = lobby.Members.Count(IsMatchEligibleMember);
 
             if (finalized != null)
             {
@@ -149,7 +158,7 @@ namespace BoardVerse.Services.Services
             await _matchResultRepository.SaveChangesAsync();
 
             var submissions = await _matchResultRepository.GetSubmissionsAsync(request.LobbyId);
-            var requiredCount = lobby.Members.Count(m => m.IsActive);
+            var requiredCount = lobby.Members.Count(IsMatchEligibleMember);
             var evaluation = MatchConsensusHelper.Evaluate(
                 submissions.Select(s => (s.UserId, s.Outcome)).ToList(),
                 requiredCount);
@@ -194,7 +203,7 @@ namespace BoardVerse.Services.Services
             return BuildReplayDto(lobby, submissions, existingHistory);
         }
 
-        var memberIds = lobby.Members.Where(m => m.IsActive).Select(m => m.UserId).ToList();
+        var memberIds = lobby.Members.Where(IsMatchEligibleMember).Select(m => m.UserId).ToList();
         var ratings = new Dictionary<Guid, int>();
         var profiles = new Dictionary<Guid, UserProfile>();
 
@@ -310,7 +319,7 @@ namespace BoardVerse.Services.Services
             LobbyId = lobby.Id,
             ConsensusStatus = MatchConsensusStatus.Finalized,
             SubmittedCount = submissions.Count,
-            RequiredCount = lobby.Members.Count(m => m.IsActive),
+            RequiredCount = lobby.Members.Count(IsMatchEligibleMember),
             MatchHistoryId = existing.Id,
             EloUpdates = [] // replay → không có delta mới
         };
@@ -324,7 +333,7 @@ namespace BoardVerse.Services.Services
                 throw new NotFoundException(ApiErrorMessages.Match.LobbyNotFound(lobbyId));
             }
 
-            if (!lobby.Members.Any(m => m.IsActive && m.UserId == userId))
+            if (!lobby.Members.Any(m => m.UserId == userId && IsMatchEligibleMember(m)))
             {
                 throw new ForbiddenException(ApiErrorMessages.Match.NotLobbyMember(lobbyId, userId));
             }
@@ -365,7 +374,7 @@ namespace BoardVerse.Services.Services
                 IsDraw = isDraw,
                 AvailableOutcomes = supportsMatch ? OutcomeOptions : [],
                 Submissions = lobby.Members
-                    .Where(m => m.IsActive)
+                    .Where(IsMatchEligibleMember)
                     .Select(m => new MatchMemberSubmissionDto
                     {
                         UserId = m.UserId,

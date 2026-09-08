@@ -1,4 +1,4 @@
-// INSERT 2 CafeInventoryBoxes cho Boss cafe Gloomhaven inventory
+﻿// INSERT 2 CafeInventoryBoxes cho Boss cafe Gloomhaven inventory
 // ⚠️ CHẠY TRÊN PRODUCTION (morning-feather)
 using Npgsql;
 

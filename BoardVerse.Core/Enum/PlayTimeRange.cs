@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Enum
+﻿namespace BoardVerse.Core.Enum
 {
     /// <summary>
     /// Khung thời gian chơi trung bình dùng cho bộ lọc multi-select.

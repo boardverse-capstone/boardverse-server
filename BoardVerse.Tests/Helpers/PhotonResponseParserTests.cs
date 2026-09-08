@@ -1,4 +1,4 @@
-using BoardVerse.Services.Services.Geocoding;
+﻿using BoardVerse.Services.Services.Geocoding;
 
 namespace BoardVerse.Tests.Helpers;
 

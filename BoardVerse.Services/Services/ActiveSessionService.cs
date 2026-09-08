@@ -1,4 +1,4 @@
-using BoardVerse.Core.DTOs.Pos;
+﻿using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.DTOs.Session;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
@@ -314,19 +314,74 @@ namespace BoardVerse.Services.Services
                 throw new ConflictException(ApiErrorMessages.Pos.GuestSlotCannotPartialCheckout);
             }
 
-            // Mark selected members as SUSPENDED_MUTATION (waiting for inventory check)
-            // BR-12: They cannot be charged until inventory is verified
-            foreach (var member in session.Members.Where(m => request.MemberIds.Contains(m.Id)))
+            // Gap 5 Fix: Wrap 2 loop update + SaveChangesAsync trong 1 ambient transaction.
+            // Trước đây mỗi UpdateMemberAsync gọi DB riêng, nếu exception giữa loop 1 (set
+            // SuspendedMutation) và loop 2 (restore Playing) → DB ở state inconsistent:
+            // một số members đã restore Playing, một số vẫn SuspendedMutation → flow Split
+            // sẽ fail vì validate `member.Status == Playing` (SplitSessionAsync line 528).
+            // Ambient transaction đảm bảo cả 2 loop + SaveChangesAsync commit cùng nhau
+            // hoặc rollback hết.
+            var ambientTx = _db.Database.CurrentTransaction;
+            Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? ownedTx = null;
+            if (ambientTx == null)
             {
-                member.Status = IndividualSessionStatus.SuspendedMutation;
-                member.LeftAt = DateTime.UtcNow;
-                // P0 Fix #4: Explicitly update each member to ensure persistence
-                await _activeSessionRepository.UpdateMemberAsync(member);
+                ownedTx = await _db.Database.BeginTransactionAsync(ct);
             }
 
-            session.IsCheckingInventory = true;
-            session.Status = GroupSessionStatus.Checking;
-            await _activeSessionRepository.SaveChangesAsync();
+            try
+            {
+                // Mark selected members as SUSPENDED_MUTATION (waiting for inventory check)
+                // BR-12: They cannot be charged until inventory is verified
+                foreach (var member in session.Members.Where(m => request.MemberIds.Contains(m.Id)))
+                {
+                    member.Status = IndividualSessionStatus.SuspendedMutation;
+                    member.LeftAt = DateTime.UtcNow;
+                    // P0 Fix #4: Explicitly update each member to ensure persistence
+                    await _activeSessionRepository.UpdateMemberAsync(member);
+                }
+
+                // GAP 1 Fix: Restore non-selected members (người không về sớm) về Playing
+                // để họ có thể tiếp tục chơi hoặc được tách qua SplitSession.
+                // EndGame đã set tất cả về SuspendedMutation, PartialCheckout "mở đông"
+                // những người không về sớm.
+                // Guest slots (BR-13) không bao giờ được restore — họ không có tư cách
+                // tài sản độc lập.
+                foreach (var member in session.Members.Where(m =>
+                    !request.MemberIds.Contains(m.Id)
+                    && m.Status == IndividualSessionStatus.SuspendedMutation
+                    && m.LeftAt.HasValue
+                    && !m.IsGuestSlot))
+                {
+                    member.Status = IndividualSessionStatus.Playing;
+                    member.LeftAt = null;
+                    await _activeSessionRepository.UpdateMemberAsync(member);
+                }
+
+                // GAP 3 Fix: Remove dead code.
+                // session.IsCheckingInventory = true;  ← đã true từ EndGame, không cần set lại
+                // session.Status = GroupSessionStatus.Checking;  ← đã Checking, validate ở trên đã pass
+                await _activeSessionRepository.SaveChangesAsync(ct);
+
+                if (ownedTx != null)
+                {
+                    await ownedTx.CommitAsync(ct);
+                }
+            }
+            catch
+            {
+                if (ownedTx != null)
+                {
+                    await ownedTx.RollbackAsync(ct);
+                }
+                throw;
+            }
+            finally
+            {
+                if (ownedTx != null)
+                {
+                    await ownedTx.DisposeAsync();
+                }
+            }
 
             return MapSessionDto(session);
         }
@@ -395,6 +450,10 @@ namespace BoardVerse.Services.Services
         /// - A3 đang ở trạng thái SUSPENDED_MUTATION sau khi kiểm kê ở nhóm cũ
         /// - Nhân viên quét mã A3 → ghép vào nhóm B
         /// - A3 không mất thời gian, tổng thời gian tính liên tục từ lúc ban đầu
+        ///
+        /// GAP 4 Fix — Live merge: A3, A4 đang chơi ở session Active (Playing) có thể merge
+        /// thẳng sang target Active mà không cần qua EndGame trước. BR-09 continuous time
+        /// vẫn được giữ: JoinedAt giữ nguyên từ lúc check-in ban đầu.
         /// </summary>
         public async Task<MergeSessionResponseDto> MergeSessionAsync(Guid cafeId, Guid sourceSessionId, MergeSessionRequestDto request, CancellationToken ct = default)
         {
@@ -407,6 +466,13 @@ namespace BoardVerse.Services.Services
                 throw new ConflictException(ApiErrorMessages.Pos.SessionSourceNotValidForMerge);
             }
 
+            // Gap 7 Fix: Validate source session belongs to current cafe (mirror SplitSessionAsync line 532-535).
+            // Chống confused deputy attack: POS staff có thể truyền sessionId của cafe khác vào URL.
+            if (sourceSession.CafeId != cafeId)
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.MergeSourceNotInCafe);
+            }
+
             var member = await _activeSessionRepository.GetMemberByIdAsync(request.MemberId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.MemberNotFound(request.MemberId));
 
@@ -415,9 +481,16 @@ namespace BoardVerse.Services.Services
                 throw new ConflictException(ApiErrorMessages.Pos.MemberNotInSourceSession);
             }
 
-            if (member.Status != IndividualSessionStatus.SuspendedMutation)
+            // GAP 4 Fix: Cho phép cả SuspendedMutation (sau kiểm kê) VÀ Playing (live merge).
+            // Live merge: A3, A4 đang chơi ở session Active, muốn merge sang nhóm B đang Active
+            // mà không cần qua EndGame trước. Điều kiện:
+            //   1. Member đang ở Playing hoặc SuspendedMutation.
+            //   2. Target session Active.
+            //   3. Cùng GameTemplateId (hai nhóm phải chơi cùng game).
+            if (member.Status != IndividualSessionStatus.SuspendedMutation
+                && member.Status != IndividualSessionStatus.Playing)
             {
-                throw new ConflictException(ApiErrorMessages.Pos.MemberMustBeSuspendedMutationToMerge);
+                throw new ConflictException(ApiErrorMessages.Pos.MemberMustBePlayingOrSuspendedToMerge);
             }
 
             var targetSession = await _activeSessionRepository.GetByIdAsync(request.TargetSessionId)
@@ -433,26 +506,117 @@ namespace BoardVerse.Services.Services
                 throw new ConflictException(ApiErrorMessages.Pos.MergeCannotCrossCafes);
             }
 
-            member.ActiveSessionId = request.TargetSessionId;
-            member.Status = IndividualSessionStatus.Playing;
+            // GAP 4 Fix: Live merge validation — game template phải khớp
+            // SuspendedMutation path (sau EndGame) đã khớp qua ComponentCheck.
+            // Playing path (live merge) cần validate riêng vì chưa qua kiểm kê.
+            if (member.Status == IndividualSessionStatus.Playing
+                && sourceSession.GameTemplateId != targetSession.GameTemplateId)
+            {
+                throw new ConflictException(
+                    ApiErrorMessages.Pos.MergeLiveTransferRequiresGameMatch(
+                        sourceSession.GameTemplateId, targetSession.GameTemplateId));
+            }
 
-            await _activeSessionRepository.UpdateMemberAsync(member);
-            await _activeSessionRepository.SaveChangesAsync();
+            // Gap 6 + Gap 10 Fix: Wrap toàn bộ merge logic trong 1 ambient transaction.
+            // Trước đây có 3 SaveChangesAsync riêng biệt:
+            //   1. UpdateMember (line ~445)
+            //   2. Box transfer + UpdateAsync(source/target) (line ~459-467)
+            //   3. UpdateMember + UpdateAsync(source) cho OriginalSessionId (line ~538-544)
+            // → Nếu exception giữa các bước → state DB không nhất quán (member đã chuyển session
+            //   nhưng source chưa touch audit, hoặc box đã InUse ở target nhưng source vẫn
+            //   trỏ về box → orphan reference).
+            // Ambient transaction pattern (rule 7.4 — boardverse.mdc) đảm bảo tất cả commit
+            // cùng nhau hoặc rollback hết.
+            var ambientTx = _db.Database.CurrentTransaction;
+            Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? ownedTx = null;
+            if (ambientTx == null)
+            {
+                ownedTx = await _db.Database.BeginTransactionAsync(ct);
+            }
 
-            // P1 Fix #7: Add null check after re-fetch
+            try
+            {
+                member.ActiveSessionId = request.TargetSessionId;
+                member.Status = IndividualSessionStatus.Playing;
+
+                // GAP-12 Fix + Gap 5: Cascade preservation cho OriginalSessionId.
+                // Nếu member đã từng merge (OriginalSessionId != null) → giữ nguyên ID gốc qua mọi lần merge.
+                // Ngược lại → set = sourceSessionId (lần đầu merge).
+                // Kết quả: A3 merge A→B (OriginalSessionId = A), merge B→C (OriginalSessionId vẫn = A)
+                // → BR-09 continuous time bill A3 từ A.StartedAt, không bị reset.
+                member.OriginalSessionId ??= sourceSessionId;
+
+                // Touch source cho audit (Gap 12 — luôn set UpdatedAt khi có thay đổi liên quan).
+                sourceSession.UpdatedAt = DateTime.UtcNow;
+
+                await _activeSessionRepository.UpdateMemberAsync(member);
+                await _activeSessionRepository.UpdateAsync(sourceSession);
+
+                // GAP 4 Fix + Gap 10 Fix: Box transfer khi live merge (member.Status == Playing).
+                // Wrap toàn bộ block trong transaction đã mở phía trên — nếu bất kỳ bước nào
+                // throw, ambient tx sẽ rollback cả member update + box transfer cùng nhau.
+                // Điều kiện:
+                //   - Đây là live merge (member.Status == Playing tại thời điểm vào đây)
+                //   - Source có box gắn (CafeInventoryBoxId)
+                //   - Source còn đúng 1 member (chính là member đang merge)
+                //   - Target chưa có box (tránh overwrite box đang InUse của target)
+                if (member.Status == IndividualSessionStatus.Playing
+                    && sourceSession.CafeInventoryBoxId.HasValue)
+                {
+                    var remainingMembers = (sourceSession.Members ?? new List<ActiveSessionMember>())
+                        .Where(m => m.Id != member.Id && m.Status != IndividualSessionStatus.Finished)
+                        .ToList();
+
+                    if (remainingMembers.Count == 0 && !targetSession.CafeInventoryBoxId.HasValue)
+                    {
+                        // Source sẽ rỗng + target không có box → transfer box sang target
+                        var box = await _posRepository.GetInventoryBoxByIdAsync(
+                            sourceSession.CafeInventoryBoxId.Value, ct);
+                        if (box != null)
+                        {
+                            box.Status = CafeGameInventoryStatus.InUse;
+                            box.UpdatedAt = DateTime.UtcNow;
+                            await _posRepository.UpdateInventoryBoxAsync(box, ct);
+                            targetSession.CafeInventoryBoxId = sourceSession.CafeInventoryBoxId;
+                            sourceSession.CafeInventoryBoxId = null;
+                            targetSession.UpdatedAt = DateTime.UtcNow;
+                            await _activeSessionRepository.UpdateAsync(targetSession);
+                            await _activeSessionRepository.UpdateAsync(sourceSession);
+                        }
+                    }
+                }
+
+                // Gap 6 Fix: Single SaveChangesAsync thay vì 3 lần trước đây.
+                // Tất cả thay đổi (member + source + target + box) commit cùng lúc.
+                await _activeSessionRepository.SaveChangesAsync(ct);
+
+                if (ownedTx != null)
+                {
+                    await ownedTx.CommitAsync(ct);
+                }
+            }
+            catch
+            {
+                if (ownedTx != null)
+                {
+                    await ownedTx.RollbackAsync(ct);
+                }
+                throw;
+            }
+            finally
+            {
+                if (ownedTx != null)
+                {
+                    await ownedTx.DisposeAsync();
+                }
+            }
+
+            // Reload target session để trả snapshot cuối cùng (sau khi commit).
             var updatedSession = await _activeSessionRepository.GetByIdAsync(request.TargetSessionId);
             if (updatedSession == null)
             {
                 throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, request.TargetSessionId));
             }
-
-            // GAP-12 Fix: Set OriginalSessionId to track the original session start time
-            // When calculating billing for merged members, use OriginalSession.StartedAt as the base
-            // to ensure continuous time tracking (A3's total time = time from original session start)
-            member.OriginalSessionId ??= sourceSessionId;
-
-            await _activeSessionRepository.UpdateMemberAsync(member);
-            await _activeSessionRepository.SaveChangesAsync();
 
             return new MergeSessionResponseDto
             {
@@ -462,6 +626,331 @@ namespace BoardVerse.Services.Services
                 MergedAt = DateTime.UtcNow,
                 TargetSession = MapSessionDto(updatedSession)
             };
+        }
+
+        /// <summary>
+        /// Tách nhóm member khỏi session đang Checking.
+        /// Exception 4 (§III.2 doc time-slot-fixed-end-design.md):
+        ///   Nhóm A gồm A1, A2, A3, A4 đang chơi. A1, A2 về sớm (đã SuspendedMutation).
+        ///   A3, A4 còn Playing → tách ra để tiếp tục chơi hoặc merge vào nhóm B.
+        ///
+        /// Validation theo plan:
+        ///   - Session gốc PHẢI ở Checking (đã kiểm kê linh kiện → penalty đã rõ).
+        ///   - Members được tách PHẢI Playing (BR-12 — không tách SuspendedMutation).
+        ///   - Guest slots (BR-13) không được tách.
+        ///   - Members count: 1 ≤ n &lt; totalMembers.
+        ///   - Nếu TargetSessionId set: target PHẢI Active, cùng cafeId, cùng GameTemplateId.
+        ///
+        /// State preservation (BR-09):
+        ///   - JoinedAt giữ từ session gốc → continuous time (A3 chơi từ 12:00 không reset).
+        ///   - OriginalSessionId giữ (cascade nếu đã merge trước đó).
+        /// </summary>
+        public async Task<SplitSessionResponseDto> SplitSessionAsync(
+            Guid cafeId, Guid sourceSessionId, SplitSessionRequestDto request, CancellationToken ct = default)
+        {
+            // 1. Source session validation
+            var sourceSession = await _activeSessionRepository.GetByIdAsync(sourceSessionId, ct)
+                ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sourceSessionId));
+
+            if (sourceSession.CafeId != cafeId)
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.MergeCannotCrossCafes);
+            }
+
+            if (sourceSession.Status != GroupSessionStatus.Checking)
+            {
+                throw new ConflictException(
+                    ApiErrorMessages.Pos.SplitRequiresCheckingState(sourceSession.Status.ToString()));
+            }
+
+            if (request.MemberIds == null || request.MemberIds.Count == 0)
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.SplitRequiresAtLeastOneButNotAll);
+            }
+
+            // 2. Member validation
+            var totalMembers = (sourceSession.Members ?? new List<ActiveSessionMember>()).Count;
+            if (request.MemberIds.Count >= totalMembers)
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.SplitRequiresAtLeastOneButNotAll);
+            }
+
+            var membersToMove = (sourceSession.Members ?? new List<ActiveSessionMember>())
+                .Where(m => request.MemberIds.Contains(m.Id))
+                .ToList();
+
+            if (membersToMove.Count != request.MemberIds.Distinct().Count())
+            {
+                throw new NotFoundException(ApiErrorMessages.Pos.MemberNotFound(request.MemberIds.First(id =>
+                    membersToMove.All(m => m.Id != id))));
+            }
+
+            foreach (var m in membersToMove)
+            {
+                if (m.IsGuestSlot)
+                {
+                    throw new ConflictException(ApiErrorMessages.Pos.GuestSlotCannotSplit);
+                }
+
+                if (m.Status != IndividualSessionStatus.Playing)
+                {
+                    throw new ConflictException(ApiErrorMessages.Pos.SplitMemberNotPlaying(m.Id));
+                }
+            }
+
+            // 3. Target session validation (optional fast path)
+            ActiveSession? targetSession = null;
+            if (request.TargetSessionId.HasValue)
+            {
+                targetSession = await _activeSessionRepository.GetByIdAsync(request.TargetSessionId.Value, ct)
+                    ?? throw new NotFoundException(
+                        ApiErrorMessages.Pos.SessionNotFound(cafeId, request.TargetSessionId.Value));
+
+                if (targetSession.CafeId != cafeId)
+                {
+                    throw new ConflictException(ApiErrorMessages.Pos.MergeCannotCrossCafes);
+                }
+
+                if (targetSession.Status != GroupSessionStatus.Active)
+                {
+                    throw new ConflictException(
+                        ApiErrorMessages.Pos.SplitTargetInvalid("phiên nhận không ở trạng thái Active"));
+                }
+
+                if (targetSession.GameTemplateId != sourceSession.GameTemplateId)
+                {
+                    throw new ConflictException(
+                        ApiErrorMessages.Pos.SplitGameMismatch(sourceSession.GameTemplateId, targetSession.GameTemplateId));
+                }
+            }
+
+            // 4. Ambient transaction pattern (rule 7.4 — boardverse.mdc)
+            var ambientTx = _db.Database.CurrentTransaction;
+            Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? ownedTx = null;
+            if (ambientTx == null)
+            {
+                ownedTx = await _db.Database.BeginTransactionAsync(ct);
+            }
+
+            try
+            {
+                ActiveSessionResponseDto? newSessionDto = null;
+                Guid? newSessionId = null;
+                ActiveSessionResponseDto? targetDto = null;
+
+                if (targetSession != null)
+                {
+                    // Fast path: merge thẳng vào target session
+                    // (mirror MergeSessionAsync logic — không giới hạn SuspendedMutation vì
+                    //  SplitSession đã validate Playing trước đó).
+                    foreach (var member in membersToMove)
+                    {
+                        member.ActiveSessionId = targetSession.Id;
+                        member.Status = IndividualSessionStatus.Playing;
+                        // JoinedAt giữ nguyên (BR-09 continuous time) — không đụng
+                        // OriginalSessionId giữ nguyên — nếu A3 đã từng merge ở session khác,
+                        // vẫn giữ ID của session gốc ban đầu (theo GAP-12 của MergeSessionAsync).
+                        await _activeSessionRepository.UpdateMemberAsync(member);
+                    }
+
+                    // Gap 6 Fix: Mirror box transfer logic từ MergeSessionAsync.
+                    // Nếu sau khi split, source không còn member nào (chỉ còn
+                    // SuspendedMutation/Finished đã checkout) thì box của source nên
+                    // chuyển sang target (nếu target chưa có box) để tránh "vô chủ"
+                    // — box vẫn InUse nhưng session rỗng → không thể release vĩnh viễn.
+                    if (sourceSession.CafeInventoryBoxId.HasValue && !targetSession.CafeInventoryBoxId.HasValue)
+                    {
+                        var sourceRemainingPlaying = (sourceSession.Members ?? new List<ActiveSessionMember>())
+                            .Where(m => m.Status != IndividualSessionStatus.Finished)
+                            .ToList();
+
+                        if (sourceRemainingPlaying.Count == 0)
+                        {
+                            var box = await _posRepository.GetInventoryBoxByIdAsync(
+                                sourceSession.CafeInventoryBoxId.Value, ct);
+                            if (box != null && box.Status == CafeGameInventoryStatus.Available)
+                            {
+                                box.Status = CafeGameInventoryStatus.InUse;
+                                box.UpdatedAt = DateTime.UtcNow;
+                                await _posRepository.UpdateInventoryBoxAsync(box, ct);
+                                targetSession.CafeInventoryBoxId = sourceSession.CafeInventoryBoxId;
+                                sourceSession.CafeInventoryBoxId = null;
+                                sourceSession.UpdatedAt = DateTime.UtcNow;
+                                targetSession.UpdatedAt = DateTime.UtcNow;
+                                await _activeSessionRepository.UpdateAsync(sourceSession);
+                                await _activeSessionRepository.UpdateAsync(targetSession);
+                            }
+                        }
+                    }
+
+                    await _activeSessionRepository.SaveChangesAsync(ct);
+
+                    var reloadedTarget = await _activeSessionRepository.GetByIdAsync(targetSession.Id, ct)
+                        ?? throw new NotFoundException(
+                            ApiErrorMessages.Pos.SessionNotFound(cafeId, targetSession.Id));
+                    targetDto = MapSessionDto(reloadedTarget);
+                }
+                else
+                {
+                    // Slow path: tạo session mới cho A3, A4
+                    var newSession = new ActiveSession
+                    {
+                        Id = Guid.NewGuid(),
+                        CafeId = sourceSession.CafeId,
+                        CafeTableId = sourceSession.CafeTableId,   // A3, A4 ở lại bàn cũ
+                        HostId = sourceSession.HostId,
+                        GameTemplateId = sourceSession.GameTemplateId,
+                        CafeInventoryBoxId = sourceSession.CafeInventoryBoxId, // giữ box hiện tại
+                        LobbyId = null,                             // không re-link lobby (đã terminal)
+                        Status = GroupSessionStatus.Active,        // cho A3, A4 chơi tiếp
+                        StartedAt = sourceSession.StartedAt,       // BR-09 continuous time
+                        EndedAt = null,
+                        IsPaused = false,
+                        PausedAt = null,
+                        IsCheckingInventory = false,
+                        HasMissingComponents = false,
+                        Subtotal = 0,
+                        PenaltyAmount = 0,
+                        DepositAppliedAmount = 0,
+                        TotalAmount = 0,
+                        TotalMinutesPlayed = 0,
+                        PaidAt = null,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow,
+                    };
+
+                    foreach (var oldMember in membersToMove)
+                    {
+                        var newMember = new ActiveSessionMember
+                        {
+                            Id = Guid.NewGuid(),
+                            ActiveSessionId = newSession.Id,
+                            UserId = oldMember.UserId,
+                            IsGuestSlot = false,
+                            JoinedAt = oldMember.JoinedAt,           // BR-09
+                            LeftAt = null,
+                            Status = IndividualSessionStatus.Playing,
+                            // Preserve OriginalSessionId (GAP-12 — track original start)
+                            OriginalSessionId = oldMember.OriginalSessionId ?? sourceSessionId,
+                            Subtotal = 0,
+                            PenaltyAmount = 0,
+                            DepositAppliedAmount = 0,
+                            TotalMinutesPlayed = 0,
+                        };
+                        newSession.Members.Add(newMember);
+
+                        // Hard-delete khỏi source (audit log giữ ở PlayerActionHistory nếu cần sau)
+                        sourceSession.Members.Remove(oldMember);
+                        _db.ActiveSessionMembers.Remove(oldMember);
+                    }
+
+                    // GAP 2 Fix: Auto-attach box vào session mới để staff không phải gọi AttachGame thủ công.
+                    // EndGame đã set box = Available. Sau khi SplitSession tạo session mới cho A3,A4,
+                    // box cần chuyển sang InUse để:
+                    //   1. Staff thấy box đang được sử dụng (không bị nhầm là free).
+                    //   2. Ngăn nhân viên khác attach box này sang session khác.
+                    if (newSession.CafeInventoryBoxId.HasValue)
+                    {
+                        var box = await _posRepository.GetInventoryBoxByIdAsync(newSession.CafeInventoryBoxId.Value, ct);
+                        if (box == null)
+                        {
+                            throw new NotFoundException(
+                                ApiErrorMessages.Pos.BoxNotFoundById(newSession.CafeInventoryBoxId.Value));
+                        }
+
+                        if (box.Status == CafeGameInventoryStatus.Available)
+                        {
+                            box.Status = CafeGameInventoryStatus.InUse;
+                            box.UpdatedAt = DateTime.UtcNow;
+                            await _posRepository.UpdateInventoryBoxAsync(box, ct);
+                        }
+                        else if (box.Status != CafeGameInventoryStatus.InUse)
+                        {
+                            // Box đang Maintenance/Damaged/Retired → không thể split vào session mới
+                            throw new ConflictException(
+                                ApiErrorMessages.Pos.BoxNotAvailableForSplit(box.Status.ToString()));
+                        }
+                        // Nếu box đã là InUse (đã được attach trước đó) → skip, không ghi đè
+                    }
+
+                    await _activeSessionRepository.AddAsync(newSession, ct);
+                    await _activeSessionRepository.SaveChangesAsync(ct);
+
+                    var reloadedNew = await _activeSessionRepository.GetByIdAsync(newSession.Id, ct)
+                        ?? throw new NotFoundException(
+                            ApiErrorMessages.Pos.SessionNotFound(cafeId, newSession.Id));
+                    newSessionId = newSession.Id;
+                    newSessionDto = MapSessionDto(reloadedNew);
+                }
+
+                // Reload source session để trả snapshot cuối cùng
+                var reloadedSource = await _activeSessionRepository.GetByIdAsync(sourceSessionId, ct)
+                    ?? throw new NotFoundException(
+                        ApiErrorMessages.Pos.SessionNotFound(cafeId, sourceSessionId));
+                // Gap 8 Fix: Filter members theo ActiveSessionId để response phản ánh đúng state.
+                // GetByIdAsync eager-load Members qua Include nhưng KHÔNG filter theo ActiveSessionId.
+                // Trong fast path, members đã chuyển ActiveSessionId sang target → DB row vẫn
+                // include trong source.Members (in-memory reference) → POS UI hiển thị nhầm
+                // "vẫn còn người" dù đã merge sang target.
+                // Slow path đã hard-delete members khỏi source (line ~813) nên không bị ảnh hưởng,
+                // nhưng áp dụng filter ở cả 2 path để consistent + future-proof.
+                var sourceMembersForResponse = (reloadedSource.Members ?? new List<ActiveSessionMember>())
+                    .Where(m => m.ActiveSessionId == sourceSessionId)
+                    .ToList();
+                var sourceSessionForMap = reloadedSource;
+                sourceSessionForMap.Members = sourceMembersForResponse;
+                var sourceDto = MapSessionDto(sourceSessionForMap);
+
+                if (ownedTx != null)
+                {
+                    await ownedTx.CommitAsync(ct);
+                }
+
+                // Notify POS clients (best-effort, không block response)
+                try
+                {
+                    await _posHubService.NotifySessionUpdateAsync(sourceSessionId, "SessionSplit", new
+                    {
+                        sourceSessionId,
+                        newSessionId,
+                        targetSessionId = targetSession?.Id,
+                        movedMemberIds = membersToMove.Select(m => m.Id).ToList(),
+                        splitAt = DateTime.UtcNow
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Failed to broadcast SessionSplit event for source {SourceSessionId}",
+                        sourceSessionId);
+                }
+
+                return new SplitSessionResponseDto
+                {
+                    SourceSessionId = sourceSessionId,
+                    NewSessionId = newSessionId,
+                    TargetSessionId = targetSession?.Id,
+                    MovedMemberIds = membersToMove.Select(m => m.Id).ToList(),
+                    SourceSession = sourceDto,
+                    NewSession = newSessionDto,
+                    SplitAt = DateTime.UtcNow
+                };
+            }
+            catch
+            {
+                if (ownedTx != null)
+                {
+                    await ownedTx.RollbackAsync(ct);
+                }
+                throw;
+            }
+            finally
+            {
+                if (ownedTx != null)
+                {
+                    await ownedTx.DisposeAsync();
+                }
+            }
         }
 
         /// <summary>
@@ -1041,7 +1530,10 @@ namespace BoardVerse.Services.Services
             var now = DateTime.UtcNow;
             var elapsed = session.EndedAt.HasValue
                 ? (int)Math.Floor((session.EndedAt.Value - session.StartedAt).TotalMinutes)
-                : (int)Math.Floor((now - session.StartedAt).TotalMinutes);
+                // L-05 Fix: Khi session đang tạm dừng, elapsedMinutes phải freeze tại thời điểm pause.
+                : session.IsPaused && session.PausedAt.HasValue
+                    ? (int)Math.Floor((session.PausedAt.Value - session.StartedAt).TotalMinutes)
+                    : (int)Math.Floor((now - session.StartedAt).TotalMinutes);
 
             // Phase 4 / EC-10: time-overrun warning cho POS UI.
             // Reservation.ScheduledEndTime là SoT cho end time (BR-RESV-02).
@@ -1538,6 +2030,26 @@ namespace BoardVerse.Services.Services
                 throw new ConflictException(ApiErrorMessages.Pos.CannotResumeWithMissingComponents);
             }
 
+            // Gap 9 Fix: Block resume khi đã qua ComponentCheck (kể cả Verified).
+            // SubmitComponentCheck đã set sessionGame.CheckedAt + audit trail; nếu revert
+            // session về ACTIVE, penalty/responsible đã ghi vào DB nhưng member status reset
+            // về Playing → bill sai. Staff phải cancel audit qua admin tool hoặc tạo session mới.
+            var sessionGames = await _posRepository.GetSessionGamesAsync(sessionId, ct);
+            var anyGameChecked = sessionGames.Any(g => g.CheckStatus != ComponentCheckStatus.NotChecked);
+            if (anyGameChecked)
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.CannotResumeAfterComponentCheck);
+            }
+
+            // Gap 12 Fix: Block resume khi session rỗng members (tất cả đã Finished/bị xóa).
+            // Trước đây pass → status = Active nhưng members = [] → PaySessionAsync tính bill = 0
+            // (foreach members loop skip). Staff phải tạo session mới.
+            var membersCount = (session.Members ?? Array.Empty<ActiveSessionMember>()).Count;
+            if (membersCount == 0)
+            {
+                throw new ConflictException(ApiErrorMessages.Pos.CannotResumeEmptySession);
+            }
+
             // Revert session to ACTIVE
             session.Status = GroupSessionStatus.Active;
             session.EndedAt = null; // Clear the ended time to resume billing
@@ -1557,7 +2069,64 @@ namespace BoardVerse.Services.Services
                 }
             }
 
-            await _activeSessionRepository.SaveChangesAsync();
+            // Gap 11 Fix: Restore box status InUse trước khi commit.
+            // EndGameSessionAsync (POS) và EndGameAsync (player app) đều set box = Available
+            // để staff có thể attach lại. Khi ResumeSessionAsync revert phiên về ACTIVE,
+            // box phải trở lại InUse để:
+            //   1. POS self-healing GetTablesAsync (Status=Active → InUse) vẫn trả đúng trạng thái.
+            //   2. Ngăn staff khác attach box này vào phiên mới (BoxAlreadyInSession conflict).
+            //   3. Consistent với trạng thái Active → box đang chơi.
+            // Lưu ý: chỉ set khi box thực sự gắn với session (CafeInventoryBoxId != null).
+            // Nếu box bị swap sang phiên khác giữa EndGame và Resume (edge case rất hiếm),
+            // box.Status sẽ != Available → skip để không overwrite state mới của box.
+            if (session.CafeInventoryBoxId.HasValue)
+            {
+                var box = await _posRepository.GetInventoryBoxByIdAsync(
+                    session.CafeInventoryBoxId.Value, ct);
+                if (box != null && box.Status == CafeGameInventoryStatus.Available)
+                {
+                    box.Status = CafeGameInventoryStatus.InUse;
+                    box.UpdatedAt = DateTime.UtcNow;
+                    await _posRepository.UpdateInventoryBoxAsync(box, ct);
+                }
+            }
+
+            // Gap 12 Fix: Wrap toàn bộ state revert (session + members + box) trong 1 transaction.
+            // Trước đây SaveChangesAsync duy nhất ở cuối + box update NGOÀI transaction → nếu
+            // box update fail thì session đã revert Active nhưng box vẫn Available → staff có
+            // thể attach nhầm box sang session khác. Ambient tx đảm bảo tất cả commit cùng nhau
+            // hoặc rollback hết về CHECKING state.
+            var ambientTx = _db.Database.CurrentTransaction;
+            Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? ownedTx = null;
+            if (ambientTx == null)
+            {
+                ownedTx = await _db.Database.BeginTransactionAsync(ct);
+            }
+
+            try
+            {
+                await _activeSessionRepository.SaveChangesAsync(ct);
+
+                if (ownedTx != null)
+                {
+                    await ownedTx.CommitAsync(ct);
+                }
+            }
+            catch
+            {
+                if (ownedTx != null)
+                {
+                    await ownedTx.RollbackAsync(ct);
+                }
+                throw;
+            }
+            finally
+            {
+                if (ownedTx != null)
+                {
+                    await ownedTx.DisposeAsync();
+                }
+            }
 
             // GAP-16 Fix: Notify player app via SignalR — timer phải tiếp tục khi session resumed từ CHECKING
             try

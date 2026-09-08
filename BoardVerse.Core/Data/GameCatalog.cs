@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Data
+﻿namespace BoardVerse.Core.Data
 {
     public record GameCatalogEntry(
         string Slug,

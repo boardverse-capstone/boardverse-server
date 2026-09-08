@@ -1,4 +1,4 @@
-using BoardVerse.Core.Entities;
+﻿using BoardVerse.Core.Entities;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Data.Configurations;
 using Microsoft.EntityFrameworkCore;
@@ -20,19 +20,25 @@ namespace BoardVerse.Data.Repositories
             _context = context;
         }
 
+        /// <summary>
+        /// Load lobby + members + game template cho MatchResult flow.
+        /// 
+        /// GAP-1 fix: KHÔNG filter Members.Where(IsActive) — sau khi POS đóng phiên,
+        /// ReservationService.MarkLobbyMembersInactive set IsActive=false cho TẤT CẢ members
+        /// (Status = LobbyTerminated) để giải phóng BR-USER-LIMIT-* check. Filter cũ khiến
+        /// collection rỗng → RequireEligibleLobbyAsync throw 403 cho cả host lẫn members.
+        /// 
+        /// MatchResult validation giờ dựa vào LobbyMemberStatus (Kicked/Left = thật sự rời)
+        /// thay vì IsActive flag (chỉ là audit cho BR-USER-LIMIT-*).
+        /// </summary>
         public Task<Lobby?> GetLobbyForMatchAsync(Guid lobbyId, CancellationToken cancellationToken = default) =>
             _context.Lobbies
                 .AsNoTracking()
-                .Include(l => l.Members.Where(m => m.IsActive))
+                .Include(l => l.Members)
                     .ThenInclude(m => m.User)
                         .ThenInclude(u => u.Profile)
                 .Include(l => l.GameTemplate)
                 .FirstOrDefaultAsync(l => l.Id == lobbyId);
-
-        public Task<bool> IsActiveLobbyMemberAsync(Guid lobbyId, Guid userId, CancellationToken cancellationToken = default) =>
-            _context.LobbyMembers
-                .AsNoTracking()
-                .AnyAsync(m => m.LobbyId == lobbyId && m.UserId == userId && m.IsActive);
 
         public Task<bool> GameSupportsMatchResultsAsync(Guid gameTemplateId, CancellationToken cancellationToken = default) =>
             _context.GameTemplateCategories

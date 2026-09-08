@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Enum;
+﻿namespace BoardVerse.Core.Enum;
 
 /// <summary>
 /// Hướng quan hệ bạn bè giữa current user và một user khác — dùng cho UI search/suggestions/list.

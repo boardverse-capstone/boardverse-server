@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 using BoardVerse.Core.Entities;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;

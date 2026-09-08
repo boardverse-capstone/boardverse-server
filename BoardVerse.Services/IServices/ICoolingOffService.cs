@@ -1,4 +1,4 @@
-namespace BoardVerse.Services.IServices;
+﻿namespace BoardVerse.Services.IServices;
 
 /// <summary>
 /// BR-NEW-10 + BR-RISK-03/04 — Cooling-off background service.

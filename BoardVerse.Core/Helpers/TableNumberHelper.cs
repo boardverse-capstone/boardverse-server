@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Helpers;
+﻿namespace BoardVerse.Core.Helpers;
 
 /// <summary>
 /// Parse số bàn từ CafeTable.Name.

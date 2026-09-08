@@ -1,4 +1,4 @@
-using BoardVerse.Core.DTOs.Receipt;
+﻿using BoardVerse.Core.DTOs.Receipt;
 
 using System.Threading;
 namespace BoardVerse.Services.IServices

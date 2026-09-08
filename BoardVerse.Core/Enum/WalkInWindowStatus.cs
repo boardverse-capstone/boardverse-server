@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Enum;
+﻿namespace BoardVerse.Core.Enum;
 
 /// <summary>
 /// §9.3 + §4.4: Trạng thái của một WalkInWindow (khoảng thời gian trống có thể bán cho walk-in).

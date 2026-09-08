@@ -1,4 +1,4 @@
-using BoardVerse.Core.Entities;
+﻿using BoardVerse.Core.Entities;
 
 using System.Threading;
 namespace BoardVerse.Core.IRepositories
@@ -6,7 +6,6 @@ namespace BoardVerse.Core.IRepositories
     public interface IMatchResultRepository
     {
         Task<Lobby?> GetLobbyForMatchAsync(Guid lobbyId, CancellationToken cancellationToken = default);
-        Task<bool> IsActiveLobbyMemberAsync(Guid lobbyId, Guid userId, CancellationToken cancellationToken = default);
         Task<bool> GameSupportsMatchResultsAsync(Guid gameTemplateId, CancellationToken cancellationToken = default);
         Task<MatchResult?> GetSubmissionAsync(Guid lobbyId, Guid userId, CancellationToken cancellationToken = default);
         Task<IReadOnlyList<MatchResult>> GetSubmissionsAsync(Guid lobbyId, CancellationToken cancellationToken = default);

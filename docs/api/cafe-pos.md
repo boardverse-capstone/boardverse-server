@@ -52,6 +52,7 @@ API vận hành quầy: bàn, kho hộp game, phiên chơi, kiểm kê, khách v
 | `/sessions/{sessionId}/members/{memberId}/create-qr` | POST | Tạo QR thanh toán cho 1 member cụ thể (Split Bill). | `CafePosController` |
 | `/sessions/{sessionId}/members/{memberId}/regenerate-qr` | POST | **Tạo lại QR** khi QR cũ bị lỗi/hết hạn (Split Bill, 2026-08-25). | `CafePosController` |
 | `/sessions/{sessionId}/members/{memberId}/confirm-cash` | POST | Xác nhận thanh toán tiền mặt 1 member (Split Bill). | `CafePosController` |
+| `/sessions/{sessionId}/split` | POST | **Tách nhóm** — tách thành viên đang Playing khỏi session đang Checking, tạo session mới (Exception 4) | `CafePosController` |
 | `/sessions/{sourceSessionId}/merge` | POST | Ghép thành viên sang nhóm mới (Exception 4) | `CafePosController` |
 | `/sessions/{sessionId}/pause` | POST | **Tạm dừng phiên** (L-05) — timer ngừng đếm | `CafePosController` |
 | `/sessions/{sessionId}/resume-pause` | POST | **Tiếp tục phiên** (L-05) — timer chạy lại | `CafePosController` |
@@ -590,6 +591,185 @@ Trả `ActiveSessionDto` đã cập nhật (`IsPaused = false`).
 |------|-------|
 | 404 | Không tìm thấy phiên chơi. |
 | 409 | Phiên không bị tạm dừng. |
+
+---
+
+## POST /api/cafes/{cafeId}/pos/sessions/{sessionId}/split
+
+**Tách nhóm** — tách một hoặc nhiều thành viên đang `Playing` khỏi session đang `Checking`, tạo session mới hoặc merge vào session target đang `Active`.
+
+**Use case chuẩn (Exception 4 — §III.2):**
+> Nhóm A (4 người: A1, A2, A3, A4) đến quán lúc 12:00.
+> - 12:00: Check-in → Session S1 (A1,A2,A3,A4) → `ACTIVE`.
+> - 13:00: A1, A2 về sớm → `PartialCheckout` → S1 → `CHECKING`; A1,A2 → `SuspendedMutation`.
+> - A3, A4 muốn tiếp tục chơi → `SplitSession(S1, [A3,A4])` → tạo **Session S2 mới** (A3,A4).
+> - S2 tiếp tục `ACTIVE`, S1 chờ `Checkout` + `Pay` cho A1,A2.
+> - Sau đó A3,A4 có thể `MergeSession` vào nhóm B khác nếu muốn.
+
+**BR-09:** `JoinedAt` giữ nguyên để billing cuối cùng liên tục — thời gian chơi tính từ lúc A3,A4 bắt đầu (12:00), không reset về 13:00.
+
+**BR-REQUIRED:** State machine validation:
+- `sourceSession.Status == Checking` — bắt buộc.
+- Mỗi `memberId` phải có `Status == Playing` trong source session.
+- Guest slot không được tách (phải checkout cùng session gốc).
+- `targetSessionId` (optional): nếu truyền, target session phải có `Status == Active` (merge trực tiếp, không tạo session mới).
+
+### Điều kiện
+
+| Aspect | Detail |
+|---|---|
+| **Role** | Manager, CafeStaff |
+| **Source session** | `Status == Checking` |
+| **Members cần tách** | `Status == Playing` (chưa SuspendedMutation), không phải Guest Slot |
+| **Target session** | Nếu truyền → `Status == Active`; nếu null → tạo session mới |
+
+### Request body — `SplitSessionRequestDto`
+
+```json
+{
+  "memberIds": ["guid-a3", "guid-a4"],
+  "targetSessionId": null
+}
+```
+
+| Field | Type | Required | Mô tả |
+|---|---|---|---|
+| `memberIds` | `Guid[]` | ✅ | Danh sách member cần tách khỏi session nguồn. Mỗi member phải đang `Playing`. |
+| `targetSessionId` | `Guid?` | ❌ | Nếu truyền → các member được merge thẳng vào session target (đang `Active`). Không truyền → tạo session mới. |
+
+### Response 200 — `SplitSessionResponseDto`
+
+```json
+{
+  "statusCode": 200,
+  "message": "Đã tách thành viên khỏi phiên chơi.",
+  "data": {
+    "sourceSessionId": "guid-s1",
+    "sourceSessionRemainingMembers": [
+      { "memberId": "guid-a1", "displayName": "A1", "status": "SuspendedMutation" },
+      { "memberId": "guid-a2", "displayName": "A2", "status": "SuspendedMutation" }
+    ],
+    "newSessionId": "guid-s2",
+    "newSessionStatus": "Active",
+    "newSessionMembers": [
+      { "memberId": "guid-a3", "displayName": "A3", "status": "Playing" },
+      { "memberId": "guid-a4", "displayName": "A4", "status": "Playing" }
+    ],
+    "newSessionJoinedAt": "2026-09-08T12:00:00Z",
+    "boxAutoAttached": true,
+    "tableAutoAssigned": false
+  }
+}
+```
+
+**Giải thích response:**
+
+| Field | Mô tả |
+|---|---|
+| `sourceSessionRemainingMembers` | Các member còn lại trong session gốc (A1, A2 đã SuspendedMutation). Session gốc vẫn ở `CHECKING` — chờ checkout + pay. |
+| `newSessionId` | Session mới được tạo cho A3, A4. Nếu `targetSessionId` được truyền → trả `newSessionId = targetSessionId` (merge, không tạo mới). |
+| `newSessionJoinedAt` | Thời điểm A3,A4 bắt đầu chơi ban đầu (12:00) — **giữ nguyên** từ lúc check-in, không reset về thời điểm tách. Đảm bảo billing liên tục (BR-09). |
+| `boxAutoAttached` | `true` nếu hệ thống tự động gán box đang `InUse` của session gốc vào session mới. Staff có thể gán box khác qua `POST /sessions/{id}/games` nếu cần. |
+| `tableAutoAssigned` | `true` nếu session gốc có gán bàn và bàn còn `InUse` — session mới sẽ dùng cùng bàn. |
+
+### Lỗi
+
+| Code | Mô tả |
+|------|-------|
+| 400 | `memberIds` rỗng, hoặc member không thuộc session nguồn. |
+| 401 | Thiếu token. |
+| 403 | Không đủ quyền vận hành quán. |
+| 404 | Không tìm thấy phiên nguồn. |
+| 409 | Phiên nguồn không ở `Checking`, member không ở `Playing`, member là Guest Slot, hoặc target session không ở `Active`. |
+
+### Ví dụ luồng hoàn chỉnh
+
+```powershell
+# 1. Check-in 4 người → Session S1 ACTIVE
+POST /api/cafes/{cafeId}/pos/check-in
+{ "code": "ABC234XY", "cafeTableId": "...", "barcode": "..." }
+
+# 2. A1, A2 về sớm → PartialCheckout → S1 CHECKING, A1/A2 SuspendedMutation
+POST /api/cafes/{cafeId}/pos/sessions/{s1}/partial-checkout
+{ "memberIds": ["guid-a1", "guid-a2"] }
+
+# 3. A3, A4 muốn tiếp tục chơi → tách tạo S2 mới
+POST /api/cafes/{cafeId}/pos/sessions/{s1}/split
+{ "memberIds": ["guid-a3", "guid-a4"], "targetSessionId": null }
+# → Response: newSessionId = S2, newSessionStatus = Active, A3/A4 Playing
+
+# 4. S2 tiếp tục ACTIVE (hoặc A3/A4 merge vào nhóm B)
+#    Option A: tiếp tục bình thường → End → ComponentCheck → Checkout → Pay
+#    Option B: merge vào nhóm B đang ACTIVE
+POST /api/cafes/{cafeId}/pos/sessions/{s1}/merge
+{ "memberIds": ["guid-a3", "guid-a4"], "targetSessionId": "guid-session-b" }
+
+# 5. Checkout S1 cho A1, A2
+POST /api/cafes/{cafeId}/pos/sessions/{s1}/checkout
+# → CHECKING → UNPAID
+
+# 6. Pay S1
+POST /api/cafes/{cafeId}/pos/sessions/{s1}/pay
+# → UNPAID → PAID
+```
+
+---
+
+## POST /api/cafes/{cafeId}/pos/sessions/{sourceSessionId}/merge
+
+**Ghép thành viên đang `SuspendedMutation`** vào session target đang `Active`.
+
+**Use case chuẩn (Exception 4):**
+> A3, A4 sau khi tách ra khỏi S1 → muốn nhảy sang nhóm B (Session SB đang Active).
+> → `MergeSession(S1, [A3,A4], targetSessionId=SB)` → A3,A4 rời S1, gia nhập SB.
+
+**Điều kiện:**
+- Các member (`SuspendedMutation`) phải thuộc `sourceSession` (đang `Checking`).
+- `targetSession` phải có `Status == Active`.
+- Member đã `Finished` (đã pay) không merge được.
+- Guest slot không merge (phải checkout cùng session gốc).
+
+### Request body — `MergeSessionRequestDto`
+
+```json
+{
+  "memberIds": ["guid-a3", "guid-a4"],
+  "targetSessionId": "guid-session-b"
+}
+```
+
+| Field | Type | Required | Mô tả |
+|---|---|---|---|
+| `memberIds` | `Guid[]` | ✅ | Các member đang `SuspendedMutation` cần ghép vào session target. |
+| `targetSessionId` | `Guid` | ✅ | Session đích phải đang `Active`. |
+
+### Response 200
+
+```json
+{
+  "statusCode": 200,
+  "message": "Đã ghép thành viên vào nhóm mới.",
+  "data": {
+    "sourceSessionId": "guid-s1",
+    "movedMembers": [
+      { "memberId": "guid-a3", "displayName": "A3" },
+      { "memberId": "guid-a4", "displayName": "A4" }
+    ],
+    "targetSessionId": "guid-session-b",
+    "targetSessionStatus": "Active"
+  }
+}
+```
+
+### Lỗi
+
+| Code | Mô tả |
+|------|-------|
+| 400 | `memberIds` rỗng hoặc member không thuộc source session. |
+| 401 | Thiếu token. |
+| 403 | Không đủ quyền. |
+| 404 | Không tìm thấy source session hoặc target session. |
+| 409 | Source session không ở `Checking`, member không ở `SuspendedMutation`, target session không ở `Active`, hoặc member đã `Finished`. |
 
 ---
 

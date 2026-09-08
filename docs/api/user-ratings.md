@@ -47,10 +47,12 @@ Trả ngữ cảnh cho màn đánh giá chéo (AC 3.2): danh sách thành viên 
 
 | Field | Ghi chú |
 |-------|---------|
-| `canSubmitRatings` | `true` khi `lobbyStatus` là `RatingOpen` hoặc `Closed` |
+| `canSubmitRatings` | `true` khi `lobbyStatus` là `RatingOpen`, `Closed` hoặc `InProgress` (early rating trong khi phiên chơi đang chạy) |
 | `alreadyRated` | `true` nếu người gọi đã gửi đánh giá cho thành viên đó trong phòng |
 
 **Lỗi:** `403` không phải thành viên phòng, `404` phòng không tồn tại.
+
+> **Lưu ý quan trọng (fix 2026-09-08):** Host của lobby đã qua `PendingCafeApproval` (cafe đã duyệt) giờ được tự động thêm làm `LobbyMember` (`IsHost=true, IsActive=true`) khi cafe approve. Trước fix này, host bị 403 "không phải thành viên" vì step 18 của `ConfirmAsync` skip insert host cho lobby chờ duyệt. Nếu gặp 403 trên lobby mà host đã tạo qua flow cafe approval → kiểm tra lại DB xem `LobbyMember.IsActive` cho host đã được set đúng chưa.
 
 ---
 
@@ -89,7 +91,7 @@ Các tag trong một entry được **cộng dồn** (vd. OnTime + Friendly = +0
 ### Ràng buộc
 
 - Người gọi phải là thành viên active của `lobbyId`.
-- Phòng phải ở trạng thái `RatingOpen` hoặc `Closed`.
+- Phòng phải ở trạng thái `RatingOpen`, `Closed` hoặc `InProgress` (early rating khi phiên chơi đang chạy).
 - Không được tự đánh giá bản thân.
 - Mỗi cặp `(rater, target, lobby)` chỉ submit **một lần** (409 nếu trùng).
 

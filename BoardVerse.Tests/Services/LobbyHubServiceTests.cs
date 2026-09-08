@@ -1,4 +1,4 @@
-using BoardVerse.API.Hubs;
+﻿using BoardVerse.API.Hubs;
 using BoardVerse.Core.DTOs.Lobby;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;

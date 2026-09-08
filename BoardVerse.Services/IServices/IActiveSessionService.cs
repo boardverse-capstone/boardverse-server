@@ -15,6 +15,16 @@ namespace BoardVerse.Services.IServices
         Task<ActiveSessionResponseDto> PartialCheckoutAsync(Guid cafeId, Guid sessionId, PartialCheckoutRequestDto request, CancellationToken ct = default);
         Task<ActiveSessionResponseDto> GetSessionAsync(Guid cafeId, Guid sessionId, CancellationToken ct = default);
         Task<MergeSessionResponseDto> MergeSessionAsync(Guid cafeId, Guid sourceSessionId, MergeSessionRequestDto request, CancellationToken ct = default);
+
+        /// <summary>
+        /// Tách nhóm member khỏi session đang Checking để:
+        /// - Tạo session mới (members tiếp tục chơi với box hiện tại), hoặc
+        /// - Merge thẳng vào session target đang Active.
+        /// Exception 4 (§III.2 doc time-slot-fixed-end-design.md):
+        /// A1, A2 đã checkout → SuspendedMutation; A3, A4 còn Playing → tách ra chơi tiếp.
+        /// BR-09: JoinedAt giữ nguyên (continuous time) để billing cuối cùng đúng.
+        /// </summary>
+        Task<SplitSessionResponseDto> SplitSessionAsync(Guid cafeId, Guid sourceSessionId, SplitSessionRequestDto request, CancellationToken ct = default);
         Task<PaySessionResponseDto> PaySessionAsync(Guid cafeId, Guid sessionId, PaySessionRequestDto request, CancellationToken ct = default);
 
         /// <summary>

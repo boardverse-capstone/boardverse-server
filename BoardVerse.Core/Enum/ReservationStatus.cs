@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Enum;
+﻿namespace BoardVerse.Core.Enum;
 
 /// <summary>
 /// Trạng thái vòng đợi của một Reservation (§6.1 + docs/time-slot-fixed-end-design (1).md §2.2).

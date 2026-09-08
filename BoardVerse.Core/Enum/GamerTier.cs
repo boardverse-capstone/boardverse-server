@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Enum
+﻿namespace BoardVerse.Core.Enum
 {
     /// <summary>
     /// Player tier được map từ KarmaPoints (xem <see cref="BoardVerse.Core.DTOs.User.KarmaLeaderboardEntryDto.GamerTier"/>).

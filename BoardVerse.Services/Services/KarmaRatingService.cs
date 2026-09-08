@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using BoardVerse.Core.DTOs.Rating;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
@@ -165,6 +165,22 @@ namespace BoardVerse.Services.Services
             lobby.Status = LobbyStatus.RatingOpen;
             lobby.RatingOpenedAt = openedAt;
             lobby.UpdatedAt = openedAt;
+
+            // Bug fix: khi lobby chuyển sang Closed trước đó (qua ReservationService.CompleteAndCaptureAsync
+            // → MarkLobbyMembersInactive), tất cả LobbyMember.IsActive = false. Nếu không reactivate ở đây,
+            // KarmaRatingRepository.GetLobbyForRatingAsync (filter Members.Where(IsActive)) sẽ trả collection
+            // rỗng → RequireLobbyMemberContextAsync throw 403 "không phải thành viên" cho cả host lẫn members.
+            // Member.Status = LobbyTerminated giữ nguyên để giữ audit trail (do MarkLobbyMembersInactive set);
+            // chỉ flip IsActive = true để cho phép rating. Member bị Kicked/Left thì không reactivate.
+            foreach (var member in lobby.Members)
+            {
+                if (member.Status is LobbyMemberStatus.Kicked or LobbyMemberStatus.Left)
+                {
+                    continue;
+                }
+
+                member.IsActive = true;
+            }
 
             await _karmaRatingRepository.SaveChangesAsync();
 

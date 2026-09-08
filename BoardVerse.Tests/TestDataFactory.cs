@@ -1,4 +1,4 @@
-namespace BoardVerse.Tests;
+﻿namespace BoardVerse.Tests;
 
 /// <summary>
 /// Provides unique test data generation to prevent conflicts when tests run multiple times.

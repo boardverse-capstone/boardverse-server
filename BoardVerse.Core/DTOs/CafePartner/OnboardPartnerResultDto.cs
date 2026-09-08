@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.CafePartner
+﻿namespace BoardVerse.Core.DTOs.CafePartner
 {
     public class OnboardPartnerResultDto
     {

@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Entities;
+﻿namespace BoardVerse.Core.Entities;
 
 /// <summary>
 /// Phiếu vote vắng mặt của thành viên trong booking (BR: Exception 2 - No-show vote).

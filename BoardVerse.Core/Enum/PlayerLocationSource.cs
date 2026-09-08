@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Enum
+﻿namespace BoardVerse.Core.Enum
 {
     public enum PlayerLocationSource
     {

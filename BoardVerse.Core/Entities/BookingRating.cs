@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Entities;
+﻿namespace BoardVerse.Core.Entities;
 
 /// <summary>
 /// Chấm điểm chéo giữa các thành viên trong một booking (BR: cross-rating sau check-out).

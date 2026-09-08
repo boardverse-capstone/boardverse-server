@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Pos;
+﻿namespace BoardVerse.Core.DTOs.Pos;
 
 public class ActiveSessionMemberDto
 {

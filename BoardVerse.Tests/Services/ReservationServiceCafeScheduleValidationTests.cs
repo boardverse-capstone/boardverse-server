@@ -1,4 +1,4 @@
-using BoardVerse.Core.Constants;
+﻿using BoardVerse.Core.Constants;
 using BoardVerse.Core.DTOs.Reservation;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
@@ -54,11 +54,50 @@ public class ReservationServiceCafeScheduleValidationTests
     private readonly Mock<IHttpContextAccessor> _mockHttpContextAccessor;
     private readonly Mock<ISettlementService> _mockSettlementService;
 
-    private readonly ReservationService _service;
-
     private readonly Guid _testCafeId = Guid.NewGuid();
     private readonly Guid _testHostId = Guid.NewGuid();
     private readonly Guid _testGameId = Guid.NewGuid();
+
+    private ReservationService _service = null!;
+    private Mock<ISystemConfigurationProvider> _eligibilityConfigMock = null!;
+    private ReservationService CreateService()
+    {
+        _eligibilityConfigMock = new Mock<ISystemConfigurationProvider>();
+        // Enable demo mode so EligibilityValidator skips all BR-USER-LIMIT-* checks
+        _eligibilityConfigMock.Setup(x => x.GetBoolAsync("demo_loosen_lobby_constraints", false, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var realEligibility = new EligibilityValidator();
+
+        return new ReservationService(
+            _mockDb.Object,
+            _mockWalletService.Object,
+            _mockWalletRepository.Object,
+            _mockReservationRepository.Object,
+            _mockLobbyRepository.Object,
+            _mockSeatInventoryRepository.Object,
+            _mockGameInventoryRepository.Object,
+            _mockCafeInventoryRepository.Object,
+            _mockCafeConfigRepository.Object,
+            _mockCafeRepository.Object,
+            _mockUserRepository.Object,
+            _mockGameRepository.Object,
+            _mockOutboxRepository.Object,
+            _mockActiveSessionRepository.Object,
+            _depositCalculator,
+            realEligibility,
+            _mockScheduleResolver.Object,
+            _mockLogger.Object,
+            _timeProvider,
+            _mockBookingRatingService.Object,
+            new RefundCalculationService(),
+            _mockWalkInService.Object,
+            _mockKarmaService.Object,
+            _eligibilityConfigMock.Object,    // configProvider (used by EligibilityValidator demo-mode check)
+            _mockHttpContextAccessor.Object,
+            _mockSettlementService.Object
+        );
+    }
 
     public ReservationServiceCafeScheduleValidationTests()
     {
@@ -79,44 +118,17 @@ public class ReservationServiceCafeScheduleValidationTests
         _mockScheduleResolver = new Mock<IScheduleResolver>();
         _mockLogger = new Mock<ILogger<ReservationService>>();
         _depositCalculator = new DepositCalculator();
-        _mockEligibilityValidator = new Mock<EligibilityValidator>(MockBehavior.Loose, null!, null!, null!, null!, null!);
+        _mockEligibilityValidator = new Mock<EligibilityValidator>();
         _timeProvider = TimeProvider.System;
         _mockBookingRatingService = new Mock<IBookingRatingService>();
-        _mockRefundCalc = new Mock<RefundCalculationService>(MockBehavior.Loose, null!);
+        _mockRefundCalc = new Mock<RefundCalculationService>();
         _mockWalkInService = new Mock<IWalkInService>();
         _mockKarmaService = new Mock<IPlayerKarmaService>();
         _mockConfigProvider = new Mock<ISystemConfigurationProvider>();
         _mockHttpContextAccessor = new Mock<IHttpContextAccessor>();
         _mockSettlementService = new Mock<ISettlementService>();
 
-        _service = new ReservationService(
-            _mockDb.Object,
-            _mockWalletService.Object,
-            _mockWalletRepository.Object,
-            _mockReservationRepository.Object,
-            _mockLobbyRepository.Object,
-            _mockSeatInventoryRepository.Object,
-            _mockGameInventoryRepository.Object,
-            _mockCafeInventoryRepository.Object,
-            _mockCafeConfigRepository.Object,
-            _mockCafeRepository.Object,
-            _mockUserRepository.Object,
-            _mockGameRepository.Object,
-            _mockOutboxRepository.Object,
-            _mockActiveSessionRepository.Object,
-            _depositCalculator,
-            _mockEligibilityValidator.Object,
-            _mockScheduleResolver.Object,
-            _mockLogger.Object,
-            _timeProvider,
-            _mockBookingRatingService.Object,
-            _mockRefundCalc.Object,
-            _mockWalkInService.Object,
-            _mockKarmaService.Object,
-            _mockConfigProvider.Object,
-            _mockHttpContextAccessor.Object,
-            _mockSettlementService.Object
-        );
+        _service = CreateService();
     }
 
     #region Same-day sessions (preferredEnd > preferredStart)
@@ -597,18 +609,38 @@ public class ReservationServiceCafeScheduleValidationTests
                 BoxQuantity = 3
             });
 
-        // Mock eligibility validator (always pass for quote)
-        _mockEligibilityValidator
-            .Setup(x => x.ValidateHostCanCreateAsync(
-                It.IsAny<HostReservationContext>(),
-                It.IsAny<IHttpContextAccessor>(),
-                It.IsAny<ISystemConfigurationProvider>(),
-                It.IsAny<ILogger>(),
-                It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
+        // Note: EligibilityValidator is a real instance; demo mode is forced on
+        // via _eligibilityConfigMock.GetBoolAsync("demo_loosen_lobby_constraints")
+        // so all BR-USER-LIMIT-* checks are skipped automatically.
 
-        // Note: DepositCalculator is a real instance, not mocked.
-        // It will use the mocked IScheduleResolver internally.
+        // Lobby lookups used by BuildHostEligibilityContextAsync — return empty collections.
+        _mockLobbyRepository
+            .Setup(x => x.GetOverlappingLobbiesAsync(
+                It.IsAny<Guid>(), It.IsAny<DateOnly>(), It.IsAny<TimeOnly>(),
+                It.IsAny<TimeOnly>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Lobby>());
+
+        _mockLobbyRepository
+            .Setup(x => x.GetActiveLobbiesByHostAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Lobby>());
+
+        _mockLobbyRepository
+            .Setup(x => x.GetActiveLobbiesByHostAsync(It.IsAny<Guid>(), It.IsAny<DateOnly>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Lobby>());
+
+        _mockLobbyRepository
+            .Setup(x => x.GetActiveLobbiesByMemberAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Lobby>());
+
+        _mockLobbyRepository
+            .Setup(x => x.GetActiveLobbiesByCafeDateSlotAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<DateOnly>(),
+                It.IsAny<TimeOnly>(), It.IsAny<TimeOnly>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Lobby>());
+
+        _mockReservationRepository
+            .Setup(x => x.CountHostActionsForPlayDateAsync(It.IsAny<Guid>(), It.IsAny<DateOnly>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(0);
     }
 
     #endregion

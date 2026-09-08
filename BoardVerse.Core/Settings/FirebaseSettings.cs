@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Settings;
+﻿namespace BoardVerse.Core.Settings;
 
 /// <summary>
 /// Cấu hình Firebase Cloud Messaging cho push notification.

@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Admin
+﻿namespace BoardVerse.Core.DTOs.Admin
 {
     public class UserKarmaAlertDto
     {

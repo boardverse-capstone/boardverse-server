@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Enum;
+﻿namespace BoardVerse.Core.Enum;
 
 /// <summary>
 /// Error codes riêng cho validation startTime/endTime (BR-RES-07/08/09 + BR-LOBBY-01a/b).

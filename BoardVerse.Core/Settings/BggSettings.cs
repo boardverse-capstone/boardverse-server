@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Settings
+﻿namespace BoardVerse.Core.Settings
 {
     public class BggSettings
     {

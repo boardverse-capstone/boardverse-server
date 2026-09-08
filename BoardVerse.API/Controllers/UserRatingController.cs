@@ -1,4 +1,4 @@
-using BoardVerse.Core.DTOs.Rating;
+﻿using BoardVerse.Core.DTOs.Rating;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;

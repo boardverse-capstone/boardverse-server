@@ -1,4 +1,4 @@
-namespace BoardVerse.Services.Services.Geocoding
+﻿namespace BoardVerse.Services.Services.Geocoding
 {
     /// <summary>
     /// Kết quả reverse-geocode 1 tọa độ lat/lng.

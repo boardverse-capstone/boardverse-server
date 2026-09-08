@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using BoardVerse.Core.Messages;
 
 namespace BoardVerse.Core.DTOs.Cafe

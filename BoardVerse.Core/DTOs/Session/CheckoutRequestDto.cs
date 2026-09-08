@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Session
+﻿namespace BoardVerse.Core.DTOs.Session
 {
     public class CheckoutRequestDto
     {

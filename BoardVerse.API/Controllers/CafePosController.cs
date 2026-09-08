@@ -871,6 +871,30 @@ public async Task<IActionResult> GetPaidSessions(
         }
 
         /// <summary>
+        /// Tách nhóm thành viên đang chơi khỏi session đang CHECKING.
+        /// Exception 4 (§III.2 doc <c>time-slot-fixed-end-design.md</c>):
+        /// A1, A2 đã checkout (SuspendedMutation); A3, A4 còn Playing → tách để tiếp tục chơi
+        /// (tạo session mới) hoặc merge thẳng vào session target đang Active.
+        /// BR-09: JoinedAt giữ nguyên để billing cuối cùng liên tục.
+        /// [Role: Manager, CafeStaff]
+        /// </summary>
+        /// <param name="sourceSessionId">Mã phiên chơi nguồn (đang Checking).</param>
+        /// <param name="request">Danh sách memberIds cần tách + targetSessionId optional.</param>
+        /// <response code="200">Tách thành viên thành công.</response>
+        /// <response code="400">Danh sách thành viên rỗng.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="403">Không đủ quyền.</response>
+        /// <response code="404">Không tìm thấy phiên hoặc thành viên.</response>
+        /// <response code="409">Phiên không ở Checking, member không Playing, guest slot, target không hợp lệ.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpPost("sessions/{sourceSessionId:guid}/split")]
+        public async Task<IActionResult> SplitSession(Guid cafeId, Guid sourceSessionId, [FromBody] SplitSessionRequestDto request)
+        {
+            var result = await _sessionService.SplitSessionAsync(cafeId, sourceSessionId, request);
+            return this.NewResponse(200, "Đã tách thành viên khỏi phiên chơi.", result);
+        }
+
+        /// <summary>
         /// Phase 4 / EC-11 (§7.2 doc <c>time-slot-fixed-end-design.md</c>):
         /// Staff ghi audit log khi player khiếu nại về giờ chơi (StartedAt/EndedAt).
         /// POS logs là evidence definitive — endpoint này CHỈ audit, không tự ý sửa hóa đơn.

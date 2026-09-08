@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using BoardVerse.Core.DTOs.Tournament;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;

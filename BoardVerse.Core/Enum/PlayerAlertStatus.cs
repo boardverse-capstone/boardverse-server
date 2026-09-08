@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Enum;
+﻿namespace BoardVerse.Core.Enum;
 
 /// <summary>
 /// R-01: Trạng thái xử lý PlayerAlert (BR-RISK-02).

@@ -1,4 +1,4 @@
-using BoardVerse.Core.Settings;
+﻿using BoardVerse.Core.Settings;
 using BoardVerse.Services.Services.Geocoding;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;

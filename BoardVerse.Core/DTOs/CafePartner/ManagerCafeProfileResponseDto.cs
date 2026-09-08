@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.CafePartner
+﻿namespace BoardVerse.Core.DTOs.CafePartner
 {
     /// <summary>Manager Web POS profile — source of truth is <c>Cafe</c> after approval.</summary>
     public class ManagerCafeProfileResponseDto

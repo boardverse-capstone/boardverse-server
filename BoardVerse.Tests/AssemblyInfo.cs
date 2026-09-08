@@ -1,4 +1,4 @@
-using Xunit;
+﻿using Xunit;
 
 // Tắt parallel test execution trong toàn bộ assembly.
 // Lý do: các integration test chia sẻ static state (TokenCache trong IntegrationTestAuth,

@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Receipt
+﻿namespace BoardVerse.Core.DTOs.Receipt
 {
     /// <summary>
     /// Báo cáo doanh thu theo kỳ cho quán.

@@ -1,4 +1,4 @@
-using BoardVerse.Core.DTOs.Tournament;
+﻿using BoardVerse.Core.DTOs.Tournament;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using Microsoft.AspNetCore.Authorization;

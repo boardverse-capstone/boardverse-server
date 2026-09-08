@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Enum;
+﻿namespace BoardVerse.Core.Enum;
 
 /// <summary>
 /// Mức karma tổng quát của user (tính từ <c>UserProfile.KarmaPoints</c>).

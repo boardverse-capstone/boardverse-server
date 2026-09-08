@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Enum;
+﻿namespace BoardVerse.Core.Enum;
 
 /// <summary>
 /// Payment status for WalkInBooking — only UNPAID / PAID in MVP (no refund).

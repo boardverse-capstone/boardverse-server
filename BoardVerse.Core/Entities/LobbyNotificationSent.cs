@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Entities;
+﻿namespace BoardVerse.Core.Entities;
 
 /// <summary>
 /// Bảng ghi nhận notification lobby đã gửi — chống gửi trùng (BR-NEW-13).

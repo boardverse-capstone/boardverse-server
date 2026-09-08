@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Entities
+﻿namespace BoardVerse.Core.Entities
 {
     /// <summary>
     /// Thể loại board game (Ẩn vai, Chiến thuật, Giải trí...).

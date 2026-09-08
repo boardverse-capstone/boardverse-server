@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Admin;
+﻿namespace BoardVerse.Core.DTOs.Admin;
 
 /// <summary>
 /// R-01: Payload cho POST /admin/alerts/{alertId}/resolve hoặc /dismiss.

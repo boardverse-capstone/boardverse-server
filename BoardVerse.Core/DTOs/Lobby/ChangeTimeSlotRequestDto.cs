@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Lobby;
+﻿namespace BoardVerse.Core.DTOs.Lobby;
 
 /// <summary>
 /// Request body cho vi\u1ec7c \u0111\u1ed5i preferred start/end time c\u1ee7a lobby.

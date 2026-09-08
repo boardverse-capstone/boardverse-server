@@ -1,4 +1,4 @@
-using BoardVerse.Core.Enum;
+﻿using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Core.Helpers
 {
@@ -62,7 +62,16 @@ public static class KarmaRatingHelper
             _ => GamerTier.Bronze
         };
 
+    /// <summary>
+    /// Lobby đang trong cửa sổ đánh giá Karma — mọi thành viên (kể cả host) có thể
+    /// submit / lấy context đánh giá chéo. Cho phép cả 3 trạng thái:
+    /// <list type="bullet">
+    ///   <item><c>RatingOpen</c>: cửa sổ đánh giá đang mở (sau OpenLobbyKarmaRatingWindowAsync).</item>
+    ///   <item><c>Closed</c>: phiên chơi đã đóng nhưng host có thể bật rating trước khi mở cửa sổ.</item>
+    ///   <item><c>InProgress</c>: phiên chơi đang chạy — cho phép early rating (vd. host muốn rate ngay khi session end).</item>
+    /// </list>
+    /// </summary>
     public static bool IsRatingAllowed(LobbyStatus status) =>
-        status is LobbyStatus.InProgress or LobbyStatus.Closed;
+        status is LobbyStatus.RatingOpen or LobbyStatus.Closed or LobbyStatus.InProgress;
 }
 }

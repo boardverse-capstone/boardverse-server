@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Constants;
+﻿namespace BoardVerse.Core.Constants;
 
 /// <summary>
 /// BR-LOBBY-INVITE-10: Giới hạn chống spam gửi/nhận lobby invite.

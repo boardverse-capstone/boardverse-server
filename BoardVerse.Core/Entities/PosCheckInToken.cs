@@ -1,4 +1,4 @@
-using BoardVerse.Core.Entities;
+﻿using BoardVerse.Core.Entities;
 
 namespace BoardVerse.Core.Entities;
 

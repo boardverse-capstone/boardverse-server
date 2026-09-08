@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Constants
+﻿namespace BoardVerse.Core.Constants
 {
     public static class CafePartnerActivationRules
     {

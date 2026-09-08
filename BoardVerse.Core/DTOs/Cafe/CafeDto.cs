@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Cafe
+﻿namespace BoardVerse.Core.DTOs.Cafe
 {
     /// <summary>
     /// Public-facing cafe profile.

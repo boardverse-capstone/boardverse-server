@@ -1,4 +1,4 @@
-using BoardVerse.Services.HostedServices;
+﻿using BoardVerse.Services.HostedServices;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace BoardVerse.Services;

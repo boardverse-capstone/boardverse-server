@@ -1,4 +1,4 @@
-using BoardVerse.Core.Entities;
+﻿using BoardVerse.Core.Entities;
 using BoardVerse.Core.IRepositories;
 using Microsoft.EntityFrameworkCore;
 
@@ -25,11 +25,6 @@ namespace BoardVerse.Data.Repositories
             _context.Lobbies
                 .Include(l => l.Members.Where(m => m.IsActive))
                 .FirstOrDefaultAsync(l => l.Id == lobbyId);
-
-        public Task<bool> IsActiveLobbyMemberAsync(Guid lobbyId, Guid userId, CancellationToken cancellationToken = default) =>
-            _context.LobbyMembers
-                .AsNoTracking()
-                .AnyAsync(m => m.LobbyId == lobbyId && m.UserId == userId && m.IsActive);
 
         public Task<bool> HasRatingAsync(Guid lobbyId, Guid raterUserId, Guid targetUserId, CancellationToken cancellationToken = default) =>
             _context.PlayerKarmaRatings

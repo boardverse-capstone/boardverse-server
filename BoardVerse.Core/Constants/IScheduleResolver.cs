@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Constants;
+﻿namespace BoardVerse.Core.Constants;
 
 /// <summary>
 /// Resolved lịch mở cửa cafe cho 1 ngày.

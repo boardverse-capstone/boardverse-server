@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Tournament;
+﻿namespace BoardVerse.Core.DTOs.Tournament;
 
 /// <summary>
 /// Top N users theo GlobalElo (BR-10: Elo tính từ Tournament, không dùng cho Lobby).

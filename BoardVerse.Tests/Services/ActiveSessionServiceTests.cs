@@ -450,8 +450,12 @@ public class ActiveSessionServiceTests
             () => service.MergeSessionAsync(cafeId, sourceSessionId, request));
     }
 
+    /// <summary>
+    /// GAP 4 Fix: Member ở Playing (Active session) giờ ĐƯỢC merge sang target Active.
+    /// Test này giữ lại để verify FINISHED vẫn bị chặn.
+    /// </summary>
     [Fact]
-    public async Task MergeSessionAsync_MemberNotSuspendedMutation_ThrowsConflictException()
+    public async Task MergeSessionAsync_MemberFinished_ThrowsConflictException()
     {
         var cafeId = Guid.NewGuid();
         var sourceSessionId = Guid.NewGuid();
@@ -463,7 +467,7 @@ public class ActiveSessionServiceTests
             Id = memberId,
             ActiveSessionId = sourceSessionId,
             UserId = Guid.NewGuid(),
-            Status = IndividualSessionStatus.Playing
+            Status = IndividualSessionStatus.Finished  // GAP 4: chỉ Finished bị chặn, Playing được phép
         };
 
         var sourceSession = new ActiveSession
@@ -661,6 +665,244 @@ public class ActiveSessionServiceTests
         Assert.Equal(sourceSessionId, result.SourceSessionId);
         Assert.Equal(targetSessionId, result.TargetSessionId);
         repo.Verify(r => r.UpdateMemberAsync(It.Is<ActiveSessionMember>(m => m.Status == IndividualSessionStatus.Playing), It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+    }
+
+    #endregion
+
+    #region GAP 4 Fix — Live merge: Member Playing (Active session) merge sang target Active
+
+    [Fact]
+    public async Task MergeSessionAsync_LiveMerge_MemberPlaying_MergesToTarget()
+    {
+        var cafeId = Guid.NewGuid();
+        var sourceSessionId = Guid.NewGuid();
+        var targetSessionId = Guid.NewGuid();
+        var memberId = Guid.NewGuid();
+        var gameTemplateId = Guid.NewGuid();
+
+        var member = new ActiveSessionMember
+        {
+            Id = memberId,
+            ActiveSessionId = sourceSessionId,
+            UserId = Guid.NewGuid(),
+            Status = IndividualSessionStatus.Playing,
+            JoinedAt = DateTime.UtcNow.AddHours(-1)
+        };
+
+        var sourceSession = new ActiveSession
+        {
+            Id = sourceSessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Active, // GAP 4: Active source cho live merge
+            GameTemplateId = gameTemplateId,
+            Members = new List<ActiveSessionMember> { member },
+            Games = new List<ActiveSessionGame>()
+        };
+
+        var targetSession = new ActiveSession
+        {
+            Id = targetSessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Active,
+            GameTemplateId = gameTemplateId, // cùng game
+            Members = new List<ActiveSessionMember>(),
+            Games = new List<ActiveSessionGame>()
+        };
+
+        var repo = new Mock<IActiveSessionRepository>();
+        repo.Setup(r => r.GetByIdAsync(sourceSessionId, It.IsAny<CancellationToken>())).ReturnsAsync(sourceSession);
+        repo.SetupSequence(r => r.GetByIdAsync(targetSessionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(targetSession)
+            .ReturnsAsync(targetSession);
+        repo.Setup(r => r.GetMemberByIdAsync(memberId, It.IsAny<CancellationToken>())).ReturnsAsync(member);
+
+        var cafeRepo = new Mock<ICafeRepository>();
+        var posRepo = new Mock<ICafePosRepository>();
+        var depositRepo = new Mock<IBookingDepositRepository>();
+        var settlementService = new Mock<ISettlementService>();
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object, new Mock<IReservationService>().Object, new Mock<ILobbyRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalkInService>().Object, new Mock<IOutboxRepository>().Object, new Mock<ILogger<ActiveSessionService>>().Object);
+
+        var request = new MergeSessionRequestDto { MemberId = memberId, TargetSessionId = targetSessionId };
+
+        var result = await service.MergeSessionAsync(cafeId, sourceSessionId, request);
+
+        Assert.Equal(targetSessionId, result.TargetSessionId);
+        Assert.Equal(sourceSessionId, result.SourceSessionId);
+        // Member set Playing + ActiveSessionId = target
+        repo.Verify(r => r.UpdateMemberAsync(It.Is<ActiveSessionMember>(m =>
+            m.Id == memberId
+            && m.Status == IndividualSessionStatus.Playing
+            && m.ActiveSessionId == targetSessionId), It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public async Task MergeSessionAsync_LiveMerge_GameTemplateMismatch_ThrowsConflict()
+    {
+        var cafeId = Guid.NewGuid();
+        var sourceSessionId = Guid.NewGuid();
+        var targetSessionId = Guid.NewGuid();
+        var memberId = Guid.NewGuid();
+
+        var member = new ActiveSessionMember
+        {
+            Id = memberId,
+            ActiveSessionId = sourceSessionId,
+            UserId = Guid.NewGuid(),
+            Status = IndividualSessionStatus.Playing
+        };
+
+        var sourceSession = new ActiveSession
+        {
+            Id = sourceSessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Active,
+            GameTemplateId = Guid.NewGuid(), // game khác
+            Members = new List<ActiveSessionMember> { member },
+            Games = new List<ActiveSessionGame>()
+        };
+
+        var targetSession = new ActiveSession
+        {
+            Id = targetSessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Active,
+            GameTemplateId = Guid.NewGuid(), // game khác → fail
+            Members = new List<ActiveSessionMember>(),
+            Games = new List<ActiveSessionGame>()
+        };
+
+        var repo = new Mock<IActiveSessionRepository>();
+        repo.Setup(r => r.GetByIdAsync(sourceSessionId, It.IsAny<CancellationToken>())).ReturnsAsync(sourceSession);
+        repo.Setup(r => r.GetByIdAsync(targetSessionId, It.IsAny<CancellationToken>())).ReturnsAsync(targetSession);
+        repo.Setup(r => r.GetMemberByIdAsync(memberId, It.IsAny<CancellationToken>())).ReturnsAsync(member);
+
+        var cafeRepo = new Mock<ICafeRepository>();
+        var posRepo = new Mock<ICafePosRepository>();
+        var depositRepo = new Mock<IBookingDepositRepository>();
+        var settlementService = new Mock<ISettlementService>();
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object, new Mock<IReservationService>().Object, new Mock<ILobbyRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalkInService>().Object, new Mock<IOutboxRepository>().Object, new Mock<ILogger<ActiveSessionService>>().Object);
+
+        var request = new MergeSessionRequestDto { MemberId = memberId, TargetSessionId = targetSessionId };
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(
+            () => service.MergeSessionAsync(cafeId, sourceSessionId, request));
+
+        Assert.Contains("tựa game", ex.Message);
+    }
+
+    #endregion
+
+    #region GAP 1 Fix — PartialCheckout restore non-selected members về Playing
+
+    [Fact]
+    public async Task PartialCheckoutAsync_RestoresNonSelectedMembersToPlaying()
+    {
+        var cafeId = Guid.NewGuid();
+        var sessionId = Guid.NewGuid();
+        var leavingMemberId = Guid.NewGuid();
+        var stayingMemberId = Guid.NewGuid();
+
+        // Sau EndGame: cả 2 members đều SuspendedMutation + LeftAt set
+        var leavingMember = new ActiveSessionMember
+        {
+            Id = leavingMemberId,
+            UserId = Guid.NewGuid(),
+            Status = IndividualSessionStatus.SuspendedMutation,
+            LeftAt = DateTime.UtcNow.AddMinutes(-5)
+        };
+        var stayingMember = new ActiveSessionMember
+        {
+            Id = stayingMemberId,
+            UserId = Guid.NewGuid(),
+            Status = IndividualSessionStatus.SuspendedMutation, // GAP 1: sẽ restore về Playing
+            LeftAt = DateTime.UtcNow.AddMinutes(-5)
+        };
+
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Checking,
+            Members = new List<ActiveSessionMember> { leavingMember, stayingMember },
+            Games = new List<ActiveSessionGame>(),
+            GameTemplate = new GameTemplate { Id = Guid.NewGuid(), Name = "Catan", PlayTime = 60 },
+            CafeTable = new CafeTable { Id = Guid.NewGuid(), Name = "Table 1" },
+            CafeInventoryBox = new CafeInventoryBox { Id = Guid.NewGuid(), Barcode = "BV-001" }
+        };
+
+        var repo = new Mock<IActiveSessionRepository>();
+        repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
+
+        var cafeRepo = new Mock<ICafeRepository>();
+        var posRepo = new Mock<ICafePosRepository>();
+        var depositRepo = new Mock<IBookingDepositRepository>();
+        var settlementService = new Mock<ISettlementService>();
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object, new Mock<IReservationService>().Object, new Mock<ILobbyRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalkInService>().Object, new Mock<IOutboxRepository>().Object, new Mock<ILogger<ActiveSessionService>>().Object);
+
+        var request = new PartialCheckoutRequestDto { MemberIds = new List<Guid> { leavingMemberId } };
+
+        // Act
+        await service.PartialCheckoutAsync(cafeId, sessionId, request);
+
+        // Assert: leaving member = SuspendedMutation, staying member = Playing
+        Assert.Equal(IndividualSessionStatus.SuspendedMutation, leavingMember.Status);
+        Assert.NotNull(leavingMember.LeftAt);
+
+        Assert.Equal(IndividualSessionStatus.Playing, stayingMember.Status);
+        Assert.Null(stayingMember.LeftAt);
+    }
+
+    [Fact]
+    public async Task PartialCheckoutAsync_DoesNotRestoreGuestSlots()
+    {
+        var cafeId = Guid.NewGuid();
+        var sessionId = Guid.NewGuid();
+        var leavingMemberId = Guid.NewGuid();
+        var guestSlotId = Guid.NewGuid();
+
+        var leavingMember = new ActiveSessionMember
+        {
+            Id = leavingMemberId,
+            UserId = Guid.NewGuid(),
+            IsGuestSlot = false,
+            Status = IndividualSessionStatus.SuspendedMutation,
+            LeftAt = DateTime.UtcNow.AddMinutes(-5)
+        };
+        // Guest slot: BR-13, không restore về Playing
+        var guestSlot = new ActiveSessionMember
+        {
+            Id = guestSlotId,
+            UserId = null,
+            IsGuestSlot = true,
+            Status = IndividualSessionStatus.SuspendedMutation,
+            LeftAt = DateTime.UtcNow.AddMinutes(-5)
+        };
+
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Checking,
+            Members = new List<ActiveSessionMember> { leavingMember, guestSlot },
+            Games = new List<ActiveSessionGame>()
+        };
+
+        var repo = new Mock<IActiveSessionRepository>();
+        repo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>())).ReturnsAsync(session);
+
+        var cafeRepo = new Mock<ICafeRepository>();
+        var posRepo = new Mock<ICafePosRepository>();
+        var depositRepo = new Mock<IBookingDepositRepository>();
+        var settlementService = new Mock<ISettlementService>();
+        var service = new ActiveSessionService(cafeRepo.Object, repo.Object, posRepo.Object, depositRepo.Object, settlementService.Object, new Mock<IReservationService>().Object, new Mock<ILobbyRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalkInService>().Object, new Mock<IOutboxRepository>().Object, new Mock<ILogger<ActiveSessionService>>().Object);
+
+        var request = new PartialCheckoutRequestDto { MemberIds = new List<Guid> { leavingMemberId } };
+
+        await service.PartialCheckoutAsync(cafeId, sessionId, request);
+
+        // Guest slot KHÔNG được restore (BR-13)
+        Assert.Equal(IndividualSessionStatus.SuspendedMutation, guestSlot.Status);
+        Assert.NotNull(guestSlot.LeftAt);
     }
 
     #endregion

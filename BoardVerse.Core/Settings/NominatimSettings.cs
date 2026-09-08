@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Settings
+﻿namespace BoardVerse.Core.Settings
 {
     /// <summary>
     /// Cấu hình cho Geocoding service (Nominatim OpenStreetMap).

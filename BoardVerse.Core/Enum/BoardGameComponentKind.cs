@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Enum
+﻿namespace BoardVerse.Core.Enum
 {
     /// <summary>
     /// Danh mục chuẩn cấu phần trong hộp board game (dùng cho kiểm kho / phạt thiếu linh kiện).

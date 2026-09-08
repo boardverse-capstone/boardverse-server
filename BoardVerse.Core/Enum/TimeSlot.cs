@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Enum;
+﻿namespace BoardVerse.Core.Enum;
 
 /// <summary>
 /// Khung giờ cố định cho lobby (BR-NEW-15 §7.1, đồng bộ docs/time-slot-fixed-end-design (1).md §13).

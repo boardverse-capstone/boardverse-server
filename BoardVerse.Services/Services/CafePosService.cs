@@ -1375,6 +1375,18 @@ namespace BoardVerse.Services.Services
             session.Status = GroupSessionStatus.Checking;
             session.IsCheckingInventory = true;
 
+            // GAP-P1-S1 Fix: Đồng bộ member status với group status khi vào CHECKING.
+            // ActiveSessionService.EndGameAsync (player app) đã set Playing → SuspendedMutation
+            // và LeftAt = now. POS flow cũng phải mirror để tránh ResumeSessionAsync / PaySessionAsync
+            // thấy state không nhất quán (session=Checking nhưng members vẫn Playing).
+            // Guest slots giữ nguyên (BR-13) — không checkout riêng, không tính penalty.
+            foreach (var member in (session.Members ?? Array.Empty<ActiveSessionMember>())
+                .Where(m => m.Status == IndividualSessionStatus.Playing && !m.IsGuestSlot))
+            {
+                member.Status = IndividualSessionStatus.SuspendedMutation;
+                member.LeftAt = now;
+            }
+
             // W1 Fix: Null check for CafeInventoryBox before dereferencing
             if (session.CafeInventoryBox == null)
             {
@@ -1617,6 +1629,14 @@ namespace BoardVerse.Services.Services
                 .GetLatestComponentCheckByBoxAsync(sessionGame.CafeInventoryBoxId)
                 ?? new Dictionary<Guid, ComponentCheckResult>();
 
+            // BR-BGG-SYNC-01: Lấy orphaned penalties (component đã bị xóa khỏi BGG nhưng penalty vẫn còn).
+            var activeComponentIds = components.Select(c => c.Id).ToList();
+            var orphanedPenalties = sessionGame.CafeInventoryBox != null
+                ? await _posRepository.GetOrphanedPenaltiesAsync(
+                    sessionGame.CafeInventoryBox.CafeGameInventoryId,
+                    activeComponentIds)
+                : new List<CafeGameComponentPenalty>();
+
             return new ComponentChecklistDto
             {
                 SessionGameId = sessionGame.Id,
@@ -1632,6 +1652,13 @@ namespace BoardVerse.Services.Services
                     ExpectedQuantity = latestByComponent.TryGetValue(c.Id, out var last) && last.ActualQuantity > 0
                         ? last.ActualQuantity
                         : c.DefaultQuantity
+                }).ToList(),
+                // BR-BGG-SYNC-01: Linh kiện đã bị xóa nhưng vẫn còn penalty config.
+                OrphanedPenaltyItems = orphanedPenalties.Select(p => new OrphanedPenaltyItemDto
+                {
+                    PenaltyId = p.Id,
+                    ComponentName = p.GameComponentTemplate?.ComponentName ?? $"[Component {p.GameComponentTemplateId}]",
+                    PenaltyFee = p.PenaltyFee
                 }).ToList()
             };
         }
@@ -1732,16 +1759,92 @@ namespace BoardVerse.Services.Services
  if (request.MarkAllValid)
  {
  var now = DateTime.UtcNow;
- sessionGame.CheckStatus = ComponentCheckStatus.Verified;
  sessionGame.CheckedAt = now;
  sessionGame.CheckedByStaffId = userId;
+ decimal totalPenaltyMarkAllValid = 0;
+ var orphanedPenaltyResultsMarkAllValid = new List<OrphanedPenaltyResultItemDto>();
+ var orphanedDetailedResultsMarkAllValid = new List<ComponentCheckResult>();
+
+ // BR-BGG-SYNC-01: Xử lý orphaned penalties ngay cả khi MarkAllValid.
+ // Orphaned penalties độc lập với active components — staff vẫn có thể báo mất
+ // linh kiện orphaned khi active components đều đủ.
+ if (request.OrphanedPenaltyResults.Count > 0)
+ {
+ var cafeGameInventoryId = sessionGame.CafeInventoryBox?.CafeGameInventoryId ?? Guid.Empty;
+ var activeComponentIds = components.Select(c => c.Id).ToHashSet();
+ var orphanedPenalties = await _posRepository.GetOrphanedPenaltiesAsync(
+ cafeGameInventoryId, activeComponentIds);
+ var orphanedPenaltyMap = orphanedPenalties.ToDictionary(p => p.Id);
+ var sessionMemberIds = session.Members.Select(m => m.Id).ToHashSet();
+ var guestMemberIds = session.Members.Where(m => m.IsGuestSlot).Select(m => m.Id).ToHashSet();
+
+ foreach (var orphanedResult in request.OrphanedPenaltyResults)
+ {
+ if (!orphanedPenaltyMap.TryGetValue(orphanedResult.PenaltyId, out var penaltyEntity))
+ {
+ throw new BadRequestException(
+ ApiErrorMessages.Pos.OrphanedPenaltyNotFound(orphanedResult.PenaltyId));
+ }
+ if (orphanedResult.MissingQuantity < 0)
+ {
+ throw new BadRequestException(ApiErrorMessages.Pos.OrphanedPenaltyNegativeQuantity);
+ }
+ if (orphanedResult.ResponsibleMemberId.HasValue)
+ {
+ var memberId = orphanedResult.ResponsibleMemberId.Value;
+ if (!sessionMemberIds.Contains(memberId))
+ {
+ throw new BadRequestException(
+ ApiErrorMessages.Pos.OrphanedPenaltyMemberNotInSession(orphanedResult.PenaltyId, memberId));
+ }
+ if (guestMemberIds.Contains(memberId))
+ {
+ throw new BadRequestException(ApiErrorMessages.Pos.OrphanedPenaltyCannotAssignToGuestSlot);
+ }
+ }
+ var missing = orphanedResult.MissingQuantity;
+ var penaltyFee = penaltyEntity.PenaltyFee * missing;
+ orphanedPenaltyResultsMarkAllValid.Add(new OrphanedPenaltyResultItemDto
+ {
+ PenaltyId = orphanedResult.PenaltyId,
+ ComponentName = penaltyEntity.GameComponentTemplate?.ComponentName
+ ?? $"[Component {penaltyEntity.GameComponentTemplateId}]",
+ MissingQuantity = missing,
+ PenaltyFee = penaltyFee,
+ ResponsibleMemberId = orphanedResult.ResponsibleMemberId
+ });
+ orphanedDetailedResultsMarkAllValid.Add(new ComponentCheckResult
+ {
+ Id = Guid.NewGuid(),
+ ActiveSessionGameId = sessionGame.Id,
+ GameComponentTemplateId = penaltyEntity.GameComponentTemplateId,
+ ExpectedQuantity = 1,
+ ActualQuantity = Math.Max(0, 1 - missing),
+ PenaltyFee = penaltyFee,
+ ResponsibleMemberId = orphanedResult.ResponsibleMemberId,
+ StaffId = userId,
+ CheckedAt = now
+ });
+ totalPenaltyMarkAllValid += penaltyFee;
+ }
+ sessionGame.CheckStatus = totalPenaltyMarkAllValid > 0
+ ? ComponentCheckStatus.MissingComponents
+ : ComponentCheckStatus.Verified;
+ sessionGame.TotalPenaltyAmount = totalPenaltyMarkAllValid;
+ }
+ else
+ {
+ sessionGame.CheckStatus = ComponentCheckStatus.Verified;
  sessionGame.TotalPenaltyAmount = 0;
+ }
 
  // FIX 2026-08-24: MarkAllValid = đầy đủ → box về Available ngay (xem comment ở
  // SubmitComponentCheckCoreAsync bên dưới để biết lý do).
  if (sessionGame.CafeInventoryBox != null)
  {
- sessionGame.CafeInventoryBox.Status = CafeGameInventoryStatus.Available;
+ sessionGame.CafeInventoryBox.Status = totalPenaltyMarkAllValid > 0
+ ? CafeGameInventoryStatus.Maintenance
+ : CafeGameInventoryStatus.Available;
  sessionGame.CafeInventoryBox.UpdatedAt = now;
  }
 
@@ -1762,6 +1865,8 @@ namespace BoardVerse.Services.Services
                         CheckedAt = now
                     };
                 }).ToList();
+                // BR-BGG-SYNC-01: Gộp orphaned penalty audit entries.
+                allValidResults.AddRange(orphanedDetailedResultsMarkAllValid);
                 await _posRepository.AddComponentCheckResultsAsync(allValidResults);
                 await _posRepository.SaveChangesAsync();
 
@@ -1772,7 +1877,7 @@ namespace BoardVerse.Services.Services
                     GameName = sessionGame.GameTemplate.Name,
                     CheckStatus = sessionGame.CheckStatus,
                     CheckedAt = sessionGame.CheckedAt ?? now,
-                    TotalPenaltyAmount = 0,
+                    TotalPenaltyAmount = totalPenaltyMarkAllValid,
                     Components = components.Select(c => new ComponentCheckResultItemDto
                     {
                         ComponentId = c.Id,
@@ -1781,7 +1886,8 @@ namespace BoardVerse.Services.Services
                         ExpectedQuantity = c.DefaultQuantity,
                         ActualQuantity = c.DefaultQuantity,
                         PenaltyFee = 0
-                    }).ToList()
+                    }).ToList(),
+                    OrphanedPenaltyResults = orphanedPenaltyResultsMarkAllValid
                 };
             }
 
@@ -1993,6 +2099,111 @@ sessionGame.CheckStatus = hasMissing
  sessionGame.CafeInventoryBox.Status, hasMissing);
  }
 
+            // BR-BGG-SYNC-01: Xử lý orphaned penalties (component đã bị xóa khỏi BGG nhưng penalty vẫn còn).
+            // Chuẩn bị lists để gộp orphaned penalty results.
+            var orphanedPenaltyResults = new List<OrphanedPenaltyResultItemDto>();
+            var orphanedDetailedResults = new List<ComponentCheckResult>();
+
+            if (!request.MarkAllValid && request.OrphanedPenaltyResults.Count > 0)
+            {
+                // 1. Kiểm tra duplicate PenaltyId trong request.
+                var duplicatePenaltyIds = request.OrphanedPenaltyResults
+                    .GroupBy(r => r.PenaltyId)
+                    .Where(g => g.Count() > 1)
+                    .Select(g => g.Key)
+                    .ToList();
+                if (duplicatePenaltyIds.Count > 0)
+                {
+                    var idList = string.Join(", ", duplicatePenaltyIds.Take(5));
+                    throw new BadRequestException(
+                        $"Phát hiện {duplicatePenaltyIds.Count} penalty ID trùng lặp trong OrphanedPenaltyResults: {idList}.");
+                }
+
+                // 2. Kiểm tra MissingQuantity không âm.
+                var negativeOrphanedQty = request.OrphanedPenaltyResults
+                    .Where(r => r.MissingQuantity < 0)
+                    .Select(r => r.PenaltyId)
+                    .ToList();
+                if (negativeOrphanedQty.Count > 0)
+                {
+                    throw new BadRequestException(ApiErrorMessages.Pos.OrphanedPenaltyNegativeQuantity);
+                }
+
+                // 3. Load orphaned penalties từ DB (component đã bị xóa khỏi BGG).
+                var cafeGameInventoryId = sessionGame.CafeInventoryBox?.CafeGameInventoryId ?? Guid.Empty;
+                var activeComponentIds = components.Select(c => c.Id).ToHashSet();
+                var orphanedPenalties = await _posRepository.GetOrphanedPenaltiesAsync(
+                    cafeGameInventoryId, activeComponentIds);
+                var orphanedPenaltyMap = orphanedPenalties.ToDictionary(p => p.Id);
+
+                // 4. Validate từng orphaned penalty result.
+                var orphanedSessionMemberIds = session.Members.Select(m => m.Id).ToHashSet();
+                var orphanedGuestMemberIds = session.Members
+                    .Where(m => m.IsGuestSlot)
+                    .Select(m => m.Id)
+                    .ToHashSet();
+
+                foreach (var orphanedResult in request.OrphanedPenaltyResults)
+                {
+                    // PenaltyId phải tồn tại trong orphaned penalty list của quán.
+                    if (!orphanedPenaltyMap.TryGetValue(orphanedResult.PenaltyId, out var penaltyEntity))
+                    {
+                        throw new BadRequestException(
+                            ApiErrorMessages.Pos.OrphanedPenaltyNotFound(orphanedResult.PenaltyId));
+                    }
+
+                    // Validate ResponsibleMemberId (nếu có).
+                    if (orphanedResult.ResponsibleMemberId.HasValue)
+                    {
+                        var memberId = orphanedResult.ResponsibleMemberId.Value;
+                        if (!orphanedSessionMemberIds.Contains(memberId))
+                        {
+                            throw new BadRequestException(
+                                ApiErrorMessages.Pos.OrphanedPenaltyMemberNotInSession(
+                                    orphanedResult.PenaltyId, memberId));
+                        }
+                        if (orphanedGuestMemberIds.Contains(memberId))
+                        {
+                            // BR-14: cấm gán penalty cho Guest_Slot
+                            throw new BadRequestException(
+                                ApiErrorMessages.Pos.OrphanedPenaltyCannotAssignToGuestSlot);
+                        }
+                    }
+
+                    // 5. Tính penalty fee: per-unit × số lượng bị mất.
+                    // Orphaned penalty không có baseline → ExpectedQuantity = 1, ActualQuantity = 0.
+                    var missing = orphanedResult.MissingQuantity; // 0 = hoàn trả, 1+ = bị mất
+                    var penaltyFee = penaltyEntity.PenaltyFee * missing;
+
+                    orphanedPenaltyResults.Add(new OrphanedPenaltyResultItemDto
+                    {
+                        PenaltyId = orphanedResult.PenaltyId,
+                        ComponentName = penaltyEntity.GameComponentTemplate?.ComponentName
+                            ?? $"[Component {penaltyEntity.GameComponentTemplateId}]",
+                        MissingQuantity = missing,
+                        PenaltyFee = penaltyFee,
+                        ResponsibleMemberId = orphanedResult.ResponsibleMemberId
+                    });
+
+                    // Ghi ComponentCheckResult audit entry cho orphaned penalty.
+                    orphanedDetailedResults.Add(new ComponentCheckResult
+                    {
+                        Id = Guid.NewGuid(),
+                        ActiveSessionGameId = sessionGame.Id,
+                        GameComponentTemplateId = penaltyEntity.GameComponentTemplateId,
+                        ExpectedQuantity = 1,
+                        ActualQuantity = Math.Max(0, 1 - missing), // 0 = mất, 1 = hoàn trả
+                        PenaltyFee = penaltyFee,
+                        ResponsibleMemberId = orphanedResult.ResponsibleMemberId,
+                        StaffId = userId,
+                        CheckedAt = nowDetailed
+                    });
+
+                    totalPenalty += penaltyFee;
+                    if (missing > 0) hasMissing = true;
+                }
+            }
+
             // BR-12: Lưu audit trail cho từng component (kể cả đủ, ActualQuantity = ExpectedQuantity).
             // Admin có thể truy vết staff có thật sự kiểm tra hay bấm AllValid.
             var detailedResults = resultComponents.Select(r => new ComponentCheckResult
@@ -2007,6 +2218,8 @@ sessionGame.CheckStatus = hasMissing
                 StaffId = userId,
                 CheckedAt = nowDetailed
             }).ToList();
+            // BR-BGG-SYNC-01: Gộp orphaned penalty audit entries vào danh sách để lưu cùng lúc.
+            detailedResults.AddRange(orphanedDetailedResults);
             await _posRepository.AddComponentCheckResultsAsync(detailedResults);
             await _posRepository.SaveChangesAsync();
 
@@ -2018,7 +2231,8 @@ sessionGame.CheckStatus = hasMissing
                 CheckStatus = sessionGame.CheckStatus,
                 CheckedAt = sessionGame.CheckedAt ?? nowDetailed,
                 TotalPenaltyAmount = totalPenalty,
-                Components = resultComponents
+                Components = resultComponents,
+                OrphanedPenaltyResults = orphanedPenaltyResults
             };
         }
 

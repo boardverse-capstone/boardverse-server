@@ -1,4 +1,4 @@
-using BoardVerse.Core.Entities;
+﻿using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Data;
 using Microsoft.EntityFrameworkCore;
@@ -52,7 +52,16 @@ public class KarmaWindowJob : BackgroundService
 
         var now = DateTime.UtcNow;
 
+        // GAP-2 fix: Include(l => l.Members) để job có thể reactivate members.
+        // Trước đây job chỉ set RatingOpenedAt mà KHÔNG flip status Closed → RatingOpen
+        // và KHÔNG reactivate members (ReservationService.MarkLobbyMembersInactive đã set
+        // IsActive=false + Status=LobbyTerminated). Hậu quả:
+        //   1. Member rate trước khi host gọi /open-karma-window → 403 vì status ≠ RatingOpen.
+        //   2. Member rate sau khi host mở window → 403 vì members có IsActive=false
+        //      → KarmaRatingRepository.GetLobbyForRatingAsync (filter IsActive) trả collection rỗng.
+        // Fix: job tự động flip status + reactivate members (mirror KarmaRatingService.OpenLobbyKarmaRatingWindowAsync).
         var lobbiesToOpen = await db.Lobbies
+            .Include(l => l.Members)
             .Where(l => l.Status == LobbyStatus.Closed && l.RatingOpenedAt == null)
             .ToListAsync(stoppingToken);
 
@@ -64,7 +73,25 @@ public class KarmaWindowJob : BackgroundService
         foreach (var lobby in lobbiesToOpen)
         {
             lobby.RatingOpenedAt = now;
-            _logger.LogInformation("Opened karma window for lobby {LobbyId}.", lobby.Id);
+            lobby.Status = LobbyStatus.RatingOpen;
+            lobby.UpdatedAt = now;
+
+            // Reactivate members để KarmaRatingRepository.GetLobbyForRatingAsync
+            // (filter Members.Where(IsActive)) trả collection có data.
+            // Chỉ reactivate những member chưa bị Kicked/Left (giống KarmaRatingService).
+            foreach (var member in lobby.Members)
+            {
+                if (member.Status is LobbyMemberStatus.Kicked or LobbyMemberStatus.Left)
+                {
+                    continue;
+                }
+
+                member.IsActive = true;
+            }
+
+            _logger.LogInformation(
+                "Opened karma window for lobby {LobbyId} (status: Closed → RatingOpen, reactivated members: {MemberCount}).",
+                lobby.Id, lobby.Members.Count(m => m.IsActive));
         }
 
         await db.SaveChangesAsync(stoppingToken);

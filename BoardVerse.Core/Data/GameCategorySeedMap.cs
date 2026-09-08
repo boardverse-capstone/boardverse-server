@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Data
+﻿namespace BoardVerse.Core.Data
 {
     /// <summary>
     /// Gợi ý thể loại và alias tìm kiếm khi seed/upsert game từ catalog nội bộ.

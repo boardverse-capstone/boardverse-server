@@ -1,4 +1,4 @@
-using BoardVerse.Core.DTOs.CafeSchedule;
+﻿using BoardVerse.Core.DTOs.CafeSchedule;
 using BoardVerse.Core.Entities;
 using System.Threading;
 

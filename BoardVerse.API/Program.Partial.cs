@@ -1,3 +1,3 @@
-namespace BoardVerse.API;
+﻿namespace BoardVerse.API;
 
 public partial class Program;

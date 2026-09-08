@@ -1,4 +1,4 @@
-using BoardVerse.Core.DTOs.Pos;
+﻿using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 
@@ -74,6 +74,18 @@ namespace BoardVerse.Core.IRepositories
         Task<CafeGameComponentPenalty?> GetComponentPenaltyAsync(Guid cafeId, Guid gameTemplateId, Guid componentId, CancellationToken cancellationToken = default);
         Task<IReadOnlyDictionary<Guid, CafeGameComponentPenalty>> GetComponentPenaltiesByCafeGameAsync(
             Guid cafeId, Guid gameTemplateId, IReadOnlyCollection<Guid> componentIds, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// BR-BGG-SYNC-01: Lấy penalty config đã bị "orphaned" (component đã bị xóa khỏi BGG catalog
+        /// nhưng penalty vẫn tồn tại trong CafeGameComponentPenalty).
+        /// Dùng cho POS checklist: staff có thể gán penalty cho linh kiện không còn trong catalog.
+        /// </summary>
+        /// <param name="cafeGameInventoryId">Mã CafeGameInventory (duy nhất cho mỗi cafe + game).</param>
+        /// <param name="activeComponentIds">Danh sách componentId đang active trong GameTemplate.</param>
+        Task<IReadOnlyList<CafeGameComponentPenalty>> GetOrphanedPenaltiesAsync(
+            Guid cafeGameInventoryId,
+            IReadOnlyCollection<Guid> activeComponentIds,
+            CancellationToken cancellationToken = default);
         Task AddSessionAsync(ActiveSession session, CancellationToken cancellationToken = default);
         Task AddSessionMemberAsync(ActiveSessionMember member, CancellationToken cancellationToken = default);
         Task AddSessionGameAsync(ActiveSessionGame sessionGame, CancellationToken cancellationToken = default);

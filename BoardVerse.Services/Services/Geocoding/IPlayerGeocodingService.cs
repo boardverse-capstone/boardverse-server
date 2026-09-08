@@ -1,4 +1,4 @@
-using BoardVerse.Core.Settings;
+﻿using BoardVerse.Core.Settings;
 
 namespace BoardVerse.Services.Services.Geocoding
 {

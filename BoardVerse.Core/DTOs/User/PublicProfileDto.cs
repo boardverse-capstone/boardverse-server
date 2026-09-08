@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.User
+﻿namespace BoardVerse.Core.DTOs.User
 {
     public class ProfileDto
     {

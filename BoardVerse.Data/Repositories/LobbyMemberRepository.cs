@@ -1,4 +1,4 @@
-using BoardVerse.Core.Entities;
+﻿using BoardVerse.Core.Entities;
 using BoardVerse.Core.IRepositories;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,9 +18,6 @@ public class LobbyMemberRepository : ILobbyMemberRepository
 
     public async Task<IReadOnlyList<LobbyMember>> GetByLobbyAsync(Guid lobbyId, CancellationToken cancellationToken = default)
         => await _db.LobbyMembers.Where(m => m.LobbyId == lobbyId).ToListAsync();
-
-    public async Task<IReadOnlyList<LobbyMember>> GetActiveByLobbyAsync(Guid lobbyId, CancellationToken cancellationToken = default)
-        => await _db.LobbyMembers.Where(m => m.LobbyId == lobbyId && m.IsActive).ToListAsync();
 
     public async Task<IReadOnlyList<Guid>> GetRecentMemberUserIdsAsync(Guid userId, int daysBack = 30, int maxLobbies = 50, CancellationToken cancellationToken = default)
     {

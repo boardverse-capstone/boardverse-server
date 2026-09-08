@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Booking;
+﻿namespace BoardVerse.Core.DTOs.Booking;
 
 /// <summary>
 /// Bàn trống phù hợp với yêu cầu của Player trong một khung giờ cụ thể.

@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Helpers;
+﻿namespace BoardVerse.Core.Helpers;
 
 /// <summary>
 /// Tính toán số rounds tối ưu cho Swiss tournament dựa trên số người đăng ký.

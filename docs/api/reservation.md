@@ -1012,6 +1012,15 @@ Cafe **chấp nhận** (`approve: true`) hoặc **từ chối** (`approve: false
 
 > Khi từ chối: lobby chuyển sang `RejectedByCafe`, refund **100% BVC** về ví host.
 
+### Host được thêm làm LobbyMember khi cafe approve (fix 2026-09-08)
+
+Trước fix: với lobby ở trạng thái `PendingCafeApproval`, step 18 của `ConfirmAsync` skip việc insert host vào `LobbyMember`. Sau khi cafe approve, host chưa có record `LobbyMember` → `GET /api/v1/users/ratings/karma/lobbies/{lobbyId}` và `POST /api/v1/users/ratings/karma` trả **403 "Bạn không phải thành viên của phòng này nên không thể đánh giá"** vì `RequireLobbyMemberContextAsync` filter `IsActive=true` mà không có member record.
+
+Sau fix: `HandleCafeApprovalAsync` (approve branch) tự động thêm host làm `LobbyMember` với `IsHost=true, IsActive=true, Status=Joined` nếu chưa tồn tại (idempotent — không tạo duplicate khi re-approve). Host sau đó có thể:
+
+- `GET /api/v1/users/ratings/karma/lobbies/{lobbyId}` → 200 với `canSubmitRatings=true` (khi lobby đạt `InProgress`/`Closed`/`RatingOpen`).
+- `POST /api/v1/users/ratings/karma` → 200, không bị 403.
+
 ### Lỗi thường gặp
 
 | Status | Message |

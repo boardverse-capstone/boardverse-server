@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Helpers;
+﻿namespace BoardVerse.Core.Helpers;
 
 /// <summary>
 /// Tính cách chia tối ưu N người vào các bàn Splendor (2-4 người/bàn).

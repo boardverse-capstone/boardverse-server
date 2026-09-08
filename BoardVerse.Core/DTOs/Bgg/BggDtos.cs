@@ -1,4 +1,4 @@
-using BoardVerse.Core.Enum;
+﻿using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Core.DTOs.Bgg
 {
@@ -62,5 +62,12 @@ namespace BoardVerse.Core.DTOs.Bgg
         public int ComponentCount { get; set; }
         public int CategoryCount { get; set; }
         public GameComponentCatalogSource PrimaryComponentSource { get; set; }
+
+        /// <summary>
+        /// Số <c>GameComponentTemplate</c> được giữ lại (không xóa) khi overwrite vì đang được
+        /// <c>CafeGameComponentPenalties</c> tham chiếu (FK RESTRICT).
+        /// Chỉ áp dụng khi <c>Created = false</c> và <c>OverwriteExisting = true</c>.
+        /// </summary>
+        public int PreservedComponentCount { get; set; }
     }
 }

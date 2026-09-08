@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Friend;
+﻿namespace BoardVerse.Core.DTOs.Friend;
 
 /// <summary>
 /// Thông tin chi tiết public của 1 player, lấy từ context Friends (kèm quan hệ + mutual friends).

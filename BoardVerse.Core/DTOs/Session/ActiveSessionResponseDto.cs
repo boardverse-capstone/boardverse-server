@@ -1,4 +1,4 @@
-using BoardVerse.Core.DTOs.Pos;
+﻿using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Core.DTOs.Session

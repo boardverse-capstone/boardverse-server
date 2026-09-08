@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace BoardVerse.Core.DTOs.Pos
 {
@@ -15,5 +15,13 @@ namespace BoardVerse.Core.DTOs.Pos
 
         // Result items reuse ComponentCheckResultItemDto defined in ComponentChecklistDto.cs.
         public List<ComponentCheckResultItemDto> Results { get; set; } = [];
+
+        /// <summary>
+        /// BR-BGG-SYNC-01: Kết quả kiểm kê các orphaned penalties.
+        /// Staff chọn "Mất linh kiện không có trong danh sách" → chọn từ dropdown
+        /// OrphanedPenaltyItems trong GET checklist → gửi lên đây.
+        /// Nếu không có linh kiện orphaned nào bị mất → gửi danh sách rỗng.
+        /// </summary>
+        public List<OrphanedPenaltyResultItemDto> OrphanedPenaltyResults { get; set; } = [];
     }
 }

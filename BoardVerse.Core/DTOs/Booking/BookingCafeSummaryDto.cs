@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Booking;
+﻿namespace BoardVerse.Core.DTOs.Booking;
 
 /// <summary>
 /// Mobile task #14: GET /api/bookings/cafe/{cafeId} cho Player view (rút gọn).

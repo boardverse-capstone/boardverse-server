@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Helpers;
+﻿namespace BoardVerse.Core.Helpers;
 
 /// <summary>
 /// Phase 4 / EC-10 (§7.1 doc <c>time-slot-fixed-end-design.md</c>):

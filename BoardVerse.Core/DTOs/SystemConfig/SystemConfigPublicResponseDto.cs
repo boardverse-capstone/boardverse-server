@@ -1,4 +1,4 @@
-using BoardVerse.Core.Data;
+﻿using BoardVerse.Core.Data;
 
 namespace BoardVerse.Core.DTOs.SystemConfig
 {

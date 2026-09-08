@@ -1,4 +1,4 @@
-using BoardVerse.Core.Enum;
+﻿using BoardVerse.Core.Enum;
 using BoardVerse.Core.Helpers;
 
 namespace BoardVerse.Tests.Helpers;
@@ -55,8 +55,12 @@ public class KarmaRatingHelperTests
     [Theory]
     [InlineData(LobbyStatus.InProgress, true)]
     [InlineData(LobbyStatus.Closed, true)]
-    [InlineData(LobbyStatus.RatingOpen, false)]
-    public void IsRatingAllowed_OnlyWhenRatingOpenOrClosed(LobbyStatus status, bool allowed)
+    [InlineData(LobbyStatus.RatingOpen, true)]
+    [InlineData(LobbyStatus.Open, false)]
+    [InlineData(LobbyStatus.Full, false)]
+    [InlineData(LobbyStatus.HostCancelled, false)]
+    [InlineData(LobbyStatus.TimeoutFailed, false)]
+    public void IsRatingAllowed_ReturnsTrueForActiveAndRatingWindowStatuses(LobbyStatus status, bool allowed)
     {
         Assert.Equal(allowed, KarmaRatingHelper.IsRatingAllowed(status));
     }

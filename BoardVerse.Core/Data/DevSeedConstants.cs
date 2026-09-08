@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Data
+﻿namespace BoardVerse.Core.Data
 {
     /// <summary>
     /// Fixed IDs for local/dev seed data. Use these when testing Manager inventory APIs.

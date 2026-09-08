@@ -1,4 +1,4 @@
-using BoardVerse.Core.DTOs.Rating;
+﻿using BoardVerse.Core.DTOs.Rating;
 
 using System.Threading;
 namespace BoardVerse.Services.IServices

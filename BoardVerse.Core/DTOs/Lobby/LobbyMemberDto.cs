@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Lobby
+﻿namespace BoardVerse.Core.DTOs.Lobby
 {
     public class LobbyMemberDto
     {

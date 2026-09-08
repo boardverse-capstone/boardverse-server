@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Entities;
+﻿namespace BoardVerse.Core.Entities;
 
 /// <summary>
 /// Tồn kho ghế theo cafe × playDate × timeSlot (BR-RESERVATION-01 §V + §19.11).

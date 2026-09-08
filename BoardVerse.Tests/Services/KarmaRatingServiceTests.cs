@@ -1,4 +1,4 @@
-using BoardVerse.Core.DTOs.Rating;
+﻿using BoardVerse.Core.DTOs.Rating;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
@@ -111,6 +111,123 @@ public class KarmaRatingServiceTests
         Assert.Equal(Player2, context.MembersToRate[0].UserId);
         Assert.DoesNotContain(context.MembersToRate, m => m.UserId == Player1);
     }
+
+    [Fact]
+    public async Task OpenLobbyKarmaRatingWindowAsync_ReactivatesLobbyTerminatedMembers()
+    {
+        // Regression: bug khi lobby đi qua Closed trước (ReservationService.MarkLobbyMembersInactive
+        // set IsActive=false + Status=LobbyTerminated). Mở rating window phải re-activate để
+        // KarmaRatingRepository.GetLobbyForRatingAsync (filter Members.Where(IsActive)) trả về
+        // collection không rỗng — nếu không thì host lẫn members đều bị 403 "không phải thành viên".
+        var repo = new Mock<IKarmaRatingRepository>();
+        var lobby = BuildClosedLobbyWithTerminatedMembers();
+
+        repo.Setup(r => r.GetLobbyForUpdateAsync(LobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
+
+        var service = new KarmaRatingService(repo.Object);
+        var result = await service.OpenLobbyKarmaRatingWindowAsync(LobbyId);
+
+        Assert.Equal(LobbyStatus.RatingOpen, lobby.Status);
+        Assert.Equal(2, result.MemberUserIds.Count);
+        Assert.All(lobby.Members, m =>
+        {
+            Assert.True(m.IsActive, $"Member {m.UserId} phải được re-activate khi mở rating window.");
+            Assert.Equal(LobbyMemberStatus.LobbyTerminated, m.Status);
+        });
+        repo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task OpenLobbyKarmaRatingWindowAsync_DoesNotReactivateKickedOrLeftMembers()
+    {
+        // Edge case: member bị kick hoặc tự rời trước khi lobby close → không được phép rate.
+        var repo = new Mock<IKarmaRatingRepository>();
+        var lobby = BuildClosedLobbyWithTerminatedMembers();
+        lobby.Members.Add(new LobbyMember
+        {
+            UserId = Guid.NewGuid(),
+            IsActive = false,
+            IsHost = false,
+            Status = LobbyMemberStatus.Left,
+            User = new User { Id = Guid.NewGuid(), Username = "leaver", Email = "leaver@test.dev" }
+        });
+
+        repo.Setup(r => r.GetLobbyForUpdateAsync(LobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
+
+        var service = new KarmaRatingService(repo.Object);
+        var result = await service.OpenLobbyKarmaRatingWindowAsync(LobbyId);
+
+        Assert.Equal(2, result.MemberUserIds.Count);
+        Assert.DoesNotContain(result.MemberUserIds, id =>
+            lobby.Members.Any(m => m.UserId == id && m.Status == LobbyMemberStatus.Left));
+    }
+
+    [Fact]
+    public async Task SubmitKarmaRatingsAsync_HostCanRate_WhenLobbyReactivatedAfterClosed()
+    {
+        // End-to-end: mô phỏng flow thực tế — lobby đã Closed (members IsActive=false),
+        // sau đó mở rating window, host gọi SubmitKarmaRatings. Trước fix, host bị 403.
+        var repo = new Mock<IKarmaRatingRepository>();
+        var lobby = BuildClosedLobbyWithTerminatedMembers();
+        // Sau khi mở rating window (giả lập):
+        foreach (var m in lobby.Members.Where(m => m.Status == LobbyMemberStatus.LobbyTerminated))
+        {
+            m.IsActive = true;
+        }
+        lobby.Status = LobbyStatus.RatingOpen;
+        lobby.RatingOpenedAt = DateTime.UtcNow;
+
+        var targetProfile = new UserProfile { UserId = Player2, KarmaPoints = 95, GamerTier = GamerTier.Gold };
+
+        repo.Setup(r => r.GetLobbyForRatingAsync(LobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
+        repo.Setup(r => r.HasRatingAsync(LobbyId, Player1, Player2, It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        repo.Setup(r => r.GetProfileForUpdateAsync(Player1, It.IsAny<CancellationToken>())).ReturnsAsync(new UserProfile { UserId = Player1, KarmaPoints = 50 });
+        repo.Setup(r => r.GetProfileForUpdateAsync(Player2, It.IsAny<CancellationToken>())).ReturnsAsync(targetProfile);
+
+        var service = new KarmaRatingService(repo.Object);
+        var result = await service.SubmitKarmaRatingsAsync(Player1, new SubmitKarmaRatingsRequestDto
+        {
+            LobbyId = LobbyId,
+            Ratings =
+            [
+                new KarmaRatingEntryDto
+                {
+                    TargetUserId = Player2,
+                    Tags = [KarmaRatingTag.Friendly]
+                }
+            ]
+        });
+
+        Assert.Single(result.AppliedRatings);
+    }
+
+    private static Lobby BuildClosedLobbyWithTerminatedMembers() =>
+        new Lobby
+        {
+            Id = LobbyId,
+            GameTemplateId = Guid.NewGuid(),
+            Status = LobbyStatus.Closed,
+            ClosedAt = DateTime.UtcNow,
+            Members = new List<LobbyMember>
+            {
+                new LobbyMember
+                {
+                    UserId = Player1,
+                    IsActive = false,            // ← giả lập MarkLobbyMembersInactive đã chạy
+                    IsHost = true,
+                    Status = LobbyMemberStatus.LobbyTerminated,
+                    User = new User { Id = Player1, Username = "jonny", Email = "jonny@test.dev" }
+                },
+                new LobbyMember
+                {
+                    UserId = Player2,
+                    IsActive = false,
+                    IsHost = false,
+                    Status = LobbyMemberStatus.LobbyTerminated,
+                    User = new User { Id = Player2, Username = "player2", Email = "p2@test.dev" }
+                }
+            }
+        };
 
     private static Lobby BuildLobby(LobbyStatus status) =>
         new Lobby

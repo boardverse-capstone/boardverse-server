@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using BoardVerse.Core.Messages;
 
 namespace BoardVerse.Core.Exceptions

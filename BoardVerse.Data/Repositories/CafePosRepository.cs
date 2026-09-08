@@ -1,4 +1,4 @@
-using BoardVerse.Core.DTOs.Pos;
+﻿using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
@@ -708,6 +708,23 @@ namespace BoardVerse.Data.Repositories
                 .ToListAsync(cancellationToken);
 
             return list.ToDictionary(p => p.GameComponentTemplateId);
+        }
+
+        public async Task<IReadOnlyList<CafeGameComponentPenalty>> GetOrphanedPenaltiesAsync(
+            Guid cafeGameInventoryId,
+            IReadOnlyCollection<Guid> activeComponentIds,
+            CancellationToken cancellationToken = default)
+        {
+            // BR-BGG-SYNC-01: Orphaned = penalty tồn tại nhưng component đã bị xóa khỏi BGG catalog.
+            // Tìm penalty có GameComponentTemplateId KHÔNG nằm trong danh sách active component.
+            // EF Core translate NOT IN (activeComponentIds) thành WHERE NOT IN (...).
+            var orphaned = await _context.CafeGameComponentPenalties
+                .Include(p => p.GameComponentTemplate)
+                .Where(p => p.CafeGameInventoryId == cafeGameInventoryId)
+                .Where(p => !activeComponentIds.Contains(p.GameComponentTemplateId))
+                .ToListAsync(cancellationToken);
+
+            return orphaned;
         }
 
         public async Task<CafeInventoryBox?> GetInventoryBoxByIdAsync(Guid boxId, CancellationToken cancellationToken = default) =>

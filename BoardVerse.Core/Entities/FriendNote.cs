@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Entities;
+﻿namespace BoardVerse.Core.Entities;
 
 /// <summary>
 /// Ghi chú/alias riêng mà user đặt cho một người bạn (vd: "Anh Cường - Catan").

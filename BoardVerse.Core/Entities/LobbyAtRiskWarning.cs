@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Entities;
+﻿namespace BoardVerse.Core.Entities;
 
 /// <summary>
 /// Bảng ghi nhận cảnh báo at-risk đã gửi — chỉ gửi 1 lần mỗi lobby (BR-NEW-14).

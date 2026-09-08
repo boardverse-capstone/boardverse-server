@@ -1,4 +1,4 @@
-using BoardVerse.Core.DTOs.Tournament;
+﻿using BoardVerse.Core.DTOs.Tournament;
 
 using System.Threading;
 namespace BoardVerse.Services.IServices;

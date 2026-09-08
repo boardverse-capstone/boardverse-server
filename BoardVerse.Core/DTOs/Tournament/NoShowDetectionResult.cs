@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Tournament;
+﻿namespace BoardVerse.Core.DTOs.Tournament;
 
 /// <summary>
 /// Kết quả của auto no-show detection job.

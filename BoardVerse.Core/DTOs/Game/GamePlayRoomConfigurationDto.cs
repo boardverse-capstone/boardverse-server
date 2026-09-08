@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Game
+﻿namespace BoardVerse.Core.DTOs.Game
 {
     public class GamePlayRoomConfigurationDto
     {

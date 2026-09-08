@@ -1,4 +1,4 @@
-namespace BoardVerse.Services.Services.Geocoding
+﻿namespace BoardVerse.Services.Services.Geocoding
 {
     /// <summary>
     /// HTTP client gọi Nominatim reverse-geocoding API.

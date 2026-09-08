@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Enum
+﻿namespace BoardVerse.Core.Enum
 {
     /// <summary>
     /// Trạng thái thanh toán của từng thành viên trong group session.

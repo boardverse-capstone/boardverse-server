@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Enum;
+﻿namespace BoardVerse.Core.Enum;
 
 /// <summary>
 /// §9.3 (docs/time-slot-fixed-end-design (1).md): Trạng thái của một WalkInBooking (đặt chỗ walk-in).

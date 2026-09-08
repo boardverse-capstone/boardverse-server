@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using BoardVerse.Core.Settings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;

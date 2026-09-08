@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Messages
+﻿namespace BoardVerse.Core.Messages
 {
     public static class ApiEmailMessages
     {

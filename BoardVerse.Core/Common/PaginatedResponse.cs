@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Common;
+﻿namespace BoardVerse.Core.Common;
 
 public abstract class PaginatedResponseBase
 {

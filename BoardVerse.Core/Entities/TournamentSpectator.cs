@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Entities;
+﻿namespace BoardVerse.Core.Entities;
 
 /// <summary>
 /// Spectator entry cho phép người dùng xem tournament mà không cần đăng ký tham gia.

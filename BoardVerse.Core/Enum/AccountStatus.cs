@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.Enum;
+﻿namespace BoardVerse.Core.Enum;
 
 /// <summary>
 /// Trạng thái tài khoản player (BR-RISK-04) — phạm vi áp dụng cho Wallet + Lobby/Booking.

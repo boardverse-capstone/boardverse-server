@@ -1,4 +1,4 @@
-namespace BoardVerse.Core.DTOs.Booking;
+﻿namespace BoardVerse.Core.DTOs.Booking;
 
 /// <summary>
 /// Request gửi phiếu vote vắng mặt cho booking (booking-payment-gaps.md #4).
