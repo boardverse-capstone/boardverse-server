@@ -5,6 +5,7 @@ using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.Services;
+using Microsoft.Extensions.Caching.Memory;
 using Moq;
 
 namespace BoardVerse.Tests.Services;
@@ -19,10 +20,12 @@ public class BoardGameServiceTests
 
     private static IBoardGameService BuildService(
         Mock<IGameTemplateRepository> gameRepo,
-        Mock<ICategoryRepository>? categoryRepo = null) =>
+        Mock<ICategoryRepository>? categoryRepo = null,
+        IMemoryCache? memoryCache = null) =>
         new BoardGameService(
             gameRepo.Object,
-            (categoryRepo ?? new Mock<ICategoryRepository>()).Object);
+            (categoryRepo ?? new Mock<ICategoryRepository>()).Object,
+            memoryCache ?? new MemoryCache(new MemoryCacheOptions()));
 
     private static GameTemplate SoloGame() => new()
     {
@@ -306,5 +309,142 @@ public class BoardGameServiceTests
             {
                 PlayMode = PlayerPlayMode.Group
             }));
+    }
+
+    // =============== GetTopPlayedBoardGamesAsync ===============
+
+    [Fact]
+    public async Task GetTopPlayedBoardGamesAsync_TopCountPositive_ReturnsListFromRepository()
+    {
+        var gameRepo = new Mock<IGameTemplateRepository>();
+        var expected = new List<TopBoardGameDto>
+        {
+            new() { Id = GameId, Name = "Catan", PlayCount = 42 }
+        };
+        gameRepo.Setup(r => r.GetTopPlayedBoardGamesAsync(5, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expected);
+
+        var service = BuildService(gameRepo);
+        var result = await service.GetTopPlayedBoardGamesAsync(5);
+
+        Assert.Single(result);
+        Assert.Equal("Catan", result[0].Name);
+        Assert.Equal(42, result[0].PlayCount);
+        gameRepo.Verify(r => r.GetTopPlayedBoardGamesAsync(5, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetTopPlayedBoardGamesAsync_TopCountZero_ThrowsBadRequest()
+    {
+        var gameRepo = new Mock<IGameTemplateRepository>();
+        var service = BuildService(gameRepo);
+
+        var ex = await Assert.ThrowsAsync<BadRequestException>(() =>
+            service.GetTopPlayedBoardGamesAsync(0));
+
+        Assert.Contains("lớn hơn 0", ex.Message);
+    }
+
+    [Fact]
+    public async Task GetTopPlayedBoardGamesAsync_TopCountNegative_ThrowsBadRequest()
+    {
+        var gameRepo = new Mock<IGameTemplateRepository>();
+        var service = BuildService(gameRepo);
+
+        var ex = await Assert.ThrowsAsync<BadRequestException>(() =>
+            service.GetTopPlayedBoardGamesAsync(-1));
+
+        Assert.Contains("lớn hơn 0", ex.Message);
+    }
+
+    [Fact]
+    public async Task GetTopPlayedBoardGamesAsync_DefaultTopCount_Uses5()
+    {
+        var gameRepo = new Mock<IGameTemplateRepository>();
+        gameRepo.Setup(r => r.GetTopPlayedBoardGamesAsync(5, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        var service = BuildService(gameRepo);
+        await service.GetTopPlayedBoardGamesAsync();
+
+        gameRepo.Verify(r => r.GetTopPlayedBoardGamesAsync(5, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetTopPlayedBoardGamesAsync_CachesResult_BetweenCalls()
+    {
+        var gameRepo = new Mock<IGameTemplateRepository>();
+        gameRepo.Setup(r => r.GetTopPlayedBoardGamesAsync(5, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new TopBoardGameDto { Id = GameId, Name = "Catan", PlayCount = 10 }]);
+
+        var service = BuildService(gameRepo);
+
+        var first = await service.GetTopPlayedBoardGamesAsync();
+        var second = await service.GetTopPlayedBoardGamesAsync();
+
+        Assert.Single(first);
+        Assert.Single(second);
+        gameRepo.Verify(r => r.GetTopPlayedBoardGamesAsync(5, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // =============== ResolvePlayNavigationAsync boundary ===============
+
+    [Fact]
+    public async Task ResolvePlayNavigationAsync_MinPlayersTwo_SoloMode_TreatedAsMultiplayer()
+    {
+        // Boundary test: MinPlayers = 2 là ngưỡng nhỏ nhất của group game, không phải solo.
+        var gameRepo = new Mock<IGameTemplateRepository>();
+        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GameTemplate
+            {
+                Id = GameId,
+                Name = "TwoPlayerOnly",
+                Description = "Desc",
+                ThumbnailUrl = "https://cdn/two.jpg",
+                MinPlayers = 2,
+                MaxPlayers = 2,
+                PlayTime = 30,
+                Categories = [],
+                Components = []
+            });
+
+        var service = BuildService(gameRepo);
+
+        await Assert.ThrowsAsync<BadRequestException>(() =>
+            service.ResolvePlayNavigationAsync(GameId, new ResolveGamePlayNavigationRequestDto
+            {
+                PlayMode = PlayerPlayMode.Solo
+            }));
+    }
+
+    [Fact]
+    public async Task ResolvePlayNavigationAsync_MinPlayersTwo_GroupMode_AllowsTwo()
+    {
+        // Boundary test: MinPlayers = MaxPlayers = 2 → group mode hợp lệ với default 2 người.
+        var gameRepo = new Mock<IGameTemplateRepository>();
+        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GameTemplate
+            {
+                Id = GameId,
+                Name = "TwoPlayerOnly",
+                Description = "Desc",
+                ThumbnailUrl = "https://cdn/two.jpg",
+                MinPlayers = 2,
+                MaxPlayers = 2,
+                PlayTime = 30,
+                Categories = [],
+                Components = []
+            });
+
+        var service = BuildService(gameRepo);
+        var result = await service.ResolvePlayNavigationAsync(GameId, new ResolveGamePlayNavigationRequestDto
+        {
+            PlayMode = PlayerPlayMode.Group
+        });
+
+        Assert.Equal(GamePlayNavigationTarget.LobbyCreation, result.NavigationTarget);
+        Assert.Equal(2, result.RoomConfiguration.MinPlayers);
+        Assert.Equal(2, result.RoomConfiguration.MaxPlayers);
+        Assert.Equal(2, result.RoomConfiguration.DefaultPlayerCount);
     }
 }

@@ -19,4 +19,17 @@ public interface IBoardGameDiscoveryService
         Guid userId,
         Guid gameTemplateId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Xóa một board game khỏi danh sách đã lưu của player. Nếu game chưa được lưu → ném 404.
+    /// </summary>
+    /// <param name="userId">Player xóa lưu.</param>
+    /// <param name="gameTemplateId">Game cần xóa khỏi danh sách đã lưu.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <exception cref="BoardGameNotFoundException">Game không tồn tại.</exception>
+    /// <exception cref="NotFoundException">Game chưa nằm trong danh sách đã lưu của player.</exception>
+    Task<BoardGameSaveResultDto> UnsaveGameAsync(
+        Guid userId,
+        Guid gameTemplateId,
+        CancellationToken cancellationToken = default);
 }

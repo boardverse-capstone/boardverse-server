@@ -150,6 +150,7 @@ public const string SePayQrPreviewGenerated = "Đã tạo QR test cho payment ac
             public const string ListRetrieved = "Lấy danh sách board game thành công.";
             public const string Retrieved = "Lấy board game thành công.";
             public const string DetailsRetrieved = "Lấy chi tiết board game thành công.";
+            public const string TopPlayedRetrieved = "Lấy danh sách board game được chơi nhiều nhất thành công.";
             public const string PlayConfigurationRetrieved = "Lấy cấu hình chơi thành công.";
             public const string PlayNavigationResolved = "Phân giải điều hướng chơi thành công.";
         }

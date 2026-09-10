@@ -38,16 +38,17 @@ public class BoardGameDiscoveryController : BaseApiController
 
     /// <summary>
     /// Khảo sát gợi ý board game theo tiêu chí của player (số người, thể loại, thời gian, kinh nghiệm).
-    /// Trả về danh sách game có MatchScore, kèm quán cafe gần nhất và lobby đang mở (nếu có location). [Role: Player — đã đăng nhập]
+    /// Trả về danh sách game có MatchScore, kèm quán cafe gần nhất và lobby đang mở (nếu có location).
+    /// [Role: Public — không yêu cầu đăng nhập; nếu có token sẽ ưu tiên gợi ý theo vị trí người dùng.]
     /// </summary>
     /// <param name="request">Tiêu chí khảo sát: playerCount (1-5), categoryIds, preferredDurations, experienceLevel, searchKeyword.</param>
     /// <param name="latitude">Vĩ độ player (WGS84, optional — để tìm quán cafe gần nhất).</param>
     /// <param name="longitude">Kinh độ player (WGS84, optional).</param>
     /// <response code="200">Kết quả khảo sát gồm: danh sách game với MatchScore, tổng số kết quả, bộ lọc đã áp dụng.</response>
     /// <response code="400">Số người chơi không hợp lệ (phải 1-5).</response>
-    /// <response code="401">Thiếu token hoặc token hết hạn.</response>
     /// <response code="500">Lỗi hệ thống không mong đợi.</response>
     [HttpPost("survey")]
+    [AllowAnonymous]
     public async Task<IActionResult> RunSurvey(
         [FromBody] BoardGameSurveyRequestDto request,
         [FromQuery] double? latitude,
@@ -111,7 +112,7 @@ public class BoardGameDiscoveryController : BaseApiController
     public async Task<IActionResult> UnsaveGame(Guid gameTemplateId)
     {
         var userId = GetUserIdFromClaims();
-        var result = await _discoveryService.ToggleSaveAsync(userId, gameTemplateId);
+        var result = await _discoveryService.UnsaveGameAsync(userId, gameTemplateId);
 
         return NewResponse(200, ApiSuccessMessages.Discovery.GameUnsaved, result);
     }

@@ -66,6 +66,18 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
+        /// Lấy top 5 board game được chơi nhiều nhất trong hệ thống để hiển thị widget "Top hot" trên UI mobile bên player. [Role: Public — không cần đăng nhập.]
+        /// </summary>
+        /// <response code="200">Trả về tối đa 5 board game kèm số lượt chơi (PlayCount) sắp xếp giảm dần.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpGet("top5")]
+        public async Task<IActionResult> GetTop5PlayedBoardGames()
+        {
+            var result = await _boardGameService.GetTopPlayedBoardGamesAsync(5);
+            return NewResponse(200, ApiSuccessMessages.BoardGame.TopPlayedRetrieved, result);
+        }
+
+        /// <summary>
         /// Lấy chi tiết board game kèm danh sách linh kiện và thể loại. [Role: Public — không cần đăng nhập.]
         /// </summary>
         /// <param name="id">Mã định danh board game (GameTemplates.Id).</param>

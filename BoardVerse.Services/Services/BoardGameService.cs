@@ -7,20 +7,28 @@ using BoardVerse.Core.Messages;
 using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.IServices;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace BoardVerse.Services.Services
 {
     public class BoardGameService : IBoardGameService
     {
+        // Cache TTL cho widget "Top N board game phổ biến". Thấp vì play count tăng real-time.
+        private static readonly TimeSpan TopGamesCacheTtl = TimeSpan.FromMinutes(5);
+        private const string TopGamesCacheKeyPrefix = "BoardVerse:BoardGames:Top:";
+
         private readonly IGameTemplateRepository _gameTemplateRepository;
         private readonly ICategoryRepository _categoryRepository;
+        private readonly IMemoryCache _memoryCache;
 
         public BoardGameService(
             IGameTemplateRepository gameTemplateRepository,
-            ICategoryRepository categoryRepository)
+            ICategoryRepository categoryRepository,
+            IMemoryCache memoryCache)
         {
             _gameTemplateRepository = gameTemplateRepository;
             _categoryRepository = categoryRepository;
+            _memoryCache = memoryCache;
         }
 
         public async Task<PaginatedResponse<BoardGameListItemDto>> SearchBoardGamesAsync(GetBoardGamesQuery query, CancellationToken cancellationToken = default)
@@ -56,6 +64,31 @@ namespace BoardVerse.Services.Services
                 Description = c.Description,
                 SortOrder = c.SortOrder
             }).ToList();
+        }
+
+        public async Task<List<TopBoardGameDto>> GetTopPlayedBoardGamesAsync(int topCount = 5, CancellationToken cancellationToken = default)
+        {
+            if (topCount <= 0)
+            {
+                throw new BadRequestException("Số lượng board game phải lớn hơn 0.");
+            }
+
+            // Cache key theo topCount để mỗi kích thước có bucket riêng.
+            var cacheKey = $"{TopGamesCacheKeyPrefix}{topCount}";
+            if (_memoryCache.TryGetValue(cacheKey, out List<TopBoardGameDto>? cached) && cached != null)
+            {
+                return cached;
+            }
+
+            var result = await _gameTemplateRepository.GetTopPlayedBoardGamesAsync(topCount, cancellationToken);
+
+            _memoryCache.Set(cacheKey, result, new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = TopGamesCacheTtl,
+                Priority = CacheItemPriority.Normal
+            });
+
+            return result;
         }
 
         public async Task<GamePlayConfigurationDto> GetPlayConfigurationAsync(Guid gameTemplateId, CancellationToken cancellationToken = default)

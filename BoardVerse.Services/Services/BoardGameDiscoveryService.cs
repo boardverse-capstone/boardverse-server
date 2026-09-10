@@ -276,6 +276,37 @@ public class BoardGameDiscoveryService : IBoardGameDiscoveryService
         };
     }
 
+    public async Task<BoardGameSaveResultDto> UnsaveGameAsync(
+        Guid userId,
+        Guid gameTemplateId,
+        CancellationToken cancellationToken = default)
+    {
+        var exists = await _gameTemplateRepository.ExistsAsync(gameTemplateId, cancellationToken);
+        if (!exists)
+        {
+            throw new BoardGameNotFoundException(
+                ApiErrorMessages.BoardGame.MasterNotFound(gameTemplateId));
+        }
+
+        var existing = await _saveRepository.GetByUserAndGameAsync(
+            userId, gameTemplateId, cancellationToken);
+        if (existing == null)
+        {
+            throw new NotFoundException(
+                ApiErrorMessages.Discovery.GameNotSaved(gameTemplateId));
+        }
+
+        await _saveRepository.DeleteAsync(userId, gameTemplateId, cancellationToken);
+        await _saveRepository.SaveChangesAsync(cancellationToken);
+
+        return new BoardGameSaveResultDto
+        {
+            GameTemplateId = gameTemplateId,
+            IsSaved = false,
+            SavedAt = null
+        };
+    }
+
     // ===== Private helper methods =====
 
     private GetMasterGamesQuery BuildSurveyQuery(
