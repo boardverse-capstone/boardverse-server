@@ -443,6 +443,7 @@ public class BoardGameServiceTests
         });
 
         Assert.Equal(GamePlayNavigationTarget.LobbyCreation, result.NavigationTarget);
+        Assert.NotNull(result.RoomConfiguration);
         Assert.Equal(2, result.RoomConfiguration.MinPlayers);
         Assert.Equal(2, result.RoomConfiguration.MaxPlayers);
         Assert.Equal(2, result.RoomConfiguration.DefaultPlayerCount);

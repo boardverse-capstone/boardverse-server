@@ -50,8 +50,7 @@ public class NullSafetyIntegrationTests
         // Mỗi booking phải có Status non-null
         foreach (var booking in body.Data!)
         {
-            Assert.NotNull(booking.Status);
-            Assert.NotNull(booking.Id);
+            // Status/Id là value types (enum/Guid) — không cần Assert.NotNull
         }
     }
 

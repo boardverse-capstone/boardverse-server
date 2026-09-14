@@ -10,6 +10,9 @@ namespace BoardVerse.Core.DTOs.Lobby
         [Required]
         public DateTime ScheduledStartTime { get; set; }
 
+        /// <summary>Thời điểm dự kiến kết thúc chơi tại quán. Optional.</summary>
+        public DateTime? ScheduledEndTime { get; set; }
+
         [Range(2, 20)]
         public int MaxMembers { get; set; }
 
@@ -71,6 +74,9 @@ namespace BoardVerse.Core.DTOs.Lobby
         public int? MinPlayers { get; set; }
 
         public DateTime? ScheduledStartTime { get; set; }
+
+        /// <summary>Thời điểm dự kiến kết thúc chơi tại quán. Optional.</summary>
+        public DateTime? ScheduledEndTime { get; set; }
 
         public bool? IsPrivate { get; set; }
 

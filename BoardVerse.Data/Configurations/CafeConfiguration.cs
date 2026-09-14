@@ -28,7 +28,7 @@ namespace BoardVerse.Data.Configurations
                 .HasColumnType("double precision");
 
             builder.Property(c => c.Location)
-                .HasColumnType("geography (point,4326)");
+                .HasColumnType("geography (Point, 4326)");
 
             builder.Property(c => c.PhoneNumber)
                 .HasMaxLength(50);

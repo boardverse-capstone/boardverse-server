@@ -80,6 +80,13 @@ public class Lobby
     /// </summary>
     public DateTime? ScheduledStartTime { get; set; }
 
+    /// <summary>
+    /// Thời điểm dự kiến kết thúc chơi tại quán.
+    /// §9.7: MIRROR từ <c>Reservation.ScheduledEndTime</c>. Giữ cho index IX_Lobbies_ScheduledEndTime.
+    /// Query trực tiếp từ <c>Reservation.ScheduledEndTime</c> khi cần độ chính xác cao.
+    /// </summary>
+    public DateTime? ScheduledEndTime { get; set; }
+
     /// <summary>Latitude của quán mục tiêu (từ Cafe) - dùng để tìm phòng chờ gần user.</summary>
     public double? Latitude { get; set; }
 

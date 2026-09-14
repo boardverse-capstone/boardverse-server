@@ -83,6 +83,7 @@ namespace BoardVerse.Data.Configurations
             builder.HasIndex(l => l.GameTemplateId);
             builder.HasIndex(l => l.HostUserId);
             builder.HasIndex(l => l.ScheduledStartTime);
+            builder.HasIndex(l => l.ScheduledEndTime);
             builder.HasIndex(l => new { l.IsPrivate, l.Status, l.ScheduledStartTime });
         }
     }

@@ -13,9 +13,13 @@ namespace BoardVerse.Core.DTOs.Lobby
         /// <summary>Tên quán cafe (Cafe.Name). Trả null khi cafe đã bị xóa/ẩn.
         /// Tiết kiệm 1 round-trip cho client: không cần gọi thêm /api/v1/cafes/{cafeId} để hiển thị tên.</summary>
         public string? CafeName { get; set; }
+        /// <summary>Địa chỉ quán cafe (Cafe.Address). Trả null khi cafe đã bị xóa/ẩn.
+        /// Giúp client hiển thị địa chỉ trực tiếp trên lobby card mà không cần gọi thêm /api/v1/cafes/{cafeId}.</summary>
+        public string? CafeAddress { get; set; }
         public Guid? BookingId { get; set; }
 
         public DateTime? ScheduledStartTime { get; set; }
+        public DateTime? ScheduledEndTime { get; set; }
         public int MaxMembers { get; set; }
         public int MinPlayers { get; set; }
         public int? SeatCount { get; set; }

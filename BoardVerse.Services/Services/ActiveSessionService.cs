@@ -289,11 +289,14 @@ namespace BoardVerse.Services.Services
                 throw new BadRequestException(ApiErrorMessages.Pos.PartialCheckoutRequiresAtLeastOneMember);
             }
 
-            // BUG-1 Fix: Validate selected members are in Playing status
-            // Only members who are currently Playing can be checked out early
+            // BUG-1 Fix: Validate selected members are in Playing OR SuspendedMutation status.
+            // Sau EndGame, tất cả members đều SuspendedMutation (chờ kiểm kê).
+            // Staff partial checkout từ Checking → chọn members về sớm (đã SuspendedMutation
+            // do EndGame) HOẶC Playing (nếu gọi trực tiếp mà không qua EndGame).
             var invalidMembers = session.Members
                 .Where(m => request.MemberIds.Contains(m.Id)
-                    && m.Status != IndividualSessionStatus.Playing)
+                    && m.Status != IndividualSessionStatus.Playing
+                    && m.Status != IndividualSessionStatus.SuspendedMutation)
                 .ToList();
 
             if (invalidMembers.Count > 0)
@@ -840,7 +843,7 @@ namespace BoardVerse.Services.Services
                         newSession.Members.Add(newMember);
 
                         // Hard-delete khỏi source (audit log giữ ở PlayerActionHistory nếu cần sau)
-                        sourceSession.Members.Remove(oldMember);
+                        sourceSession!.Members.Remove(oldMember);
                         _db.ActiveSessionMembers.Remove(oldMember);
                     }
 

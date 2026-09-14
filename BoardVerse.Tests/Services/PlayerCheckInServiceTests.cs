@@ -203,6 +203,11 @@ public class PlayerCheckInServiceTests : IClassFixture<DatabaseResetFixture>
     /// Nếu service vẫn gọi method cũ → test FAIL với ForbiddenException.
     /// Sau fix: service gọi method mới → test PASS.
     /// </summary>
+    /// <summary>
+    /// GAP-R3-04: Test verify CheckInByTokenAsync gọi CheckInByPlayerAsync (player-led).
+    /// Cần real DB để seed reservation/confirmation rows qua raw SQL (bypass Location geography).
+    /// Test thuộc integration tier — chạy trên Neon testing branch thật.
+    /// </summary>
     [Fact]
     public async Task CheckInByToken_HappyPath_CallsPlayerMethod_NotStaffMethod()
     {
@@ -240,11 +245,26 @@ public class PlayerCheckInServiceTests : IClassFixture<DatabaseResetFixture>
         await _db.SaveChangesAsync();
 
         // Insert Cafe bằng raw SQL (bypass Location geography column).
+        // Provide every NOT NULL column (no defaults on several Phase-2+ profile fields).
         await _db.Database.ExecuteSqlRawAsync(
-            @"INSERT INTO ""Cafes"" (""Id"", ""Name"", ""Address"", ""ManagerId"", ""IsActive"", ""CreatedAt"", ""UpdatedAt"")
-              VALUES ({0}, {1}, {2}, {3}, {4}, NOW(), NOW())
+            @"INSERT INTO ""Cafes"" (""Id"", ""Name"", ""Address"", ""ManagerId"", ""IsActive"",
+                                     ""TotalSeats"", ""NumberOfTables"", ""NumberOfPrivateRooms"",
+                                     ""NumberOfGamesOwned"", ""HasGameMaster"",
+                                     ""BillingModel"", ""BasePrice"", ""TieredBlockMinutes"",
+                                     ""IsPricingLocked"", ""DepositPercentage"",
+                                     ""DefaultHoldDurationMinutes"", ""RefundPolicy"", ""RefundTiersJson"",
+                                     ""CreatedAt"", ""UpdatedAt"")
+              VALUES ({0}, {1}, {2}, {3}, {4},
+                      {5}, {6}, {7}, {8}, {9},
+                      {10}, {11}, {12}, {13}, {14},
+                      {15}, {16}, {17}, NOW(), NOW())
               ON CONFLICT (""Id"") DO NOTHING",
-            cafeId, "Test Cafe", "123 Test Street", cafeManagerId, true);
+            cafeId, "Test Cafe", "123 Test Street", cafeManagerId, true,
+            10, 5, 1, 50, false,
+            "ByHour", 30000m, 15,
+            false, 0.5m,
+            30, 0,
+            "[{\"minHoursBeforeScheduled\":24,\"refundPercent\":50},{\"minHoursBeforeScheduled\":12,\"refundPercent\":25},{\"minHoursBeforeScheduled\":0,\"refundPercent\":0}]");
 
         // Seed reservation (Confirmed, trong check-in window, player là Host).
         var reservation = new Reservation
@@ -376,6 +396,7 @@ public class PlayerCheckInServiceTests : IClassFixture<DatabaseResetFixture>
     /// <summary>
     /// Verify exception từ <c>CheckInByReservationCodeForPlayerAsync</c> propagate đúng lên caller,
     /// KHÔNG bị nuốt và KHÔNG fallback sang <c>CheckInByCodeAsync</c>.
+    /// Cần real DB để seed reservation/confirmation rows qua raw SQL (bypass Location geography).
     /// </summary>
     [Fact]
     public async Task CheckInByToken_PropagatesExceptionFromPlayerMethod()
@@ -427,11 +448,26 @@ public class PlayerCheckInServiceTests : IClassFixture<DatabaseResetFixture>
         await _db.SaveChangesAsync();
 
         // Insert Cafe bằng raw SQL (bypass Location geography column).
+        // Provide every NOT NULL column (no defaults on several Phase-2+ profile fields).
         await _db.Database.ExecuteSqlRawAsync(
-            @"INSERT INTO ""Cafes"" (""Id"", ""Name"", ""Address"", ""ManagerId"", ""IsActive"", ""CreatedAt"", ""UpdatedAt"")
-              VALUES ({0}, {1}, {2}, {3}, {4}, NOW(), NOW())
+            @"INSERT INTO ""Cafes"" (""Id"", ""Name"", ""Address"", ""ManagerId"", ""IsActive"",
+                                     ""TotalSeats"", ""NumberOfTables"", ""NumberOfPrivateRooms"",
+                                     ""NumberOfGamesOwned"", ""HasGameMaster"",
+                                     ""BillingModel"", ""BasePrice"", ""TieredBlockMinutes"",
+                                     ""IsPricingLocked"", ""DepositPercentage"",
+                                     ""DefaultHoldDurationMinutes"", ""RefundPolicy"", ""RefundTiersJson"",
+                                     ""CreatedAt"", ""UpdatedAt"")
+              VALUES ({0}, {1}, {2}, {3}, {4},
+                      {5}, {6}, {7}, {8}, {9},
+                      {10}, {11}, {12}, {13}, {14},
+                      {15}, {16}, {17}, NOW(), NOW())
               ON CONFLICT (""Id"") DO NOTHING",
-            cafeId, "Test Cafe", "123 Test Street", cafeManagerId2, true);
+            cafeId, "Test Cafe", "123 Test Street", cafeManagerId2, true,
+            10, 5, 1, 50, false,
+            "ByHour", 30000m, 15,
+            false, 0.5m,
+            30, 0,
+            "[{\"minHoursBeforeScheduled\":24,\"refundPercent\":50},{\"minHoursBeforeScheduled\":12,\"refundPercent\":25},{\"minHoursBeforeScheduled\":0,\"refundPercent\":0}]");
 
         _db.Reservations.Add(reservation);
         _db.PosCheckInTokens.Add(token);

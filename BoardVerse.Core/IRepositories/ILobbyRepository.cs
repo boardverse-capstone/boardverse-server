@@ -43,8 +43,13 @@ public interface ILobbyRepository
 
     /// <summary>
     /// Lấy tất cả lobby của user (host hoặc member, active).
+    /// Filter theo status (null = tất cả active statuses).
+    /// Sort theo displayOrder (Open &gt; InProgress &gt; ...) + ScheduledStartTime desc.
     /// </summary>
-    Task<IReadOnlyList<Lobby>> GetMyLobbiesAsync(Guid userId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<Lobby>> GetMyLobbiesAsync(
+        Guid userId,
+        IReadOnlyList<LobbyStatus>? statuses = null,
+        CancellationToken cancellationToken = default);
 
     // ===== BR-NEW-* mở rộng cho Reservation flow =====
 

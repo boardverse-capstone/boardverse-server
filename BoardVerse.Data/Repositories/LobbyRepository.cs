@@ -270,9 +270,12 @@ namespace BoardVerse.Data.Repositories
                 .ToListAsync();
         }
 
-        public async Task<IReadOnlyList<Lobby>> GetMyLobbiesAsync(Guid userId, CancellationToken cancellationToken = default)
+        public async Task<IReadOnlyList<Lobby>> GetMyLobbiesAsync(
+            Guid userId,
+            IReadOnlyList<LobbyStatus>? statuses = null,
+            CancellationToken cancellationToken = default)
         {
-            return await _db.Lobbies
+            var query = _db.Lobbies
                 .Include(l => l.Members)
                     .ThenInclude(m => m.User)
                         .ThenInclude(u => u.Profile)
@@ -280,11 +283,67 @@ namespace BoardVerse.Data.Repositories
                 .Include(l => l.Cafe)
                 .Where(l => ActiveLobbyStatuses.Contains(l.Status)
                     && (l.HostUserId == userId
-                        || l.Members.Any(m => m.UserId == userId && m.IsActive)))
-                .OrderByDescending(l => l.ScheduledStartTime ?? l.CreatedAt)
+                        || l.Members.Any(m => m.UserId == userId && m.IsActive)));
+
+            if (statuses != null && statuses.Count > 0)
+            {
+                query = query.Where(l => statuses.Contains(l.Status));
+            }
+
+            // EF Core 8 dịch ternary chain trong OrderBy sang SQL CASE WHEN.
+            // Không dùng static method vì EF không thể translate custom method.
+            // 2026-09-14 (user feedback): ưu tiên Open > InProgress > ... xem helper LobbyDisplayOrder dưới.
+            return await query
+                .OrderBy(l => l.Status == Core.Enum.LobbyStatus.Open ? 0
+                    : l.Status == Core.Enum.LobbyStatus.InProgress ? 1
+                    : l.Status == Core.Enum.LobbyStatus.PendingActivation ? 2
+                    : l.Status == Core.Enum.LobbyStatus.PendingCafeApproval ? 3
+                    : l.Status == Core.Enum.LobbyStatus.Viable ? 4
+                    : l.Status == Core.Enum.LobbyStatus.Full ? 5
+                    : l.Status == Core.Enum.LobbyStatus.WaitingCheckIn ? 6
+                    : l.Status == Core.Enum.LobbyStatus.RatingOpen ? 7
+                    : l.Status == Core.Enum.LobbyStatus.Closed ? 8
+                    : l.Status == Core.Enum.LobbyStatus.TimeoutFailed ? 9
+                    : l.Status == Core.Enum.LobbyStatus.HostCancelled ? 10
+                    : l.Status == Core.Enum.LobbyStatus.RejectedByCafe ? 11
+                    : l.Status == Core.Enum.LobbyStatus.ExpiredByCafe ? 12
+                    : l.Status == Core.Enum.LobbyStatus.Dissolved ? 13
+                    : 99)
+                .ThenByDescending(l => l.ScheduledStartTime ?? l.CreatedAt)
                 .Take(50)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
         }
+
+        /// <summary>
+        /// Reference mapping LobbyStatus → display order (chỉ dùng cho documentation,
+        /// client-side sort, hoặc unit test assertion — KHÔNG dùng trong EF Core LINQ query
+        /// vì EF không translate được custom method). Xem <c>GetMyLobbiesAsync</c> để biết
+        /// ternary chain inlined cho query SQL.
+        /// </summary>
+        private static int GetLobbyDisplayOrder(Core.Enum.LobbyStatus status) => status switch
+        {
+            // 2026-09-14 (user feedback): UX của tab "Phòng của tôi" cần ưu tiên 2 trạng thái
+            // mà user phải hành động / theo dõi trực tiếp:
+            //   - Open: đang tuyển người, cần mời bạn / theo dõi member mới.
+            //   - InProgress: đang chơi tại quán, hiển thị trên cùng để user thấy phiên hiện tại.
+            // Các trạng thái trung gian (PendingActivation, PendingCafeApproval, Viable,
+            // Full, WaitingCheckIn) đẩy xuống sau — vẫn active nhưng ít cần hành động hơn.
+            Core.Enum.LobbyStatus.Open => 0,
+            Core.Enum.LobbyStatus.InProgress => 1,
+            Core.Enum.LobbyStatus.PendingActivation => 2,
+            Core.Enum.LobbyStatus.PendingCafeApproval => 3,
+            Core.Enum.LobbyStatus.Viable => 4,
+            Core.Enum.LobbyStatus.Full => 5,
+            Core.Enum.LobbyStatus.WaitingCheckIn => 6,
+            Core.Enum.LobbyStatus.RatingOpen => 7,
+            Core.Enum.LobbyStatus.Closed => 8,
+            Core.Enum.LobbyStatus.TimeoutFailed => 9,
+            Core.Enum.LobbyStatus.HostCancelled => 10,
+            Core.Enum.LobbyStatus.RejectedByCafe => 11,
+            Core.Enum.LobbyStatus.ExpiredByCafe => 12,
+            Core.Enum.LobbyStatus.Dissolved => 13,
+            _ => 99
+        };
 
         // ===== BR-NEW-* mở rộng cho Reservation flow =====
 

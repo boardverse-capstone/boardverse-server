@@ -97,7 +97,7 @@ public class CafeTableSyncHelperTests
         // 4 bàn: 3 cũ (soft-delete) + 1 mới.
         Assert.Equal(4, tables.Count);
         Assert.Equal(3, tables.Count(t => !t.IsActive));
-        Assert.Single(tables.Where(t => t.IsActive && t.Name == "New Table"));
+        Assert.Single(tables, t => t.IsActive && t.Name == "New Table");
 
         // Các bàn cũ giữ nguyên Id nhưng IsActive=false.
         Assert.All(originalIds, id =>

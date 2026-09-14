@@ -32,7 +32,7 @@ public class LeaderboardControllerIntegrationTests
         Assert.True(payload.Data.Offset >= 0);
         Assert.True(payload.Data.Limit > 0);
         Assert.True(payload.Data.TotalCount >= 0);
-        Assert.NotNull(payload.Data.GeneratedAt);
+        // GeneratedAt is DateTime (value type) — no Assert.NotNull needed
     }
 
     [IntegrationFact]

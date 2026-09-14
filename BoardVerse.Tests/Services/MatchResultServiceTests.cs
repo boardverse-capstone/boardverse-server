@@ -1,4 +1,5 @@
-﻿using BoardVerse.Core.DTOs.Match;
+﻿using BoardVerse.Core.Data;
+using BoardVerse.Core.DTOs.Match;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
@@ -44,44 +45,7 @@ public class MatchResultServiceTests
         repo.Verify(r => r.AddSubmissionAsync(It.IsAny<MatchResult>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    [Fact(Skip = "MatchResultService uses DbContext transactions which require real database - integration tests only")]
-    public async Task SubmitMatchResultAsync_ConsensusReached_FinalizesAndUpdatesElo()
-    {
-        var repo = new Mock<IMatchResultRepository>();
-        var config = new Mock<ISystemConfigurationProvider>();
-        var lobby = BuildLobby(LobbyStatus.InProgress);
-
-        repo.Setup(r => r.GetLobbyForMatchAsync(LobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
-        repo.Setup(r => r.GameSupportsMatchResultsAsync(GameId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
-        repo.Setup(r => r.GetFinalizedHistoryAsync(LobbyId, It.IsAny<CancellationToken>())).ReturnsAsync((MatchHistory?)null);
-        repo.Setup(r => r.GetSubmissionAsync(LobbyId, Player2, It.IsAny<CancellationToken>())).ReturnsAsync((MatchResult?)null);
-        repo.Setup(r => r.GetSubmissionsAsync(LobbyId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(
-            [
-                BuildSubmission(Player1, MatchOutcome.Win),
-                BuildSubmission(Player2, MatchOutcome.Loss)
-            ]);
-        repo.Setup(r => r.GetProfileForUpdateAsync(Player1, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new UserProfile { UserId = Player1, GlobalElo = 1200, KarmaPoints = 100 });
-        repo.Setup(r => r.GetProfileForUpdateAsync(Player2, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new UserProfile { UserId = Player2, GlobalElo = 1200, KarmaPoints = 100 });
-        config.Setup(c => c.GetIntAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync(32);
-
-        var service = new MatchResultService(repo.Object, config.Object);
-        var result = await service.SubmitMatchResultAsync(Player2, new SubmitMatchResultRequestDto
-        {
-            LobbyId = LobbyId,
-            Outcome = MatchOutcome.Loss
-        });
-
-        Assert.Equal(MatchConsensusStatus.Finalized, result.ConsensusStatus);
-        Assert.NotNull(result.MatchHistoryId);
-        Assert.Equal(2, result.EloUpdates!.Count);
-        repo.Verify(r => r.AddMatchHistoryAsync(It.IsAny<MatchHistory>(), It.IsAny<CancellationToken>()), Times.Once);
-        repo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.AtLeastOnce);
-    }
-
-    [Fact]
+            [Fact]
     public async Task SubmitMatchResultAsync_OpenLobby_ThrowsBadRequest()
     {
         var repo = new Mock<IMatchResultRepository>();

@@ -28,13 +28,21 @@ public class DiscoverableLobbyIntegrationTests
         var adminToken = await IntegrationTestAuth.AsAdminAsync(_client);
         ApiTestClient.Authorize(_client, adminToken);
 
-        var response = await _client.PostAsJsonAsync(
-            $"/api/v1/admin/wallet/adjust?userId={playerUserId}&adjustmentBvc={amountBvc}&reason=Test-{suffix}",
-            Array.Empty<object>());
+        // AdminWalletController.AdjustBalance expects JSON body (AdminAdjustBalanceRequestDto),
+        // not query parameters. Old test sent query params → BadRequest.
+        var body = new
+        {
+            TargetUserId = playerUserId,
+            AmountBvc = amountBvc,
+            IsCredit = true,
+            Reason = $"Test-{suffix}",
+            IdempotencyKey = $"test-{suffix}-{Guid.NewGuid():N}"
+        };
+        var response = await _client.PostAsJsonAsync("/api/v1/admin/wallet/adjust", body);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var body = await ApiTestClient.ReadApiResponseAsync<WalletDto>(response);
-        return body.Data?.AvailableBalance ?? 0;
+        var respBody = await ApiTestClient.ReadApiResponseAsync<WalletDto>(response);
+        return respBody.Data?.AvailableBalance ?? 0;
     }
 
     private async Task<long> GetAvailableBalanceAsync()
@@ -59,7 +67,7 @@ public class DiscoverableLobbyIntegrationTests
         var player1 = await IntegrationTestAuth.AsPlayer1Async(_client);
         ApiTestClient.Authorize(_client, player1);
 
-        var playDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3));
+        var playDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1));
         var idempotencyKey = $"test-disc-open-{Guid.NewGuid():N}";
 
         // Quote + Confirm tạo lobby (status = Open sau khi tạo)
@@ -199,6 +207,10 @@ public class DiscoverableLobbyIntegrationTests
     [IntegrationFact]
     public async Task Discoverable_LobbyInProgress_DoesNotAppear()
     {
+        // Need to authenticate first — endpoint requires logged-in user.
+        var player1 = await IntegrationTestAuth.AsPlayer1Async(_client);
+        ApiTestClient.Authorize(_client, player1);
+
         var discoverableResponse = await _client.GetAsync(
             "/api/v1/lobbies/discoverable?latitude=10.8231&longitude=106.6297&radiusKm=50");
 
@@ -209,6 +221,6 @@ public class DiscoverableLobbyIntegrationTests
         Assert.NotNull(discoverableBody.Data);
 
         // DemoMatchLobbyId đang InProgress (bootstrapper seed) — phải KHÔNG xuất hiện
-        Assert.DoesNotContain(discoverableBody.Data, l => l.Id == IntegrationTestFixtures.DemoMatchLobbyId);
+        Assert.DoesNotContain(discoverableBody.Data!, l => l.Id == IntegrationTestFixtures.DemoMatchLobbyId);
     }
 }

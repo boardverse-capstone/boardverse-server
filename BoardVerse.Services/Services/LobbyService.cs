@@ -173,6 +173,7 @@ namespace BoardVerse.Services.Services
                 CafeId = request.CafeId,
                 BookingId = request.BookingId,
                 ScheduledStartTime = request.ScheduledStartTime,
+                ScheduledEndTime = request.ScheduledEndTime,
                 CancellationLeadTimeMinutes = request.CancellationLeadTimeMinutes,
                 MaxMembers = request.MaxMembers,
                 MinPlayers = minPlayers,
@@ -1701,6 +1702,7 @@ namespace BoardVerse.Services.Services
             lobby.PreferredEndTime = request.PreferredEndTime ?? lobby.PreferredEndTime;
             lobby.RecruitmentDeadline = newDeadline;
             lobby.ScheduledStartTime = scheduledStartTime;
+            lobby.ScheduledEndTime = scheduledEndTime;
             lobby.UpdatedAt = now;
 
             // Update Reservation nếu có
@@ -1899,6 +1901,11 @@ namespace BoardVerse.Services.Services
                 lobby.ScheduledStartTime = request.ScheduledStartTime.Value;
             }
 
+            if (request.ScheduledEndTime.HasValue)
+            {
+                lobby.ScheduledEndTime = request.ScheduledEndTime.Value;
+            }
+
             if (request.IsPrivate.HasValue) lobby.IsPrivate = request.IsPrivate.Value;
             if (request.Description != null) lobby.Description = request.Description;
             if (request.CoverImageUrl != null) lobby.CoverImageUrl = request.CoverImageUrl;
@@ -2014,10 +2021,14 @@ namespace BoardVerse.Services.Services
             return lobbies.Select(l => MapLobbyDto(l, null)).ToList();
         }
 
-        public async Task<IReadOnlyList<LobbyResponseDto>> GetMyLobbiesAsync(Guid userId, CancellationToken cancellationToken = default)
+        public async Task<IReadOnlyList<LobbyResponseDto>> GetMyLobbiesAsync(
+            Guid userId,
+            IReadOnlyList<Core.Enum.LobbyStatus>? statuses = null,
+            CancellationToken cancellationToken = default)
         {
-            _logger.LogDebug("GetMyLobbiesAsync called. UserId={UserId}", userId);
-            var lobbies = await _lobbyRepository.GetMyLobbiesAsync(userId);
+            _logger.LogDebug("GetMyLobbiesAsync called. UserId={UserId}, Statuses={Statuses}",
+                userId, statuses == null ? "<null=all>" : string.Join(",", statuses));
+            var lobbies = await _lobbyRepository.GetMyLobbiesAsync(userId, statuses, cancellationToken);
             _logger.LogDebug("GetMyLobbiesAsync result. UserId={UserId}, FoundCount={Count}", userId, lobbies.Count);
             return lobbies.Select(l => MapLobbyDto(l, null)).ToList();
         }
@@ -2092,7 +2103,7 @@ namespace BoardVerse.Services.Services
                 IsPrivate = l.IsPrivate,
                 ShareCode = l.ShareCode,
                 ScheduledStartTime = l.ScheduledStartTime ?? DateTime.MinValue,
-                ScheduledEndTime = l.Reservation?.ScheduledEndTime ?? DateTime.MinValue,
+                ScheduledEndTime = l.ScheduledEndTime ?? l.Reservation?.ScheduledEndTime ?? DateTime.MinValue,
                 RecruitmentDeadline = l.RecruitmentDeadline ?? DateTime.MinValue,
                 DepositAmount = l.Reservation?.DepositAmount ?? 0,
                 CreatedAt = l.CreatedAt
@@ -2151,8 +2162,10 @@ namespace BoardVerse.Services.Services
                 GameName = lobby.GameTemplate?.Name,
                 CafeId = lobby.CafeId,
                 CafeName = lobby.Cafe?.Name,
+                CafeAddress = lobby.Cafe?.Address,
                 BookingId = lobby.BookingId,
                 ScheduledStartTime = lobby.ScheduledStartTime,
+                ScheduledEndTime = lobby.ScheduledEndTime,
                 MaxMembers = lobby.MaxMembers,
                 MinPlayers = lobby.MinPlayers,
                 SeatCount = lobby.SeatCount,

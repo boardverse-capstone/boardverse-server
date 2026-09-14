@@ -963,7 +963,7 @@ public class LobbyServiceTests
         var result = await service.JoinLobbyAsync(lobbyId, newUserId);
 
         Assert.Equal(2, result.Members.Count);
-        Assert.True(result.Members.Any(m => m.UserId == newUserId));
+        Assert.Contains(result.Members, m => m.UserId == newUserId);
     }
 
     [Fact]

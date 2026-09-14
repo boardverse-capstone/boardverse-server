@@ -17,7 +17,7 @@ namespace BoardVerse.Tests.Helpers;
 public class FakeDbContext : BoardVerseDbContext
 {
     private static readonly string? RealConnectionString = LoadConnectionString();
-    private static readonly bool IsTestingDb = RealConnectionString?.Contains("morning-darkness") == true;
+    private static readonly bool IsTestingDb = RealConnectionString?.Contains("jolly-mud") == true;
     private static readonly object CleanupLock = new();
 
     public FakeDbContext() : base(BuildOptions())
@@ -60,7 +60,7 @@ public class FakeDbContext : BoardVerseDbContext
     }
 
     /// <summary>
-    /// Cleanup test rows từ testing DB (morning-darkness) trước mỗi test run.
+    /// Cleanup test rows từ testing DB (jolly-mud) trước mỗi test run.
     /// Chỉ chạy khi connected tới testing DB — an toàn tuyệt đối với production.
     /// </summary>
     public static async Task ResetTestDataAsync(CancellationToken ct = default)

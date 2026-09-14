@@ -71,20 +71,35 @@ internal sealed class TestLogger : ILogger
     public bool IsEnabled(LogLevel logLevel) => true;
     public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
     {
-        var msg = formatter(state, exception);
-        lock (_lock)
+        // GAP-006: Catch IOException so logging failures don't cascade into test failures.
+        // When multiple xUnit test collections run in parallel, they may race on the shared
+        // log file (one collection deletes it while another holds it open). The bootstrap
+        // itself succeeds — only the log write fails — so swallowing here is safe.
+        try
         {
-            File.AppendAllText(_path, $"[{logLevel}] {_category}: {msg}\n");
-            if (exception != null)
+            var msg = formatter(state, exception);
+            lock (_lock)
             {
-                File.AppendAllText(_path, $"  EX: {exception.GetType().Name}: {exception.Message}\n");
-                File.AppendAllText(_path, exception.StackTrace + "\n");
-                if (exception.InnerException != null)
+                File.AppendAllText(_path, $"[{logLevel}] {_category}: {msg}\n");
+                if (exception != null)
                 {
-                    File.AppendAllText(_path, $"  INNER: {exception.InnerException.GetType().Name}: {exception.InnerException.Message}\n");
-                    File.AppendAllText(_path, exception.InnerException.StackTrace + "\n");
+                    File.AppendAllText(_path, $"  EX: {exception.GetType().Name}: {exception.Message}\n");
+                    File.AppendAllText(_path, exception.StackTrace + "\n");
+                    if (exception.InnerException != null)
+                    {
+                        File.AppendAllText(_path, $"  INNER: {exception.InnerException.GetType().Name}: {exception.InnerException.Message}\n");
+                        File.AppendAllText(_path, exception.InnerException.StackTrace + "\n");
+                    }
                 }
             }
+        }
+        catch (IOException)
+        {
+            // Suppress log file I/O errors. Test bootstrap must not depend on logger output.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Suppress access errors (e.g., another process holds the file exclusively).
         }
     }
 }

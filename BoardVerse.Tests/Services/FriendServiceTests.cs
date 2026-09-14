@@ -1027,12 +1027,45 @@ public class FriendServiceTests
     }
 
     // ===== SearchUsers/Suggestions filter blocked =====
-    // SKIP: Test has mock signature mismatch with actual service implementation.
-    // Service calls SearchByUsernameAsync with different signature.
+    // BR-FRIEND-07: SearchUsersAsync phải filter blocked users khỏi kết quả tìm kiếm.
+    [Fact]
+    public async Task SearchUsersAsync_FiltersBlockedUsers()
+    {
+        var meId = Guid.NewGuid();
+        var friendId = Guid.NewGuid();
+        var blockedId = Guid.NewGuid();
+        var blockedIds = new List<Guid> { blockedId };
 
-    [Fact(Skip = "Flaky mock - service implementation passes different params")]
-    public Task SearchUsersAsync_FiltersBlockedUsers()
-        => Task.CompletedTask;
+        // Setup: blockedIds trả về từ FriendshipRepository
+        _friendshipRepo.Setup(r => r.GetBlockedUserIdsAsync(meId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(blockedIds);
+
+        // Setup: SearchByUsernameAsync trả về user list (đã filter sẵn ở repo level)
+        var friend = new User { Id = friendId, Username = "friend_user", Email = "friend@test.com", IsActive = true };
+        _userRepo.Setup(r => r.SearchByUsernameAsync(
+                "keyword", meId, 20, blockedIds, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<User> { friend });
+
+        // Friendship pair cho friendId (Accept)
+        _friendshipRepo.Setup(r => r.GetByPairAsync(meId, friendId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Friendship?)null);
+        _friendshipRepo.Setup(r => r.CountMutualFriendsAsync(meId, friendId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(3);
+
+        var svc = CreateService();
+        var result = await svc.SearchUsersAsync(meId, "keyword", 20);
+
+        // Verify: blockedIds được pass cho repository (filter ở SQL level)
+        _userRepo.Verify(r => r.SearchByUsernameAsync(
+            "keyword", meId, 20,
+            It.Is<IReadOnlyCollection<Guid>>(ids => ids.Contains(blockedId)),
+            It.IsAny<CancellationToken>()), Times.Once);
+
+        // Verify: result chỉ chứa friendId (không chứa blockedId)
+        Assert.Single(result);
+        Assert.Equal(friendId, result[0].UserId);
+        Assert.DoesNotContain(result, u => u.UserId == blockedId);
+    }
 
     [Fact]
     public async Task GetFriendSuggestionsAsync_FiltersBlockedUsers()

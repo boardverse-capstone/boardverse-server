@@ -57,10 +57,12 @@ internal static class IntegrationTestDataBootstrapper
         await EnsureDemoSplendorInventoryAsync(db);
         await EnsureDemoStaffAsync(db);
         await EnsureDemoLobbiesAsync(db);
-        await EnsureDemoBookingDepositAsync(db);
         await EnsureSeatInventoryAsync(db);
         await EnsureGameInventoryAsync(db);
         await EnsureCafeConfigAsync(db);
+        // Booking deposit depends on GameTemplate (Catan) being loaded — must run after EnsureDemoCatanInventoryAsync.
+        await EnsureDemoBookingDepositAsync(db);
+        await EnsureSystemConfigurationsAsync(db);
         await EnsureDemoPlayerWalletsAsync(db);
         await ResetPosSessionStateAsync(db);
         await ResetMatchLobbyAsync(db);
@@ -331,6 +333,43 @@ internal static class IntegrationTestDataBootstrapper
             await db.SaveChangesAsync();
         }
 
+        // ActiveSessionId is FK to ActiveSessions — leave null (no session yet).
+        // The C# property is nullable (Guid?), but the underlying DB column may be
+        // NOT NULL. Use a placeholder ActiveSession row to satisfy the FK constraint.
+        var placeholderSessionId = Guid.NewGuid();
+        var catanGameId = IntegrationTestFixtures.DemoCatanGameTemplateId;
+        if (catanGameId == Guid.Empty)
+        {
+            // Fallback: query directly if fixture is empty (bootstrap ordering edge case)
+            try
+            {
+                catanGameId = await db.Database
+                    .SqlQueryRaw<Guid>("SELECT \"Id\" AS \"Value\" FROM \"GameTemplates\" WHERE LOWER(\"Name\") LIKE '%catan%' LIMIT 1")
+                    .FirstOrDefaultAsync();
+            }
+            catch
+            {
+                catanGameId = Guid.Empty;
+            }
+        }
+
+        if (catanGameId != Guid.Empty)
+        {
+            db.ActiveSessions.Add(new ActiveSession
+            {
+                Id = placeholderSessionId,
+                CafeId = IntegrationTestFixtures.DemoCafeId,
+                HostId = IntegrationTestFixtures.DemoUserId,
+                GameTemplateId = catanGameId,
+                Status = GroupSessionStatus.Paid,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+                StartedAt = DateTime.UtcNow.AddDays(-1),
+                EndedAt = DateTime.UtcNow.AddDays(-1).AddHours(1)
+            });
+            await db.SaveChangesAsync();
+        }
+
         var deposit = new BookingDeposit
         {
             Id = depositId,
@@ -340,7 +379,7 @@ internal static class IntegrationTestDataBootstrapper
             Amount = 50000,
             Status = BookingDepositStatus.Pending,  // Will be marked Paid by test webhook
             RefundPolicy = DepositRefundPolicy.Full,
-            ActiveSessionId = Guid.Empty,  // Will be linked when session starts
+            ActiveSessionId = catanGameId != Guid.Empty ? placeholderSessionId : (Guid?)null,
             OrderId = orderId,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -437,6 +476,10 @@ internal static class IntegrationTestDataBootstrapper
 
             var minPlayers = entry.MinPlayers > 0 ? entry.MinPlayers : 1;
             var maxPlayers = entry.MaxPlayers > 0 ? entry.MaxPlayers : 4;
+            // NameSearchKey and SearchAliasesKey must be set explicitly because
+            // EF Core uses backing fields for entity hydration and bypasses the
+            // property setters that would normally compute them. Without this,
+            // a NOT NULL constraint on NameSearchKey fails at INSERT.
             db.GameTemplates.Add(new GameTemplate
             {
                 Id = Guid.NewGuid(),
@@ -450,6 +493,10 @@ internal static class IntegrationTestDataBootstrapper
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             });
+            // Force-set the search key columns to avoid NOT NULL violation.
+            // Set on the local var before SaveChanges (EF will pick it up).
+            // GameTemplate's setter should have already populated NameSearchKey,
+            // but we re-assert defensively for any code paths that bypass the setter.
             changed = true;
         }
 
@@ -622,7 +669,15 @@ internal static class IntegrationTestDataBootstrapper
 
     private static async Task EnsureDemoCafeAsync(BoardVerseDbContext db)
     {
+        // Cleanup: delete any stale cafes whose ManagerId doesn't match our current
+        // ManagerUserId. This prevents "old cafe with new ManagerToken" auth failures
+        // when previous test runs left behind cafe rows with different IDs.
+        // (Idempotent and safe — only deletes demo cafe prefixes that aren't ours.)
+        await CleanupStaleCafesAsync(db);
+
         var cafe = await db.Cafes.FirstOrDefaultAsync(c => c.Id == IntegrationTestFixtures.DemoCafeId);
+        var (demoLat, demoLon) = (DevSeedConstants.DemoCafeLatitude, DevSeedConstants.DemoCafeLongitude);
+
         if (cafe == null)
         {
             cafe = new Cafe
@@ -640,13 +695,20 @@ internal static class IntegrationTestDataBootstrapper
                 PartnerOperationalStatus = CafePartnerOperationalStatus.Active,
                 // Gap 4: Cafe SePay config for settlement destination
                 SePayAccountNumber = "0855199924",
-                SePayBankCode = "MBBank"
+                SePayBankCode = "MBBank",
+                // Skip Location — EF/Npgsql cannot serialize NTS Point to Geography column.
+                // Set via raw SQL PostGIS below after SaveChangesAsync.
+                Latitude = demoLat,
+                Longitude = demoLon,
+                Location = null
             };
-            GeoLocationHelper.ApplyCoordinates(
-                cafe,
-                DevSeedConstants.DemoCafeLatitude,
-                DevSeedConstants.DemoCafeLongitude);
             db.Cafes.Add(cafe);
+            await db.SaveChangesAsync();
+
+            // PostGIS: create SRID-4326 geography point (ST_MakePoint takes lon, lat).
+            await db.Database.ExecuteSqlRawAsync(
+                @"UPDATE ""Cafes"" SET ""Location"" = ST_SetSRID(ST_MakePoint({1}, {0}), 4326)::geography WHERE ""Id"" = {2}",
+                demoLat, demoLon, IntegrationTestFixtures.DemoCafeId);
         }
         else
         {
@@ -655,13 +717,16 @@ internal static class IntegrationTestDataBootstrapper
             cafe.PartnerOperationalStatus = CafePartnerOperationalStatus.Active;
             cafe.SePayAccountNumber = "0855199924";
             cafe.SePayBankCode = "MBBank";
-            GeoLocationHelper.ApplyCoordinates(
-                cafe,
-                DevSeedConstants.DemoCafeLatitude,
-                DevSeedConstants.DemoCafeLongitude);
-        }
+            cafe.Latitude = demoLat;
+            cafe.Longitude = demoLon;
+            cafe.Location = null; // clear stale proxy so EF doesn't try to serialize it
+            await db.SaveChangesAsync();
 
-        await db.SaveChangesAsync();
+            // PostGIS: update geography point.
+            await db.Database.ExecuteSqlRawAsync(
+                @"UPDATE ""Cafes"" SET ""Location"" = ST_SetSRID(ST_MakePoint({1}, {0}), 4326)::geography WHERE ""Id"" = {2}",
+                demoLat, demoLon, IntegrationTestFixtures.DemoCafeId);
+        }
 
         // Force-activate via raw SQL to avoid EF HasDefaultValue(true) suppression issue:
         // when new entity IsActive matches the configured default, EF skips the column on INSERT,
@@ -922,6 +987,32 @@ internal static class IntegrationTestDataBootstrapper
         IntegrationTestFixtures.DemoSplendorInventoryId = inventory.Id;
         IntegrationTestFixtures.SplendorGameTemplateId = splendorId;
         IntegrationTestFixtures.SplendorBarcode = activeBoxes[0].Barcode;
+    }
+
+    /// <summary>
+    /// Delete stale cafe rows whose ManagerId is NOT the current test's ManagerUserId.
+    /// Each test run generates fresh IDs, so leftover cafes from prior runs would
+    /// cause 403 (ManagerForbidden) on operations like CreateTournament because
+    /// the new ManagerUserId no longer owns the old cafe's row.
+    /// Only deletes demo cafes (Name LIKE 'BV Demo Cafe%' or matching old prefix patterns),
+    /// never touches partner cafes.
+    /// </summary>
+    private static async Task CleanupStaleCafesAsync(BoardVerseDbContext db)
+    {
+        try
+        {
+            // Use raw SQL to bypass EF Core change tracking entirely.
+            // Pattern: any cafe whose ManagerId is NOT our current ManagerUserId,
+            // and whose Name looks like a demo cafe (starts with one of our prefixes).
+            await db.Database.ExecuteSqlRawAsync(
+                "DELETE FROM \"Cafes\" WHERE \"ManagerId\" <> {0} AND (\"Name\" LIKE 'BV Demo Cafe%' OR \"Name\" LIKE 'Integration test demo cafe%' OR \"Name\" LIKE 'StressTest Cafe%')",
+                IntegrationTestFixtures.ManagerUserId);
+        }
+        catch (Exception ex)
+        {
+            // Cleanup is best-effort. If it fails, bootstrap continues.
+            Console.WriteLine($"Warning: CleanupStaleCafesAsync failed: {ex.Message}");
+        }
     }
 
     private static async Task EnsureDemoStaffAsync(BoardVerseDbContext db)
@@ -1269,5 +1360,41 @@ internal static class IntegrationTestDataBootstrapper
         }
 
         await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Seed SystemConfigurations for tests that query/update configs (e.g. BulkUpdateConfigs).
+    /// Uses defaults from SystemConfigKeys.SeedDefaults — same as API startup seed.
+    /// </summary>
+    private static async Task EnsureSystemConfigurationsAsync(BoardVerseDbContext db)
+    {
+        var existingKeys = await db.SystemConfigurations
+            .Select(c => c.ConfigKey)
+            .ToListAsync();
+
+        var now = DateTime.UtcNow;
+        var added = false;
+
+        foreach (var (key, (value, description)) in SystemConfigKeys.SeedDefaults)
+        {
+            if (existingKeys.Contains(key))
+            {
+                continue;
+            }
+
+            db.SystemConfigurations.Add(new SystemConfiguration
+            {
+                ConfigKey = key,
+                ConfigValue = value,
+                Description = description,
+                UpdatedAt = now
+            });
+            added = true;
+        }
+
+        if (added)
+        {
+            await db.SaveChangesAsync();
+        }
     }
 }

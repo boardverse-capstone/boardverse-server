@@ -35,6 +35,7 @@ BoardVerse.Tests/appsettings.Testing.json
 **/*-firebase-*.json
 *firebase-adminsdk*.json
 *.csx
+*.log
 
 BoardVerse.API/appsettings.Production.json
 failed-test-names.txt

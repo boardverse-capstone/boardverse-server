@@ -27,6 +27,7 @@ Tất cả endpoint trả về lobby đều dùng schema này (xem `BoardVerse.C
 | `gameName` | string | ✅ | Tên game (vd "Splendor"), join sẵn từ `GameTemplate` |
 | `cafeId` | Guid | ✅ | Cafe ID; `null` cho lobby không gắn quán (legacy/test) |
 | `cafeName` | string | ✅ | **Tên cafe** — join sẵn từ `Cafe.Name`. `null` khi cafe đã bị ẩn/xóa. |
+| `cafeAddress` | string | ✅ | **Địa chỉ cafe** — join sẵn từ `Cafe.Address`. `null` khi cafe đã bị ẩn/xóa. |
 | `bookingId` | Guid | ✅ | Booking Deposit ID (BR-22 flow). `null` nếu lobby không qua Booking. |
 | `scheduledStartTime` | DateTime | ✅ | Giờ dự kiến chơi |
 | `maxMembers` | int | ❌ | Số người tối đa |
@@ -47,7 +48,7 @@ Tất cả endpoint trả về lobby đều dùng schema này (xem `BoardVerse.C
 | `members` | `LobbyMemberDto[]` | ❌ | Danh sách thành viên active (host + members); join sẵn `User.Profile` (avatar, karma) |
 
 **Note quan trọng cho Flutter:**
-- Từ trước tới nay frontend phải gọi thêm `GET /api/v1/cafes/{cafeId}` để hiển thị tên quán. Hiện tại `cafeName` đã có sẵn trong mọi response → bỏ được round-trip phụ.
+- Từ trước tới nay frontend phải gọi thêm `GET /api/v1/cafes/{cafeId}` để hiển thị tên + địa chỉ quán. Hiện tại `cafeName` và `cafeAddress` đã có sẵn trong mọi response → bỏ được round-trip phụ.
 - `members[].avatarUrl` và `members[].karmaPoints` đã chính xác (fix bug include Profile navigation ngày 2026-08-26).
 
 > **⚠️ DEPRECATION NOTICE — Phase 2 (BR §XXI-B.1)**
@@ -612,10 +613,22 @@ Lấy tất cả lobby của user hiện tại (host hoặc member, chỉ active
 
 **Response codes:**
 - `200` — Trả danh sách (có thể rỗng)
+- `400` — `statuses` hoặc `statusFilter` không hợp lệ
 - `401` — Thiếu token
 - `500` — Lỗi hệ thống
 
 **Use case:** Mobile tab "Phòng của tôi" — hiển thị lobby user đang host hoặc tham gia.
+
+**Query parameters (filter & sort):**
+
+| Param | Type | Required | Mô tả |
+|---|---|---|---|
+| `statuses` | `int[]` | Không | Lọc theo 1 hoặc nhiều `LobbyStatus` enum int. Có thể truyền nhiều lần (`?statuses=0&statuses=6`) hoặc comma-separated (`?statuses=0,6`). Hợp lệ: `Open=0`, `Full=1`, `InProgress=4`, `Closed=5`, `RatingOpen=6`, `PendingActivation=10`, `PendingCafeApproval=11`, `RejectedByCafe=12`, `ExpiredByCafe=13`, `Viable=14`, `Dissolved=15`, `WaitingCheckIn=16`. Bỏ trống = trả tất cả active statuses. |
+| `statusFilter` | `string` | Không | Comma-separated tên enum (`"Open,Viable"`), case-insensitive. Nếu truyền cả 2 tham số thì union lại. |
+
+**Thứ tự ưu tiên sort (2026-09-14):** `Open` → `InProgress` → `PendingActivation` → `PendingCafeApproval` → `Viable` → `Full` → `WaitingCheckIn` → `RatingOpen` → `Closed` → `TimeoutFailed` → `HostCancelled` → `RejectedByCafe` → `ExpiredByCafe` → `Dissolved`. Trong cùng status, sắp theo `ScheduledStartTime` desc (gần nhất trước). Tối đa **50 lobby** trả về.
+
+> Lý do thay đổi: tab "Phòng của tôi" cần ưu tiên 2 trạng thái mà user phải theo dõi trực tiếp — `Open` (đang tuyển người) và `InProgress` (đang chơi tại quán) — trước các trạng thái trung gian ít cần hành động (`PendingActivation`, `PendingCafeApproval`, ...).
 
 **Ví dụ response:**
 
@@ -628,6 +641,7 @@ Lấy tất cả lobby của user hiện tại (host hoặc member, chỉ active
     "gameName": "Splendor",
     "cafeId": "a1aae9db-4f1b-44af-ac86-6038d085df94",
     "cafeName": "BoardVerse Cafe Thủ Đức",
+    "cafeAddress": "Số 12 đường Võ Văn Ngân, Thủ Đức, TP.HCM",
     "bookingId": null,
     "scheduledStartTime": "2026-08-24T23:00:00Z",
     "maxMembers": 2,
@@ -668,6 +682,7 @@ Lấy tất cả lobby của user hiện tại (host hoặc member, chỉ active
 
 **Lưu ý cho Flutter:**
 - Từ 2026-08-26, response đã bao gồm `cafeName` và `members[].avatarUrl` / `members[].karmaPoints`. Bỏ qua call `GET /api/v1/cafes/{cafeId}` khi đã có `cafeId`.
+- Từ 2026-09-14, response còn có thêm `cafeAddress` (địa chỉ cafe) — hiển thị trực tiếp trên lobby card, không cần gọi thêm `/api/v1/cafes/{cafeId}`.
 
 ---
 

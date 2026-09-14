@@ -398,7 +398,7 @@ public class WalkInServiceTests : IDisposable
             GuestName = "Test Guest",
             GuestPhone = "0901234567",
             Seats = 2,
-            Status = WalkInBookingStatus.Active,
+            Status = WalkInBookingStatus.Pending,
             StartTime = DateTime.UtcNow
         };
         var window = CreateWindow(windowId, WalkInWindowStatus.Available);
@@ -437,7 +437,7 @@ public class WalkInServiceTests : IDisposable
             GuestName = "Test Guest",
             GuestPhone = "0901234567",
             Seats = 2,
-            Status = WalkInBookingStatus.Active,
+            Status = WalkInBookingStatus.Pending,
             StartTime = DateTime.UtcNow
         };
 
@@ -471,7 +471,7 @@ public class WalkInServiceTests : IDisposable
             GuestName = "Test Guest",
             GuestPhone = "0901234567",
             Seats = 2,
-            Status = WalkInBookingStatus.Active,
+            Status = WalkInBookingStatus.Pending,
             StartTime = DateTime.UtcNow
         };
         var window = CreateWindow(windowId, WalkInWindowStatus.Available);
@@ -491,6 +491,31 @@ public class WalkInServiceTests : IDisposable
         // Assert
         Assert.Equal(WalkInBookingStatus.Cancelled, booking.Status);
         _bookingRepo.Verify(r => r.UpdateAsync(booking, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task CancelWalkInBookingAsync_Should_ThrowConflictException_WhenInProgress()
+    {
+        // Service chỉ cho phép cancel khi Status = Pending.
+        // Walk-in đang InProgress (đã check-in) không được hủy qua path này.
+        var bookingId = Guid.NewGuid();
+        var booking = new WalkInBooking
+        {
+            Id = bookingId,
+            WalkInWindowId = Guid.NewGuid(),
+            GuestName = "Test Guest",
+            GuestPhone = "0901234567",
+            Seats = 2,
+            Status = WalkInBookingStatus.InProgress,
+            StartTime = DateTime.UtcNow
+        };
+
+        _bookingRepo.Setup(r => r.GetByIdAsync(bookingId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(booking);
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(
+            () => _service.CancelWalkInBookingAsync(bookingId));
+        Assert.Contains("InProgress", ex.Message);
     }
 
     // ===== Helper =====

@@ -254,7 +254,7 @@ public class ReceiptServiceTests
         var report = await sut.GetRevenueReportAsync(cafeId, today, today, "daily");
 
         Assert.Equal("daily", report.Granularity);
-        Assert.Equal(1, report.Periods.Count);
+        Assert.Single(report.Periods);
         Assert.Equal(1, report.TotalSessions);
         Assert.Equal(60_000m, report.TotalRevenue);
     }

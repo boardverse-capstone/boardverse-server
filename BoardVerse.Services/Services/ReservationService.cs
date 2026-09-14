@@ -260,10 +260,12 @@ public class ReservationService : IReservationService
             RecruitmentDeadline = recruitmentDeadline,
             MinPlayers = request.MinPlayers,
             MaxPlayers = quote.MaxPlayersApplied,
+#pragma warning disable CS0618 // Obsolete DTO fields kept for legacy FE compatibility
             DepositRatePerPerson = cafeConfig.DepositRatePerPerson,
             BaseDeposit = quote.BaseDeposit,
             RiskMultiplier = quote.RiskMultiplier,
             MinDepositApplied = quote.MinDepositApplied,
+#pragma warning restore CS0618
             FinalDeposit = quote.FinalDeposit,
             CurrentBalance = wallet.AvailableBalance,
             MissingAmount = Math.Max(0, quote.FinalDeposit - wallet.AvailableBalance),
@@ -674,12 +676,14 @@ public class ReservationService : IReservationService
             // 11. Snapshot cấu hình cọc (BR-NEW-12 + 21F.9).
             var depositSnapshot = new DepositSnapshot
             {
+#pragma warning disable CS0618 // Obsolete snapshot fields kept for audit log
                 DepositRatePerPerson = cafeConfig.DepositRatePerPerson,
                 MaxPlayers = quote.MaxPlayersApplied,
                 BaseDeposit = quote.BaseDeposit,
                 RiskMultiplier = quote.RiskMultiplier,
-                FinalDeposit = quote.FinalDeposit,
                 MinDepositApplied = quote.MinDepositApplied,
+#pragma warning restore CS0618
+                FinalDeposit = quote.FinalDeposit,
                 PricingModel = null // Có thể đọc từ Cafe nếu cần (BR-01), để null cho MVP.
             };
 
@@ -731,6 +735,7 @@ public class ReservationService : IReservationService
                 PreferredEndTime = request.PreferredEndTime,
                 RecruitmentDeadline = recruitmentDeadline,
                 ScheduledStartTime = scheduledStartTime,
+                ScheduledEndTime = scheduledEndTime,
                 MaxMembers = quote.MaxPlayersApplied,
                 MinPlayers = request.MinPlayers,
                 MinDeposit = quote.FinalDeposit,

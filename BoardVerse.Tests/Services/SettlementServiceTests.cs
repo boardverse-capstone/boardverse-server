@@ -274,11 +274,58 @@ public class SettlementServiceTests
     /// <summary>
     /// Gap 3: Transfer fail → SettlementStatus=Failed, deposit.Status vẫn = Paid (chưa Released)
     /// để SettlementRetryJob có thể retry.
-    /// SKIP: Flaky test due to mock signature mismatch.
     /// </summary>
-    [Fact(Skip = "Flaky mock - service implementation signature mismatch")]
-    public Task ReleaseSessionDepositAsync_TransferFails_StatusFailedDepositStillPaid()
-        => Task.FromResult(new CafeSettlement { Status = CafeSettlementStatus.Failed });
+    [Fact]
+    public async Task ReleaseSessionDepositAsync_TransferFails_StatusFailedDepositStillPaid()
+    {
+        // Arrange
+        var cafeId = Guid.NewGuid();
+        var sessionId = Guid.NewGuid();
+        var depositId = Guid.NewGuid();
+        var deposit = new BookingDeposit
+        {
+            Id = depositId,
+            ActiveSessionId = sessionId,
+            UserId = Guid.NewGuid(),
+            Amount = 50_000m,
+            Status = BookingDepositStatus.Paid
+        };
+
+        _mockCafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BuildCafe(cafeId));
+        _mockSessionRepo.Setup(r => r.GetByIdAsync(sessionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ActiveSession
+            {
+                Id = sessionId,
+                CafeId = cafeId,
+                Status = GroupSessionStatus.Paid,
+                DepositAppliedAmount = 50_000m
+            });
+        _mockSePayAccountService.Setup(s => s.GetRawMasterAccountAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SePayAccount { Id = Guid.NewGuid(), AccountHolder = "Test", IsActive = true });
+        _mockDepositRepo.Setup(r => r.GetByActiveSessionIdAsync(sessionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(deposit);
+        _mockSePayClient.Setup(c => c.CreateTransferAsync(It.IsAny<CreateTransferRequest>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new HttpRequestException("SePay unavailable"));
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(
+            () => _service.ReleaseSessionDepositAsync(cafeId, sessionId, sessionId));
+
+        Assert.Contains("SePay unavailable", ex.Message);
+
+        // Verify deposit.Status is still Paid (Gap 3: NOT released so SettlementRetryJob can retry)
+        _mockDepositRepo.Verify(
+            r => r.UpdateAsync(
+                It.Is<BookingDeposit>(d => d.Id == depositId && d.Status == BookingDepositStatus.Paid),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        _mockSettlementRepo.Verify(
+            r => r.UpdateAsync(
+                It.Is<CafeSettlement>(s => s.Status == CafeSettlementStatus.Failed),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
 
     #endregion
 

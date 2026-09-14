@@ -96,8 +96,11 @@ namespace BoardVerse.Services.IServices
         /// <summary>Lấy danh sách lobby mà user này host.</summary>
         Task<IReadOnlyList<LobbyResponseDto>> GetLobbiesByHostAsync(Guid hostUserId, CancellationToken cancellationToken = default);
 
-        /// <summary>Lấy tất cả lobby của user (host hoặc member, active).</summary>
-        Task<IReadOnlyList<LobbyResponseDto>> GetMyLobbiesAsync(Guid userId, CancellationToken cancellationToken = default);
+        /// <summary>Lấy tất cả lobby của user (host hoặc member, active). Filter theo status + sort theo priority.</summary>
+        Task<IReadOnlyList<LobbyResponseDto>> GetMyLobbiesAsync(
+            Guid userId,
+            IReadOnlyList<Core.Enum.LobbyStatus>? statuses = null,
+            CancellationToken cancellationToken = default);
 
         /// <summary>User report lobby vi phạm.</summary>
         Task<LobbyResponseDto> ReportLobbyAsync(Guid lobbyId, Guid reporterId, CreateLobbyReportDto request, CancellationToken cancellationToken = default);

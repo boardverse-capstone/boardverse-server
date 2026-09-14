@@ -481,12 +481,24 @@ public class ConcurrencyStressTests : IClassFixture<ConcurrencyStressTests.Stres
                 nowUtc,
                 nowUtc);
 
-            // 3. Seed GameTemplate — cần MinPlayers/MaxPlayers/PlayTime NOT NULL.
+            // 3. Seed GameTemplate — NameSearchKey (REQUIRED) + SearchAliasesKey (REQUIRED) phải có giá trị.
+            // NameSearchKey = lowercase, không dấu, được sinh bởi VietnameseTextNormalizer.ToSearchKey(name).
+            var seedGameName = $"StressTest Game {SeedGameId:N}".Substring(0, 30);
+            var seedGameNameSearchKey = seedGameName.ToLowerInvariant()
+                .Replace("áàảãạăắằẳẵặâấầẩẫậ", "a")
+                .Replace("éèẻẽẹêếềểễệ", "e")
+                .Replace("íìỉĩị", "i")
+                .Replace("óòỏõọôốồổỗộơớờởỡợ", "o")
+                .Replace("úùủũụưứừửữự", "u")
+                .Replace("ýỳỷỹỵ", "y")
+                .Replace("đ", "d");
             await db.Database.ExecuteSqlRawAsync(
-                "INSERT INTO \"GameTemplates\" (\"Id\", \"Name\", \"CreatedAt\", \"UpdatedAt\", \"MinPlayers\", \"MaxPlayers\", \"PlayTime\") " +
-                "VALUES ({0}, {1}, {2}, {3}, 2, 6, 60) ON CONFLICT (\"Id\") DO NOTHING;",
+                "INSERT INTO \"GameTemplates\" (\"Id\", \"Name\", \"NameSearchKey\", \"SearchAliasesKey\", \"CreatedAt\", \"UpdatedAt\", \"MinPlayers\", \"MaxPlayers\", \"PlayTime\", \"IsActive\", \"IsTournamentSupported\", \"TournamentMaxScorePerPlayer\", \"TournamentMinPlayersPerTable\") " +
+                "VALUES ({0}, {1}, {2}, {3}, {4}, {5}, 2, 6, 60, TRUE, FALSE, 15, 2) ON CONFLICT (\"Id\") DO NOTHING;",
                 SeedGameId,
-                $"StressTest Game {SeedGameId:N}".Substring(0, 30),
+                seedGameName,
+                seedGameNameSearchKey,
+                "",      // SearchAliasesKey: rỗng vì SearchAliases = null
                 nowUtc,
                 nowUtc);
 

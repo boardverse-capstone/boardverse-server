@@ -449,7 +449,9 @@ public class FriendService : IFriendService
 
     public async Task<IReadOnlyList<UserSearchResultDto>> SearchUsersAsync(Guid currentUserId, string keyword, int limit = 20)
     {
-        var users = await _userRepository.SearchByUsernameAsync(keyword, currentUserId, limit);
+        // BR-FRIEND-07: Filter blocked users from search results.
+        var blockedIds = await _friendshipRepository.GetBlockedUserIdsAsync(currentUserId);
+        var users = await _userRepository.SearchByUsernameAsync(keyword, currentUserId, limit, blockedIds);
 
         var result = new List<UserSearchResultDto>(users.Count);
         foreach (var user in users)

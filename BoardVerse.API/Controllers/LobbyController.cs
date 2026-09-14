@@ -353,14 +353,55 @@ namespace BoardVerse.API.Controllers
         /// <summary>
         /// Lấy tất cả lobby của user (host hoặc member, active). [Role: Player]
         /// </summary>
-        /// <response code="200">Danh sách lobby của user.</response>
+        /// <param name="statuses">
+        /// Optional: lọc theo 1 hoặc nhiều LobbyStatus (enum int). Truyền nhiều giá trị bằng cách lặp query
+        /// (vd: <c>?statuses=0&amp;statuses=6</c>) hoặc comma-separated (vd: <c>?statuses=0,6</c>).
+        /// Hợp lệ: Open=0, Full=1, InProgress=4, Closed=5, RatingOpen=6, PendingActivation=10,
+        /// PendingCafeApproval=11, RejectedByCafe=12, ExpiredByCafe=13, Viable=14, Dissolved=15, WaitingCheckIn=16.
+        /// Bỏ trống = trả tất cả active statuses.
+        /// </param>
+        /// <param name="statusFilter">
+        /// Optional: comma-separated LobbyStatus enum values (vd: <c>"Open,Viable"</c>).
+        /// Hỗ trợ tên enum (case-insensitive) thay vì số. Nếu truyền cả 2 tham số thì union lại.
+        /// </param>
+        /// <response code="200">Danh sách lobby của user. Sort theo priority: Open &gt; InProgress &gt; PendingActivation &gt; PendingCafeApproval &gt; Viable &gt; Full &gt; WaitingCheckIn &gt; RatingOpen &gt; Closed &gt; terminal; sau đó ScheduledStartTime desc.</response>
+        /// <response code="400">statuses hoặc statusFilter không hợp lệ.</response>
         /// <response code="401">Thiếu token.</response>
         /// <response code="500">Lỗi hệ thống.</response>
         [HttpGet("my")]
-        public async Task<IActionResult> GetMyLobbies()
+        public async Task<IActionResult> GetMyLobbies(
+            [FromQuery] List<int>? statuses = null,
+            [FromQuery] string? statusFilter = null)
         {
             var userId = GetUserIdFromClaims();
-            var result = await _lobbyService.GetMyLobbiesAsync(userId);
+            var parsed = new HashSet<Core.Enum.LobbyStatus>();
+
+            if (statuses != null)
+            {
+                foreach (var raw in statuses)
+                {
+                    if (!Enum.IsDefined(typeof(Core.Enum.LobbyStatus), raw))
+                    {
+                        throw new BadRequestException($"Giá trị status không hợp lệ: {raw}. Hợp lệ: {string.Join(",", Enum.GetNames(typeof(Core.Enum.LobbyStatus)))}");
+                    }
+                    parsed.Add((Core.Enum.LobbyStatus)raw);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(statusFilter))
+            {
+                foreach (var token in statusFilter.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    if (!Enum.TryParse<Core.Enum.LobbyStatus>(token, ignoreCase: true, out var s))
+                    {
+                        throw new BadRequestException($"Giá trị statusFilter không hợp lệ: '{token}'. Hợp lệ: {string.Join(",", Enum.GetNames(typeof(Core.Enum.LobbyStatus)))}");
+                    }
+                    parsed.Add(s);
+                }
+            }
+
+            IReadOnlyList<Core.Enum.LobbyStatus>? filter = parsed.Count == 0 ? null : parsed.ToList();
+            var result = await _lobbyService.GetMyLobbiesAsync(userId, filter);
             return this.NewResponse(200, "Lấy danh sách phòng chờ của bạn.", result);
         }
 

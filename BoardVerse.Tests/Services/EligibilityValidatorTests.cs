@@ -3,6 +3,7 @@ using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
@@ -62,25 +63,27 @@ public class EligibilityValidatorTests
     // ===== Bug #1 regression: Suspended vs Banned phải trả message riêng =====
 
     [Fact]
-    public void ValidateHostCanCreate_Should_ThrowBannedMessage_When_UserBanned()
+    public async Task ValidateHostCanCreate_Should_ThrowBannedMessage_When_UserBanned()
     {
         // Arrange
         var ctx = BuildHostContext(isBanned: true);
 
         // Act + Assert
-        var ex = Assert.Throws<ForbiddenException>(() => _validator.ValidateHostCanCreate(ctx));
+        var ex = await Assert.ThrowsAsync<ForbiddenException>(
+            () => _validator.ValidateHostCanCreateAsync(ctx, null, null, NullLogger<EligibilityValidator>.Instance));
         Assert.Equal(ApiErrorMessages.Reservation.BannedCannotCreateLobby, ex.Message);
         Assert.Contains("cấm vĩnh viễn", ex.Message);
     }
 
     [Fact]
-    public void ValidateHostCanCreate_Should_ThrowSuspendedMessage_When_UserSuspended()
+    public async Task ValidateHostCanCreate_Should_ThrowSuspendedMessage_When_UserSuspended()
     {
         // Arrange
         var ctx = BuildHostContext(isSuspended: true);
 
         // Act + Assert
-        var ex = Assert.Throws<ForbiddenException>(() => _validator.ValidateHostCanCreate(ctx));
+        var ex = await Assert.ThrowsAsync<ForbiddenException>(
+            () => _validator.ValidateHostCanCreateAsync(ctx, null, null, NullLogger<EligibilityValidator>.Instance));
         Assert.Equal(ApiErrorMessages.Reservation.SuspendedCannotCreateLobby, ex.Message);
         Assert.DoesNotContain("cấm vĩnh viễn", ex.Message);
         Assert.Contains("tạm khóa", ex.Message);
@@ -113,48 +116,51 @@ public class EligibilityValidatorTests
     // BR-USER-LIMIT-01: tổng ≤ 2. Sau khi đạt 2, phải throw message phù hợp (host hoặc member).
 
     [Fact]
-    public void ValidateHostCanCreate_Should_ThrowMemberLimit_When_HostAndMemberBothActive()
+    public async Task ValidateHostCanCreate_Should_ThrowMemberLimit_When_HostAndMemberBothActive()
     {
         // Arrange: user vừa host 1 lobby vừa member 1 lobby khác (đã max 2).
         var ctx = BuildHostContext(hasActiveHostLobby: true, hasActiveMemberLobby: true);
 
         // Act + Assert
-        var ex = Assert.Throws<ForbiddenException>(() => _validator.ValidateHostCanCreate(ctx));
+        var ex = await Assert.ThrowsAsync<ForbiddenException>(
+            () => _validator.ValidateHostCanCreateAsync(ctx, null, null, NullLogger<EligibilityValidator>.Instance));
         // Ưu tiên member message vì user đã chủ động tham gia lobby khác trước.
         Assert.Equal(ApiErrorMessages.Reservation.MemberCannotCreateLobby, ex.Message);
     }
 
     [Fact]
-    public void ValidateHostCanCreate_Should_ThrowHostLimit_When_OnlyHostActive()
+    public async Task ValidateHostCanCreate_Should_ThrowHostLimit_When_OnlyHostActive()
     {
         // Arrange: user chỉ host 1 lobby (chưa max).
         var ctx = BuildHostContext(hasActiveHostLobby: true, hasActiveMemberLobby: false);
 
         // Act + Assert
-        var ex = Assert.Throws<ForbiddenException>(() => _validator.ValidateHostCanCreate(ctx));
+        var ex = await Assert.ThrowsAsync<ForbiddenException>(
+            () => _validator.ValidateHostCanCreateAsync(ctx, null, null, NullLogger<EligibilityValidator>.Instance));
         Assert.Equal(ApiErrorMessages.Reservation.ActiveLobbyHostLimitReached, ex.Message);
     }
 
     [Fact]
-    public void ValidateHostCanCreate_Should_ThrowMemberCannotCreate_When_OnlyMemberActive()
+    public async Task ValidateHostCanCreate_Should_ThrowMemberCannotCreate_When_OnlyMemberActive()
     {
         // Arrange: user chỉ member 1 lobby (chưa max).
         var ctx = BuildHostContext(hasActiveHostLobby: false, hasActiveMemberLobby: true);
 
         // Act + Assert
-        var ex = Assert.Throws<ForbiddenException>(() => _validator.ValidateHostCanCreate(ctx));
+        var ex = await Assert.ThrowsAsync<ForbiddenException>(
+            () => _validator.ValidateHostCanCreateAsync(ctx, null, null, NullLogger<EligibilityValidator>.Instance));
         Assert.Equal(ApiErrorMessages.Reservation.MemberCannotCreateLobby, ex.Message);
     }
 
     [Fact]
-    public void ValidateHostCanCreate_Should_NotThrow_When_NoActiveLobby()
+    public async Task ValidateHostCanCreate_Should_NotThrow_When_NoActiveLobby()
     {
         // Arrange: user chưa có lobby nào.
         var ctx = BuildHostContext();
 
         // Act + Assert: không throw (ngoại trừ check overlap / playDate khác)
         // Vì context không set HasOverlapHostLobby/HasActiveLobbyOnPlayDate nên pass.
-        _validator.ValidateHostCanCreate(ctx);
+        await _validator.ValidateHostCanCreateAsync(ctx, null, null, NullLogger<EligibilityValidator>.Instance);
     }
 
     // ===== BR-USER-LIMIT-05: ĐÃ BỎ — Host có thể join lobby khác =====
@@ -208,7 +214,7 @@ public class EligibilityValidatorTests
     // 500k thường / 1M VIP / 200k risk cao. Host phải tính được projected = held + finalDeposit.
 
     [Fact]
-    public void ValidateHostCanCreate_Should_ThrowHeldCapExceeded_When_RegularUserExceeds500k()
+    public async Task ValidateHostCanCreate_Should_ThrowHeldCapExceeded_When_RegularUserExceeds500k()
     {
         // Arrange: regular user (IsVip=false, IsRiskMultiplierHigh=false) đã held 450k,
         // finalDeposit = 60k → projected = 510k > 500k → vượt cap regular.
@@ -219,12 +225,13 @@ public class EligibilityValidatorTests
         ctx.FinalDeposit = 60_000;
 
         // Act + Assert
-        var ex = Assert.Throws<ConflictException>(() => _validator.ValidateHostCanCreate(ctx));
+        var ex = await Assert.ThrowsAsync<ConflictException>(
+            () => _validator.ValidateHostCanCreateAsync(ctx, null, null, NullLogger<EligibilityValidator>.Instance));
         Assert.Equal(ApiErrorMessages.Reservation.HeldDepositCapExceeded(450_000, 500_000, "thường"), ex.Message);
     }
 
     [Fact]
-    public void ValidateHostCanCreate_Should_NotThrow_When_RegularUserExactlyAtCap()
+    public async Task ValidateHostCanCreate_Should_NotThrow_When_RegularUserExactlyAtCap()
     {
         // Arrange: regular user held 440k + finalDeposit 60k = 500k = cap → không vượt, vẫn OK.
         var ctx = BuildHostContext();
@@ -232,11 +239,11 @@ public class EligibilityValidatorTests
         ctx.FinalDeposit = 60_000;
 
         // Act + Assert: không throw
-        _validator.ValidateHostCanCreate(ctx);
+        await _validator.ValidateHostCanCreateAsync(ctx, null, null, NullLogger<EligibilityValidator>.Instance);
     }
 
     [Fact]
-    public void ValidateHostCanCreate_Should_AllowVipUser_UpTo1MillionBvc()
+    public async Task ValidateHostCanCreate_Should_AllowVipUser_UpTo1MillionBvc()
     {
         // Arrange: VIP user held 950k + finalDeposit 50k = 1M = VIP cap → OK.
         var ctx = BuildHostContext();
@@ -245,11 +252,11 @@ public class EligibilityValidatorTests
         ctx.FinalDeposit = 50_000;
 
         // Act + Assert: không throw vì projected = 1M = cap
-        _validator.ValidateHostCanCreate(ctx);
+        await _validator.ValidateHostCanCreateAsync(ctx, null, null, NullLogger<EligibilityValidator>.Instance);
     }
 
     [Fact]
-    public void ValidateHostCanCreate_Should_ThrowHeldCapExceeded_When_VipUserExceeds1MillionBvc()
+    public async Task ValidateHostCanCreate_Should_ThrowHeldCapExceeded_When_VipUserExceeds1MillionBvc()
     {
         // Arrange: VIP user held 950k + finalDeposit 60k = 1.01M > 1M cap.
         var ctx = BuildHostContext();
@@ -258,12 +265,13 @@ public class EligibilityValidatorTests
         ctx.FinalDeposit = 60_000;
 
         // Act + Assert
-        var ex = Assert.Throws<ConflictException>(() => _validator.ValidateHostCanCreate(ctx));
+        var ex = await Assert.ThrowsAsync<ConflictException>(
+            () => _validator.ValidateHostCanCreateAsync(ctx, null, null, NullLogger<EligibilityValidator>.Instance));
         Assert.Equal(ApiErrorMessages.Reservation.HeldDepositCapExceeded(950_000, 1_000_000, "VIP"), ex.Message);
     }
 
     [Fact]
-    public void ValidateHostCanCreate_Should_ApplyRiskCap_When_RiskMultiplierHigh()
+    public async Task ValidateHostCanCreate_Should_ApplyRiskCap_When_RiskMultiplierHigh()
     {
         // Arrange: riskMultiplierHigh user → cap 200k. Held 150k + finalDeposit 60k = 210k > 200k.
         var ctx = BuildHostContext();
@@ -273,12 +281,13 @@ public class EligibilityValidatorTests
         ctx.FinalDeposit = 60_000;
 
         // Act + Assert
-        var ex = Assert.Throws<ConflictException>(() => _validator.ValidateHostCanCreate(ctx));
+        var ex = await Assert.ThrowsAsync<ConflictException>(
+            () => _validator.ValidateHostCanCreateAsync(ctx, null, null, NullLogger<EligibilityValidator>.Instance));
         Assert.Equal(ApiErrorMessages.Reservation.HeldDepositCapExceeded(150_000, 200_000, "risk cao"), ex.Message);
     }
 
     [Fact]
-    public void ValidateHostCanCreate_Should_NotThrow_When_RiskMultiplierHigh_AtExact200kCap()
+    public async Task ValidateHostCanCreate_Should_NotThrow_When_RiskMultiplierHigh_AtExact200kCap()
     {
         // Arrange: risk user held 140k + finalDeposit 60k = 200k = cap risk.
         var ctx = BuildHostContext();
@@ -287,11 +296,11 @@ public class EligibilityValidatorTests
         ctx.FinalDeposit = 60_000;
 
         // Act + Assert: không throw
-        _validator.ValidateHostCanCreate(ctx);
+        await _validator.ValidateHostCanCreateAsync(ctx, null, null, NullLogger<EligibilityValidator>.Instance);
     }
 
     [Fact]
-    public void ValidateHostCanCreate_Should_PreferVipCap_OverRiskCap_When_BothFlags()
+    public async Task ValidateHostCanCreate_Should_PreferVipCap_OverRiskCap_When_BothFlags()
     {
         // BR-USER-LIMIT-03: ResolveTotalDepositCap kiểm tra IsVip trước IsRiskMultiplierHigh.
         // Đây là data bug defensive — user không nên vừa VIP vừa risk cao,
@@ -304,43 +313,45 @@ public class EligibilityValidatorTests
         ctx.FinalDeposit = 30_000; // projected = 210k
 
         // Act + Assert: KHÔNG throw vì IsVip=true → cap = 1M (VIP)
-        _validator.ValidateHostCanCreate(ctx);
+        await _validator.ValidateHostCanCreateAsync(ctx, null, null, NullLogger<EligibilityValidator>.Instance);
     }
 
     // ===== BR-NEW-05: Max 5 lần tạo/hủy / playDate =====
 
     [Fact]
-    public void ValidateHostCanCreate_Should_Throw_When_HostCreateOrCancelReachesLimit()
+    public async Task ValidateHostCanCreate_Should_Throw_When_HostCreateOrCancelReachesLimit()
     {
         // Arrange: host đã tạo+hủy 5 lần cho cùng playDate.
         var ctx = BuildHostContext();
         ctx.HostCreateOrCancelCount = 5;
 
         // Act + Assert
-        var ex = Assert.Throws<ConflictException>(() => _validator.ValidateHostCanCreate(ctx));
+        var ex = await Assert.ThrowsAsync<ConflictException>(
+            () => _validator.ValidateHostCanCreateAsync(ctx, null, null, NullLogger<EligibilityValidator>.Instance));
         Assert.Equal(ApiErrorMessages.Reservation.HostCreatesCancelsLimitReached(5), ex.Message);
     }
 
     [Fact]
-    public void ValidateHostCanCreate_Should_Throw_When_HostCreateOrCancelExceedsLimit()
+    public async Task ValidateHostCanCreate_Should_Throw_When_HostCreateOrCancelExceedsLimit()
     {
         // Arrange: count > 5 (defensive — DB sum có thể trả > 5 nếu race).
         var ctx = BuildHostContext();
         ctx.HostCreateOrCancelCount = 7;
 
         // Act + Assert: vẫn throw
-        Assert.Throws<ConflictException>(() => _validator.ValidateHostCanCreate(ctx));
+        await Assert.ThrowsAsync<ConflictException>(
+            () => _validator.ValidateHostCanCreateAsync(ctx, null, null, NullLogger<EligibilityValidator>.Instance));
     }
 
     [Fact]
-    public void ValidateHostCanCreate_Should_NotThrow_When_HostCreateOrCancelBelowLimit()
+    public async Task ValidateHostCanCreate_Should_NotThrow_When_HostCreateOrCancelBelowLimit()
     {
         // Arrange: count = 4 → còn 1 lần nữa cho phép tạo.
         var ctx = BuildHostContext();
         ctx.HostCreateOrCancelCount = 4;
 
         // Act + Assert: không throw
-        _validator.ValidateHostCanCreate(ctx);
+        await _validator.ValidateHostCanCreateAsync(ctx, null, null, NullLogger<EligibilityValidator>.Instance);
     }
 
     [Fact]
