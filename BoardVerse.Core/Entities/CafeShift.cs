@@ -17,4 +17,6 @@ public class CafeShift
     public ShiftStatus Status { get; set; } = ShiftStatus.Open;
 
     public virtual Cafe Cafe { get; set; } = null!;
+    public virtual User? OpenedByUser { get; set; }
+    public virtual User? ClosedByUser { get; set; }
 }

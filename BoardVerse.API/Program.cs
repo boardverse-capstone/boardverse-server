@@ -243,6 +243,18 @@ builder.Services.AddScoped<ICafeSettlementRepository, CafeSettlementRepository>(
         builder.Services.AddScoped<ISettlementService, SettlementService>();
         builder.Services.AddScoped<ICafeShiftRepository, CafeShiftRepository>();
         builder.Services.AddScoped<ICafeShiftService, CafeShiftService>();
+
+// Staff Schedule System: lịch làm việc, điểm danh, nghỉ phép, đổi ca
+builder.Services.AddScoped<IStaffScheduleRepository, StaffScheduleRepository>();
+builder.Services.AddScoped<IStaffUnavailableDateRepository, StaffUnavailableDateRepository>();
+builder.Services.AddScoped<IShiftAttendanceRepository, ShiftAttendanceRepository>();
+builder.Services.AddScoped<ITimeOffRequestRepository, TimeOffRequestRepository>();
+builder.Services.AddScoped<IShiftSwapRequestRepository, ShiftSwapRequestRepository>();
+builder.Services.AddScoped<IStaffScheduleService, StaffScheduleService>();
+builder.Services.AddScoped<ITimeOffRequestService, TimeOffRequestService>();
+builder.Services.AddScoped<IShiftSwapRequestService, ShiftSwapRequestService>();
+builder.Services.AddScoped<IShiftAttendanceService, ShiftAttendanceService>();
+builder.Services.AddScoped<IStaffUnavailableDateService, StaffUnavailableDateService>();
 builder.Services.AddScoped<IBookingNoShowVoteRepository, BookingNoShowVoteRepository>();
 builder.Services.AddScoped<IBookingRatingRepository, BookingRatingRepository>();
 builder.Services.AddScoped<ICafeBookingService, CafeBookingService>();

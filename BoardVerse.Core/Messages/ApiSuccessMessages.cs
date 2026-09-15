@@ -325,6 +325,33 @@ public const string SePayQrPreviewGenerated = "Đã tạo QR test cho payment ac
             public const string WorkplacesRetrieved = "Lấy danh sách nơi làm việc thành công.";
         }
 
+        public static class StaffSchedule
+        {
+            public const string ScheduleRetrieved = "Lấy lịch làm việc thành công.";
+            public const string ScheduleCreated = "Tạo lịch làm việc thành công.";
+            public const string ScheduleUpdated = "Cập nhật lịch làm việc thành công.";
+            public const string ScheduleDeleted = "Xóa lịch làm việc thành công.";
+            public const string ScheduleListRetrieved = "Lấy danh sách lịch làm việc thành công.";
+            public const string TemplatesCopied = "Copy lịch tuần thành công.";
+            public const string WorkHoursRetrieved = "Lấy tổng hợp giờ làm thành công.";
+
+            public const string TimeOffRequestCreated = "Tạo yêu cầu nghỉ phép thành công.";
+            public const string TimeOffRequestReviewed = "Xử lý yêu cầu nghỉ phép thành công.";
+            public const string TimeOffRequestsRetrieved = "Lấy danh sách yêu cầu nghỉ phép thành công.";
+
+            public const string SwapRequestCreated = "Tạo yêu cầu đổi ca thành công.";
+            public const string SwapRequestReviewed = "Xử lý yêu cầu đổi ca thành công.";
+            public const string SwapRequestsRetrieved = "Lấy danh sách yêu cầu đổi ca thành công.";
+
+            public const string UnavailableDateCreated = "Thêm ngày nghỉ thành công.";
+            public const string UnavailableDateDeleted = "Xóa ngày nghỉ thành công.";
+            public const string UnavailableDatesRetrieved = "Lấy danh sách ngày nghỉ thành công.";
+
+            public const string CheckedIn = "Check-in ca làm việc thành công.";
+            public const string CheckedOut = "Check-out ca làm việc thành công.";
+            public const string AttendanceRetrieved = "Lấy danh sách điểm danh thành công.";
+        }
+
         public static class Health
         {
             public const string ApiOperational = "API đang hoạt động.";

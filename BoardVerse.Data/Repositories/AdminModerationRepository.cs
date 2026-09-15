@@ -220,9 +220,9 @@ namespace BoardVerse.Data.Repositories
                 Username = usernameMap.TryGetValue(h.UserId, out var uname) ? uname : string.Empty,
                 ActionType = h.ActionType,
                 ActionBy = h.ActionBy,
-                ActionByUsername = h.ActionBy == Guid.Empty
+                ActionByUsername = h.ActionBy == null
                     ? "system"
-                    : (usernameMap.TryGetValue(h.ActionBy, out var aname) ? aname : null),
+                    : (usernameMap.TryGetValue(h.ActionBy!.Value, out var aname) ? aname : null),
                 Reason = h.Reason,
                 Metadata = h.Metadata,
                 CreatedAt = h.CreatedAt,

@@ -40,7 +40,9 @@ Tài liệu tổng hợp cho hệ thống BoardVerse — board game center manag
 - [cafe-pos.md](./api/cafe-pos.md) — `CafePosController` — POS session start/end
 - [cafe-partner.md](./api/cafe-partner.md) — `CafePartnerApplicationController`, `AdminCafePartnerApplicationController`, `ManagerCafeProfileController`
 - [cafe-schedule.md](./api/cafe-schedule.md) — `CafeScheduleController` — TimeSlot override cho cafe (24h / qua đêm)
+- [cafe-shift.md](./api/cafe-shift.md) — `CafeShiftController` — Ca làm việc của quán (cash in/out)
 - [manager.md](./api/manager.md) — `ManagerController` + `ManagerCafeProfileController`
+- [staff-schedule.md](./api/staff-schedule.md) — `StaffScheduleController` — Lịch làm việc staff (ca, time-off, shift swap, attendance, ngày nghỉ)
 - [staff.md](./api/staff.md) — `StaffController`
 
 #### Boards & Master Catalog
@@ -132,6 +134,7 @@ Tài liệu tổng hợp cho hệ thống BoardVerse — board game center manag
 | `SePayAccountController` | [sepay-account.md](./api/sepay-account.md) |
 | `SePayWebhookController` | [sepay-webhook.md](./api/sepay-webhook.md) |
 | `StaffController` | [staff.md](./api/staff.md) |
+| `StaffScheduleController` | [staff-schedule.md](./api/staff-schedule.md) |
 | `SystemConfigurationPublicController` | [system-config.md](./api/system-config.md) |
 | `TournamentController` | [tournament.md](./api/tournament.md) |
 | `TournamentPosController` | [tournament-pos.md](./api/tournament-pos.md) |

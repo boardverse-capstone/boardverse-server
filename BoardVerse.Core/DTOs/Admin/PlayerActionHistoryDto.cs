@@ -12,7 +12,7 @@ public class PlayerActionHistoryDto
     public Guid UserId { get; set; }
     public string Username { get; set; } = string.Empty;
     public AdminActionType ActionType { get; set; }
-    public Guid ActionBy { get; set; }
+    public Guid? ActionBy { get; set; }
     public string? ActionByUsername { get; set; }
     public string Reason { get; set; } = string.Empty;
     public string? Metadata { get; set; }

@@ -202,7 +202,7 @@ public class PlayerAlertService : IPlayerAlertService
                 Id = Guid.NewGuid(),
                 UserId = alert.UserId,
                 ActionType = AdminActionType.Warning,
-                ActionBy = Guid.Empty, // system
+                ActionBy = null, // system
                 Reason = $"Alert {alert.Id} auto-dismissed (no action)",
                 Metadata = JsonSerializer.Serialize(new
                 {

@@ -110,6 +110,13 @@ namespace BoardVerse.Data
         // Discovery: Board game saved by player
         public DbSet<PlayerBoardGameSave> PlayerBoardGameSaves => Set<PlayerBoardGameSave>();
 
+        // Staff Schedule System: lịch làm việc, điểm danh, nghỉ phép, đổi ca
+        public DbSet<StaffSchedule> StaffSchedules => Set<StaffSchedule>();
+        public DbSet<StaffUnavailableDate> StaffUnavailableDates => Set<StaffUnavailableDate>();
+        public DbSet<ShiftAttendance> ShiftAttendances => Set<ShiftAttendance>();
+        public DbSet<TimeOffRequest> TimeOffRequests => Set<TimeOffRequest>();
+        public DbSet<ShiftSwapRequest> ShiftSwapRequests => Set<ShiftSwapRequest>();
+
         public BoardVerseDbContext(DbContextOptions<BoardVerseDbContext> options) : base(options)
     {
     }

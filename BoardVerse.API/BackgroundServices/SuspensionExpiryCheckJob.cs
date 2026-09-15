@@ -58,7 +58,7 @@ public class SuspensionExpiryCheckJob : BackgroundService
                             Id = Guid.NewGuid(),
                             UserId = user.Id,
                             ActionType = AdminActionType.AccountStatusChange,
-                            ActionBy = Guid.Empty, // system
+                            ActionBy = null, // system
                             Reason = ApiErrorMessages.AdminModeration.SystemSuspensionExpiredReason,
                             Metadata = System.Text.Json.JsonSerializer.Serialize(new
                             {

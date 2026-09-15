@@ -379,9 +379,9 @@ public class PlayerAlertServiceTests
         Assert.Equal(2, dismissedCount);
         Assert.All(staleAlerts, a => Assert.Equal(PlayerAlertStatus.Dismissed, a.Status));
         Assert.All(staleAlerts, a => Assert.Contains("Auto-dismissed", a.ResolutionNote ?? ""));
-        // Audit log phải ghi system (ActionBy = Guid.Empty)
+        // Audit log phải ghi system (ActionBy = null)
         Assert.Equal(2, fakeDb.PlayerActionHistories.Local.Count);
-        Assert.All(fakeDb.PlayerActionHistories.Local, h => Assert.Equal(Guid.Empty, h.ActionBy));
+        Assert.All(fakeDb.PlayerActionHistories.Local, h => Assert.Null(h.ActionBy));
     }
 
     [Fact]

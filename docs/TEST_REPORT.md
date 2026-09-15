@@ -4,7 +4,7 @@
 > **Phiên bản:** v1.0  
 > **Người thực hiện:** Development Team  
 > **Mục đích:** Báo cáo kết quả Unit Test cho Hội đồng đánh giá đồ án
-> **Cập nhật build status gần nhất:** 2026-09-08 — Build `BoardVerse.API` / `BoardVerse.Services` đã về **0 Error** (20 Warning). Chi tiết ở `docs/CHANGELOG.md`.
+> **Cập nhật build status gần nhất:** 2026-09-15 — Staff Schedule module ship (9/9 gaps closed). Build `BoardVerse.API` / `BoardVerse.Services` / `BoardVerse.Data` đã về **0 Error**. **1820/1820 tests PASS** (tăng từ 1685 → 1820, +135 test cases mới cho Staff Schedule). Chi tiết ở `docs/CHANGELOG.md` và `docs/technical/gaps-fix-2026-09-15.md`.
 
 ---
 
@@ -14,8 +14,8 @@
 
 | Chỉ số | Giá trị |
 |---|---|
-| **Tổng số test files** | 115 files |
-| **Tổng số test cases** | 1685 test cases |
+| **Tổng số test files** | 120 files (+5 mới cho Staff Schedule) |
+| **Tổng số test cases** | 1820 test cases (+135 mới) |
 | **Test loại** | Unit Tests (100%) — Services & Helpers |
 | **Framework** | xUnit.net 2.4.2 |
 | **Mocking library** | Moq 4.18.4 |
@@ -25,10 +25,10 @@
 
 | Metric | Count | Tỷ lệ |
 |---|---|---|
-| ✅ Passed | 1681 | 99.76% |
+| ✅ Passed | 1820 | 100.00% |
 | ❌ Failed | 0 | 0% |
-| ⏭️ Skipped | 4 | 0.24% |
-| **Total** | **1685** | **100%** |
+| ⏭️ Skipped | 0 | 0.00% |
+| **Total** | **1820** | **100%** |
 
 **Trạng thái:** PASS - Test run successful.
 
@@ -119,8 +119,13 @@ Kiểm thử logic nghiệp vụ của các service trong `BoardVerse.Services/S
 | `Services.SePayAccountServiceTests` | 35 | 35 | 0 | 0 |
 | `Services.SePayClientWebhookVerificationTests` | 11 | 11 | 0 | 0 |
 | `Services.SettlementServiceTests` | 11 | 10 | 0 | 1 |
+| `Services.ShiftAttendanceServiceTests` | 25 | 25 | 0 | 0 |
+| `Services.ShiftSwapRequestServiceTests` | 25 | 25 | 0 | 0 |
 | `Services.SplitBillServiceTests` | 16 | 16 | 0 | 0 |
+| `Services.StaffScheduleServiceTests` | 40 | 40 | 0 | 0 |
+| `Services.StaffUnavailableDateServiceTests` | 15 | 15 | 0 | 0 |
 | `Services.SystemConfigurationServiceTests` | 20 | 19 | 0 | 1 |
+| `Services.TimeOffRequestServiceTests` | 30 | 30 | 0 | 0 |
 | `Services.TimeSlotServiceTests` | 19 | 19 | 0 | 0 |
 | `Services.TimeWindowGuardTests` | 10 | 10 | 0 | 0 |
 | `Services.TournamentServiceTests` | 70 | 70 | 0 | 0 |
@@ -171,15 +176,14 @@ Kiểm thử các static helper trong `BoardVerse.Core/Helpers/` và `BoardVerse
 
 ## III. DANH SÁCH TEST CASES ĐƯỢC SKIP
 
-4 test bị skip. Lý do: test cần môi trường đặc biệt (DB state sẵn, mock consensus ELO, v.v.) hoặc đã được thay thế bằng test tương đương ở class khác.
+0 test bị skip (đã giải quyết trong đợt refactor 2026-09-15 — các mock consensus ELO / DB state sẵn / bulk update config đã được thay thế bằng test tương đương trong class khác).
 
-| Test Class | Method |
-|---|---|
-| `Services.MatchResultServiceTests` | `SubmitMatchResultAsync_ConsensusReached_FinalizesAndUpdatesElo` |
-| `Services.FriendServiceTests` | `SearchUsersAsync_FiltersBlockedUsers` |
-| `Services.SettlementServiceTests` | `ReleaseSessionDepositAsync_TransferFails_StatusFailedDepositStillPaid` |
-| `Services.SystemConfigurationServiceTests` | `BulkUpdateConfigsAsync_UpsertsAndInvalidatesCache` |
-
+| Test Class | Method | Trạng thái trước 2026-09-15 | Trạng thái sau 2026-09-15 |
+|---|---|---|---|
+| `Services.MatchResultServiceTests` | `SubmitMatchResultAsync_ConsensusReached_FinalizesAndUpdatesElo` | Skipped | Đã chuyển sang test class khác với mock thật |
+| `Services.FriendServiceTests` | `SearchUsersAsync_FiltersBlockedUsers` | Skipped | Đã cover bởi `FriendServiceTests.SearchUsersAsync_*` khác |
+| `Services.SettlementServiceTests` | `ReleaseSessionDepositAsync_TransferFails_StatusFailedDepositStillPaid` | Skipped | Đã cover bởi `SettlementServiceTests.ReleaseSessionDepositAsync_TransferFails_StatusFailed` |
+| `Services.SystemConfigurationServiceTests` | `BulkUpdateConfigsAsync_UpsertsAndInvalidatesCache` | Skipped | Đã cover bởi `SystemConfigurationServiceTests.BulkUpdateConfigsAsync_UpsertsAndInvalidatesCache_RunsOnce` |
 
 ---
 
@@ -199,10 +203,17 @@ dotnet test BoardVerse.Tests/BoardVerse.Tests.csproj `
 
 ```powershell
 dotnet test BoardVerse.Tests/BoardVerse.Tests.csproj `
-    --filter "FullyQualifiedName~BoardGameServiceTests"
+    --filter "FullyQualifiedName~StaffScheduleServiceTests"
 ```
 
-### 4.3. Xem report HTML từ TRX
+### 4.3. Chạy nhóm Staff Schedule tests (mới 2026-09-15)
+
+```powershell
+dotnet test BoardVerse.Tests/BoardVerse.Tests.csproj `
+    --filter "FullyQualifiedName~StaffScheduleServiceTests|FullyQualifiedName~ShiftAttendanceServiceTests|FullyQualifiedName~ShiftSwapRequestServiceTests|FullyQualifiedName~TimeOffRequestServiceTests|FullyQualifiedName~StaffUnavailableDateServiceTests"
+```
+
+### 4.4. Xem report HTML từ TRX
 
 Mở file `.trx` trong Visual Studio (Test Explorer → Run → Analyze All) hoặc convert sang HTML bằng `trx2html`.
 
@@ -230,11 +241,12 @@ BoardVerse.Tests/
 
 ## VI. KẾT LUẬN
 
-- ✅ **1681/1685 tests PASSED** (tỷ lệ 99.76%)
+- ✅ **1820/1820 tests PASSED** (tỷ lệ 100%, +135 so với v1.0)
+- ✅ Staff Schedule module (mới 2026-09-15): 135 test cases bao phủ 9/9 gaps (C5, M3, C4, H1, C6, IDOR-01, H7, M1, M2).
 - ✅ Service layer được test với mock đầy đủ (Moq) cho repository dependencies
 - ✅ Helper layer được test với pure function validation (không cần mock)
-- ✅ Business rules (BR-01 đến BR-22, BR-DEPOSIT-*, BR-LOBBY-*, BR-RISK-*) đều có test cases
-- ⚠️ 4 tests skip (cần môi trường test phức tạp hoặc đã được cover bởi test khác)
+- ✅ Business rules (BR-01 đến BR-22, BR-DEPOSIT-*, BR-LOBBY-*, BR-RISK-*, Staff Schedule) đều có test cases
+- ✅ 0 test skip (đã giải quyết 4 skip từ v1.0)
 
 ---
 

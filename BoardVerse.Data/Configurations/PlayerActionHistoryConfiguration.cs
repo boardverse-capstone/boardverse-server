@@ -22,7 +22,8 @@ namespace BoardVerse.Data.Configurations
                 .HasConversion<int>()
                 .IsRequired();
 
-            entity.Property(p => p.ActionBy).IsRequired();
+            // ActionBy nullable — system actors (jobs) write null.
+            entity.Property(p => p.ActionBy).IsRequired(false);
             entity.Property(p => p.UserId).IsRequired();
             entity.Property(p => p.Reason).IsRequired().HasMaxLength(2000);
             entity.Property(p => p.Metadata).HasColumnType("jsonb");
@@ -32,8 +33,8 @@ namespace BoardVerse.Data.Configurations
             entity.HasIndex(p => p.CreatedAt);
             entity.HasIndex(p => p.ActionType);
 
-            // Navigation đến User (target) — không có FK constraint cứng vì ActionBy có thể là Guid.Empty (system actor).
-            // Sub-query ở repository vẫn lookup được Username dựa trên UserId FK thật trong DB.
+            // Navigation đến User (target) — ActionBy nullable cho system actor.
+            // System actions (jobs) set ActionBy = null; repository hiển thị là "system".
             entity.HasOne(p => p.User)
                 .WithMany()
                 .HasForeignKey(p => p.UserId)

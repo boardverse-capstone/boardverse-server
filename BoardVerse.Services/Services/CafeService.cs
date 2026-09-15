@@ -542,23 +542,24 @@ namespace BoardVerse.Services.Services
 
             try
             {
-                var bookingsWeekTask = _bookingRepository.GetByCafeIdAsync(cafe.Id, utcNow, weekEnd);
-                var pendingApprovalTask = _reservationRepository.GetPendingCafeApprovalAsync(
+                // FIX 2026-09-15: Trước đây gọi 6 methods không await trước (gán vào *Task variables).
+                // Vì mỗi method async chạy đồng bộ đến `await ... .ToListAsync(ct)` đầu tiên,
+                // 6 SQL queries được start NGAY LẬP TỨC trên CÙNG 1 scoped DbContext →
+                // EF Core throw "A second operation was started on this context instance".
+                // (Regression của GAP-1: trước đây dùng `.Result` sau `Task.WhenAll`,
+                //  người sửa đổi sau đã đổi sang gán Task trước + await sau,
+                //  vẫn trigger concurrent execution do cùng DbContext.)
+                //
+                // Fix: await sequential từng query. Nếu sau này muốn parallel performance,
+                // phải inject `IServiceScopeFactory` + tạo scope riêng cho mỗi query.
+                var bookingsWeek = await _bookingRepository.GetByCafeIdAsync(cafe.Id, utcNow, weekEnd);
+                var pendingApproval = await _reservationRepository.GetPendingCafeApprovalAsync(
                     new List<Guid> { cafe.Id }, cafe.Id, null, 1, 1);
-                var seatsBySlotTask = _cafeRepository.GetAvailableSeatsByTimeSlotAsync(cafe.Id, today);
-                var scheduleOverridesTask = _cafeRepository.GetScheduleOverridesAsync(
+                seatsBySlot = await _cafeRepository.GetAvailableSeatsByTimeSlotAsync(cafe.Id, today);
+                scheduleOverrides = await _cafeRepository.GetScheduleOverridesAsync(
                     cafe.Id, today, today.AddDays(30));
-                var heldSeatsTask = _cafeRepository.CountHeldSeatsAsync(cafe.Id, today);
-                var inUseSeatsTask = _cafeRepository.CountInUseSeatsAsync(cafe.Id, today);
-
-                                // Sử dụng 6 await trực tiếp thay vì .Result để tránh deadlock risk
-                // (GAP-1 đã fix: trước đây dùng .Result sau Task.WhenAll).
-                var bookingsWeek = await bookingsWeekTask;
-                var pendingApproval = await pendingApprovalTask;
-                seatsBySlot = await seatsBySlotTask;
-                scheduleOverrides = await scheduleOverridesTask;
-                heldSeats = await heldSeatsTask;
-                inUseSeats = await inUseSeatsTask;
+                heldSeats = await _cafeRepository.CountHeldSeatsAsync(cafe.Id, today);
+                inUseSeats = await _cafeRepository.CountInUseSeatsAsync(cafe.Id, today);
 
                 // Upcoming bookings = Confirmed/PendingDeposit chưa kết thúc trong 7 ngày tới
                 upcomingBookingsCount = bookingsWeek.Count(b =>

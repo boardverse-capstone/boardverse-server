@@ -283,6 +283,81 @@ public const string SearchNameRequired =
             $"Ca làm việc '{shiftId}' đã được đóng.";
     }
 
+    public static class StaffSchedule
+    {
+        public const string NotCafeStaff =
+            "Người dùng này không phải nhân viên của quán.";
+
+        public const string StartTimeEqualsEndTime =
+            "Giờ bắt đầu và giờ kết thúc không được trùng nhau.";
+
+        public const string OverlappingSchedule =
+            "Đã có lịch làm việc khác của nhân viên này trong cùng khung giờ. Vui lòng chọn khung giờ khác.";
+
+        public const string ScheduleNotFound =
+            "Không tìm thấy lịch làm việc.";
+
+        public static string ScheduleNotFoundById(Guid id) =>
+            $"Không tìm thấy lịch làm việc '{id}'.";
+
+        public const string TimeOffEndBeforeStart =
+            "Ngày kết thúc nghỉ phải sau hoặc bằng ngày bắt đầu.";
+
+        public const string TimeOffAlreadyReviewed =
+            "Yêu cầu nghỉ phép đã được xử lý trước đó.";
+
+        public static string TimeOffRequestNotFound(Guid id) =>
+            $"Không tìm thấy yêu cầu nghỉ phép '{id}'.";
+
+        public const string TimeOffCannotCancelApproved =
+            "Không thể hủy yêu cầu nghỉ phép đã được duyệt.";
+
+        public const string SwapSameSchedule =
+            "Ca đổi và ca nhận phải khác nhau.";
+
+        public const string SwapSameStaff =
+            "Không thể đổi ca với chính mình.";
+
+        public const string SwapSchedulesBelongDifferentStaff =
+            "Ca làm việc không thuộc đúng người trong yêu cầu đổi.";
+
+        public const string SwapNotFound =
+            "Không tìm thấy yêu cầu đổi ca.";
+
+        public const string SwapAlreadyReviewed =
+            "Yêu cầu đổi ca đã được xử lý trước đó.";
+
+        public const string UnavailableDateExists =
+            "Ngày này đã được đánh dấu là không thể làm việc.";
+
+        public const string AttendanceAlreadyCheckedIn =
+            "Bạn đã check-in ca làm việc này rồi.";
+
+        public const string AttendanceNotCheckedIn =
+            "Bạn cần check-in trước khi check-out.";
+
+        public const string AttendanceAlreadyCheckedOut =
+            "Bạn đã check-out ca làm việc này rồi.";
+
+        public const string AttendanceNotForToday =
+            "Chỉ có thể điểm danh cho ca làm việc trong ngày hôm nay.";
+
+        public const string NotCafeManager =
+            "Bạn không phải quản lý của quán này.";
+
+        public static string NotCafeManagerOf(Guid cafeId) =>
+            $"Bạn không phải quản lý của quán '{cafeId}'.";
+
+        public const string ShiftTooLong =
+            "Ca làm việc không được dài quá 16 giờ.";
+
+        public const string UnavailableDateNotOwnedByCaller =
+            "Bạn không có quyền xóa ngày nghỉ của nhân viên khác.";
+
+        public static string UnavailableDateNotFound(Guid id) =>
+            $"Không tìm thấy ngày nghỉ '{id}'.";
+    }
+
     public static class Inventory
  {
  public static string MasterGameNotFound(Guid gameTemplateId) =>

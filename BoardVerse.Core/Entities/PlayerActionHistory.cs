@@ -20,8 +20,8 @@ public class PlayerActionHistory
     /// <summary>Loại action: AdminCredit, AdminDebit, AccountStatusChange, RiskScoreReset, Warning, Suspend, Ban, MultiAccountConfirmed.</summary>
     public AdminActionType ActionType { get; set; }
 
-    /// <summary>Admin userId thực hiện, hoặc "system".</summary>
-    public Guid ActionBy { get; set; }
+    /// <summary>Admin userId thực hiện, hoặc null cho system actor (e.g. job tự động).</summary>
+    public Guid? ActionBy { get; set; }
 
     /// <summary>Lý do admin ghi (audit).</summary>
     public string Reason { get; set; } = string.Empty;

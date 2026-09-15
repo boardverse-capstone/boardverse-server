@@ -4,6 +4,49 @@ Lịch sử thay đổi đáng chú ý của codebase. Cập nhật theo từng 
 
 ---
 
+## 2026-09-15 — Staff Work Schedule module (9/9 gaps closed, 1820/1820 tests PASS)
+
+### 1. Module Staff Schedule — Đóng 9 gaps + ship production-ready
+
+- **Phạm vi:** Staff Schedule (Manager quản lý ca làm việc cho staff) + Time-off + Shift Swap + Attendance + Unavailable Dates.
+- **Files mới:**
+  - Entities: `BoardVerse.Core/Entities/{StaffSchedule, ShiftAttendance, TimeOffRequest, ShiftSwapRequest, StaffUnavailableDate}.cs`.
+  - Repositories: `BoardVerse.Data/Repositories/{StaffSchedule, ShiftAttendance, TimeOffRequest, ShiftSwapRequest, StaffUnavailableDate}Repository.cs`.
+  - Configurations: `BoardVerse.Data/Configurations/{StaffSchedule, ShiftAttendance, TimeOffRequest, ShiftSwapRequest, StaffUnavailableDate}Configuration.cs`.
+  - DTOs: `BoardVerse.Core/DTOs/StaffSchedule/{StaffScheduleRequestDtos, StaffScheduleResponseDtos}.cs`.
+  - Services: `BoardVerse.Services/Services/{StaffSchedule, ShiftAttendance, TimeOffRequest, ShiftSwapRequest, StaffUnavailableDate}Service.cs`.
+  - Interfaces: `BoardVerse.Core/IRepositories/{IStaffSchedule, IShiftAttendance, ITimeOffRequest, IShiftSwapRequest, IStaffUnavailableDate}Repository.cs`.
+  - Controller: `BoardVerse.API/Controllers/StaffScheduleController.cs`.
+  - Tests: `BoardVerse.Tests/Services/{StaffSchedule, ShiftAttendance, TimeOffRequest, ShiftSwapRequest, StaffUnavailableDate}ServiceTests.cs` (~135 test cases mới).
+  - Enums: `BoardVerse.Core/Enum/{StaffScheduleStatus, ShiftType, TimeOffStatus, ShiftSwapStatus}.cs`.
+  - SQL: `staff_schedule_migration.sql` (5 bảng mới + indexes + FK).
+- **Gaps đã đóng:**
+  - **C5** — Manager cafe A truy cập resource của cafe B qua StaffScheduleController (IDOR ngang). Fix: `EnsureCafeManagerAsync` guard cho mọi Manager endpoint.
+  - **M3** — Không validate max duration 16h. Fix: validate `duration <= 960 phút` trong service, throw `DurationExceeds16Hours`.
+  - **C4** — Copy template copy cả lịch staff không đi làm tuần nguồn. Fix: filter `ShiftAttendance` của tuần nguồn; fallback copy toàn bộ Active nếu rỗng.
+  - **H1** — Bulk create không atomic. Fix: wrap trong 1 transaction Serializable; validate tất cả trước khi insert bất kỳ record nào.
+  - **C6** — `DELETE staff` không xóa schedule cũ. Fix: soft-cancel tất cả `StaffSchedule.Status = Cancelled` trong transaction.
+  - **IDOR-01** — Cross-cafe access qua `scheduleId` route param. Fix: re-resolve cafe qua FK và áp dụng `EnsureCafeManagerAsync`.
+  - **H7** — FK `ShiftAttendances.ScheduleId` ON DELETE CASCADE. Fix: đổi sang RESTRICT qua EF migration `20260915113350_RestrictAttendanceScheduleDelete` + raw SQL.
+  - **M1** — Comment trong SQL + Configuration tham chiếu migration ID sai. Fix: đổi sang ID thật.
+  - **M2** — EF migration `20260915113350` chưa ghi vào `__EFMigrationsHistory`. Fix: raw SQL INSERT cả 2 migration ID với `ON CONFLICT DO NOTHING`.
+- **Test:** 1820/1820 PASS (tăng từ 1685 → 1820, +135 test cases mới).
+- **Build:** `BoardVerse.Data` 0 Error / 21 Warning (cũ, nullable dereference, không liên quan).
+- **Docs:**
+  - `docs/api/staff-schedule.md` — API reference đầy đủ cho StaffScheduleController (Manager + Staff self-service).
+  - `docs/technical/gaps-fix-2026-09-15.md` — Tổng kết 7 code gaps + migration fix.
+  - `docs/technical/staff-schedule-migration-fix-2026-09-15.md` — Chi tiết M1 + M2 migration conflict fix.
+  - `docs/CHANGELOG.md` — Entry này.
+  - `docs/TEST_REPORT.md` — Test count + 5 staff schedule test entries.
+  - `docs/README.md` — Thêm `StaffScheduleController` reference.
+
+### 2. Trạng thái deploy
+
+- **Testing branch (`ep-jolly-mud-az46q7n0`):** Schema đã apply + `__EFMigrationsHistory` đã ghi cả 2 migration ID. `dotnet ef database update` sẽ không re-apply.
+- **Production branch (`br-dawn-butterfly-az793qty`):** CHƯA apply. Khi sẵn sàng go-live: chạy `staff_schedule_migration.sql` (không cần `dotnet ef database update` riêng).
+
+---
+
 ## 2026-09-08 — Karma rating 403 fix + Build fixes (round 3)
 
 ### 1. Karma rating 403 "không phải thành viên" cho host qua PendingCafeApproval
