@@ -394,7 +394,8 @@ public class SplitBillService : ISplitBillService
             var transaction = new Transaction
             {
                 Id = Guid.NewGuid(),
-                UserId = member.UserId ?? Guid.Empty,
+                // Guest_Slot members have UserId = Guid.Empty → pass null to satisfy FK
+                UserId = member.UserId == Guid.Empty ? null : member.UserId,
                 CafeId = session.CafeId,
                 Amount = webhook.Amount,
                 Currency = "VND",
@@ -628,7 +629,8 @@ public class SplitBillService : ISplitBillService
         var transaction = new Transaction
         {
             Id = Guid.NewGuid(),
-            UserId = member.UserId ?? Guid.Empty,
+            // Guest_Slot members have UserId = Guid.Empty → pass null to satisfy FK
+            UserId = member.UserId == Guid.Empty ? null : member.UserId,
             CafeId = cafeId,
             Amount = member.TotalAmount,
             Currency = "VND",
