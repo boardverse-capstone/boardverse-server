@@ -1269,7 +1269,8 @@ public class FriendServiceTests
     [Fact]
     public async Task ExpireOldPendingRequestsAsync_WhenNoneExpired_ReturnsZero()
     {
-        _friendshipRepo.Setup(r => r.GetExpiredPendingAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<Friendship>());
+        // GAP-R6-BJ-FRIEND Fix: mock atomic batch method.
+        _friendshipRepo.Setup(r => r.ExpireOldPendingAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(0);
 
         var svc = CreateService();
 
@@ -1279,31 +1280,31 @@ public class FriendServiceTests
     }
 
     [Fact]
-    public async Task ExpireOldPendingRequestsAsync_ExpiresAndSaves()
+    public async Task ExpireOldPendingRequestsAsync_ExpiresAndReturnsCount()
     {
-        var f = BuildFriendship(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), FriendshipStatus.Pending, DateTime.UtcNow.AddDays(-45));
-        _friendshipRepo.Setup(r => r.GetExpiredPendingAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<Friendship> { f });
+        // GAP-R6-BJ-FRIEND Fix: mock atomic batch method returns count.
+        _friendshipRepo.Setup(r => r.ExpireOldPendingAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(1);
 
         var svc = CreateService();
 
         var count = await svc.ExpireOldPendingRequestsAsync(30);
 
         Assert.Equal(1, count);
-        Assert.Equal(FriendshipStatus.Removed, f.Status);
-        _friendshipRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        // Verify không gọi SaveChangesAsync nữa (atomic batch).
+        _friendshipRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
     public async Task ExpireOldPendingRequestsAsync_NegativeDays_FallsBackTo30()
     {
-        _friendshipRepo.Setup(r => r.GetExpiredPendingAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<Friendship>());
+        _friendshipRepo.Setup(r => r.ExpireOldPendingAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(0);
 
         var svc = CreateService();
 
         var count = await svc.ExpireOldPendingRequestsAsync(-5);
 
         Assert.Equal(0, count);
-        _friendshipRepo.Verify(r => r.GetExpiredPendingAsync(It.Is<DateTime>(d => (DateTime.UtcNow - d).TotalDays >= 29), It.IsAny<CancellationToken>()), Times.Once);
+        _friendshipRepo.Verify(r => r.ExpireOldPendingAsync(It.Is<DateTime>(d => (DateTime.UtcNow - d).TotalDays >= 29), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     #endregion

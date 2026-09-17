@@ -23,6 +23,12 @@ public interface ITournamentRepository
     Task<IReadOnlyList<Tournament>> GetUpcomingForClosingAsync(DateTime cutoffTime, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// GAP-R6-BJ-TOURN Fix: Atomic batch update Status=RegistrationClosed WHERE Id IN tournamentIds
+    /// AND Status=RegistrationOpen. Cluster-safe (Postgres MVCC). Trả về số rows affected.
+    /// </summary>
+    Task<int> CloseRegistrationsBatchAsync(IReadOnlyCollection<Guid> tournamentIds, DateTime now, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Lấy tournament sắp bắt đầu trong khoảng 30 phút tới (cho reminder job).
     /// Chỉ lấy tournament ở trạng thái RegistrationOpen/RegistrationClosed.
     /// </summary>
@@ -32,6 +38,28 @@ public interface ITournamentRepository
     /// Lấy tournament vừa start (OnGoing + CurrentRound = 1 + StartRoundAt gần đây) để detect no-show.
     /// </summary>
     Task<IReadOnlyList<Tournament>> GetTournamentsJustStartedAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// GAP-R6-BJ-TOURN-NOSHOW Fix: atomic flip TournamentParticipant Status=Registered → NoShow.
+    /// Cluster-safe: WHERE Status=Registered đảm bảo 2 instance chỉ flip được tổng cộng 1 lần per row.
+    /// Trả về affected count.
+    /// </summary>
+    Task<int> MarkParticipantsNoShowBatchAsync(
+        Guid tournamentId,
+        IReadOnlyCollection<Guid> participantIds,
+        DateTime now,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// GAP-R6-BJ-TOURN-NOSHOW Fix: lấy các participants đã flip sang NoShow tại thời điểm cụ thể.
+    /// Dùng sau <see cref="MarkParticipantsNoShowBatchAsync"/> để apply side effects
+    /// (karma log + push notification) chỉ cho những IDs thực sự được flip.
+    /// </summary>
+    Task<IReadOnlyList<TournamentParticipant>> GetParticipantsByIdsForNoShowAsync(
+        Guid tournamentId,
+        IReadOnlyCollection<Guid> participantIds,
+        DateTime updatedAtWindow,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Tournament đang OnGoing của 1 cafe (manager dashboard).</summary>
     Task<IReadOnlyList<Tournament>> GetActiveByCafeAsync(Guid cafeId, CancellationToken cancellationToken = default);

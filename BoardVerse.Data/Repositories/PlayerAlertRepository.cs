@@ -98,4 +98,24 @@ public class PlayerAlertRepository : IPlayerAlertRepository
             .Take(batchSize)
             .ToListAsync();
     }
+
+    /// <summary>
+    /// GAP-R6-BJ-ALERT Fix: cluster-safe variant dùng FOR UPDATE SKIP LOCKED.
+    /// Caller PHẢI wrap transaction (Postgres chỉ giữ row lock khi tx còn sống).
+    /// </summary>
+    public async Task<IReadOnlyList<PlayerAlert>> GetStaleAlertsForUpdateAsync(int maxAgeDays, int batchSize, CancellationToken cancellationToken = default)
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-maxAgeDays);
+        // Postgres-specific: truyền status enum literal sẽ tự cast sang enum.
+        // Vì BoardVerseDbContext dùng HasConversion<string>(), ta filter theo string tường minh.
+        return await _db.PlayerAlerts
+            .FromSqlRaw(
+                "SELECT * FROM \"PlayerAlerts\" WHERE \"Status\" = {0} " +
+                "AND \"CreatedAt\" <= {1} " +
+                "AND \"AcknowledgedAt\" IS NULL " +
+                "ORDER BY \"CreatedAt\" ASC LIMIT {2} " +
+                "FOR UPDATE SKIP LOCKED",
+                PlayerAlertStatus.Open.ToString(), cutoff, batchSize)
+            .ToListAsync(cancellationToken);
+    }
 }

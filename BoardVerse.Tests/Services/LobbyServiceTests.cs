@@ -6,6 +6,7 @@ using BoardVerse.Core.IRepositories;
 using BoardVerse.Data;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -377,6 +378,80 @@ public class LobbyServiceTests
 
         await Assert.ThrowsAsync<NotFoundException>(
             () => service.LeaveLobbyAsync(Guid.NewGuid(), Guid.NewGuid()));
+    }
+
+    /// <summary>
+    /// GAP-Fix 2026-09-17: khi lobby ở terminal state (TimeoutFailed/HostCancelled/Closed),
+    /// method phải trả về idempotent success thay vì throw ConflictException — tránh retry storm
+    /// khi SignalR duplicate event gửi cùng request.
+    /// </summary>
+    [Theory]
+    [InlineData(LobbyStatus.TimeoutFailed)]
+    [InlineData(LobbyStatus.HostCancelled)]
+    [InlineData(LobbyStatus.Closed)]
+    public async Task LeaveLobbyAsync_TerminalLobby_ReturnsIdempotentSuccess(LobbyStatus terminalStatus)
+    {
+        var lobbyId = Guid.NewGuid();
+        var memberId = Guid.NewGuid();
+        var lobby = new Lobby
+        {
+            Id = lobbyId,
+            Status = terminalStatus,
+            Members = new List<LobbyMember>
+            {
+                new LobbyMember { Id = Guid.NewGuid(), UserId = memberId, IsActive = false, Status = LobbyMemberStatus.Left, LeftAt = DateTime.UtcNow.AddMinutes(-5) }
+            }
+        };
+
+        var lobbyRepo = new Mock<ILobbyRepository>();
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
+        var gameRepo = new Mock<IGameTemplateRepository>();
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<IPlayerKarmaService>().Object, new Mock<IScheduleResolver>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object, new Mock<ISystemConfigurationProvider>().Object, new Mock<IHttpContextAccessor>().Object);
+
+        var result = await service.LeaveLobbyAsync(lobbyId, memberId);
+
+        Assert.NotNull(result);
+        Assert.Equal(terminalStatus, result.Status);
+        // SaveChangesAsync không được gọi vì idempotent return
+        lobbyRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// GAP-Fix 2026-09-17: user đã rời lobby trước đó (LeftAt != null) → idempotent success.
+    /// </summary>
+    [Fact]
+    public async Task LeaveLobbyAsync_UserAlreadyLeft_ReturnsIdempotentSuccess()
+    {
+        var lobbyId = Guid.NewGuid();
+        var memberId = Guid.NewGuid();
+        var hostId = Guid.NewGuid();
+        var leftAt = DateTime.UtcNow.AddMinutes(-10);
+
+        var lobby = new Lobby
+        {
+            Id = lobbyId,
+            Status = LobbyStatus.Open,
+            Members = new List<LobbyMember>
+            {
+                new LobbyMember { Id = Guid.NewGuid(), UserId = hostId, IsActive = true, IsHost = true },
+                new LobbyMember { Id = Guid.NewGuid(), UserId = memberId, IsActive = false, Status = LobbyMemberStatus.Left, LeftAt = leftAt }
+            }
+        };
+
+        var lobbyRepo = new Mock<ILobbyRepository>();
+        lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>())).ReturnsAsync(lobby);
+        var gameRepo = new Mock<IGameTemplateRepository>();
+        var service = new LobbyService(lobbyRepo.Object, gameRepo.Object, new Mock<IUserManagementRepository>().Object, new Mock<ILobbyInviteRepository>().Object, new Mock<ILobbyHubService>().Object, new Mock<ILobbyMessageService>().Object, new Mock<ILobbyMessageRepository>().Object, new Mock<IFriendshipRepository>().Object, new Mock<IReservationRepository>().Object, new Mock<IWalletService>().Object, new Mock<ISeatInventoryRepository>().Object, new Mock<IGameInventoryRepository>().Object, new Mock<IOutboxRepository>().Object, new Mock<ICafeRepository>().Object, new Mock<BoardVerse.Data.BoardVerseDbContext>(new DbContextOptions<BoardVerse.Data.BoardVerseDbContext>()).Object, new EligibilityValidator(), new Mock<IUserProfileService>().Object, new Mock<IPlayerKarmaService>().Object, new Mock<IScheduleResolver>().Object, new Mock<Microsoft.Extensions.Logging.ILogger<LobbyService>>().Object, new Mock<ISystemConfigurationProvider>().Object, new Mock<IHttpContextAccessor>().Object);
+
+        var result = await service.LeaveLobbyAsync(lobbyId, memberId);
+
+        Assert.NotNull(result);
+        // Member status vẫn là Left (không bị thay đổi)
+        var member = lobby.Members.First(m => m.UserId == memberId);
+        Assert.Equal(LobbyMemberStatus.Left, member.Status);
+        Assert.Equal(leftAt, member.LeftAt);
+        // SaveChangesAsync không được gọi vì idempotent return
+        lobbyRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

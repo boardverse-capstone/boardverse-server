@@ -191,7 +191,20 @@ public class PlayerAlertService : IPlayerAlertService
 
     public async Task<int> DismissStaleAlertsAsync(int maxAgeDays, int batchSize, CancellationToken cancellationToken = default)
     {
-        var stale = await _alertRepo.GetStaleAlertsForDismissalAsync(maxAgeDays, batchSize, cancellationToken);
+        // GAP-R6-BJ-ALERT Fix: wrap batch transaction + FOR UPDATE SKIP LOCKED.
+        // Trước đây: load → mutate → SaveChanges → 2 instance cluster pick cùng alert → duplicate
+        //   PlayerActionHistory INSERT. Mỗi alert có thể có 2+ audit log rows.
+        // Sau: mở batch transaction, FOR UPDATE SKIP LOCKED lock rows đang xử lý.
+        //   2 instance → instance A lock, instance B skip → mỗi alert chỉ process đúng 1 lần.
+        await using var batchTx = await _db.Database.BeginTransactionAsync(cancellationToken);
+
+        var stale = await _alertRepo.GetStaleAlertsForUpdateAsync(maxAgeDays, batchSize, cancellationToken);
+        if (stale.Count == 0)
+        {
+            await batchTx.CommitAsync(cancellationToken);
+            return 0;
+        }
+
         var now = DateTime.UtcNow;
         foreach (var alert in stale)
         {
@@ -214,6 +227,7 @@ public class PlayerAlertService : IPlayerAlertService
             });
         }
         await _db.SaveChangesAsync(cancellationToken);
+        await batchTx.CommitAsync(cancellationToken);
         return stale.Count;
     }
 

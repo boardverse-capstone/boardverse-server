@@ -715,20 +715,24 @@ public class FriendService : IFriendService
         if (expiryDays <= 0) expiryDays = 30;
 
         var cutoff = DateTime.UtcNow.AddDays(-expiryDays);
-        var expired = await _friendshipRepository.GetExpiredPendingAsync(cutoff);
 
-        if (expired.Count == 0) return 0;
-
+        // GAP-R6-BJ-FRIEND Fix: dùng ExecuteUpdateAsync atomic thay vì load → mutate → save.
+        // Trước đây: 2 instance cluster pick cùng friendship → cả 2 set Status=Removed → duplicate
+        //   work, log noise. Tuy idempotent nhưng không tối ưu.
+        // Sau: ExecuteUpdateAsync WHERE Status=Pending AND CreatedAt<=cutoff → atomic flip.
         var now = DateTime.UtcNow;
-        foreach (var f in expired)
+        var expiredCount = await _friendshipRepository.ExpireOldPendingAsync(cutoff, now, cancellationToken);
+
+        if (expiredCount == 0)
         {
-            f.Status = FriendshipStatus.Removed;
-            f.UpdatedAt = now;
+            return 0;
         }
 
-        await _friendshipRepository.SaveChangesAsync();
-        _logger.LogInformation("Expired {Count} pending friend requests older than {Days} days.", expired.Count, expiryDays);
-        return expired.Count;
+        _logger.LogInformation(
+            "Expired {Count} pending friend requests older than {Days} days.",
+            expiredCount, expiryDays);
+
+        return expiredCount;
     }
 
     public async Task<PlayerProfileDto> GetPlayerProfileAsync(Guid currentUserId, Guid targetUserId, CancellationToken cancellationToken = default)

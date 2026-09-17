@@ -267,7 +267,7 @@ namespace BoardVerse.Services.Services
                     lobby.UpdatedAt = now;
 
                     // Sync Reservation.CurrentPlayers whenever member count changes.
-                    SyncReservationCurrentPlayers(lobby);
+                    await SyncReservationCurrentPlayersAsync(lobby);
 
                     var filledToMaxActiveMembers = lobby.Members.Count(m => m.IsActive) >= lobby.MaxMembers;
                     if (filledToMaxActiveMembers)
@@ -363,7 +363,7 @@ namespace BoardVerse.Services.Services
                 lobby.UpdatedAt = now;
 
                 // Sync Reservation.CurrentPlayers whenever member count changes.
-                SyncReservationCurrentPlayers(lobby);
+                await SyncReservationCurrentPlayersAsync(lobby);
 
                 var filledToMax = lobby.Members.Count(m => m.IsActive) >= lobby.MaxMembers;
                 if (filledToMax)
@@ -422,7 +422,7 @@ namespace BoardVerse.Services.Services
         /// Nếu CurrentPlayers >= MinPlayers và Status còn là Holding → chuyển sang Confirmed real-time.
         /// Không làm gì nếu lobby không có Reservation liên kết.
         /// </summary>
-        private void SyncReservationCurrentPlayers(Lobby lobby)
+        private async Task SyncReservationCurrentPlayersAsync(Lobby lobby)
         {
             if (lobby.Reservation == null)
             {
@@ -431,7 +431,18 @@ namespace BoardVerse.Services.Services
 
             var reservation = lobby.Reservation;
             var activeCount = lobby.Members.Count(m => m.IsActive);
-            reservation.CurrentPlayers = activeCount;
+
+            // GAP-Fix: trước đây chỉ gán in-memory → SaveChangesAsync ở caller không persist
+            // vì EF Core change tracker đôi khi bỏ qua collection-loaded entity. Gọi UpdateAsync
+            // để đảm bảo Reservation.CurrentPlayers được lưu xuống DB mỗi lần join/leave.
+            if (reservation.CurrentPlayers != activeCount)
+            {
+                reservation.CurrentPlayers = activeCount;
+                await _reservationRepository.UpdateAsync(reservation);
+                _logger.LogDebug(
+                    "SyncReservationCurrentPlayers: reservation {ReservationId} → {ActiveCount} active members.",
+                    reservation.Id, activeCount);
+            }
 
             // BR-LOBBY-READY-01: Reservation CHỈ chuyển Holding → Confirmed khi lobby đạt WaitingCheckIn
             // (tất cả members ready). Lúc đủ minPlayers vẫn giữ Holding.
@@ -531,17 +542,36 @@ namespace BoardVerse.Services.Services
             var lobby = await _lobbyRepository.GetByIdAsync(lobbyId)
                 ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(lobbyId));
 
-            // P1 Fix #1: Block leaving during terminal or in-progress states
-            // Also block leaving when all members are ready (WaitingCheckIn)
-            if (lobby.Status is LobbyStatus.InProgress or LobbyStatus.Closed or
-                LobbyStatus.TimeoutFailed or LobbyStatus.HostCancelled or LobbyStatus.WaitingCheckIn)
+            // Idempotency: nếu lobby đã ở trạng thái terminal, không thao tác gì thêm.
+            // Trước đây throw ConflictException buộc client retry — bây giờ trả success rỗng
+            // để tránh retry storm khi SignalR gửi duplicate event.
+            if (lobby.Status is LobbyStatus.TimeoutFailed or LobbyStatus.HostCancelled or LobbyStatus.Closed)
+            {
+                _logger.LogInformation(
+                    "LeaveLobbyAsync: lobby {LobbyId} đã ở trạng thái terminal {Status}. Trả về idempotent success.",
+                    lobbyId, lobby.Status);
+                return MapLobbyDto(lobby, null);
+            }
+
+            // P1 Fix #1: Block leaving during InProgress or WaitingCheckIn states
+            if (lobby.Status is LobbyStatus.InProgress or LobbyStatus.WaitingCheckIn)
             {
                 throw new ConflictException(ApiErrorMessages.Lobby.CannotLeaveLobbyDuringSession);
             }
 
             var member = lobby.Members.FirstOrDefault(m => m.UserId == userId && m.IsActive);
+            // Idempotency: nếu user đã rời trước đó (LeftAt != null) → trả về success rỗng, không lỗi.
             if (member == null)
             {
+                var alreadyLeft = lobby.Members.FirstOrDefault(m => m.UserId == userId);
+                if (alreadyLeft != null && alreadyLeft.LeftAt.HasValue)
+                {
+                    _logger.LogInformation(
+                        "LeaveLobbyAsync: user {UserId} đã rời lobby {LobbyId} trước đó. Trả về idempotent success.",
+                        userId, lobbyId);
+                    return MapLobbyDto(lobby, null);
+                }
+
                 throw new NotFoundException(ApiErrorMessages.Lobby.NotMember);
             }
 
@@ -590,7 +620,7 @@ namespace BoardVerse.Services.Services
             lobby.UpdatedAt = DateTime.UtcNow;
 
             // Sync Reservation.CurrentPlayers whenever member count changes.
-            SyncReservationCurrentPlayers(lobby);
+            await SyncReservationCurrentPlayersAsync(lobby);
 
             await _lobbyRepository.SaveChangesAsync();
 

@@ -370,7 +370,8 @@ public class PlayerAlertServiceTests
             new PlayerAlert { Id = Guid.NewGuid(), UserId = UserId, AlertType = PlayerAlertType.AutoThresholdCrossed, Severity = PlayerAlertSeverity.Warning, Status = PlayerAlertStatus.Open, RiskScoreSnapshot = 60, CreatedAt = DateTime.UtcNow.AddDays(-45) },
             new PlayerAlert { Id = Guid.NewGuid(), UserId = UserId, AlertType = PlayerAlertType.AutoThresholdCrossed, Severity = PlayerAlertSeverity.Warning, Status = PlayerAlertStatus.Acknowledged, RiskScoreSnapshot = 60, CreatedAt = DateTime.UtcNow.AddDays(-31) }
         };
-        repo.Setup(r => r.GetStaleAlertsForDismissalAsync(30, 100, It.IsAny<CancellationToken>())).ReturnsAsync(staleAlerts);
+        // GAP-R6-BJ-ALERT Fix: mock method cluster-safe mới (FOR UPDATE SKIP LOCKED).
+        repo.Setup(r => r.GetStaleAlertsForUpdateAsync(30, 100, It.IsAny<CancellationToken>())).ReturnsAsync(staleAlerts);
 
         var fakeDb = CreateInMemoryDbContext();
         var service = new PlayerAlertService(repo.Object, fakeDb, NullLogger<PlayerAlertService>.Instance);
@@ -388,7 +389,8 @@ public class PlayerAlertServiceTests
     public async Task DismissStaleAlertsAsync_NoStale_ReturnsZero()
     {
         var repo = new Mock<IPlayerAlertRepository>();
-        repo.Setup(r => r.GetStaleAlertsForDismissalAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+        // GAP-R6-BJ-ALERT Fix: mock method cluster-safe mới.
+        repo.Setup(r => r.GetStaleAlertsForUpdateAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<PlayerAlert>());
 
         var fakeDb = CreateInMemoryDbContext();

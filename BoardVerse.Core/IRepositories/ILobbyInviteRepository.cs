@@ -45,6 +45,19 @@ public interface ILobbyInviteRepository
     Task<IReadOnlyList<LobbyInvite>> GetExpiredPendingAsync(DateTime now, int limit = 500, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// GAP-R6-BJ-FIX Fix: Atomic batch expire invite Pending quá ExpiresAt.
+    /// Dùng <c>ExecuteUpdateAsync</c> — cluster-safe, không cần transaction wrap.
+    /// Trả về số rows affected.
+    /// </summary>
+    Task<int> ExpireBatchAsync(DateTime now, int batchSize = 500, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// GAP-R6-BJ-FIX Fix: Lấy distinct LobbyId của các invite vừa expire (Status=Expired, RespondedAt≈now).
+    /// Dùng sau <see cref="ExpireBatchAsync"/> để broadcast SignalR update cho từng lobby.
+    /// </summary>
+    Task<IReadOnlyList<Guid>> GetLobbyIdsForExpiredInvitesAsync(DateTime processedAtWindow, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// BR-LOBBY-INVITE-10: Đếm số invite còn Pending trong ngày của invitee (chống spam nhận).
     /// </summary>
     Task<int> CountPendingByInviteeSinceAsync(Guid inviteeId, DateTime since, CancellationToken cancellationToken = default);

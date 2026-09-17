@@ -2013,7 +2013,14 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
     public async Task<int> AutoCloseExpiredRegistrationsAsync(DateTime cutoffTime, CancellationToken cancellationToken = default)
     {
         var tournaments = await _tournamentRepository.GetUpcomingForClosingAsync(cutoffTime);
-        var count = 0;
+        var now = DateTime.UtcNow;
+
+        // GAP-R6-BJ-TOURN Fix: dùng ExecuteUpdateAsync atomic thay vì load → mutate → save.
+        // Trước đây: 2 instance cluster pick cùng tournament → cả 2 set Status=RegistrationClosed
+        //   → duplicate work + log noise. Tuy idempotent nhưng không tối ưu.
+        // Sau: filter candidates có participants trong C#, sau đó ExecuteUpdateAsync atomic
+        //   WHERE Id IN filteredIds AND Status=RegistrationOpen → chỉ flip đúng 1 lần per row.
+        var filteredIds = new List<Guid>();
         foreach (var t in tournaments)
         {
             // Tournament chÆ°a cÃ³ ai Ä‘Äƒng kÃ½ + Ä‘Ã£ háº¿t háº¡n â†’ bá» qua, khÃ´ng chuyá»ƒn sang Closed.
@@ -2021,16 +2028,16 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
             // Manager tá»± xá»­ lÃ½ 0-participant tournament (cancel thá»§ cÃ´ng).
             // F12: Logic nháº¥t quÃ¡n giá»¯a 2 overloads (cÃ³ CT vÃ  khÃ´ng CT).
             if (!HasActiveParticipants(t)) continue;
+            filteredIds.Add(t.Id);
+        }
 
-            t.Status = TournamentStatus.RegistrationClosed;
-            t.UpdatedAt = DateTime.UtcNow;
-            count++;
-        }
-        if (count > 0)
+        if (filteredIds.Count == 0)
         {
-            await _tournamentRepository.SaveChangesAsync();
+            return 0;
         }
-        return count;
+
+        var closedCount = await _tournamentRepository.CloseRegistrationsBatchAsync(filteredIds, now, cancellationToken);
+        return closedCount;
     }
 
     
@@ -2145,7 +2152,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
             result.TournamentId = tournament.Id;
             var markedIds = new List<Guid>();
 
-            // TÃ¬m participants Ä‘Ã£ Ä‘Äƒng kÃ½ nhÆ°ng chÆ°a check-in vÃ  chÆ°a Active (chÆ°a chÆ¡i round nÃ o)
+            // Tìm participants đã đăng ký nhưng chưa check-in và chưa Active (chưa chơi round nào)
             var noShowParticipants = tournament.Participants
                 .Where(p => p.UserId.HasValue &&
                     p.Status == TournamentParticipantStatus.Registered)
@@ -2156,20 +2163,39 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
                 continue;
             }
 
+            // GAP-R6-BJ-TOURN-NOSHOW Fix: atomic flip Registered → NoShow + chỉ apply side effects
+            // cho participants THỰC SỰ được flip. Trước đây: 2 instance cluster pick cùng tournament
+            //   → cả 2 mutate participant.Status, thêm KarmaLog, gửi push → duplicate KarmaLog rows
+            //   (audit trail nhiễu) + duplicate push notifications cho user.
+            // Sau: ExecuteUpdateAsync WHERE Id IN candidates AND Status=Registered → atomic flip.
+            //   Re-query lấy IDs đã flip (giờ là NoShow + UpdatedAt = now) → CHỈ những IDs đó mới
+            //   được thêm KarmaLog + push notification.
+            var candidateIds = noShowParticipants.Select(p => p.Id).ToList();
+            var now = DateTime.UtcNow;
+            var flippedCount = await _tournamentRepository.MarkParticipantsNoShowBatchAsync(
+                tournament.Id, candidateIds, now, ct);
+
+            if (flippedCount == 0)
+            {
+                // All candidates đã được xử lý bởi instance khác.
+                continue;
+            }
+
+            // Re-query các participants đã flip (Status=NoShow + UpdatedAt=now).
+            var flippedParticipants = await _tournamentRepository.GetParticipantsByIdsForNoShowAsync(
+                tournament.Id, candidateIds, now, ct);
+
             // H3 fix: N+1 - batch-fetch all user profiles in one query.
-            var userIds = noShowParticipants.Select(p => p.UserId!.Value).Distinct().ToList();
+            var userIds = flippedParticipants.Select(p => p.UserId!.Value).Distinct().ToList();
             var profileMap = await _userProfileRepository.GetProfilesByUserIdsAsync(userIds);
 
-            var now = DateTime.UtcNow;
             var karmaPenalty = tournament.NoShowKarmaPenalty;
             var karmaLogs = new List<KarmaLog>();
 
-            foreach (var participant in noShowParticipants)
+            foreach (var participant in flippedParticipants)
             {
                 ct.ThrowIfCancellationRequested();
 
-                participant.Status = TournamentParticipantStatus.NoShow;
-                participant.UpdatedAt = now;
                 markedIds.Add(participant.Id);
 
                 result.TotalKarmaPenalty += karmaPenalty;
@@ -2195,7 +2221,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
                         KarmaPointsChange = actualDelta,
                         KarmaBefore = before,
                         KarmaAfter = after,
-                        Reason = $"[Tournament {tournament.Id}] KhÃ´ng Ä‘áº¿n tham dá»± (no-show)",
+                        Reason = $"[Tournament {tournament.Id}] Không đến tham dự (no-show)",
                         RelatedLobbyId = null,
                         PerformedByUserId = tournament.CreatedByManagerId,
                         IsAdminAdjustment = false,
@@ -2215,8 +2241,8 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
                         new PushNotificationPayload
                         {
                             Type = "TournamentNoShow",
-                            Title = "Báº¡n bá»‹ Ä‘Ã¡nh dáº¥u váº¯ng máº·t",
-                            Body = $"Báº¡n bá»‹ Ä‘Ã¡nh dáº¥u váº¯ng máº·t (no-show) táº¡i giáº£i Ä‘áº¥u '{tournament.Title}'.",
+                            Title = "Bạn bị đánh dấu vắng mặt",
+                            Body = $"Bạn bị đánh dấu vắng mặt (no-show) tại giải đấu '{tournament.Title}'.",
                             Data = new Dictionary<string, string>
                             {
                                 ["tournamentId"] = tournament.Id.ToString()

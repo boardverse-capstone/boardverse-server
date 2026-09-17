@@ -753,6 +753,28 @@ public class SplitBillService : ISplitBillService
         _dbContext.MemberPayments.Add(memberPayment);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
+        // Detach session + members to prevent EF Core Identity Resolution
+        // returning STALE tracked entities on the next re-fetch.
+        //
+        // TryAtomicFlipMemberPaymentStatusAsync uses ExecuteUpdateAsync (Postgres path)
+        // which BYPASSES the EF Core change tracker. The tracked Member entity in
+        // _dbContext still has PaymentStatus = NotPaid even though the DB now has
+        // PaidCash. If we don't detach the members too, the next
+        // GetByIdWithMembersAsync(session.Id) call will:
+        //   1. Query the DB → fresh ActiveSession (session is now detached)
+        //   2. Process .Include(Members) → for each member, EF sees it's STILL
+        //      tracked → returns the old tracked instance with PaymentStatus=NotPaid
+        //   3. `allPaid = updatedSession.Members.All(...NotPaid)` evaluates false
+        //   4. Session never flips to Paid, member never marked IsCheckedOut,
+        //      table/box never released.
+        //
+        // Detach session AND all its members so the re-fetch hits the DB cleanly.
+        foreach (var trackedMember in session.Members)
+        {
+            _dbContext.Entry(trackedMember).State = EntityState.Detached;
+        }
+        _dbContext.Entry(session).State = EntityState.Detached;
+
         _logger.LogInformation(
             "Member payment updated (atomic). MemberId={MemberId}, Status={Status}, " +
             "Amount={Amount}, OrderId={OrderId}",

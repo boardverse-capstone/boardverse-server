@@ -181,4 +181,41 @@ public class LobbyInviteRepository : ILobbyInviteRepository
             .Where(i => i.InviterId == inviterId && i.CreatedAt >= since)
             .CountAsync();
     }
+
+    /// <summary>
+    /// GAP-R6-BJ-FIX Fix: Atomic batch expire dùng <c>ExecuteUpdateAsync</c>.
+    /// Cluster-safe: Postgres MVCC đảm bảo chỉ 1 transaction flip được mỗi row.
+    /// 2 instance pick cùng invite → cả 2 đều chạy UPDATE → Postgres xử lý lock ở row level → chỉ flip 1 lần.
+    /// </summary>
+    public async Task<int> ExpireBatchAsync(DateTime now, int batchSize = 500, CancellationToken cancellationToken = default)
+    {
+        if (batchSize <= 0) batchSize = 500;
+        return await _db.LobbyInvites
+            .Where(i => i.Status == LobbyInviteStatus.Pending && i.ExpiresAt <= now)
+            .OrderBy(i => i.ExpiresAt)
+            .Take(batchSize)
+            .ExecuteUpdateAsync(
+                u => u.SetProperty(i => i.Status, LobbyInviteStatus.Expired)
+                      .SetProperty(i => i.RespondedAt, now),
+                cancellationToken);
+    }
+
+    /// <summary>
+    /// GAP-R6-BJ-FIX Fix: Sau khi <see cref="ExpireBatchAsync"/>, lấy distinct LobbyId
+    /// của các invite vừa expire để broadcast SignalR update.
+    /// Match theo RespondedAt trong window ±60s để tránh pick up các invite cũ đã expire từ tick trước.
+    /// </summary>
+    public async Task<IReadOnlyList<Guid>> GetLobbyIdsForExpiredInvitesAsync(DateTime processedAtWindow, CancellationToken cancellationToken = default)
+    {
+        var windowStart = processedAtWindow.AddSeconds(-60);
+        var windowEnd = processedAtWindow.AddSeconds(60);
+        return await _db.LobbyInvites
+            .Where(i => i.Status == LobbyInviteStatus.Expired
+                && i.RespondedAt != null
+                && i.RespondedAt >= windowStart
+                && i.RespondedAt <= windowEnd)
+            .Select(i => i.LobbyId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+    }
 }

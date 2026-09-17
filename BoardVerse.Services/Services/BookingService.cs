@@ -459,6 +459,14 @@ public class BookingService : IBookingService
             throw new ConflictException(ApiErrorMessages.Booking.CannotCancelCheckedInBooking);
         }
 
+        // Guard trạng thái terminal: NoShow/Cancelled.
+        // Trước đây method vẫn chạy nhánh update + phát SignalR khi status đã là terminal,
+        // gây trạng thái bị override không mong muốn. Bây giờ chặn rõ ràng.
+        if (booking.Status is BookingStatus.NoShow or BookingStatus.Cancelled)
+        {
+            throw new ConflictException(ApiErrorMessages.Booking.CannotCancelBookingAlreadyTerminal);
+        }
+
         // P2 Fix #13: Release table when cancelling CONFIRMED booking (defensive: release regardless of current status)
         if (booking.Status == BookingStatus.Confirmed)
         {

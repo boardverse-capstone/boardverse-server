@@ -4,7 +4,9 @@ using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
+using BoardVerse.Data;
 using BoardVerse.Services.IServices;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace BoardVerse.Services.Services;
@@ -15,6 +17,7 @@ public class ManualPaymentService : IManualPaymentService
     private readonly IBookingDepositRepository _depositRepository;
     private readonly IActiveSessionRepository _sessionRepository;
     private readonly ICafeRepository _cafeRepository;
+    private readonly BoardVerseDbContext _dbContext;
     private readonly ILogger<ManualPaymentService> _logger;
 
     public ManualPaymentService(
@@ -22,12 +25,14 @@ public class ManualPaymentService : IManualPaymentService
         IBookingDepositRepository depositRepository,
         IActiveSessionRepository sessionRepository,
         ICafeRepository cafeRepository,
+        BoardVerseDbContext dbContext,
         ILogger<ManualPaymentService> logger)
     {
         _transactionRepository = transactionRepository;
         _depositRepository = depositRepository;
         _sessionRepository = sessionRepository;
         _cafeRepository = cafeRepository;
+        _dbContext = dbContext;
         _logger = logger;
     }
 
@@ -87,6 +92,13 @@ public class ManualPaymentService : IManualPaymentService
             }
         }
 
+        // GAP-MANUAL-PAY-RACE Fix: Atomic flip Status=Unpaid → Paid với WHERE clause.
+        // Trước đây: 2 staff cùng click "Confirm" cho 1 session → cả 2 pass status check
+        //   → cả 2 tạo Transaction { Status = Succeeded } → cả 2 flip session.Status = Paid
+        //   → orphan Transaction record (2 lần ghi nhận thanh toán cho 1 session).
+        // Sau: ExecuteUpdateAsync WHERE Status=Unpaid → atomic. Nếu 0 rows → race detected
+        //   → throw ConflictException (đã có người khác xử lý) → không tạo Transaction.
+        // InMemory provider không hỗ trợ ExecuteUpdateAsync → fallback direct mutation + SaveChanges.
         var now = DateTime.UtcNow;
         var transaction = new Transaction
         {
@@ -107,25 +119,58 @@ public class ManualPaymentService : IManualPaymentService
             CompletedAt = now
         };
 
-        // H7: Wrap add Transaction + status update + cleanup in a single atomic transaction.
-        // If any step fails → rollback toàn bộ, không có orphan Succeeded Transaction.
+        // H7: Wrap flip + add Transaction + SaveChanges trong 1 atomic transaction.
+        // Nếu bất kỳ step nào fail → rollback toàn bộ, không có orphan Succeeded Transaction.
         // null-safe: unit test với Mock không setup BeginTransactionAsync → null.
         await using var dbTx = await TryBeginTransactionAsync(cancellationToken);
 
         try
         {
-            await _transactionRepository.AddAsync(transaction, cancellationToken);
+            // GAP-MANUAL-PAY-RACE Fix: atomic flip với WHERE clause.
+            // Bypass change tracker (ExecuteUpdateAsync tự update DB không qua tracker).
+            // Nếu InMemory provider → fallback mutation trực tiếp trên entity + SaveChanges.
+            var flipped = await TryAtomicFlipSessionStatusAsync(
+                request.OrderId,
+                GroupSessionStatus.Unpaid,
+                now,
+                cancellationToken);
 
-            session.Status = GroupSessionStatus.Paid;
-            session.PaidAt = now;
-            await _sessionRepository.UpdateAsync(session);
-            await _sessionRepository.SaveChangesAsync();
+            if (!flipped)
+            {
+                // Race: session đã được paid bởi request khác (staff khác click cùng lúc,
+                // hoặc webhook QR vừa flip Paid). KHÔNG tạo Transaction để tránh orphan.
+                _logger.LogWarning(
+                    "GAP-MANUAL-PAY-RACE: Session {SessionId} đã được thanh toán bởi request khác trước khi manual confirm commit. " +
+                    "Staff={StaffId}. Bỏ qua manual confirm.",
+                    request.OrderId, staffId);
+                throw new ConflictException(ApiErrorMessages.Payment.SessionNotUnpaid(
+                    "Paid (already processed by another request)"));
+            }
+
+            await _transactionRepository.AddAsync(transaction, cancellationToken);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            // Detach session + members để các operation tiếp theo (ReleaseMembersAndCloseLobbyAsync,
+            // ReleaseSessionTableAndBoxAsync) không bị EF Core Identity Resolution trả về
+            // tracked entity với Status cũ (Unpaid). Giống pattern đã fix trong SplitBillService.
+            // session.Members có thể null nếu test truyền entity rỗng — null-safe.
+            if (session.Members is not null)
+            {
+                foreach (var m in session.Members)
+                {
+                    if (m is not null)
+                    {
+                        _dbContext.Entry(m).State = EntityState.Detached;
+                    }
+                }
+            }
+            _dbContext.Entry(session).State = EntityState.Detached;
 
             // Lifecycle cleanup: close lobby (in transaction with status update).
             // GAP-08 Fix: wrap trong try/catch — fail vẫn commit payment.
             try
             {
-                await _sessionRepository.ReleaseMembersAndCloseLobbyAsync(request.OrderId);
+                await _sessionRepository.ReleaseMembersAndCloseLobbyAsync(request.OrderId, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -145,7 +190,7 @@ public class ManualPaymentService : IManualPaymentService
             // GAP-06 Fix: try/catch + log — fail thì background job retry.
             try
             {
-                await _sessionRepository.ReleaseSessionTableAndBoxAsync(request.OrderId);
+                await _sessionRepository.ReleaseSessionTableAndBoxAsync(request.OrderId, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -179,6 +224,45 @@ public class ManualPaymentService : IManualPaymentService
             }
             throw;
         }
+    }
+
+    /// <summary>
+    /// GAP-MANUAL-PAY-RACE Fix: Atomic flip ActiveSession.Status từ Unpaid → Paid với WHERE clause.
+    /// Trả về true nếu flip thành công, false nếu session đã có Status khác (race condition).
+    /// InMemory provider không hỗ trợ ExecuteUpdateAsync → fallback direct mutation + SaveChanges.
+    /// </summary>
+    private async Task<bool> TryAtomicFlipSessionStatusAsync(
+        Guid sessionId,
+        GroupSessionStatus expectedStatus,
+        DateTime paidAt,
+        CancellationToken cancellationToken)
+    {
+        // InMemory provider doesn't support ExecuteUpdateAsync — fallback
+        if (_dbContext.Database.ProviderName?.Contains("InMemory") == true)
+        {
+            var tracked = await _dbContext.ActiveSessions
+                .FirstOrDefaultAsync(s => s.Id == sessionId, cancellationToken);
+
+            if (tracked == null || tracked.Status != expectedStatus)
+            {
+                return false;
+            }
+
+            tracked.Status = GroupSessionStatus.Paid;
+            tracked.PaidAt = paidAt;
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+
+        // Real database: atomic ExecuteUpdateAsync — bypass change tracker.
+        var rowsAffected = await _dbContext.ActiveSessions
+            .Where(s => s.Id == sessionId && s.Status == expectedStatus)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(s => s.Status, GroupSessionStatus.Paid)
+                .SetProperty(s => s.PaidAt, paidAt),
+                cancellationToken);
+
+        return rowsAffected > 0;
     }
 
     // Helper: try begin transaction; return null if repository doesn't support it

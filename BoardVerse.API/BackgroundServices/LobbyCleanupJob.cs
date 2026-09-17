@@ -7,10 +7,12 @@ using Microsoft.EntityFrameworkCore;
 namespace BoardVerse.API.BackgroundServices;
 
 /// <summary>
-/// Background job tự động:
-/// 1. Expire LobbyInvites quá 24h chưa được accept.
-/// 2. Auto-cancel các lobby Open quá thời gian chờ mà chưa đạt MinPlayers (BR-08).
+/// Background job tự động expire LobbyInvites quá 24h chưa được accept (BR-LOBBY-INVITE-08).
 /// Chạy mỗi 60 giây.
+///
+/// LƯU Ý: Logic timeout lobby Open đã được chuyển sang <see cref="LobbyTimeoutJob"/>
+/// (cluster-safe với FOR UPDATE SKIP LOCKED + atomic status flip).
+/// Job này CHỈ xử lý expire invite; lobby timeout có job riêng.
 /// </summary>
 public class LobbyCleanupJob : BackgroundService
 {
@@ -31,13 +33,10 @@ public class LobbyCleanupJob : BackgroundService
             try
             {
                 await using var scope = _scopeFactory.CreateAsyncScope();
-                var db = scope.ServiceProvider.GetRequiredService<BoardVerseDbContext>();
                 var inviteRepo = scope.ServiceProvider.GetRequiredService<ILobbyInviteRepository>();
-                var lobbyRepo = scope.ServiceProvider.GetRequiredService<ILobbyRepository>();
                 var hubService = scope.ServiceProvider.GetRequiredService<BoardVerse.Services.IServices.ILobbyHubService>();
 
-                await ExpireInvitesAsync(db, hubService);
-                await TimeoutLobbiesAsync(db, lobbyRepo, hubService);
+                await ExpireInvitesAsync(inviteRepo, hubService);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -60,78 +59,39 @@ public class LobbyCleanupJob : BackgroundService
         }
     }
 
-    private async Task ExpireInvitesAsync(BoardVerseDbContext db, BoardVerse.Services.IServices.ILobbyHubService hubService)
+    /// <summary>
+    /// GAP-R6-BJ-FIX Fix: dùng <see cref="ILobbyInviteRepository.ExpireBatchAsync"/>
+    /// (atomic ExecuteUpdateAsync) thay vì load → mutate → save.
+    /// Tránh cluster race: 2 instance pick cùng invite sẽ cùng set Expired + cùng
+    /// RespondedAt → duplicate notify + push broadcast.
+    /// </summary>
+    private async Task ExpireInvitesAsync(ILobbyInviteRepository inviteRepo, BoardVerse.Services.IServices.ILobbyHubService hubService)
     {
         var now = DateTime.UtcNow;
-        var expired = await db.LobbyInvites
-            .Where(i => i.Status == LobbyInviteStatus.Pending && i.ExpiresAt <= now)
-            .ToListAsync();
+        // Atomic UPDATE WHERE Status=Pending AND ExpiresAt<=now SET Status=Expired, RespondedAt=now.
+        // ExecuteUpdateAsync returns rowsAffected — cluster-safe (Postgres MVCC).
+        var affectedRows = await inviteRepo.ExpireBatchAsync(now, batchSize: 500);
 
-        if (expired.Count == 0) return;
-
-        foreach (var inv in expired)
+        if (affectedRows == 0)
         {
-            inv.Status = LobbyInviteStatus.Expired;
-            inv.RespondedAt = now;
+            return;
         }
 
-        await db.SaveChangesAsync();
-        _logger.LogInformation("Expired {Count} lobby invites", expired.Count);
+        _logger.LogInformation("Expired {Count} lobby invites", affectedRows);
 
-        // Realtime notify các lobby có invite expired
-        var lobbyIds = expired.Select(e => e.LobbyId).Distinct();
-        foreach (var lobbyId in lobbyIds)
+        // Realtime notify: lấy distinct LobbyId từ các invite vừa expire để broadcast update.
+        // (Approach đơn giản: query back LobbyId của các invite vừa đổi status. Có thể tối ưu
+        //  sau bằng cách trả về LobbyId từ ExpireBatchAsync, nhưng trade-off query extra.)
+        var expiredLobbyIds = await inviteRepo.GetLobbyIdsForExpiredInvitesAsync(now);
+        foreach (var lobbyId in expiredLobbyIds)
         {
-            await hubService.NotifyLobbyUpdated(lobbyId);
-        }
-    }
-
-    private async Task TimeoutLobbiesAsync(
-        BoardVerseDbContext db,
-        ILobbyRepository lobbyRepo,
-        BoardVerse.Services.IServices.ILobbyHubService hubService)
-    {
-        var now = DateTime.UtcNow;
-
-        // Tìm lobby Open + ScheduledStartTime - CancellationLeadTimeMinutes <= now
-        var candidates = await db.Lobbies
-            .Include(l => l.Members)
-            .Where(l => l.Status == LobbyStatus.Open
-                && l.ScheduledStartTime.HasValue
-                && l.ScheduledStartTime.Value.AddMinutes(-l.CancellationLeadTimeMinutes) <= now)
-            .ToListAsync();
-
-        foreach (var lobby in candidates)
-        {
-            var activeCount = lobby.Members.Count(m => m.IsActive);
-            if (activeCount < lobby.MinPlayers)
+            try
             {
-                lobby.Status = LobbyStatus.TimeoutFailed;
-                lobby.ClosedAt = now;
-                lobby.ClosedReason = $"Lobby tự động hủy do không đủ {lobby.MinPlayers} người trước giờ hẹn.";
-
-                // Cancel pending invites
-                var pending = await db.LobbyInvites
-                    .Where(i => i.LobbyId == lobby.Id && i.Status == LobbyInviteStatus.Pending)
-                    .ToListAsync();
-                foreach (var inv in pending)
-                {
-                    inv.Status = LobbyInviteStatus.Cancelled;
-                    inv.RespondedAt = now;
-                }
-
-                _logger.LogInformation("Lobby {LobbyId} timed out (only {Active}/{Min} members)",
-                    lobby.Id, activeCount, lobby.MinPlayers);
+                await hubService.NotifyLobbyUpdated(lobbyId);
             }
-        }
-
-        if (candidates.Count > 0)
-        {
-            await db.SaveChangesAsync();
-
-            foreach (var l in candidates.Where(c => c.Status == LobbyStatus.TimeoutFailed))
+            catch (Exception ex)
             {
-                await hubService.NotifyLobbyTimeout(l.Id);
+                _logger.LogError(ex, "Failed to notify lobby {LobbyId} about expired invites", lobbyId);
             }
         }
     }

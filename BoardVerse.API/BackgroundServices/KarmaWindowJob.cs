@@ -52,30 +52,37 @@ public class KarmaWindowJob : BackgroundService
 
         var now = DateTime.UtcNow;
 
-        // GAP-2 fix: Include(l => l.Members) để job có thể reactivate members.
-        // Trước đây job chỉ set RatingOpenedAt mà KHÔNG flip status Closed → RatingOpen
-        // và KHÔNG reactivate members (ReservationService.MarkLobbyMembersInactive đã set
-        // IsActive=false + Status=LobbyTerminated). Hậu quả:
-        //   1. Member rate trước khi host gọi /open-karma-window → 403 vì status ≠ RatingOpen.
-        //   2. Member rate sau khi host mở window → 403 vì members có IsActive=false
-        //      → KarmaRatingRepository.GetLobbyForRatingAsync (filter IsActive) trả collection rỗng.
-        // Fix: job tự động flip status + reactivate members (mirror KarmaRatingService.OpenLobbyKarmaRatingWindowAsync).
-        var lobbiesToOpen = await db.Lobbies
-            .Include(l => l.Members)
+        // GAP-R6-BJ-KARMA Fix: dùng ExecuteUpdateAsync atomic thay vì load → mutate → save.
+        // Trước đây: 2 instance cluster pick cùng lobby → cả 2 set RatingOpenedAt = now,
+        //   Status = RatingOpen, reactivate members → duplicate audit trail và double reactivate.
+        //   Member reactivation là idempotent (IsActive=true) nên không gây bug nghiêm trọng,
+        //   nhưng vẫn là duplicate work.
+        // Sau: ExecuteUpdateAsync WHERE Status=Closed AND RatingOpenedAt IS NULL
+        //   → Postgres MVCC đảm bảo chỉ 1 instance flip được mỗi row. Re-query lấy IDs flipped,
+        //   chỉ reactivate members cho những IDs đó.
+        var flippedCount = await db.Lobbies
             .Where(l => l.Status == LobbyStatus.Closed && l.RatingOpenedAt == null)
-            .ToListAsync(stoppingToken);
+            .ExecuteUpdateAsync(l => l
+                .SetProperty(x => x.RatingOpenedAt, (DateTime?)now)
+                .SetProperty(x => x.Status, LobbyStatus.RatingOpen)
+                .SetProperty(x => x.UpdatedAt, now),
+                stoppingToken);
 
-        if (lobbiesToOpen.Count == 0)
+        if (flippedCount == 0)
             return;
 
-        _logger.LogInformation("Found {Count} lobbies to open karma window.", lobbiesToOpen.Count);
+        // Re-query các lobby đã flip để reactivate members (idempotent — IsActive=true → true).
+        var flippedLobbies = await db.Lobbies
+            .Include(l => l.Members)
+            .Where(l => l.Status == LobbyStatus.RatingOpen
+                && l.RatingOpenedAt != null
+                && l.UpdatedAt == now)
+            .ToListAsync(stoppingToken);
 
-        foreach (var lobby in lobbiesToOpen)
+        _logger.LogInformation("Found {Count} lobbies to open karma window.", flippedLobbies.Count);
+
+        foreach (var lobby in flippedLobbies)
         {
-            lobby.RatingOpenedAt = now;
-            lobby.Status = LobbyStatus.RatingOpen;
-            lobby.UpdatedAt = now;
-
             // Reactivate members để KarmaRatingRepository.GetLobbyForRatingAsync
             // (filter Members.Where(IsActive)) trả collection có data.
             // Chỉ reactivate những member chưa bị Kicked/Left (giống KarmaRatingService).
@@ -95,6 +102,6 @@ public class KarmaWindowJob : BackgroundService
         }
 
         await db.SaveChangesAsync(stoppingToken);
-        _logger.LogInformation("Processed {Count} karma windows.", lobbiesToOpen.Count);
+        _logger.LogInformation("Processed {Count} karma windows.", flippedLobbies.Count);
     }
 }

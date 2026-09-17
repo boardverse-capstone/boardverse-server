@@ -136,6 +136,19 @@ public class FriendshipRepository : IFriendshipRepository
             .ToListAsync();
     }
 
+    /// <summary>
+    /// GAP-R6-BJ-FRIEND Fix: atomic batch expire friend request Pending quá hạn.
+    /// </summary>
+    public async Task<int> ExpireOldPendingAsync(DateTime cutoff, DateTime now, CancellationToken cancellationToken = default)
+    {
+        return await _db.Friendships
+            .Where(f => f.Status == FriendshipStatus.Pending && f.CreatedAt <= cutoff)
+            .ExecuteUpdateAsync(f => f
+                .SetProperty(x => x.Status, FriendshipStatus.Removed)
+                .SetProperty(x => x.UpdatedAt, now),
+                cancellationToken);
+    }
+
     public async Task<IReadOnlyList<Guid>> GetBlockedUserIdsAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         // Cả 2 chiều: tôi chặn họ (BlockerUserId = me) HOẶC họ chặn tôi (BlockerUserId != me nhưng tôi là Requester/Addressee)

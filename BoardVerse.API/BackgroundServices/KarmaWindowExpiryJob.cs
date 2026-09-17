@@ -64,32 +64,23 @@ public class KarmaWindowExpiryJob : BackgroundService
         var now = DateTime.UtcNow;
         var cutoff = now - RatingWindowDuration;
 
-        // Query các lobby có RatingOpenedAt != null và RatingOpenedAt < cutoff
-        // Chỉ xét lobby đang Closed (hoặc terminal status) vì chỉ những lobby này mới có RatingOpenedAt set
-        var expiredWindows = await db.Lobbies
+        // GAP-R6-BJ-KARMA Fix: dùng ExecuteUpdateAsync atomic thay vì load → mutate → save.
+        // Trước đây: 2 instance cluster pick cùng lobby → cả 2 set RatingOpenedAt = null → double
+        //   close, duplicate log lines. Tuy idempotent (set null lần 2 không thay đổi gì) nhưng
+        //   duplicate log noise và waste CPU.
+        // Sau: ExecuteUpdateAsync WHERE RatingOpenedAt < cutoff AND Status=Closed → atomic flip.
+        var expiredCount = await db.Lobbies
             .Where(l => l.RatingOpenedAt != null
                         && l.RatingOpenedAt < cutoff
                         && l.Status == LobbyStatus.Closed)
-            .ToListAsync(stoppingToken);
+            .ExecuteUpdateAsync(l => l.SetProperty(x => x.RatingOpenedAt, (DateTime?)null),
+                stoppingToken);
 
-        if (expiredWindows.Count == 0)
+        if (expiredCount == 0)
             return;
 
-        _logger.LogInformation("Found {Count} karma windows to close (RatingOpenedAt < {Cutoff}).",
-            expiredWindows.Count, cutoff);
-
-        foreach (var lobby in expiredWindows)
-        {
-            var openedAt = lobby.RatingOpenedAt;
-            lobby.RatingOpenedAt = null; // Đóng window
-
-            _logger.LogInformation(
-                "Closed karma window for lobby {LobbyId}. Was open for {Duration:F1} hours.",
-                lobby.Id,
-                openedAt.HasValue ? (now - openedAt.Value).TotalHours : 0);
-        }
-
-        await db.SaveChangesAsync(stoppingToken);
-        _logger.LogInformation("Processed {Count} expired karma windows.", expiredWindows.Count);
+        _logger.LogInformation(
+            "KarmaWindowExpiryJob closed {Count} karma windows (RatingOpenedAt < {Cutoff}).",
+            expiredCount, cutoff);
     }
 }

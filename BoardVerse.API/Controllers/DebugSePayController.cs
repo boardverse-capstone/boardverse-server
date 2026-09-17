@@ -1,6 +1,7 @@
 ﻿using BoardVerse.API.Infrastructure;
 using BoardVerse.Core.Data;
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services.Payments;
@@ -20,17 +21,20 @@ public class DebugSePayController : ControllerBase
 {
     private readonly ISePayAccountService _sepayAccountService;
     private readonly IVietQrClient _vietQrClient;
+    private readonly IBookingDepositService _bookingDepositService;
     private readonly IWebHostEnvironment _env;
     private readonly ILogger<DebugSePayController> _logger;
 
     public DebugSePayController(
         ISePayAccountService sepayAccountService,
         IVietQrClient vietQrClient,
+        IBookingDepositService bookingDepositService,
         IWebHostEnvironment env,
         ILogger<DebugSePayController> logger)
     {
         _sepayAccountService = sepayAccountService;
         _vietQrClient = vietQrClient;
+        _bookingDepositService = bookingDepositService;
         _env = env;
         _logger = logger;
     }
@@ -208,40 +212,50 @@ public class DebugSePayController : ControllerBase
     {
         if (!IsDebugEnabled()) return NotFound();
 
-        var scope = HttpContext.RequestServices.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<BoardVerse.Data.BoardVerseDbContext>();
-
         var orderId = body.TryGetProperty("orderId", out var o) ? o.GetString() : null;
         var status = body.TryGetProperty("status", out var s) ? s.GetString() : null;
         if (string.IsNullOrEmpty(orderId))
             return BadRequest(new { error = ApiErrorMessages.Payment.SePayOrderIdRequired });
 
+        // Tìm deposit theo OrderId trước (service chỉ nhận depositId).
+        // Việc lookup này cần DbContext — inject trong scope để đọc nhanh.
+        var scope = HttpContext.RequestServices.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BoardVerse.Data.BoardVerseDbContext>();
+
         var deposit = await db.BookingDeposits.FirstOrDefaultAsync(d => d.OrderId == orderId);
 
-        if (deposit != null && deposit.Status == BookingDepositStatus.Pending)
+        if (deposit == null)
+        {
+            return Ok(new { status = "no_pending_deposit_found", orderId });
+        }
+
+        // Routed qua service layer để đảm bảo state validation + idempotency + transaction wrapping.
+        // Trước đây gán trực tiếp deposit.Status = ... → bypass service logic.
+        try
         {
             if (string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(status, "failed", StringComparison.OrdinalIgnoreCase))
             {
-                deposit.Status = BookingDepositStatus.Refunded;
-                deposit.RefundedAt = DateTime.UtcNow;
-                deposit.UpdatedAt = DateTime.UtcNow;
-                deposit.SePayTransactionId = $"MOCK-CANCEL-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}";
-                await db.SaveChangesAsync();
-                _logger.LogInformation("Mock webhook: deposit {OrderId} marked CANCELLED", orderId);
-                return Ok(new { status = "deposit_marked_cancelled", orderId });
+                var mockTxnId = $"MOCK-CANCEL-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}";
+                var updated = await _bookingDepositService.MarkAsRefundedAsync(deposit.Id);
+                _logger.LogInformation("Mock webhook: deposit {OrderId} (Id={DepositId}) routed to MarkAsRefundedAsync", orderId, deposit.Id);
+                return Ok(new { status = "deposit_marked_cancelled", orderId, depositId = deposit.Id });
             }
-
-            deposit.Status = BookingDepositStatus.Paid;
-            deposit.PaidAt = DateTime.UtcNow;
-            deposit.SePayTransactionId = $"MOCK-TXN-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}";
-            deposit.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
-            _logger.LogInformation("Mock webhook: deposit {OrderId} marked PAID", orderId);
-            return Ok(new { status = "deposit_marked_paid", orderId });
+            else
+            {
+                var mockTxnId = $"MOCK-TXN-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}";
+                var updated = await _bookingDepositService.MarkAsPaidAsync(deposit.Id, mockTxnId);
+                _logger.LogInformation("Mock webhook: deposit {OrderId} (Id={DepositId}) routed to MarkAsPaidAsync", orderId, deposit.Id);
+                return Ok(new { status = "deposit_marked_paid", orderId, depositId = deposit.Id });
+            }
         }
-
-        return Ok(new { status = "no_pending_deposit_found", orderId });
+        catch (ConflictException ex)
+        {
+            // Service đã throw ConflictException (VD: deposit không ở trạng thái Pending).
+            // Trả 200 thay vì 409 để webhook caller (SePay retry) không bị retry vĩnh viễn.
+            _logger.LogWarning("Mock webhook: deposit {OrderId} ConflictException — {Message}. Trả 200 để idempotent.", orderId, ex.Message);
+            return Ok(new { status = "already_processed", orderId, depositId = deposit.Id });
+        }
     }
 
     /// <summary>

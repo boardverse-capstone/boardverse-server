@@ -25,6 +25,13 @@ public interface IPlayerAlertRepository
 
     /// <summary>Đóng alerts Open quá 30 ngày chưa acknowledge.</summary>
     Task<IReadOnlyList<PlayerAlert>> GetStaleAlertsForDismissalAsync(int maxAgeDays, int batchSize, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// GAP-R6-BJ-ALERT Fix: cluster-safe variant dùng FOR UPDATE SKIP LOCKED.
+    /// Caller PHẢI wrap trong transaction — Postgres chỉ giữ row lock khi tx còn sống.
+    /// Tránh duplicate <c>PlayerActionHistory</c> insert khi 2 instance cluster pick cùng alert.
+    /// </summary>
+    Task<IReadOnlyList<PlayerAlert>> GetStaleAlertsForUpdateAsync(int maxAgeDays, int batchSize, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Query cho PlayerAlert list endpoint.</summary>

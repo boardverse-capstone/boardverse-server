@@ -921,8 +921,7 @@ namespace BoardVerse.Services.Services
             var codeType = ReservationCodeDetector.Detect(code);
             if (codeType != ReservationCodeDetector.CodeType.Reservation)
             {
-                throw new BadRequestException(
-                    "Player check-in chỉ hỗ trợ ReservationCode (8 ký tự). Vui lòng quét QR POS mới.");
+                throw new BadRequestException(ApiErrorMessages.Pos.PlayerCheckInReservationCodeOnly);
             }
 
             // Reuse existing logic — đã validate player ownership ở PlayerCheckInService.

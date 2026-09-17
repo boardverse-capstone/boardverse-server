@@ -414,6 +414,13 @@ public static string AccessForbidden(Guid cafeId) =>
             "Gửi kèm 'displayName' (hoặc alias 'username') trong body.";
 
         /// <summary>
+        /// Player check-in (mobile app) chỉ hỗ trợ ReservationCode 8 ký tự (BVC flow).
+        /// Mã BookingCode legacy (UUID) chỉ dành cho POS staff ở <c>CheckInByCodeAsync</c>.
+        /// </summary>
+        public const string PlayerCheckInReservationCodeOnly =
+            "Quét QR từ app chỉ hỗ trợ ReservationCode (8 ký tự). Vui lòng báo nhân viên quán quét QR tại POS.";
+
+        /// <summary>
         /// Phone của Guest_Slot (optional) khi gửi lên phải là số VN hợp lệ
         /// (10-11 chữ số, đầu 03/05/07/08/09). Bỏ trống nếu khách không cung cấp.
         /// </summary>
@@ -1216,6 +1223,9 @@ public const string SePayBankInfoIncomplete =
 
  public const string CannotCancelCheckedInBooking =
  "Đặt chỗ đã check-in rồi nên không thể hủy.";
+
+ public const string CannotCancelBookingAlreadyTerminal =
+ "Đặt chỗ đã ở trạng thái kết thúc (đã hủy, hết hạn, vắng mặt hoặc hoàn tất) nên không thể hủy lại.";
 
  public static string OnlyPendingDepositCanConfirm(BookingStatus status) =>
  $"Chỉ đặt chỗ đang chờ cọc mới xác nhận được (trạng thái hiện tại: {status}).";

@@ -3,6 +3,7 @@ using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.Helpers;
 using BoardVerse.Services.IServices;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -88,11 +89,44 @@ public class ReservationNoShowDetectionJob : BackgroundService
             return;
         }
 
-        _logger.LogInformation(
-            "ReservationNoShowDetectionJob: Found {Count} no-show candidates",
-            noShowCandidates.Count);
+        // GAP-R6-BJ-NOSHOW Fix: atomic flip Confirmed → NoShow + chỉ process side effects cho
+        // các reservation thực sự được flip (rowsAffected > 0).
+        // Trước đây: load → mutate in-memory → SaveChanges → 2 instance cluster pick cùng reservation
+        //   → cả 2 đều gọi ReleaseInventoryAsync → DOUBLE DECREMENT HeldSeats/HeldCopies (không idempotent).
+        // Sau: ExecuteUpdateAsync WHERE Status=Confirmed SET Status=NoShow → Postgres MVCC đảm bảo
+        //   chỉ 1 instance flip được cho mỗi row. Sau đó re-query những IDs đã flip (Status=NoShow)
+        //   và CHỈ process side effects cho những IDs đó. Side effects chạy đúng 1 lần per reservation.
+        var candidateIds = noShowCandidates.Select(r => r.Id).ToList();
+        var db = scope.ServiceProvider.GetRequiredService<BoardVerse.Data.BoardVerseDbContext>();
 
-        foreach (var reservation in noShowCandidates)
+        // Step 1: atomic flip. ExecuteUpdateAsync chỉ update rows còn Status=Confirmed,
+        // nên 2 instance cùng chạy → 1 flip được, 1 rowsAffected=0.
+        var flippedCount = await db.Reservations
+            .Where(r => candidateIds.Contains(r.Id) && r.Status == ReservationStatus.Confirmed)
+            .ExecuteUpdateAsync(r => r
+                .SetProperty(x => x.Status, ReservationStatus.NoShow)
+                .SetProperty(x => x.UpdatedAt, now),
+                ct);
+
+        if (flippedCount == 0)
+        {
+            _logger.LogDebug(
+                "ReservationNoShowDetectionJob: All {Count} candidates were already processed by another instance.",
+                noShowCandidates.Count);
+            return;
+        }
+
+        // Step 2: lấy lại danh sách reservation ĐÃ được flip (Status=NoShow) để process side effects.
+        var flippedReservations = await db.Reservations
+            .Where(r => candidateIds.Contains(r.Id) && r.Status == ReservationStatus.NoShow)
+            .Include(r => r.Lobby)
+            .ToListAsync(ct);
+
+        _logger.LogInformation(
+            "ReservationNoShowDetectionJob: atomic-flipped {Flipped} reservations (from {Candidate} candidates); processing side effects.",
+            flippedCount, noShowCandidates.Count);
+
+        foreach (var reservation in flippedReservations)
         {
             ct.ThrowIfCancellationRequested();
 
@@ -122,11 +156,13 @@ public class ReservationNoShowDetectionJob : BackgroundService
             "Processing NoShow for ReservationId={Id}, HostId={HostId}, ScheduledStartTime={Start}",
             reservation.Id, reservation.HostId, reservation.ScheduledStartTime);
 
-        // 1. Update status → NoShow
-        reservation.Status = ReservationStatus.NoShow;
-        reservation.UpdatedAt = now;
+        // GAP-R6-BJ-NOSHOW Fix: Status flip đã được thực hiện atomic ở RunDetectionAsync
+        // (ExecuteUpdateAsync WHERE Status=Confirmed). KHÔNG mutate Status ở đây — tránh
+        // EF tracker conflict với atomic UPDATE đã chạy.
 
-        // 2. Forfeit deposit (BR-REFUND-03: 0% refund, BR-REFUND-05: BVC không rút về VND)
+        // 1. Forfeit deposit (BR-REFUND-03: 0% refund, BR-REFUND-05: BVC không rút về VND)
+        //    Idempotency key `forfeit-{reservation.Id:N}` đảm bảo chỉ ghi ledger 1 lần
+        //    (kể cả khi 2 instance cluster cùng chạy — chỉ 1 sẽ pass check).
         var forfeitIdempotencyKey = $"forfeit-{reservation.Id:N}";
         await walletService.ForfeitDepositAsync(
             reservation.HostId,
@@ -136,7 +172,7 @@ public class ReservationNoShowDetectionJob : BackgroundService
             forfeitIdempotencyKey,
             ct);
 
-        // 3. Release seat + game inventory
+        // 2. Release seat + game inventory (chạy đúng 1 lần vì chỉ instance flip được mới gọi hàm này)
         await ReleaseInventoryAsync(reservation, now, ct);
 
         // 4. Create WalkInWindow (BR-WALKIN-01: §4.7 doc)

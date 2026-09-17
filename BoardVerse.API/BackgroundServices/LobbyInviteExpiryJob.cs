@@ -55,29 +55,36 @@ public class LobbyInviteExpiryJob : BackgroundService
     {
         using var scope = _serviceProvider.CreateScope();
         var inviteRepository = scope.ServiceProvider.GetRequiredService<ILobbyInviteRepository>();
+        var hubService = scope.ServiceProvider.GetRequiredService<BoardVerse.Services.IServices.ILobbyHubService>();
 
         var now = DateTime.UtcNow;
-        // GAP-R6-BJ-OOM Fix: bounded batch — chỉ lấy tối đa BatchSize mỗi tick.
-        // Nếu có nhiều hơn → tick sau sẽ tiếp tục. Tránh OOM khi backlog lớn.
-        var expired = await inviteRepository.GetExpiredPendingAsync(now, BatchSize, stoppingToken);
+        // GAP-R6-BJ-FIX Fix: dùng ExpireBatchAsync (atomic ExecuteUpdateAsync) thay vì
+        // load → mutate → save. Cluster-safe, không race với LobbyCleanupJob.
+        var affectedRows = await inviteRepository.ExpireBatchAsync(now, BatchSize, stoppingToken);
 
-        if (expired.Count == 0)
+        if (affectedRows == 0)
         {
             return;
         }
 
-        foreach (var invite in expired)
-        {
-            invite.Status = LobbyInviteStatus.Expired;
-            invite.RespondedAt = now;
-        }
-
-        await inviteRepository.SaveChangesAsync();
-
         _logger.LogInformation(
             "LobbyInviteExpiryJob expired {Count} invites (now={Now:O}).",
-            expired.Count,
+            affectedRows,
             now);
+
+        // Realtime notify: broadcast update cho các lobby có invite vừa expire.
+        var expiredLobbyIds = await inviteRepository.GetLobbyIdsForExpiredInvitesAsync(now, stoppingToken);
+        foreach (var lobbyId in expiredLobbyIds)
+        {
+            try
+            {
+                await hubService.NotifyLobbyUpdated(lobbyId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "LobbyInviteExpiryJob: failed to notify lobby {LobbyId}", lobbyId);
+            }
+        }
     }
 
     /// <summary>

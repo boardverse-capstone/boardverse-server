@@ -95,6 +95,20 @@ public class TournamentRepository : ITournamentRepository
             .ToListAsync();
     }
 
+    /// <summary>
+    /// GAP-R6-BJ-TOURN Fix: atomic batch close registrations.
+    /// </summary>
+    public async Task<int> CloseRegistrationsBatchAsync(IReadOnlyCollection<Guid> tournamentIds, DateTime now, CancellationToken cancellationToken = default)
+    {
+        if (tournamentIds.Count == 0) return 0;
+        return await _db.Tournaments
+            .Where(t => tournamentIds.Contains(t.Id) && t.Status == TournamentStatus.RegistrationOpen)
+            .ExecuteUpdateAsync(t => t
+                .SetProperty(x => x.Status, TournamentStatus.RegistrationClosed)
+                .SetProperty(x => x.UpdatedAt, now),
+                cancellationToken);
+    }
+
     public async Task<IReadOnlyList<Tournament>> GetTournamentsStartingSoonAsync(DateTime now, CancellationToken ct = default)
     {
         var windowEnd = now.AddMinutes(30);
@@ -121,6 +135,53 @@ public class TournamentRepository : ITournamentRepository
                 && t.StartedAt.HasValue
                 && t.StartedAt >= windowStart)
             .ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// GAP-R6-BJ-TOURN-NOSHOW Fix: atomic flip Registered → NoShow.
+    /// </summary>
+    public async Task<int> MarkParticipantsNoShowBatchAsync(
+        Guid tournamentId,
+        IReadOnlyCollection<Guid> participantIds,
+        DateTime now,
+        CancellationToken cancellationToken = default)
+    {
+        if (participantIds.Count == 0) return 0;
+        return await _db.TournamentParticipants
+            .Where(p => p.TournamentId == tournamentId
+                && participantIds.Contains(p.Id)
+                && p.Status == TournamentParticipantStatus.Registered)
+            .ExecuteUpdateAsync(p => p
+                .SetProperty(x => x.Status, TournamentParticipantStatus.NoShow)
+                .SetProperty(x => x.UpdatedAt, now),
+                cancellationToken);
+    }
+
+    /// <summary>
+    /// GAP-R6-BJ-TOURN-NOSHOW Fix: re-query các participants vừa flip sang NoShow
+    /// (Status=NoShow AND UpdatedAt ≈ updatedAtWindow) để apply side effects chỉ
+    /// cho những IDs thực sự được flip bởi instance hiện tại.
+    /// </summary>
+    public async Task<IReadOnlyList<TournamentParticipant>> GetParticipantsByIdsForNoShowAsync(
+        Guid tournamentId,
+        IReadOnlyCollection<Guid> participantIds,
+        DateTime updatedAtWindow,
+        CancellationToken cancellationToken = default)
+    {
+        if (participantIds.Count == 0) return Array.Empty<TournamentParticipant>();
+
+        // Cửa sổ ±1 giây để chống clock skew nhỏ giữa các instance.
+        // updatedAtWindow là 'now' đã truyền vào MarkParticipantsNoShowBatchAsync.
+        var windowStart = updatedAtWindow.AddSeconds(-1);
+        var windowEnd = updatedAtWindow.AddSeconds(1);
+
+        return await _db.TournamentParticipants
+            .Where(p => p.TournamentId == tournamentId
+                && participantIds.Contains(p.Id)
+                && p.Status == TournamentParticipantStatus.NoShow
+                && p.UpdatedAt >= windowStart
+                && p.UpdatedAt <= windowEnd)
+            .ToListAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<Tournament>> GetActiveByCafeAsync(Guid cafeId, CancellationToken cancellationToken = default)

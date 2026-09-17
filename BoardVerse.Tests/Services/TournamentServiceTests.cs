@@ -10,6 +10,7 @@ using BoardVerse.Services.Services;
 using Microsoft.Extensions.Logging;
 using Moq;
 
+using System.Linq;
 using System.Threading;
 namespace BoardVerse.Tests.Services;
 
@@ -1086,6 +1087,274 @@ public class TournamentServiceTests
     }
 
     // ============================================
+    // === Auto No-Show Job (cluster-safe atomic flip) ===
+    // ============================================
+
+    [Fact]
+    public async Task AutoMarkNoShowsAsync_OnlyFlippedParticipants_ReceiveKarmaPenaltyAndPush()
+    {
+        // GAP-R6-BJ-TOURN-NOSHOW Fix: sau khi ExecuteUpdateAsync atomic flip Registered → NoShow,
+        // service phải re-query lấy đúng những IDs vừa được flip (qua GetParticipantsByIdsForNoShowAsync)
+        // để chỉ những IDs đó mới được apply Karma penalty + push notification.
+        // Arrange
+        var tournamentRepo = BuildTournamentRepo();
+        var gameRepo = BuildGameRepo();
+        var cafeRepo = BuildCafeRepo();
+        var userRepo = BuildUserRepo();
+        var configRepo = BuildConfigRepo();
+        var karmaRepo = BuildKarmaRepo();
+        var pushService = BuildPushService();
+
+        var tournament = BuildOnGoingTournament();
+        tournament.NoShowKarmaPenalty = -20;
+
+        var participantA = new TournamentParticipant
+        {
+            Id = ParticipantId,
+            UserId = UserId,
+            TournamentId = TournamentId,
+            Status = TournamentParticipantStatus.Registered
+        };
+        var participantB = new TournamentParticipant
+        {
+            Id = Guid.NewGuid(),
+            UserId = OtherUserId,
+            TournamentId = TournamentId,
+            Status = TournamentParticipantStatus.Registered
+        };
+        tournament.Participants = new List<TournamentParticipant> { participantA, participantB };
+
+        var profileMap = new Dictionary<Guid, UserProfile>
+        {
+            [UserId] = new UserProfile { UserId = UserId, KarmaPoints = 100 },
+            [OtherUserId] = new UserProfile { UserId = OtherUserId, KarmaPoints = 50 }
+        };
+
+        // Mock repository: chỉ flip được 1 row (1 instance khác đã flip participantA trước đó).
+        tournamentRepo.Setup(r => r.GetTournamentsJustStartedAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Tournament> { tournament });
+        tournamentRepo.Setup(r => r.MarkParticipantsNoShowBatchAsync(
+                TournamentId,
+                It.IsAny<IReadOnlyCollection<Guid>>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(2); // Cả 2 được flip bởi instance này
+        tournamentRepo.Setup(r => r.GetParticipantsByIdsForNoShowAsync(
+                TournamentId,
+                It.IsAny<IReadOnlyCollection<Guid>>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<TournamentParticipant>
+            {
+                // participantA + participantB đã được flip → Status=NoShow, UpdatedAt=now
+                new() { Id = participantA.Id, UserId = UserId, TournamentId = TournamentId, Status = TournamentParticipantStatus.NoShow, UpdatedAt = DateTime.UtcNow },
+                new() { Id = participantB.Id, UserId = OtherUserId, TournamentId = TournamentId, Status = TournamentParticipantStatus.NoShow, UpdatedAt = DateTime.UtcNow }
+            });
+        tournamentRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        userRepo.Setup(r => r.GetProfilesByUserIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(profileMap);
+
+        karmaRepo.Setup(r => r.AddKarmaLogAsync(It.IsAny<KarmaLog>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        karmaRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var svc = new TournamentService(
+            tournamentRepo.Object, BuildWaitlistRepo().Object, gameRepo.Object, cafeRepo.Object,
+            BuildCafeEntityRepo().Object, userRepo.Object, configRepo.Object, karmaRepo.Object,
+            pushService.Object, BuildLogger().Object);
+
+        // Act
+        var result = await svc.AutoMarkNoShowsAsync();
+
+        // Assert
+        Assert.Equal(2, result.TotalMarked);
+        Assert.Equal(-40, result.TotalKarmaPenalty); // 2 × -20
+        Assert.Equal(2, result.MarkedParticipantIds.Count);
+        Assert.Contains(participantA.Id, result.MarkedParticipantIds);
+        Assert.Contains(participantB.Id, result.MarkedParticipantIds);
+
+        // Karma đã được trừ cho 2 user
+        Assert.Equal(80, profileMap[UserId].KarmaPoints);
+        Assert.Equal(30, profileMap[OtherUserId].KarmaPoints);
+
+        // Đúng 2 KarmaLog (cho 2 IDs đã flip)
+        karmaRepo.Verify(r => r.AddKarmaLogAsync(It.IsAny<KarmaLog>(), It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
+
+        // Đúng 2 push notifications (cho 2 IDs đã flip)
+        pushService.Verify(p => p.SendToUsersAsync(
+            It.Is<IReadOnlyCollection<Guid>>(ids => ids.SequenceEqual(new[] { UserId })),
+            It.IsAny<PushNotificationPayload>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+        pushService.Verify(p => p.SendToUsersAsync(
+            It.Is<IReadOnlyCollection<Guid>>(ids => ids.SequenceEqual(new[] { OtherUserId })),
+            It.IsAny<PushNotificationPayload>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task AutoMarkNoShowsAsync_AllCandidatesAlreadyFlippedByOtherInstance_SkipsAllSideEffects()
+    {
+        // GAP-R6-BJ-TOURN-NOSHOW Fix: nếu flippedCount = 0 (instance khác đã flip hết), skip hết side effects.
+        // Trước đây bug: cứ lặp candidates cũ, mutate participant.Status (không persist), apply karma + push
+        //   → duplicate KarmaLog rows + duplicate push notification cho user.
+        // Arrange
+        var tournamentRepo = BuildTournamentRepo();
+        var gameRepo = BuildGameRepo();
+        var cafeRepo = BuildCafeRepo();
+        var userRepo = BuildUserRepo();
+        var configRepo = BuildConfigRepo();
+        var karmaRepo = BuildKarmaRepo();
+        var pushService = BuildPushService();
+
+        var tournament = BuildOnGoingTournament();
+        tournament.NoShowKarmaPenalty = -30;
+
+        tournament.Participants = new List<TournamentParticipant>
+        {
+            new() { Id = Guid.NewGuid(), UserId = UserId, TournamentId = TournamentId, Status = TournamentParticipantStatus.Registered }
+        };
+
+        tournamentRepo.Setup(r => r.GetTournamentsJustStartedAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Tournament> { tournament });
+        tournamentRepo.Setup(r => r.MarkParticipantsNoShowBatchAsync(
+                TournamentId,
+                It.IsAny<IReadOnlyCollection<Guid>>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(0); // Instance khác đã flip hết → instance này không flip được ai
+
+        var svc = new TournamentService(
+            tournamentRepo.Object, BuildWaitlistRepo().Object, gameRepo.Object, cafeRepo.Object,
+            BuildCafeEntityRepo().Object, userRepo.Object, configRepo.Object, karmaRepo.Object,
+            pushService.Object, BuildLogger().Object);
+
+        // Act
+        var result = await svc.AutoMarkNoShowsAsync();
+
+        // Assert: không có side effect nào xảy ra
+        Assert.Equal(0, result.TotalMarked);
+        Assert.Empty(result.MarkedParticipantIds);
+        Assert.Equal(0, result.TotalKarmaPenalty);
+
+        // GetParticipantsByIdsForNoShowAsync KHÔNG được gọi (sau khi flippedCount=0)
+        tournamentRepo.Verify(r => r.GetParticipantsByIdsForNoShowAsync(
+            It.IsAny<Guid>(),
+            It.IsAny<IReadOnlyCollection<Guid>>(),
+            It.IsAny<DateTime>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+
+        // AddKarmaLogAsync KHÔNG được gọi
+        karmaRepo.Verify(r => r.AddKarmaLogAsync(It.IsAny<KarmaLog>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+
+        // SendToUsersAsync KHÔNG được gọi
+        pushService.Verify(p => p.SendToUsersAsync(
+            It.IsAny<IReadOnlyCollection<Guid>>(),
+            It.IsAny<PushNotificationPayload>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AutoMarkNoShowsAsync_PartiallyFlipped_AppliesSideEffectsOnlyToNewlyFlipped()
+    {
+        // GAP-R6-BJ-TOURN-NOSHOW Fix: flippedCount = 1 trong khi candidates = 2.
+        // Re-query GetParticipantsByIdsForNoShowAsync sẽ trả về 1 participant (NoShow vừa flip).
+        // Chỉ 1 KarmaLog + 1 push notification cho người đó.
+        // Arrange
+        var tournamentRepo = BuildTournamentRepo();
+        var gameRepo = BuildGameRepo();
+        var cafeRepo = BuildCafeRepo();
+        var userRepo = BuildUserRepo();
+        var configRepo = BuildConfigRepo();
+        var karmaRepo = BuildKarmaRepo();
+        var pushService = BuildPushService();
+
+        var tournament = BuildOnGoingTournament();
+        tournament.NoShowKarmaPenalty = -25;
+
+        var justFlippedParticipantId = Guid.NewGuid();
+        var alreadyFlippedParticipantId = Guid.NewGuid();
+
+        // List initial: cả 2 đều đang Registered (1 sẽ bị flip bởi instance khác trước).
+        tournament.Participants = new List<TournamentParticipant>
+        {
+            new() { Id = justFlippedParticipantId, UserId = UserId, TournamentId = TournamentId, Status = TournamentParticipantStatus.Registered },
+            new() { Id = alreadyFlippedParticipantId, UserId = OtherUserId, TournamentId = TournamentId, Status = TournamentParticipantStatus.Registered }
+        };
+
+        var profileMap = new Dictionary<Guid, UserProfile>
+        {
+            [UserId] = new UserProfile { UserId = UserId, KarmaPoints = 100 }
+            // OtherUserId không có profile → cũng không trong map, sẽ skip
+        };
+
+        tournamentRepo.Setup(r => r.GetTournamentsJustStartedAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Tournament> { tournament });
+        tournamentRepo.Setup(r => r.MarkParticipantsNoShowBatchAsync(
+                TournamentId,
+                It.IsAny<IReadOnlyCollection<Guid>>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(1); // Chỉ flip được 1 (participant B đã được instance khác flip rồi)
+        tournamentRepo.Setup(r => r.GetParticipantsByIdsForNoShowAsync(
+                TournamentId,
+                It.IsAny<IReadOnlyCollection<Guid>>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<TournamentParticipant>
+            {
+                new() { Id = justFlippedParticipantId, UserId = UserId, TournamentId = TournamentId, Status = TournamentParticipantStatus.NoShow, UpdatedAt = DateTime.UtcNow }
+                // alreadyFlippedParticipantId KHÔNG có trong list (vì đã được flip trước bởi instance khác)
+            });
+        tournamentRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        userRepo.Setup(r => r.GetProfilesByUserIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(profileMap);
+
+        karmaRepo.Setup(r => r.AddKarmaLogAsync(It.IsAny<KarmaLog>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        karmaRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var svc = new TournamentService(
+            tournamentRepo.Object, BuildWaitlistRepo().Object, gameRepo.Object, cafeRepo.Object,
+            BuildCafeEntityRepo().Object, userRepo.Object, configRepo.Object, karmaRepo.Object,
+            pushService.Object, BuildLogger().Object);
+
+        // Act
+        var result = await svc.AutoMarkNoShowsAsync();
+
+        // Assert
+        Assert.Equal(1, result.TotalMarked);
+        Assert.Equal(new[] { justFlippedParticipantId }, result.MarkedParticipantIds);
+        Assert.Equal(-25, result.TotalKarmaPenalty);
+
+        // UserId được trừ Karma (100 → 75)
+        Assert.Equal(75, profileMap[UserId].KarmaPoints);
+
+        // Chỉ 1 KarmaLog (chỉ cho IDs vừa flip)
+        karmaRepo.Verify(r => r.AddKarmaLogAsync(
+            It.Is<KarmaLog>(k => k.UserId == UserId
+                && k.ViolationCategory == KarmaViolationCategory.NoShow
+                && k.KarmaPointsChange == -25
+                && k.KarmaBefore == 100
+                && k.KarmaAfter == 75),
+            It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        // Chỉ 1 push notification (cho UserId)
+        pushService.Verify(p => p.SendToUsersAsync(
+            It.Is<IReadOnlyCollection<Guid>>(ids => ids.SequenceEqual(new[] { UserId })),
+            It.IsAny<PushNotificationPayload>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+
+        // OtherUserId KHÔNG nhận push (vì không nằm trong re-query list)
+        pushService.Verify(p => p.SendToUsersAsync(
+            It.Is<IReadOnlyCollection<Guid>>(ids => ids.Contains(OtherUserId)),
+            It.IsAny<PushNotificationPayload>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // ============================================
     // === Cancel Tournament ===
     // ============================================
 
@@ -1320,7 +1589,10 @@ public class TournamentServiceTests
 
         tournamentRepo.Setup(r => r.GetUpcomingForClosingAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Tournament> { t1, t2 });
-        tournamentRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        // GAP-R6-BJ-TOURN Fix: mock atomic batch update returns affected count.
+        tournamentRepo.Setup(r => r.CloseRegistrationsBatchAsync(
+                It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(2);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -1329,8 +1601,13 @@ public class TournamentServiceTests
 
         // Assert
         Assert.Equal(2, count);
-        Assert.All(new[] { t1, t2 }, t => Assert.Equal(TournamentStatus.RegistrationClosed, t.Status));
-        tournamentRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        // Atomic batch was called with the 2 tournament IDs that have participants.
+        tournamentRepo.Verify(r => r.CloseRegistrationsBatchAsync(
+            It.Is<IReadOnlyCollection<Guid>>(ids => ids.Count == 2 && ids.Contains(t1.Id) && ids.Contains(t2.Id)),
+            It.IsAny<DateTime>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+        // Verify không gọi SaveChangesAsync nữa (atomic batch).
+        tournamentRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -1363,7 +1640,10 @@ public class TournamentServiceTests
 
         tournamentRepo.Setup(r => r.GetUpcomingForClosingAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Tournament> { emptyT, fullT });
-        tournamentRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        // GAP-R6-BJ-TOURN Fix: chỉ 1 tournament (fullT) được close.
+        tournamentRepo.Setup(r => r.CloseRegistrationsBatchAsync(
+                It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(1);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
@@ -1372,8 +1652,11 @@ public class TournamentServiceTests
 
         // Assert — chỉ close tournament có participants
         Assert.Equal(1, count);
-        Assert.Equal(TournamentStatus.RegistrationOpen, emptyT.Status); // không đổi
-        Assert.Equal(TournamentStatus.RegistrationClosed, fullT.Status);
+        // Verify atomic batch was called with chỉ 1 ID (fullT).
+        tournamentRepo.Verify(r => r.CloseRegistrationsBatchAsync(
+            It.Is<IReadOnlyCollection<Guid>>(ids => ids.Count == 1 && ids.Contains(fullT.Id) && !ids.Contains(emptyT.Id)),
+            It.IsAny<DateTime>(),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // ============================================
@@ -2733,13 +3016,21 @@ public class TournamentServiceTests
 
         tournamentRepo.Setup(r => r.GetUpcomingForClosingAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Tournament> { tournament });
-        tournamentRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        // GAP-R6-BJ-TOURN Fix: mock atomic batch returns 1 affected.
+        tournamentRepo.Setup(r => r.CloseRegistrationsBatchAsync(
+                It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(1);
 
         var svc = BuildService(tournamentRepo, gameRepo, cafeRepo, userRepo, configRepo, karmaRepo);
 
         var count = await svc.AutoCloseExpiredRegistrationsAsync(DateTime.UtcNow);
 
         Assert.Equal(1, count);
-        Assert.Equal(TournamentStatus.RegistrationClosed, tournament.Status);
+        tournamentRepo.Verify(r => r.CloseRegistrationsBatchAsync(
+            It.Is<IReadOnlyCollection<Guid>>(ids => ids.Count == 1 && ids.Contains(tournament.Id)),
+            It.IsAny<DateTime>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+        // SaveChangesAsync không được gọi nữa (atomic batch).
+        tournamentRepo.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 }

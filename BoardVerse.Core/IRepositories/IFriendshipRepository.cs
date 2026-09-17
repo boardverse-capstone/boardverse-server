@@ -49,6 +49,12 @@ public interface IFriendshipRepository
     Task<IReadOnlyList<Friendship>> GetExpiredPendingAsync(DateTime cutoff, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// GAP-R6-BJ-FRIEND Fix: Atomic batch expire dùng ExecuteUpdateAsync.
+    /// Cluster-safe: Postgres MVCC đảm bảo chỉ 1 transaction flip được mỗi row.
+    /// </summary>
+    Task<int> ExpireOldPendingAsync(DateTime cutoff, DateTime now, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Lấy danh sách UserId bị block (cả 2 chiều: tôi chặn họ + họ chặn tôi).
     /// Dùng để filter khỏi Search/Suggestions (BR-FRIEND-SEARCH-BLOCK-FILTER).
     /// </summary>
