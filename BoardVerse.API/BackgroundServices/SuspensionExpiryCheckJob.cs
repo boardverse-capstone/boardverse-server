@@ -47,12 +47,12 @@ public class SuspensionExpiryCheckJob : BackgroundService
 
                 var expired = await db.Users
                     .FromSqlRaw(
-                        "SELECT * FROM \"Users\" WHERE \"AccountStatus\" = {0}::text " +
+                        "SELECT * FROM \"Users\" WHERE \"AccountStatus\" = {0} " +
                         "AND \"LockoutEndDate\" IS NOT NULL " +
                         "AND \"LockoutEndDate\" <= {1} " +
                         "ORDER BY \"LockoutEndDate\" ASC LIMIT {2} " +
                         "FOR UPDATE SKIP LOCKED",
-                        Convert.ToString(UserAccountStatus.Suspended), now, BatchSize)
+                        UserAccountStatus.Suspended.ToString(), now, BatchSize)
                     .ToListAsync(stoppingToken);
 
                 if (expired.Count == 0)

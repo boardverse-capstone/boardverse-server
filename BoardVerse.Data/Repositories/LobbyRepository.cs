@@ -612,24 +612,19 @@ namespace BoardVerse.Data.Repositories
             DateTime fromUtc,
             TimeSpan maxGap, CancellationToken cancellationToken = default)
         {
-            // BR-RISK-01 (SIG-08): Host cancel trong khoảng (UpdatedAt - CreatedAt) < maxGap.
-            // Lobby.Status is stored as varchar (string), not int — use string literals.
-            // HostCancelled=3, RejectedByCafe=12, ExpiredByCafe=13
-            var statusList = string.Join(",", new[] { "HostCancelled", "RejectedByCafe", "ExpiredByCafe" }
-                .Select(s => $"'{s}'"));
-            var intervalMinutes = maxGap.TotalMinutes;
-
-            var sql = $@"
-                SELECT count(*)::int
-                FROM ""Lobbies"" AS l
-                WHERE l.""HostUserId"" = '{hostUserId}'
-                  AND l.""CreatedAt"" >= '{fromUtc:O}'
-                  AND l.""Status"" IN ({statusList})
-                  AND l.""UpdatedAt"" < l.""CreatedAt"" + interval '{intervalMinutes} minutes'";
+            // Fix (42883 → 42601): Dùng SqlQueryRaw với parameter arguments thay vì string interpolation.
+            // Interpolation đưa GUID/datetime trực tiếp vào SQL → PostgreSQL hiểu GUID là identifier không có quotes → lỗi.
+            // Pass tất cả giá trị qua parameter list để EF Core/Npgsql bind đúng kiểu.
+            var sql = @"SELECT count(*)::int
+                   FROM ""Lobbies"" AS l
+                   WHERE l.""HostUserId"" = {0}
+                     AND l.""CreatedAt"" >= {1}
+                     AND l.""Status"" IN ('HostCancelled','RejectedByCafe','ExpiredByCafe')
+                     AND l.""UpdatedAt"" < l.""CreatedAt"" + make_interval(0, 0, 0, 0, 0, 0, {2})";
 
             var result = await _db.Database
-                .SqlQueryRaw<int>(sql)
-                .ToListAsync();
+                .SqlQueryRaw<int>(sql, hostUserId, fromUtc, maxGap.TotalSeconds)
+                .ToListAsync(cancellationToken);
             return result.FirstOrDefault();
         }
 

@@ -36,15 +36,16 @@ public class BvcTopUpRequestRepository : IBvcTopUpRequestRepository
     {
         // Cluster-safe: FOR UPDATE SKIP LOCKED + push filter xuống SQL.
         // Caller wrap batch transaction.
+        // Fix (42883): Dùng ExecuteSqlInterpolated giữ compile-time type → Npgsql gửi INTEGER.
         return await _db.BvcTopUpRequests
-            .FromSqlRaw(
-                "SELECT * FROM \"BvcTopUpRequests\" " +
-                "WHERE \"Status\" = {0} AND \"ExpiresAt\" <= {1} " +
-                "ORDER BY \"ExpiresAt\" " +
-                "LIMIT {2} " +
-                "FOR UPDATE SKIP LOCKED",
-                (int)BvcTopUpStatus.Pending, now, limit)
-            .ToListAsync();
+            .FromSqlInterpolated(
+                $@"SELECT * FROM ""BvcTopUpRequests""
+                   WHERE ""Status"" = {(int)BvcTopUpStatus.Pending}
+                     AND ""ExpiresAt"" <= {now}
+                   ORDER BY ""ExpiresAt""
+                   LIMIT {limit}
+                   FOR UPDATE SKIP LOCKED")
+            .ToListAsync(cancellationToken);
     }
 
     public Task<IReadOnlyList<BvcTopUpRequest>> GetPendingByAmountVndAsync(

@@ -131,15 +131,16 @@ public class ReservationRepository : IReservationRepository
     /// </summary>
     public async Task<IReadOnlyList<Reservation>> GetDueForDeadlineAsync(DateTime cutoff, int limit = 100, CancellationToken cancellationToken = default)
     {
-        // Cast sang TEXT vì column "Status" lưu dạng text.
+        // Reservations.Status dùng HasConversion<int>() → cột là INTEGER.
+        // Fix (42883): Dùng ExecuteSqlInterpolated giữ compile-time type → Npgsql gửi INTEGER.
         return await _db.Reservations
-            .FromSqlRaw(
-                "SELECT * FROM \"Reservations\" " +
-                "WHERE \"Status\" = CAST({0} AS TEXT) AND \"RecruitmentDeadline\" <= {1} " +
-                "ORDER BY \"RecruitmentDeadline\" " +
-                "LIMIT {2} " +
-                "FOR UPDATE SKIP LOCKED",
-                (int)ReservationStatus.Holding, cutoff, limit)
+            .FromSqlInterpolated(
+                $@"SELECT * FROM ""Reservations""
+                   WHERE ""Status"" = {(int)ReservationStatus.Holding}
+                     AND ""RecruitmentDeadline"" <= {cutoff}
+                   ORDER BY ""RecruitmentDeadline""
+                   LIMIT {limit}
+                   FOR UPDATE SKIP LOCKED")
             .ToListAsync(cancellationToken);
     }
 
@@ -150,21 +151,23 @@ public class ReservationRepository : IReservationRepository
     {
         // BR-NEW-11: lobby PendingCafeApproval quá 24 giờ → expiredByCafe.
         // SKIP LOCKED trên join: Postgres lock row Reservation, lookup Lobby sau.
-        // Cast sang TEXT vì cả "Reservations"."Status" và "Lobbies"."Status" đều lưu dạng text.
+        // Fix (42883): Dùng ExecuteSqlInterpolated.
+        // - Reservations.Status là INTEGER (HasConversion<int>()) → gửi int → Postgres nhận INTEGER.
+        // - Lobbies.Status là VARCHAR (HasConversion<string>()) → gửi string → Postgres nhận TEXT.
         var pendingIds = await _db.Reservations
-            .FromSqlRaw(
-                "SELECT * FROM \"Reservations\" " +
-                "WHERE \"Status\" = CAST({0} AS TEXT) AND \"LobbyId\" IS NOT NULL " +
-                "AND EXISTS (SELECT 1 FROM \"Lobbies\" l WHERE l.\"Id\" = \"Reservations\".\"LobbyId\" " +
-                "            AND l.\"Status\" = CAST({1} AS TEXT) " +
-                "            AND l.\"CafeApprovalDeadline\" IS NOT NULL " +
-                "            AND l.\"CafeApprovalDeadline\" <= {2}) " +
-                "LIMIT {3} " +
-                "FOR UPDATE SKIP LOCKED",
-                (int)ReservationStatus.Holding,
-                (int)LobbyStatus.PendingCafeApproval,
-                cutoff,
-                limit)
+            .FromSqlInterpolated(
+                $@"SELECT * FROM ""Reservations""
+                   WHERE ""Status"" = {(int)ReservationStatus.Holding}
+                     AND ""LobbyId"" IS NOT NULL
+                     AND EXISTS (
+                       SELECT 1 FROM ""Lobbies"" l
+                       WHERE l.""Id"" = ""Reservations"".""LobbyId""
+                         AND l.""Status"" = {LobbyStatus.PendingCafeApproval.ToString()}
+                         AND l.""CafeApprovalDeadline"" IS NOT NULL
+                         AND l.""CafeApprovalDeadline"" <= {cutoff}
+                     )
+                   LIMIT {limit}
+                   FOR UPDATE SKIP LOCKED")
             .ToListAsync(cancellationToken);
 
         return pendingIds;

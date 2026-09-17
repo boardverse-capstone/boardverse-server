@@ -109,14 +109,18 @@ public class PlayerAlertRepository : IPlayerAlertRepository
         var cutoff = DateTime.UtcNow.AddDays(-maxAgeDays);
         // GAP-R6-BJ-ALERT Fix: cluster-safe variant dùng FOR UPDATE SKIP LOCKED.
         // Column "Status" là INTEGER (HasConversion<int>() trong PlayerAlertConfiguration).
+        //
+        // Fix (42883): Dùng ExecuteSqlInterpolated thay vì FromSqlRaw + positional params.
+        // Npgsql với EF Core 6/7/8 infer param type từ boxed object → gửi TEXT thay vì INTEGER
+        // → Postgres báo "operator does not exist: integer = text".
+        // ExecuteSqlInterpolated giữ compile-time type (int) → Npgsql gửi đúng INTEGER.
         return await _db.PlayerAlerts
-            .FromSqlRaw(
-                "SELECT * FROM \"PlayerAlerts\" WHERE \"Status\" = CAST({0} AS INTEGER) " +
-                "AND \"CreatedAt\" <= {1} " +
-                "AND \"AcknowledgedAt\" IS NULL " +
-                "ORDER BY \"CreatedAt\" ASC LIMIT {2} " +
-                "FOR UPDATE SKIP LOCKED",
-                (int)PlayerAlertStatus.Open, cutoff, batchSize)
+            .FromSqlInterpolated(
+                $@"SELECT * FROM ""PlayerAlerts"" WHERE ""Status"" = {(int)PlayerAlertStatus.Open}
+                  AND ""CreatedAt"" <= {cutoff}
+                  AND ""AcknowledgedAt"" IS NULL
+                  ORDER BY ""CreatedAt"" ASC LIMIT {batchSize}
+                  FOR UPDATE SKIP LOCKED")
             .ToListAsync(cancellationToken);
     }
 }

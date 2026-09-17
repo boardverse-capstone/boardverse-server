@@ -106,19 +106,16 @@ public class BookingRepository : IBookingRepository
     public async Task<IReadOnlyList<Booking>> GetConflictingBookingsWithLockAsync(
         Guid cafeTableId, DateTime startTime, DateTime endTime, CancellationToken cancellationToken = default)
     {
-        // HasConversion<int>() → truyền (int) enum, không cần cast SQL.
+        // Fix (42883): Dùng ExecuteSqlInterpolated giữ compile-time type.
+        // BookingStatus.Cancelled là int → Npgsql gửi INTEGER (không phải TEXT).
         var conflictingBookings = await _db.Bookings
-            .FromSqlRaw(
-                @"SELECT * FROM ""Bookings""
-                  WHERE ""CafeTableId"" = {0}
-                  AND ""Status"" != {1}
-                  AND ""ScheduledStartTime"" < {2}
-                  AND ""ScheduleEndTime"" > {3}
-                  FOR UPDATE SKIP LOCKED",
-                cafeTableId,
-                (int)BookingStatus.Cancelled,
-                endTime,
-                startTime)
+            .FromSqlInterpolated(
+                $@"SELECT * FROM ""Bookings""
+                   WHERE ""CafeTableId"" = {cafeTableId}
+                     AND ""Status"" != {(int)BookingStatus.Cancelled}
+                     AND ""ScheduledStartTime"" < {endTime}
+                     AND ""ScheduleEndTime"" > {startTime}
+                   FOR UPDATE SKIP LOCKED")
             .ToListAsync(cancellationToken);
 
         return conflictingBookings;

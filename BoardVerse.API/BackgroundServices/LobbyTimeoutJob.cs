@@ -75,14 +75,14 @@ public class LobbyTimeoutJob : BackgroundService
 
         // Case 1: Lobby có ScheduledStartTime → so với (ScheduledStartTime - CancellationLeadTimeMinutes)
         // GAP #16 fix: cluster-safe — dùng FOR UPDATE SKIP LOCKED để nhiều instance không pick trùng.
-        // Cast "Status" sang TEXT vì column lưu dạng text dù config là HasConversion<string>().
+        // Fix (42883): Lobbies.Status có thể là varchar hoặc text → cast enum value sang TEXT.
         var scheduledTimedOut = await db.Lobbies
             .FromSqlRaw(
                 "SELECT * FROM \"Lobbies\" WHERE \"Status\" = CAST({0} AS TEXT) " +
                 "AND \"ScheduledStartTime\" IS NOT NULL " +
                 "AND \"ScheduledStartTime\" - (\"CancellationLeadTimeMinutes\" * INTERVAL '1 minute') <= {1} " +
                 "FOR UPDATE SKIP LOCKED",
-                (int)LobbyStatus.Open, now)
+                LobbyStatus.Open.ToString(), now)
             .Include(l => l.Members)
             .Include(l => l.GameTemplate)
             .Include(l => l.Cafe)
@@ -91,7 +91,7 @@ public class LobbyTimeoutJob : BackgroundService
 
         // Case 2 (fix): Lobby không có ScheduledStartTime (orphan) mà tồn tại > 24 giờ → coi như timeout,
         // tránh bị kẹt mãi mãi ở OPEN khi Host quên đặt giờ.
-        // Cast "Status" sang TEXT.
+        // Fix (42883): Lobbies.Status có thể là varchar hoặc text → cast enum value sang TEXT.
         var orphanCutoff = now - OrphanLobbyTimeout;
         var orphanTimedOut = await db.Lobbies
             .FromSqlRaw(
@@ -99,7 +99,7 @@ public class LobbyTimeoutJob : BackgroundService
                 "AND \"ScheduledStartTime\" IS NULL " +
                 "AND \"CreatedAt\" <= {1} " +
                 "FOR UPDATE SKIP LOCKED",
-                (int)LobbyStatus.Open, orphanCutoff)
+                LobbyStatus.Open.ToString(), orphanCutoff)
             .Include(l => l.Members)
             .Include(l => l.GameTemplate)
             .Include(l => l.Cafe)
@@ -108,7 +108,7 @@ public class LobbyTimeoutJob : BackgroundService
 
         // Case 3 (BR-LOBBY-READY-03): Lobby đã FULL + FullAt > 20 phút + chưa có ai Ready → timeout.
         // Dùng `LobbyReadyTimeoutReason` để phân biệt với timeout vì thiếu người.
-        // Cast "Status" sang TEXT.
+        // Fix (42883): Lobbies.Status có thể là varchar hoặc text → cast enum value sang TEXT.
         var readyCutoff = now - ReadyTimeoutWindow;
         var fullButNotReady = await db.Lobbies
             .FromSqlRaw(
@@ -116,7 +116,7 @@ public class LobbyTimeoutJob : BackgroundService
                 "AND \"FullAt\" IS NOT NULL " +
                 "AND \"FullAt\" <= {1} " +
                 "FOR UPDATE SKIP LOCKED",
-                (int)LobbyStatus.Full, readyCutoff)
+                LobbyStatus.Full.ToString(), readyCutoff)
             .Include(l => l.Members)
             .Include(l => l.GameTemplate)
             .Include(l => l.Cafe)

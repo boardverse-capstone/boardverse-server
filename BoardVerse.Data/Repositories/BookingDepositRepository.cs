@@ -88,17 +88,17 @@ namespace BoardVerse.Data.Repositories
         /// GAP #26 fix: cluster-safe + push filter xuống SQL + limit batch.
         /// Dùng FOR UPDATE SKIP LOCKED — multi-instance không pick trùng.
         /// Caller phải wrap batch transaction.
-        /// HasConversion<int>() → truyền (int) enum, không cần cast SQL.
+        /// Fix (42883): Dùng ExecuteSqlInterpolated giữ compile-time type → Npgsql gửi INTEGER.
         public async Task<IReadOnlyList<BookingDeposit>> GetPendingExpiredAsync(DateTime cutoffTime, int limit = 100, CancellationToken cancellationToken = default)
         {
             return await _db.BookingDeposits
-                .FromSqlRaw(
-                    "SELECT * FROM \"BookingDeposits\" " +
-                    "WHERE \"Status\" = {0} AND \"CreatedAt\" <= {1} " +
-                    "ORDER BY \"CreatedAt\" " +
-                    "LIMIT {2} " +
-                    "FOR UPDATE SKIP LOCKED",
-                    (int)BookingDepositStatus.Pending, cutoffTime, limit)
+                .FromSqlInterpolated(
+                    $@"SELECT * FROM ""BookingDeposits""
+                       WHERE ""Status"" = {(int)BookingDepositStatus.Pending}
+                         AND ""CreatedAt"" <= {cutoffTime}
+                       ORDER BY ""CreatedAt""
+                       LIMIT {limit}
+                       FOR UPDATE SKIP LOCKED")
                 .ToListAsync(cancellationToken);
         }
 
