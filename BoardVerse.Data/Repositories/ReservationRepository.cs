@@ -160,7 +160,7 @@ public class ReservationRepository : IReservationRepository
                 "LIMIT {3} " +
                 "FOR UPDATE SKIP LOCKED",
                 (int)ReservationStatus.Holding,
-                LobbyStatus.PendingCafeApproval.ToString(),
+                (int)LobbyStatus.PendingCafeApproval,
                 cutoff,
                 limit)
             .ToListAsync(cancellationToken);
