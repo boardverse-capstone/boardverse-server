@@ -1,4 +1,5 @@
-﻿using BoardVerse.Core.Entities;
+﻿using System;
+using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Messages;
 using BoardVerse.Data;
@@ -46,12 +47,12 @@ public class SuspensionExpiryCheckJob : BackgroundService
 
                 var expired = await db.Users
                     .FromSqlRaw(
-                        "SELECT * FROM \"Users\" WHERE \"AccountStatus\" = {0} " +
+                        "SELECT * FROM \"Users\" WHERE \"AccountStatus\" = {0}::text " +
                         "AND \"LockoutEndDate\" IS NOT NULL " +
                         "AND \"LockoutEndDate\" <= {1} " +
                         "ORDER BY \"LockoutEndDate\" ASC LIMIT {2} " +
                         "FOR UPDATE SKIP LOCKED",
-                        (int)UserAccountStatus.Suspended, now, BatchSize)
+                        Convert.ToString(UserAccountStatus.Suspended), now, BatchSize)
                     .ToListAsync(stoppingToken);
 
                 if (expired.Count == 0)

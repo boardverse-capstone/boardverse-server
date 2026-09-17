@@ -1,4 +1,5 @@
-﻿using BoardVerse.Core.Entities;
+﻿using System;
+using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Data;
@@ -105,9 +106,7 @@ public class BookingRepository : IBookingRepository
     public async Task<IReadOnlyList<Booking>> GetConflictingBookingsWithLockAsync(
         Guid cafeTableId, DateTime startTime, DateTime endTime, CancellationToken cancellationToken = default)
     {
-        // Use raw SQL with FOR UPDATE SKIP LOCKED for pessimistic locking
-        // This prevents race conditions when multiple bookings are created simultaneously
-        // Note: Only Cancelled is a terminal state - Confirmed/CheckedIn are not
+        // HasConversion<int>() → truyền (int) enum, không cần cast SQL.
         var conflictingBookings = await _db.Bookings
             .FromSqlRaw(
                 @"SELECT * FROM ""Bookings""

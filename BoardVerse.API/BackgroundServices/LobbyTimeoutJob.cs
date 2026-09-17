@@ -1,4 +1,5 @@
-﻿using BoardVerse.Core.Entities;
+﻿using System;
+using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Messages;
 using BoardVerse.Data;
@@ -80,7 +81,7 @@ public class LobbyTimeoutJob : BackgroundService
                 "AND \"ScheduledStartTime\" IS NOT NULL " +
                 "AND \"ScheduledStartTime\" - (\"CancellationLeadTimeMinutes\" * INTERVAL '1 minute') <= {1} " +
                 "FOR UPDATE SKIP LOCKED",
-                LobbyStatus.Open.ToString(), now)
+                Convert.ToString(LobbyStatus.Open), now)
             .Include(l => l.Members)
             .Include(l => l.GameTemplate)
             .Include(l => l.Cafe)
@@ -96,7 +97,7 @@ public class LobbyTimeoutJob : BackgroundService
                 "AND \"ScheduledStartTime\" IS NULL " +
                 "AND \"CreatedAt\" <= {1} " +
                 "FOR UPDATE SKIP LOCKED",
-                LobbyStatus.Open.ToString(), orphanCutoff)
+                Convert.ToString(LobbyStatus.Open), orphanCutoff)
             .Include(l => l.Members)
             .Include(l => l.GameTemplate)
             .Include(l => l.Cafe)
@@ -112,7 +113,7 @@ public class LobbyTimeoutJob : BackgroundService
                 "AND \"FullAt\" IS NOT NULL " +
                 "AND \"FullAt\" <= {1} " +
                 "FOR UPDATE SKIP LOCKED",
-                LobbyStatus.Full.ToString(), readyCutoff)
+                Convert.ToString(LobbyStatus.Full), readyCutoff)
             .Include(l => l.Members)
             .Include(l => l.GameTemplate)
             .Include(l => l.Cafe)

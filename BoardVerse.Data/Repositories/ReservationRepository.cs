@@ -131,6 +131,7 @@ public class ReservationRepository : IReservationRepository
     /// </summary>
     public async Task<IReadOnlyList<Reservation>> GetDueForDeadlineAsync(DateTime cutoff, int limit = 100, CancellationToken cancellationToken = default)
     {
+        // HasConversion<int>() → truyền (int) enum, không cần cast SQL.
         return await _db.Reservations
             .FromSqlRaw(
                 "SELECT * FROM \"Reservations\" " +
@@ -149,6 +150,7 @@ public class ReservationRepository : IReservationRepository
     {
         // BR-NEW-11: lobby PendingCafeApproval quá 24 giờ → expiredByCafe.
         // SKIP LOCKED trên join: Postgres lock row Reservation, lookup Lobby sau.
+        // HasConversion<int>() → truyền (int) enum, không cần cast SQL.
         var pendingIds = await _db.Reservations
             .FromSqlRaw(
                 "SELECT * FROM \"Reservations\" " +

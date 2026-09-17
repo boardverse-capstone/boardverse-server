@@ -1,4 +1,5 @@
-﻿using BoardVerse.Core.Entities;
+﻿using System;
+using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Data;
@@ -84,11 +85,10 @@ namespace BoardVerse.Data.Repositories
             return Task.CompletedTask;
         }
 
-        /// <summary>
         /// GAP #26 fix: cluster-safe + push filter xuống SQL + limit batch.
         /// Dùng FOR UPDATE SKIP LOCKED — multi-instance không pick trùng.
         /// Caller phải wrap batch transaction.
-        /// </summary>
+        /// HasConversion<int>() → truyền (int) enum, không cần cast SQL.
         public async Task<IReadOnlyList<BookingDeposit>> GetPendingExpiredAsync(DateTime cutoffTime, int limit = 100, CancellationToken cancellationToken = default)
         {
             return await _db.BookingDeposits
@@ -99,7 +99,7 @@ namespace BoardVerse.Data.Repositories
                     "LIMIT {2} " +
                     "FOR UPDATE SKIP LOCKED",
                     (int)BookingDepositStatus.Pending, cutoffTime, limit)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
         }
 
         public Task SaveChangesAsync(CancellationToken cancellationToken = default)

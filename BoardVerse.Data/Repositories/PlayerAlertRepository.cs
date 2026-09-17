@@ -1,4 +1,5 @@
-﻿using BoardVerse.Core.Common;
+﻿using System;
+using BoardVerse.Core.Common;
 using BoardVerse.Core.DTOs.Admin;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
@@ -106,16 +107,15 @@ public class PlayerAlertRepository : IPlayerAlertRepository
     public async Task<IReadOnlyList<PlayerAlert>> GetStaleAlertsForUpdateAsync(int maxAgeDays, int batchSize, CancellationToken cancellationToken = default)
     {
         var cutoff = DateTime.UtcNow.AddDays(-maxAgeDays);
-        // NOTE: Npgsql serializes .NET enum as integer in FromSqlRaw.
-        // Cast explicitly to text so Postgres can compare with the text column.
+        // HasConversion<int>() → truyền (int) enum, không cần cast SQL.
         return await _db.PlayerAlerts
             .FromSqlRaw(
-                "SELECT * FROM \"PlayerAlerts\" WHERE \"Status\" = {0}::text " +
+                "SELECT * FROM \"PlayerAlerts\" WHERE \"Status\" = {0} " +
                 "AND \"CreatedAt\" <= {1} " +
                 "AND \"AcknowledgedAt\" IS NULL " +
                 "ORDER BY \"CreatedAt\" ASC LIMIT {2} " +
                 "FOR UPDATE SKIP LOCKED",
-                PlayerAlertStatus.Open.ToString(), cutoff, batchSize)
+                (int)PlayerAlertStatus.Open, cutoff, batchSize)
             .ToListAsync(cancellationToken);
     }
 }
