@@ -75,9 +75,10 @@ public class LobbyTimeoutJob : BackgroundService
 
         // Case 1: Lobby có ScheduledStartTime → so với (ScheduledStartTime - CancellationLeadTimeMinutes)
         // GAP #16 fix: cluster-safe — dùng FOR UPDATE SKIP LOCKED để nhiều instance không pick trùng.
+        // Cast "Status" sang TEXT vì column lưu dạng text dù config là HasConversion<string>().
         var scheduledTimedOut = await db.Lobbies
             .FromSqlRaw(
-                "SELECT * FROM \"Lobbies\" WHERE \"Status\" = {0} " +
+                "SELECT * FROM \"Lobbies\" WHERE \"Status\" = CAST({0} AS TEXT) " +
                 "AND \"ScheduledStartTime\" IS NOT NULL " +
                 "AND \"ScheduledStartTime\" - (\"CancellationLeadTimeMinutes\" * INTERVAL '1 minute') <= {1} " +
                 "FOR UPDATE SKIP LOCKED",
@@ -90,10 +91,11 @@ public class LobbyTimeoutJob : BackgroundService
 
         // Case 2 (fix): Lobby không có ScheduledStartTime (orphan) mà tồn tại > 24 giờ → coi như timeout,
         // tránh bị kẹt mãi mãi ở OPEN khi Host quên đặt giờ.
+        // Cast "Status" sang TEXT.
         var orphanCutoff = now - OrphanLobbyTimeout;
         var orphanTimedOut = await db.Lobbies
             .FromSqlRaw(
-                "SELECT * FROM \"Lobbies\" WHERE \"Status\" = {0} " +
+                "SELECT * FROM \"Lobbies\" WHERE \"Status\" = CAST({0} AS TEXT) " +
                 "AND \"ScheduledStartTime\" IS NULL " +
                 "AND \"CreatedAt\" <= {1} " +
                 "FOR UPDATE SKIP LOCKED",
@@ -106,10 +108,11 @@ public class LobbyTimeoutJob : BackgroundService
 
         // Case 3 (BR-LOBBY-READY-03): Lobby đã FULL + FullAt > 20 phút + chưa có ai Ready → timeout.
         // Dùng `LobbyReadyTimeoutReason` để phân biệt với timeout vì thiếu người.
+        // Cast "Status" sang TEXT.
         var readyCutoff = now - ReadyTimeoutWindow;
         var fullButNotReady = await db.Lobbies
             .FromSqlRaw(
-                "SELECT * FROM \"Lobbies\" WHERE \"Status\" = {0} " +
+                "SELECT * FROM \"Lobbies\" WHERE \"Status\" = CAST({0} AS TEXT) " +
                 "AND \"FullAt\" IS NOT NULL " +
                 "AND \"FullAt\" <= {1} " +
                 "FOR UPDATE SKIP LOCKED",

@@ -131,11 +131,11 @@ public class ReservationRepository : IReservationRepository
     /// </summary>
     public async Task<IReadOnlyList<Reservation>> GetDueForDeadlineAsync(DateTime cutoff, int limit = 100, CancellationToken cancellationToken = default)
     {
-        // HasConversion<int>() → truyền (int) enum, không cần cast SQL.
+        // Cast sang TEXT vì column "Status" lưu dạng text.
         return await _db.Reservations
             .FromSqlRaw(
                 "SELECT * FROM \"Reservations\" " +
-                "WHERE \"Status\" = {0} AND \"RecruitmentDeadline\" <= {1} " +
+                "WHERE \"Status\" = CAST({0} AS TEXT) AND \"RecruitmentDeadline\" <= {1} " +
                 "ORDER BY \"RecruitmentDeadline\" " +
                 "LIMIT {2} " +
                 "FOR UPDATE SKIP LOCKED",
@@ -150,13 +150,13 @@ public class ReservationRepository : IReservationRepository
     {
         // BR-NEW-11: lobby PendingCafeApproval quá 24 giờ → expiredByCafe.
         // SKIP LOCKED trên join: Postgres lock row Reservation, lookup Lobby sau.
-        // HasConversion<int>() → truyền (int) enum, không cần cast SQL.
+        // Cast sang TEXT vì cả "Reservations"."Status" và "Lobbies"."Status" đều lưu dạng text.
         var pendingIds = await _db.Reservations
             .FromSqlRaw(
                 "SELECT * FROM \"Reservations\" " +
-                "WHERE \"Status\" = {0} AND \"LobbyId\" IS NOT NULL " +
+                "WHERE \"Status\" = CAST({0} AS TEXT) AND \"LobbyId\" IS NOT NULL " +
                 "AND EXISTS (SELECT 1 FROM \"Lobbies\" l WHERE l.\"Id\" = \"Reservations\".\"LobbyId\" " +
-                "            AND l.\"Status\" = {1} " +
+                "            AND l.\"Status\" = CAST({1} AS TEXT) " +
                 "            AND l.\"CafeApprovalDeadline\" IS NOT NULL " +
                 "            AND l.\"CafeApprovalDeadline\" <= {2}) " +
                 "LIMIT {3} " +

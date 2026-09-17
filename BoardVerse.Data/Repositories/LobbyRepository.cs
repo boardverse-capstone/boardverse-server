@@ -104,7 +104,9 @@ namespace BoardVerse.Data.Repositories
                 .Include(l => l.Members)
                     .ThenInclude(m => m.User)
                         .ThenInclude(u => u.Profile)
+                .Include(l => l.GameTemplate)
                 .Include(l => l.Cafe)
+                // Lobby.Status dùng HasConversion<string>() — EF Core tự translate so sánh enum → SQL string.
                 .Where(l => l.GameTemplateId == gameTemplateId && l.Status == LobbyStatus.Open);
 
             if (excludeLobbyId.HasValue)
@@ -134,8 +136,8 @@ namespace BoardVerse.Data.Repositories
             // Hiển thị lobby public CHƯA VÀO PHIÊN CHƠI — bao gồm Open/Viable/Full/WaitingCheckIn.
             // Trước đây chỉ Open → lobby vừa đủ người biến mất khỏi discoverable, gây UX kém.
             // Khi lobby vào quán (InProgress) mới ẩn khỏi kết quả discovery.
-            var prePlayStatuses = new[]
-            {
+            // Lobby.Status dùng HasConversion<string>() — EF Core tự translate so sánh enum → SQL string.
+            LobbyStatus[] prePlayStatuses = {
                 LobbyStatus.Open,
                 LobbyStatus.Viable,
                 LobbyStatus.Full,
@@ -287,27 +289,27 @@ namespace BoardVerse.Data.Repositories
 
             if (statuses != null && statuses.Count > 0)
             {
+                // Lobby.Status dùng HasConversion<string>() nhưng trong C# vẫn là LobbyStatus enum.
+                // EF Core tự translate so sánh enum → SQL string.
                 query = query.Where(l => statuses.Contains(l.Status));
             }
 
-            // EF Core 8 dịch ternary chain trong OrderBy sang SQL CASE WHEN.
-            // Không dùng static method vì EF không thể translate custom method.
-            // 2026-09-14 (user feedback): ưu tiên Open > InProgress > ... xem helper LobbyDisplayOrder dưới.
+            // So sánh enum-to-enum; EF Core translate sang SQL string.
             return await query
-                .OrderBy(l => l.Status == Core.Enum.LobbyStatus.Open ? 0
-                    : l.Status == Core.Enum.LobbyStatus.InProgress ? 1
-                    : l.Status == Core.Enum.LobbyStatus.PendingActivation ? 2
-                    : l.Status == Core.Enum.LobbyStatus.PendingCafeApproval ? 3
-                    : l.Status == Core.Enum.LobbyStatus.Viable ? 4
-                    : l.Status == Core.Enum.LobbyStatus.Full ? 5
-                    : l.Status == Core.Enum.LobbyStatus.WaitingCheckIn ? 6
-                    : l.Status == Core.Enum.LobbyStatus.RatingOpen ? 7
-                    : l.Status == Core.Enum.LobbyStatus.Closed ? 8
-                    : l.Status == Core.Enum.LobbyStatus.TimeoutFailed ? 9
-                    : l.Status == Core.Enum.LobbyStatus.HostCancelled ? 10
-                    : l.Status == Core.Enum.LobbyStatus.RejectedByCafe ? 11
-                    : l.Status == Core.Enum.LobbyStatus.ExpiredByCafe ? 12
-                    : l.Status == Core.Enum.LobbyStatus.Dissolved ? 13
+                .OrderBy(l => l.Status == LobbyStatus.Open ? 0
+                    : l.Status == LobbyStatus.InProgress ? 1
+                    : l.Status == LobbyStatus.PendingActivation ? 2
+                    : l.Status == LobbyStatus.PendingCafeApproval ? 3
+                    : l.Status == LobbyStatus.Viable ? 4
+                    : l.Status == LobbyStatus.Full ? 5
+                    : l.Status == LobbyStatus.WaitingCheckIn ? 6
+                    : l.Status == LobbyStatus.RatingOpen ? 7
+                    : l.Status == LobbyStatus.Closed ? 8
+                    : l.Status == LobbyStatus.TimeoutFailed ? 9
+                    : l.Status == LobbyStatus.HostCancelled ? 10
+                    : l.Status == LobbyStatus.RejectedByCafe ? 11
+                    : l.Status == LobbyStatus.ExpiredByCafe ? 12
+                    : l.Status == LobbyStatus.Dissolved ? 13
                     : 99)
                 .ThenByDescending(l => l.ScheduledStartTime ?? l.CreatedAt)
                 .Take(50)
@@ -347,6 +349,8 @@ namespace BoardVerse.Data.Repositories
 
         // ===== BR-NEW-* mở rộng cho Reservation flow =====
 
+        // Lobby.Status dùng HasConversion<string>() trong DB (LobbyConfiguration).
+        // EF Core tự translate so sánh enum → SQL string, không cần ToString().
         private static readonly HashSet<LobbyStatus> ActiveLobbyStatuses = new()
         {
             LobbyStatus.PendingActivation,
@@ -354,11 +358,6 @@ namespace BoardVerse.Data.Repositories
             LobbyStatus.Open,
             LobbyStatus.Viable,
             LobbyStatus.Full,
-            // P1 Fix (2026-08-27): Thêm WaitingCheckIn vào ActiveLobbyStatuses.
-            // BR-LOBBY-READY-01: Lobby WaitingCheckIn là "chờ check-in tại quán" — vẫn là
-            // ACTIVE (chưa vào phiên chơi). GetMyLobbiesAsync phải trả lobby này để user
-            // thấy "lobby đang chờ check-in" trong danh sách phòng của mình.
-            // Discoverable endpoint đã include WaitingCheckIn (LobbyService line 986).
             LobbyStatus.WaitingCheckIn,
             LobbyStatus.InProgress
         };
@@ -452,6 +451,8 @@ namespace BoardVerse.Data.Repositories
             // BR-NEW-15: Dùng TimeOnly PreferredStartTime/PreferredEndTime thay vì TimeSlot enum.
             var buffer = TimeSpan.FromMinutes(30);
 
+            // Lobby.Status dùng HasConversion<string>() nhưng trong C# vẫn là LobbyStatus enum.
+            // EF Core tự translate so sánh enum → SQL string.
             var query = _db.Lobbies
                 .Where(l =>
                     l.Status != LobbyStatus.Closed
@@ -554,6 +555,8 @@ namespace BoardVerse.Data.Repositories
                 query = query.Where(l => l.UpdatedAt <= toUtc.Value);
             }
 
+            // FIX 42883: Lobbies.Status là varchar nhưng failureType/lobbyStatus[] là enum (int).
+            // Lobby.Status dùng HasConversion<string>() — so sánh enum-to-enum, EF Core tự translate.
             if (failureType.HasValue)
             {
                 query = query.Where(l => l.Status == failureType.Value);
@@ -595,6 +598,7 @@ namespace BoardVerse.Data.Repositories
                 query = query.Where(l => l.UpdatedAt <= toUtc.Value);
             }
 
+            // Lobby.Status dùng HasConversion<string>() — so sánh enum-to-enum, EF Core tự translate.
             if (failureType.HasValue)
             {
                 query = query.Where(l => l.Status == failureType.Value);

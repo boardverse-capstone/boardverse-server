@@ -456,11 +456,12 @@ namespace BoardVerse.Data.Repositories
             //        expired = deadline + INTERVAL '30 minutes' < cutoff.
             // Chỉ release session link với Reservation (có LobbyId); session walk-in
             // (LobbyId IS NULL) bỏ qua vì không có ScheduledEndTime để so sánh.
+            // Cast "a.Status" sang TEXT vì column lưu dạng text dù config là HasConversion<int>().
             var sql =
                 "SELECT a.* FROM \"ActiveSessions\" AS a " +
                 "INNER JOIN \"Lobbies\" AS l ON l.\"Id\" = a.\"LobbyId\" " +
                 "INNER JOIN \"Reservations\" AS r ON r.\"LobbyId\" = l.\"Id\" " +
-                "WHERE a.\"Status\" = {0} " +
+                "WHERE a.\"Status\" = CAST({0} AS TEXT) " +
                 "AND a.\"IsPaused\" = false " +
                 "AND COALESCE(r.\"ExtendedEndTime\", r.\"ScheduledEndTime\") + INTERVAL '30 minutes' < {1} " +
                 "FOR UPDATE OF a SKIP LOCKED";

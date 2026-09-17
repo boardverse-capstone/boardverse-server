@@ -107,10 +107,11 @@ public class PlayerAlertRepository : IPlayerAlertRepository
     public async Task<IReadOnlyList<PlayerAlert>> GetStaleAlertsForUpdateAsync(int maxAgeDays, int batchSize, CancellationToken cancellationToken = default)
     {
         var cutoff = DateTime.UtcNow.AddDays(-maxAgeDays);
-        // HasConversion<int>() → truyền (int) enum, không cần cast SQL.
+        // GAP-R6-BJ-ALERT Fix: cluster-safe variant dùng FOR UPDATE SKIP LOCKED.
+        // Column "Status" là INTEGER (HasConversion<int>() trong PlayerAlertConfiguration).
         return await _db.PlayerAlerts
             .FromSqlRaw(
-                "SELECT * FROM \"PlayerAlerts\" WHERE \"Status\" = {0} " +
+                "SELECT * FROM \"PlayerAlerts\" WHERE \"Status\" = CAST({0} AS INTEGER) " +
                 "AND \"CreatedAt\" <= {1} " +
                 "AND \"AcknowledgedAt\" IS NULL " +
                 "ORDER BY \"CreatedAt\" ASC LIMIT {2} " +
