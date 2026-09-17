@@ -3135,6 +3135,369 @@ sessionGameId, cafeId, userId);
         }
 
         /// <summary>
+        /// POS staff dashboard: danh sách reservation SẮP TỚI của 1 quán.
+        /// Xem chi tiết spec ở <see cref="ICafePosService.GetUpcomingReservationsAsync"/>.
+        /// </summary>
+        public async Task<UpcomingReservationsResponseDto> GetUpcomingReservationsAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            UpcomingReservationsQuery query,
+            CancellationToken cancellationToken = default)
+        {
+            // 1. Auth + cafe access — Manager/CafeStaff thuộc cafe ACTIVE.
+            await EnsurePosAccessAsync(cafeId, userId, userRole, cancellationToken);
+
+            // 2. Resolve effective dates.
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var fromDate = query.FromDate ?? today;
+            var toDate = query.ToDate ?? fromDate.AddDays(3);
+
+            if (fromDate > toDate)
+            {
+                throw new BadRequestException(
+                    ApiErrorMessages.Pos.UpcomingReservationsInvalidDateRange(fromDate, toDate));
+            }
+            if (toDate.DayNumber - fromDate.DayNumber > 30)
+            {
+                throw new BadRequestException(
+                    ApiErrorMessages.Pos.UpcomingReservationsInvalidDateRange(fromDate, toDate));
+            }
+
+            // 3. Resolve effective statuses.
+            //    Default = active only (Holding/Confirmed/CheckedIn/InProgress) — chỉ player đã trả cọc.
+            //    Nếu FE truyền IncludeCancelled=true mà không truyền Statuses → trả cả active + terminal.
+            var statuses = query.Statuses;
+            if (statuses == null || statuses.Count == 0)
+            {
+                statuses = query.IncludeCancelled
+                    ? ActiveAndTerminalReservationStatuses
+                    : ActiveOnlyReservationStatuses;
+            }
+
+            // 4. Validate enum + clamp pagination.
+            var page = Math.Max(1, query.PageNumber);
+            var pageSize = Math.Clamp(query.PageSize, 1, 100);
+
+            // 5. Query.
+            var (items, totalCount) = await _reservationRepository.GetUpcomingForCafeAsync(
+                cafeId,
+                fromDate,
+                toDate,
+                statuses,
+                query.LobbyStatusFilter,
+                sortBy: (int)query.SortBy,
+                sortDir: query.SortDir == SortDirection.Desc ? 1 : 0,
+                page,
+                pageSize,
+                cancellationToken);
+
+            // GAP-FIX-11: Fetch wallets cho tất cả host users trong 1 batch.
+            // Wallet.UserId là FK (1:1 relationship, User không có Wallet navigation).
+            var hostUserIds = items.Select(r => r.HostId).Distinct().ToList();
+            var lobbyHostUserIds = items
+                .Where(r => r.Lobby?.HostUserId != null)
+                .Select(r => r.Lobby!.HostUserId)
+                .Distinct()
+                .ToList();
+            var allUserIds = hostUserIds.Union(lobbyHostUserIds).ToList();
+
+            var wallets = await _db.Wallets
+                .AsNoTracking()
+                .Where(w => allUserIds.Contains(w.UserId))
+                .ToDictionaryAsync(w => w.UserId, cancellationToken);
+
+            // 6. Lấy grace period từ CafeConfig cho GAP-FIX-2.
+            // Nếu cafe chưa có config, dùng default 30 phút.
+            var cafeGraceMinutes = 30;
+            var cafeConfig = await _db.CafeConfigs
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.CafeId == cafeId, cancellationToken);
+            if (cafeConfig != null)
+            {
+                cafeGraceMinutes = cafeConfig.CancellationGraceMinutes;
+            }
+
+            // 7. Map sang DTO + aggregate summary.
+            // GAP-FIX-7: Khởi tạo đủ fixed keys cho ByLobbyStatus để FE render chip filter.
+            var now = DateTime.UtcNow;
+            var response = new UpcomingReservationsResponseDto
+            {
+                TotalCount = totalCount,
+                PageNumber = page,
+                PageSize = pageSize,
+                EffectiveFromDate = fromDate,
+                EffectiveToDate = toDate,
+                Items = new List<UpcomingReservationItemDto>(items.Count),
+                Summary = new UpcomingReservationsSummaryDto
+                {
+                    // GAP-FIX-7: Luôn trả đủ fixed lobby status keys.
+                    ByLobbyStatus = FixedLobbyStatusKeys.ToDictionary(k => k, _ => 0),
+                    // GAP-FIX-9: Khởi tạo Holding breakdown.
+                    HoldingBreakdown = new UpcomingHoldingBreakdownDto(),
+                }
+            };
+
+            var summary = response.Summary;
+            foreach (var r in items)
+            {
+                var dto = MapUpcomingReservation(r, now, cafeGraceMinutes, wallets);
+                response.Items.Add(dto);
+
+                // --- Summary: Reservation status ---
+                var statusKey = r.Status.ToString();
+                if (!summary.ByReservationStatus.ContainsKey(statusKey))
+                    summary.ByReservationStatus[statusKey] = 0;
+                summary.ByReservationStatus[statusKey]++;
+
+                // --- Summary: Lobby status ---
+                var lobbyKey = r.Lobby?.Status.ToString() ?? "NoLobby";
+                // GAP-FIX-7: Đảm bảo key tồn tại trong dict (đã khởi tạo đủ keys).
+                if (!summary.ByLobbyStatus.ContainsKey(lobbyKey))
+                    summary.ByLobbyStatus[lobbyKey] = 0;
+                summary.ByLobbyStatus[lobbyKey]++;
+
+                if (r.Lobby?.Status == LobbyStatus.PendingCafeApproval)
+                    summary.PendingCafeApprovals++;
+
+                if (dto.Reservation.IsOverdueForCheckIn)
+                    summary.ArrivedNoCheckIn++;
+
+                // GAP-FIX-9: Tally Holding breakdown.
+                if (r.Status == ReservationStatus.Holding)
+                {
+                    var currentPlayers = r.Lobby?.Members?.Count(m => m.IsActive) ?? r.CurrentPlayers;
+                    var minPlayers = r.Lobby?.MinPlayers ?? r.MinPlayers;
+                    if (currentPlayers >= minPlayers)
+                        summary.HoldingBreakdown.SufficientMembers++;
+                    else
+                        summary.HoldingBreakdown.InsufficientMembers++;
+                }
+            }
+
+            return response;
+        }
+
+        /// <summary>
+        /// Fixed keys cho <c>ByLobbyStatus</c> summary — đảm bảo FE luôn có đủ keys
+        /// để render chip filter dù không có reservation nào cho status đó.
+        ///
+        /// Keys bao phủ mọi LobbyStatus có thể gặp trong active reservation list
+        /// (default filter = Holding/Confirmed/CheckedIn/InProgress). Terminal/pre-active
+        /// statuses (Closed, TimeoutFailed, HostCancelled, RejectedByCafe, ExpiredByCafe,
+        /// Dissolved, RatingOpen) bị filter loại. PendingActivation là state ngắn trong
+        /// atomic transaction — thường không xuất hiện nhưng include để FE không warning
+        /// nếu transaction kéo dài bất thường. GAP-FIX-7.
+        /// </summary>
+        private static readonly string[] FixedLobbyStatusKeys =
+        [
+            "Open", "Viable", "Full", "WaitingCheckIn",
+            "PendingCafeApproval", "PendingActivation", "InProgress", "NoLobby"
+        ];
+
+        /// <summary>
+        /// Default status filter: reservation chưa kết thúc + player đã trả cọc.
+        /// BR-REQUIRED: dùng cho POS dashboard "các nhóm đã đặt chỗ".
+        ///
+        /// Lobby ở trạng thái <c>WaitingCheckIn</c> (all members Ready) đã được cover bởi
+        /// <see cref="ReservationStatus.Confirmed"/> — khi lobby chuyển sang WaitingCheckIn,
+        /// Reservation cũng chuyển sang Confirmed (xem <c>LobbyService.MarkMemberReadyAsync</c>).
+        /// Staff phân biệt qua <see cref="UpcomingLobbySummaryDto.IsWaitingCheckIn"/> flag.
+        ///
+        /// BR-LOBBY-READY-01: Confirmed có nghĩa "đủ minPlayers, chờ đến giờ"; còn
+        /// "chờ check-in tại quán" là signal từ Lobby.Status = WaitingCheckIn.
+        /// </summary>
+        private static readonly List<ReservationStatus> ActiveOnlyReservationStatuses =
+        [
+            ReservationStatus.Holding,
+            ReservationStatus.Confirmed,
+            ReservationStatus.CheckedIn,
+            ReservationStatus.InProgress,
+        ];
+
+        /// <summary>
+        /// Mở rộng <see cref="ActiveOnlyReservationStatuses"/> khi FE truyền <c>IncludeCancelled=true</c>
+        /// mà KHÔNG truyền <c>Statuses</c> — staff muốn xem tab "đã hủy/hết hạn".
+        /// </summary>
+        private static readonly List<ReservationStatus> ActiveAndTerminalReservationStatuses =
+        [
+            .. ActiveOnlyReservationStatuses,
+            ReservationStatus.Expired,
+            ReservationStatus.CancelledByPlayer,
+            ReservationStatus.CancelledByCafe,
+            ReservationStatus.NoShow,
+        ];
+
+        /// <summary>
+        /// Map 1 <see cref="Reservation"/> (kèm Include relations) sang DTO dashboard.
+        /// Host info fallback chain: Profile.LastResolvedDisplayName → FirstName+LastName → Username.
+        /// Lobby ShareCode KHÔNG trả (BR-LOBBY-PRIVACY-02).
+        ///
+        /// GAP-FIX-2: Dùng <paramref name="cafeGraceMinutes"/> từ CafeConfig thay vì hardcoded 30.
+        /// GAP-FIX-3: Map TableName từ ActiveSession.CafeTable.
+        /// GAP-FIX-5: Map ActiveSession summary.
+        /// GAP-FIX-6/GAP-FIX-8: Map Members list (User + Profile included).
+        /// GAP-FIX-10: DepositCurrency động.
+        /// GAP-FIX-11: Wallets dictionary tra cứu IsCoolingOff (User.Wallet không có navigation).
+        /// </summary>
+        private static UpcomingReservationItemDto MapUpcomingReservation(
+            Reservation r,
+            DateTime nowUtc,
+            int cafeGraceMinutes,
+            Dictionary<Guid, Wallet> wallets)
+        {
+            var hostProfile = r.Host?.Profile;
+            var hostDisplayName = !string.IsNullOrWhiteSpace(hostProfile?.LastResolvedDisplayName)
+                ? hostProfile.LastResolvedDisplayName
+                : (!string.IsNullOrWhiteSpace(hostProfile?.FirstName) || !string.IsNullOrWhiteSpace(hostProfile?.LastName)
+                    ? $"{hostProfile?.FirstName} {hostProfile?.LastName}".Trim()
+                    : r.Host?.Username ?? "Người dùng đã xóa");
+
+            // GAP-FIX-2: Dùng cafeGraceMinutes (từ CafeConfig.CancellationGraceMinutes).
+            // Mặc định 30 phút nếu CafeConfig không tồn tại.
+            // Reservation ở Confirmed khi lobby đạt WaitingCheckIn (xem LobbyService),
+            // nên Confirmed bao phủ cả trường hợp lobby đã WaitingCheckIn mà chưa check-in.
+            var isOverdueForCheckIn = r.CheckedInAt == null
+                && nowUtc > r.ScheduledStartTime.AddMinutes(cafeGraceMinutes)
+                && (r.Status == ReservationStatus.Holding
+                    || r.Status == ReservationStatus.Confirmed);
+
+            // GAP-FIX-10: DepositCurrency động.
+            // Reservation.DepositAmount LUÔN là BVC theo entity docstring
+            // (BoardVerse.Core/Entities/Reservation.cs:60 — "BVC cuối cùng đã hold")
+            // và BR-DEPOSIT-02 (rate × maxPlayers × riskMultiplier trả về BVC).
+            // "VND" chỉ áp dụng cho legacy Booking entity (Flow B), không có Reservation.
+            var depositCurrency = "BVC";
+
+            // GAP-FIX-11: Tra cứu IsCoolingOff từ wallets dictionary (User.Wallet không có navigation).
+            var hostWallet = wallets.GetValueOrDefault(r.HostId);
+            var isHostCoolingOff = hostWallet?.IsCoolingOff ?? false;
+
+            // GAP-FIX-5: Map ActiveSession summary nếu reservation đã check-in/đang chơi.
+            UpcomingActiveSessionSummaryDto? activeSessionDto = null;
+            var session = r.Lobby?.ActiveSession;
+            if (session != null)
+            {
+                var firstGame = session.Games?.FirstOrDefault();
+                var gameName = firstGame?.CafeInventoryBox?.CafeGameInventory?.GameTemplate?.Name;
+                var barcode = firstGame?.CafeInventoryBox?.Barcode;
+                activeSessionDto = new UpcomingActiveSessionSummaryDto
+                {
+                    SessionId = session.Id,
+                    Status = session.Status,
+                    TableName = session.CafeTable?.Name,
+                    CurrentGameName = gameName,
+                    CurrentBarcode = barcode,
+                    ElapsedMinutes = session.TotalMinutesPlayed,
+                    StartedAt = session.StartedAt,
+                    EndedAt = session.EndedAt,
+                    IsPaused = session.IsPaused,
+                    Subtotal = session.Subtotal,
+                };
+            }
+
+            // GAP-FIX-6: Map Members list (không bao gồm host).
+            // Members đã include User + Profile qua repository.
+            var membersList = r.Lobby?.Members?
+                .Where(m => m.IsActive && !m.IsHost)
+                .Select(m =>
+                {
+                    var memberProfile = m.User?.Profile;
+                    var memberDisplayName = !string.IsNullOrWhiteSpace(memberProfile?.LastResolvedDisplayName)
+                        ? memberProfile.LastResolvedDisplayName
+                        : (!string.IsNullOrWhiteSpace(memberProfile?.FirstName) || !string.IsNullOrWhiteSpace(memberProfile?.LastName)
+                            ? $"{memberProfile?.FirstName} {memberProfile?.LastName}".Trim()
+                            : m.User?.Username ?? "Khách");
+                    return new UpcomingMemberSummaryDto
+                    {
+                        UserId = m.UserId,
+                        DisplayName = memberDisplayName,
+                        PhoneNumber = m.User?.PhoneNumber,
+                        IsHost = false,
+                        JoinedAt = m.JoinedAt,
+                    };
+                })
+                .ToList() ?? [];
+
+            // GAP-FIX-3: Map TableName từ ActiveSession.CafeTable.
+            // TableNumber từ Reservation dùng làm fallback.
+            var tableName = session?.CafeTable?.Name;
+
+            // GAP-FIX-11: Lobby host cooling-off lookup từ wallets dictionary.
+            var lobbyHostId = r.Lobby?.HostUserId;
+            bool lobbyHostCoolingOff = false;
+            if (lobbyHostId.HasValue)
+            {
+                lobbyHostCoolingOff = wallets.GetValueOrDefault(lobbyHostId.Value)?.IsCoolingOff ?? false;
+            }
+
+            return new UpcomingReservationItemDto
+            {
+                ReservationId = r.Id,
+                ReservationCode = r.ReservationCode ?? string.Empty,
+                CafeId = r.CafeId,
+                CafeName = r.Cafe?.Name ?? string.Empty,
+                Host = new UpcomingHostSummaryDto
+                {
+                    UserId = r.HostId,
+                    DisplayName = hostDisplayName,
+                    PhoneNumber = r.Host?.PhoneNumber,
+                    AvatarUrl = hostProfile?.AvatarUrl,
+                    IsCoolingOff = isHostCoolingOff,
+                },
+                Game = new UpcomingGameSummaryDto
+                {
+                    GameId = r.GameId,
+                    GameName = r.Game?.Name ?? string.Empty,
+                    MinPlayers = r.MinPlayers,
+                    MaxPlayers = r.MaxPlayers,
+                },
+                Schedule = new UpcomingScheduleSummaryDto
+                {
+                    PlayDate = r.PlayDate,
+                    PreferredStartTime = r.PreferredStartTime,
+                    PreferredEndTime = r.PreferredEndTime,
+                    ScheduledStartTime = r.ScheduledStartTime,
+                    ScheduledEndTime = r.ScheduledEndTime,
+                    RecruitmentDeadline = r.RecruitmentDeadline,
+                },
+                Lobby = r.Lobby == null
+                    ? null
+                    : new UpcomingLobbySummaryDto
+                    {
+                        LobbyId = r.Lobby.Id,
+                        Status = r.Lobby.Status,
+                        IsPrivate = r.Lobby.IsPrivate,
+                        // GAP-FIX-8: Members đã include với User + Profile — Count không còn N+1.
+                        CurrentPlayers = r.Lobby.Members?.Count(m => m.IsActive) ?? 0,
+                        MinPlayers = r.Lobby.MinPlayers,
+                        MaxPlayers = r.Lobby.MaxMembers,
+                        RequiresCafeApproval = r.Lobby.Status == LobbyStatus.PendingCafeApproval,
+                        CafeApprovalDeadline = r.Lobby.CafeApprovalDeadline,
+                        // GAP-FIX-1: Lobby đang chờ check-in (all members Ready).
+                        IsWaitingCheckIn = r.Lobby.Status == LobbyStatus.WaitingCheckIn,
+                        // GAP-FIX-11: Host của lobby đang cooling-off.
+                        IsHostCoolingOff = lobbyHostCoolingOff,
+                        // GAP-FIX-6: Danh sách thành viên active (không kể host).
+                        Members = membersList,
+                    },
+                Reservation = new UpcomingReservationStatusDto
+                {
+                    Status = r.Status,
+                    DepositAmount = r.DepositAmount,
+                    DepositCurrency = depositCurrency,
+                    CheckedInAt = r.CheckedInAt,
+                    TableNumber = r.TableNumber,
+                    TableName = tableName,
+                    IsOverdueForCheckIn = isOverdueForCheckIn,
+                },
+                // GAP-FIX-5: ActiveSession summary (null nếu chưa check-in).
+                ActiveSession = activeSessionDto,
+                CreatedAt = r.CreatedAt,
+            };
+        }
+
+        /// <summary>
         /// GAP-A: Kiểm tra xem <paramref name="ex"/> có phải unique constraint violation
         /// của Postgres không (SQLSTATE 23505). Khi 2 staff cùng submit component-check
         /// trên cùng session game, insert thứ 2 vi phạm unique index

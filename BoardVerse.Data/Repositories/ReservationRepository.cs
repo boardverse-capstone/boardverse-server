@@ -619,4 +619,78 @@ public class ReservationRepository : IReservationRepository
 
         return (items, totalCount);
     }
+
+    /// <summary>
+    /// Lấy danh sách reservation upcoming cho POS staff dashboard
+    /// (<c>GET /api/cafes/{cafeId}/pos/upcoming-reservations</c>).
+    /// Filter theo playDate range, statuses, lobby statuses; sort + paginate.
+    /// Include relations đầy đủ để service layer không phải query thêm.
+    /// </summary>
+    public async Task<(IReadOnlyList<Reservation> Items, int TotalCount)> GetUpcomingForCafeAsync(
+        Guid cafeId,
+        DateOnly fromDate,
+        DateOnly toDate,
+        List<ReservationStatus>? statuses,
+        List<LobbyStatus>? lobbyStatuses,
+        int sortBy,
+        int sortDir,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default)
+    {
+        // GAP-FIX-3: Include CafeTable cho TableName.
+        // GAP-FIX-5: Include ActiveSession (for session summary).
+        // GAP-FIX-6/GAP-FIX-8: Include Members.User + Members.User.Profile (avoid N+1).
+        // GAP-FIX-11: Wallets được query riêng trong service (User.Wallet không có navigation).
+        var query = _db.Reservations
+            .AsNoTracking()
+            .Include(r => r.Host).ThenInclude(u => u.Profile)
+            .Include(r => r.Cafe)
+            .Include(r => r.Game)
+            .Include(r => r.Lobby)!.ThenInclude(l => l.Members).ThenInclude(m => m.User).ThenInclude(u => u.Profile)
+            .Include(r => r.Lobby)!.ThenInclude(l => l.GameTemplate)
+            .Include(r => r.SeatInventory)
+            .Include(r => r.GameInventory)
+            // GAP-FIX-5: Include ActiveSession with CafeTable + Games + CafeGameInventory + GameTemplate for session summary.
+            .Include(r => r.Lobby)!.ThenInclude(l => l.ActiveSession).ThenInclude(s => s!.CafeTable)
+            .Include(r => r.Lobby)!.ThenInclude(l => l.ActiveSession).ThenInclude(s => s!.Games).ThenInclude(g => g.CafeInventoryBox).ThenInclude(b => b.CafeGameInventory).ThenInclude(c => c.GameTemplate)
+            .Where(r => r.CafeId == cafeId
+                && r.PlayDate >= fromDate
+                && r.PlayDate <= toDate);
+
+        if (statuses != null && statuses.Count > 0)
+        {
+            query = query.Where(r => statuses.Contains(r.Status));
+        }
+
+        if (lobbyStatuses != null && lobbyStatuses.Count > 0)
+        {
+            // GAP-FIX-4: Chỉ filter khi lobby tồn tại. Legacy booking (r.Lobby == null)
+            // sẽ KHÔNG khớp với bất kỳ lobby status nào → bị loại khỏi kết quả.
+            // Staff muốn xem cả legacy booking dùng query không filter theo lobby status.
+            query = query.Where(r => r.Lobby != null && lobbyStatuses.Contains(r.Lobby.Status));
+        }
+
+        var totalCount = await query.CountAsync(cancellationToken);
+
+        // Sort: 0 = ScheduledStartTime (default), 1 = CreatedAt, 2 = PlayDate.
+        // sortDir: 0 = asc, 1 = desc.
+        var desc = sortDir == 1;
+        IOrderedQueryable<Reservation> ordered = (sortBy, desc) switch
+        {
+            (1, true) => query.OrderByDescending(r => r.CreatedAt),
+            (1, false) => query.OrderBy(r => r.CreatedAt),
+            (2, true) => query.OrderByDescending(r => r.PlayDate).ThenByDescending(r => r.ScheduledStartTime),
+            (2, false) => query.OrderBy(r => r.PlayDate).ThenBy(r => r.ScheduledStartTime),
+            (_, true) => query.OrderByDescending(r => r.ScheduledStartTime).ThenByDescending(r => r.CreatedAt),
+            (_, false) => query.OrderBy(r => r.ScheduledStartTime).ThenBy(r => r.CreatedAt),
+        };
+
+        var items = await ordered
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        return (items, totalCount);
+    }
 }

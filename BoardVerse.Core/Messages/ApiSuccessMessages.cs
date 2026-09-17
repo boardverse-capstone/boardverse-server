@@ -106,6 +106,7 @@ public const string SePayQrPreviewGenerated = "Đã tạo QR test cho payment ac
             public const string TableUpdated = "Cập nhật thông tin bàn thành công.";
             public const string CheckInTokenCreated = "Tạo mã QR mời quét thành công.";
             public const string PlayerCheckedInByToken = "Check-in bằng mã QR thành công.";
+            public const string UpcomingReservationsRetrieved = "Lấy danh sách đặt chỗ sắp tới của quán thành công.";
         }
 
         public static class Lobby

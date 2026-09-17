@@ -132,6 +132,28 @@ namespace BoardVerse.Services.IServices
             string userRole,
             string bookingCode, CancellationToken cancellationToken = default);
 
+        /// <summary>
+        /// POS staff dashboard: danh sách reservation SẮP TỚI của 1 quán
+        /// (player đã đặt cọc, lobby chưa kết thúc).
+        /// <para>
+        /// Mặc định filter status active (Holding/Confirmed/CheckedIn/InProgress) + playDate
+        /// ∈ [today UTC, today + 3 ngày]. Lobby mới tạo (chưa có member) vẫn hiển thị vì
+        /// reservation đã ở trạng thái Holding (player đã trừ BVC).
+        /// </para>
+        /// <para>
+        /// Validate access: chỉ Manager/CafeStaff của cafe. Validate cafe tồn tại &amp; ACTIVE.
+        /// </para>
+        /// <para>
+        /// BR-LOBBY-PRIVACY-02: ShareCode của lobby private KHÔNG được trả cho staff (chỉ member active mới xem).
+        /// </para>
+        /// </summary>
+        Task<UpcomingReservationsResponseDto> GetUpcomingReservationsAsync(
+            Guid cafeId,
+            Guid userId,
+            string userRole,
+            UpcomingReservationsQuery query,
+            CancellationToken cancellationToken = default);
+
         Task<ActiveSessionDto> EndGameSessionAsync(
             Guid cafeId,
             Guid userId,

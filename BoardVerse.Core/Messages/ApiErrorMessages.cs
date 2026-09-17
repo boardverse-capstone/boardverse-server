@@ -763,6 +763,41 @@ public static string SessionMustBeActiveForGameAssignment(string current) =>
 
     public static string ComponentPenaltyMemberInvalidForFullComponent(Guid memberId) =>
         $"Không thể gán phí phạt cho thành viên '{memberId}' khi chưa chọn linh kiện hỏng/mất cụ thể.";
+
+    // ===== Upcoming Reservations dashboard (GET /api/cafes/{cafeId}/pos/upcoming-reservations) =====
+
+    /// <summary>
+    /// <c>fromDate &gt; toDate</c> hoặc range &gt; 30 ngày khi lấy danh sách reservation sắp tới.
+    /// Manager/Staff POS dùng để filter lịch đặt cọc.
+    /// </summary>
+    public static string UpcomingReservationsInvalidDateRange(DateOnly fromDate, DateOnly toDate) =>
+        $"Khoảng ngày không hợp lệ: từ '{fromDate:yyyy-MM-dd}' đến '{toDate:yyyy-MM-dd}'. " +
+        $"Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc, và range tối đa 30 ngày.";
+
+    /// <summary>
+    /// Enum <c>statuses</c> trong query chứa giá trị không hợp lệ (CSV parse fail).
+    /// Trả về danh sách giá trị hợp lệ để FE tự sửa.
+    /// </summary>
+    public static string UpcomingReservationsInvalidStatus(string rawValue, string allowedValues) =>
+        $"Giá trị trạng thái reservation '{rawValue}' không hợp lệ. Các giá trị cho phép: {allowedValues}.";
+
+    /// <summary>
+    /// Enum <c>lobbyStatusFilter</c> trong query chứa giá trị không hợp lệ (CSV parse fail).
+    /// </summary>
+    public static string UpcomingReservationsInvalidLobbyStatus(string rawValue, string allowedValues) =>
+        $"Giá trị trạng thái lobby '{rawValue}' không hợp lệ. Các giá trị cho phép: {allowedValues}.";
+
+    /// <summary>
+    /// <c>sortBy</c> trong query không hợp lệ (int parse fail nếu truyền số, hoặc không nằm trong enum).
+    /// </summary>
+    public static string UpcomingReservationsInvalidSortBy(string rawValue, string allowedValues) =>
+        $"Giá trị sortBy '{rawValue}' không hợp lệ. Các giá trị cho phép: {allowedValues}.";
+
+    /// <summary>
+    /// <c>sortDir</c> trong query không hợp lệ (không phải 'asc' hoặc 'desc').
+    /// </summary>
+    public static string UpcomingReservationsInvalidSortDir(string rawValue) =>
+        $"Giá trị sortDir '{rawValue}' không hợp lệ. Chỉ chấp nhận 'asc' hoặc 'desc'.";
 }
 
  public static class Wallet

@@ -29,6 +29,7 @@ API vận hành quầy: bàn, kho hộp game, phiên chơi, kiểm kê, khách v
 > - Nếu client gửi local date mà không convert → query sai ngày (lệch ±1 ngày tùy timezone).
 > - Khuyến nghị: client dùng `DateTime.UtcNow.ToString("yyyy-MM-dd")` thay vì `DateTime.Now.ToString(...)`.
 | `/bookings/{bookingCode}` | GET | Preview booking trước check-in (AC 1.1) | `CafePosController` |
+| `/upcoming-reservations` | GET | **POS staff dashboard (2026-09-17):** Danh sách reservation sắp tới — player đã đặt cọc, lobby đang tuyển/confirmed/đang chơi. Lobby mới tạo (chưa có member) VẪN hiển thị vì Reservation đã ở Holding. Mặc định lọc `playDate ∈ [today UTC, today + 3 ngày]` + status active. | `CafePosController` |
 | `/sessions` | POST | Giao game cho bàn — bắt đầu phiên chơi (POS scan barcode) | `CafePosController` |
 | `/check-in` | POST | **POS check-in (canonical):** Staff quét QR (ReservationCode \| BookingCode legacy) để kích hoạt phiên chơi cho cả nhóm (BR §21A.7) | `CafePosController` |
 | `/check-in-tokens` | POST | **POS tạo QR cho player scan (BR §21A.7):** Staff bấm tạo token → server sinh token → trả QR payload. Player dùng app scan QR → `POST /api/check-in/scan-qr` để check-in. | `CafePosController` |
@@ -533,6 +534,203 @@ POS quét barcode và chọn bàn → tạo `ActiveSession`, đặt hộp `InUse
 **Response 201:** `ActiveSessionDto` — `startedAt`, `elapsedMinutes`, `estimatedRemainingMinutes`, `defaultPlayTimeMinutes`.
 
 **Lỗi:** `404` bàn/barcode; `409` hộp không Available, đã có session, hoặc bàn Reserved/Event.
+
+---
+
+## GET /api/cafes/{cafeId}/pos/upcoming-reservations
+
+POS staff dashboard — mở danh sách **reservation sắp tới** của 1 quán mà KHÔNG cần quét QR trước. Trả về các reservation mà player đã đặt cọc (chưa kết thúc), kèm lobby + host info + summary aggregation.
+
+> **Use case chính (2026-09-17):** Trước đây staff chỉ thấy thông tin đặt chỗ khi lobby đầy (`viable`/`full`) — không biết trước được "hôm nay có nhóm nào đã book mà chưa đến". Endpoint này giải quyết bằng cách filter theo `Reservation.Status ∈ {Holding, Confirmed, CheckedIn, InProgress, WaitingCheckIn}`: lobby mới tạo (1/4 người, chưa ai join) VẪN hiển thị vì Reservation đã trừ BVC từ ví host. Cả lobby đã đủ người, đang chờ check-in (`WaitingCheckIn`) cũng hiển thị để staff chuẩn bị bàn/ghế.
+
+**Role:** Manager — chủ quán; CafeStaff — đã gắn quán.
+
+### Query params
+
+| Param | Type | Default | Mô tả |
+|-------|------|---------|--------|
+| `fromDate` | `yyyy-MM-dd` (UTC) | `today UTC` | Filter `playDate ≥ fromDate` (inclusive). |
+| `toDate` | `yyyy-MM-dd` (UTC) | `fromDate + 3 ngày` | Filter `playDate ≤ toDate` (inclusive). Range tối đa 30 ngày. |
+| `statuses` | CSV `ReservationStatus` | (xem dưới) | Filter theo trạng thái. VD: `?statuses=Holding,Confirmed`. |
+| `lobbyStatusFilter` | CSV `LobbyStatus` | — | Filter theo lobby status. VD: `?lobbyStatusFilter=Open,Viable,PendingCafeApproval`. |
+| `includeCancelled` | bool | `false` | Nếu `true` và FE không truyền `statuses` → default filter sẽ gộp thêm `Expired`, `CancelledByPlayer`, `CancelledByCafe`, `NoShow`. |
+| `sortBy` | int | `0` | `0` = `scheduledStartTime` (default), `1` = `createdAt`, `2` = `playDate`. |
+| `sortDir` | `asc`/`desc` | `asc` | Sort direction. |
+| `pageNumber` | int ≥ 1 | `1` | Số trang (1-indexed). |
+| `pageSize` | int 1–100 | `20` | Item mỗi trang (clamp tự động). |
+
+### Default status filter (khi FE không truyền `statuses`)
+
+Chỉ trả các trạng thái **chưa kết thúc** — tức "player đã đặt cọc, quán cần biết":
+
+| Status | Hiển thị? | Lý do |
+|---|---|---|
+| `Holding` | ✅ | Đã trừ BVC, lobby đang tuyển (kể cả lobby mới tạo 1 phút trước) |
+| `Confirmed` | ✅ | Đủ minPlayers, đã confirmed chờ đến giờ |
+| `CheckedIn` | ✅ | Đã scan QR vào quán |
+| `InProgress` | ✅ | Đang chơi |
+| `WaitingCheckIn` | ✅ | Lobby đã đủ người, tất cả members Ready, đang chờ check-in tại quán (GAP-FIX-1) |
+| `AwaitingDeposit` | ❌ | Chưa trừ BVC (player chưa xác nhận) |
+| `Completed` / `EarlyCheckout` | ❌ | Đã kết thúc → xem tab PAID riêng |
+| `Expired` | ❌ | Timeout (chỉ hiển thị khi `includeCancelled=true`) |
+| `CancelledByPlayer` / `CancelledByCafe` | ❌ | Đã hủy (chỉ hiển thị khi `includeCancelled=true`) |
+| `NoShow` | ❌ | Host không đến (chỉ hiển thị khi `includeCancelled=true`) |
+
+### Response 200
+
+```json
+{
+  "statusCode": 200,
+  "message": "Lấy danh sách đặt chỗ sắp tới của quán thành công.",
+  "data": {
+    "items": [
+      {
+        "reservationId": "8f1c…",
+        "reservationCode": "K7D9XP2M",
+        "cafeId": "cafe-guid",
+        "cafeName": "BoardVerse Cafe Thủ Đức",
+        "host": {
+          "userId": "host-guid",
+          "displayName": "Nguyễn Văn A",
+          "phoneNumber": "0901234567",
+          "avatarUrl": "https://cdn.boardverse/avatar/abc.jpg",
+          "isCoolingOff": false
+        },
+        "game": {
+          "gameId": "game-guid",
+          "gameName": "Catan",
+          "minPlayers": 3,
+          "maxPlayers": 4
+        },
+        "schedule": {
+          "playDate": "2026-09-18",
+          "preferredStartTime": "19:00:00",
+          "preferredEndTime":   "22:00:00",
+          "scheduledStartTime": "2026-09-18T12:00:00Z",
+          "scheduledEndTime":   "2026-09-18T15:00:00Z",
+          "recruitmentDeadline": "2026-09-18T11:40:00Z"
+        },
+        "lobby": {
+          "lobbyId": "lobby-guid",
+          "status": "Open",
+          "statusDisplay": "Open",
+          "isPrivate": false,
+          "currentPlayers": 2,
+          "minPlayers": 3,
+          "maxPlayers": 4,
+          "requiresCafeApproval": false,
+          "cafeApprovalDeadline": null,
+          "isWaitingCheckIn": false,
+          "isHostCoolingOff": false,
+          "members": [
+            {
+              "userId": "member-guid-1",
+              "displayName": "Trần Văn B",
+              "phoneNumber": "0909876543",
+              "isHost": false,
+              "joinedAt": "2026-09-17T08:30:00Z"
+            }
+          ]
+        },
+        "reservation": {
+          "status": "Holding",
+          "statusDisplay": "Holding",
+          "depositAmount": 120000,
+          "depositCurrency": "BVC",
+          "checkedInAt": null,
+          "tableNumber": null,
+          "tableName": null,
+          "isOverdueForCheckIn": false
+        },
+        "activeSession": null,
+        "createdAt": "2026-09-17T07:00:00Z"
+      }
+    ],
+    "totalCount": 12,
+    "pageNumber": 1,
+    "pageSize": 20,
+    "totalPages": 1,
+    "effectiveFromDate": "2026-09-17",
+    "effectiveToDate":   "2026-09-20",
+    "summary": {
+      "byReservationStatus": {
+        "Holding": 5,
+        "Confirmed": 4,
+        "CheckedIn": 2,
+        "InProgress": 1,
+        "WaitingCheckIn": 1
+      },
+      "holdingBreakdown": {
+        "sufficientMembers": 2,
+        "insufficientMembers": 3
+      },
+      "byLobbyStatus": {
+        "Open": 4,
+        "Viable": 2,
+        "Full": 1,
+        "WaitingCheckIn": 1,
+        "PendingCafeApproval": 0,
+        "InProgress": 1,
+        "NoLobby": 0
+      },
+      "pendingCafeApprovals": 0,
+      "arrivedNoCheckIn": 1
+    }
+  }
+}
+```
+
+### Lưu ý quan trọng
+
+| Vấn đề | Hành vi |
+|---|---|
+| Timezone của `playDate` | **UTC date** (theo `DateTime.UtcNow`). Staff ở VN (UTC+7) muốn filter "hôm nay local" phải convert: `DateOnly.FromDateTime(DateTime.UtcNow)` cho `fromDate`, `fromDate.AddDays(N)` cho `toDate`. |
+| `ShareCode` của lobby private | **KHÔNG được trả** (BR-LOBBY-PRIVACY-02). Chỉ `isPrivate` flag được trả. |
+| `Host.phoneNumber` | Null nếu user không cập nhật SĐT trong profile. |
+| Reservation không có Lobby (legacy Booking flow BR-22) | Vẫn include nếu status active; field `lobby` trả `null`. |
+| `isOverdueForCheckIn` | True khi `now > scheduledStartTime + CafeConfig.CancellationGraceMinutes` (mặc định 30 phút) và chưa `CheckedIn` (GAP-FIX-2). Staff dùng để highlight "khách đến muộn — cần liên hệ host". |
+| `pendingCafeApprovals` (summary) | Số lobby đang chờ cafe duyệt (Status = PendingCafeApproval). Staff click chip này → lọc `lobbyStatusFilter=PendingCafeApproval` để mở tab duyệt. |
+| `arrivedNoCheckIn` (summary) | Số reservation đã đến giờ mà chưa check-in (dùng `isOverdueForCheckIn`). Staff dùng để gọi điện nhắc host. |
+| `holdingBreakdown` (summary) | Đếm Holding theo 2 loại: `sufficientMembers` (đã đủ minPlayers), `insufficientMembers` (chưa đủ). Staff biết bao nhiêu nhóm đã "ready" chờ đến giờ vs bao nhiêu nhóm cần tuyển thêm (GAP-FIX-9). |
+| `byLobbyStatus` (summary) | Luôn trả đủ 7 fixed keys: `Open`, `Viable`, `Full`, `WaitingCheckIn`, `PendingCafeApproval`, `InProgress`, `NoLobby` (GAP-FIX-7). FE render chip filter không bị thiếu key. |
+| `lobby.members` | Danh sách thành viên active (không kể host). Mỗi member có `userId`, `displayName`, `phoneNumber`, `joinedAt` (GAP-FIX-6). Staff dùng để liên hệ ai trong nhóm khi cần. |
+| `lobby.isWaitingCheckIn` | True khi `lobby.status == WaitingCheckIn` (tất cả members Ready, đang chờ check-in) (GAP-FIX-1). |
+| `lobby.isHostCoolingOff` | True khi host lobby đang trong cooling-off period. Staff chuẩn bị tâm lý — cọc ×2 cho lần sau (GAP-FIX-11). |
+| `host.isCoolingOff` | Tương tự `lobby.isHostCoolingOff` nhưng check từ reservation host. |
+| `reservation.tableName` | Tên bàn thực tế (vd: "Bàn 3", "Tầng 2 - Bàn 5") (GAP-FIX-3). Null nếu chưa check-in hoặc không có CafeTable. |
+| `reservation.depositCurrency` | "BVC" cho flow mới (Reservation.DepositAmount > 0), "VND" cho legacy BookingDeposit flow (GAP-FIX-10). |
+| `activeSession` | Session summary khi đã check-in: `sessionId`, `status`, `tableName`, `currentGameName`, `currentBarcode`, `elapsedMinutes`, `startedAt`, `endedAt`, `isPaused`, `subtotal` (GAP-FIX-5). Null khi chưa check-in. |
+
+### Mã lỗi
+
+| Code | Khi nào |
+|---|---|
+| 200 | Trả danh sách (kể cả rỗng) |
+| 400 | `fromDate > toDate`, range > 30 ngày, hoặc enum `statuses`/`lobbyStatusFilter`/`sortBy`/`sortDir` không hợp lệ |
+| 401 | Thiếu token, token hết hạn hoặc token không hợp lệ |
+| 403 | Không phải Manager chủ quán hoặc CafeStaff chưa được gắn quán |
+| 404 | Quán không tồn tại hoặc không ở trạng thái ACTIVE |
+| 500 | Lỗi hệ thống không mong đợi |
+
+### Ví dụ curl
+
+```bash
+# Default — hôm nay + 3 ngày tới, status active only
+curl "https://api.boardverse.dev/api/cafes/{cafeId}/pos/upcoming-reservations" \
+  -H "Authorization: Bearer <staff-jwt>"
+
+# Chỉ lobby đang chờ cafe duyệt (BR-NEW-11)
+curl "https://api.boardverse.dev/api/cafes/{cafeId}/pos/upcoming-reservations?lobbyStatusFilter=PendingCafeApproval" \
+  -H "Authorization: Bearer <staff-jwt>"
+
+# Tab "đã hủy / hết hạn" trong tuần
+curl "https://api.boardverse.dev/api/cafes/{cafeId}/pos/upcoming-reservations?fromDate=2026-09-10&toDate=2026-09-20&includeCancelled=true" \
+  -H "Authorization: Bearer <staff-jwt>"
+
+# Sort theo giờ tạo (mới đặt nhất lên đầu)
+curl "https://api.boardverse.dev/api/cafes/{cafeId}/pos/upcoming-reservations?sortBy=1&sortDir=desc" \
+  -H "Authorization: Bearer <staff-jwt>"
+```
 
 ---
 

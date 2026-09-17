@@ -1,3 +1,4 @@
+using BoardVerse.Core.DTOs.Common;
 using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.DTOs.Session;
 using BoardVerse.Core.Enum;
@@ -321,6 +322,145 @@ public async Task<IActionResult> GetPaidSessions(
             var (userId, role) = GetViewerContext();
             var result = await _posService.GetBookingPreviewAsync(cafeId, userId, role, bookingCode);
             return this.NewResponse(200, "Lấy thông tin booking thành công.", result);
+        }
+
+        /// <summary>
+        /// POS staff dashboard: danh sách reservation SẮP TỚI của 1 quán — player đã đặt cọc,
+        /// lobby đang tuyển/đã confirmed/đang chơi (chưa kết thúc). [Role: Manager — chủ quán; CafeStaff — đã gắn quán.]
+        ///
+        /// <para><b>Use case:</b> Staff mở dashboard mà KHÔNG cần quét QR trước — thấy ngay
+        /// "hôm nay + 3 ngày tới có bao nhiêu nhóm đã đặt cọc, mỗi nhóm chơi game gì, mấy giờ,
+        /// host là ai, đã đến chưa". Quan trọng: lobby mới tạo (chưa có member) VẪN hiển thị
+        /// vì reservation đã ở trạng thái Holding (player đã trừ BVC từ ví).</para>
+        ///
+        /// <para><b>Default filter (FE không truyền):</b></para>
+        /// <list type="bullet">
+        ///   <item><description><c>fromDate</c> = today UTC, <c>toDate</c> = today + 3 ngày.</description></item>
+        ///   <item><description><c>statuses</c> = <c>[Holding, Confirmed, CheckedIn, InProgress]</c> — bao gồm lobby đã đủ người, đang chờ check-in (khi lobby WaitingCheckIn, reservation chuyển sang Confirmed theo BR-LOBBY-READY-01). Phân biệt qua <c>lobby.isWaitingCheckIn</c>.</description></item>
+        /// <description><c>includeCancelled</c> = false (không trả cancelled/expired/noShow).</description>
+        ///   <item><description><c>sortBy</c> = <c>scheduledStartTime</c> asc (sắp đến gần nhất lên đầu).</description></item>
+        /// </list>
+        ///
+        /// <para><b>BR-LOBBY-PRIVACY-02:</b> ShareCode của lobby private KHÔNG được trả cho staff.</para>
+        ///
+        /// <para><b>Trường mới (2026-09-17 — GAP-FIX batch):</b></para>
+        /// <list type="bullet">
+        ///   <item><description><c>ActiveSession</c>: session summary khi đã check-in (GAP-FIX-5).</description></item>
+        ///   <item><description><c>Lobby.Members</c>: danh sách thành viên active (GAP-FIX-6).</description></item>
+        ///   <item><description><c>Reservation.TableName</c>: tên bàn thực tế (GAP-FIX-3).</description></item>
+        ///   <item><description><c>Lobby.IsHostCoolingOff</c>: cảnh báo cooling-off (GAP-FIX-11).</description></item>
+        ///   <item><description><c>Summary.HoldingBreakdown</c>: đếm Holding đủ/chưa đủ người (GAP-FIX-9).</description></item>
+        ///   <item><description><c>Summary.ByLobbyStatus</c>: luôn trả đủ fixed keys (GAP-FIX-7).</description></item>
+        ///   <item><description><c>IsOverdueForCheckIn</c> dùng <c>CafeConfig.CancellationGraceMinutes</c> (GAP-FIX-2).</description></item>
+        /// </list>
+        ///
+        /// <para><b>Response summary:</b> trả về <see cref="UpcomingReservationsSummaryDto"/>
+        /// với count theo ReservationStatus + LobbyStatus + Holding breakdown + 2 flag đặc biệt (pending cafe approvals,
+        /// arrived-no-check-in) để staff render chip filter phía trên dashboard.</para>
+        /// </summary>
+        /// <param name="cafeId">Mã định danh quán staff đang vận hành.</param>
+        /// <param name="fromDate">Filter playDate ≥ fromDate (yyyy-MM-dd). Null = today UTC.</param>
+        /// <param name="toDate">Filter playDate ≤ toDate (yyyy-MM-dd). Null = fromDate + 3 ngày.</param>
+        /// <param name="statuses">CSV <c>ReservationStatus</c>. Null = active only.
+        /// Ví dụ: <c>?statuses=Holding,Confirmed</c>.</param>
+        /// <param name="lobbyStatusFilter">CSV <c>LobbyStatus</c>. Null = không filter.
+        /// Ví dụ: <c>?lobbyStatusFilter=Open,Viable,PendingCafeApproval</c>.</param>
+        /// <param name="includeCancelled">True = nếu FE không truyền <paramref name="statuses"/>,
+        /// default filter sẽ gộp thêm <c>Expired, CancelledByPlayer, CancelledByCafe, NoShow</c>.</param>
+        /// <param name="sortBy">0 = scheduledStartTime (default), 1 = createdAt, 2 = playDate.</param>
+        /// <param name="sortDir">"asc" (default) hoặc "desc".</param>
+        /// <param name="pageNumber">Số trang (1-indexed, mặc định 1).</param>
+        /// <param name="pageSize">Số item mỗi trang (1-100, mặc định 20).</param>
+        /// <response code="200">Danh sách reservation upcoming (có thể rỗng) + summary aggregation.</response>
+        /// <response code="400"><c>fromDate &gt; toDate</c>, range &gt; 30 ngày, hoặc enum không hợp lệ.</response>
+        /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+        /// <response code="403">Không phải Manager chủ quán hoặc CafeStaff chưa được gắn quán.</response>
+        /// <response code="404">Quán không tồn tại hoặc không ở trạng thái ACTIVE.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpGet("upcoming-reservations")]
+        public async Task<IActionResult> GetUpcomingReservations(
+            Guid cafeId,
+            [FromQuery] DateOnly? fromDate = null,
+            [FromQuery] DateOnly? toDate = null,
+            [FromQuery] string? statuses = null,
+            [FromQuery] string? lobbyStatusFilter = null,
+            [FromQuery] bool includeCancelled = false,
+            [FromQuery] int sortBy = 0,
+            [FromQuery] string? sortDir = null,
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            var (userId, role) = GetViewerContext();
+
+            // Parse CSV enums trước khi vào service — fail-fast 400 cho FE.
+            List<ReservationStatus>? parsedStatuses = null;
+            if (!string.IsNullOrWhiteSpace(statuses))
+            {
+                parsedStatuses = new List<ReservationStatus>();
+                foreach (var raw in statuses.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    if (!Enum.TryParse<ReservationStatus>(raw, ignoreCase: true, out var s))
+                    {
+                        return this.NewResponse(400,
+                            ApiErrorMessages.Pos.UpcomingReservationsInvalidStatus(raw, string.Join(", ", Enum.GetNames<ReservationStatus>())),
+                            null);
+                    }
+                    parsedStatuses.Add(s);
+                }
+            }
+
+            List<LobbyStatus>? parsedLobbyStatuses = null;
+            if (!string.IsNullOrWhiteSpace(lobbyStatusFilter))
+            {
+                parsedLobbyStatuses = new List<LobbyStatus>();
+                foreach (var raw in lobbyStatusFilter.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    if (!Enum.TryParse<LobbyStatus>(raw, ignoreCase: true, out var s))
+                    {
+                        return this.NewResponse(400,
+                            ApiErrorMessages.Pos.UpcomingReservationsInvalidLobbyStatus(raw, string.Join(", ", Enum.GetNames<LobbyStatus>())),
+                            null);
+                    }
+                    parsedLobbyStatuses.Add(s);
+                }
+            }
+
+            // sortBy là int (0/1/2) — validate range, không parse string để giữ swagger gọn.
+            if (sortBy < 0 || !Enum.IsDefined(typeof(UpcomingReservationSortBy), sortBy))
+            {
+                return this.NewResponse(400,
+                    ApiErrorMessages.Pos.UpcomingReservationsInvalidSortBy(
+                        sortBy.ToString(), string.Join(", ", Enum.GetNames<UpcomingReservationSortBy>())),
+                    null);
+            }
+
+            // sortDir là string asc/desc để FE dễ truyền.
+            var sortDirection = SortDirection.Asc;
+            if (!string.IsNullOrWhiteSpace(sortDir))
+            {
+                if (!Enum.TryParse<SortDirection>(sortDir, ignoreCase: true, out sortDirection))
+                {
+                    return this.NewResponse(400,
+                        ApiErrorMessages.Pos.UpcomingReservationsInvalidSortDir(sortDir),
+                        null);
+                }
+            }
+
+            var query = new UpcomingReservationsQuery
+            {
+                FromDate = fromDate,
+                ToDate = toDate,
+                Statuses = parsedStatuses,
+                LobbyStatusFilter = parsedLobbyStatuses,
+                IncludeCancelled = includeCancelled,
+                SortBy = (UpcomingReservationSortBy)sortBy,
+                SortDir = sortDirection,
+                PageNumber = pageNumber,
+                PageSize = pageSize,
+            };
+
+            var result = await _posService.GetUpcomingReservationsAsync(cafeId, userId, role, query, HttpContext.RequestAborted);
+            return this.NewResponse(200, ApiSuccessMessages.Pos.UpcomingReservationsRetrieved, result);
         }
 
         /// <summary>

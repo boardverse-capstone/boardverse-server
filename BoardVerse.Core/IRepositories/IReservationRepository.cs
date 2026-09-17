@@ -90,6 +90,44 @@ public interface IReservationRepository
         int pageSize, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Lấy danh sách reservation upcoming cho POS staff dashboard
+    /// (<c>GET /api/cafes/{cafeId}/pos/upcoming-reservations</c>).
+    /// Hỗ trợ filter date range, status list, lobby status list, sort, paginate.
+    ///
+    /// Include relations đầy đủ cho service layer map DTO:
+    /// - Host (with Profile, Wallet)
+    /// - Cafe, Game
+    /// - Lobby (with Members + Members.User + Members.User.Profile)
+    /// - SeatInventory / GameInventory
+    /// - ActiveSession (for checked-in reservations)
+    ///
+    /// GAP-FIX-3: Include CafeTable cho TableName.
+    /// GAP-FIX-5: Include ActiveSession cho session summary.
+    /// GAP-FIX-6/GAP-FIX-8: Include LobbyMember.User + Profile cho member list.
+    /// GAP-FIX-11: Include Host.Wallet cho IsCoolingOff flag.
+    /// </summary>
+    /// <param name="cafeId">Cafe ID cần query (đã validate access ở service layer).</param>
+    /// <param name="fromDate">Filter playDate ≥ fromDate (inclusive).</param>
+    /// <param name="toDate">Filter playDate ≤ toDate (inclusive).</param>
+    /// <param name="statuses">Filter Reservation.Status ∈ statuses. Null/missing = no status filter (service đã filter default active).</param>
+    /// <param name="lobbyStatuses">Filter Lobby.Status ∈ lobbyStatuses. Null = không filter (kể cả lobby null cho legacy booking).</param>
+    /// <param name="sortBy">Field sort: 0 = ScheduledStartTime, 1 = CreatedAt, 2 = PlayDate.</param>
+    /// <param name="sortDir">0 = asc, 1 = desc.</param>
+    /// <param name="page">1-indexed page.</param>
+    /// <param name="pageSize">Item mỗi trang (clamp 1..100 ở service layer).</param>
+    Task<(IReadOnlyList<Reservation> Items, int TotalCount)> GetUpcomingForCafeAsync(
+        Guid cafeId,
+        DateOnly fromDate,
+        DateOnly toDate,
+        List<ReservationStatus>? statuses,
+        List<LobbyStatus>? lobbyStatuses,
+        int sortBy,
+        int sortDir,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// BR-CHECKIN-02: Lấy danh sách Reservation Confirmed nhưng đã quá 30 phút
     /// sau ScheduledStartTime mà chưa check-in → candidate cho NoShow.
     /// Dùng index IX_Reservations_ScheduledStartTime_Status.
