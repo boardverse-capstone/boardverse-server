@@ -106,11 +106,11 @@ public class PlayerAlertRepository : IPlayerAlertRepository
     public async Task<IReadOnlyList<PlayerAlert>> GetStaleAlertsForUpdateAsync(int maxAgeDays, int batchSize, CancellationToken cancellationToken = default)
     {
         var cutoff = DateTime.UtcNow.AddDays(-maxAgeDays);
-        // Postgres-specific: truyền status enum literal sẽ tự cast sang enum.
-        // Vì BoardVerseDbContext dùng HasConversion<string>(), ta filter theo string tường minh.
+        // NOTE: Npgsql serializes .NET enum as integer in FromSqlRaw.
+        // Cast explicitly to text so Postgres can compare with the text column.
         return await _db.PlayerAlerts
             .FromSqlRaw(
-                "SELECT * FROM \"PlayerAlerts\" WHERE \"Status\" = {0} " +
+                "SELECT * FROM \"PlayerAlerts\" WHERE \"Status\" = {0}::text " +
                 "AND \"CreatedAt\" <= {1} " +
                 "AND \"AcknowledgedAt\" IS NULL " +
                 "ORDER BY \"CreatedAt\" ASC LIMIT {2} " +
