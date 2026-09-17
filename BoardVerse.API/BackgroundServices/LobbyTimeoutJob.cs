@@ -81,7 +81,7 @@ public class LobbyTimeoutJob : BackgroundService
                 "AND \"ScheduledStartTime\" IS NOT NULL " +
                 "AND \"ScheduledStartTime\" - (\"CancellationLeadTimeMinutes\" * INTERVAL '1 minute') <= {1} " +
                 "FOR UPDATE SKIP LOCKED",
-                Convert.ToString(LobbyStatus.Open), now)
+                (int)LobbyStatus.Open, now)
             .Include(l => l.Members)
             .Include(l => l.GameTemplate)
             .Include(l => l.Cafe)
@@ -97,7 +97,7 @@ public class LobbyTimeoutJob : BackgroundService
                 "AND \"ScheduledStartTime\" IS NULL " +
                 "AND \"CreatedAt\" <= {1} " +
                 "FOR UPDATE SKIP LOCKED",
-                Convert.ToString(LobbyStatus.Open), orphanCutoff)
+                (int)LobbyStatus.Open, orphanCutoff)
             .Include(l => l.Members)
             .Include(l => l.GameTemplate)
             .Include(l => l.Cafe)
@@ -113,7 +113,7 @@ public class LobbyTimeoutJob : BackgroundService
                 "AND \"FullAt\" IS NOT NULL " +
                 "AND \"FullAt\" <= {1} " +
                 "FOR UPDATE SKIP LOCKED",
-                Convert.ToString(LobbyStatus.Full), readyCutoff)
+                (int)LobbyStatus.Full, readyCutoff)
             .Include(l => l.Members)
             .Include(l => l.GameTemplate)
             .Include(l => l.Cafe)

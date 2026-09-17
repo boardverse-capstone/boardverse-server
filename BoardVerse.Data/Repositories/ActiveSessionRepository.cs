@@ -465,7 +465,7 @@ namespace BoardVerse.Data.Repositories
                 "AND COALESCE(r.\"ExtendedEndTime\", r.\"ScheduledEndTime\") + INTERVAL '30 minutes' < {1} " +
                 "FOR UPDATE OF a SKIP LOCKED";
             return await _db.ActiveSessions
-                .FromSqlRaw(sql, Convert.ToString(GroupSessionStatus.Active), cutoff)
+                .FromSqlRaw(sql, (int)GroupSessionStatus.Active, cutoff)
                 .AsNoTracking()
                 .ToListAsync(ct);
         }
