@@ -4,6 +4,24 @@ Lịch sử thay đổi đáng chú ý của codebase. Cập nhật theo từng 
 
 ---
 
+## 2026-09-19 — Database Schema Sync (4 gaps, raw SQL applied)
+
+### 2. Sync Entity/EF Configuration với Production DB (4 gaps)
+
+- **Phạm vi:** Production Neon DB (`br-hidden-shadow-aoqtn6su`) — so sánh schema vs Entity + EF Configuration.
+- **Gaps đã phát hiện:**
+  - **G1 (CRITICAL)** — `Lobbies` thiếu 3 columns: `CancellationLeadTimeMinutes` (int, default 30), `FullAt` (timestamptz, nullable), `ActiveSessionId` (uuid FK). EF sẽ throw khi load `Lobby.ActiveSession` vì column không tồn tại.
+  - **G2 (HIGH)** — `CafeConfigs` thiếu 2 columns: `MinDepositRatePerPerson` (bigint, default 1), `MaxDepositRatePerPerson` (bigint, default 100). BR-DEPOSIT-03 deposit rate cap không persist được.
+  - **G3 (MEDIUM)** — `ActiveSessionMembers` thiếu 4 columns QR (Split Bill mobile display): `QrImageUrl`, `QrPaymentUrl`, `QrOrderId`, `QrTransferContent`. Config đã khai báo nhưng column không tồn tại trong DB.
+  - **G4 (MEDIUM)** — `SeatInventories.RowVersion` type drift: config khai báo `xid` nhưng DB lưu `bigint`. `dotnet ef database update` sẽ báo out-of-sync.
+- **Duplicated entity files phát hiện thêm:**
+  - `BookingDeposit.cs`, `PlayerActionHistory.cs`, `CafeConfig.cs`, `CafeSettlement.cs` — trùng ở đường dẫn `/` vs `\` (cùng thư mục, chỉ khác separator). Cần dọn dẹp.
+- **Fix:** Raw SQL đã cung cấp cho user tự apply trên production (2026-09-19).
+- **API docs đã cập nhật:** `docs/api/cafe.md`, `docs/api/cafe-pos.md`, `docs/api/payment.md`, `docs/api/active-session.md` — bổ sung tên columns mới (`MinDepositRatePerPerson`, `MaxDepositRatePerPerson`, `QrImageUrl`, `QrPaymentUrl`, `QrOrderId`, `QrTransferContent`).
+- **Chi tiết:** [technical/gaps-fix-2026-09-19.md](./technical/gaps-fix-2026-09-19.md).
+
+---
+
 ## 2026-09-15 — Staff Work Schedule module (9/9 gaps closed, 1820/1820 tests PASS)
 
 ### 1. Module Staff Schedule — Đóng 9 gaps + ship production-ready

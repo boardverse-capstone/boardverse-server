@@ -18,6 +18,12 @@ public class BookingDeposit
     /// <summary>BR-05: Booking liên kết. Nullable để hỗ trợ walk-in deposit không qua booking.</summary>
     public Guid? BookingId { get; set; }
 
+    /// <summary>
+    /// BR-22: Mã nhóm đặt chỗ — nhóm các deposits lại để thanh toán cùng lúc.
+    /// Tất cả members trong cùng 1 nhóm đặt chỗ sẽ share cùng BookingGroupCode.
+    /// </summary>
+    public string? BookingGroupCode { get; set; }
+
     /// <summary>UserId của người đặt chỗ (Host). Dùng làm HostId khi check-in tạo ActiveSession.</summary>
     public Guid UserId { get; set; }
     public Guid CafeId { get; set; }

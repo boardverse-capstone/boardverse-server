@@ -60,6 +60,20 @@ namespace BoardVerse.Data.Configurations
                 .HasFilter("\"Status\" != 2");
 
             builder.HasIndex(m => m.UserId);
+
+            // Split Bill: QR payment info for mobile display
+            builder.Property(m => m.QrImageUrl)
+                .HasMaxLength(2000)
+                .IsRequired(false);
+            builder.Property(m => m.QrPaymentUrl)
+                .HasMaxLength(2000)
+                .IsRequired(false);
+            builder.Property(m => m.QrOrderId)
+                .HasMaxLength(100)
+                .IsRequired(false);
+            builder.Property(m => m.QrTransferContent)
+                .HasMaxLength(500)
+                .IsRequired(false);
         }
     }
 }

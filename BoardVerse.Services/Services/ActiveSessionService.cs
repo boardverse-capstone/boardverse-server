@@ -2259,12 +2259,16 @@ namespace BoardVerse.Services.Services
             return MapSessionDto(session);
         }
 
-        // Helper: bắt đầu transaction nếu repository có hỗ trợ.
-        // Trả null nếu repository không có setup (Mock trong unit test) hoặc
-        // provider không hỗ trợ → gọi SaveChangesAsync như bình thường.
-        // Pattern copy từ BookingDepositService.TryBeginTransactionAsync.
+        // Ambient transaction pattern: nếu đã có CurrentTransaction → không tạo transaction mới.
+        // Nếu không → tạo transaction mới. Spec §VII.6 ambient transaction pattern.
         private async Task<Core.IRepositories.IDatabaseTransactionContext?> TryBeginTransactionAsync()
         {
+            // Check ambient transaction trước — tránh InvalidOperationException khi nested call.
+            if (_activeSessionRepository.GetCurrentTransaction() != null)
+            {
+                return null;
+            }
+
             try
             {
                 return await _activeSessionRepository.BeginTransactionAsync();

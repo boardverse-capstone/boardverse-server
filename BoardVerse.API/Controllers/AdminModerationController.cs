@@ -234,7 +234,7 @@ namespace BoardVerse.API.Controllers
     /// <summary>
         /// A-03 (BR-RISK-05): Lấy lịch sử admin actions của 1 user (audit log vĩnh viễn).
         /// Bao gồm: Warning, Suspend, Ban, AdminCredit/Debit, RiskScoreReset, VerifyRequired,
-        /// CoolingOffExtend, MultiAccountConfirmed, PlayedTimeDisputed/Overridden. [Role: Admin]
+        /// CoolingOffExtend, PlayedTimeDisputed/Overridden. [Role: Admin]
         /// </summary>
         /// <param name="userId">Mã người dùng (optional — bỏ trống để xem tất cả).</param>
         /// <param name="actionType">Lọc theo loại action (optional).</param>

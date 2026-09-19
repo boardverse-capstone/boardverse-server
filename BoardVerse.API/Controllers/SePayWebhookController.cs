@@ -1,10 +1,12 @@
 ﻿using BoardVerse.Core.DTOs.Payment;
 using BoardVerse.Core.Messages;
+using BoardVerse.Core.Settings;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services.Payments;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace BoardVerse.API.Controllers;
 
@@ -15,6 +17,7 @@ public class SePayWebhookController : ControllerBase
     private readonly IPaymentService _paymentService;
     private readonly ILogger<SePayWebhookController> _logger;
     private readonly IHostEnvironment _env;
+    private readonly PaymentGatewaySettings _gatewaySettings;
 
     // SePay HMAC headers — value giữ nguyên case-insensitive.
     private const string HeaderSignature = "X-SePay-Signature";
@@ -24,11 +27,13 @@ public class SePayWebhookController : ControllerBase
     public SePayWebhookController(
         IPaymentService paymentService,
         ILogger<SePayWebhookController> logger,
-        IHostEnvironment env)
+        IHostEnvironment env,
+        IOptions<PaymentGatewaySettings> gatewaySettings)
     {
         _paymentService = paymentService;
         _logger = logger;
         _env = env;
+        _gatewaySettings = gatewaySettings.Value;
     }
 
     /// <summary>
@@ -162,12 +167,15 @@ return BadRequest(new { message = ApiErrorMessages.Payment.SePayReturnFailed, or
     [HttpPost("mock")]
     public async Task<IActionResult> MockWebhook([FromBody] MockWebhookRequestDto request, CancellationToken cancellationToken = default)
     {
-        // P0 Fix #4: Gate endpoint to development only
-if (!_env.IsDevelopment())
-{
-_logger.LogWarning("Mock webhook called in non-development environment. Blocked.");
-return StatusCode(403, new { status = "forbidden", message = ApiErrorMessages.Payment.SePayMockEndpointBlocked });
-}
+        // GAP Fix #3: Gate mock endpoint — phải Development + EnableMockPayments = true.
+        // Mặc định EnableMockPayments=false trên production.
+        if (!_env.IsDevelopment() || !_gatewaySettings.EnableMockPayments)
+        {
+            _logger.LogWarning(
+                "Mock webhook blocked. Environment={Env}, EnableMockPayments={Enabled}",
+                _env.EnvironmentName, _gatewaySettings.EnableMockPayments);
+            return StatusCode(403, new { status = "forbidden", message = ApiErrorMessages.Payment.SePayMockEndpointBlocked });
+        }
 
         try
         {

@@ -2205,7 +2205,7 @@ stateDiagram-v2
 
 | Bảng / Entity | Vai trò |
 |---|---|
-| `ActiveSessionMembers` | 4 columns mới: `PaidAt`, `PaymentMethod`, `PaymentStatus` (enum `MemberPaymentStatus` = `NotPaid` / `PaidQr` / `PaidCash`), `TransactionId` (FK transaction SePay khi QR). Migration: `20260824082933_AddMemberPaymentFields`. |
+| `ActiveSessionMembers` | **8 columns** (2 migrations): `PaidAt`, `PaymentMethod`, `PaymentStatus` (enum `MemberPaymentStatus` = `NotPaid` / `PaidQr` / `PaidCash`), `TransactionId` (FK transaction SePay khi QR) — migration `20260824082933`. + 4 columns QR mới (2026-09-19, migration pending): `QrImageUrl`, `QrPaymentUrl`, `QrOrderId`, `QrTransferContent` — dùng để player mobile hiển thị QR thanh toán per-member (Split Bill mobile display). |
 | `MemberPayments` | Audit trail cho mỗi lần thanh toán per-member. 1 dòng / lần pay: `Id`, `ActiveSessionId`, `MemberId`, `Amount`, `PaymentMethod` (`CASH` / `QR_CODE` / `BANK_TRANSFER`), `OrderId` (nếu QR), `TransactionId`, `StaffId` (staff thực hiện), `Notes`, `CreatedAt`. FK CASCADE → `ActiveSessions` + `ActiveSessionMembers`. |
 
 ### GET /api/cafes/{cafeId}/pos/sessions/{sessionId}/payment-status

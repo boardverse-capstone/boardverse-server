@@ -47,6 +47,10 @@ namespace BoardVerse.Core.IRepositories
 
         /// <summary>H8: Bắt đầu transaction cho PaySessionAsync atomicity (billing + cleanup + capture).</summary>
         Task<IDatabaseTransactionContext> BeginTransactionAsync(CancellationToken cancellationToken = default);
+
+        /// <summary>GAP Fix: Lấy ambient transaction hiện tại (null nếu không có).</summary>
+        IDatabaseTransactionContext? GetCurrentTransaction();
+
         Task<IReadOnlyList<ActiveSession>> GetAllUnpaidAsync(CancellationToken cancellationToken = default);
 
         // === Atomic status update for race condition prevention ===

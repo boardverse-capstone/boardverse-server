@@ -716,5 +716,77 @@ namespace BoardVerse.Data.Repositories
 
             return (items, totalCount);
         }
+
+        // === BR-RISK-01 Signals ===
+
+        /// <summary>
+        /// BR-RISK-01 (SIG-04): Đếm số playDate trong 30 ngày có ≥ 2 lobby tạo+hủy (BR-NEW-05).
+        /// </summary>
+        public async Task<int> CountDistinctPlayDatesWithManyCreatesCancelsAsync(
+            Guid hostUserId,
+            DateTime fromUtc, CancellationToken cancellationToken = default)
+        {
+            // Đếm số playDate có nhiều hơn 1 lobby tạo trong window — proxy cho BR-NEW-05 spam.
+            var playDates = await _db.Lobbies
+                .AsNoTracking()
+                .Where(l => l.HostUserId == hostUserId && l.CreatedAt >= fromUtc)
+                .GroupBy(l => l.PlayDate)
+                .Where(g => g.Count() >= 2)
+                .Select(g => g.Key)
+                .ToListAsync(cancellationToken);
+
+            return playDates.Count;
+        }
+
+        /// <summary>
+        /// BR-RISK-01 (SIG-05): Đếm số lần join rời lobby trong 24 giờ.
+        /// </summary>
+        public async Task<int> CountJoinLeaveInWindowAsync(
+            Guid userId,
+            DateTime windowStart, CancellationToken cancellationToken = default)
+        {
+            // LobbyMembers có JoinedAt và LeftAt — đếm các member có LeftAt trong window.
+            var leftCount = await _db.LobbyMembers
+                .AsNoTracking()
+                .CountAsync(
+                    m => m.UserId == userId
+                        && m.LeftAt.HasValue
+                        && m.LeftAt >= windowStart,
+                    cancellationToken);
+
+            return leftCount;
+        }
+
+        /// <summary>
+        /// BR-RISK-01 (SIG-06): Đếm số lần bị từ chối tạo lobby trong 30 ngày.
+        /// Proxy: Reservation (CreatedAt) với Status = Holding nhưng không có LobbyId (confirm fail)
+        /// HOẶC lobby bị RejectedByCafe.
+        /// </summary>
+        public async Task<int> CountDeniedCreateAttemptsAsync(
+            Guid userId,
+            DateTime fromUtc, CancellationToken cancellationToken = default)
+        {
+            // Lobby bị cafe từ chối
+            var rejectedCount = await _db.Lobbies
+                .AsNoTracking()
+                .CountAsync(
+                    l => l.HostUserId == userId
+                        && l.Status == LobbyStatus.RejectedByCafe
+                        && l.UpdatedAt >= fromUtc,
+                    cancellationToken);
+
+            // Reservation bị reject trước khi lobby tạo (Status = Holding nhưng hết hạn hoặc cafe reject)
+            // Đếm qua Reservation.CreatedAt nhưng không có Lobby → có thể fail do nhiều lý do.
+            // Chỉ đếm Reservation có trạng thái terminal mà không có lobby.
+            var noLobbyReservationCount = await _db.Reservations
+                .AsNoTracking()
+                .CountAsync(
+                    r => r.HostId == userId
+                        && r.CreatedAt >= fromUtc
+                        && r.LobbyId == null,
+                    cancellationToken);
+
+            return rejectedCount + noLobbyReservationCount;
+        }
     }
 }

@@ -170,6 +170,28 @@ public interface ILobbyRepository
         LobbyStatus? failureType, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// BR-RISK-01 (SIG-04): Đếm số playDate trong 30 ngày có ≥ 2 lobby tạo+hủy (BR-NEW-05).
+    /// </summary>
+    Task<int> CountDistinctPlayDatesWithManyCreatesCancelsAsync(
+        Guid hostUserId,
+        DateTime fromUtc, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// BR-RISK-01 (SIG-05): Đếm số lần join rời lobby trong 24 giờ.
+    /// </summary>
+    Task<int> CountJoinLeaveInWindowAsync(
+        Guid userId,
+        DateTime windowStart, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// BR-RISK-01 (SIG-06): Đếm số lần bị từ chối tạo lobby (reservation confirm fail) trong 30 ngày.
+    /// Đếm qua Reservation.CreatedAt trong window mà Status = Holding (chưa confirmed).
+    /// </summary>
+    Task<int> CountDeniedCreateAttemptsAsync(
+        Guid userId,
+        DateTime fromUtc, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Lấy danh sách lobby của 1 cafe cho Manager dashboard.
     /// Filter theo status và playDate, có phân trang.
     /// </summary>

@@ -91,7 +91,7 @@ DTO riêng cho admin — **không kế thừa `CafeDetailDto`**: `Id`, `Name`, `
 | **`OperationalStatusReason`** (lý do nội bộ) | ❌ **ẩn** | ❌ | ✅ | ✅ | ✅ |
 | `IsCurrentlyOpen` | ✅ | ❌ | ✅ | ✅ | ❌ |
 | `RefundPolicy`, `RefundTiers` | ✅ | ❌ | ✅ | ✅ | `RefundPolicy` only |
-| `DepositRatePerPerson`, `MinDeposit`, `CafeConfig` (BR defaults) | ✅ | ❌ | ✅ | ✅ | ❌ |
+| `MinDepositRatePerPerson` (BVC floor), `MaxDepositRatePerPerson` (BVC ceiling), `CafeConfig` (BR-DEPOSIT-03 defaults) | ✅ | ❌ | ✅ | ✅ | ❌ |
 | `AvailableSeats`, `HeldSeats`, `InUseSeats`, `AvailableSeatsByTimeSlot` | ✅ | ❌ | ✅ | ✅ | ❌ |
 | `ScheduleOverrides` | ✅ | ❌ | ✅ | ✅ | ✅ |
 | `NumberOfTables`, `NumberOfPrivateRooms`, `NumberOfGamesOwned`, `HasGameMaster` | ✅ | ❌ | ✅ | ✅ | ✅ |

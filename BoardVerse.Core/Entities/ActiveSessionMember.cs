@@ -118,6 +118,30 @@ namespace BoardVerse.Core.Entities
         /// </summary>
         public Guid? TransactionId { get; set; }
 
+        // === Per-Member QR Payment (Split Bill - Mobile Display) ===
+        /// <summary>
+        /// URL hình ảnh QR code thanh toán cho thành viên.
+        /// Được set khi staff tạo QR cho member qua Split Bill.
+        /// Player có thể truy vấn endpoint để hiển thị QR trên mobile.
+        /// </summary>
+        public string? QrImageUrl { get; set; }
+
+        /// <summary>
+        /// URL thanh toán gateway (nếu là QR).
+        /// </summary>
+        public string? QrPaymentUrl { get; set; }
+
+        /// <summary>
+        /// Order ID của QR payment (format: BV-MEMBER-{memberId}).
+        /// Dùng để player hiển thị nội dung chuyển khoản.
+        /// </summary>
+        public string? QrOrderId { get; set; }
+
+        /// <summary>
+        /// Số tài khoản / nội dung chuyển khoản hiển thị trên QR.
+        /// </summary>
+        public string? QrTransferContent { get; set; }
+
         // === Navigation ===
         public virtual ActiveSession ActiveSession { get; set; } = null!;
         public virtual User? User { get; set; }

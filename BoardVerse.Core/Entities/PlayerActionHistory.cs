@@ -17,7 +17,7 @@ public class PlayerActionHistory
     /// <summary>Navigation đến target user (để load Username cho admin display).</summary>
     public User? User { get; set; }
 
-    /// <summary>Loại action: AdminCredit, AdminDebit, AccountStatusChange, RiskScoreReset, Warning, Suspend, Ban, MultiAccountConfirmed.</summary>
+    /// <summary>Loại action: AdminCredit, AdminDebit, AccountStatusChange, RiskScoreReset, Warning, Suspend, Ban.</summary>
     public AdminActionType ActionType { get; set; }
 
     /// <summary>Admin userId thực hiện, hoặc null cho system actor (e.g. job tự động).</summary>

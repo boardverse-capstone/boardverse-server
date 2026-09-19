@@ -19,10 +19,6 @@ public enum AdminActionType
     RiskScoreReset = 20,
     VerifyRequired = 21,
 
-    // Multi-account
-    MultiAccountConfirmed = 30,
-    MultiAccountDismissed = 31,
-
     // Phase 4 / EC-11 — Played time dispute audit (BR §XX §POS evidence).
     // Khi player cho rằng POS ghi nhầm giờ chơi (StartedAt/EndedAt).
     // Staff mở dispute → lưu evidence. Manager review/override → lưu lại.

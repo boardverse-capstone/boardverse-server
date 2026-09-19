@@ -28,6 +28,11 @@ public class PaymentController : BaseApiController
     private readonly IHostEnvironment _env;
     private readonly ILogger<PaymentController> _logger;
 
+    // SePay HMAC headers — giá trị giữ nguyên, key case-insensitive.
+    private const string HeaderSignature = "X-SePay-Signature";
+    private const string HeaderTimestamp = "X-SePay-Timestamp";
+    private const string AuthorizationHeader = "Authorization";
+
     public PaymentController(
         IPaymentService paymentService,
         IBookingDepositService depositService,
@@ -293,10 +298,9 @@ public class PaymentController : BaseApiController
 
     /// <summary>
     /// Webhook xử lý thanh toán QR cho thành viên cụ thể trong group session.
-    /// Fix #3: Thêm signature verification để chống fake webhook.
+    /// GAP FIX: Thêm signature verification (giống deposit/session webhook).
     /// [Public - SePay webhook]
     /// </summary>
-    /// <param name="webhook">Webhook payload từ SePay.</param>
     /// <response code="200">Xử lý thành công.</response>
     /// <response code="400">Dữ liệu webhook không hợp lệ.</response>
     /// <response code="401">Signature không hợp lệ.</response>
@@ -305,17 +309,64 @@ public class PaymentController : BaseApiController
     /// <response code="500">Lỗi hệ thống.</response>
     [HttpPost("sepay/webhook/member-payment")]
     [AllowAnonymous]
-    public async Task<IActionResult> ProcessMemberPaymentWebhook([FromBody] MemberPaymentWebhookDto webhook)
+    public async Task<IActionResult> ProcessMemberPaymentWebhook()
     {
-        // Fix #3: Verify webhook signature for security
-        // In development, allow requests without signature for testing
-        if (!_env.IsDevelopment())
+        // GAP FIX #1: Verify webhook signature trước khi xử lý payload.
+        // Dùng ISePayClient.VerifyWebhookAsync — cùng logic verify như deposit/session webhook.
+        // Pattern y hệt SePayWebhookController.ReceiveWebhook.
+        Request.EnableBuffering();
+        var rawBody = await new StreamReader(Request.Body, leaveOpen: true)
+            .ReadToEndAsync(HttpContext.RequestAborted);
+        Request.Body.Position = 0;
+
+        var signature = ExtractSignatureFromHeaders(Request.Headers);
+        var timestamp = Request.Headers[HeaderTimestamp].ToString();
+        var verificationRequest = new SePayWebhookVerificationRequest(
+            Signature: signature,
+            Timestamp: timestamp,
+            RawBody: rawBody);
+
+        // G3 FIX: Align with SePayWebhookController — skip verification ONLY in Development.
+        // In Staging/Production, always verify via IPaymentService.VerifyWebhookRequestAsync
+        // (same pattern as SePayWebhookController.ReceiveWebhook).
+        // This ensures WebhookAuthType.None is also rejected in Staging, not just Production.
+        if (_env.IsDevelopment())
         {
-            // TODO: For split bill webhook, we need to verify the signature
-            // SePay may not send standard signature for member payment webhooks
-            // For now, we'll rely on the idempotency check in the service
-            // A proper implementation would require SePay to support per-member webhook signatures
-            _logger.LogDebug("Processing member payment webhook in production mode");
+            // Development: skip verification for convenience during local testing.
+            _logger.LogDebug("Member payment webhook: signature verification skipped in Development.");
+        }
+        else
+        {
+            var (isValid, errorMessage) = await _paymentService.VerifyWebhookRequestAsync(
+                verificationRequest, HttpContext.RequestAborted);
+
+            if (!isValid)
+            {
+                _logger.LogWarning(
+                    "Member payment webhook signature verification failed. Error={Error}",
+                    errorMessage);
+                return Unauthorized(new { status = "error", message = errorMessage ?? "Invalid signature." });
+            }
+        }
+
+        // Parse payload từ rawBody sau khi đã đọc raw body cho signature.
+        MemberPaymentWebhookDto? webhook;
+        try
+        {
+            webhook = System.Text.Json.JsonSerializer.Deserialize<MemberPaymentWebhookDto>(
+                rawBody,
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (webhook == null)
+            {
+                _logger.LogWarning("Member payment webhook payload empty or invalid JSON.");
+                return BadRequest(new { status = "error", message = "Invalid payload." });
+            }
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            _logger.LogWarning(ex, "Member payment webhook JSON parse failed.");
+            return BadRequest(new { status = "error", message = "Invalid JSON." });
         }
 
         await _splitBillService.ProcessMemberQrWebhookAsync(webhook, HttpContext.RequestAborted);
@@ -348,5 +399,63 @@ public class PaymentController : BaseApiController
         var result = await _splitBillService.ConfirmMemberQrAsync(
             sessionId, memberId, staffId, actorRole, notes, HttpContext.RequestAborted);
         return this.NewResponse(200, "Xác nhận thanh toán QR thành công.", result);
+    }
+
+    /// <summary>
+    /// Lấy thông tin QR code thanh toán của một thành viên để hiển thị trên mobile.
+    /// - Staff/Admin: xem QR của bất kỳ thành viên nào.
+    /// - Player: chỉ xem được QR của chính mình (thành viên thuộc session mà player đang tham gia).
+    /// [Role: Staff — xem QR bất kỳ; Player — chỉ QR của mình; Admin — xem tất cả.]
+    /// </summary>
+    /// <param name="memberId">Mã thành viên cần lấy QR.</param>
+    /// <response code="200">Lấy thông tin QR thành công. Trả về null nếu thành viên chưa được tạo QR.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Player không có quyền xem QR của thành viên khác.</response>
+    /// <response code="404">Không tìm thấy thành viên.</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpGet("split-bill/members/{memberId:guid}/qr")]
+    [Authorize]
+    public async Task<IActionResult> GetMemberQr(Guid memberId)
+    {
+        var requesterId = GetUserIdFromClaims();
+        var requesterRole = User.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty;
+
+        var result = await _splitBillService.GetMemberQrAsync(
+            memberId, requesterId, requesterRole, HttpContext.RequestAborted);
+
+        if (result == null)
+        {
+            return this.NewResponse(404, "Không tìm thấy thành viên.", result);
+        }
+
+        return this.NewResponse(200, "Lấy thông tin QR thành công.", result);
+    }
+
+    /// <summary>
+    /// Extract signature theo mode SePay đang dùng:
+    /// - HMAC-SHA256: header <c>X-SePay-Signature</c> (VD: <c>sha256=abc...</c>).
+    /// - API Key: header <c>Authorization</c> với format <c>Apikey &lt;token&gt;</c>.
+    /// Caller đã pre-select mode qua SePayAccount.WebhookAuthType.
+    /// </summary>
+    private static string? ExtractSignatureFromHeaders(IHeaderDictionary headers)
+    {
+        var sigHeader = headers[HeaderSignature].ToString();
+        if (!string.IsNullOrWhiteSpace(sigHeader))
+        {
+            return sigHeader.Trim();
+        }
+
+        var authHeader = headers[AuthorizationHeader].ToString();
+        if (!string.IsNullOrWhiteSpace(authHeader))
+        {
+            const string apiKeyPrefix = "Apikey ";
+            if (authHeader.StartsWith(apiKeyPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return authHeader.Substring(apiKeyPrefix.Length).Trim();
+            }
+            return authHeader.Trim();
+        }
+
+        return null;
     }
 }

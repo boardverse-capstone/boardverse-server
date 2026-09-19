@@ -70,5 +70,17 @@ namespace BoardVerse.Services.IServices
             Guid staffId,
             string actorRole,
             CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Lấy thông tin QR code của một thành viên để hiển thị trên mobile.
+        /// Staff/Admin: có thể xem QR của bất kỳ thành viên nào.
+        /// Player: chỉ xem được QR của chính mình.
+        /// Trả về null nếu member chưa được tạo QR (PaymentMethod != QR_CODE).
+        /// </summary>
+        Task<MemberQrResponseDto?> GetMemberQrAsync(
+            Guid memberId,
+            Guid requesterId,
+            string requesterRole,
+            CancellationToken cancellationToken = default);
     }
 }

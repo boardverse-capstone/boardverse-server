@@ -379,11 +379,12 @@ Webhook từ SePay cho thanh toán **per-member** (Split Bill). Tách biệt ho�
 
 **Response 200:** `{ "status": "ok" }`
 
-**Side effects (2026-08-25 update):**
-- Tạo `Transaction` record cho QR payment (**GAP #2 FIX**) — đảm bảo audit trail đầy đủ cho mỗi thanh toán per-member
-- Cập nhật `ActiveSessionMember.PaymentStatus = PaidQr`
-- Tạo `MemberPayment` audit record
-- Check all members → nếu tất cả đã trả → auto finalize session
+**Side effects (2026-08-25 update + 2026-09-19):**
+- Tạo `Transaction` record cho QR payment (**GAP #2 FIX**) — đảm bảo audit trail đầy đủ cho mỗi thanh toán per-member.
+- Cập nhật `ActiveSessionMember.PaymentStatus = PaidQr`.
+- Cập nhật 4 fields QR trên `ActiveSessionMember` (2026-09-19): `QrImageUrl`, `QrPaymentUrl`, `QrOrderId`, `QrTransferContent` — được set khi staff tạo QR cho member qua Split Bill; player mobile truy vấn endpoint để hiển thị QR.
+- Tạo `MemberPayment` audit record.
+- Check all members → nếu tất cả đã trả → auto finalize session.
 
 ---
 

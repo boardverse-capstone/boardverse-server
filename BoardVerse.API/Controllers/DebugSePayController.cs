@@ -1,5 +1,6 @@
 ﻿using BoardVerse.API.Infrastructure;
 using BoardVerse.Core.Data;
+using BoardVerse.Core.DTOs.Payment;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.Messages;
@@ -448,6 +449,110 @@ public class DebugSePayController : ControllerBase
 </html>";
 
         return Content(html, "text/html; charset=utf-8");
+    }
+
+    /// <summary>
+    /// Sinh HMAC-SHA256 signature cho SePay checkout request.
+    /// Dùng để debug/test — preview signature trước khi gọi SePay API.
+    /// Spec §VI.1: dùng CÙNG field order với <c>PaymentGatewayService</c>.
+    /// [Role: Admin — dev/test only]
+    /// </summary>
+    /// <param name="request">Thông tin order để sign.</param>
+    /// <response code="200">Signature hợp lệ.</response>
+    /// <response code="400">Thiếu required fields.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải Admin.</response>
+    /// <response code="404">Debug endpoint không bật.</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpPost("generate-signature")]
+    public async Task<IActionResult> GenerateSignature([FromBody] DebugSePayGenerateSignatureRequestDto request)
+    {
+        if (!IsDebugEnabled()) return NotFound();
+        if (string.IsNullOrWhiteSpace(request.OrderInvoiceNumber))
+            return BadRequest(new { error = "orderInvoiceNumber is required." });
+
+        var masterAccount = await _sepayAccountService.GetRawMasterAccountAsync();
+        if (masterAccount == null)
+            return BadRequest(new { error = "Master account not configured." });
+
+        if (string.IsNullOrWhiteSpace(masterAccount.SecretKey))
+            return BadRequest(new { error = "Master account SecretKey not set." });
+
+        var signature = BoardVerse.Services.Services.Payments.SePayCheckoutSignatureHelper.SignCheckout(
+            amount: request.OrderAmount,
+            merchant: masterAccount.MerchantId ?? string.Empty,
+            description: request.OrderDescription ?? string.Empty,
+            orderInvoiceNumber: request.OrderInvoiceNumber,
+            customerId: request.CustomerId ?? string.Empty,
+            successUrl: "https://boardverse.app/payment/success",
+            errorUrl: "https://boardverse.app/payment/error",
+            cancelUrl: "https://boardverse.app/payment/cancel",
+            secretKey: masterAccount.SecretKey);
+
+        var signingString = BoardVerse.Services.Services.Payments.SePayCheckoutSignatureHelper.BuildSigningString(
+            request.OrderAmount,
+            masterAccount.MerchantId ?? string.Empty,
+            request.OrderDescription ?? string.Empty,
+            request.OrderInvoiceNumber,
+            request.CustomerId ?? string.Empty,
+            "https://boardverse.app/payment/success",
+            "https://boardverse.app/payment/error",
+            "https://boardverse.app/payment/cancel");
+
+        return Ok(new
+        {
+            orderInvoiceNumber = request.OrderInvoiceNumber,
+            signingString,
+            signature,
+            orderAmount = request.OrderAmount,
+            currency = request.Currency ?? "VND",
+            paymentMethod = "qr_vietqr",
+            operation = "payment"
+        });
+    }
+
+    /// <summary>
+    /// Preview checkout: sinh VietQR URL để preview thanh toán.
+    /// Dùng để debug/test — xem QR trước khi tạo đơn thật.
+    /// [Role: Admin — dev/test only]
+    /// </summary>
+    /// <param name="request">Thông tin thanh toán preview.</param>
+    /// <response code="200">Preview thành công.</response>
+    /// <response code="400">Thiếu required fields.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không phải Admin.</response>
+    /// <response code="404">Debug endpoint không bật.</response>
+    /// <response code="500">Lỗi hệ thống.</response>
+    [HttpPost("preview-checkout")]
+    public async Task<IActionResult> PreviewCheckout([FromBody] DebugSePayPreviewCheckoutRequestDto request)
+    {
+        if (!IsDebugEnabled()) return NotFound();
+        if (request.Amount <= 0)
+            return BadRequest(new { error = "Amount must be greater than 0." });
+
+        var masterAccount = await _sepayAccountService.GetRawMasterAccountAsync();
+        if (masterAccount == null)
+            return BadRequest(new { error = "Master account not configured." });
+
+        var qrUrl = _vietQrClient.GenerateQrUrl(
+            masterAccount.BankCode ?? string.Empty,
+            masterAccount.AccountNumber ?? string.Empty,
+            request.Amount,
+            description: request.Description ?? "BoardVerse preview",
+            accountHolder: masterAccount.AccountHolder);
+
+        return Ok(new
+        {
+            amount = request.Amount,
+            currency = "VND",
+            description = request.Description ?? "BoardVerse preview",
+            gateway = "VietQr",
+            qrImageUrl = qrUrl,
+            paymentUrl = qrUrl,
+            bankCode = masterAccount.BankCode,
+            accountNumber = MaskAccountNumber(masterAccount.AccountNumber),
+            accountHolder = masterAccount.AccountHolder
+        });
     }
 
     private bool IsDebugEnabled()

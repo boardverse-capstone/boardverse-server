@@ -46,6 +46,18 @@ public class CafeConfig
     /// <summary>BR-DEPOSIT-03: BVC / người mà cafe cấu hình (1 ≤ x ≤ 100).</summary>
     public long DepositRatePerPerson { get; set; } = 5;
 
+    /// <summary>
+    /// BR-DEPOSIT-03: Giới hạn tối thiểu số BVC / người.
+    /// Mặc định 1 BVC = 1.000 VND.
+    /// </summary>
+    public long MinDepositRatePerPerson { get; set; } = 1;
+
+    /// <summary>
+    /// BR-DEPOSIT-03: Giới hạn tối đa số BVC / người.
+    /// Mặc định 100 BVC = 100.000 VND.
+    /// </summary>
+    public long MaxDepositRatePerPerson { get; set; } = 100;
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

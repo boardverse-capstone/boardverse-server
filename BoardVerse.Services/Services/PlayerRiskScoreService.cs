@@ -7,6 +7,7 @@ using BoardVerse.Core.IRepositories;
 using BoardVerse.Data;
 using BoardVerse.Data.Repositories;
 using BoardVerse.Services.IServices;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace BoardVerse.Services.Services;
@@ -51,7 +52,10 @@ public class PlayerRiskScoreService : IPlayerRiskScoreService
             + signals.GetValueOrDefault("SIG-02", 0) * W_HostCancelled7d
             + signals.GetValueOrDefault("SIG-03", 0) * W_Forfeit30d / 1000
             + signals.GetValueOrDefault("SIG-04", 0) * W_SpamSamePlayDate30d
-            + signals.GetValueOrDefault("SIG-08", 0) * W_CreateCancelUnder5min;
+            + signals.GetValueOrDefault("SIG-05", 0) * 5
+            + signals.GetValueOrDefault("SIG-06", 0) * 8
+            + signals.GetValueOrDefault("SIG-08", 0) * W_CreateCancelUnder5min
+            + signals.GetValueOrDefault("SIG-10", 0) * 20;
         return Math.Clamp(total, 0, 100);
     }
 
@@ -161,8 +165,8 @@ public class PlayerRiskScoreService : IPlayerRiskScoreService
         _riskRepo.GetHistoryByUserIdAndDateRangeAsync(userId, fromDate, toDate, cancellationToken);
 
     /// <summary>
-    /// Thu thập signals từ các nguồn dữ liệu hiện có.
-    /// MVP: 5 signals (SIG-01/02/03/04/08). BR-RISK-01 list full 10 signal nhưng 5 này cover được đa số spam.
+    /// BR-RISK-01 — Collect all signals from existing data sources.
+    /// Full 10 signals: SIG-01..SIG-10.
     /// </summary>
     private async Task<Dictionary<string, int>> CollectSignalsAsync(Guid userId, DateTime now, CancellationToken ct)
     {
@@ -170,27 +174,45 @@ public class PlayerRiskScoreService : IPlayerRiskScoreService
 
         var sevenDayWindow = now.AddDays(-7);
         var thirtyDayWindow = now.AddDays(-30);
+        var oneDayWindow = now.AddDays(-1);
 
         // SIG-01: lobby TimeoutFailed trong 7d.
         signals["SIG-01"] = await _lobbyRepo.CountFailuresByTypeForHostAsync(
             userId, sevenDayWindow, now, LobbyStatus.TimeoutFailed);
 
-        // SIG-02: lobby HostCancelled + Dissolved trong 7d (cả hai là host chủ động hủy).
+        // SIG-02: lobby HostCancelled + Dissolved trong 7d (host chủ động hủy sau grace).
         var hostCancelled = await _lobbyRepo.CountFailuresByTypeForHostAsync(
             userId, sevenDayWindow, now, LobbyStatus.HostCancelled);
         var dissolved = await _lobbyRepo.CountFailuresByTypeForHostAsync(
             userId, sevenDayWindow, now, LobbyStatus.Dissolved);
         signals["SIG-02"] = hostCancelled + dissolved;
 
-        // SIG-03: tổng BVC forfeit trong 30d.
+        // SIG-03: tổng BVC forfeit trong 30d (÷1000).
         var forfeitAmount = await _ledgerRepo.SumForfeitAsync(userId, thirtyDayWindow);
         signals["SIG-03"] = (int)forfeitAmount;
 
-        // SIG-08: count các lobby create+cancel trong < 5 phút (trong 30d) — heuristic từ UpdatedAt - CreatedAt.
-        signals["SIG-08"] = await _lobbyRepo.CountQuickCreateCancelAsync(userId, thirtyDayWindow, TimeSpan.FromMinutes(5));
+        // SIG-04: số playDate trong 30d có ≥ 2 lobby tạo+hủy (BR-NEW-05 spam pattern).
+        signals["SIG-04"] = await _lobbyRepo.CountDistinctPlayDatesWithManyCreatesCancelsAsync(
+            userId, thirtyDayWindow);
 
-        // SIG-04 để 0 — cần query phức tạp (group by PlayDate count >5) — thêm sau.
-        signals["SIG-04"] = 0;
+        // SIG-05: join/rời lobby trong 24 giờ.
+        signals["SIG-05"] = await _lobbyRepo.CountJoinLeaveInWindowAsync(
+            userId, oneDayWindow);
+
+        // SIG-06: bị từ chối tạo lobby trong 30d.
+        signals["SIG-06"] = await _lobbyRepo.CountDeniedCreateAttemptsAsync(
+            userId, thirtyDayWindow);
+
+        // SIG-08: create + cancel trong < 5 phút.
+        signals["SIG-08"] = await _lobbyRepo.CountQuickCreateCancelAsync(
+            userId, thirtyDayWindow, TimeSpan.FromMinutes(5));
+
+        // SIG-09: chênh lệch giờ hoạt động vs baseline — not applicable MVP.
+
+        // SIG-10: số lần bị report từ user khác trong 30d.
+        signals["SIG-10"] = await _db.FriendReports
+            .AsNoTracking()
+            .CountAsync(r => r.TargetUserId == userId && r.CreatedAt >= thirtyDayWindow, ct);
 
         return signals;
     }

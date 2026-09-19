@@ -27,7 +27,10 @@ public class BookingDepositConfiguration : IEntityTypeConfiguration<BookingDepos
         builder.Property(d => d.CreatedAt).IsRequired();
         builder.Property(d => d.ScheduledAt);
 
-        // C17: UpdatedAt as concurrency token for optimistic concurrency on deposit status changes.
+        // BR-22: BookingGroupCode để nhóm deposits cùng booking
+        builder.Property(d => d.BookingGroupCode).HasMaxLength(50);
+
+        // C17: UpdatedAt as concurrency token
         builder.Property(d => d.UpdatedAt).IsConcurrencyToken();
         builder.Property(d => d.QrUrl).HasMaxLength(2000);
         builder.Property(d => d.QrExpiresAt);
@@ -58,6 +61,7 @@ public class BookingDepositConfiguration : IEntityTypeConfiguration<BookingDepos
         builder.HasIndex(d => d.OrderId).IsUnique();
         builder.HasIndex(d => d.ActiveSessionId).HasFilter("\"ActiveSessionId\" IS NOT NULL");
         builder.HasIndex(d => d.BookingId).HasFilter("\"BookingId\" IS NOT NULL");
+        builder.HasIndex(d => d.BookingGroupCode).HasFilter("\"BookingGroupCode\" IS NOT NULL");
         builder.HasIndex(d => new { d.CafeId, d.Status });
         builder.HasIndex(d => d.SePayTransactionId).HasFilter("\"SePayTransactionId\" IS NOT NULL");
         builder.HasIndex(d => d.UserId);

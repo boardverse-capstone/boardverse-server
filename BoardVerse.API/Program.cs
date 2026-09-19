@@ -265,6 +265,10 @@ builder.Services.AddSingleton<LegacyBookingCleanupMetricsStore>(); // GAP-10: pe
 builder.Services.Configure<BoardVerse.Core.Settings.LegacyBookingSettings>(
     builder.Configuration.GetSection(BoardVerse.Core.Settings.LegacyBookingSettings.SectionName));
 
+// GAP Fix: PaymentGateway retry/fallback settings — bind để inject vào PaymentGatewayService
+builder.Services.Configure<BoardVerse.Core.Settings.PaymentGatewaySettings>(
+    builder.Configuration.GetSection(BoardVerse.Core.Settings.PaymentGatewaySettings.SectionName));
+
 // Background Jobs
 
 builder.Services.AddScoped<IAuthService, AuthService>();

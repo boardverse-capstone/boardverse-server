@@ -316,6 +316,20 @@ public class SplitBillService : ISplitBillService
             return; // Fix #6: Return 200 instead of throwing
         }
 
+        // G2 FIX: Check parent ActiveSession.Status — reject payment if session is already terminal.
+        // This prevents recording a per-member payment for an already-closed session.
+        // If session is terminal (Closed/Paid), the group settlement already happened;
+        // a late-arriving member QR webhook should NOT create a duplicate transaction record.
+        if (session.Status == GroupSessionStatus.Closed || session.Status == GroupSessionStatus.Paid)
+        {
+            _logger.LogWarning(
+                "[Webhook Audit] ActiveSession is terminal (Status={Status}). Member payment webhook arrived after session closure. WebhookId={WebhookId}, MemberId={MemberId}, SessionId={SessionId}",
+                session.Status, webhookId, memberId, session.Id);
+            await RecordWebhookAuditAsync(webhookId, webhook, memberId, success: false,
+                $"Session Status={session.Status} (terminal) — member payment rejected after session closed", cancellationToken);
+            return; // Return 200 OK to prevent SePay retries, log for staff attention
+        }
+
         // Fix #5: Log when session already paid
         if (member.PaymentStatus != MemberPaymentStatus.NotPaid)
         {
@@ -558,6 +572,98 @@ public class SplitBillService : ISplitBillService
         return await CreateMemberQrInternalAsync(session, member, staffId, cancellationToken);
     }
 
+    /// <inheritdoc />
+    public async Task<MemberQrResponseDto?> GetMemberQrAsync(
+        Guid memberId,
+        Guid requesterId,
+        string requesterRole,
+        CancellationToken cancellationToken = default)
+    {
+        // Staff/Admin: bypass ownership check — can view any member's QR
+        if (requesterRole.Equals("Admin", StringComparison.OrdinalIgnoreCase) ||
+            requesterRole.Equals("Manager", StringComparison.OrdinalIgnoreCase) ||
+            requesterRole.Equals("CafeStaff", StringComparison.OrdinalIgnoreCase))
+        {
+            return await GetMemberQrInternalAsync(memberId, cancellationToken);
+        }
+
+        // Player: must own this member
+        return await GetMemberQrInternalAsync(memberId, requesterId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Internal: get QR for staff/admin (any member).
+    /// </summary>
+    private async Task<MemberQrResponseDto?> GetMemberQrInternalAsync(
+        Guid memberId, CancellationToken cancellationToken)
+    {
+        var member = await _sessionRepository.GetMemberByIdAsync(memberId, cancellationToken);
+        if (member == null) return null;
+
+        return BuildMemberQrResponse(member);
+    }
+
+    /// <summary>
+    /// Internal: get QR for player — verifies the player owns this member.
+    /// </summary>
+    private async Task<MemberQrResponseDto?> GetMemberQrInternalAsync(
+        Guid memberId, Guid playerUserId, CancellationToken cancellationToken)
+    {
+        var member = await _sessionRepository.GetMemberByIdAsync(memberId, cancellationToken);
+        if (member == null) return null;
+
+        // Player can only view their own QR
+        if (member.UserId != playerUserId)
+        {
+            throw new ForbiddenException(
+                "Bạn không có quyền xem QR thanh toán của thành viên này.");
+        }
+
+        return BuildMemberQrResponse(member);
+    }
+
+    /// <summary>
+    /// Maps ActiveSessionMember entity fields to DTO.
+    /// </summary>
+    private static MemberQrResponseDto BuildMemberQrResponse(ActiveSessionMember member)
+    {
+        var isQr = string.Equals(member.PaymentMethod, "QR_CODE", StringComparison.OrdinalIgnoreCase);
+        var instructions = member.PaymentStatus switch
+        {
+            MemberPaymentStatus.NotPaid when isQr =>
+                $"Quét mã QR bên dưới và chuyển đúng số tiền {member.TotalAmount:N0} VND. " +
+                "Nội dung chuyển khoản: " + (member.QrOrderId ?? "BV-MEMBER-" + member.Id.ToString("N")),
+
+            MemberPaymentStatus.NotPaid =>
+                "Vui lòng chờ nhân viên tạo mã thanh toán.",
+
+            MemberPaymentStatus.PaidQr =>
+                $"Đã thanh toán QR lúc {member.PaidAt:HH:mm dd/MM/yyyy}. Cảm ơn bạn!",
+
+            MemberPaymentStatus.PaidCash =>
+                $"Đã thanh toán tiền mặt lúc {member.PaidAt:HH:mm dd/MM/yyyy}. Cảm ơn bạn!",
+
+            _ => null
+        };
+
+        return new MemberQrResponseDto
+        {
+            MemberId = member.Id,
+            SessionId = member.ActiveSessionId,
+            DisplayName = member.IsGuestSlot
+                ? member.GuestDisplayName ?? "Khách"
+                : member.User?.Username ?? "Không rõ",
+            AmountDue = member.TotalAmount,
+            Status = member.PaymentStatus,
+            PaymentMethod = member.PaymentMethod,
+            QrImageUrl = isQr ? member.QrImageUrl : null,
+            PaymentUrl = isQr ? member.QrPaymentUrl : null,
+            OrderId = isQr ? member.QrOrderId : null,
+            TransferContent = isQr ? member.QrTransferContent : null,
+            PaymentInstructions = instructions
+        };
+    }
+
     #region Private Methods
 
     private async Task<MemberPaymentResponseDto> CreateMemberQrInternalAsync(
@@ -592,6 +698,16 @@ public class SplitBillService : ISplitBillService
         };
 
         var result = await _paymentGateway.CreatePaymentAsync(gatewayRequest, cancellationToken);
+
+        // Persist QR info to ActiveSessionMember so player can retrieve it later via endpoint
+        member.PaymentMethod = "QR_CODE";
+        member.QrImageUrl = result.QrImageUrl;
+        member.QrPaymentUrl = result.PaymentUrl;
+        member.QrOrderId = orderId;
+        member.QrTransferContent = orderId; // TransferContent = OrderId for SePay webhook lookup
+        member.UpdatedAt = DateTime.UtcNow;
+        _dbContext.ActiveSessionMembers.Update(member);
+        await _dbContext.SaveChangesAsync(cancellationToken);
 
         // Fix #2: TransferContent KHỚP với OrderId (cùng format)
         _logger.LogInformation(

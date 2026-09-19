@@ -163,11 +163,11 @@ public class SeatInventoryConfiguration : IEntityTypeConfiguration<SeatInventory
         builder.Property(s => s.HeldSeats).HasDefaultValue(0);
         builder.Property(s => s.InUseSeats).HasDefaultValue(0);
 
-        // BR § XVII.3 — optimistic concurrency token.
-        // Production DB dùng bigint, không phải uint/integer.
+        // BR-REQUIRED §17.3: RowVersion (xmin) for optimistic concurrency on PostgreSQL.
         builder.Property(s => s.RowVersion)
-            .HasColumnType("bigint")
-            .IsConcurrencyToken();
+            .IsRowVersion()
+            .HasColumnName("xmin")
+            .HasColumnType("xid");
 
         // BR-NEW-15: mỗi cafe có 1 row cho mỗi (playDate, scheduledStartTime, scheduledEndTime).
         builder.HasIndex(s => new { s.CafeId, s.PlayDate, s.ScheduledStartTime, s.ScheduledEndTime })
@@ -197,9 +197,11 @@ public class GameInventoryConfiguration : IEntityTypeConfiguration<GameInventory
         builder.Property(g => g.HeldCopies).HasDefaultValue(0);
         builder.Property(g => g.InUseCopies).HasDefaultValue(0);
 
+        // BR-REQUIRED §17.3: RowVersion (xmin) for optimistic concurrency on PostgreSQL.
         builder.Property(g => g.RowVersion)
-            .HasColumnType("bigint")
-            .IsConcurrencyToken();
+            .IsRowVersion()
+            .HasColumnName("xmin")
+            .HasColumnType("xid");
 
         // BR-NEW-15: mỗi cafe-game có 1 row cho mỗi (playDate, scheduledStartTime, scheduledEndTime).
         builder.HasIndex(g => new { g.CafeId, g.GameId, g.PlayDate, g.ScheduledStartTime, g.ScheduledEndTime })
@@ -248,6 +250,10 @@ public class CafeConfigConfiguration : IEntityTypeConfiguration<CafeConfig>
         builder.Property(c => c.RecruitmentDeadlineBufferMinutes).HasDefaultValue(120);
         builder.Property(c => c.CancellationGraceMinutes).HasDefaultValue(15);
         builder.Property(c => c.DepositRatePerPerson).HasDefaultValue(5L);
+
+        // BR-DEPOSIT-03: safety caps
+        builder.Property(c => c.MinDepositRatePerPerson).HasDefaultValue(1L);
+        builder.Property(c => c.MaxDepositRatePerPerson).HasDefaultValue(100L);
 
         builder.HasIndex(c => c.CafeId)
             .IsUnique()

@@ -26,8 +26,15 @@ public static class PaymentServiceExtensions
 
         services.AddScoped<IVietQrClient, VietQrClient>();
 
-        // VietQR gateway — tạo QR tĩnh, không cần retry
-        services.AddScoped<IPaymentGatewayService, PaymentGatewayService>();
+        // VietQR gateway với SePay retry/fallback — cần HttpClient để gọi SePay checkout API.
+        // IOptions<PaymentGatewaySettings> được bind trong Program.cs.
+        services.AddHttpClient<IPaymentGatewayService, PaymentGatewayService>(client =>
+            {
+                // Timeout cho mỗi request SePay checkout.
+                // Retry logic xử lý trong PaymentGatewayService (exponential backoff).
+                client.Timeout = TimeSpan.FromSeconds(30);
+            })
+            .SetHandlerLifetime(TimeSpan.FromMinutes(5));
 
         // SePay Account Repository & Service
         services.AddScoped<ISePayAccountRepository, SePayAccountRepository>();
