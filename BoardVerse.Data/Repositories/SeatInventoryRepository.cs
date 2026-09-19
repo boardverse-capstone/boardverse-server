@@ -61,8 +61,8 @@ public class SeatInventoryRepository : ISeatInventoryRepository
                 ScheduledEndTime = scheduledEndTime,
                 TotalSeats = totalSeats,
                 HeldSeats = 0,
-                InUseSeats = 0,
-                RowVersion = 0
+                InUseSeats = 0
+                // xmin (concurrency token) is PostgreSQL system column — auto-managed, no manual init needed
             };
             await AddAsync(existing);
             await SaveChangesAsync();
@@ -78,7 +78,7 @@ public class SeatInventoryRepository : ISeatInventoryRepository
     public Task UpdateAsync(SeatInventory seatInventory, CancellationToken cancellationToken = default)
     {
         seatInventory.UpdatedAt = DateTime.UtcNow;
-        seatInventory.RowVersion++;
+        // xmin (concurrency token) is PostgreSQL system column — auto-managed by DB, no manual increment needed
         _db.SeatInventories.Update(seatInventory);
         return Task.CompletedTask;
     }

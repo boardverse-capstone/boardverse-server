@@ -1,9 +1,13 @@
-﻿namespace BoardVerse.Core.Entities;
+﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+
+namespace BoardVerse.Core.Entities;
 
 /// <summary>
 /// Tồn kho bản copy game theo cafe × playDate × timeSlot (BR-RESERVATION-02 §V + §19.11).
-/// BR-NEW-15 (2026-08-18): Thêm ScheduledStartTime/ScheduledEndTime (TimeOnly) 
+/// BR-NEW-15 (2026-08-18): Thêm ScheduledStartTime/ScheduledEndTime (TimeOnly)
 /// ngoài TimeSlot enum để hỗ trợ flexible time ranges.
+/// Concurrency token: map sang PostgreSQL system column `xmin` qua Fluent API (UseXminAsConcurrencyToken).
 /// </summary>
 public class GameInventory
 {
@@ -33,7 +37,8 @@ public class GameInventory
 
     public int AvailableCopies => TotalCopies - HeldCopies - InUseCopies;
 
-    public uint RowVersion { get; set; }
+    // xmin is configured as a shadow property in GameInventoryConfiguration (UseXminAsConcurrencyToken).
+    // No CLR property needed — PostgreSQL's built-in xmin system column is used automatically.
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

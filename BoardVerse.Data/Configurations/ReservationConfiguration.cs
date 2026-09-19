@@ -3,6 +3,7 @@ using BoardVerse.Core.Enum;
 using BoardVerse.Data.Converters;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 namespace BoardVerse.Data.Configurations;
 
@@ -163,11 +164,9 @@ public class SeatInventoryConfiguration : IEntityTypeConfiguration<SeatInventory
         builder.Property(s => s.HeldSeats).HasDefaultValue(0);
         builder.Property(s => s.InUseSeats).HasDefaultValue(0);
 
-        // BR-REQUIRED §17.3: RowVersion (xmin) for optimistic concurrency on PostgreSQL.
-        builder.Property(s => s.RowVersion)
-            .IsRowVersion()
-            .HasColumnName("xmin")
-            .HasColumnType("xid");
+        // BR-REQUIRED §17.3: Configure PostgreSQL system column xmin as concurrency token (shadow property).
+        // No CLR property needed — EF Core maps to PostgreSQL's built-in xmin automatically.
+        builder.UseXminAsConcurrencyToken();
 
         // BR-NEW-15: mỗi cafe có 1 row cho mỗi (playDate, scheduledStartTime, scheduledEndTime).
         builder.HasIndex(s => new { s.CafeId, s.PlayDate, s.ScheduledStartTime, s.ScheduledEndTime })
@@ -197,11 +196,9 @@ public class GameInventoryConfiguration : IEntityTypeConfiguration<GameInventory
         builder.Property(g => g.HeldCopies).HasDefaultValue(0);
         builder.Property(g => g.InUseCopies).HasDefaultValue(0);
 
-        // BR-REQUIRED §17.3: RowVersion (xmin) for optimistic concurrency on PostgreSQL.
-        builder.Property(g => g.RowVersion)
-            .IsRowVersion()
-            .HasColumnName("xmin")
-            .HasColumnType("xid");
+        // BR-REQUIRED §17.3: Configure PostgreSQL system column xmin as concurrency token (shadow property).
+        // No CLR property needed — EF Core maps to PostgreSQL's built-in xmin automatically.
+        builder.UseXminAsConcurrencyToken();
 
         // BR-NEW-15: mỗi cafe-game có 1 row cho mỗi (playDate, scheduledStartTime, scheduledEndTime).
         builder.HasIndex(g => new { g.CafeId, g.GameId, g.PlayDate, g.ScheduledStartTime, g.ScheduledEndTime })

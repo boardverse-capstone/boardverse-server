@@ -1,8 +1,12 @@
-﻿namespace BoardVerse.Core.Entities;
+﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+
+namespace BoardVerse.Core.Entities;
 
 /// <summary>
 /// Tồn kho ghế theo cafe × playDate × timeSlot (BR-RESERVATION-01 §V + §19.11).
 /// BR-NEW-15 (2026-08-18): Dùng ScheduledStartTime/ScheduledEndTime (TimeOnly) thay vì TimeSlot enum.
+/// Concurrency token: map sang PostgreSQL system column `xmin` qua Fluent API (UseXminAsConcurrencyToken).
 /// </summary>
 public class SeatInventory
 {
@@ -32,8 +36,8 @@ public class SeatInventory
     /// <summary>Ghế khả dụng = Total - Held - InUse.</summary>
     public int AvailableSeats => TotalSeats - HeldSeats - InUseSeats;
 
-    /// <summary>Optimistic concurrency token (uint — tăng mỗi UPDATE).</summary>
-    public uint RowVersion { get; set; }
+    // xmin is configured as a shadow property in SeatInventoryConfiguration (UseXminAsConcurrencyToken).
+    // No CLR property needed — PostgreSQL's built-in xmin system column is used automatically.
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

@@ -56,8 +56,8 @@ public class GameInventoryRepository : IGameInventoryRepository
                 ScheduledEndTime = scheduledEndTime,
                 TotalCopies = totalCopies,
                 HeldCopies = 0,
-                InUseCopies = 0,
-                RowVersion = 0
+                InUseCopies = 0
+                // xmin (concurrency token) is PostgreSQL system column — auto-managed, no manual init needed
             };
             _db.GameInventories.Add(existing);
             await SaveChangesAsync();
@@ -67,7 +67,7 @@ public class GameInventoryRepository : IGameInventoryRepository
     public Task UpdateAsync(GameInventory gameInventory, CancellationToken cancellationToken = default)
     {
         gameInventory.UpdatedAt = DateTime.UtcNow;
-        gameInventory.RowVersion++;
+        // xmin (concurrency token) is PostgreSQL system column — auto-managed by DB, no manual increment needed
         _db.GameInventories.Update(gameInventory);
         return Task.CompletedTask;
     }
