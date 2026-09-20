@@ -25,8 +25,13 @@ public class GameInventoryRepository : IGameInventoryRepository
 
     public Task<GameInventory?> GetForUpdateAsync(Guid cafeId, Guid gameId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime, CancellationToken cancellationToken = default)
     {
+        // Use explicit column list instead of SELECT * to avoid PostgreSQL's xmin system column
+        // leaking into the result set (xmin is a shadow property via UseXminAsConcurrencyToken;
+        // FromSqlRaw materialises columns literally, so xmin must be excluded).
         return _db.GameInventories.FromSqlRaw(
-            @"SELECT * FROM ""GameInventories""
+            @"SELECT ""Id"", ""CafeId"", ""GameId"", ""PlayDate"", ""ScheduledStartTime"", ""ScheduledEndTime"",
+                     ""TotalCopies"", ""HeldCopies"", ""InUseCopies"", ""CreatedAt"", ""UpdatedAt""
+              FROM ""GameInventories""
               WHERE ""CafeId"" = {0} AND ""GameId"" = {1} AND ""PlayDate"" = {2} AND ""ScheduledStartTime"" = {3} AND ""ScheduledEndTime"" = {4}
               FOR UPDATE",
             cafeId, gameId, playDate, scheduledStartTime, scheduledEndTime)
@@ -36,7 +41,9 @@ public class GameInventoryRepository : IGameInventoryRepository
     public Task<GameInventory?> GetByIdForUpdateAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return _db.GameInventories.FromSqlRaw(
-            @"SELECT * FROM ""GameInventories"" WHERE ""Id"" = {0} FOR UPDATE",
+            @"SELECT ""Id"", ""CafeId"", ""GameId"", ""PlayDate"", ""ScheduledStartTime"", ""ScheduledEndTime"",
+                     ""TotalCopies"", ""HeldCopies"", ""InUseCopies"", ""CreatedAt"", ""UpdatedAt""
+              FROM ""GameInventories"" WHERE ""Id"" = {0} FOR UPDATE",
             id)
             .FirstOrDefaultAsync();
     }
