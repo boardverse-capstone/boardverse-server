@@ -27,6 +27,12 @@ public class LobbyNotificationJob : BackgroundService
     /// <summary>Biên độ trước milestone để trigger (ví dụ: 48h ± 5 phút).</summary>
     private static readonly TimeSpan TriggerWindow = TimeSpan.FromMinutes(5);
 
+    /// <summary>Chỉ query lobbies có recruitmentDeadline trong khoảng [now, now + MaxNotificationHorizon].</summary>
+    private static readonly TimeSpan MaxNotificationHorizon = TimeSpan.FromHours(52); // 48h + 2×TriggerWindow
+
+    /// <summary>Batch size để tránh query quá nhiều rows mỗi lần chạy.</summary>
+    private const int BatchSize = 200;
+
     public LobbyNotificationJob(IServiceProvider serviceProvider, ILogger<LobbyNotificationJob> logger)
     {
         _serviceProvider = serviceProvider;
@@ -35,7 +41,7 @@ public class LobbyNotificationJob : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("LobbyNotificationJob started (interval=5m, window=5m).");
+        _logger.LogInformation("LobbyNotificationJob started (interval=5m, window=5m, maxHorizon=52h, batchSize={BatchSize}).", BatchSize);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -77,6 +83,9 @@ public class LobbyNotificationJob : BackgroundService
 
         var lobbies = await db.Lobbies
             .Where(l => activeStatuses.Contains(l.Status))
+            .Where(l => l.RecruitmentDeadline >= now && l.RecruitmentDeadline <= now.Add(MaxNotificationHorizon))
+            .OrderBy(l => l.RecruitmentDeadline)
+            .Take(BatchSize)
             .Include(l => l.Members.Where(m => m.IsActive))
             .Include(l => l.Cafe)
             .AsSplitQuery()
@@ -152,8 +161,8 @@ public class LobbyNotificationJob : BackgroundService
         {
             db.LobbyNotificationSents.AddRange(newRecords);
             await db.SaveChangesAsync(ct);
-            _logger.LogInformation("LobbyNotificationJob: sent {Count} notifications across {LobbyCount} lobbies.",
-                newRecords.Count, lobbies.Count);
+            _logger.LogInformation("LobbyNotificationJob: sent {Count} notifications across {LobbyCount} lobbies (batch {BatchSize}).",
+                newRecords.Count, lobbies.Count, BatchSize);
         }
 
         async Task ProcessMilestoneAsync(

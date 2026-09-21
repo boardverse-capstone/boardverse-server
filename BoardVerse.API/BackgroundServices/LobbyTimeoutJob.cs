@@ -19,7 +19,7 @@ public class LobbyTimeoutJob : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<LobbyTimeoutJob> _logger;
-    private readonly TimeSpan _interval = TimeSpan.FromMinutes(1);
+    private readonly TimeSpan _interval = TimeSpan.FromMinutes(2); // tăng từ 1 phút → 2 phút, giảm tần suất query
 
     /// <summary>Lobby không có ScheduledStartTime mà tồn tại quá thời gian này → coi như timeout.</summary>
     private static readonly TimeSpan OrphanLobbyTimeout = TimeSpan.FromHours(24);
@@ -76,23 +76,26 @@ public class LobbyTimeoutJob : BackgroundService
         // Case 1: Lobby có ScheduledStartTime → so với (ScheduledStartTime - CancellationLeadTimeMinutes)
         // GAP #16 fix: cluster-safe — dùng FOR UPDATE SKIP LOCKED để nhiều instance không pick trùng.
         // Fix (42883): Lobbies.Status có thể là varchar hoặc text → cast enum value sang TEXT.
+        // Chỉ query lobbies có thể timeout trong khoảng [now - 1m, now + 1m]:
+        // ScheduledStartTime - CancellationLeadTimeMinutes <= now + 1 phút.
+        // Giới hạn phạm vi tránh quét toàn bộ bảng.
         var scheduledTimedOut = await db.Lobbies
             .FromSqlRaw(
                 "SELECT * FROM \"Lobbies\" WHERE \"Status\" = CAST({0} AS TEXT) " +
                 "AND \"ScheduledStartTime\" IS NOT NULL " +
                 "AND \"ScheduledStartTime\" - (\"CancellationLeadTimeMinutes\" * INTERVAL '1 minute') <= {1} " +
+                "AND \"ScheduledStartTime\" - (\"CancellationLeadTimeMinutes\" * INTERVAL '1 minute') >= {2} " +
                 "FOR UPDATE SKIP LOCKED",
-                LobbyStatus.Open.ToString(), now)
+                LobbyStatus.Open.ToString(), now, now.AddMinutes(-1))
             .Include(l => l.Members)
             .Include(l => l.GameTemplate)
             .Include(l => l.Cafe)
             .AsSplitQuery()
             .ToListAsync(stoppingToken);
 
-        // Case 2 (fix): Lobby không có ScheduledStartTime (orphan) mà tồn tại > 24 giờ → coi như timeout,
-        // tránh bị kẹt mãi mãi ở OPEN khi Host quên đặt giờ.
-        // Fix (42883): Lobbies.Status có thể là varchar hoặc text → cast enum value sang TEXT.
-        var orphanCutoff = now - OrphanLobbyTimeout;
+        // Case 2 (fix): Lobby không có ScheduledStartTime (orphan) mà tồn tại > 24 giờ → coi như timeout.
+        // Giới hạn cutoff: CreatedAt <= now - 24h + 2 phút buffer.
+        var orphanCutoff = now.AddMinutes(-2) - OrphanLobbyTimeout;
         var orphanTimedOut = await db.Lobbies
             .FromSqlRaw(
                 "SELECT * FROM \"Lobbies\" WHERE \"Status\" = CAST({0} AS TEXT) " +
@@ -107,9 +110,8 @@ public class LobbyTimeoutJob : BackgroundService
             .ToListAsync(stoppingToken);
 
         // Case 3 (BR-LOBBY-READY-03): Lobby đã FULL + FullAt > 20 phút + chưa có ai Ready → timeout.
-        // Dùng `LobbyReadyTimeoutReason` để phân biệt với timeout vì thiếu người.
-        // Fix (42883): Lobbies.Status có thể là varchar hoặc text → cast enum value sang TEXT.
-        var readyCutoff = now - ReadyTimeoutWindow;
+        // Giới hạn: FullAt <= now - 20 phút + 2 phút buffer (vì interval 2 phút).
+        var readyCutoff = now.AddMinutes(-2) - ReadyTimeoutWindow;
         var fullButNotReady = await db.Lobbies
             .FromSqlRaw(
                 "SELECT * FROM \"Lobbies\" WHERE \"Status\" = CAST({0} AS TEXT) " +

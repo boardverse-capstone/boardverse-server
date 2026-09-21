@@ -13,7 +13,10 @@ public class KarmaWindowJob : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<KarmaWindowJob> _logger;
-    private readonly TimeSpan _interval = TimeSpan.FromMinutes(1);
+    private readonly TimeSpan _interval = TimeSpan.FromMinutes(2); // tăng từ 1 phút → 2 phút
+
+    /// <summary>Chỉ flip những lobby Closed gần đây (trong 24 giờ qua) để tránh scan toàn bộ bảng.</summary>
+    private const int KarmaRecentWindowHours = 24;
 
     public KarmaWindowJob(IServiceProvider serviceProvider, ILogger<KarmaWindowJob> logger)
     {
@@ -23,7 +26,7 @@ public class KarmaWindowJob : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("KarmaWindowJob started.");
+        _logger.LogInformation("KarmaWindowJob started (interval=2m, recentWindow=24h).");
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -60,8 +63,11 @@ public class KarmaWindowJob : BackgroundService
         // Sau: ExecuteUpdateAsync WHERE Status=Closed AND RatingOpenedAt IS NULL
         //   → Postgres MVCC đảm bảo chỉ 1 instance flip được mỗi row. Re-query lấy IDs flipped,
         //   chỉ reactivate members cho những IDs đó.
+        // Chỉ flip lobbies Closed trong RecentWindow để tránh scan toàn bộ bảng mỗi 2 phút.
+        var recentCutoff = now.AddHours(-24);
         var flippedCount = await db.Lobbies
             .Where(l => l.Status == LobbyStatus.Closed && l.RatingOpenedAt == null)
+            .Where(l => l.UpdatedAt >= recentCutoff)
             .ExecuteUpdateAsync(l => l
                 .SetProperty(x => x.RatingOpenedAt, (DateTime?)now)
                 .SetProperty(x => x.Status, LobbyStatus.RatingOpen)

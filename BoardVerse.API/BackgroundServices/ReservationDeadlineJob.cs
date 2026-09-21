@@ -10,14 +10,14 @@ namespace BoardVerse.API.BackgroundServices;
 ///   2. <b>Cafe approval expiry</b>: 24h không duyệt → ExpiredByCafe + refund.
 ///   3. <b>No-show</b>: Sau scheduledTime + grace, không check-in → NoShow + forfeit.
 ///
-/// Tần suất: mỗi 1 phút (giống LobbyTimeoutJob / BookingDepositExpiryJob).
+/// Tần suất: mỗi 2 phút (tăng từ 1 phút để giảm tần suất query DB).
 /// Mỗi scheduler process theo batch 50 reservation/lần → tránh lock DB quá lâu.
 /// </summary>
 public class ReservationDeadlineJob : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<ReservationDeadlineJob> _logger;
-    private readonly TimeSpan _interval = TimeSpan.FromMinutes(1);
+    private readonly TimeSpan _interval = TimeSpan.FromMinutes(2); // tăng từ 1 phút → 2 phút
     private const int BatchSize = 50;
 
     public ReservationDeadlineJob(IServiceProvider serviceProvider, ILogger<ReservationDeadlineJob> logger)
@@ -28,8 +28,7 @@ public class ReservationDeadlineJob : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("ReservationDeadlineJob started (interval={Interval}s, batchSize={BatchSize}).",
-            _interval.TotalSeconds, BatchSize);
+        _logger.LogInformation("ReservationDeadlineJob started (interval=2m, batchSize={BatchSize}).", BatchSize);
 
         while (!stoppingToken.IsCancellationRequested)
         {
