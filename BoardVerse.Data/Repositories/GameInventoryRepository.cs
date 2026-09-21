@@ -25,27 +25,35 @@ public class GameInventoryRepository : IGameInventoryRepository
 
     public Task<GameInventory?> GetForUpdateAsync(Guid cafeId, Guid gameId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime, CancellationToken cancellationToken = default)
     {
-        // Use explicit column list instead of SELECT * to avoid PostgreSQL's xmin system column
-        // leaking into the result set (xmin is a shadow property via UseXminAsConcurrencyToken;
-        // FromSqlRaw materialises columns literally, so xmin must be excluded).
+        // FIX 2026-09-21: AsNoTracking() prevents EF Core from wrapping FromSqlRaw in a subquery.
+        // Without AsNoTracking(), EF Core wraps the raw SQL in a subquery that does NOT include xmin
+        // in the inner SELECT (shadow property), causing "column b.xmin does not exist" at the outer
+        // SELECT. With AsNoTracking() the raw SQL runs directly and xmin is included in the result
+        // set — the entity is still materialised with the xmin shadow property for the concurrency
+        // token in SaveChangesAsync.
         return _db.GameInventories.FromSqlRaw(
             @"SELECT ""Id"", ""CafeId"", ""GameId"", ""PlayDate"", ""ScheduledStartTime"", ""ScheduledEndTime"",
-                     ""TotalCopies"", ""HeldCopies"", ""InUseCopies"", ""CreatedAt"", ""UpdatedAt""
+                     ""TotalCopies"", ""HeldCopies"", ""InUseCopies"", ""CreatedAt"", ""UpdatedAt"", xmin
               FROM ""GameInventories""
               WHERE ""CafeId"" = {0} AND ""GameId"" = {1} AND ""PlayDate"" = {2} AND ""ScheduledStartTime"" = {3} AND ""ScheduledEndTime"" = {4}
               FOR UPDATE",
             cafeId, gameId, playDate, scheduledStartTime, scheduledEndTime)
-            .FirstOrDefaultAsync();
+            .AsNoTracking()
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public Task<GameInventory?> GetByIdForUpdateAsync(Guid id, CancellationToken cancellationToken = default)
     {
+        // Same fix as GetForUpdateAsync — AsNoTracking() prevents EF Core subquery wrapping
+        // that silently drops xmin from the SELECT, which would cause the concurrency UPDATE
+        // (WHERE xmin = @original) to use a NULL token and always fail.
         return _db.GameInventories.FromSqlRaw(
             @"SELECT ""Id"", ""CafeId"", ""GameId"", ""PlayDate"", ""ScheduledStartTime"", ""ScheduledEndTime"",
-                     ""TotalCopies"", ""HeldCopies"", ""InUseCopies"", ""CreatedAt"", ""UpdatedAt""
+                     ""TotalCopies"", ""HeldCopies"", ""InUseCopies"", ""CreatedAt"", ""UpdatedAt"", xmin
               FROM ""GameInventories"" WHERE ""Id"" = {0} FOR UPDATE",
             id)
-            .FirstOrDefaultAsync();
+            .AsNoTracking()
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task EnsureRowAsync(Guid cafeId, Guid gameId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime, int totalCopies, CancellationToken cancellationToken = default)
