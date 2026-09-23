@@ -284,4 +284,42 @@ public class LobbyHubService : ILobbyHubService
         });
         _logger.LogInformation("Broadcast LobbyCheckedIn to lobby {LobbyId}, checked-in by {UserId}", lobbyId, checkedInByUserId);
     }
+
+    // === Phase 4: Lobby Merge ===
+
+    public async Task NotifyLobbyMergedInto(Guid sourceLobbyId, Guid targetLobbyId, Guid mergeRequestId, int membersTransferred)
+    {
+        // G19: Broadcast đến group của lobby nguồn (Nhóm A) — client biết lobby đã bị absorbed
+        await _hubContext.Clients.Group(sourceLobbyId.ToString()).SendAsync("LobbyMergedInto", new
+        {
+            Type = "LobbyMergedInto",
+            SourceLobbyId = sourceLobbyId,
+            TargetLobbyId = targetLobbyId,
+            MergeRequestId = mergeRequestId,
+            MembersTransferred = membersTransferred,
+            Message = $"Nhóm của bạn đã được ghép vào một nhóm khác. {membersTransferred} thành viên đã được chuyển.",
+            Timestamp = DateTime.UtcNow
+        });
+        _logger.LogInformation(
+            "Broadcast LobbyMergedInto to source lobby {SourceLobbyId} → target {TargetLobbyId}, {Count} members transferred",
+            sourceLobbyId, targetLobbyId, membersTransferred);
+    }
+
+    public async Task NotifyMemberJoinedFromMerge(Guid targetLobbyId, IReadOnlyList<Guid> memberUserIds, Guid sourceLobbyId, Guid mergeRequestId)
+    {
+        // G20: Broadcast đến group của lobby đích (Nhóm B) — thành viên mới từ merge
+        await _hubContext.Clients.Group(targetLobbyId.ToString()).SendAsync("MemberJoinedFromMerge", new
+        {
+            Type = "MemberJoinedFromMerge",
+            TargetLobbyId = targetLobbyId,
+            MemberUserIds = memberUserIds,
+            SourceLobbyId = sourceLobbyId,
+            MergeRequestId = mergeRequestId,
+            Message = $"Có {memberUserIds.Count} thành viên mới tham gia từ một nhóm khác.",
+            Timestamp = DateTime.UtcNow
+        });
+        _logger.LogInformation(
+            "Broadcast MemberJoinedFromMerge to target lobby {TargetLobbyId}: {Count} members from source {SourceLobbyId}",
+            targetLobbyId, memberUserIds.Count, sourceLobbyId);
+    }
 }

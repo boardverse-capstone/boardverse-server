@@ -6,7 +6,7 @@
 
 API thanh toán cho deposit đặt chỗ (Player) và thanh toán hóa đơn phiên chơi tại POS (Staff). Tất cả flow đều đi qua `IPaymentGatewayService` → SePay primary, fallback VietQR. Tuân thủ BR-05, BR-09, BR-15, BR-18.
 
-> **Liên quan:** [sepay-webhook.md](./sepay-webhook.md), [sepay-account.md](./sepay-account.md), [booking.md](./booking.md), [sepay-payment-flow.mdc](../../.cursor/rules/sepay-payment-flow.mdc).
+> **Liên quan:** [sepay-webhook.md](./sepay-webhook.md), [sepay-account.md](./sepay-account.md), [booking.md](./booking.md), [lobby-merge.md](./lobby-merge.md), [sepay-payment-flow.mdc](../../.cursor/rules/sepay-payment-flow.mdc).
 
 ## Endpoints
 
@@ -580,4 +580,5 @@ Nếu KHÔNG cần kiểm soát transaction (chỉ `SaveChangesAsync` đơn lẻ
 - **Tài khoản SePay:** [sepay-account.md](./sepay-account.md) — cấu hình master + cafe.
 - **Debug:** [debug-sepay.md](./debug-sepay.md) — endpoint dev/test QR + mock webhook.
 - **Flow nghiệp vụ:** [booking.md](./booking.md) — state machine deposit + session.
+- **Lobby Merge:** [lobby-merge.md](./lobby-merge.md) — ghép nhóm lobby (Lobby Merge) tại quán.
 - **Rule chi tiết:** [sepay-payment-flow.mdc](../../.cursor/rules/sepay-payment-flow.mdc).

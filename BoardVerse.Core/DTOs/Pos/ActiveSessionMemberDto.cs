@@ -29,4 +29,22 @@ public class ActiveSessionMemberDto
  public bool IsCheckedOut { get; set; }
  public DateTime? CheckedOutAt { get; set; }
  public Core.Enum.IndividualSessionStatus Status { get; set; }
+
+    /// <summary>Lobby nguồn mà thành viên ghép từ (nullable). Dùng khi member ghép trực tiếp vào active session.</summary>
+    public Guid? MergedFromLobbyId { get; set; }
+
+    /// <summary>Thời điểm member được ghép vào session này từ lobby khác.</summary>
+    public DateTime? MergedAt { get; set; }
+
+    /// <summary>
+    /// Lobby đầu tiên mà thành viên tham gia trước khi ghép nhóm.
+    /// Dùng để trace toàn bộ lịch sử di chuyển giữa các lobby.
+    /// </summary>
+    public Guid? OriginalLobbyId { get; set; }
+
+    /// <summary>
+    /// Reservation gốc của OriginalLobbyId.
+    /// Dùng để trace BVC deposit khi member ghép nhóm.
+    /// </summary>
+    public Guid? OriginalReservationId { get; set; }
 }

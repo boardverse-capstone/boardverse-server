@@ -2417,6 +2417,7 @@ POST /api/cafes/{cafeId}/pos/sessions/{id}/pay-member
 
 ## Liên quan
 
+- **Lobby Merge (ghép nhóm)**: [lobby-merge.md](./lobby-merge.md) — luồng ghép nhóm tại quán: staff tạo request → approve → member được chuyển từ Nhóm A sang Nhóm B đang active. Liên quan đến các endpoint POS merge trong luồng này.
 - **Payment cleanup contract**: [payment.md](./payment.md) §"Session Payment Lifecycle Cleanup" — cùng `IActiveSessionRepository.CompleteSessionPaymentCleanupAsync` được gọi bởi `/pay`, manual-confirm, và SePay webhook.
 - **Webhook handling**: [sepay-webhook.md](./sepay-webhook.md) — SePay/VietQR gateway callback handler.
 - **State machine canonical**: [boardverse.mdc §V](../../.cursor/rules/boardverse.mdc) — đặc tả transition cho `ActiveSession`, `Lobby`, `SeatSlot`.

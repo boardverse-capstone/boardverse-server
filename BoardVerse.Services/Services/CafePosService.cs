@@ -1538,7 +1538,11 @@ namespace BoardVerse.Services.Services
                     TotalAmount = m.TotalAmount,
                     IsCheckedOut = m.IsCheckedOut,
                     CheckedOutAt = m.CheckedOutAt,
-                    Status = m.Status
+                    Status = m.Status,
+                    MergedFromLobbyId = m.MergedFromLobbyId,
+                    MergedAt = m.MergedAt,
+                    OriginalLobbyId = m.OriginalLobbyId,
+                    OriginalReservationId = m.OriginalReservationId
                 }).ToList() ?? [],
                 Games = session.Games?.Select(g => new ActiveSessionGameDto
                 {

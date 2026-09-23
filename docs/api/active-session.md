@@ -2,6 +2,12 @@
 
 > **DEPRECATED (05/08/2026):** Controller này đã được **xóa khỏi codebase**. Toàn bộ endpoint `/api/cafes/{cafeId}/sessions/*` cũ đã được gộp vào [CafePosController](./cafe-pos.md) dưới base route `/api/cafes/{cafeId}/pos/sessions/*`.
 
+> **Cập nhật 2026-09-23:** Entity `ActiveSessionMember` có 2 field mới phục vụ luồng ghép nhóm (Lobby Merge):
+> - `OriginalLobbyId` (Guid?): Lobby gốc mà member tham gia trước khi ghép nhóm. Dùng để trace nguồn gốc member trong session đích và Karma aggregation đúng (BR-REFUND-05).
+> - `OriginalReservationId` (Guid?): Reservation gốc trước khi bị absorb vào reservation đích.
+>
+> Chi tiết luồng ghép nhóm: [lobby-merge.md](./lobby-merge.md).
+>
 > **Cập nhật 2026-09-19:** Entity `ActiveSessionMember` đã được bổ sung 4 columns QR mới cho Split Bill mobile display: `QrImageUrl`, `QrPaymentUrl`, `QrOrderId`, `QrTransferContent`. Xem [cafe-pos.md](./cafe-pos.md) §"Split Bill — Thanh toán per-member" + [payment.md](./payment.md) §"sepay/webhook/member-payment".
 
 Tài liệu này được giữ lại làm **lịch sử tham chiếu** cho các phiên bản trước.

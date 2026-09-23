@@ -171,7 +171,6 @@ public class CafeRepositoryAvailableSeatsTests : IDisposable
             TotalSeats = 20,
             HeldSeats = 4,
             InUseSeats = 2,
-            RowVersion = 1,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         });
@@ -261,7 +260,6 @@ public class CafeRepositoryAvailableSeatsTests : IDisposable
             TotalSeats = 20,
             HeldSeats = 0,
             InUseSeats = 0,
-            RowVersion = 1,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         });

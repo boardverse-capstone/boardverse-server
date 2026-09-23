@@ -53,4 +53,26 @@ public interface ILobbyHubService
 
     /// <summary>BR-REQUIRED §17.5: Lobby đã check-in tại quán.</summary>
     Task NotifyLobbyCheckedIn(Guid lobbyId, Guid checkedInByUserId);
+
+    // === Phase 4: Lobby Merge ===
+
+    /// <summary>
+    /// Phase 4 (G19): Lobby nguồn (Nhóm A) bị hấp thu vào lobby đích (Nhóm B) sau khi merge duyệt.
+    /// Broadcast đến SignalR group của lobby nguồn để client biết lobby đã bị dissolve/absorbed.
+    /// </summary>
+    /// <param name="sourceLobbyId">Lobby nguồn (Nhóm A) đã bị hấp thu.</param>
+    /// <param name="targetLobbyId">Lobby đích (Nhóm B) mà lobby nguồn được ghép vào.</param>
+    /// <param name="mergeRequestId">Mã yêu cầu ghép đã duyệt.</param>
+    /// <param name="membersTransferred">Số member đã chuyển.</param>
+    Task NotifyLobbyMergedInto(Guid sourceLobbyId, Guid targetLobbyId, Guid mergeRequestId, int membersTransferred);
+
+    /// <summary>
+    /// Phase 4 (G20): Thành viên mới gia nhập lobby đích (Nhóm B) từ merge.
+    /// Broadcast đến SignalR group của lobby đích để client biết member mới từ Nhóm A.
+    /// </summary>
+    /// <param name="targetLobbyId">Lobby đích (Nhóm B) nhận member mới.</param>
+    /// <param name="memberUserIds">Danh sách UserId của các member vừa được ghép.</param>
+    /// <param name="sourceLobbyId">Lobby nguồn (Nhóm A) mà các member rời khỏi.</param>
+    /// <param name="mergeRequestId">Mã yêu cầu ghép đã duyệt.</param>
+    Task NotifyMemberJoinedFromMerge(Guid targetLobbyId, IReadOnlyList<Guid> memberUserIds, Guid sourceLobbyId, Guid mergeRequestId);
 }

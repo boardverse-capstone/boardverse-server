@@ -117,6 +117,12 @@ public class ReservationConfiguration : IEntityTypeConfiguration<Reservation>
         builder.Property(r => r.CancelledBy);
         builder.Property(r => r.CancelReason).HasMaxLength(500);
 
+        // Lobby merge: reservation bị absorbed vào reservation khác
+        builder.Property(r => r.SourceDissolved).IsRequired().HasDefaultValue(false);
+        builder.Property(r => r.MergedIntoReservationId);
+        builder.Property(r => r.MergedAt).HasColumnType("timestamp with time zone");
+        builder.Property(r => r.MergedByUserId);
+
         builder.HasOne(r => r.WalkInWindow)
             .WithMany()
             .HasForeignKey(r => r.WalkInWindowId)

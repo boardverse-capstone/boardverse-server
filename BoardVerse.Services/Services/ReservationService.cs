@@ -1524,12 +1524,15 @@ public class ReservationService : IReservationService
             // GAP #12 fix: Lock inventory rows trước khi refund.
             await ReleaseInventoriesAsync(reservation, now);
 
-            await _walletService.ReleaseDepositAsync(
-                reservation.HostId,
-                reservation.DepositAmount,
-                lobby.Id,
-                reservation.Id,
-                refundIdempotencyKey);
+            if (reservation.DepositAmount > 0)
+            {
+                await _walletService.ReleaseDepositAsync(
+                    reservation.HostId,
+                    reservation.DepositAmount,
+                    lobby.Id,
+                    reservation.Id,
+                    refundIdempotencyKey);
+            }
 
             lobby.Status = LobbyStatus.RejectedByCafe;
             lobby.CafeRejectionReason = request.Reason ?? "Cafe từ chối duyệt lobby.";
@@ -1682,12 +1685,15 @@ public class ReservationService : IReservationService
                     await ReleaseInventoriesAsync(reservation, now);
 
                     var refundIdempotencyKey = $"timeout-{reservation.Id:N}";
-                    await _walletService.ReleaseDepositAsync(
-                        reservation.HostId,
-                        reservation.DepositAmount,
-                        lobby.Id,
-                        reservation.Id,
-                        refundIdempotencyKey);
+                    if (reservation.DepositAmount > 0)
+                    {
+                        await _walletService.ReleaseDepositAsync(
+                            reservation.HostId,
+                            reservation.DepositAmount,
+                            lobby.Id,
+                            reservation.Id,
+                            refundIdempotencyKey);
+                    }
 
                     reservation.Status = ReservationStatus.Expired;
                     lobby.Status = LobbyStatus.TimeoutFailed;
@@ -1797,12 +1803,15 @@ public class ReservationService : IReservationService
                 await ReleaseInventoriesAsync(reservation, now);
 
                 var refundIdempotencyKey = $"cafe-expired-{reservation.Id:N}";
-                await _walletService.ReleaseDepositAsync(
-                    reservation.HostId,
-                    reservation.DepositAmount,
-                    lobby.Id,
-                    reservation.Id,
-                    refundIdempotencyKey);
+                if (reservation.DepositAmount > 0)
+                {
+                    await _walletService.ReleaseDepositAsync(
+                        reservation.HostId,
+                        reservation.DepositAmount,
+                        lobby.Id,
+                        reservation.Id,
+                        refundIdempotencyKey);
+                }
 
                 reservation.Status = ReservationStatus.Expired;
                 lobby.Status = LobbyStatus.ExpiredByCafe;

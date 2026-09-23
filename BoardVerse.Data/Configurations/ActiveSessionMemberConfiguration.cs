@@ -39,6 +39,12 @@ namespace BoardVerse.Data.Configurations
             builder.Property(m => m.Subtotal).HasColumnType("numeric(18,2)");
             builder.Property(m => m.TotalAmount).HasColumnType("numeric(18,2)");
 
+            // Lobby merge: track lobby/reservation gốc khi member nhảy nhóm
+            builder.Property(m => m.OriginalLobbyId);
+            builder.Property(m => m.OriginalReservationId);
+            builder.Property(m => m.MergedFromLobbyId);
+            builder.Property(m => m.MergedAt);
+
             // BR-12/BR-22: Host role (1 host per session).
             builder.Property(m => m.IsHost)
                 .IsRequired()

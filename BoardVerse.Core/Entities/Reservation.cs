@@ -128,6 +128,27 @@ public class Reservation
     /// <summary>BR-REFUND-04: lý do cancel (max 500 ký tự).</summary>
     public string? CancelReason { get; set; }
 
+    // ===== Lobby Merge / Ghép nhóm (Exception Path §4 trong boardverse-business-context.mdc) =====
+
+    /// <summary>
+    /// True nếu reservation này đã bị absorbed vào reservation khác (ghép nhóm).
+    /// Khi ghép, reservation bị absorbed sẽ được đánh dấu và không còn active.
+    /// </summary>
+    public bool SourceDissolved { get; set; } = false;
+
+    /// <summary>
+    /// Reservation mà reservation này đã được ghép vào.
+    /// Khi reservation này là nguồn (source), MergedIntoReservationId trỏ đến reservation đích.
+    /// Nullable — null = reservation này chưa bị ghép vào reservation nào khác.
+    /// </summary>
+    public Guid? MergedIntoReservationId { get; set; }
+
+    /// <summary>Thời điểm reservation bị absorbed vào reservation khác.</summary>
+    public DateTime? MergedAt { get; set; }
+
+    /// <summary>UserId của người thực hiện thao tác ghép (staff hoặc host).</summary>
+    public Guid? MergedByUserId { get; set; }
+
     // Navigation property cho WalkInWindow.
     public virtual WalkInWindow? WalkInWindow { get; set; }
 

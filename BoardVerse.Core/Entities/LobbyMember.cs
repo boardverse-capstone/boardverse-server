@@ -1,4 +1,6 @@
-﻿namespace BoardVerse.Core.Entities;
+﻿using BoardVerse.Core.Enum;
+
+namespace BoardVerse.Core.Entities;
 
 /// <summary>
 /// Trạng thái lobby member (readiness cho InProgress).
@@ -47,6 +49,26 @@ public class LobbyMember
 
     /// <summary>Thời điểm member rời lobby (Left/Kicked).</summary>
     public DateTime? LeftAt { get; set; }
+
+    /// <summary>
+    /// Lý do rời lobby (Voluntary / KickedByHost / SystemRemoved / MergedIntoAnotherLobby).
+    /// Null nếu chưa rời.
+    /// </summary>
+    public LeftReason? LeftReason { get; set; }
+
+    /// <summary>
+    /// Lobby gốc mà member đã rời trước đó.
+    /// Dùng khi member ghép nhóm (Merger): sau khi merge thành công, ghi nhận lobby cũ.
+    /// Nullable — null = chưa từng rời lobby nào.
+    /// </summary>
+    public Guid? PreviousLobbyId { get; set; }
+
+    /// <summary>
+    /// Reservation gốc tương ứng với PreviousLobbyId.
+    /// Dùng để trace BVC deposit của lobby cũ.
+    /// Nullable — null = không có reservation gốc.
+    /// </summary>
+    public Guid? PreviousReservationId { get; set; }
 
     public virtual Lobby Lobby { get; set; } = null!;
     public virtual User User { get; set; } = null!;

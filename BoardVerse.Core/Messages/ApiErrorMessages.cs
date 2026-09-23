@@ -2420,6 +2420,75 @@ public const string LobbyBoostCooldown =
 
 public const string LobbyBoostOnlyWhenOpen =
 "Chỉ có thể boost khi phòng đang mở tuyển người.";
+
+// ===== Lobby Merge (Exception Path §4 — boardverse-business-context.mdc) =====
+
+/// <summary>
+/// Nested class cho Lobby Merge error messages.
+/// Theo Exception Path §4: Nhóm A gồm A1, A2, A3, A4 đang chơi.
+/// A1, A2 về sớm → A3 muốn ghép vào Nhóm B.
+/// Staff quét mã A3 → tạo LobbyMergeRequest → duyệt → A3 được ghép.
+/// </summary>
+public static class LobbyMerge
+{
+    public static string MergeRequestNotFound(Guid requestId) =>
+        $"Không tìm thấy yêu cầu ghép nhóm '{requestId}'.";
+
+    public const string MergeRequestNotPending =
+        "Yêu cầu ghép nhóm không còn ở trạng thái chờ xử lý. Có thể đã được duyệt, từ chối, hoặc đã hết hạn.";
+
+    public const string MergeRequestExpired =
+        "Yêu cầu ghép nhóm đã hết hạn (15 phút). Vui lòng tạo yêu cầu mới.";
+
+    public const string MergeRequestAlreadyPending =
+        "Đã có yêu cầu ghép nhóm đang chờ giữa 2 lobby này. Vui lòng chờ xử lý hoặc hủy yêu cầu cũ trước.";
+
+    public const string TargetLobbyNotActive =
+        "Phòng nhận (Nhóm B) phải đang ở trạng thái đang chơi (InProgress) hoặc đã đủ người (Viable) để ghép thành viên.";
+
+    public const string TargetSessionNotFound =
+        "Không tìm thấy phiên chơi của phòng nhận. Vui lòng báo đội kỹ thuật.";
+
+    public const string MergeCannotCrossCafes =
+        "Không thể ghép thành viên sang phòng của quán khác. Hai nhóm phải cùng một quán.";
+
+    public static string MergeAlreadyProcessed(Guid requestId) =>
+        $"Yêu cầu ghép '{requestId}' đã được xử lý trước đó và không thể thay đổi.";
+
+    public const string ReviewNoteTooLong =
+        "Ghi chú xử lý không được vượt quá 500 ký tự.";
+
+    public const string StaffPermissionDenied =
+        "Bạn không có quyền thực hiện thao tác này tại quán. Chỉ nhân viên hoặc quản lý của quán mới được phép duyệt/từ chối yêu cầu ghép nhóm.";
+
+    public const string SeatNotAvailableForMerge =
+        "Không đủ chỗ trống để ghép thêm thành viên. Nhóm nhận đã gần đạt sức chứa tối đa của quán.";
+
+    public const string MemberHasScheduleConflict =
+        "Thành viên đang có lịch chơi chồng lấn với nhóm nhận. Không thể ghép vào lúc này.";
+
+    public static string MemberDepositCapExceeded(string memberName, long available, long held) =>
+        $"Thành viên '{memberName}' đang có tổng cọc (đang giữ + đã dùng) vượt hạn mức cho phép. " +
+        $"Hiện tại: {held} BVC đang giữ. Vui lòng thanh toán cọc cũ trước khi ghép nhóm.";
+
+    public const string SourceDepositAlreadyCaptured =
+        "Tiền cọc của nhóm nguồn đã được thanh toán hoặc tịch thu. Không thể ghép vì không thể xử lý deposit.";
+
+    public const string MergeDifferentGames =
+        "Hai nhóm đang chơi game khác nhau. Không thể ghép nhóm khi game không giống nhau.";
+
+    public const string ReservationAlreadyAbsorbed =
+        "Nhóm nguồn đã được ghép vào nhóm khác trước đó. Không thể ghép lại.";
+
+    // Gap #1: Không cho gộp chính mình
+    public const string SameLobbyMerge =
+        "Không thể ghép nhóm vào chính nó. Vui lòng chọn hai phòng khác nhau.";
+
+    // Gap #2: Lobby nguồn phải ở trạng thái hợp lệ để merge
+    public const string SourceLobbyNotValidForMerge =
+        "Phòng nguồn không ở trạng thái hợp lệ để ghép nhóm. " +
+        "Phòng phải đang tuyển người (Open/Viable/Full) hoặc đang chơi (InProgress).";
+}
 }
 
  // ===== BR-NEW-* § XXI-G Phase 2/3 =====

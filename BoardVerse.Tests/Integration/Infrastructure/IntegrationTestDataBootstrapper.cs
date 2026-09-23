@@ -171,7 +171,6 @@ internal static class IntegrationTestDataBootstrapper
                     TotalSeats = 30,
                     HeldSeats = 0,
                     InUseSeats = 0,
-                    RowVersion = 0,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 });
@@ -240,7 +239,6 @@ internal static class IntegrationTestDataBootstrapper
                     TotalCopies = 2,
                     HeldCopies = 0,
                     InUseCopies = 0,
-                    RowVersion = 0,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 });

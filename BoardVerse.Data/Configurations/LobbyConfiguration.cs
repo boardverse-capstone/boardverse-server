@@ -104,6 +104,15 @@ builder.Property(m => m.JoinedAt).IsRequired();
                  .HasMaxLength(20)
                  .IsRequired();
 
+            // Lobby merge: lobby gốc mà member đã rời
+            builder.Property(m => m.PreviousLobbyId);
+            builder.Property(m => m.PreviousReservationId);
+
+            // LeftReason enum (varchar)
+            builder.Property(m => m.LeftReason)
+                 .HasConversion<string>()
+                 .HasMaxLength(30);
+
             builder.HasOne(m => m.Lobby)
                 .WithMany(l => l.Members)
                 .HasForeignKey(m => m.LobbyId)

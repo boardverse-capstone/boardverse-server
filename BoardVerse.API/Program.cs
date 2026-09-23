@@ -342,6 +342,7 @@ if (!builder.Environment.IsEnvironment("Testing"))
     builder.Services.AddHostedService<TournamentNoShowDetectionJob>();
     builder.Services.AddHostedService<FriendRequestExpiryJob>();
     builder.Services.AddHostedService<LobbyInviteExpiryJob>(); // BR-LOBBY-INVITE-08: expire invite 24h
+    builder.Services.AddHostedService<LobbyMergeCleanupJob>(); // G30: expire stale merge requests every 5 minutes
     builder.Services.AddHostedService<LobbyNotificationJob>(); // N-01: BR-NEW-13 milestone notifications
     builder.Services.AddHostedService<LobbyAtRiskWarningJob>(); // N-02: BR-NEW-14 at-risk warning
     builder.Services.AddHostedService<ReservationNoShowDetectionJob>(); // BR-CHECKIN-02: auto NoShow 30 phút grace
@@ -379,6 +380,7 @@ builder.Services.AddSignalR(options =>
 });
 builder.Services.AddScoped<ILobbyHubService, LobbyHubService>();
 builder.Services.AddScoped<IPosHubService, PosHubService>();
+builder.Services.AddScoped<ILobbyMergeService, LobbyMergeService>();
 
 builder.Services.AddControllers(options =>
 {

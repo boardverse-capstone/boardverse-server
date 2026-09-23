@@ -163,14 +163,18 @@ public class ReservationNoShowDetectionJob : BackgroundService
         // 1. Forfeit deposit (BR-REFUND-03: 0% refund, BR-REFUND-05: BVC không rút về VND)
         //    Idempotency key `forfeit-{reservation.Id:N}` đảm bảo chỉ ghi ledger 1 lần
         //    (kể cả khi 2 instance cluster cùng chạy — chỉ 1 sẽ pass check).
+        //    Skip nếu DepositAmount = 0 (đã được xử lý trước đó, ví dụ lobby merge).
         var forfeitIdempotencyKey = $"forfeit-{reservation.Id:N}";
-        await walletService.ForfeitDepositAsync(
-            reservation.HostId,
-            reservation.DepositAmount,
-            reservation.LobbyId,
-            reservation.Id,
-            forfeitIdempotencyKey,
-            ct);
+        if (reservation.DepositAmount > 0)
+        {
+            await walletService.ForfeitDepositAsync(
+                reservation.HostId,
+                reservation.DepositAmount,
+                reservation.LobbyId,
+                reservation.Id,
+                forfeitIdempotencyKey,
+                ct);
+        }
 
         // 2. Release seat + game inventory (chạy đúng 1 lần vì chỉ instance flip được mới gọi hàm này)
         await ReleaseInventoryAsync(reservation, now, ct);

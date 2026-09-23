@@ -611,6 +611,9 @@ public class WalletService : IWalletService
         string idempotencyKey,
         CancellationToken cancellationToken = default)
     {
+        // Skip if nothing to release (e.g. merged reservation already processed, depositAmount = 0).
+        if (amountBvc == 0) return await BuildResultAsync(userId, idempotencyKey, cancellationToken);
+
         await ApplyBalanceMutationAsync(
             userId,
             amountBvc,
@@ -743,6 +746,9 @@ public class WalletService : IWalletService
         string idempotencyKey,
         CancellationToken cancellationToken = default)
     {
+        // Skip if nothing to forfeit (e.g. merged reservation already processed, depositAmount = 0).
+        if (amountBvc == 0) return await BuildResultAsync(userId, idempotencyKey, cancellationToken);
+
         await ApplyBalanceMutationAsync(
             userId,
             amountBvc,

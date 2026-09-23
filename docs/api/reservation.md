@@ -106,7 +106,10 @@ Lấy chi tiết một reservation.
     "walkInWindowId": null,
     "cancelledBy": null,
     "cancelReason": null,
-    "tableNumber": null
+    "tableNumber": null,
+    "isAbsorbed": false,
+    "absorbedIntoReservationId": null,
+    "absorbedAt": null
   }
 }
 ```
@@ -124,10 +127,32 @@ Lấy chi tiết một reservation.
     "cafeRejectionReason": "Quán đông, không nhận thêm khách",
     "depositAmount": 120000,
     "refundPolicyApplied": "BR-REFUND-04",
+    "isAbsorbed": false,
+    "absorbedIntoReservationId": null,
+    "absorbedAt": null,
     ...
   }
 }
 ```
+
+**Ví dụ khi reservation bị absorb vào reservation khác (lobby merge):**
+
+```json
+{
+  "statusCode": 200,
+  "message": "ReservationRetrieved",
+  "data": {
+    "id": "reservation-guid-nhom-a",
+    "status": "Completed",
+    "isAbsorbed": true,
+    "absorbedIntoReservationId": "reservation-guid-nhom-b",
+    "absorbedAt": "2026-09-23T11:45:00Z",
+    ...
+  }
+}
+```
+
+> **Lưu ý:** Khi `isAbsorbed = true`, reservation này đã bị hấp thu vào reservation đích (`absorbedIntoReservationId`) trong luồng ghép nhóm lobby. Xem [lobby-merge.md](./lobby-merge.md) để biết chi tiết luồng ghép nhóm (Lobby Merge).Xem thêm [lobby-merge.md](./lobby-merge.md) — ghép nhóm lobby (Lobby Merge) với luồng `POST /merge-requests` → `approve`.
 
 > **Lưu ý:** Khi `status = CancelledByCafe`, `cafeRejectionReason` chứa lý do cafe từ chối. Player có thể filter `GET /reservations?statuses=CancelledByCafe` để xem danh sách reservation bị từ chối.
 
@@ -290,7 +315,8 @@ Response bao gồm 2 summary count (`hostedCount`, `joinedCount`) để FE rende
         "createdAt": "2026-09-02T15:30:00Z",
         "isHost": true,
         "participationType": "Host",
-        "tableNumber": null
+        "tableNumber": null,
+        "isAbsorbed": false
       },
       {
         "id": "22222222-2222-2222-2222-222222222222",

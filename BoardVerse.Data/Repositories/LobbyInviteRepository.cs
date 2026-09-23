@@ -218,4 +218,47 @@ public class LobbyInviteRepository : ILobbyInviteRepository
             .Distinct()
             .ToListAsync(cancellationToken);
     }
+
+    // === Phase 4 (G21): Expire pending invites after lobby merge ===
+
+    /// <summary>
+    /// Phase 4 (G21): Expire tất cả pending invites sau khi lobby bị dissolve/absorbed
+    /// qua merge (BR-LOBBY-INVITE-09: Lobby terminal → tất cả pending invite chuyển Expired ngay).
+    /// Dùng ExecuteUpdateAsync — cluster-safe, không cần transaction wrap.
+    /// </summary>
+    public async Task<int> ExpirePendingForUsersAsync(
+        Guid? lobbyId,
+        IReadOnlyList<Guid>? inviteeIds,
+        CancellationToken ct = default)
+    {
+        var now = DateTime.UtcNow;
+
+        if (lobbyId.HasValue && inviteeIds != null && inviteeIds.Count > 0)
+        {
+            return await _db.LobbyInvites
+                .Where(i => i.Status == LobbyInviteStatus.Pending &&
+                            (i.LobbyId == lobbyId.Value || inviteeIds.Contains(i.InviteeId)))
+                .ExecuteUpdateAsync(u =>
+                    u.SetProperty(i => i.Status, LobbyInviteStatus.Expired)
+                     .SetProperty(i => i.RespondedAt, now), ct);
+        }
+        else if (lobbyId.HasValue)
+        {
+            return await _db.LobbyInvites
+                .Where(i => i.Status == LobbyInviteStatus.Pending && i.LobbyId == lobbyId.Value)
+                .ExecuteUpdateAsync(u =>
+                    u.SetProperty(i => i.Status, LobbyInviteStatus.Expired)
+                     .SetProperty(i => i.RespondedAt, now), ct);
+        }
+        else if (inviteeIds != null && inviteeIds.Count > 0)
+        {
+            return await _db.LobbyInvites
+                .Where(i => i.Status == LobbyInviteStatus.Pending && inviteeIds.Contains(i.InviteeId))
+                .ExecuteUpdateAsync(u =>
+                    u.SetProperty(i => i.Status, LobbyInviteStatus.Expired)
+                     .SetProperty(i => i.RespondedAt, now), ct);
+        }
+
+        return 0;
+    }
 }

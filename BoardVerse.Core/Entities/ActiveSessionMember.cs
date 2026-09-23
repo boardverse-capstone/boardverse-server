@@ -33,6 +33,29 @@ namespace BoardVerse.Core.Entities
         /// <summary>Session gốc khi member tách nhóm. Dùng để track thời gian liên tục.</summary>
         public Guid? OriginalSessionId { get; set; }
 
+        /// <summary>
+        /// Lobby gốc mà member tham gia trước khi ghép vào session này.
+        /// Dùng để trace lịch sử di chuyển giữa các lobby.
+        /// </summary>
+        public Guid? OriginalLobbyId { get; set; }
+
+        /// <summary>
+        /// Reservation gốc của OriginalLobbyId.
+        /// Dùng để trace BVC deposit khi member ghép nhóm.
+        /// </summary>
+        public Guid? OriginalReservationId { get; set; }
+
+        /// <summary>
+        /// Lobby cụ thể mà member ghép từ (dùng khi member ghép trực tiếp vào active session).
+        /// Khác OriginalLobbyId: OriginalLobbyId là lobby đầu tiên, MergedFromLobbyId là lobby vừa rời.
+        /// </summary>
+        public Guid? MergedFromLobbyId { get; set; }
+
+        /// <summary>
+        /// Thời điểm member được ghép vào session này (từ lobby khác).
+        /// </summary>
+        public DateTime? MergedAt { get; set; }
+
         // === Individual Session State ===
         /// <summary>Trạng thái phiên cá nhân.</summary>
         public IndividualSessionStatus Status { get; set; } = IndividualSessionStatus.Playing;

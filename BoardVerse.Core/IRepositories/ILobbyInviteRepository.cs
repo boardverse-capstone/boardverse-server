@@ -67,6 +67,21 @@ public interface ILobbyInviteRepository
     /// </summary>
     Task<int> CountSentByInviterSinceAsync(Guid inviterId, DateTime since, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Phase 4 (G21): Expire tất cả pending invites của một lobby (khi lobby bị dissolve/absorbed
+    /// sau khi merge thành công) và/hoặc pending invites mà một danh sách user là invitee.
+    /// Dùng <c>ExecuteUpdateAsync</c> — cluster-safe, không cần transaction wrap.
+    /// BR-LOBBY-INVITE-09: Lobby terminal → tất cả pending invite chuyển Expired ngay.
+    /// </summary>
+    /// <param name="lobbyId">Lobby đã bị dissolve/merge. Pass null để chỉ expire theo users.</param>
+    /// <param name="inviteeIds">
+    /// Danh sách UserId mà invitee đã được ghép vào lobby khác (không còn pending invite).
+    /// Pass null hoặc empty để chỉ expire theo lobbyId.
+    /// </param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Số rows affected.</returns>
+    Task<int> ExpirePendingForUsersAsync(Guid? lobbyId, IReadOnlyList<Guid>? inviteeIds, CancellationToken cancellationToken = default);
+
     Task AddAsync(LobbyInvite invite, CancellationToken cancellationToken = default);
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
 }

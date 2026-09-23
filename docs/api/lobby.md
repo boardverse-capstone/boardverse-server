@@ -12,6 +12,7 @@ API phòng chờ trực tuyến: tạo phòng, tham gia, rời phòng, tìm phò
 > - [../time-slot-fixed-end-design.md](../time-slot-fixed-end-design.md) — Time-slot + fixed-end design (FE-facing v2.0)
 > - [lobby-invite.md](./lobby-invite.md) — Invite + share code
 > - [friend.md](./friend.md) — Friend system (cho invite private lobby)
+> - [lobby-merge.md](./lobby-merge.md) — Ghép nhóm lobby (Lobby Merge): POS workflow, merge request, merge approval, audit log
 
 ---
 
@@ -533,6 +534,8 @@ SignalR tự negotiate: client gọi `POST /hubs/lobby/negotiate?access_token=<j
 | `LobbyCancelled` | `{ LobbyId, Reason, Timestamp }` | Host hủy lobby | — |
 | `LobbyTimeout` | `{ LobbyId, Message, Timestamp }` | Timeout do thiếu người | BR-08 |
 | `BookingConfirmed` | `{ LobbyId, BookingId, Message, Timestamp }` | Booking cọc thành công → chuyển sang cafe | BR-05 |
+| `LobbyMergedInto` | `{ LobbyId, MergedFromLobbyId, MergedMemberUserId, MergedMemberName, Timestamp }` | Member ghép thành công vào lobby (Lobby Merge) | Lobby Merge |
+| `MemberJoinedFromMerge` | `{ LobbyId, Member: LobbyMemberDto, Timestamp }` | Member xuất hiện trong lobby đích sau merge (để client refresh) | Lobby Merge |
 
 ### Client subscribe flow
 
@@ -549,6 +552,8 @@ connection.on("MemberLeft", (e) => removeMember(e.MemberId));
 connection.on("LobbyFull", (e) => navigateToBooking(e.LobbyId));
 connection.on("LobbyTimeout", (e) => showTimeoutMessage());
 connection.on("BookingConfirmed", (e) => navigateToCafeCheckIn(e.BookingId));
+connection.on("LobbyMergedInto", (e) => refreshLobbyInfo(e.LobbyId));
+connection.on("MemberJoinedFromMerge", (e) => refreshLobbyMembers(e.Member));
 
 // 3. Start
 await connection.start();
@@ -673,7 +678,8 @@ Lấy tất cả lobby của user hiện tại (host hoặc member, chỉ active
         "readyAt": "2026-08-24T16:08:29.615235Z",
         "isActive": true,
         "isHost": true,
-        "status": "Ready"
+        "status": "Ready",
+        "previousLobbyId": null
       }
     ]
   }
@@ -683,6 +689,7 @@ Lấy tất cả lobby của user hiện tại (host hoặc member, chỉ active
 **Lưu ý cho Flutter:**
 - Từ 2026-08-26, response đã bao gồm `cafeName` và `members[].avatarUrl` / `members[].karmaPoints`. Bỏ qua call `GET /api/v1/cafes/{cafeId}` khi đã có `cafeId`.
 - Từ 2026-09-14, response còn có thêm `cafeAddress` (địa chỉ cafe) — hiển thị trực tiếp trên lobby card, không cần gọi thêm `/api/v1/cafes/{cafeId}`.
+- Từ 2026-09-23, `members[].previousLobbyId` được set khi member ghép nhóm (Lobby Merge). Giá trị `null` cho member không qua merge.
 
 ---
 
