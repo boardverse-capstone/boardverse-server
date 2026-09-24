@@ -134,33 +134,15 @@ public class LobbyMergeService : ILobbyMergeService
             throw new ConflictException(LobbyMergeErrors.SourceLobbyNotValidForMerge);
 
         // 5. Validate cùng cafe và cùng game
-        if (sourceLobby.ReservationId.HasValue && targetLobby.ReservationId.HasValue)
-        {
-            var sourceReservation = await _db.Reservations
-                .AsNoTracking()
-                .Where(r => r.Id == sourceLobby.ReservationId)
-                .Select(r => new { r.CafeId, r.GameId })
-                .FirstOrDefaultAsync(cancellationToken);
+        // Cả reservation lobby lẫn walk-in lobby đều có CafeId / GameTemplateId.
+        // Dùng trực tiếp lobby entity fields — đủ để validate cross-cafe và cross-game.
+        // Reservation.CafeId/GameId chỉ cần khi lookup Reservation khác (vd. payment/capture),
+        // không cần ở đây.
+        if (sourceLobby.CafeId != targetLobby.CafeId)
+            throw new BadRequestException(LobbyMergeErrors.MergeCannotCrossCafes);
 
-            var targetReservation = await _db.Reservations
-                .AsNoTracking()
-                .Where(r => r.Id == targetLobby.ReservationId)
-                .Select(r => new { r.CafeId, r.GameId })
-                .FirstOrDefaultAsync(cancellationToken);
-
-            if (sourceReservation == null || targetReservation == null)
-            {
-                // Walk-in session (không qua reservation) → kiểm tra game qua lobby entity nếu có
-            }
-            else
-            {
-                if (sourceReservation.CafeId != targetReservation.CafeId)
-                    throw new BadRequestException(LobbyMergeErrors.MergeCannotCrossCafes);
-
-                if (sourceReservation.GameId != targetReservation.GameId)
-                    throw new BadRequestException(LobbyMergeErrors.MergeDifferentGames);
-            }
-        }
+        if (sourceLobby.GameTemplateId != targetLobby.GameTemplateId)
+            throw new BadRequestException(LobbyMergeErrors.MergeDifferentGames);
 
         // 6. Validate idempotency key — check FIRST so retries return the same result
         if (!string.IsNullOrWhiteSpace(dto.IdempotencyKey))
@@ -590,6 +572,24 @@ public class LobbyMergeService : ILobbyMergeService
             {
                 sourceLobby.Status = LobbyStatus.Closed;
                 sourceLobby.UpdatedAt = DateTime.UtcNow;
+
+                // Gap #3 Fix: Walk-in session (được tạo bởi CafePosService.StartWalkInSessionAsync)
+                // có ActiveSession.LobbyId = walkInLobby.Id. Sau khi lobby dissolve, session này
+                // bị orphan (không ai trong đó, không bị đóng). Tìm và đóng nó ngay.
+                var orphanSession = await _db.ActiveSessions
+                    .FirstOrDefaultAsync(s =>
+                        s.LobbyId == sourceLobby.Id &&
+                        s.Status == GroupSessionStatus.Active,
+                        cancellationToken);
+                if (orphanSession != null)
+                {
+                    orphanSession.EndedAt = DateTime.UtcNow;
+                    orphanSession.Status = GroupSessionStatus.Closed;
+                    orphanSession.UpdatedAt = DateTime.UtcNow;
+                    _logger.LogInformation(
+                        "LobbyMerge: closed orphan walk-in session {SessionId} after source lobby {LobbyId} dissolved",
+                        orphanSession.Id, sourceLobby.Id);
+                }
 
                 if (sourceLobby.ReservationId.HasValue)
                 {

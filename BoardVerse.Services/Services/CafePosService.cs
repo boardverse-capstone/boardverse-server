@@ -13,6 +13,7 @@ using BoardVerse.Services.IServices;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using System.Security.Cryptography;
 using System.Transactions;
 
 namespace BoardVerse.Services.Services
@@ -672,8 +673,34 @@ namespace BoardVerse.Services.Services
             table.Status = CafeTableStatus.InUse;
             table.UpdatedAt = now;
 
+            // FIX 2026-09-24 (WalkInLobbyId Bug): Tạo synthetic Lobby cho walk-in session
+            // để `GET /pos/sessions/{id}` trả `lobbyId` hợp lệ thay vì null.
+            // Walk-in session có thể được dùng làm source trong lobby merge flow
+            // (FE gọi POST /lobby-merge/merge-requests với SourceLobbyId/TargetLobbyId).
+            // Tạo lobby trong cùng DB transaction với ActiveSession để đảm bảo consistency.
+            var walkInLobby = new Lobby
+            {
+                Id = Guid.NewGuid(),
+                HostUserId = userId,
+                GameTemplateId = gameTemplateId,
+                CafeId = cafeId,
+                ReservationId = null,
+                BookingId = null,
+                Status = LobbyStatus.InProgress,
+                ShareCode = await GenerateWalkInShareCodeAsync(cancellationToken),
+                MaxMembers = table.SeatCount > 0 ? table.SeatCount : 4,
+                MinPlayers = 1,
+                IsPrivate = true,
+                ScheduledStartTime = now,
+                ActiveSessionId = session.Id,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+            session.LobbyId = walkInLobby.Id;
+
             await _posRepository.AddSessionAsync(session, cancellationToken);
             await _posRepository.AddSessionGameAsync(sessionGame, cancellationToken);
+            await _lobbyRepository.AddAsync(walkInLobby, cancellationToken);
             await _posRepository.SaveChangesAsync(cancellationToken);
 
             session.CafeTable = table;
@@ -1463,6 +1490,33 @@ namespace BoardVerse.Services.Services
             Barcode = box.Barcode,
             Status = box.Status
         };
+
+        /// <summary>
+        /// Tạo mã share 6 ký tự alphanumeric uppercase cho walk-in Lobby.
+        /// Dùng cryptographically secure RNG để tránh brute-force (giống LobbyService.GenerateUniqueShareCodeAsync).
+        /// Fallback về GUID hex nếu collision check fail (rất hiếm xảy ra với 32-char alphabet).
+        /// </summary>
+        private async Task<string> GenerateWalkInShareCodeAsync(CancellationToken cancellationToken)
+        {
+            const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+            for (var attempt = 0; attempt < 5; attempt++)
+            {
+                var code = new char[6];
+                for (var i = 0; i < 6; i++)
+                {
+                    code[i] = chars[RandomNumberGenerator.GetInt32(0, chars.Length)];
+                }
+                var codeStr = new string(code);
+                var existing = await _lobbyRepository.GetByShareCodeAsync(codeStr, cancellationToken);
+                if (existing == null)
+                {
+                    return codeStr;
+                }
+            }
+            // Fallback: GUID hex (cryptographically random, extremely unlikely collision)
+            var guid = Guid.NewGuid().ToString("N");
+            return guid.Length >= 6 ? guid[..6].ToUpperInvariant() : guid.ToUpperInvariant();
+        }
 
         private static ActiveSessionDto MapSession(ActiveSession session, DateTime utcNow)
         {
