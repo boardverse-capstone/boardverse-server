@@ -1,3 +1,5 @@
+using BoardVerse.Core.Enum;
+
 namespace BoardVerse.Core.DTOs.Discovery;
 
 /// <summary>
@@ -24,6 +26,11 @@ public class BoardGameSurveyRequestDto
     /// Kinh nghiệm chơi của user.
     /// </summary>
     public PlayerExperienceLevel? ExperienceLevel { get; set; }
+
+    /// <summary>
+    /// BGG complexity weight ranges (multi-select: Light, MediumLight, Medium, MediumHeavy, Heavy).
+    /// </summary>
+    public List<WeightRange>? WeightRanges { get; set; }
 
     /// <summary>
     /// Từ khóa tìm kiếm thêm (optional).

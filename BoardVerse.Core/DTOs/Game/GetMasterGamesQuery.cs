@@ -8,6 +8,13 @@ namespace BoardVerse.Core.DTOs.Game
         public List<Guid>? CategoryIds { get; set; }
         public int? PlayerCount { get; set; }
         public List<PlayTimeRange>? PlayTimeRanges { get; set; }
+
+        /// <summary>
+        /// Lọc game theo BGG weight range.
+        /// Khi có giá trị, chỉ trả về game có Weight nằm trong khoảng.
+        /// </summary>
+        public WeightRange? WeightRange { get; set; }
+
         public Guid? CafeId { get; set; }
         public bool ExcludeInInventory { get; set; }
         private int _pageNumber = 1;
@@ -21,13 +28,14 @@ namespace BoardVerse.Core.DTOs.Game
         public bool SkipPagination => !HasFilter;
 
         /// <summary>
-        /// True nếu request có ít nhất 1 filter (search, category, player count, play time, cafe, exclude).
+        /// True nếu request có ít nhất 1 filter (search, category, player count, play time, weight, cafe, exclude).
         /// </summary>
         public bool HasFilter =>
             !string.IsNullOrWhiteSpace(SearchTerm)
             || (CategoryIds is { Count: > 0 })
             || PlayerCount.HasValue
             || (PlayTimeRanges is { Count: > 0 })
+            || WeightRange.HasValue
             || CafeId.HasValue
             || ExcludeInInventory;
 

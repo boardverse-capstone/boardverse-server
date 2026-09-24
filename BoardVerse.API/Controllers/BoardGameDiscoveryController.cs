@@ -66,6 +66,38 @@ public class BoardGameDiscoveryController : BaseApiController
     }
 
     /// <summary>
+    /// Gợi ý board game cho nhóm nhiều người với sở thích khác nhau (AWM algorithm).
+    /// Mỗi sub-group có thể có ExperienceLevel, CategoryIds, PreferredDurations riêng.
+    /// Kết quả trả về AggregateScore (AWMS) — điểm tổng hợp cho cả nhóm —
+    /// kèm SubGroupBreakdown cho từng sub-group và quán cafe gần nhất.
+    /// [Role: Public — không yêu cầu đăng nhập.]
+    /// </summary>
+    /// <param name="request">
+    ///   Members: danh sách sub-group (tối đa 4), mỗi sub-group gồm PlayerCount, ExperienceLevel,
+    ///   CategoryIds, PreferredDurations.
+    ///   Latitude, Longitude: vị trí người dùng (optional).
+    ///   RadiusKm: bán kính tìm quán (mặc định 15km).
+    /// </param>
+    /// <response code="200">Danh sách game với AggregateScore, SubGroupBreakdown, NearestCafe.</response>
+    /// <response code="400">
+    ///   - Nhóm không có thành viên nào.
+    ///   - Quá 4 sub-group.
+    ///   - Tổng số người chơi không hợp lệ (phải 1-20).
+    /// </response>
+    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+    [HttpPost("group")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GroupDiscovery([FromBody] GroupDiscoveryRequestDto request)
+    {
+        var result = await _discoveryService.GroupDiscoveryAsync(
+            request,
+            request.Latitude,
+            request.Longitude);
+
+        return NewResponse(200, ApiSuccessMessages.Discovery.GroupSurveyCompleted, result);
+    }
+
+    /// <summary>
     /// Lấy danh sách board game đã lưu bởi player. [Role: Player — đã đăng nhập]
     /// </summary>
     /// <response code="200">Danh sách board game đã lưu, kèm thông tin game và thời điểm lưu.</response>
@@ -115,5 +147,46 @@ public class BoardGameDiscoveryController : BaseApiController
         var result = await _discoveryService.UnsaveGameAsync(userId, gameTemplateId);
 
         return NewResponse(200, ApiSuccessMessages.Discovery.GameUnsaved, result);
+    }
+
+    /// <summary>
+    /// Gợi ý board game solo dựa trên preference profile của user (từ saved games + play history).
+    /// Yêu cầu user phải có ít nhất 3 saved games để personalization hoạt động.
+    /// Nếu không đủ → trả về UserProfile null và gợi ý generic theo filters.
+    /// [Role: Player — đã đăng nhập]
+    /// </summary>
+    /// <param name="request">
+    ///   Filters: CategoryIds, PreferredDurations, WeightRanges, PlayerCount, SearchKeyword.
+    ///   PageSize: số lượng games tối đa (default 20).
+    ///   ExcludeSavedGames: có loại trừ games đã lưu không (default false).
+    /// </param>
+    /// <param name="latitude">Vĩ độ GPS (optional, để tìm cafe gần).</param>
+    /// <param name="longitude">Kinh độ GPS (optional).</param>
+    /// <response code="200">
+    ///   Danh sách games với PersonalizedScore (BaseScore + PersonalizationBoost + PlayHistoryPenalty).
+    ///   Kèm UserProfile (top categories, average weight/duration từ saved games).
+    ///   NearestCafe và OpenLobbies cho game top 1 (nếu có location).
+    /// </response>
+    /// <response code="400">
+    ///   - PreferredDurations không hợp lệ (chỉ chấp nhận: under30, 30to60, over60).
+    ///   - Filters khác không hợp lệ.
+    /// </response>
+    /// <response code="401">Thiếu token hoặc token hết hạn.</response>
+    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+    [HttpPost("solo-personalized")]
+    public async Task<IActionResult> SoloPersonalizedDiscovery(
+        [FromBody] SoloPersonalizedRequestDto request,
+        [FromQuery] double? latitude,
+        [FromQuery] double? longitude)
+    {
+        var userId = GetUserIdFromClaims();
+
+        var result = await _discoveryService.SoloPersonalizedDiscoveryAsync(
+            userId,
+            request,
+            latitude,
+            longitude);
+
+        return NewResponse(200, ApiSuccessMessages.Discovery.SoloPersonalizedCompleted, result);
     }
 }

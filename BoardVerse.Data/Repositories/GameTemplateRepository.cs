@@ -94,6 +94,11 @@ namespace BoardVerse.Data.Repositories
                     (query.PlayTimeRanges.Contains(PlayTimeRange.Over60) && g.PlayTime > 60));
             }
 
+            if (query.WeightRange.HasValue)
+            {
+                baseQuery = ApplyWeightFilter(baseQuery, query.WeightRange.Value);
+            }
+
             if (query.CafeId.HasValue && query.ExcludeInInventory)
             {
                 var inInventoryIds = _context.CafeGameInventories
@@ -283,6 +288,26 @@ namespace BoardVerse.Data.Repositories
                 PlayCount = playCountMap.GetValueOrDefault(g.Id),
                 Categories = GameCatalogMapper.MapCategories(g)
             }).ToList();
+        }
+
+        private static IQueryable<GameTemplate> ApplyWeightFilter(
+            IQueryable<GameTemplate> query,
+            WeightRange range)
+        {
+            return range switch
+            {
+                // Light: ≤2.0
+                WeightRange.Light => query.Where(g => g.Weight.HasValue && g.Weight <= 2.0),
+                // Medium-Light: 2.01 – 3.0
+                WeightRange.MediumLight => query.Where(g => g.Weight.HasValue && g.Weight > 2.0 && g.Weight <= 3.0),
+                // Medium: 3.01 – 3.5
+                WeightRange.Medium => query.Where(g => g.Weight.HasValue && g.Weight > 3.0 && g.Weight <= 3.5),
+                // Medium-Heavy: 3.51 – 4.0
+                WeightRange.MediumHeavy => query.Where(g => g.Weight.HasValue && g.Weight > 3.5 && g.Weight <= 4.0),
+                // Heavy: >4.0
+                WeightRange.Heavy => query.Where(g => g.Weight.HasValue && g.Weight > 4.0),
+                _ => query
+            };
         }
     }
 }
