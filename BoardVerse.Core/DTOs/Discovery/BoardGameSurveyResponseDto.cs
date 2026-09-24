@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace BoardVerse.Core.DTOs.Discovery;
 
 /// <summary>
@@ -11,9 +13,21 @@ public class BoardGameSurveyResponseDto
     public List<DiscoveryBoardGameDto> Games { get; set; } = [];
 
     /// <summary>
+    /// Alias cho Games - để backward compatible với frontend.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<DiscoveryBoardGameDto> Recommendations => Games;
+
+    /// <summary>
     /// Tổng số kết quả tìm được.
     /// </summary>
     public int TotalCount { get; set; }
+    
+    /// <summary>
+    /// Alias cho TotalCount - để backward compatible với frontend.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? TotalResults => TotalCount > 0 ? TotalCount : null;
 
     /// <summary>
     /// Số người chơi đã khảo sát.
