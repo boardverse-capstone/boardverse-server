@@ -53,6 +53,13 @@ namespace BoardVerse.Core.Entities
         public int? BggId { get; set; }
         public DateTime? BggSyncedAt { get; set; }
 
+        /// <summary>
+        /// BGG Complexity Weight — độ phức tạp game thang 1.0 → 5.0.
+        /// Nguồn: BoardGameGeek (averageweight community vote).
+        /// Dùng trong MatchScore để bonus/penalize dựa trên trình độ người chơi.
+        /// </summary>
+        public double? Weight { get; set; }
+
         public bool IsActive { get; set; } = true;
 
         // === Tournament Support ===

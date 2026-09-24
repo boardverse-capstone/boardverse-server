@@ -1,64 +1,157 @@
 ﻿using Npgsql;
 
-var connStr = "Host=ep-morning-feather-ao1lnyg0.c-2.ap-southeast-1.aws.neon.tech;Port=5432;Database=neondb;Username=neondb_owner;Password=npg_GgPKb1sMxn7S;SSL Mode=Require;Trust Server Certificate=true";
+// ══════════════════════════════════════════════════════════════
+// TEST SCRIPT: Weight Filter — Check Real Data Distribution
+// Nhánh: TESTING (morning-darkness)
+// ══════════════════════════════════════════════════════════════
+
+var connStr = "Host=ep-morning-darkness-aof95ckg.c-2.ap-southeast-1.aws.neon.tech;Port=5432;Database=neondb;Username=neondb_owner;Password=npg_GgPKb1sMxn7S;SSL Mode=Require;Trust Server Certificate=true";
 
 await using var conn = new NpgsqlConnection(connStr);
 await conn.OpenAsync();
 
-Console.WriteLine("=== [PRODUCTION] Enum Value Summary ===\n");
+Console.WriteLine("═══════════════════════════════════════════════════════");
+Console.WriteLine("   🎲 WEIGHT FILTER TEST — Real Data Distribution");
+Console.WriteLine("   Branch: TESTING (morning-darkness)");
+Console.WriteLine("═══════════════════════════════════════════════════════\n");
 
-// Define enum expected values
-var enums = new Dictionary<string, (string col, string[] expected)>
+// ── Step 1: Total active games ─────────────────────────────────
+Console.WriteLine("📊 STEP 1: Total Active Games");
+Console.WriteLine("─────────────────────────────────────────────────────");
+int totalGames = 0;
+await using (var cmd = new NpgsqlCommand(@"
+    SELECT COUNT(*) FROM ""GameTemplates"" WHERE ""IsActive"" = true", conn))
 {
-    ["Users.Role"] = ("Users", ["Player", "Admin", "CafeStaff", "Manager"]),
-    ["Lobbies.Status"] = ("Lobbies", ["Open", "Full", "TimeoutFailed", "HostCancelled", "InProgress", "Closed", "RatingOpen"]),
-    ["ActiveSessions.Status"] = ("ActiveSessions", ["Active=0", "Checking=1", "Unpaid=2", "Paid=3"]),
-    ["LobbyMembers.Status"] = ("LobbyMembers", ["Joined=0", "Ready=1", "Kicked=2", "Left=3"]),
-    ["BookingDeposits.Status"] = ("BookingDeposits", ["Pending=0", "Paid=1", "Released=2", "Refunded=3", "Forfeited=4"]),
-    ["Friendships.Status"] = ("Friendships", ["Pending=0", "Accepted=1", "Blocked=2"]),
-    ["TournamentParticipants.Status"] = ("TournamentParticipants", ["Registered=0", "Participated=1", "NoShow=2", "DroppedOut=3", "Disqualified=4"]),
-    ["Tournaments.Status"] = ("Tournaments", ["RegistrationOpen=0", "RegistrationClosed=1", "InProgress=2", "Completed=3", "Cancelled=4"]),
-    ["Tournaments.PairingMode"] = ("Tournaments", ["Swiss=0", "RoundRobin=1", "SingleElimination=2", "DoubleElimination=3"]),
-    ["Cafes.BillingModel"] = ("Cafes", ["ByHour=0", "FlatEntry=1"]),
-    ["CafePartnerApplications.Status"] = ("CafePartnerApplications", ["PendingApproval", "Approved", "Rejected"]),
-    ["CafeGameInventories.Status"] = ("CafeGameInventories", ["Available", "Maintenance"]),
-    ["CafeTables.Status"] = ("CafeTables", ["Available", "InUse"]),
+    totalGames = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+    Console.WriteLine($"   Total active games: {totalGames}");
+}
+Console.WriteLine();
+
+// ── Step 2: Weight distribution ────────────────────────────────
+Console.WriteLine("📊 STEP 2: Weight Distribution by Range");
+Console.WriteLine("─────────────────────────────────────────────────────");
+await using (var cmd = new NpgsqlCommand(@"
+    SELECT 
+        weight_range,
+        game_count,
+        ROUND((game_count * 100.0 / @totalGames)::numeric, 2) as percentage
+    FROM (
+        SELECT 
+            CASE 
+                WHEN ""Weight"" IS NULL THEN 'NULL'
+                WHEN ""Weight"" <= 2.0 THEN 'Light (≤2.0)'
+                WHEN ""Weight"" > 2.0 AND ""Weight"" <= 3.0 THEN 'Medium-Light (2.0-3.0)'
+                WHEN ""Weight"" > 3.0 AND ""Weight"" <= 4.0 THEN 'Medium (3.0-4.0)'
+                WHEN ""Weight"" > 4.0 THEN 'Heavy (>4.0)'
+            END as weight_range,
+            COUNT(*) as game_count,
+            CASE 
+                WHEN ""Weight"" IS NULL THEN 0
+                WHEN ""Weight"" <= 2.0 THEN 1
+                WHEN ""Weight"" > 2.0 AND ""Weight"" <= 3.0 THEN 2
+                WHEN ""Weight"" > 3.0 AND ""Weight"" <= 4.0 THEN 3
+                WHEN ""Weight"" > 4.0 THEN 4
+            END as sort_order
+        FROM ""GameTemplates""
+        WHERE ""IsActive"" = true
+        GROUP BY weight_range, sort_order
+    ) subquery
+    ORDER BY sort_order", conn))
+{
+    cmd.Parameters.AddWithValue("totalGames", totalGames);
+    await using var reader = await cmd.ExecuteReaderAsync();
+    while (await reader.ReadAsync())
+    {
+        var range = reader.GetString(0);
+        var count = reader.GetInt64(1);
+        var percentage = reader.GetDecimal(2);
+        Console.WriteLine($"   {range,-25} {count,5} games ({percentage,6}%)");
+    }
+}
+Console.WriteLine();
+
+// ── Step 3: Sample games per range ─────────────────────────────
+Console.WriteLine("📊 STEP 3: Sample Games per Weight Range (5 per range)");
+Console.WriteLine("─────────────────────────────────────────────────────");
+
+var ranges = new[]
+{
+    ("Light", "\"Weight\" <= 2.0"),
+    ("Medium-Light", "\"Weight\" > 2.0 AND \"Weight\" <= 3.0"),
+    ("Medium", "\"Weight\" > 3.0 AND \"Weight\" <= 4.0"),
+    ("Heavy", "\"Weight\" > 4.0")
 };
 
-foreach (var (key, (table, expected)) in enums)
+foreach (var (rangeName, whereClause) in ranges)
 {
-    Console.WriteLine($"--- {key} ---");
-    Console.WriteLine($"  Expected: {string.Join(", ", expected)}");
+    Console.WriteLine($"\n🎯 {rangeName}:");
+    await using var cmd = new NpgsqlCommand($@"
+        SELECT ""Name"", ""Weight"", ""MinPlayers"", ""MaxPlayers"", ""PlayTime""
+        FROM ""GameTemplates""
+        WHERE ""IsActive"" = true AND {whereClause}
+        ORDER BY ""Weight"", ""Name""
+        LIMIT 5", conn);
     
-    try
+    await using var reader = await cmd.ExecuteReaderAsync();
+    var hasGames = false;
+    while (await reader.ReadAsync())
     {
-        var parts = key.Split('.');
-        var col = parts[1];
-        await using (var c = new NpgsqlCommand($@"
-            SELECT DISTINCT ""{col}"" as val, COUNT(*) as cnt
-            FROM ""{table}""
-            WHERE ""{col}"" IS NOT NULL
-            GROUP BY ""{col}""", conn))
-        await using (var r = await c.ExecuteReaderAsync())
-        {
-            var values = new List<string>();
-            while (await r.ReadAsync())
-            {
-                values.Add($"'{r["val"]}' ({r["cnt"]})");
-            }
-            if (values.Count > 0)
-            {
-                Console.WriteLine($"  DB values: {string.Join(", ", values)}");
-            }
-            else
-            {
-                Console.WriteLine($"  DB values: (empty)");
-            }
-        }
+        hasGames = true;
+        var name = reader.GetString(0);
+        var weight = reader.GetDouble(1);
+        var minPlayers = reader.GetInt32(2);
+        var maxPlayers = reader.GetInt32(3);
+        var playTime = reader.GetInt32(4);
+        Console.WriteLine($"   • {name}");
+        Console.WriteLine($"     Weight: {weight:F2} | Players: {minPlayers}-{maxPlayers} | Time: {playTime}min");
     }
-    catch (Exception ex)
+    
+    if (!hasGames)
     {
-        Console.WriteLine($"  ERROR: {ex.Message}");
+        Console.WriteLine($"   ⚠️  No games in this range");
     }
-    Console.WriteLine();
 }
+
+Console.WriteLine("\n─────────────────────────────────────────────────────");
+
+// ── Step 4: Test WeightRange enum mapping ───────────────────────
+Console.WriteLine("\n📊 STEP 4: Testing WeightRange Enum Mapping");
+Console.WriteLine("─────────────────────────────────────────────────────");
+Console.WriteLine("WeightRange enum values:");
+Console.WriteLine("   1 = Light (≤2.0)");
+Console.WriteLine("   2 = MediumLight (2.0-3.0)");
+Console.WriteLine("   3 = Medium (3.0-4.0)");
+Console.WriteLine("   4 = Heavy (>4.0)");
+Console.WriteLine();
+
+// Test filter for each enum value
+var testCases = new[]
+{
+    (1, "Light", "\"Weight\" <= 2.0"),
+    (2, "MediumLight", "\"Weight\" > 2.0 AND \"Weight\" <= 3.0"),
+    (3, "Medium", "\"Weight\" > 3.0 AND \"Weight\" <= 4.0"),
+    (4, "Heavy", "\"Weight\" > 4.0")
+};
+
+foreach (var (enumValue, enumName, whereClause) in testCases)
+{
+    await using var cmd = new NpgsqlCommand($@"
+        SELECT COUNT(*)
+        FROM ""GameTemplates""
+        WHERE ""IsActive"" = true AND {whereClause}", conn);
+    
+    var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+    Console.WriteLine($"   WeightRange.{enumName} ({enumValue}): {count} games");
+}
+
+Console.WriteLine("\n═══════════════════════════════════════════════════════");
+Console.WriteLine("✅ Weight data analysis complete!");
+Console.WriteLine("═══════════════════════════════════════════════════════");
+Console.WriteLine("\n🔥 Next Steps:");
+Console.WriteLine("   1. Run API: dotnet run --project BoardVerse.API");
+Console.WriteLine("   2. Test endpoint: POST /api/board-games/discovery/solo");
+Console.WriteLine("   3. Test body examples:");
+Console.WriteLine("      { \"weightRanges\": [1] }         → Light games only");
+Console.WriteLine("      { \"weightRanges\": [1,2] }       → Light + Medium-Light");
+Console.WriteLine("      { \"weightRanges\": [3,4] }       → Medium + Heavy");
+Console.WriteLine("      { \"weightRanges\": [1,2,3,4] }   → All ranges");
