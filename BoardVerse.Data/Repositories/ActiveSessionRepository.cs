@@ -543,5 +543,44 @@ namespace BoardVerse.Data.Repositories
                 .Take(limit)
                 .ToListAsync(cancellationToken);
         }
+
+        /// <summary>
+        /// Cải tiến 3 - Play History Influence: Lấy thống kê lịch sử chơi game của user trong khoảng thời gian gần đây.
+        /// Query các sessions mà user đã tham gia (bất kể status), group theo GameTemplateId, đếm số lần chơi.
+        /// </summary>
+        public async Task<IReadOnlyList<(Guid GameTemplateId, string GameName, int PlayCount, DateTime? LastPlayedAt, int TotalMinutesPlayed)>> GetUserPlayHistoryAsync(
+            Guid userId,
+            int daysBack = 30,
+            CancellationToken cancellationToken = default)
+        {
+            var cutoffDate = DateTime.UtcNow.AddDays(-daysBack);
+
+            var history = await _db.ActiveSessions
+                .Where(s => s.Members.Any(m => m.UserId == userId)
+                    && (s.EndedAt ?? s.StartedAt) >= cutoffDate) // Chỉ lấy sessions trong khoảng thời gian
+                .SelectMany(s => s.Members
+                    .Where(m => m.UserId == userId)
+                    .Select(m => new
+                    {
+                        s.GameTemplateId,
+                        GameName = s.GameTemplate.Name,
+                        SessionEndedAt = s.EndedAt,
+                        MinutesPlayed = m.TotalMinutesPlayed
+                    }))
+                .GroupBy(x => new { x.GameTemplateId, x.GameName })
+                .Select(g => new
+                {
+                    g.Key.GameTemplateId,
+                    g.Key.GameName,
+                    PlayCount = g.Count(),
+                    LastPlayedAt = g.Max(x => x.SessionEndedAt),
+                    TotalMinutesPlayed = g.Sum(x => x.MinutesPlayed)
+                })
+                .ToListAsync(cancellationToken);
+
+            return history
+                .Select(h => (h.GameTemplateId, h.GameName, h.PlayCount, h.LastPlayedAt, h.TotalMinutesPlayed))
+                .ToList();
+        }
     }
 }

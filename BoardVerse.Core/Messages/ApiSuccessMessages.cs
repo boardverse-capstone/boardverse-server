@@ -368,9 +368,11 @@ public const string SePayQrPreviewGenerated = "Đã tạo QR test cho payment ac
         public static class Discovery
         {
             public const string SurveyCompleted = "Khảo sát hoàn tất, đây là kết quả gợi ý board game.";
+            public const string GroupSurveyCompleted = "Gợi ý board game cho nhóm hoàn tất.";
+            public const string SoloPersonalizedCompleted = "Gợi ý cá nhân hóa hoàn tất dựa trên sở thích của bạn.";
             public const string SavedGamesRetrieved = "Lấy danh sách board game đã lưu thành công.";
             public const string GameSaved = "Đã lưu board game thành công.";
-            public const string GameUnsaved = "Đã bỏ lưu board game.";
+            public const string GameUnsaved = "Đá bỏ lưu board game.";
         }
     }
 }

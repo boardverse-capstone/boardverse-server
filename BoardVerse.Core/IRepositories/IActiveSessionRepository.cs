@@ -92,5 +92,18 @@ namespace BoardVerse.Core.IRepositories
         /// (Host, member, hoặc staff check-in).
         /// </summary>
         Task<bool> IsUserSessionParticipantAsync(Guid sessionId, Guid userId, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Cải tiến 3 - Play History Influence: Lấy thống kê lịch sử chơi game của user trong khoảng thời gian gần đây.
+        /// Dùng để tính penalty cho games đã chơi nhiều lần.
+        /// </summary>
+        /// <param name="userId">ID của user cần query.</param>
+        /// <param name="daysBack">Số ngày nhìn lại từ hiện tại (mặc định 30 ngày).</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>Danh sách game đã chơi và số lần chơi.</returns>
+        Task<IReadOnlyList<(Guid GameTemplateId, string GameName, int PlayCount, DateTime? LastPlayedAt, int TotalMinutesPlayed)>> GetUserPlayHistoryAsync(
+            Guid userId, 
+            int daysBack = 30, 
+            CancellationToken cancellationToken = default);
     }
 }

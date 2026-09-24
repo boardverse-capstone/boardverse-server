@@ -26,6 +26,8 @@ namespace BoardVerse.Data.Configurations
             builder.Property(g => g.BggId);
             builder.Property(g => g.BggSyncedAt);
             builder.HasIndex(g => g.BggId).IsUnique().HasFilter("\"BggId\" IS NOT NULL");
+            builder.Property(g => g.Weight).HasPrecision(4, 2);
+            builder.HasIndex(g => g.Weight).HasFilter("\"Weight\" IS NOT NULL");
             builder.Property(g => g.CreatedAt).IsRequired();
             builder.Property(g => g.UpdatedAt).IsRequired();
 
@@ -44,6 +46,7 @@ namespace BoardVerse.Data.Configurations
                     MinPlayers = 3,
                     MaxPlayers = 4,
                     PlayTime = 60,
+                    Weight = 2.33,
                     CreatedAt = seedDate,
                     UpdatedAt = seedDate
                 },
@@ -56,6 +59,7 @@ namespace BoardVerse.Data.Configurations
                     MinPlayers = 2,
                     MaxPlayers = 8,
                     PlayTime = 120,
+                    Weight = 1.81,
                     CreatedAt = seedDate,
                     UpdatedAt = seedDate
                 },
@@ -68,6 +72,7 @@ namespace BoardVerse.Data.Configurations
                     MinPlayers = 2,
                     MaxPlayers = 10,
                     PlayTime = 30,
+                    Weight = 1.02,
                     CreatedAt = seedDate,
                     UpdatedAt = seedDate
                 },
@@ -83,6 +88,7 @@ namespace BoardVerse.Data.Configurations
                     IsTournamentSupported = true,
                     TournamentMaxScorePerPlayer = 15,
                     TournamentMinPlayersPerTable = 2,
+                    Weight = 2.11,
                     CreatedAt = seedDate,
                     UpdatedAt = seedDate
                 },
@@ -97,6 +103,7 @@ namespace BoardVerse.Data.Configurations
                     MaxPlayers = 20,
                     PlayTime = 45,
                     IsActive = true,
+                    Weight = 1.38,
                     CreatedAt = seedDate,
                     UpdatedAt = seedDate
                 },
@@ -110,6 +117,7 @@ namespace BoardVerse.Data.Configurations
                     MaxPlayers = 10,
                     PlayTime = 30,
                     IsActive = true,
+                    Weight = 1.62,
                     CreatedAt = seedDate,
                     UpdatedAt = seedDate
                 },
@@ -123,6 +131,7 @@ namespace BoardVerse.Data.Configurations
                     MaxPlayers = 8,
                     PlayTime = 15,
                     IsActive = true,
+                    Weight = 1.24,
                     CreatedAt = seedDate,
                     UpdatedAt = seedDate
                 },
@@ -136,6 +145,7 @@ namespace BoardVerse.Data.Configurations
                     MaxPlayers = 4,
                     PlayTime = 45,
                     IsActive = true,
+                    Weight = 2.56,
                     CreatedAt = seedDate,
                     UpdatedAt = seedDate
                 }

@@ -13,6 +13,12 @@ public class SavedBoardGameDto
     public int MinPlayers { get; set; }
     public int MaxPlayers { get; set; }
     public int PlayTimeMinutes { get; set; }
+
+    /// <summary>
+    /// BGG Complexity Weight (1.0 – 5.0). Null nếu chưa có dữ liệu BGG.
+    /// </summary>
+    public double? Weight { get; set; }
+
     public List<string> Categories { get; set; } = [];
     public DateTime SavedAt { get; set; }
     public bool HasOpenLobby { get; set; }

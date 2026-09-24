@@ -3627,6 +3627,15 @@ public static class Settlement
         public const string PlayerCountInvalid =
             "Số người chơi phải từ 1 đến 5.";
 
+        public const string GroupMembersRequired =
+            "Nhóm phải có ít nhất 1 thành viên.";
+
+        public const string GroupTooManySubGroups =
+            "Nhóm không được vượt quá 4 sub-group.";
+
+        public static string GroupPlayerCountInvalid(int count) =>
+            $"Tổng số người chơi trong nhóm (sum Members[*].PlayerCount) phải từ 1 đến 20. Hiện tại: {count}.";
+
         public const string SurveyNoResults =
             "Không tìm thấy board game nào phù hợp với tiêu chí của bạn. Thử điều chỉnh số người hoặc bỏ bớt bộ lọc nhé!";
 
