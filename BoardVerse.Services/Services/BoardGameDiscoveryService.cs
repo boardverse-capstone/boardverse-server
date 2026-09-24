@@ -74,6 +74,17 @@ public class BoardGameDiscoveryService : IBoardGameDiscoveryService
             ? (await _saveRepository.GetSavedGameTemplateIdsAsync(userId.Value, cancellationToken)).ToHashSet()
             : new HashSet<Guid>();
 
+        // ── NEW: Get play history for penalty (only if user is logged in) ──
+        Dictionary<Guid, int> playHistoryDict = new();
+        if (userId.HasValue)
+        {
+            var playHistory = await _activeSessionRepository.GetUserPlayHistoryAsync(
+                userId.Value,
+                daysBack: 30,
+                cancellationToken);
+            playHistoryDict = playHistory.ToDictionary(h => h.GameTemplateId, h => h.PlayCount);
+        }
+
         IReadOnlyList<Guid>? topGameIds = games.Count > 0
             ? games.Select(g => g.Id).ToList()
             : null;
@@ -88,10 +99,18 @@ public class BoardGameDiscoveryService : IBoardGameDiscoveryService
                 request,
                 effectivePlayerCount,
                 userPref);  // ← Pass user preference
+            
+            // Apply play history penalty (only for logged-in users)
+            double playHistoryPenalty = playHistoryDict.ContainsKey(game.Id)
+                ? CalculatePlayHistoryPenalty(game.Id, playHistoryDict)
+                : 0;
+            
+            double finalScore = Math.Max(0, Math.Min(score + playHistoryPenalty, 100));
+            
             return new
             {
                 Game = game,
-                Score = score
+                Score = finalScore
             };
         })
         .OrderByDescending(x => x.Score)
