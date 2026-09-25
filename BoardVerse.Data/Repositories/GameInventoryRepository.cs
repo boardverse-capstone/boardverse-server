@@ -58,25 +58,24 @@ public class GameInventoryRepository : IGameInventoryRepository
 
     public async Task EnsureRowAsync(Guid cafeId, Guid gameId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime, int totalCopies, CancellationToken cancellationToken = default)
     {
-        var existing = await GetAsync(cafeId, gameId, playDate, scheduledStartTime, scheduledEndTime);
-        if (existing == null)
-        {
-            existing = new GameInventory
-            {
-                Id = Guid.NewGuid(),
-                CafeId = cafeId,
-                GameId = gameId,
-                PlayDate = playDate,
-                ScheduledStartTime = scheduledStartTime,
-                ScheduledEndTime = scheduledEndTime,
-                TotalCopies = totalCopies,
-                HeldCopies = 0,
-                InUseCopies = 0
-                // xmin (concurrency token) is PostgreSQL system column — auto-managed, no manual init needed
-            };
-            _db.GameInventories.Add(existing);
-            await SaveChangesAsync();
-        }
+        // FIX 2026-09-25: chống TOCTOU race vs. concurrent EnsureRowAsync callers.
+        // Cùng pattern với SeatInventoryRepository.EnsureRowAsync: SELECT-then-INSERT
+        // dễ sinh duplicate key 23505 trên UX_GameInventories_Cafe_Game_PlayDate_Times
+        // khi 2 request đụng cùng (cafe, game, playDate, times). Postgres xử lý qua
+        // ON CONFLICT, không cần check trước.
+        // Lưu ý: ScheduledStartTime/EndTime là TimeOnly? (nullable trong entity) nhưng
+        // các production caller đều truyền giá trị non-null — UPSERT vẫn đúng vì
+        // ON CONFLICT dùng IS NOT DISTINCT FROM (NULL coi là bằng nhau cho matching).
+        var now = DateTime.UtcNow;
+        await _db.Database.ExecuteSqlInterpolatedAsync($@"
+            INSERT INTO ""GameInventories""
+                (""Id"", ""CafeId"", ""GameId"", ""PlayDate"", ""ScheduledStartTime"", ""ScheduledEndTime"",
+                 ""TotalCopies"", ""HeldCopies"", ""InUseCopies"", ""CreatedAt"", ""UpdatedAt"")
+            VALUES
+                ({Guid.NewGuid()}, {cafeId}, {gameId}, {playDate}, {scheduledStartTime}, {scheduledEndTime},
+                 {totalCopies}, 0, 0, {now}, {now})
+            ON CONFLICT (""CafeId"", ""GameId"", ""PlayDate"", ""ScheduledStartTime"", ""ScheduledEndTime"") DO NOTHING;
+        ", cancellationToken);
     }
 
     public Task UpdateAsync(GameInventory gameInventory, CancellationToken cancellationToken = default)

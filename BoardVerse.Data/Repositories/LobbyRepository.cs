@@ -514,8 +514,16 @@ namespace BoardVerse.Data.Repositories
 
         public Task UpdateAsync(Lobby lobby, CancellationToken cancellationToken = default)
         {
+            // Only set UpdatedAt — do NOT call _db.Lobbies.Update(lobby).
+            // The entity is already tracked by EF Core after AddAsync + SaveChangesAsync.
+            // Calling Update() here causes the entity's EntityState to flip to Modified
+            // after the first SaveChangesAsync, but before the second SaveChangesAsync batch
+            // is executed. EF Core's batch logic may then mis-generate the UPDATE statement
+            // as affecting 0 rows (DbUpdateConcurrencyException with "expected 1 row, got 0"),
+            // especially when the entity is already in the database from the first SaveChangesAsync.
+            // EF Core's change tracker already knows the entity is modified — no explicit
+            // Update() call needed for tracked entities.
             lobby.UpdatedAt = DateTime.UtcNow;
-            _db.Lobbies.Update(lobby);
             return Task.CompletedTask;
         }
 

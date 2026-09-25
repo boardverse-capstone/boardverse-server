@@ -72,3 +72,4 @@ docs/**/*.drawio
 docs/test/XlsxGen/
 \encoding-backups
 temp_fix_migration/
+sql/

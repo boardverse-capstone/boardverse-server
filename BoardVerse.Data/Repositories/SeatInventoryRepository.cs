@@ -64,24 +64,26 @@ public class SeatInventoryRepository : ISeatInventoryRepository
 
     public async Task EnsureRowAsync(Guid cafeId, DateOnly playDate, TimeOnly scheduledStartTime, TimeOnly scheduledEndTime, int totalSeats, CancellationToken cancellationToken = default)
     {
-        var existing = await GetAsync(cafeId, playDate, scheduledStartTime, scheduledEndTime);
-        if (existing == null)
-        {
-            existing = new SeatInventory
-            {
-                Id = Guid.NewGuid(),
-                CafeId = cafeId,
-                PlayDate = playDate,
-                ScheduledStartTime = scheduledStartTime,
-                ScheduledEndTime = scheduledEndTime,
-                TotalSeats = totalSeats,
-                HeldSeats = 0,
-                InUseSeats = 0
-                // xmin (concurrency token) is PostgreSQL system column — auto-managed, no manual init needed
-            };
-            await AddAsync(existing);
-            await SaveChangesAsync();
-        }
+        // FIX 2026-09-25: chống TOCTOU race vs. concurrent EnsureRowAsync callers.
+        // Bug cũ: SELECT (GetAsync) → null → INSERT (SaveChangesAsync). Hai request
+        // cùng (CafeId, PlayDate, ScheduledStartTime, ScheduledEndTime) chạy song song
+        // đều lọt qua SELECT, đều INSERT, cái sau nổ PostgresException 23505
+        // vi phạm UX_SeatInventories_Cafe_PlayDate_Times. Postgres xử lý conflict ở
+        // DB level qua ON CONFLICT, nên an toàn dù 100 request đụng cùng khung giờ.
+        var now = DateTime.UtcNow;
+        await _db.Database.ExecuteSqlInterpolatedAsync($@"
+            INSERT INTO ""SeatInventories""
+                (""Id"", ""CafeId"", ""PlayDate"", ""ScheduledStartTime"", ""ScheduledEndTime"",
+                 ""TotalSeats"", ""HeldSeats"", ""InUseSeats"", ""CreatedAt"", ""UpdatedAt"")
+            VALUES
+                ({Guid.NewGuid()}, {cafeId}, {playDate}, {scheduledStartTime}, {scheduledEndTime},
+                 {totalSeats}, 0, 0, {now}, {now})
+            ON CONFLICT (""CafeId"", ""PlayDate"", ""ScheduledStartTime"", ""ScheduledEndTime"") DO NOTHING;
+        ", cancellationToken);
+
+        // Caller không dùng giá trị trả về; transaction tiếp theo sẽ load row qua
+        // GetForUpdateAsync (SELECT ... FOR UPDATE) để đảm bảo thấy row dù bất kỳ
+        // request nào (kể cả request khác vừa insert) đã tạo.
     }
 
     public Task AddAsync(SeatInventory seatInventory, CancellationToken cancellationToken = default)
