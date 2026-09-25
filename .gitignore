@@ -30,6 +30,9 @@ BoardVerse.Tests/appsettings.Testing.json
 *.trx
 *.pyc
 *.xml
+
+# Local database tools (contains production credentials & seed scripts)
+CheckDb/
 # Firebase service account JSON - contains private keys, NEVER commit
 **/*firebase-adminsdk-*.json
 **/*-firebase-*.json
