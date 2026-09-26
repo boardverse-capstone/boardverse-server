@@ -10,6 +10,7 @@ using BoardVerse.Core.Messages;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.IServices;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace BoardVerse.Services.Services
 {
@@ -23,6 +24,7 @@ namespace BoardVerse.Services.Services
         private readonly IPushNotificationService _pushNotificationService;
         private readonly ILobbyRepository _lobbyRepository;
         private readonly IReservationRepository _reservationRepository;
+        private readonly IActiveSessionRepository _activeSessionRepository;
         private readonly ILogger<CafeService> _logger;
 
         public CafeService(
@@ -34,6 +36,7 @@ namespace BoardVerse.Services.Services
             IPushNotificationService pushNotificationService,
             ILobbyRepository lobbyRepository,
             IReservationRepository reservationRepository,
+            IActiveSessionRepository activeSessionRepository,
             ILogger<CafeService> logger)
         {
             _cafeRepository = cafeRepository;
@@ -44,6 +47,7 @@ namespace BoardVerse.Services.Services
             _pushNotificationService = pushNotificationService;
             _lobbyRepository = lobbyRepository;
             _reservationRepository = reservationRepository;
+            _activeSessionRepository = activeSessionRepository;
             _logger = logger;
         }
 
@@ -885,7 +889,9 @@ namespace BoardVerse.Services.Services
 
         public async Task<AdminCafeOperationalStatusResultDto> SetOperationalStatusByAdminAsync(
             Guid cafeId,
-            AdminSetCafeOperationalStatusRequestDto request, CancellationToken cancellationToken = default)
+            AdminSetCafeOperationalStatusRequestDto request,
+            Guid adminId,
+            CancellationToken cancellationToken = default)
         {
             if (!CafePartnerStatusMapper.TryParseApiOperationalStatus(request.Status, out var status))
             {
@@ -898,14 +904,47 @@ namespace BoardVerse.Services.Services
                 throw new BadRequestException(ApiErrorMessages.CafePartner.BanReasonRequired);
             }
 
-            var cafe = await _cafeRepository.GetByIdAsync(cafeId);
+            var cafe = await _cafeRepository.GetByIdAsync(cafeId, cancellationToken);
             if (cafe == null)
             {
                 throw new NotFoundException(ApiErrorMessages.Cafe.CafeRecordNotFound(cafeId));
             }
 
             var utcNow = DateTime.UtcNow;
+            var previousStatus = cafe.PartnerOperationalStatus;
             var reason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
+
+            // Guard tương đương Manager path: rời ACTIVE cần đảm bảo không còn phiên bàn đang chạy.
+            // Admin cũng phải tuân thủ để tránh trạng thái "INACTIVE nhưng vẫn còn session active".
+            if (previousStatus == CafePartnerOperationalStatus.Active
+                && status != CafePartnerOperationalStatus.Active)
+            {
+                var activeSessions = await _activeSessionRepository.GetActiveSessionsAsync(cafeId, null, cancellationToken);
+                if (activeSessions.Count > 0)
+                {
+                    _logger.LogWarning(
+                        "Admin {AdminId} blocked from changing cafe {CafeId} status from ACTIVE — {Count} active session(s) running.",
+                        adminId, cafeId, activeSessions.Count);
+                    throw new ConflictException(ApiErrorMessages.CafePartner.CannotChangeOperationalStatusWithActiveSessions);
+                }
+            }
+
+            // No-op: status hiện tại = target. Vẫn audit để trace idempotent retry từ admin UI.
+            if (previousStatus == status)
+            {
+                cafe.UpdatedAt = utcNow;
+                await _cafeRepository.SaveChangesAsync(cancellationToken);
+                await WriteAdminStatusChangeAuditAsync(
+                    cafe, adminId, previousStatus, status, reason, isNoOp: true, cancellationToken);
+
+                return new AdminCafeOperationalStatusResultDto
+                {
+                    CafeId = cafe.Id,
+                    OperationalStatus = CafePartnerStatusMapper.ToApiOperationalStatus(status),
+                    IsActive = cafe.IsActive,
+                    Reason = cafe.PartnerOperationalStatusReason
+                };
+            }
 
             cafe.PartnerOperationalStatus = status;
             cafe.IsActive = status == CafePartnerOperationalStatus.Active;
@@ -916,7 +955,10 @@ namespace BoardVerse.Services.Services
             cafe.PartnerOperationalStatusChangedAt = utcNow;
             cafe.UpdatedAt = utcNow;
 
-            await _cafeRepository.SaveChangesAsync();
+            await _cafeRepository.SaveChangesAsync(cancellationToken);
+
+            await WriteAdminStatusChangeAuditAsync(
+                cafe, adminId, previousStatus, status, reason, isNoOp: false, cancellationToken);
 
             return new AdminCafeOperationalStatusResultDto
             {
@@ -925,6 +967,47 @@ namespace BoardVerse.Services.Services
                 IsActive = cafe.IsActive,
                 Reason = cafe.PartnerOperationalStatusReason
             };
+        }
+
+        /// <summary>
+        /// Audit log cho admin cafe-status transition (mirror Manager flow ở CafePartnerApplicationService).
+        /// </summary>
+        private async Task WriteAdminStatusChangeAuditAsync(
+            Cafe cafe,
+            Guid adminId,
+            CafePartnerOperationalStatus? previous,
+            CafePartnerOperationalStatus next,
+            string? reason,
+            bool isNoOp,
+            CancellationToken cancellationToken)
+        {
+            var transition = isNoOp
+                ? $"no-op ({previous} → {next})"
+                : $"{previous} → {next}";
+
+            var entry = new PlayerActionHistory
+            {
+                Id = Guid.NewGuid(),
+                UserId = cafe.ManagerId,
+                ActionType = AdminActionType.CafeOperationalStatusChanged,
+                ActionBy = adminId,
+                Reason = string.IsNullOrWhiteSpace(reason)
+                    ? $"Admin café operational-status {transition}"
+                    : $"Admin café operational-status {transition} — lý do: {reason}",
+                Metadata = JsonSerializer.Serialize(new
+                {
+                    cafeId = cafe.Id,
+                    cafeName = cafe.Name,
+                    previousStatus = previous?.ToString(),
+                    nextStatus = next.ToString(),
+                    isNoOp,
+                    reason,
+                    changedAt = DateTime.UtcNow
+                }),
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _cafeRepository.AddPlayerActionHistoryAsync(entry, cancellationToken);
         }
 
         public async Task UpdateSePayConfigAsync(Guid cafeId, Guid managerId, UpdateSePayConfigRequestDto dto)

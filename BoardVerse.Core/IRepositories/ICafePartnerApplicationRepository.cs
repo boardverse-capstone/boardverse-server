@@ -15,6 +15,14 @@ namespace BoardVerse.Core.IRepositories
         Task<bool> HasSevereDuplicateAsync(string businessLicense, string normalizedAddress, Guid? excludeApplicationId = null, CancellationToken cancellationToken = default);
         Task<PaginatedResponse<CafePartnerApplication>> GetPagedAsync(AdminCafePartnerApplicationQueryDto query, CancellationToken cancellationToken = default);
         Task AddCafeAsync(Cafe cafe, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Ghi một entry vào <c>PlayerActionHistory</c> cho audit log
+        /// (BR-RISK-05). Manager operational-status transitions dùng
+        /// <see cref="AdminActionType.CafeOperationalStatusChanged"/>.
+        /// </summary>
+        Task AddPlayerActionHistoryAsync(PlayerActionHistory entry, CancellationToken cancellationToken = default);
+
         Task SaveChangesAsync(CancellationToken cancellationToken = default);
     }
 }

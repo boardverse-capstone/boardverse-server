@@ -184,6 +184,7 @@ public const string SePayQrPreviewGenerated = "Đã tạo QR test cho payment ac
             public const string CafeReopened = "Mở lại quán thành công.";
             public const string CafePaused = "Tạm dừng quán thành công.";
             public const string CafeClosedPermanently = "Đóng quán vĩnh viễn thành công.";
+            public const string OperationalStatusUpdated = "Cập nhật trạng thái vận hành quán thành công.";
         }
 
         public static class AdminUsers

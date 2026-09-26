@@ -1467,6 +1467,34 @@ public const string SePayBankInfoIncomplete =
  public const string CafeBannedBlocker =
  "Quán đã bị quản trị viên cấm hoạt động.";
 
+ public const string ManagerCannotSetBannedStatus =
+ "Bạn không thể tự đặt trạng thái BANNED - chỉ quản trị viên mới có quyền này.";
+
+ public const string ManagerCannotSetOperationalStatusFromBanned =
+ "Quán đang bị quản trị viên cấm hoạt động. Vui lòng liên hệ Admin để được hỗ trợ.";
+
+ public const string CannotChangeOperationalStatusWithActiveSessions =
+ "Không thể chuyển trạng thái vận hành khi quán còn phiên bàn đang chạy.";
+
+ public const string CannotPauseFromNonActiveCafe =
+ "Chỉ có thể chuyển quán sang DATA_BLANK khi đang ở trạng thái ACTIVE. " +
+ "Quán INACTIVE cần dùng POST /api/manager/cafes/me/reopen trước.";
+
+ public const string OnlyDataBlankOrActiveCanBeClosed =
+ "Chỉ quán DATA_BLANK hoặc ACTIVE mới có thể đóng vĩnh viễn (INACTIVE). " +
+ "Quán BANNED hoặc INACTIVE không thể đóng lại.";
+
+ public const string ReasonNotAllowedForActiveStatus =
+ "Không thể gửi 'reason' khi chuyển sang trạng thái ACTIVE. " +
+ "Trường này chỉ dùng cho DATA_BLANK và INACTIVE.";
+
+ public const string ReasonNotAllowedForDataBlankStatus =
+ "Không thể gửi 'reason' khi chuyển sang trạng thái DATA_BLANK. " +
+ "Trường này chỉ dùng cho INACTIVE.";
+
+ public const string InvalidReasonFormat =
+ "Lý do chứa ký tự điều khiển không hợp lệ. Vui lòng chỉ dùng chữ, số và các ký tự phổ biến.";
+
  public static string ActivationRequirementsNotMet(IReadOnlyCollection<string> blockers) =>
  "Chưa đủ điều kiện kích hoạt: " + string.Join("; ", blockers);
  }

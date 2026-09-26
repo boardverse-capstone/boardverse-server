@@ -343,7 +343,7 @@ namespace BoardVerse.Services.Services
                             : ApiErrorMessages.CafePartner.OnlyDataBlankCafesCanBeActivated);
             }
 
-            return await SetCafeActiveAsync(cafe, application);
+            return await SetCafeActiveAsync(cafe, application, managerUserId, cancellationToken);
         }
 
         public async Task<ManagerCafeProfileResponseDto> ReopenAsync(Guid managerUserId, CancellationToken cancellationToken = default)
@@ -359,13 +359,16 @@ namespace BoardVerse.Services.Services
                         : ApiErrorMessages.CafePartner.OnlyInactiveCafesCanBeReopened);
             }
 
-            return await SetCafeActiveAsync(cafe, application);
+            return await SetCafeActiveAsync(cafe, application, managerUserId, cancellationToken);
         }
 
         private async Task<ManagerCafeProfileResponseDto> SetCafeActiveAsync(
             Cafe cafe,
-            CafePartnerApplication application)
+            CafePartnerApplication application,
+            Guid managerUserId,
+            CancellationToken cancellationToken)
         {
+            var previousStatus = cafe.PartnerOperationalStatus;
             var blockers = GetActivationBlockers(cafe);
             if (blockers.Count > 0)
             {
@@ -377,16 +380,21 @@ namespace BoardVerse.Services.Services
             if (cafe.Tables == null || cafe.Tables.Count == 0)
             {
                 var defaultNames = CafePartnerTableLayoutHelper.GenerateDefaultNames(CafePartnerActivationRules.MinPublicTables);
-                await _cafeRepository.SyncCafeTablesAsync(cafe.Id, defaultNames);
+                await _cafeRepository.SyncCafeTablesAsync(cafe.Id, defaultNames, cancellationToken);
             }
 
+            var utcNow = DateTime.UtcNow;
             cafe.IsActive = true;
             cafe.PartnerOperationalStatus = CafePartnerOperationalStatus.Active;
             cafe.PartnerOperationalStatusReason = null;
-            cafe.PartnerOperationalStatusChangedAt = DateTime.UtcNow;
-            cafe.UpdatedAt = DateTime.UtcNow;
+            cafe.PartnerOperationalStatusChangedAt = utcNow;
+            cafe.UpdatedAt = utcNow;
 
-            await _cafeRepository.SaveChangesAsync();
+            await _cafeRepository.SaveChangesAsync(cancellationToken);
+
+            await WriteStatusChangeAuditAsync(
+                cafe, managerUserId, previousStatus, CafePartnerOperationalStatus.Active,
+                reason: null, isNoOp: false, cancellationToken);
 
             await SendEmailSafeAsync(
                 application.RepresentativeEmail,
@@ -410,20 +418,16 @@ namespace BoardVerse.Services.Services
                             : ApiErrorMessages.CafePartner.OnlyActiveCafesCanBePaused);
             }
 
-            var activeSessions = await _activeSessionRepository.GetActiveSessionsAsync(cafe.Id, null);
-            if (activeSessions.Count > 0)
-            {
-                throw new CafePartnerApplicationInvalidStatusException(
-                    ApiErrorMessages.CafePartner.CannotPauseWithActiveSessions);
-            }
+            await EnsureNoActiveSessionsAsync(cafe.Id, cancellationToken);
 
-            cafe.IsActive = false;
-            cafe.PartnerOperationalStatus = CafePartnerOperationalStatus.DataBlank;
-            cafe.PartnerOperationalStatusReason = null;
-            cafe.PartnerOperationalStatusChangedAt = DateTime.UtcNow;
-            cafe.UpdatedAt = DateTime.UtcNow;
+            await ApplyStatusTransitionAsync(
+                cafe,
+                managerUserId,
+                previous: CafePartnerOperationalStatus.Active,
+                next: CafePartnerOperationalStatus.DataBlank,
+                reason: null,
+                cancellationToken);
 
-            await _cafeRepository.SaveChangesAsync();
             return MapManagerCafeProfile(cafe.PartnerApplication!, cafe);
         }
 
@@ -439,22 +443,340 @@ namespace BoardVerse.Services.Services
                         : ApiErrorMessages.CafePartner.CafePermanentlyClosed);
             }
 
-            var activeSessions = await _activeSessionRepository.GetActiveSessionsAsync(cafe.Id, null);
-            if (activeSessions.Count > 0)
+            await EnsureNoActiveSessionsAsync(cafe.Id, cancellationToken);
+
+            await ApplyStatusTransitionAsync(
+                cafe,
+                managerUserId,
+                previous: CafePartnerOperationalStatus.Active,
+                next: CafePartnerOperationalStatus.Inactive,
+                reason: ApiErrorMessages.CafePartner.ClosedByManagerReason,
+                cancellationToken);
+
+            return MapManagerCafeProfile(cafe.PartnerApplication!, cafe);
+        }
+
+        public async Task<ManagerCafeProfileResponseDto> ManagerSetOperationalStatusAsync(
+            Guid managerUserId,
+            ManagerSetCafeOperationalStatusRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            if (!CafePartnerStatusMapper.TryParseApiOperationalStatus(request.Status, out var targetStatus))
             {
-                throw new CafePartnerApplicationInvalidStatusException(
-                    ApiErrorMessages.CafePartner.CannotCloseWithActiveBookings);
+                throw new BadRequestException(ApiErrorMessages.CafePartner.InvalidOperationalStatus);
             }
 
+            // Manager cố set BANNED — hành vi admin-only (403 Forbidden), không phải input lỗi.
+            if (targetStatus == CafePartnerOperationalStatus.Banned)
+            {
+                _logger.LogWarning(
+                    "Manager {ManagerUserId} attempted to PATCH cafe operational-status to BANNED — blocked.",
+                    managerUserId);
+                await WriteBlockedAttemptAuditAsync(
+                    managerUserId,
+                    cafeId: null,
+                    currentStatus: null,
+                    targetStatus: targetStatus,
+                    reason: request.Reason,
+                    cancellationToken);
+                throw new ForbiddenException(ApiErrorMessages.CafePartner.ManagerCannotSetBannedStatus);
+            }
+
+            var cafe = await GetPartnerCafeForManagerOrThrowAsync(managerUserId);
+
+            var currentStatus = cafe.PartnerOperationalStatus
+                ?? throw new CafePartnerApplicationInvalidStatusException(
+                    ApiErrorMessages.CafePartner.LinkedCafeMissing);
+
+            // Cafe đang BANNED — log + chặn (4.7).
+            if (currentStatus == CafePartnerOperationalStatus.Banned)
+            {
+                _logger.LogWarning(
+                    "Manager {ManagerUserId} attempted to change status of BANNED cafe {CafeId} to {Target} — blocked.",
+                    managerUserId, cafe.Id, targetStatus);
+                await WriteBlockedAttemptAuditAsync(
+                    managerUserId, cafeId: cafe.Id, currentStatus: currentStatus, targetStatus: targetStatus,
+                    reason: request.Reason, cancellationToken);
+                throw new CafePartnerApplicationInvalidStatusException(
+                    ApiErrorMessages.CafePartner.ManagerCannotSetOperationalStatusFromBanned);
+            }
+
+            // State guards (mirrors legacy endpoint rules, fix bug 4.2).
+            EnsureManagerCanTransition(currentStatus, targetStatus);
+
+            // Reason validation — tùy theo target, có thể bị reject hoặc bị trim.
+            var reason = ValidateAndNormalizeReason(request.Reason, targetStatus);
+
+            // No-op: status trùng target. Vẫn update timestamp + audit để trace idempotent retry.
+            if (currentStatus == targetStatus)
+            {
+                cafe.UpdatedAt = DateTime.UtcNow;
+                await _cafeRepository.SaveChangesAsync(cancellationToken);
+                await WriteStatusChangeAuditAsync(
+                    cafe, managerUserId, currentStatus, targetStatus, reason, isNoOp: true, cancellationToken);
+                _logger.LogInformation(
+                    "Manager {ManagerUserId} no-op PATCH /operational-status (status already = {Status}).",
+                    managerUserId, currentStatus);
+                return MapManagerCafeProfile(cafe.PartnerApplication!, cafe);
+            }
+
+            // Rời ACTIVE (qua bất kỳ target nào trừ ACTIVE) cần check không còn phiên đang chạy.
+            if (currentStatus == CafePartnerOperationalStatus.Active)
+            {
+                await EnsureNoActiveSessionsAsync(cafe.Id, cancellationToken);
+            }
+
+            switch (targetStatus)
+            {
+                case CafePartnerOperationalStatus.Active:
+                    return await SetCafeActiveAsync(cafe, cafe.PartnerApplication!, managerUserId, cancellationToken);
+
+                case CafePartnerOperationalStatus.DataBlank:
+                    await ApplyStatusTransitionAsync(
+                        cafe, managerUserId, currentStatus, targetStatus, reason: null, cancellationToken);
+                    return MapManagerCafeProfile(cafe.PartnerApplication!, cafe);
+
+                case CafePartnerOperationalStatus.Inactive:
+                    await ApplyStatusTransitionAsync(
+                        cafe, managerUserId, currentStatus, targetStatus,
+                        reason ?? ApiErrorMessages.CafePartner.ClosedByManagerReason,
+                        cancellationToken);
+                    return MapManagerCafeProfile(cafe.PartnerApplication!, cafe);
+
+                default:
+                    throw new BadRequestException(ApiErrorMessages.CafePartner.InvalidOperationalStatus);
+            }
+        }
+
+        /// <summary>
+        /// Apply status transition (DATA_BLANK hoặc INACTIVE), update timestamps,
+        /// ghi audit log rồi lưu DB. Active path dùng <see cref="SetCafeActiveAsync"/>.
+        /// </summary>
+        private async Task ApplyStatusTransitionAsync(
+            Cafe cafe,
+            Guid managerUserId,
+            CafePartnerOperationalStatus previous,
+            CafePartnerOperationalStatus next,
+            string? reason,
+            CancellationToken cancellationToken)
+        {
             var utcNow = DateTime.UtcNow;
             cafe.IsActive = false;
-            cafe.PartnerOperationalStatus = CafePartnerOperationalStatus.Inactive;
-            cafe.PartnerOperationalStatusReason = ApiErrorMessages.CafePartner.ClosedByManagerReason;
+            cafe.PartnerOperationalStatus = next;
+            cafe.PartnerOperationalStatusReason = next == CafePartnerOperationalStatus.Inactive ? reason : null;
             cafe.PartnerOperationalStatusChangedAt = utcNow;
             cafe.UpdatedAt = utcNow;
 
-            await _cafeRepository.SaveChangesAsync();
-            return MapManagerCafeProfile(cafe.PartnerApplication!, cafe);
+            await _cafeRepository.SaveChangesAsync(cancellationToken);
+
+            await WriteStatusChangeAuditAsync(
+                cafe, managerUserId, previous, next, reason, isNoOp: false, cancellationToken);
+        }
+
+        /// <summary>
+        /// State guard thống nhất cho Manager — đảm bảo PATCH /operational-status
+        /// và 4 legacy endpoint cùng tuân thủ một tập rule.
+        /// </summary>
+        private static void EnsureManagerCanTransition(
+            CafePartnerOperationalStatus current,
+            CafePartnerOperationalStatus target)
+        {
+            // Banned chỉ Admin đặt → không xét ở đây (đã chặn trước bằng ForbiddenException).
+            var allowed = (current, target) switch
+            {
+                // Activate: DataBlank hoặc Inactive (legacy: /activate DataBlank→Active, /reopen Inactive→Active).
+                (CafePartnerOperationalStatus.DataBlank, CafePartnerOperationalStatus.Active) => true,
+                (CafePartnerOperationalStatus.Inactive, CafePartnerOperationalStatus.Active) => true,
+
+                // Pause: Active → DataBlank (legacy: /deactivate). 4.2 fix: KHÔNG cho phép Inactive→DataBlank.
+                (CafePartnerOperationalStatus.Active, CafePartnerOperationalStatus.DataBlank) => true,
+
+                // Close: DataBlank|Active → Inactive (legacy: /close).
+                (CafePartnerOperationalStatus.DataBlank, CafePartnerOperationalStatus.Inactive) => true,
+                (CafePartnerOperationalStatus.Active, CafePartnerOperationalStatus.Inactive) => true,
+
+                _ => false
+            };
+
+            if (!allowed)
+            {
+                throw current switch
+                {
+                    CafePartnerOperationalStatus.Active
+                        => new CafePartnerApplicationInvalidStatusException(
+                            ApiErrorMessages.CafePartner.OnlyActiveCafesCanBePaused),
+
+                    // Inactive (cannot pause via PATCH DATA_BLANK — fix 4.2, phải dùng /reopen).
+                    CafePartnerOperationalStatus.Inactive when target == CafePartnerOperationalStatus.DataBlank
+                        => new CafePartnerApplicationInvalidStatusException(
+                            ApiErrorMessages.CafePartner.CannotPauseFromNonActiveCafe),
+
+                    // DataBlank đã là điểm khởi đầu — không thể close nếu muốn lặp lại (INACTIVE).
+                    CafePartnerOperationalStatus.DataBlank when target == CafePartnerOperationalStatus.DataBlank
+                        => new CafePartnerApplicationInvalidStatusException(
+                            ApiErrorMessages.CafePartner.OnlyDataBlankCafesCanBeActivated),
+
+                    // Inactive hoặc Active cố sang Active mà không hợp lệ.
+                    _ when target == CafePartnerOperationalStatus.Active
+                        => new CafePartnerApplicationInvalidStatusException(
+                            target == CafePartnerOperationalStatus.Active
+                                ? current == CafePartnerOperationalStatus.Inactive
+                                    ? ApiErrorMessages.CafePartner.OnlyInactiveCafesCanBeReopened
+                                    : ApiErrorMessages.CafePartner.OnlyDataBlankCafesCanBeActivated
+                                : ApiErrorMessages.CafePartner.OnlyDataBlankCafesCanBeActivated),
+
+                    // Đã INACTIVE/BANNED mà cố sang INACTIVE.
+                    _ when target == CafePartnerOperationalStatus.Inactive
+                        => new CafePartnerApplicationInvalidStatusException(
+                            ApiErrorMessages.CafePartner.OnlyDataBlankOrActiveCanBeClosed),
+
+                    _ => new CafePartnerApplicationInvalidStatusException(
+                        ApiErrorMessages.CafePartner.CafePermanentlyClosed)
+                };
+            }
+        }
+
+        /// <summary>
+        /// Validate + normalize Reason cho PATCH endpoint:
+        /// ACTIVE: reject nếu reason khác null/whitespace (4.5).
+        /// DATA_BLANK: reject nếu reason khác null/whitespace.
+        /// INACTIVE: accept, trim, validate content không chứa control char (3.2).
+        /// </summary>
+        private static string? ValidateAndNormalizeReason(
+            string? rawReason,
+            CafePartnerOperationalStatus target)
+        {
+            var hasReason = !string.IsNullOrWhiteSpace(rawReason);
+            var reason = hasReason ? rawReason!.Trim() : null;
+
+            if (target == CafePartnerOperationalStatus.Active && hasReason)
+            {
+                throw new BadRequestException(ApiErrorMessages.CafePartner.ReasonNotAllowedForActiveStatus);
+            }
+
+            if (target == CafePartnerOperationalStatus.DataBlank && hasReason)
+            {
+                throw new BadRequestException(ApiErrorMessages.CafePartner.ReasonNotAllowedForDataBlankStatus);
+            }
+
+            if (reason != null && ContainsControlChar(reason))
+            {
+                throw new BadRequestException(ApiErrorMessages.CafePartner.InvalidReasonFormat);
+            }
+
+            return reason;
+        }
+
+        /// <summary>
+        /// Loại bỏ kiểm tra control char (CR/LF, NUL, escape sequences...) để tránh
+        /// header injection trong email + XSS trong admin UI.
+        /// </summary>
+        private static bool ContainsControlChar(string value)
+        {
+            foreach (var c in value)
+            {
+                if (c < 0x20 && c != '\t' || c == 0x7f)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private async Task WriteStatusChangeAuditAsync(
+            Cafe cafe,
+            Guid managerUserId,
+            CafePartnerOperationalStatus? previous,
+            CafePartnerOperationalStatus next,
+            string? reason,
+            bool isNoOp,
+            CancellationToken cancellationToken)
+        {
+            var entry = new PlayerActionHistory
+            {
+                Id = Guid.NewGuid(),
+                UserId = managerUserId,
+                ActionType = AdminActionType.CafeOperationalStatusChanged,
+                ActionBy = managerUserId, // self-action
+                Reason = BuildStatusAuditReason(previous, next, reason, isNoOp),
+                Metadata = JsonSerializer.Serialize(new
+                {
+                    cafeId = cafe.Id,
+                    cafeName = cafe.Name,
+                    previousStatus = previous?.ToString(),
+                    nextStatus = next.ToString(),
+                    isNoOp,
+                    reason,
+                    changedAt = DateTime.UtcNow
+                }),
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _applicationRepository.AddPlayerActionHistoryAsync(entry, cancellationToken);
+        }
+
+        private static string BuildStatusAuditReason(
+            CafePartnerOperationalStatus? previous,
+            CafePartnerOperationalStatus next,
+            string? reason,
+            bool isNoOp)
+        {
+            var transition = isNoOp
+                ? $"no-op ({previous} → {next})"
+                : $"{previous} → {next}";
+            return string.IsNullOrWhiteSpace(reason)
+                ? $"Manager café operational-status {transition}"
+                : $"Manager café operational-status {transition} — lý do: {reason}";
+        }
+
+        /// <summary>
+        /// Ghi audit cho các attempt bị chặn (manager cố set BANNED, hoặc đổi status cafe BANNED).
+        /// Không throw — best-effort để đảm bảo security trail khi tranh chấp.
+        /// </summary>
+        private async Task WriteBlockedAttemptAuditAsync(
+            Guid managerUserId,
+            Guid? cafeId = null,
+            CafePartnerOperationalStatus? currentStatus = null,
+            CafePartnerOperationalStatus? targetStatus = null,
+            string? reason = null,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var entry = new PlayerActionHistory
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = managerUserId,
+                    ActionType = AdminActionType.CafeOperationalStatusChanged,
+                    ActionBy = managerUserId,
+                    Reason = $"Manager operational-status attempt BLOCKED — target: {targetStatus}, current: {currentStatus}",
+                    Metadata = JsonSerializer.Serialize(new
+                    {
+                        cafeId,
+                        currentStatus = currentStatus?.ToString(),
+                        targetStatus = targetStatus?.ToString(),
+                        reason,
+                        blockedAt = DateTime.UtcNow
+                    }),
+                    CreatedAt = DateTime.UtcNow
+                };
+                await _applicationRepository.AddPlayerActionHistoryAsync(entry, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to write blocked-attempt audit for manager {ManagerUserId}.", managerUserId);
+            }
+        }
+
+        private async Task EnsureNoActiveSessionsAsync(Guid cafeId, CancellationToken cancellationToken)
+        {
+            var activeSessions = await _activeSessionRepository.GetActiveSessionsAsync(cafeId, null, cancellationToken);
+            if (activeSessions.Count > 0)
+            {
+                // 409 Conflict vì "đang có phiên đang chạy" là resource-state conflict,
+                // không phải input lỗi (400 Bad Request).
+                throw new ConflictException(ApiErrorMessages.CafePartner.CannotChangeOperationalStatusWithActiveSessions);
+            }
         }
 
         private async Task<CafePartnerApplication> GetApplicationOrThrowAsync(Guid id) =>

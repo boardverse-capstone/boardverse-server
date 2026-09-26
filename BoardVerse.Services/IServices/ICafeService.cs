@@ -83,7 +83,9 @@ namespace BoardVerse.Services.IServices
 
         Task<AdminCafeOperationalStatusResultDto> SetOperationalStatusByAdminAsync(
             Guid cafeId,
-            AdminSetCafeOperationalStatusRequestDto request, CancellationToken cancellationToken = default);
+            AdminSetCafeOperationalStatusRequestDto request,
+            Guid adminId,
+            CancellationToken cancellationToken = default);
 
         Task UpdateSePayConfigAsync(Guid cafeId, Guid managerId, UpdateSePayConfigRequestDto dto);
 

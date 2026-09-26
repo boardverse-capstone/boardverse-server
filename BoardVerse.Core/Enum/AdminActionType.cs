@@ -28,4 +28,9 @@ public enum AdminActionType
     // GAP-19 Fix: Player self-payment bằng BVC (audit per BR-RISK-05).
     // ActionBy = chính player đó (self-trigger), không phải admin.
     SessionPaymentBvc = 50,
+
+    // Manager cafe operational-status transition (activate/deactivate/reopen/close
+    // hoặc PATCH /operational-status). UserId = manager, ActionBy = manager (self).
+    // Lưu vào PlayerActionHistory để audit khi tranh chấp / kiểm tra thường niên.
+    CafeOperationalStatusChanged = 60,
 }

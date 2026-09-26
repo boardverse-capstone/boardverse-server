@@ -3,6 +3,7 @@ using BoardVerse.Core.DTOs.Cafe;
 using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.IRepositories;
 
 using System.Threading;
 namespace BoardVerse.Core.IRepositories
@@ -108,6 +109,13 @@ namespace BoardVerse.Core.IRepositories
         /// Lấy seat inventory cho cafe + date + timeSlots.
         /// </summary>
         Task<Dictionary<TimeSlot, int>> GetAvailableSeatsByTimeSlotAsync(Guid cafeId, DateOnly playDate, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Ghi một entry vào <c>PlayerActionHistory</c> cho audit log
+        /// (BR-RISK-05). Admin cafe operational-status transitions dùng
+        /// <see cref="AdminActionType.CafeOperationalStatusChanged"/>.
+        /// </summary>
+        Task AddPlayerActionHistoryAsync(PlayerActionHistory entry, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Lấy danh sách schedule overrides cho cafe.

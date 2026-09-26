@@ -2,7 +2,9 @@
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
+using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
+using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
 using BoardVerse.Services.Services;
 using Microsoft.Extensions.Logging;
@@ -160,5 +162,157 @@ public class CafePartnerApplicationServiceTests
 
         Assert.NotNull(response);
         Assert.Equal("Unit Test Cafe", response.CafeName);
+    }
+
+    [Fact]
+    public async Task ManagerSetOperationalStatusAsync_WithBannedStatus_ThrowsBadRequest()
+    {
+        var managerId = Guid.NewGuid();
+        var cafe = BuildCafeForManager(managerId, CafePartnerOperationalStatus.DataBlank);
+
+        var service = BuildServiceForManagerStatus(cafe);
+
+        var ex = await Assert.ThrowsAsync<BadRequestException>(() =>
+            service.ManagerSetOperationalStatusAsync(
+                managerId,
+                new ManagerSetCafeOperationalStatusRequestDto { Status = "BANNED" }));
+
+        Assert.Equal(ApiErrorMessages.CafePartner.ManagerCannotSetBannedStatus, ex.Message);
+    }
+
+    [Fact]
+    public async Task ManagerSetOperationalStatusAsync_FromBanned_ThrowsInvalidStatus()
+    {
+        var managerId = Guid.NewGuid();
+        var cafe = BuildCafeForManager(managerId, CafePartnerOperationalStatus.Banned);
+
+        var service = BuildServiceForManagerStatus(cafe);
+
+        var ex = await Assert.ThrowsAsync<CafePartnerApplicationInvalidStatusException>(() =>
+            service.ManagerSetOperationalStatusAsync(
+                managerId,
+                new ManagerSetCafeOperationalStatusRequestDto { Status = "ACTIVE" }));
+
+        Assert.Equal(ApiErrorMessages.CafePartner.ManagerCannotSetOperationalStatusFromBanned, ex.Message);
+    }
+
+    [Fact]
+    public async Task ManagerSetOperationalStatusAsync_ToInactive_WithActiveSessions_Throws()
+    {
+        var managerId = Guid.NewGuid();
+        var cafe = BuildCafeForManager(managerId, CafePartnerOperationalStatus.Active);
+
+        var activeSessionRepo = new Mock<IActiveSessionRepository>();
+        activeSessionRepo
+            .Setup(r => r.GetActiveSessionsAsync(cafe.Id, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ActiveSession> { new() { Id = Guid.NewGuid() } });
+
+        var service = BuildServiceForManagerStatus(cafe, activeSessionRepo);
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(() =>
+            service.ManagerSetOperationalStatusAsync(
+                managerId,
+                new ManagerSetCafeOperationalStatusRequestDto { Status = "INACTIVE" }));
+
+        Assert.Equal(ApiErrorMessages.CafePartner.CannotChangeOperationalStatusWithActiveSessions, ex.Message);
+    }
+
+    [Fact]
+    public async Task ManagerSetOperationalStatusAsync_ToInactive_WithNoSessions_Succeeds()
+    {
+        var managerId = Guid.NewGuid();
+        var cafe = BuildCafeForManager(managerId, CafePartnerOperationalStatus.Active);
+
+        var service = BuildServiceForManagerStatus(cafe);
+
+        var result = await service.ManagerSetOperationalStatusAsync(
+            managerId,
+            new ManagerSetCafeOperationalStatusRequestDto
+            {
+                Status = "INACTIVE",
+                Reason = "Đóng để sửa chữa"
+            });
+
+        Assert.Equal(CafePartnerStatusMapper.ToApiOperationalStatus(CafePartnerOperationalStatus.Inactive), result.OperationalStatus);
+        Assert.Equal("Đóng để sửa chữa", result.OperationalStatusReason);
+    }
+
+    [Fact]
+    public async Task ManagerSetOperationalStatusAsync_NoOp_WhenSameStatus()
+    {
+        var managerId = Guid.NewGuid();
+        var cafe = BuildCafeForManager(managerId, CafePartnerOperationalStatus.Active);
+
+        var service = BuildServiceForManagerStatus(cafe);
+
+        var result = await service.ManagerSetOperationalStatusAsync(
+            managerId,
+            new ManagerSetCafeOperationalStatusRequestDto { Status = "ACTIVE" });
+
+        Assert.Equal(CafePartnerStatusMapper.ToApiOperationalStatus(CafePartnerOperationalStatus.Active), result.OperationalStatus);
+    }
+
+    [Fact]
+    public async Task ManagerSetOperationalStatusAsync_InvalidStatus_ThrowsBadRequest()
+    {
+        var managerId = Guid.NewGuid();
+        var cafe = BuildCafeForManager(managerId, CafePartnerOperationalStatus.DataBlank);
+
+        var service = BuildServiceForManagerStatus(cafe);
+
+        await Assert.ThrowsAsync<BadRequestException>(() =>
+            service.ManagerSetOperationalStatusAsync(
+                managerId,
+                new ManagerSetCafeOperationalStatusRequestDto { Status = "WAT" }));
+    }
+
+    private static Cafe BuildCafeForManager(Guid managerId, CafePartnerOperationalStatus status)
+    {
+        return new Cafe
+        {
+            Id = Guid.NewGuid(),
+            ManagerId = managerId,
+            Name = "Unit Test Cafe",
+            Address = "123 Test Street",
+            PartnerOperationalStatus = status,
+            IsActive = status == CafePartnerOperationalStatus.Active,
+            PartnerApplication = new CafePartnerApplication
+            {
+                Id = Guid.NewGuid(),
+                CafeName = "Unit Test Cafe",
+                RepresentativeEmail = "manager@unittest.local",
+                Status = CafePartnerApplicationStatus.Approved
+            },
+            Tables = new List<CafeTable>(),
+            Inventories = new List<CafeGameInventory>()
+        };
+    }
+
+    private static CafePartnerApplicationService BuildServiceForManagerStatus(
+        Cafe cafe,
+        Mock<IActiveSessionRepository>? activeSessionRepo = null)
+    {
+        var cafeRepo = new Mock<ICafeRepository>();
+        cafeRepo.Setup(r => r.GetPartnerCafeByManagerIdAsync(cafe.ManagerId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(cafe);
+        cafeRepo.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var applicationRepo = new Mock<ICafePartnerApplicationRepository>();
+        var authRepo = new Mock<IAuthRepository>();
+        var emailService = new Mock<IEmailService>();
+        var logger = new Mock<ILogger<CafePartnerApplicationService>>();
+
+        activeSessionRepo ??= new Mock<IActiveSessionRepository>();
+        activeSessionRepo
+            .Setup(r => r.GetActiveSessionsAsync(It.IsAny<Guid>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ActiveSession>());
+
+        return new CafePartnerApplicationService(
+            applicationRepo.Object,
+            authRepo.Object,
+            cafeRepo.Object,
+            activeSessionRepo.Object,
+            emailService.Object,
+            logger.Object);
     }
 }

@@ -19,5 +19,9 @@ namespace BoardVerse.Services.IServices
         Task<ManagerCafeProfileResponseDto> ReopenAsync(Guid managerUserId, CancellationToken cancellationToken = default);
         Task<ManagerCafeProfileResponseDto> DeactivateAsync(Guid managerUserId, CancellationToken cancellationToken = default);
         Task<ManagerCafeProfileResponseDto> ClosePermanentlyAsync(Guid managerUserId, CancellationToken cancellationToken = default);
+        Task<ManagerCafeProfileResponseDto> ManagerSetOperationalStatusAsync(
+            Guid managerUserId,
+            ManagerSetCafeOperationalStatusRequestDto request,
+            CancellationToken cancellationToken = default);
     }
 }

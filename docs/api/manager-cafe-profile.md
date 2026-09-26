@@ -16,6 +16,7 @@ API quản lý hồ sơ quán đối tác của Manager.
 - [POST /deactivate](#post-deactivate)
 - [POST /close](#post-close)
 - [POST /reopen](#post-reopen)
+- [PATCH /operational-status](#patch-operational-status)
 
 ---
 
@@ -333,6 +334,115 @@ Chưa có quán đối tác đã được duyệt.
 
 ---
 
+## PATCH /operational-status
+
+Manager tự đặt trạng thái vận hành quán mình sở hữu — endpoint hợp nhất cho 3 trạng thái
+(`DATA_BLANK`, `ACTIVE`, `INACTIVE`). Trạng thái `BANNED` chỉ Admin mới có quyền đặt — dùng
+`PUT /api/v1/admin/cafes/{cafeId}/operational-status`.
+
+Endpoint này thay thế việc gọi riêng `/activate`, `/deactivate`, `/close`, `/reopen` khi Manager
+muốn đổi trực tiếp sang trạng thái cụ thể.
+
+### Request
+
+- Method: `PATCH`
+- Path: `/api/manager/cafes/me/operational-status`
+- Auth: Manager
+
+### Request Body
+
+```json
+{
+  "status": "ACTIVE",
+  "reason": "Mở lại quán sau bảo trì"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `status` | string | Yes | Một trong: `DATA_BLANK`, `ACTIVE`, `INACTIVE`. Không chấp nhận `BANNED`. |
+| `reason` | string | No | Lý do chuyển trạng thái. Khuyến nghị cung cấp khi sang `INACTIVE`. Tối đa 500 ký tự. |
+
+### State transition rules
+
+| Từ → Đến | Điều kiện áp dụng |
+|---|---|
+| `* → ACTIVE` | Áp dụng đầy đủ điều kiện kích hoạt (giống `/activate`, `/reopen`): ≥5 bàn, ≥20 game, ≥3 ảnh, giờ mở cửa, sơ đồ bàn, GPS. |
+| `* → DATA_BLANK` hoặc `* → INACTIVE` | Yêu cầu **không còn phiên bàn đang chạy** (cùng rule với `/deactivate`, `/close`). |
+| `BANNED → *` | Bị chặn — Manager phải liên hệ Admin. |
+| `* → BANNED` | Bị chặn — chỉ Admin có quyền. |
+| Status hiện tại = target | No-op idempotent, trả về hồ sơ hiện tại. |
+
+### Response 200
+
+```json
+{
+  "status": 200,
+  "message": "Cập nhật trạng thái vận hành quán thành công.",
+  "data": {
+    "cafeId": "guid",
+    "name": "Board Game Cafe",
+    "operationalStatus": "ACTIVE",
+    "operationalStatusReason": null,
+    "canActivate": false,
+    "canReopen": false,
+    "activationBlockers": []
+  }
+}
+```
+
+### Response 400
+
+| Lý do | Khi nào |
+|---|---|
+| `Trạng thái vận hành không hợp lệ. Dùng DATA_BLANK, ACTIVE, INACTIVE hoặc BANNED.` | `status` không parse được. |
+| `Bạn không thể tự đặt trạng thái BANNED - chỉ quản trị viên mới có quyền này.` | Gửi `BANNED`. |
+| `Chưa đủ điều kiện kích hoạt: ...` | Chuyển sang `ACTIVE` mà thiếu điều kiện. |
+| `Không thể chuyển trạng thái vận hành khi quán còn phiên bàn đang chạy.` | Rời `ACTIVE` khi còn phiên active. |
+
+### Response 401
+
+Unauthorized — thiếu token, token hết hạn hoặc token không hợp lệ.
+
+### Response 403
+
+Forbidden — tài khoản không có quyền Manager.
+
+### Response 404
+
+Chưa có quán đối tác đã được duyệt.
+
+### Response 500
+
+Lỗi hệ thống không mong đợi.
+
+### Ví dụ
+
+```powershell
+# Activate (tương đương POST /activate)
+curl.exe -X PATCH http://localhost:5022/api/manager/cafes/me/operational-status `
+  -H "Authorization: Bearer $token" `
+  -H "Content-Type: application/json" `
+  -d '{ "status": "ACTIVE" }'
+
+# Pause (tương đương POST /deactivate)
+curl.exe -X PATCH http://localhost:5022/api/manager/cafes/me/operational-status `
+  -H "Authorization: Bearer $token" `
+  -H "Content-Type: application/json" `
+  -d '{ "status": "DATA_BLANK" }'
+
+# Close permanently kèm lý do (tương đương POST /close)
+curl.exe -X PATCH http://localhost:5022/api/manager/cafes/me/operational-status `
+  -H "Authorization: Bearer $token" `
+  -H "Content-Type: application/json" `
+  -d '{ "status": "INACTIVE", "reason": "Đóng cửa vĩnh viễn do chuyển địa điểm" }'
+```
+
+> Lưu ý: Endpoint cũ (`/activate`, `/deactivate`, `/close`, `/reopen`) vẫn hoạt động
+> để tương thích ngược. FE mới nên chuyển sang dùng `PATCH /operational-status`.
+
+---
+
 ## Cafe Status Flow
 
 ```
@@ -352,6 +462,26 @@ Chưa có quán đối tác đã được duyệt.
                      │ (Đã đóng)   │   Reopen
                      └─────────────┘
 ```
+
+## Deprecation plan (chưa enable)
+
+4 endpoint legacy bên dưới vẫn hoạt động để back-compat nhưng sẽ bị **deprecated** trong phase tiếp theo:
+
+| Legacy endpoint | Thay bằng PATCH `/operational-status` | Timeline |
+|---|---|---|
+| `POST /activate` | `{ status: "ACTIVE" }` (gửi từ `DataBlank`/`Inactive`) | 4 tuần deprecation → 410 Gone |
+| `POST /deactivate` | `{ status: "DATA_BLANK" }` (gửi từ `Active`) | 4 tuần deprecation → 410 Gone |
+| `POST /close` | `{ status: "INACTIVE", reason: "..." }` | 4 tuần deprecation → 410 Gone |
+| `POST /reopen` | `{ status: "ACTIVE" }` (gửi từ `Inactive`) | 4 tuần deprecation → 410 Gone |
+
+**Hành động theo từng giai đoạn (chưa implement):**
+
+1. **Tuần 0** — Thêm `[Obsolete]` attribute + trả `Sunset: <RFC1123-date>` response header. Log warning mỗi lần gọi legacy endpoint.
+2. **Tuần 1** — Push notification cho tất cả client admin/web POS đang gọi legacy.
+3. **Tuần 2–4** — Tiếp tục trả 200, log warning, dashboard "deprecated endpoints" cho team.
+4. **Tuần 4+** — Trả `410 Gone` với body hướng dẫn dùng `PATCH /operational-status`.
+
+**Audit log** (cả Manager và Admin) đều ghi `PlayerActionHistory.ActionType = CafeOperationalStatusChanged` (60) → query timeline chung để theo dõi ai (admin/manager) đổi status khi nào. Metadata JSONB có `cafeId`, `previousStatus`, `nextStatus`, `isNoOp`, `reason`, `changedAt`.
 
 ---
 

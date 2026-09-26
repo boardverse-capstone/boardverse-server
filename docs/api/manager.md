@@ -151,16 +151,19 @@ Invoke-RestMethod -Uri "http://localhost:5022/api/manager/my-cafes" `
 
 ## ManagerCafeProfileController
 
-Quản lý **hồ sơ vận hành** của cafe mà manager sở hữu (Phase 2 sau khi đã được admin duyệt Phase 1). Tài liệu chi tiết: [cafe-partner.md](./cafe-partner.md).
+Quản lý **hồ sơ vận hành** của cafe mà manager sở hữu (Phase 2 sau khi đã được admin duyệt Phase 1). Tài liệu chi tiết: [manager-cafe-profile.md](./manager-cafe-profile.md).
 
 | Endpoint | Method | Mô tả |
 |----------|--------|--------|
 | `/api/manager/cafes/me` | GET | Hồ sơ quán đối tác |
 | `/api/manager/cafes/me/operational-profile` | PUT | Cập nhật giờ mở cửa + hạ tầng + catalog |
-| `/api/manager/cafes/me/activate` | POST | Kích hoạt quán (DATA_BLANK → ACTIVE) |
-| `/api/manager/cafes/me/deactivate` | POST | Tạm dừng (ACTIVE → DATA_BLANK) |
-| `/api/manager/cafes/me/close` | POST | Ngừng kinh doanh vĩnh viễn (→ INACTIVE) |
-| `/api/manager/cafes/me/reopen` | POST | Mở lại sau khi close |
+| `/api/manager/cafes/me/activate` | POST | **Legacy** — Kích hoạt quán (DATA_BLANK → ACTIVE) |
+| `/api/manager/cafes/me/deactivate` | POST | **Legacy** — Tạm dừng (ACTIVE → DATA_BLANK) |
+| `/api/manager/cafes/me/close` | POST | **Legacy** — Ngừng kinh doanh vĩnh viễn (→ INACTIVE) |
+| `/api/manager/cafes/me/reopen` | POST | **Legacy** — Mở lại sau khi close |
+| `/api/manager/cafes/me/operational-status` | PATCH | **Khuyến nghị** — Manager tự set status (DATA_BLANK / ACTIVE / INACTIVE) |
+
+> **Deprecation plan (chưa enable, mô tả):** 4 endpoint legacy (`/activate`, `/deactivate`, `/close`, `/reopen`) sẽ được đánh dấu `[Obsolete]` + trả `Sunset` header trong 4 tuần tới, sau đó trả `410 Gone`. FE mới bắt buộc dùng `PATCH /operational-status`. Chi tiết deprecation timeline (chưa implement): `docs/api/manager-cafe-profile.md#deprecation-plan`.
 
 ### Trạng thái vận hành
 

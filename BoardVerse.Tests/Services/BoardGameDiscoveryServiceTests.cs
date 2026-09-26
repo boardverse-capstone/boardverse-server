@@ -28,7 +28,8 @@ public class BoardGameDiscoveryServiceTests
         Mock<IPlayerBoardGameSaveRepository> saveRepo,
         Mock<ICategoryRepository> categoryRepo,
         Mock<ICafeService> cafeService,
-        Mock<ILobbyService> lobbyService)
+        Mock<ILobbyService> lobbyService,
+        Mock<IActiveSessionRepository> activeSessionRepo)
     {
         // SetupDefaults MUST run before any test-specific Setup because Moq uses the LAST matching setup.
         // Tests should call SetupDefaults(...) first, then add their specific setups, then this method.
@@ -37,13 +38,15 @@ public class BoardGameDiscoveryServiceTests
             saveRepo.Object,
             categoryRepo.Object,
             cafeService.Object,
-            lobbyService.Object);
+            lobbyService.Object,
+            activeSessionRepo.Object);
     }
 
     private static void SetupDefaults(
         Mock<IPlayerBoardGameSaveRepository> saveRepo,
         Mock<ICategoryRepository> categoryRepo,
-        Mock<ILobbyService> lobbyService)
+        Mock<ILobbyService> lobbyService,
+        Mock<IActiveSessionRepository> activeSessionRepo)
     {
         lobbyService.Setup(l => l.GetDiscoverableLobbiesAsync(
             It.IsAny<Guid?>(), It.IsAny<double?>(), It.IsAny<double?>(),
@@ -55,6 +58,16 @@ public class BoardGameDiscoveryServiceTests
 
         saveRepo.Setup(r => r.GetSavedGameTemplateIdsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Guid>());
+
+        // ExtractPreferencesFromSavedGames calls GetByUserAsync — must return empty so the method returns null
+        // instead of throwing NullReferenceException when accessing saves.Count.
+        saveRepo.Setup(r => r.GetByUserAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<PlayerBoardGameSave>());
+
+        // Default: user has no play history (no penalty applied). Tests that need a populated history override this.
+        activeSessionRepo.Setup(r => r.GetUserPlayHistoryAsync(
+            It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<(Guid GameTemplateId, string GameName, int PlayCount, DateTime? LastPlayedAt, int TotalMinutesPlayed)>());
     }
 
     private static GameTemplate BuildGame(
@@ -93,8 +106,9 @@ public class BoardGameDiscoveryServiceTests
         var categoryRepo = new Mock<ICategoryRepository>();
         var cafeService = new Mock<ICafeService>();
         var lobbyService = new Mock<ILobbyService>();
-        SetupDefaults(saveRepo, categoryRepo, lobbyService);
-        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService);
+        var activeSessionRepo = new Mock<IActiveSessionRepository>();
+        SetupDefaults(saveRepo, categoryRepo, lobbyService, activeSessionRepo);
+        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService, activeSessionRepo);
 
         var request = new BoardGameSurveyRequestDto { PlayerCount = 0 };
 
@@ -112,8 +126,9 @@ public class BoardGameDiscoveryServiceTests
         var categoryRepo = new Mock<ICategoryRepository>();
         var cafeService = new Mock<ICafeService>();
         var lobbyService = new Mock<ILobbyService>();
-        SetupDefaults(saveRepo, categoryRepo, lobbyService);
-        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService);
+        var activeSessionRepo = new Mock<IActiveSessionRepository>();
+        SetupDefaults(saveRepo, categoryRepo, lobbyService, activeSessionRepo);
+        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService, activeSessionRepo);
 
         var request = new BoardGameSurveyRequestDto { PlayerCount = 6 };
 
@@ -135,8 +150,9 @@ public class BoardGameDiscoveryServiceTests
         var categoryRepo = new Mock<ICategoryRepository>();
         var cafeService = new Mock<ICafeService>();
         var lobbyService = new Mock<ILobbyService>();
-        SetupDefaults(saveRepo, categoryRepo, lobbyService);
-        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService);
+        var activeSessionRepo = new Mock<IActiveSessionRepository>();
+        SetupDefaults(saveRepo, categoryRepo, lobbyService, activeSessionRepo);
+        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService, activeSessionRepo);
 
         var request = new BoardGameSurveyRequestDto { PlayerCount = 4 };
 
@@ -170,10 +186,11 @@ public class BoardGameDiscoveryServiceTests
         var categoryRepo = new Mock<ICategoryRepository>();
         var cafeService = new Mock<ICafeService>();
         var lobbyService = new Mock<ILobbyService>();
-        SetupDefaults(saveRepo, categoryRepo, lobbyService);
+        var activeSessionRepo = new Mock<IActiveSessionRepository>();
+        SetupDefaults(saveRepo, categoryRepo, lobbyService, activeSessionRepo);
         saveRepo.Setup(r => r.GetSavedGameTemplateIdsAsync(UserId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Guid> { savedId });
-        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService);
+        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService, activeSessionRepo);
 
         var request = new BoardGameSurveyRequestDto { PlayerCount = 4 };
 
@@ -205,8 +222,9 @@ public class BoardGameDiscoveryServiceTests
         var categoryRepo = new Mock<ICategoryRepository>();
         var cafeService = new Mock<ICafeService>();
         var lobbyService = new Mock<ILobbyService>();
-        SetupDefaults(saveRepo, categoryRepo, lobbyService);
-        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService);
+        var activeSessionRepo = new Mock<IActiveSessionRepository>();
+        SetupDefaults(saveRepo, categoryRepo, lobbyService, activeSessionRepo);
+        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService, activeSessionRepo);
 
         var request = new BoardGameSurveyRequestDto { PlayerCount = 4 };
 
@@ -237,8 +255,9 @@ public class BoardGameDiscoveryServiceTests
         var categoryRepo = new Mock<ICategoryRepository>();
         var cafeService = new Mock<ICafeService>();
         var lobbyService = new Mock<ILobbyService>();
-        SetupDefaults(saveRepo, categoryRepo, lobbyService);
-        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService);
+        var activeSessionRepo = new Mock<IActiveSessionRepository>();
+        SetupDefaults(saveRepo, categoryRepo, lobbyService, activeSessionRepo);
+        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService, activeSessionRepo);
 
         var request = new BoardGameSurveyRequestDto { PlayerCount = 5 };
 
@@ -266,8 +285,9 @@ public class BoardGameDiscoveryServiceTests
         var categoryRepo = new Mock<ICategoryRepository>();
         var cafeService = new Mock<ICafeService>();
         var lobbyService = new Mock<ILobbyService>();
-        SetupDefaults(saveRepo, categoryRepo, lobbyService);
-        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService);
+        var activeSessionRepo = new Mock<IActiveSessionRepository>();
+        SetupDefaults(saveRepo, categoryRepo, lobbyService, activeSessionRepo);
+        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService, activeSessionRepo);
 
         var request = new BoardGameSurveyRequestDto
         {
@@ -290,8 +310,9 @@ public class BoardGameDiscoveryServiceTests
         var categoryRepo = new Mock<ICategoryRepository>();
         var cafeService = new Mock<ICafeService>();
         var lobbyService = new Mock<ILobbyService>();
-        SetupDefaults(saveRepo, categoryRepo, lobbyService);
-        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService);
+        var activeSessionRepo = new Mock<IActiveSessionRepository>();
+        SetupDefaults(saveRepo, categoryRepo, lobbyService, activeSessionRepo);
+        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService, activeSessionRepo);
 
         var request = new BoardGameSurveyRequestDto
         {
@@ -323,8 +344,9 @@ public class BoardGameDiscoveryServiceTests
         var categoryRepo = new Mock<ICategoryRepository>();
         var cafeService = new Mock<ICafeService>();
         var lobbyService = new Mock<ILobbyService>();
-        SetupDefaults(saveRepo, categoryRepo, lobbyService);
-        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService);
+        var activeSessionRepo = new Mock<IActiveSessionRepository>();
+        SetupDefaults(saveRepo, categoryRepo, lobbyService, activeSessionRepo);
+        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService, activeSessionRepo);
 
         var request = new BoardGameSurveyRequestDto { PlayerCount = 4 };
 
@@ -348,8 +370,9 @@ public class BoardGameDiscoveryServiceTests
         var categoryRepo = new Mock<ICategoryRepository>();
         var cafeService = new Mock<ICafeService>();
         var lobbyService = new Mock<ILobbyService>();
-        SetupDefaults(saveRepo, categoryRepo, lobbyService);
-        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService);
+        var activeSessionRepo = new Mock<IActiveSessionRepository>();
+        SetupDefaults(saveRepo, categoryRepo, lobbyService, activeSessionRepo);
+        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService, activeSessionRepo);
 
         await Assert.ThrowsAsync<BoardGameNotFoundException>(
             () => service.ToggleSaveAsync(UserId, GameId));
@@ -366,8 +389,9 @@ public class BoardGameDiscoveryServiceTests
         var categoryRepo = new Mock<ICategoryRepository>();
         var cafeService = new Mock<ICafeService>();
         var lobbyService = new Mock<ILobbyService>();
-        SetupDefaults(saveRepo, categoryRepo, lobbyService);
-        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService);
+        var activeSessionRepo = new Mock<IActiveSessionRepository>();
+        SetupDefaults(saveRepo, categoryRepo, lobbyService, activeSessionRepo);
+        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService, activeSessionRepo);
 
         var result = await service.ToggleSaveAsync(UserId, GameId);
 
@@ -396,8 +420,9 @@ public class BoardGameDiscoveryServiceTests
         var categoryRepo = new Mock<ICategoryRepository>();
         var cafeService = new Mock<ICafeService>();
         var lobbyService = new Mock<ILobbyService>();
-        SetupDefaults(saveRepo, categoryRepo, lobbyService);
-        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService);
+        var activeSessionRepo = new Mock<IActiveSessionRepository>();
+        SetupDefaults(saveRepo, categoryRepo, lobbyService, activeSessionRepo);
+        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService, activeSessionRepo);
 
         var result = await service.ToggleSaveAsync(UserId, GameId);
 
@@ -417,8 +442,9 @@ public class BoardGameDiscoveryServiceTests
         var categoryRepo = new Mock<ICategoryRepository>();
         var cafeService = new Mock<ICafeService>();
         var lobbyService = new Mock<ILobbyService>();
-        SetupDefaults(saveRepo, categoryRepo, lobbyService);
-        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService);
+        var activeSessionRepo = new Mock<IActiveSessionRepository>();
+        SetupDefaults(saveRepo, categoryRepo, lobbyService, activeSessionRepo);
+        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService, activeSessionRepo);
 
         await Assert.ThrowsAsync<BoardGameNotFoundException>(
             () => service.UnsaveGameAsync(UserId, GameId));
@@ -435,8 +461,9 @@ public class BoardGameDiscoveryServiceTests
         var categoryRepo = new Mock<ICategoryRepository>();
         var cafeService = new Mock<ICafeService>();
         var lobbyService = new Mock<ILobbyService>();
-        SetupDefaults(saveRepo, categoryRepo, lobbyService);
-        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService);
+        var activeSessionRepo = new Mock<IActiveSessionRepository>();
+        SetupDefaults(saveRepo, categoryRepo, lobbyService, activeSessionRepo);
+        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService, activeSessionRepo);
 
         await Assert.ThrowsAsync<NotFoundException>(
             () => service.UnsaveGameAsync(UserId, GameId));
@@ -461,8 +488,9 @@ public class BoardGameDiscoveryServiceTests
         var categoryRepo = new Mock<ICategoryRepository>();
         var cafeService = new Mock<ICafeService>();
         var lobbyService = new Mock<ILobbyService>();
-        SetupDefaults(saveRepo, categoryRepo, lobbyService);
-        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService);
+        var activeSessionRepo = new Mock<IActiveSessionRepository>();
+        SetupDefaults(saveRepo, categoryRepo, lobbyService, activeSessionRepo);
+        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService, activeSessionRepo);
 
         var result = await service.UnsaveGameAsync(UserId, GameId);
 
@@ -484,8 +512,9 @@ public class BoardGameDiscoveryServiceTests
         var categoryRepo = new Mock<ICategoryRepository>();
         var cafeService = new Mock<ICafeService>();
         var lobbyService = new Mock<ILobbyService>();
-        SetupDefaults(saveRepo, categoryRepo, lobbyService);
-        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService);
+        var activeSessionRepo = new Mock<IActiveSessionRepository>();
+        SetupDefaults(saveRepo, categoryRepo, lobbyService, activeSessionRepo);
+        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService, activeSessionRepo);
 
         var result = await service.GetSavedGamesAsync(UserId);
 
@@ -528,7 +557,8 @@ public class BoardGameDiscoveryServiceTests
             It.IsAny<Guid>(), It.IsAny<double?>(), It.IsAny<double?>(),
             It.IsAny<double?>(), It.IsAny<int>(), It.IsAny<Guid?>(),
             It.IsAny<CancellationToken>())).ReturnsAsync(new List<LobbyResponseDto>());
-        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService);
+        var activeSessionRepo = new Mock<IActiveSessionRepository>();
+        var service = BuildService(gameRepo, saveRepo, categoryRepo, cafeService, lobbyService, activeSessionRepo);
 
         var result = await service.GetSavedGamesAsync(UserId);
 

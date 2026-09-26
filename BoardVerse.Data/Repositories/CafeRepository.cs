@@ -1123,5 +1123,11 @@ namespace BoardVerse.Data.Repositories
                 .SelectMany(s => s.Members)
                 .CountAsync(m => m.Status == IndividualSessionStatus.Playing, cancellationToken);
         }
+
+        public Task AddPlayerActionHistoryAsync(PlayerActionHistory entry, CancellationToken cancellationToken = default)
+        {
+            _context.PlayerActionHistories.Add(entry);
+            return Task.CompletedTask;
+        }
     }
 }

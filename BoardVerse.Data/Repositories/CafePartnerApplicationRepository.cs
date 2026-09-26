@@ -140,6 +140,12 @@ namespace BoardVerse.Data.Repositories
             };
         }
 
+        public Task AddPlayerActionHistoryAsync(PlayerActionHistory entry, CancellationToken cancellationToken = default)
+        {
+            _context.PlayerActionHistories.Add(entry);
+            return Task.CompletedTask;
+        }
+
         public async Task SaveChangesAsync(CancellationToken cancellationToken = default)
         {
             await _context.SaveChangesAsync();

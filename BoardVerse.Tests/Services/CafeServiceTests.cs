@@ -339,7 +339,8 @@ public class CafeServiceTests
         Mock<IUserProfileRepository>? profileRepo = null,
         Mock<ISystemConfigurationProvider>? config = null,
         Mock<IBookingRepository>? bookingRepo = null,
-        Mock<ILobbyHubService>? hubService = null)
+        Mock<ILobbyHubService>? hubService = null,
+        Mock<IActiveSessionRepository>? activeSessionRepo = null)
     {
         cafeRepo ??= new Mock<ICafeRepository>();
         profileRepo ??= new Mock<IUserProfileRepository>();
@@ -349,6 +350,7 @@ public class CafeServiceTests
         pushNotificationService ??= new Mock<IPushNotificationService>();
         var lobbyRepo = new Mock<ILobbyRepository>();
         var reservationRepo = new Mock<IReservationRepository>();
+        activeSessionRepo ??= new Mock<IActiveSessionRepository>();
         var logger = new Mock<ILogger<CafeService>>();
 
         config.Setup(c => c.GetDoubleAsync(SystemConfigKeys.MatchmakingRadiusKm, GeoLocationHelper.DefaultNearbyRadiusKm, It.IsAny<CancellationToken>()))
@@ -363,6 +365,7 @@ public class CafeServiceTests
             pushNotificationService.Object,
             lobbyRepo.Object,
             reservationRepo.Object,
+            activeSessionRepo.Object,
             logger.Object);
     }
 }

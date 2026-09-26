@@ -5,7 +5,7 @@ namespace BoardVerse.Tests.Integration;
 
 /// <summary>
 /// Integration tests cho AdminCafeController endpoints.
-/// 
+///
 /// Coverage:
 /// - PUT /api/v1/admin/cafes/{cafeId}/operational-status
 /// - BR-18: Admin set operational status (force majeure scenarios)
@@ -34,13 +34,13 @@ public class AdminCafeControllerIntegrationTests
         var response = await ApiTestClient.PutJsonAsync(
             _client,
             $"/api/v1/admin/cafes/{IntegrationTestFixtures.DemoCafeId}/operational-status",
-            new { status = 0 }); // DATA_BLANK
+            new { status = "DATA_BLANK" });
 
         // Assert
         Assert.True(
-            response.IsSuccessStatusCode ||
-            response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden or HttpStatusCode.BadRequest,
-            $"Admin should set operational status, got {response.StatusCode}");
+            response.IsSuccessStatusCode,
+            $"Admin should set operational status to DATA_BLANK, got {response.StatusCode}. " +
+            $"Body: {await response.Content.ReadAsStringAsync()}");
     }
 
     /// <summary>
@@ -57,13 +57,13 @@ public class AdminCafeControllerIntegrationTests
         var response = await ApiTestClient.PutJsonAsync(
             _client,
             $"/api/v1/admin/cafes/{IntegrationTestFixtures.DemoCafeId}/operational-status",
-            new { status = 1 }); // ACTIVE
+            new { status = "ACTIVE" });
 
         // Assert
         Assert.True(
-            response.IsSuccessStatusCode ||
-            response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden or HttpStatusCode.BadRequest,
-            $"Admin should set operational status to ACTIVE, got {response.StatusCode}");
+            response.IsSuccessStatusCode,
+            $"Admin should set operational status to ACTIVE, got {response.StatusCode}. " +
+            $"Body: {await response.Content.ReadAsStringAsync()}");
     }
 
     /// <summary>
@@ -80,13 +80,13 @@ public class AdminCafeControllerIntegrationTests
         var response = await ApiTestClient.PutJsonAsync(
             _client,
             $"/api/v1/admin/cafes/{IntegrationTestFixtures.DemoCafeId}/operational-status",
-            new { status = 2 }); // INACTIVE
+            new { status = "INACTIVE" });
 
         // Assert
         Assert.True(
-            response.IsSuccessStatusCode ||
-            response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden or HttpStatusCode.BadRequest,
-            $"Admin should set operational status to INACTIVE, got {response.StatusCode}");
+            response.IsSuccessStatusCode,
+            $"Admin should set operational status to INACTIVE, got {response.StatusCode}. " +
+            $"Body: {await response.Content.ReadAsStringAsync()}");
     }
 
     /// <summary>
@@ -106,15 +106,15 @@ public class AdminCafeControllerIntegrationTests
             $"/api/v1/admin/cafes/{IntegrationTestFixtures.DemoCafeId}/operational-status",
             new
             {
-                status = 3, // BANNED
+                status = "BANNED",
                 reason = "Force majeure - natural disaster"
             });
 
         // Assert
         Assert.True(
-            response.IsSuccessStatusCode ||
-            response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden or HttpStatusCode.BadRequest,
-            $"Admin should ban cafe with reason, got {response.StatusCode}");
+            response.IsSuccessStatusCode,
+            $"Admin should ban cafe with reason, got {response.StatusCode}. " +
+            $"Body: {await response.Content.ReadAsStringAsync()}");
     }
 
     /// <summary>
@@ -131,12 +131,12 @@ public class AdminCafeControllerIntegrationTests
         var response = await ApiTestClient.PutJsonAsync(
             _client,
             $"/api/v1/admin/cafes/{IntegrationTestFixtures.DemoCafeId}/operational-status",
-            new { status = 3 }); // BANNED without reason
+            new { status = "BANNED" });
 
         // Assert
-        Assert.True(
-            response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.NotFound or HttpStatusCode.Forbidden,
-            $"Banned without reason should return 400, got {response.StatusCode}");
+        Assert.Equal(
+            HttpStatusCode.BadRequest,
+            response.StatusCode);
     }
 
     /// <summary>
@@ -153,12 +153,12 @@ public class AdminCafeControllerIntegrationTests
         var response = await ApiTestClient.PutJsonAsync(
             _client,
             $"/api/v1/admin/cafes/{IntegrationTestFixtures.DemoCafeId}/operational-status",
-            new { status = 1 });
+            new { status = "ACTIVE" });
 
         // Assert
-        Assert.True(
-            response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized,
-            $"Manager should get 403, got {response.StatusCode}");
+        Assert.Equal(
+            HttpStatusCode.Forbidden,
+            response.StatusCode);
     }
 
     /// <summary>
@@ -175,12 +175,12 @@ public class AdminCafeControllerIntegrationTests
         var response = await ApiTestClient.PutJsonAsync(
             _client,
             $"/api/v1/admin/cafes/{IntegrationTestFixtures.DemoCafeId}/operational-status",
-            new { status = 1 });
+            new { status = "ACTIVE" });
 
         // Assert
-        Assert.True(
-            response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized,
-            $"Player should get 403, got {response.StatusCode}");
+        Assert.Equal(
+            HttpStatusCode.Forbidden,
+            response.StatusCode);
     }
 
     /// <summary>
@@ -199,12 +199,34 @@ public class AdminCafeControllerIntegrationTests
         var response = await ApiTestClient.PutJsonAsync(
             _client,
             $"/api/v1/admin/cafes/{nonExistentCafeId}/operational-status",
-            new { status = 1 });
+            new { status = "ACTIVE" });
 
         // Assert
-        Assert.True(
-            response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden or HttpStatusCode.BadRequest,
-            $"Non-existent cafe should return 404/403/400, got {response.StatusCode}");
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            response.StatusCode);
+    }
+
+    /// <summary>
+    /// Status không hợp lệ phải trả về 400
+    /// </summary>
+    [IntegrationFact]
+    public async Task SetOperationalStatus_InvalidStatus_Returns400()
+    {
+        // Arrange
+        var adminToken = await IntegrationTestAuth.AsAdminAsync(_client);
+        ApiTestClient.Authorize(_client, adminToken);
+
+        // Act
+        var response = await ApiTestClient.PutJsonAsync(
+            _client,
+            $"/api/v1/admin/cafes/{IntegrationTestFixtures.DemoCafeId}/operational-status",
+            new { status = "INVALID_STATUS" });
+
+        // Assert
+        Assert.Equal(
+            HttpStatusCode.BadRequest,
+            response.StatusCode);
     }
 
     #endregion

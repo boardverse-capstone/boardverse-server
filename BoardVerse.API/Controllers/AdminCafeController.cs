@@ -172,17 +172,22 @@ namespace BoardVerse.API.Controllers
         /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
         /// <response code="403">Không có quyền Admin.</response>
         /// <response code="404">Không tìm thấy quán.</response>
+        /// <response code="409">Còn phiên bàn đang chạy khi rời ACTIVE (giống rule Manager endpoint).</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpPut("{cafeId:guid}/operational-status")]
         [ProducesResponseType(typeof(AdminCafeOperationalStatusResultDto), 200)]
         [ProducesResponseType(400)]
         [ProducesResponseType(401)]
         [ProducesResponseType(403)]
         [ProducesResponseType(404)]
+        [ProducesResponseType(409)]
+        [ProducesResponseType(500)]
         public async Task<IActionResult> SetOperationalStatus(
             Guid cafeId,
             [FromBody] AdminSetCafeOperationalStatusRequestDto request)
         {
-            var result = await _cafeService.SetOperationalStatusByAdminAsync(cafeId, request);
+            var adminId = GetUserIdFromClaims();
+            var result = await _cafeService.SetOperationalStatusByAdminAsync(cafeId, request, adminId);
             return NewResponse(200, ApiSuccessMessages.Cafe.OperationalStatusUpdated, result);
         }
     }
