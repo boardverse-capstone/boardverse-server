@@ -198,6 +198,15 @@ public class LobbyMergeService : ILobbyMergeService
         var targetCounts = await LoadSourceMemberCountsAsync(targetLobby, cancellationToken);
         var combinedCount = sourceCounts.ActiveCount + targetCounts.ActiveCount;
 
+        // Bug fix (2026-09-29): Source lobby rỗng (không có member active nào) → không thể
+        // transfer ai, không nên cho tạo request. Trước đây staff retry liên tục tạo request
+        // rác (12 lần/24h cho cùng source lobby trong production logs) → DB bloat + UX kém.
+        // Fix: early reject khi sourceActiveCount == 0 với message rõ ràng cho staff.
+        if (sourceCounts.ActiveCount == 0)
+        {
+            throw new ConflictException(LobbyMergeErrors.NoActiveMembersToTransfer);
+        }
+
         // Lấy seat capacity từ SeatInventory của target reservation
         int seatCapacity = int.MaxValue; // fallback: không giới hạn nếu không tìm thấy
         if (targetLobby.ReservationId.HasValue)
@@ -640,6 +649,13 @@ public class LobbyMergeService : ILobbyMergeService
                 createdSources.Add(source);
             }
 
+            // ===== Step 11 prep: persist transfer modifications BEFORE counting remaining =====
+            // Bug fix (2026-09-29): Step 10a/10b đã sửa LobbyId / ActiveSessionId của members trong
+            // tracker nhưng CHƯA SaveChanges. Step 11 query DB để đếm remainingPlaying members
+            // → DB vẫn trỏ về source → count > 0 → source lobby KHÔNG BAO GIỜ đóng dù merge
+            // thực sự rỗng. Fix: SaveChanges ở đây để DB phản ánh tracker state trước khi count.
+            await _db.SaveChangesAsync(cancellationToken);
+
             // ===== Step 11: Dissolve source lobby nếu không còn member =====
             // Tính cả LobbyMember (online) và ActiveSessionMember Playing (walk-in) để xác định còn active hay không.
             int stillActive;
@@ -802,7 +818,22 @@ public class LobbyMergeService : ILobbyMergeService
         }
         catch
         {
-            if (ownedTx != null) await ownedTx.RollbackAsync(cancellationToken);
+            // Bug fix (2026-09-29): Nếu path "totalTransferable == 0" đã CommitAsync() thành công
+            // rồi throw ConflictException → catch block gọi RollbackAsync trên transaction ĐÃ COMMIT.
+            // EF Core throw InvalidOperationException("This transaction has completed successfully...")
+            // → InvalidOperationException nuốt ConflictException → middleware trả 500 thay vì 409.
+            // Fix: nuốt InvalidOperationException từ RollbackAsync (transaction đã commit, không cần rollback).
+            if (ownedTx != null)
+            {
+                try
+                {
+                    await ownedTx.RollbackAsync(cancellationToken);
+                }
+                catch (InvalidOperationException)
+                {
+                    // Transaction đã được commit ở Step 9 → rollback không hợp lệ. Bỏ qua.
+                }
+            }
             throw;
         }
         finally

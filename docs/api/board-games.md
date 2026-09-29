@@ -14,6 +14,7 @@ API tra cứu **danh mục board game** dành cho người chơi: tìm kiếm g�
 | `/{id}` | GET | Chi tiết game + linh kiện |
 | `/{id}/play-configuration` | GET | Kiểm tra min/max người và chế độ chơi khả dụng |
 | `/{id}/play-navigation` | POST | Điều hướng Solo Booking hoặc tạo phòng chờ nhóm |
+| `/thumbnail-proxy` | GET | Proxy ảnh thumbnail từ BoardGameGeek CDN (bypass CORS cho Flutter Web) |
 
 > **Khác với** [Master Games](./master-games.md): endpoint đó dành cho **Manager** nhập kho quán (`alreadyInInventory`, token bắt buộc). Board Games là catalog công khai cho Player.
 
@@ -422,6 +423,131 @@ curl.exe -X POST "http://localhost:5022/api/v1/board-games/66666666-6666-6666-66
 
 ---
 
+## GET /api/v1/board-games/thumbnail-proxy
+
+Proxy ảnh thumbnail từ **BoardGameGeek CDN** (và các host được whitelist) về server-side để bypass CORS cho **Flutter Web**. CanvasKit renderer của Flutter Web sẽ taint canvas khi load ảnh từ upstream không trả `Access-Control-Allow-Origin`, làm hỏng `toImage()` / `getImageData()`. Mobile (Android/iOS) **không bắt buộc** dùng — load trực tiếp từ upstream vẫn OK, nhưng gọi qua proxy vẫn hoạt động (tốn thêm 1 round-trip).
+
+| Auth | Mô tả |
+|---|---|
+| `[AllowAnonymous]` | Public — không cần đăng nhập. |
+
+### Whitelist host
+
+Backend chỉ proxy ảnh từ 4 host cố định (chống SSRF):
+
+| Host |
+|---|
+| `cf.geekdo-images.com` |
+| `cf.geekdo.com` |
+| `images.boardgamegeek.com` |
+| `boardgamegeek.com` |
+
+URL ngoài whitelist sẽ trả **502** (không 400 — tránh lộ thông tin whitelist cho attacker).
+
+### Query parameters
+
+| Param | Type | Required | Mô tả |
+|---|---|---|---|
+| `url` | string | Yes | URL ảnh gốc (http/https). Phải được **encode** bằng `Uri.encodeComponent` vì chứa `:` và `/`. |
+
+### Ví dụ request
+
+```http
+GET /api/v1/board-games/thumbnail-proxy?url=https%3A%2F%2Fcf.geekdo-images.com%2F...%2Fpic123.png
+```
+
+### Response 200 — binary
+
+Trả về ảnh binary với `Content-Type` theo upstream (`image/png`, `image/jpeg`, hoặc `application/octet-stream`). Header bổ sung:
+
+```http
+Cache-Control: public, max-age=86400
+```
+
+> 24h cache trên client + proxy server. Thumbnail BGG ít khi thay đổi nên cache dài hợp lý.
+
+### Response 400 — URL không hợp lệ
+
+```json
+{
+  "statusCode": 400,
+  "message": "URL ảnh thumbnail không hợp lệ hoặc rỗng.",
+  "data": null
+}
+```
+
+Trigger khi:
+- `url` rỗng / toàn khoảng trắng.
+- URL không phải http/https (vd: `ftp://...`, `file://...`, relative path).
+
+### Response 502 — Upstream lỗi
+
+```json
+{
+  "statusCode": 502,
+  "message": "Không thể tải ảnh thumbnail từ nguồn ngoài.",
+  "data": null
+}
+```
+
+Trigger khi:
+- Host không nằm trong whitelist.
+- Upstream trả non-2xx (404, 500, …).
+- Upstream trả `Content-Type` không phải `image/*` (cũng chấp nhận `application/octet-stream`).
+- Response vượt size cap 5 MB.
+- Timeout (> 5s).
+
+Service đã log lý do cụ thể trong log file — kiểm tra khi debug.
+
+### Lưu ý quan trọng cho client
+
+- **Phải URL-encode `url`** trước khi đưa vào query string. Nếu không, dấu `:` và `/` của URL gốc sẽ vỡ.
+- **Cache key** nên đặt theo URL gốc (không phải URL proxy) để cache hit đúng trên cả 2 platform.
+- **Platform detection**: chỉ dùng proxy trên `kIsWeb`. Android/iOS load trực tiếp upstream tiết kiệm băng thông.
+- **Fallback**: khi 502, hiển thị placeholder (icon / shimmer). Không retry liên tục.
+
+### Ví dụ Dart (Flutter)
+
+```dart
+import 'package:flutter/foundation.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+
+String resolveThumbnailUrl(String rawUrl) {
+  if (rawUrl.isEmpty) return '';
+  if (!kIsWeb) return rawUrl; // Mobile: load trực tiếp
+  final encoded = Uri.encodeComponent(rawUrl);
+  return 'https://api.boardverse.dev/api/v1/board-games/thumbnail-proxy?url=$encoded';
+}
+
+// Sử dụng
+CachedNetworkImage(
+  imageUrl: resolveThumbnailUrl(boardGame.thumbnailUrl),
+  cacheKey: 'thumb:${boardGame.thumbnailUrl}', // cache theo URL gốc
+  placeholder: (_, __) => const ShimmerBox(),
+  errorWidget: (_, __, ___) => const Icon(Icons.image_not_supported),
+)
+```
+
+### PowerShell mẫu
+
+```powershell
+# Lấy thumbnail Catan (encode URL trước khi truyền)
+$rawUrl = "https://cf.geekdo-images.com/pic123.png"
+$encoded = [System.Uri]::EscapeDataString($rawUrl)
+curl.exe -o catan.png "http://localhost:5022/api/v1/board-games/thumbnail-proxy?url=$encoded"
+
+# Lấy thumbnail Avalon với hiển thị header response
+curl.exe -I "http://localhost:5022/api/v1/board-games/thumbnail-proxy?url=https%3A%2F%2Fcf.geekdo-images.com%2Fpic456.png"
+
+# Test URL rỗng → 400
+curl.exe "http://localhost:5022/api/v1/board-games/thumbnail-proxy?url="
+
+# Test URL không whitelist (vd: example.com) → 502
+curl.exe -I "http://localhost:5022/api/v1/board-games/thumbnail-proxy?url=https%3A%2F%2Fexample.com%2Fimage.png"
+```
+
+---
+
 ## Acceptance Criteria — checklist test
 
 | AC | Test | Kỳ vọng |
@@ -429,6 +555,11 @@ curl.exe -X POST "http://localhost:5022/api/v1/board-games/66666666-6666-6666-66
 | 1.1 Fuzzy search | `?search=avalon`, `?search=CATAN` | Trả đúng game, không phân biệt hoa/thường |
 | 1.2 Multi-filter | `category_ids` + `player_count` + `duration_range` | Kết quả thỏa tất cả tiêu chí |
 | 1.3 Chi tiết | `GET /api/v1/board-games/{id}` | Đủ ảnh, tên, mô tả, min/max người, `components[]` |
+| 1.4 Thumbnail proxy (URL hợp lệ) | `GET /thumbnail-proxy?url=https://cf.geekdo-images.com/.../pic.png` | 200 + binary `image/png` + header `Cache-Control: public, max-age=86400` |
+| 1.5 Thumbnail proxy (host ngoài whitelist) | `?url=https://example.com/image.png` | 502 + `ThumbnailProxyFailed` |
+| 1.6 Thumbnail proxy (URL rỗng) | `?url=` | 400 + `ThumbnailUrlInvalid` |
+| 1.7 Thumbnail proxy (non-http scheme) | `?url=ftp://cf.geekdo-images.com/x.png` | 400 hoặc 502 tùy đường đi validation |
+| 1.8 Thumbnail proxy (oversize) | response upstream > 5 MB | 502 |
 
 ---
 
@@ -514,6 +645,30 @@ GET /api/v1/board-games/categories
 | `BoardVerse.Core/Messages/ApiSuccessMessages.cs` | Sửa | Thêm nested class `Discovery` (`SurveyCompleted`, `SavedGamesRetrieved`, `GameSaved`, `GameUnsaved`). |
 | `BoardVerse.Tests/Services/BoardGameServiceTests.cs` | Mới | 19 unit test cho `BoardGameService` (search/detail/categories/play config/navigation/top5 với cache). |
 | `docs/api/board-games.md` | Cập nhật | Tài liệu này — bổ sung phần `BoardGameDiscoveryController` và 5 endpoint mới. |
+
+---
+
+## Tổng kết file đã thay đổi (build pass 2026-09-29) — Thumbnail Proxy
+
+| File | Loại thay đổi | Ghi chú |
+|---|---|---|
+| `BoardVerse.API/Controllers/BoardGameController.cs` | Sửa | Thêm action `GetThumbnailProxy` (route `/thumbnail-proxy`, public, trả binary image + `Cache-Control: 24h`). |
+| `BoardVerse.Services/Services/Images/ThumbnailProxyService.cs` | **Mới** | Fetch ảnh từ BoardGameGeek CDN, validate host whitelist (chống SSRF), timeout 5s, size cap 5 MB. |
+| `BoardVerse.Services/Extensions/ImageServiceExtensions.cs` | Sửa | Đăng ký `HttpClient` typed `IThumbnailProxyService` (timeout mặc định 10s, header `User-Agent: Mozilla/5.0`). |
+| `BoardVerse.Tests/Services/ThumbnailProxyServiceTests.cs` | **Mới** | 17 unit test: URL validation, host whitelist, content-type, size cap, happy path. |
+| `docs/api/board-games.md` | Cập nhật | Tài liệu này — bổ sung section `GET /thumbnail-proxy` (endpoint, params, response, AC). |
+
+**Whitelist host** (chống SSRF — chỉ chấp nhận 4 host):
+
+- `cf.geekdo-images.com`
+- `cf.geekdo.com`
+- `images.boardgamegeek.com`
+- `boardgamegeek.com`
+
+**Tại sao cần proxy này:**
+
+- Flutter Web (CanvasKit renderer) sẽ **taint canvas** khi load ảnh từ upstream không trả `Access-Control-Allow-Origin`. Hậu quả: `toImage()` / `getImageData()` fail, không save screenshot được.
+- Mobile (Android/iOS) không cần — load trực tiếp từ `cf.geekdo-images.com` vẫn OK. FE team chỉ cần thêm helper `resolveThumbnailUrl(raw)` đi qua proxy khi `kIsWeb`, ngược lại giữ raw URL.
 
 ---
 
