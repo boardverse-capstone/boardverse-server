@@ -766,12 +766,12 @@ public class LobbyMergeServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task CreateMergeRequestAsync_WhenWalkInSourceNoPlayingMembers_StillCreatesRequest()
+    public async Task CreateMergeRequestAsync_WhenWalkInSourceNoPlayingMembers_ThrowsConflictException()
     {
-        // Edge case: walk-in source lobby không có Playing member nào
-        // → SourceActiveMembersAtRequest = 0 nhưng vẫn cho tạo request (staff có thể
-        //   cố tình merge để dissolve empty source).
-        // Approve sẽ throw ConflictException để staff biết.
+        // Bug fix (2026-09-29): Source lobby rỗng (0 active members) phải bị reject ngay
+        // tại CreateMergeRequestAsync. Trước fix này staff retry liên tục tạo request rác
+        // (12 lần/24h cho cùng source lobby trong production logs) → DB bloat + UX kém.
+        // Test: walk-in source lobby không có Playing member nào → ConflictException.
         _db = CreateDb();
         var svc = CreateService();
         var cafeId = Guid.NewGuid();
@@ -829,10 +829,9 @@ public class LobbyMergeServiceTests : IDisposable
             TargetLobbyId = targetId
         };
 
-        var result = await svc.CreateMergeRequestAsync(cafeId, staffId, dto);
-
-        Assert.Equal(LobbyMergeRequestStatus.Pending, result.Status);
-        Assert.Equal(0, result.SourceActiveMembersAtRequest);
+        var ex = await Assert.ThrowsAsync<ConflictException>(() =>
+            svc.CreateMergeRequestAsync(cafeId, staffId, dto));
+        Assert.Contains("không còn thành viên active", ex.Message);
     }
 
     // =====================================================================

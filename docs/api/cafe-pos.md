@@ -66,6 +66,83 @@ API vận hành quầy: bàn, kho hộp game, phiên chơi, kiểm kê, khách v
 
 ---
 
+## POS Access Control (Fix 2026-09-29)
+
+Mọi endpoint dưới `/api/cafes/{cafeId}/pos/*` đều qua `EnsurePosAccessAsync` với 2-tier role check:
+
+| Role | Cafe state cho phép | Lý do |
+|---|---|---|
+| **Manager** (chủ quán) | `DataBlank`, `Active`, `Inactive` | Manager cần sync bàn + sửa profile **trước khi** cafe được activate lần đầu (DataBlank). Trước fix 2026-09-29, Manager vào POS lúc DataBlank bị 404 → không thể cấu hình → phải workaround qua Admin API. |
+| **CafeStaff** | `Active` **chỉ** | Staff không có lý do truy cập POS của cafe đang trong giai đoạn cấu hình (DataBlank) hoặc đã ngừng hoạt động (Inactive). Nếu staff cố vào DataBlank/Inactive → 404. |
+
+### Cache key (Fix 2026-09-29)
+
+Cache key được thêm **role-aware** để tránh Manager load cafe DataBlank vào cache rồi bị Staff dùng nhầm cache hit:
+
+```csharp
+// Trước fix
+var cacheKey = $"cafe:{cafeId}";
+
+// Sau fix  - role-aware
+var cacheKey = $"cafe:{cafeId}:{userRole}";  // Manager hoặc CafeStaff
+```
+
+Hai key riêng biệt:
+- `cafe:{cafeId}:Manager` → load `GetByIdAsync` (mọi trạng thái).
+- `cafe:{cafeId}:CafeStaff` → load `GetActiveByIdAsync` (chỉ `Active`).
+
+`InvalidateCafeCache(cafeId)` invalidate **cả 2** key cùng lúc để đảm bảo consistency sau khi `CafeService.UpdateCafeAsync` thay đổi profile.
+
+### Use case thực tế
+
+1. Manager tạo cafe mới → cafe ở `DataBlank` (chưa có bàn, chưa có kho game).
+2. Manager mở POS web → endpoint `/pos/tables` gọi `EnsurePosAccessAsync` → load cafe qua `GetByIdAsync` (vì role = Manager) → trả 200 + danh sách bàn rỗng.
+3. Manager sync layout bàn qua `PUT /pos/tables`, thêm game qua Master Games API.
+4. Manager kích hoạt cafe → status chuyển sang `Active`.
+5. Staff đăng nhập POS → load cafe qua `GetActiveByIdAsync` (vì role = CafeStaff) → trả 200 + layout bàn.
+
+Nếu staff cố mở POS trước bước 4 → 404.
+
+---
+
+## Walk-in Lobby & Session Creation (Circular FK Fix 2026-09-29)
+
+Khi tạo walk-in session (qua `StartWalkInSessionAsync`), backend tạo **cả 2 entity** trong cùng transaction:
+
+- `ActiveSession` với `LobbyId` (FK → `Lobbies.Id`).
+- `Lobby` (synthetic cho walk-in) với `ActiveSessionId` (FK → `ActiveSessions.Id`).
+
+**Vấn đề:** EF Core không xác định được thứ tự INSERT khi cả 2 FK được set đồng thời trên 2 entity Added (cycle: `Lobby → ActiveSession → Lobby`). Cả hai FK đều nullable → không vi phạm FK constraint ở DB level, nhưng EF Core throw `InvalidOperationException` khi `SaveChanges()`.
+
+**Fix — 2-phase SaveChanges (2026-09-29):**
+
+```csharp
+// Phase 1: insert session (LobbyId=null) + lobby (ActiveSessionId=null) + box/table updates.
+session.LobbyId = null;
+walkInLobby.ActiveSessionId = null;
+await _posRepository.AddSessionAsync(session, ct);
+await _posRepository.AddSessionGameAsync(sessionGame, ct);
+await _lobbyRepository.AddAsync(walkInLobby, ct);
+await _posRepository.SaveChangesAsync(ct);
+
+// Phase 2: set cross-FKs now that both rows exist in DB.
+session.LobbyId = walkInLobby.Id;
+walkInLobby.ActiveSessionId = session.Id;
+await _posRepository.SaveChangesAsync(ct);
+```
+
+Phase 1 an toàn vì cross-FK null không vi phạm FK constraint ở DB level. Phase 2 chỉ là 2 column UPDATE nhanh.
+
+> **Trước fix 2026-09-24 → 2026-09-29:** Phiên bản cũ (single `SaveChanges`) throw InvalidOperationException khi khởi tạo walk-in lobby. Fix 2026-09-24 (synthetic Lobby creation) chỉ giải quyết một nửa vấn đề — vẫn throw vì vòng lặp FK chưa được tách. Fix 2026-09-29 hoàn chỉnh.
+
+### Walk-in member count resolution (Fix 2026-09-29)
+
+Khi `LobbyMergeService` resolve source session cho walk-in lobby, **KHÔNG dùng** `lobby.ActiveSessionId` (không đáng tin cậy — chỉ set bởi walk-in Phase 2). Thay vào đó query ngược qua `ActiveSession.LobbyId == lobby.Id` (FK đáng tin cậy, set khi session tạo).
+
+Xem chi tiết: [`docs/api/lobby-merge.md` § Walk-in source session resolution](./lobby-merge.md#walk-in-source-session-resolution-gap-fix-2026-09-29).
+
+---
+
 ## GET /api/cafes/{cafeId}/pos/tables
 
 Lấy sơ đồ bàn realtime cho Web POS. Trả `CafeTableStatusDto[]` gồm `Id`, `Name`, `SortOrder`, `SeatCount`, `Status` và `IsActive`.

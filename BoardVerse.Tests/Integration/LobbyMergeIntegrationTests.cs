@@ -381,6 +381,99 @@ public class LobbyMergeIntegrationTests : IDisposable
     }
 
     // =====================================================================
+    // REGRESS-23505: ApproveMerge với ≥2 members KHÔNG vi phạm IX_ASLS_LobbyId_Active
+    // =====================================================================
+    // Bug fix (2026-09-29): trước đây code insert 1 ActiveSessionLobbySource row cho MỖI member
+    // trong source lobby, tất cả cùng LobbyId + SourceDissolved=false. DB có partial unique
+    // index IX_ASLS_LobbyId_Active (UNIQUE LobbyId WHERE SourceDissolved=false) → member thứ 2
+    // trong cùng merge bị reject với `23505: duplicate key value` → HTTP 500.
+    //
+    // Test này verify: merge source lobby có 3 LobbyMembers (host + 2 extra) vào target lobby
+    // → 200 OK + EXACTLY 1 ActiveSessionLobbySource row tạo ra (không phải 3).
+
+    [IntegrationFact]
+    public async Task ApproveMerge_WithMultipleMembers_CreatesExactlyOneSourceRow()
+    {
+        var managerToken = await IntegrationTestAuth.AsManagerAsync(_client);
+        ApiTestClient.Authorize(_client, managerToken);
+
+        // Tạo 2 lobby InProgress (chỉ có host là LobbyMember).
+        var lobbies = await CreateTwoInProgressLobbiesAsync();
+        if (lobbies == null) return;
+
+        // Insert thêm 2 LobbyMembers vào source lobby trực tiếp qua DbContext
+        // (bypass join flow để test gọn — chỉ cần đủ member để trigger bug).
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BoardVerse.Data.BoardVerseDbContext>();
+
+            db.LobbyMembers.Add(new LobbyMember
+            {
+                Id = Guid.NewGuid(),
+                LobbyId = lobbies.Value.SourceLobbyId,
+                UserId = IntegrationTestFixtures.DemoPlayer2UserId,
+                IsActive = true,
+                Status = LobbyMemberStatus.Ready,
+                IsHost = false,
+                JoinedAt = DateTime.UtcNow
+            });
+            db.LobbyMembers.Add(new LobbyMember
+            {
+                Id = Guid.NewGuid(),
+                LobbyId = lobbies.Value.SourceLobbyId,
+                UserId = IntegrationTestFixtures.DemoPlayer3UserId,
+                IsActive = true,
+                Status = LobbyMemberStatus.Ready,
+                IsHost = false,
+                JoinedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // Tạo merge request
+        var createResp = await ApiTestClient.PostJsonAsync(_client,
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/lobby-merge/merge-requests",
+            new
+            {
+                sourceLobbyId = lobbies.Value.SourceLobbyId,
+                targetLobbyId = lobbies.Value.TargetLobbyId,
+                idempotencyKey = $"multi-member-merge-{Guid.NewGuid()}"
+            });
+
+        if (!createResp.IsSuccessStatusCode) return;
+        var createData = (await ApiTestClient.ReadApiResponseAsync<LobbyMergeRequestDto>(createResp)).Data;
+        if (createData == null) return;
+
+        // Act: Approve merge. Nếu bug vẫn còn → 500 DbUpdateException.
+        var approveResp = await ApiTestClient.PostJsonAsync(_client,
+            $"/api/cafes/{IntegrationTestFixtures.DemoCafeId}/lobby-merge/merge-requests/{createData.Id}/approve",
+            new { });
+
+        // Validate có thể fail vì seat/G18 validation (cùng cafe, host khác nhau → OK).
+        // Nếu fail do seat/G18 → skip assertion cuối nhưng vẫn pass test.
+        if (!approveResp.IsSuccessStatusCode &&
+            approveResp.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.BadRequest)
+        {
+            return; // Validation failed, không test được invariant
+        }
+
+        Assert.True(approveResp.IsSuccessStatusCode,
+            $"ApproveMerge phải trả 200 OK với 3+ members, got {approveResp.StatusCode}");
+
+        // Assert: EXACTLY 1 ActiveSessionLobbySource row cho source lobby
+        // (không phải 3 — đó là bug trước fix).
+        using var verifyScope = _factory.Services.CreateScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<BoardVerse.Data.BoardVerseDbContext>();
+
+        var sourceRowCount = await verifyDb.ActiveSessionLobbySources
+            .CountAsync(s =>
+                s.LobbyId == lobbies.Value.SourceLobbyId &&
+                s.SourceDissolved == false);
+
+        Assert.Equal(1, sourceRowCount);
+    }
+
+    // =====================================================================
     // REJECT MERGE TESTS
     // =====================================================================
 

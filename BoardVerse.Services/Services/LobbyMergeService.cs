@@ -531,7 +531,29 @@ public class LobbyMergeService : ILobbyMergeService
 
             // ===== Step 10: Transfer từng member =====
             // Gap #1/#5: track ActiveSessionLobbySource đã tạo để update SourceDissolved sau dissolve
+            //
+            // Bug fix (2026-09-29): trước đây code tạo MỘT ActiveSessionLobbySource row cho MỖI
+            // member được ghép, tất cả cùng LobbyId + SourceDissolved=false. DB có partial unique
+            // index IX_ASLS_LobbyId_Active (UNIQUE LobbyId WHERE SourceDissolved = false) → member
+            // thứ 2 trong cùng merge bị reject với `23505: duplicate key value`. Triệu chứng:
+            // ApproveMergeAsync HTTP 500 khi ghép ≥ 2 members, gây ghost merge / mất deposit audit.
+            // Fix: chỉ tạo DUY NHẤT một ActiveSessionLobbySource row cho source lobby (không phải
+            // mỗi member). Row này được mark SourceDissolved=true sau khi source lobby đóng.
             var createdSources = new List<ActiveSessionLobbySource>();
+            var lobbySource = new ActiveSessionLobbySource
+            {
+                Id = Guid.NewGuid(),
+                ActiveSessionId = targetSession.Id,
+                LobbyId = sourceLobby.Id,
+                ReservationId = sourceLobby.ReservationId,
+                MergedByUserId = staffUserId,
+                MergedAt = DateTime.UtcNow,
+                SourceDissolved = false,
+                DepositStatusAtMerge = depositStatusAtMerge ?? BookingDepositStatus.Pending,
+                CreatedAt = DateTime.UtcNow
+            };
+            _db.ActiveSessionLobbySources.Add(lobbySource);
+            createdSources.Add(lobbySource);
 
             // ===== Sub-step 10a: Transfer online LobbyMembers (ReservationId != null) =====
             foreach (var member in activeMembers)
@@ -577,22 +599,6 @@ public class LobbyMergeService : ILobbyMergeService
                     memberSession.MergedFromLobbyId = sourceLobby.Id;
                     memberSession.MergedAt = DateTime.UtcNow;
                 }
-
-                // Insert ActiveSessionLobbySource cho mỗi member được ghép
-                var source = new ActiveSessionLobbySource
-                {
-                    Id = Guid.NewGuid(),
-                    ActiveSessionId = targetSession.Id,
-                    LobbyId = sourceLobby.Id,
-                    ReservationId = sourceLobby.ReservationId,
-                    MergedByUserId = staffUserId,
-                    MergedAt = DateTime.UtcNow,
-                    SourceDissolved = false,
-                    DepositStatusAtMerge = depositStatusAtMerge ?? BookingDepositStatus.Pending,
-                    CreatedAt = DateTime.UtcNow
-                };
-                _db.ActiveSessionLobbySources.Add(source);
-                createdSources.Add(source);
             }
 
             // ===== Sub-step 10b: Transfer walk-in ActiveSessionMembers (ReservationId == null) =====
@@ -631,22 +637,6 @@ public class LobbyMergeService : ILobbyMergeService
                 {
                     walkInMember.OriginalLobbyId = sourceLobby.Id;
                 }
-
-                // Insert ActiveSessionLobbySource cho walk-in member (giữ audit trail nguồn)
-                var source = new ActiveSessionLobbySource
-                {
-                    Id = Guid.NewGuid(),
-                    ActiveSessionId = targetSession.Id,
-                    LobbyId = sourceLobby.Id,
-                    ReservationId = sourceLobby.ReservationId, // null cho walk-in
-                    MergedByUserId = staffUserId,
-                    MergedAt = DateTime.UtcNow,
-                    SourceDissolved = false,
-                    DepositStatusAtMerge = depositStatusAtMerge ?? BookingDepositStatus.Pending,
-                    CreatedAt = DateTime.UtcNow
-                };
-                _db.ActiveSessionLobbySources.Add(source);
-                createdSources.Add(source);
             }
 
             // ===== Step 11 prep: persist transfer modifications BEFORE counting remaining =====

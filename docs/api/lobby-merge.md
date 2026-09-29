@@ -34,6 +34,37 @@ Ghép nhóm lobby (Lobby Merge). Theo **Exception Path §4 — boardverse-busine
 
 ## Luồng nghiệp vụ
 
+### Walk-in source session resolution (Gap fix 2026-09-29)
+
+`LobbyMergeService` resolve `ActiveSession` liên kết với source lobby qua **2 bước ưu tiên** (hàm `ResolveSourceActiveSessionAsync`) để đảm bảo member count và transferable member list chính xác cho cả **online lobby** (check-in qua POS) và **walk-in lobby**:
+
+| Priority | Lookup | Set bởi | Áp dụng cho |
+|---|---|---|---|
+| **1 (primary)** | `ActiveSession.LobbyId == sourceLobby.Id` AND `Status ∈ {Active, Checking}` | `CafePosService.PrepareSessionSkeletonAsync` (online check-in qua POS) HOẶC `StartWalkInSessionAsync` Phase 1 | Cả online + walk-in |
+| **2 (fallback)** | `ActiveSession.Id == sourceLobby.ActiveSessionId` | `LobbyService.TransitionToInProgressAsync` HOẶC walk-in Phase 2 | Legacy data chỉ có `lobby.ActiveSessionId` |
+
+> **Lý do không chỉ dùng `lobby.ActiveSessionId`:** Trước fix 2026-09-29, walk-in chỉ query qua `lobby.ActiveSessionId`. Field này **KHÔNG được set** bởi online check-in flow (qua POS) → `LoadSourceMemberCountsAsync` trả `activeCount = 0` cho online lobby dù đang chơi thật. Fix: query ngược qua `ActiveSession.LobbyId == lobby.Id` (FK đáng tin cậy, set khi session tạo).
+
+Trả về session **Active** trước (priority), fallback **Checking** (game đã trả về quán nhưng member vẫn có thể merge sang session khác). Tie-break theo `StartedAt` desc.
+
+### Early reject — source lobby rỗng (Bug fix 2026-09-29)
+
+Khi staff gọi `POST /merge-requests/{id}/approve`, **trước khi** vào transaction chính, service check `sourceCounts.ActiveCount == 0` (sử dụng `ResolveSourceActiveSessionAsync` ở trên). Nếu **0** → throw `LobbyMergeErrors.NoActiveMembersToTransfer` ngay (409), không tạo DB write.
+
+> **Tại sao cần fix này:** Trước fix, staff retry liên tục tạo request rác (12 lần/24h cho cùng source lobby trong production logs) khi source lobby đã được giải tán hoặc tất cả member đã rời. Mỗi lần retry vẫn đi qua transaction + audit log + SignalR check → DB bloat + UX kém.
+
+Response trả về client:
+
+```json
+{
+  "statusCode": 409,
+  "message": "Không thể duyệt ghép nhóm: phòng nguồn không còn thành viên active nào để chuyển sang phòng đích. Phòng nguồn có thể đã được giải tán hoặc tất cả thành viên đã rời đi trước khi staff duyệt. Yêu cầu ghép nhóm đã được đánh dấu là Từ chối.",
+  "data": null
+}
+```
+
+Request sẽ tự động chuyển status `Pending → Rejected` (không `Cancelled`) + ghi audit log `MergeRejected` với metadata `{ reason: "no_active_members" }`. Background job `LobbyMergeCleanupJob` không cần dọn — request đã ở terminal state.
+
 ### Cross-game merge (Gap 4 fix 2026-09-29)
 
 Theo **BR Exception 4** (`boardverse-business-context.mdc`), player rời nhóm sau khi đã trả game về quán có thể nhập nhóm khác đang chơi game khác. Logic tương tự `ActiveSessionService.MergeSessionAsync` (Gap 4 fix).
@@ -328,6 +359,7 @@ Duyệt yêu cầu ghép nhóm — thực hiện atomic trong transaction.
 | `409` | Không đủ ghế | `InsufficientSeatsForMerge` |
 | `409` | Lịch chồng lấn | `UserScheduleOverlap` |
 | `409` | Cap deposit vượt | `UserDepositCapExceeded` |
+| `409` | **Source lobby rỗng** — không có member active nào để chuyển (Bug fix 2026-09-29) | `NoActiveMembersToTransfer` |
 | `409` | Deposit đã captured | `SourceDepositAlreadyCaptured` |
 | `500` | Lỗi hệ thống | `InternalServerError` |
 
@@ -566,3 +598,19 @@ Tất cả thao tác merge được ghi vào `LobbyMergeAuditLog` (append-only):
 | `CreatedAt` | Thời điểm thực hiện |
 
 Background job `LobbyMergeCleanupJob` chạy mỗi **5 phút**, đánh `Expired` các request Pending đã quá `ExpiresAt`.
+
+---
+
+## Bug fixes gần đây
+
+### 2026-09-29 — 3 fixes cho `LobbyMergeService.ApproveAsync`
+
+| # | Bug | Triệu chứng | Fix |
+|---|---|---|---|
+| 1 | Source lobby rỗng vẫn vào transaction | Staff retry liên tục tạo request rác (12 lần/24h cho cùng source lobby đã giải tán) → DB bloat + UX kém | Early reject với `NoActiveMembersToTransfer` (409) khi `sourceCounts.ActiveCount == 0`. Xem [Early reject](#early-reject--source-lobby-rỗng-bug-fix-2026-09-29). |
+| 2 | DB count sai sau Step 10a/10b | Step 10 đã sửa `LobbyId`/`ActiveSessionId` của members trong tracker nhưng **CHƯA** `SaveChanges`. Step 11 query DB để đếm `remainingPlaying` → DB vẫn trỏ về source → `count > 0` → source lobby không bao giờ đóng dù merge thực sự rỗng | `await _db.SaveChangesAsync(ct)` **sau** Step 10a/10b, **trước** Step 11 query. Đảm bảo DB phản ánh tracker state khi count. |
+| 3 | `InvalidOperationException` từ `RollbackAsync` sau Commit | Path "totalTransferable == 0" đã `CommitAsync()` xong → throw `ConflictException` → catch block gọi `RollbackAsync` trên transaction **ĐÃ COMMIT** → EF Core throw `InvalidOperationException("This transaction has completed successfully...")` → nuốt `ConflictException` → middleware trả 500 thay vì 409 | Wrap `RollbackAsync` trong try/catch, nuốt `InvalidOperationException` (transaction đã commit, không cần rollback). `ConflictException` vẫn propagate đúng. |
+
+### Walk-in session resolution (2026-09-29)
+
+Trước fix, walk-in source lobby chỉ query qua `lobby.ActiveSessionId` — field này không được set bởi online check-in qua POS → `LoadSourceMemberCountsAsync` luôn trả `activeCount = 0` cho online lobby dù đang chơi thật. Fix giới thiệu `ResolveSourceActiveSessionAsync` với 2 bước ưu tiên (reverse-FK `ActiveSession.LobbyId` trước, fallback `lobby.ActiveSessionId`). Xem [Walk-in source session resolution](#walk-in-source-session-resolution-gap-fix-2026-09-29).

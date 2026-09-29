@@ -178,6 +178,21 @@ public class ActiveSessionLobbySourceConfiguration : IEntityTypeConfiguration<Ac
         builder.HasIndex(s => s.ReservationId)
             .HasDatabaseName("IX_ActiveSessionLobbySources_ReservationId");
 
+        // Partial unique index: chỉ cho phép tối đa MỘT ActiveSessionLobbySource row
+        // "active" (SourceDissolved = false) cho mỗi source LobbyId.
+        //
+        // Lý do: cùng 1 source lobby có thể được merge nhiều lần qua nhiều ActiveSession khác
+        // nhau, nhưng tại mỗi thời điểm chỉ có 1 merge "đang active" cho lobby đó. Sau khi
+        // source lobby bị dissolve (Step 11 của ApproveMergeAsync) → SourceDissolved = true →
+        // index cho phép row mới cho cùng LobbyId trong merge sau.
+        //
+        // DB constraint đã có sẵn (thêm 2026-09-29 bằng raw SQL) nhưng EF model thiếu →
+        // fix này sync EF model với DB để migration script tương lai không DROP index.
+        builder.HasIndex(s => s.LobbyId)
+            .IsUnique()
+            .HasDatabaseName("IX_ASLS_LobbyId_Active")
+            .HasFilter("\"SourceDissolved\" = false");
+
         // FK: ActiveSession
         builder.HasOne(s => s.ActiveSession)
             .WithMany()

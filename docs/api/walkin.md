@@ -217,3 +217,23 @@ Available → Partial → Full → Closed/Expired
               ↑
               └── (khi ghế được giữ nhưng chưa đầy)
 ```
+
+---
+
+## Walk-in Lobby & ActiveSession Creation (Fix 2026-09-29)
+
+Mỗi `WalkInBooking` được tạo kèm **synthetic `Lobby`** (private, `IsPrivate = true`) để:
+
+- `GET /api/cafes/{cafeId}/pos/sessions/{sessionId}` trả `lobbyId` hợp lệ (không null) → FE render nút "Chuyển phiên" và "Ghép nhóm".
+- Walk-in session có thể làm **source** trong lobby-merge flow (`POST /api/cafes/{cafeId}/lobby-merge/merge-requests` với `sourceLobbyId`).
+
+### Circular FK bug (đã fix)
+
+`ActiveSession.LobbyId` (FK → `Lobbies.Id`) và `Lobby.ActiveSessionId` (FK → `ActiveSessions.Id`) tạo cycle. EF Core không xác định được thứ tự INSERT khi cả 2 FK set đồng thời → throw `InvalidOperationException` lúc `SaveChanges`.
+
+**Fix (2026-09-29):** 2-phase SaveChanges:
+
+1. **Phase 1:** insert session (LobbyId=null) + lobby (ActiveSessionId=null) + box/table updates — cross-FK null an toàn.
+2. **Phase 2:** set `session.LobbyId = walkInLobby.Id` và `walkInLobby.ActiveSessionId = session.Id` → 2 column UPDATE.
+
+Cả 2 phase chạy trong cùng DB transaction → consistency đảm bảo. Xem chi tiết implementation trong [`cafe-pos.md` § Walk-in Lobby & Session Creation](./cafe-pos.md#walk-in-lobby--session-creation-circular-fk-fix-2026-09-29).
