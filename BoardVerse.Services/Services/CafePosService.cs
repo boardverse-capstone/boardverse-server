@@ -673,11 +673,14 @@ namespace BoardVerse.Services.Services
             table.Status = CafeTableStatus.InUse;
             table.UpdatedAt = now;
 
-            // FIX 2026-09-24 (WalkInLobbyId Bug): Tạo synthetic Lobby cho walk-in session
-            // để `GET /pos/sessions/{id}` trả `lobbyId` hợp lệ thay vì null.
-            // Walk-in session có thể được dùng làm source trong lobby merge flow
-            // (FE gọi POST /lobby-merge/merge-requests với SourceLobbyId/TargetLobbyId).
-            // Tạo lobby trong cùng DB transaction với ActiveSession để đảm bảo consistency.
+            // FIX 2026-09-29 (Circular FK Bug — Lobby↔ActiveSession):
+            // EF Core không xác định được thứ tự INSERT khi cả Lobby.ActiveSessionId
+            // và ActiveSession.LobbyId được set đồng thời trên 2 entity Added
+            // (cycle: Lobby → ActiveSession → Lobby). Cả hai FK đều nullable, nên
+            // cách fix là chia thành 2 phase SaveChanges:
+            //   Phase 1: insert session (LobbyId=null) + lobby (ActiveSessionId=null) + box/table updates.
+            //   Phase 2: set session.LobbyId + walkInLobby.ActiveSessionId rồi SaveChanges.
+            // Phase 1 an toàn vì cross-FK null không vi phạm FK constraint ở DB level.
             var walkInLobby = new Lobby
             {
                 Id = Guid.NewGuid(),
@@ -692,15 +695,21 @@ namespace BoardVerse.Services.Services
                 MinPlayers = 1,
                 IsPrivate = true,
                 ScheduledStartTime = now,
-                ActiveSessionId = session.Id,
+                // ActiveSessionId intentionally null — set in Phase 2 after session.Id exists in DB.
                 CreatedAt = now,
                 UpdatedAt = now
             };
-            session.LobbyId = walkInLobby.Id;
+            // session.LobbyId cũng để null — set in Phase 2 after walkInLobby.Id exists in DB.
 
+            // Phase 1: insert ActiveSession + ActiveSessionGame + Lobby (no cross-FK) + box/table updates.
             await _posRepository.AddSessionAsync(session, cancellationToken);
             await _posRepository.AddSessionGameAsync(sessionGame, cancellationToken);
             await _lobbyRepository.AddAsync(walkInLobby, cancellationToken);
+            await _posRepository.SaveChangesAsync(cancellationToken);
+
+            // Phase 2: set cross-FKs now that both rows exist in DB.
+            session.LobbyId = walkInLobby.Id;
+            walkInLobby.ActiveSessionId = session.Id;
             await _posRepository.SaveChangesAsync(cancellationToken);
 
             session.CafeTable = table;
