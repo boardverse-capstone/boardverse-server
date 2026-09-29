@@ -19,8 +19,14 @@ namespace BoardVerse.Data.Repositories
         {
             if (userRole == UserRole.Manager.ToString())
             {
+                // GAP-FIX-DataBlank-Manager (2026-09-29): Manager sở hữu cafe phải CẤU HÌNH ĐƯỢC POS
+                // (sync bàn, sửa profile) ở trạng thái DataBlank trước khi activate.
+                // Trước đây filter `&& c.IsActive` chặn Manager ở DataBlank → deadlock:
+                // cần ≥5 bàn để activate, nhưng cách duy nhất để có bàn lại yêu cầu cafe ACTIVE.
+                // CafeStaff vẫn yêu cầu `c.IsActive` — staff không có lý do vào POS cafe đang cấu hình.
+                // Nếu cafe Banned → endpoint cụ thể sẽ throw riêng (CafePartnerApplicationInvalidStatusException).
                 return await _context.Cafes.AnyAsync(c =>
-                    c.Id == cafeId && c.ManagerId == userId && c.IsActive, cancellationToken);
+                    c.Id == cafeId && c.ManagerId == userId, cancellationToken);
             }
 
             if (userRole == UserRole.CafeStaff.ToString())

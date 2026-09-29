@@ -151,6 +151,7 @@ public class CafePosComponentCheckGapTests
         sessionGame.ActiveSession = session;
 
         _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _cafeRepo.Setup(r => r.GetByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
         _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
 
@@ -211,6 +212,7 @@ var memberX = new ActiveSessionMember
         sessionGame.ActiveSession = session;
 
         _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _cafeRepo.Setup(r => r.GetByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
         _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
         _posRepo.Setup(r => r.GetComponentPenaltiesByCafeGameAsync(
@@ -262,6 +264,7 @@ var memberX = new ActiveSessionMember
         sessionGame.ActiveSession = session;
 
         _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _cafeRepo.Setup(r => r.GetByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
         _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
         _posRepo.Setup(r => r.AddComponentCheckResultsAsync(It.IsAny<List<ComponentCheckResult>>(), It.IsAny<CancellationToken>()))
@@ -316,6 +319,7 @@ var memberX = new ActiveSessionMember
         sessionGame.ActiveSession = session;
 
         _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _cafeRepo.Setup(r => r.GetByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
         _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
 
@@ -365,6 +369,7 @@ var memberX = new ActiveSessionMember
         sessionGame.ActiveSession = session;
 
         _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _cafeRepo.Setup(r => r.GetByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
         _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
 
@@ -387,6 +392,7 @@ var memberX = new ActiveSessionMember
         sessionGame.ActiveSession = session;
 
         _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _cafeRepo.Setup(r => r.GetByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
         _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
         _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId, It.IsAny<CancellationToken>()))
@@ -435,6 +441,7 @@ var memberX = new ActiveSessionMember
         };
 
         _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _cafeRepo.Setup(r => r.GetByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
         _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
         _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId, It.IsAny<CancellationToken>()))
@@ -477,6 +484,7 @@ var memberX = new ActiveSessionMember
         };
 
         _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _cafeRepo.Setup(r => r.GetByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
         _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
         _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId, It.IsAny<CancellationToken>()))
@@ -503,6 +511,7 @@ var memberX = new ActiveSessionMember
         sessionGame.ActiveSession = session;
 
         _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _cafeRepo.Setup(r => r.GetByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
         _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
         _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId, It.IsAny<CancellationToken>()))
@@ -545,6 +554,7 @@ var memberX = new ActiveSessionMember
         };
 
         _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _cafeRepo.Setup(r => r.GetByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
         _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
         _posRepo.Setup(r => r.GetComponentPenaltiesByCafeGameAsync(
@@ -598,6 +608,7 @@ var memberX = new ActiveSessionMember
         sessionGame.ActiveSession = session;
 
         _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _cafeRepo.Setup(r => r.GetByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
         _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
         _posRepo.Setup(r => r.GetOrphanedPenaltiesAsync(CafeGameInventoryId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
@@ -646,6 +657,7 @@ var memberX = new ActiveSessionMember
         };
 
         _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _cafeRepo.Setup(r => r.GetByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
         _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
         _posRepo.Setup(r => r.GetOrphanedPenaltiesAsync(CafeGameInventoryId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
@@ -691,6 +703,7 @@ var memberX = new ActiveSessionMember
         };
 
         _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _cafeRepo.Setup(r => r.GetByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
         _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
         _posRepo.Setup(r => r.GetOrphanedPenaltiesAsync(CafeGameInventoryId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
@@ -738,6 +751,7 @@ var memberX = new ActiveSessionMember
         };
 
         _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
+        _cafeRepo.Setup(r => r.GetByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
         _posRepo.Setup(r => r.GetActiveSessionGameByIdAsync(SessionGameId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessionGame);
         _posRepo.Setup(r => r.GetLatestComponentCheckByBoxAsync(BoxId, It.IsAny<CancellationToken>()))

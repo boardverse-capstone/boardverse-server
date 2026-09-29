@@ -47,8 +47,12 @@ public class CafePosServiceTests
         // Default: manager có quyền operate cafe
         _posRepo.Setup(r => r.CanOperateCafeAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
-        // Default: cafe tồn tại và active (EnsurePosAccessAsync lookup)
+        // Default: cafe tồn tại và active.
+        // GAP-FIX-DataBlank-Manager (2026-09-29): Manager flow dùng GetByIdAsync (không filter IsActive),
+        // CafeStaff flow dùng GetActiveByIdAsync (filter IsActive). Mock cả 2 để các test cũ không vỡ.
         _cafeRepo.Setup(r => r.GetActiveByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BuildCafe());
+        _cafeRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildCafe());
     }
 
@@ -289,5 +293,60 @@ public class CafePosServiceTests
 
         await Assert.ThrowsAsync<ForbiddenException>(
             () => service.GetBoxesAsync(CafeId, ManagerId, "Manager", null));
+    }
+
+    // GAP-FIX-DataBlank-Manager (2026-09-29):
+    // Manager sở hữu cafe phải truy cập được POS ở trạng thái DataBlank (IsActive=false)
+    // để sync bàn + sửa profile trước khi activate. Trước đây EnsurePosAccessAsync dùng
+    // GetActiveByIdAsync (filter IsActive=true) + CanOperateCafeAsync cũng filter IsActive
+    // → Manager không thể sync bàn ở DataBlank → deadlock với requirement ≥5 bàn.
+    [Fact]
+    public async Task EnsurePosAccessAsync_ManagerDataBlankCafe_DoesNotThrowNotFound()
+    {
+        var cafeId = Guid.NewGuid();
+        var managerId = Guid.NewGuid();
+        var dataBlankCafe = new Cafe
+        {
+            Id = cafeId,
+            ManagerId = managerId,
+            Name = "DataBlank Cafe",
+            Address = "test",
+            IsActive = false,                                          // ← DataBlank: IsActive = false
+            PartnerOperationalStatus = CafePartnerOperationalStatus.DataBlank
+        };
+
+        // Manager flow dùng GetByIdAsync (không filter IsActive) — phải trả cafe.
+        _cafeRepo.Setup(r => r.GetByIdAsync(cafeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(dataBlankCafe);
+        // GetActiveByIdAsync trả null vì cafe không ACTIVE.
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Cafe?)null);
+        _posRepo.Setup(r => r.CanOperateCafeAsync(cafeId, managerId, "Manager", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        // GetBoxesAsync lookup sau khi qua gate.
+        _posRepo.Setup(r => r.GetBoxesAsync(cafeId, It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<CafeInventoryBox>());
+
+        var service = CreateService();
+
+        // Trước fix: throws NotFoundException("Không tìm thấy quán...")
+        // Sau fix: pass qua gate, gọi thẳng vào POS logic.
+        var result = await service.GetBoxesAsync(cafeId, managerId, "Manager", null);
+        Assert.NotNull(result);
+    }
+
+    [Fact]
+    public async Task EnsurePosAccessAsync_CafeStaffDataBlankCafe_ThrowsNotFound()
+    {
+        // CafeStaff vẫn bị chặn ở DataBlank — staff không có lý do vào POS cafe đang cấu hình.
+        var cafeId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Cafe?)null);  // CafeStaff dùng GetActiveByIdAsync → null vì DataBlank
+
+        var service = CreateService();
+
+        await Assert.ThrowsAsync<NotFoundException>(
+            () => service.GetBoxesAsync(cafeId, staffId, "CafeStaff", null));
     }
 }

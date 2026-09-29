@@ -48,7 +48,8 @@ public class CafePosCreateCheckInTokenTests
 
     private void SetupActiveCafe(Cafe cafe)
     {
-        // EnsurePosAccessAsync gọi GetActiveByIdAsync (filter IsActive = true).
+        // GAP-FIX-DataBlank-Manager (2026-09-29): Manager flow dùng GetByIdAsync (không filter IsActive),
+        // CafeStaff flow dùng GetActiveByIdAsync (filter IsActive). Mock cả 2 để EnsurePosAccessAsync pass.
         _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);
         // CreateCheckInTokenAsync cũng gọi GetByIdAsync để validate cafe tồn tại.
         _cafeRepo.Setup(r => r.GetByIdAsync(cafe.Id, It.IsAny<CancellationToken>())).ReturnsAsync(cafe);

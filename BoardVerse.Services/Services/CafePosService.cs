@@ -1464,10 +1464,17 @@ namespace BoardVerse.Services.Services
             // GAP-R4-A20 Fix: Cache cafe-by-id với TTL 60s để giảm N+1 query overhead.
             // Trước đây mỗi POS request gọi GetActiveByIdAsync, complex request (AttachGameAsync)
             // gọi EnsurePosAccessAsync 2 lần → 2 queries cafe.
-            var cacheKey = $"cafe:{cafeId}";
+            //
+            // GAP-FIX-DataBlank-Manager (2026-09-29): Manager sở hữu cafe phải được truy cập POS ở
+            // mọi trạng thái DataBlank / Active / Inactive để sync bàn + sửa profile trước khi activate.
+            // CafeStaff vẫn yêu cầu cafe ACTIVE — staff không có lý do vào POS của cafe đang cấu hình.
+            // Cache key thêm role để tránh Manager load cafe DataBlank vào cache bị CafeStaff dùng nhầm.
+            var cacheKey = $"cafe:{cafeId}:{userRole}";
             if (!_cafeCache.TryGetValue<Cafe>(cacheKey, out var cafe))
             {
-                cafe = await _cafeRepository.GetActiveByIdAsync(cafeId, cancellationToken);
+                cafe = userRole == UserRole.Manager.ToString()
+                    ? await _cafeRepository.GetByIdAsync(cafeId, cancellationToken)
+                    : await _cafeRepository.GetActiveByIdAsync(cafeId, cancellationToken);
                 if (cafe == null)
                 {
                     throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
@@ -1484,10 +1491,12 @@ namespace BoardVerse.Services.Services
 
         /// <summary>
         /// GAP-R4-A20 Fix: Invalidate cafe cache khi cafe config update (qua CafeService.UpdateCafeAsync).
+        /// GAP-FIX-DataBlank-Manager: Invalidate cả 2 role-aware keys (Manager + CafeStaff).
         /// </summary>
         public void InvalidateCafeCache(Guid cafeId)
         {
-            _cafeCache.Remove($"cafe:{cafeId}");
+            _cafeCache.Remove($"cafe:{cafeId}:Manager");
+            _cafeCache.Remove($"cafe:{cafeId}:CafeStaff");
         }
 
         private static CafeInventoryBoxDto MapBox(CafeInventoryBox box) => new()
