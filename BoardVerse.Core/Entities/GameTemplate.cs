@@ -1,4 +1,5 @@
-﻿using BoardVerse.Core.Helpers;
+﻿using BoardVerse.Core.Enum;
+using BoardVerse.Core.Helpers;
 using BoardVerse.Core.Messages;
 
 namespace BoardVerse.Core.Entities

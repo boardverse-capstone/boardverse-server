@@ -90,7 +90,7 @@ public class MissingWeightBggRetryJob : BackgroundService
         var candidates = await repo.GetMissingWeightRetryCandidatesAsync(
             maxRetryRounds: _settings.MissingWeightMaxRetryRounds,
             batchSize: _settings.MissingWeightRetryBatchSize,
-            ct: ct);
+            cancellationToken: ct);
 
         if (candidates.Count == 0)
         {

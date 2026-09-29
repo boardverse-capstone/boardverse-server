@@ -1043,6 +1043,11 @@ public class LobbyMergeService : ILobbyMergeService
     /// Đếm member count của 1 lobby (online hoặc walk-in).
     /// Online  : LobbyMember.Status = Ready là "active", các status khác (Joined/Kicked/Left/LobbyTerminated) là "inactive".
     /// Walk-in : ActiveSessionMember.Status = Playing là "active", các status khác (SuspendedMutation/Finished) là "inactive".
+    ///
+    /// Bug fix (2026-09-29): Trước đây walk-in chỉ query qua `lobby.ActiveSessionId`. Field này
+    /// KHÔNG được set bởi ReservationService.CheckInAsync (online flow qua POS) → loadCount = 0.
+    /// Fix: query ngược qua `ActiveSession.LobbyId == lobby.Id` (FK set khi session tạo, đáng tin cậy),
+    /// fallback sang `lobby.ActiveSessionId` cho dữ liệu legacy.
     /// </summary>
     private async Task<LobbyMemberCounts> LoadSourceMemberCountsAsync(
         Lobby lobby,
@@ -1056,16 +1061,17 @@ public class LobbyMergeService : ILobbyMergeService
             return new LobbyMemberCounts(members.Count, activeCount);
         }
 
-        // Walk-in lobby — dùng ActiveSessionMember trong ActiveSession liên kết
-        if (!lobby.ActiveSessionId.HasValue)
+        // Walk-in lobby — resolve session qua LobbyId reverse-FK (đáng tin cậy), fallback ActiveSessionId
+        var sourceSession = await ResolveSourceActiveSessionAsync(lobby, cancellationToken);
+        if (sourceSession == null)
         {
-            // Walk-in lobby không có ActiveSessionId → lobby trống hoàn toàn
+            // Lobby không có session nào liên kết → lobby trống hoàn toàn
             return new LobbyMemberCounts(0, 0);
         }
 
         var sessionMembers = await _db.ActiveSessionMembers
             .AsNoTracking()
-            .Where(m => m.ActiveSessionId == lobby.ActiveSessionId.Value)
+            .Where(m => m.ActiveSessionId == sourceSession.Id)
             .ToListAsync(cancellationToken);
 
         // Defensive: ToListAsync() should return empty list, but in some InMemory DB
@@ -1079,6 +1085,11 @@ public class LobbyMergeService : ILobbyMergeService
     /// Load transferable members cho cả online (LobbyMember) và walk-in (ActiveSessionMember).
     /// Online  : trả LobbyMember có IsActive && Status == Ready.
     /// Walk-in : trả ActiveSessionMember có Status == Playing (kèm source ActiveSession để update sau).
+    ///
+    /// Bug fix (2026-09-29): Walk-in giờ resolve session qua reverse-FK `ActiveSession.LobbyId == lobby.Id`
+    /// (set khi session tạo bởi CafePosService.StartSessionFromReservationAsync cho online lobby
+    /// check-in qua POS, hoặc CafePosService.StartWalkInSessionAsync cho walk-in).
+    /// Fallback `lobby.ActiveSessionId` cho legacy data chỉ set bởi walk-in Phase 2.
     /// </summary>
     private async Task<LobbyMergeSourceTransferSet> LoadSourceTransferableMembersAsync(
         Lobby sourceLobby,
@@ -1094,8 +1105,9 @@ public class LobbyMergeService : ILobbyMergeService
             return new LobbyMergeSourceTransferSet(active, Array.Empty<ActiveSessionMember>(), null);
         }
 
-        // Walk-in lobby — dùng ActiveSessionMember
-        if (!sourceLobby.ActiveSessionId.HasValue)
+        // Walk-in lobby — resolve session qua reverse-FK LobbyId (đáng tin cậy)
+        var sourceSession = await ResolveSourceActiveSessionAsync(sourceLobby, cancellationToken);
+        if (sourceSession == null)
         {
             return new LobbyMergeSourceTransferSet(
                 Array.Empty<LobbyMember>(),
@@ -1103,12 +1115,9 @@ public class LobbyMergeService : ILobbyMergeService
                 null);
         }
 
-        var sourceSession = await _db.ActiveSessions
-            .FirstOrDefaultAsync(s => s.Id == sourceLobby.ActiveSessionId.Value, cancellationToken);
-
         var walkInMembers = await _db.ActiveSessionMembers
             .Where(m =>
-                m.ActiveSessionId == sourceLobby.ActiveSessionId.Value &&
+                m.ActiveSessionId == sourceSession.Id &&
                 m.Status == IndividualSessionStatus.Playing)
             .ToListAsync(cancellationToken);
 
@@ -1116,6 +1125,53 @@ public class LobbyMergeService : ILobbyMergeService
             Array.Empty<LobbyMember>(),
             walkInMembers,
             sourceSession);
+    }
+
+    /// <summary>
+    /// Resolve ActiveSession liên kết với source lobby một cách đáng tin cậy.
+    ///
+    /// Bug fix (2026-09-29): Trước đây chỉ dùng `lobby.ActiveSessionId`. Field này không được set
+    /// bởi ReservationService.CheckInAsync (online flow qua POS) — chỉ set bởi:
+    ///   - CafePosService.StartWalkInSessionAsync (walk-in Phase 2)
+    ///   - LobbyService.TransitionToInProgressAsync (chỉ khi lobby.Status == Full|WaitingCheckIn)
+    /// → Online lobby checked-in qua POS có `lobby.ActiveSessionId == null` mặc dù có
+    /// `ActiveSession.LobbyId == lobby.Id`. Query ngược qua LobbyId là đáng tin cậy hơn vì
+    /// FK được set khi session tạo (PrepareSessionSkeletonAsync hoặc walk-in Phase 1).
+    ///
+    /// Lookup order:
+    ///   1. ActiveSession.LobbyId == sourceLobby.Id AND Status = Active (Active/Checking)
+    ///   2. Fallback: ActiveSession.Id == sourceLobby.ActiveSessionId
+    ///
+    /// Trả về session đầu tiên match theo thứ tự ưu tiên, null nếu không tìm thấy.
+    /// </summary>
+    private async Task<ActiveSession?> ResolveSourceActiveSessionAsync(
+        Lobby sourceLobby,
+        CancellationToken cancellationToken)
+    {
+        // Primary: query reverse-FK ActiveSession.LobbyId == sourceLobby.Id
+        // Lấy session Active trước (priority), fallback Checking (game đã trả về quán nhưng
+        // member vẫn có thể merge sang session khác).
+        var sessionViaLobbyId = await _db.ActiveSessions
+            .Where(s => s.LobbyId == sourceLobby.Id &&
+                        (s.Status == GroupSessionStatus.Active ||
+                         s.Status == GroupSessionStatus.Checking))
+            .OrderByDescending(s => s.Status == GroupSessionStatus.Active ? 1 : 0) // Active trước
+            .ThenByDescending(s => s.StartedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (sessionViaLobbyId != null)
+        {
+            return sessionViaLobbyId;
+        }
+
+        // Fallback: legacy walk-in data — sessionId được set bởi Phase 2 walk-in flow
+        if (sourceLobby.ActiveSessionId.HasValue)
+        {
+            return await _db.ActiveSessions
+                .FirstOrDefaultAsync(s => s.Id == sourceLobby.ActiveSessionId.Value, cancellationToken);
+        }
+
+        return null;
     }
 
     /// <summary>
