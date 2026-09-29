@@ -28,6 +28,13 @@ namespace BoardVerse.Core.DTOs.Bgg
         public int MinPlayers { get; set; }
         public int MaxPlayers { get; set; }
         public int PlayTime { get; set; }
+
+        /// <summary>
+        /// BGG Complexity Weight (1.0 → 5.0). Null nếu BGG chưa có đủ vote.
+        /// Admin có thể dùng để verify trước khi import.
+        /// </summary>
+        public double? Weight { get; set; }
+
         public IReadOnlyList<string> Categories { get; set; } = [];
         public IReadOnlyList<string> Mechanics { get; set; } = [];
         public IReadOnlyList<BggResolvedComponentDto> Components { get; set; } = [];

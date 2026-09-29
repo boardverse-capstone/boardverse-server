@@ -29,6 +29,35 @@ namespace BoardVerse.Core.IRepositories
         Task<Dictionary<Guid, int>> GetComponentCountsByGameIdsAsync(IReadOnlyCollection<Guid> gameIds, CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// Lấy danh sách board game master đang thiếu <c>Weight</c> (Weight == null).
+        /// Dùng cho admin dashboard — game import từ BGG mà BGG chưa có đủ vote averageweight,
+        /// hoặc admin tạo tay nhưng quên set Weight. Sort theo tên.
+        /// </summary>
+        /// <param name="includeInactive">Khi true, bao gồm cả game IsActive = false. Mặc định false (chỉ active).</param>
+        /// <param name="cancellationToken">Token hủy.</param>
+        /// <returns>Danh sách GameTemplate có Weight = null, sort theo Name.</returns>
+        Task<List<GameTemplate>> GetGamesWithMissingWeightAsync(bool includeInactive, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Lấy danh sách game candidate cho background job retry Weight từ BGG.
+        /// Chỉ lấy game:
+        /// <list type="bullet">
+        /// <item>Weight = null</item>
+        /// <item>BggId != null (mới retry được)</item>
+        /// <item>IsActive = true (skip game admin đã deactivate)</item>
+        /// <item>BggRetryCount &lt; maxRetryRounds (chưa vượt ngưỡng)</item>
+        /// </list>
+        /// Sort theo <c>LastBggRetryAt ASC NULLS FIRST</c> để ưu tiên game retry ít lần trước nhất.
+        /// </summary>
+        /// <param name="maxRetryRounds">Ngưỡng retry tối đa (lấy từ BggSettings.MissingWeightMaxRetryRounds).</param>
+        /// <param name="batchSize">Số lượng tối đa (lấy từ BggSettings.MissingWeightRetryBatchSize).</param>
+        /// <param name="cancellationToken">Token hủy.</param>
+        Task<List<GameTemplate>> GetMissingWeightRetryCandidatesAsync(
+            int maxRetryRounds,
+            int batchSize,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
         /// Kiểm tra cafe có trong kho (CafeGameInventory) game này không.
         /// </summary>
         Task<bool> CafeHasGameAsync(Guid cafeId, Guid gameTemplateId, CancellationToken cancellationToken = default);

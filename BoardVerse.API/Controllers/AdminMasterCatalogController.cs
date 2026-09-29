@@ -237,5 +237,22 @@ namespace BoardVerse.API.Controllers
             var result = await _catalogService.UpdateThumbnailAsync(gameTemplateId, request);
             return NewResponse(200, ApiSuccessMessages.AdminCatalog.ThumbnailUpdated, result);
         }
+
+        /// <summary>
+        /// Liệt kê board game master đang thiếu Weight (chưa set Complexity Weight).
+        /// Dùng cho admin kiểm tra sau khi import từ BGG mà game chưa có đủ vote averageweight,
+        /// hoặc game admin tạo tay nhưng quên set Weight. [Role: Admin]
+        /// </summary>
+        /// <param name="includeInactive">Khi true, bao gồm cả game đã vô hiệu hóa (IsActive = false).</param>
+        /// <response code="200">Danh sách game master có Weight = null, sort theo Name.</response>
+        /// <response code="401">Thiếu token hoặc token không hợp lệ.</response>
+        /// <response code="403">Không có quyền Admin.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpGet("master-games/missing-weight")]
+        public async Task<IActionResult> GetGamesMissingWeight([FromQuery] bool includeInactive = false)
+        {
+            var result = await _catalogService.GetGamesMissingWeightAsync(includeInactive);
+            return NewResponse(200, ApiSuccessMessages.AdminCatalog.MissingWeightGamesRetrieved, result);
+        }
     }
 }

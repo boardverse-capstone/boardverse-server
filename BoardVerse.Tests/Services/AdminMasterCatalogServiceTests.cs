@@ -467,4 +467,69 @@ public class AdminMasterCatalogServiceTests
     }
 
     #endregion
+
+    #region GetGamesMissingWeightAsync
+
+    [Fact]
+    public async Task GetGamesMissingWeightAsync_DefaultExcludesInactive()
+    {
+        var games = new List<GameTemplate>
+        {
+            new() { Id = Guid.NewGuid(), Name = "Alpha", Weight = null, IsActive = true },
+            new() { Id = Guid.NewGuid(), Name = "Beta", Weight = null, IsActive = true }
+        };
+
+        _gameRepo
+            .Setup(r => r.GetGamesWithMissingWeightAsync(false, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(games);
+
+        var svc = CreateService();
+
+        var result = await svc.GetGamesMissingWeightAsync(includeInactive: false);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal("Alpha", result[0].Name);
+        Assert.Equal("Beta", result[1].Name);
+        Assert.All(result, g => Assert.Null(g.Weight));
+        _gameRepo.Verify(r => r.GetGamesWithMissingWeightAsync(false, It.IsAny<CancellationToken>()), Times.Once);
+        _gameRepo.Verify(r => r.GetGamesWithMissingWeightAsync(true, It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetGamesMissingWeightAsync_IncludeInactiveTrue_PassesThrough()
+    {
+        var games = new List<GameTemplate>
+        {
+            new() { Id = Guid.NewGuid(), Name = "InactiveGame", Weight = null, IsActive = false }
+        };
+
+        _gameRepo
+            .Setup(r => r.GetGamesWithMissingWeightAsync(true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(games);
+
+        var svc = CreateService();
+
+        var result = await svc.GetGamesMissingWeightAsync(includeInactive: true);
+
+        Assert.Single(result);
+        Assert.Equal("InactiveGame", result[0].Name);
+        Assert.False(result[0].IsActive);
+        _gameRepo.Verify(r => r.GetGamesWithMissingWeightAsync(true, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetGamesMissingWeightAsync_NoGames_ReturnsEmptyList()
+    {
+        _gameRepo
+            .Setup(r => r.GetGamesWithMissingWeightAsync(false, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<GameTemplate>());
+
+        var svc = CreateService();
+
+        var result = await svc.GetGamesMissingWeightAsync(includeInactive: false);
+
+        Assert.Empty(result);
+    }
+
+    #endregion
 }

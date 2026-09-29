@@ -27,15 +27,52 @@ namespace BoardVerse.Services.Services.Bgg
         }
 
         public Task<string> GetThingXmlAsync(int bggId, CancellationToken cancellationToken = default) =>
-            GetXmlAsync($"thing?id={bggId}&stats=0", cancellationToken);
+            GetXmlAsync($"thing?id={bggId}&stats=1", cancellationToken, expectStatistics: true);
 
         public Task<string> SearchXmlAsync(string query, CancellationToken cancellationToken = default)
         {
             var encoded = WebUtility.UrlEncode(query.Trim());
-            return GetXmlAsync($"search?query={encoded}&type=boardgame", cancellationToken);
+            return GetXmlAsync($"search?query={encoded}&type=boardgame", cancellationToken, expectStatistics: false);
         }
 
-        private async Task<string> GetXmlAsync(string relativePath, CancellationToken cancellationToken)
+        private async Task<string> GetXmlAsync(
+            string relativePath,
+            CancellationToken cancellationToken,
+            bool expectStatistics)
+        {
+            // Lớp retry 1: HTTP status (202 Accepted + retryable transport errors) — delay ngắn.
+            var xml = await GetXmlWithHttpRetryAsync(relativePath, cancellationToken);
+
+            // Lớp retry 2 (chỉ cho `thing?id=...&stats=1`): XML thiếu <statistics>.
+            // BGG thỉnh thoảng trả 200 OK nhưng chưa kịp gắn <statistics> vào XML
+            // (do hàng đợi async phía BGG). Retry với delay dài hơn vì BGG cần
+            // thời gian tính toán averageweight.
+            if (expectStatistics && !ContainsStatistics(xml))
+            {
+                _logger.LogInformation(
+                    "BGG API returned XML without <statistics> for {Path}; retrying after {Delay}ms to wait for BGG to compute community vote average.",
+                    relativePath,
+                    _settings.StatsRetryDelayMilliseconds);
+
+                await Task.Delay(_settings.StatsRetryDelayMilliseconds, cancellationToken);
+                xml = await GetXmlWithHttpRetryAsync(relativePath, cancellationToken);
+
+                if (!ContainsStatistics(xml))
+                {
+                    _logger.LogWarning(
+                        "BGG API still missing <statistics> for {Path} after stats retry; downstream will treat Weight as null and admin may need to set manually.",
+                        relativePath);
+                }
+            }
+
+            return xml;
+        }
+
+        /// <summary>
+        /// Thực hiện HTTP retry loop — bao gồm HTTP 202 (queued) và exponential backoff
+        /// thông qua <see cref="BggSettings.RetryDelayMilliseconds"/>. Không retry XML-level issue.
+        /// </summary>
+        private async Task<string> GetXmlWithHttpRetryAsync(string relativePath, CancellationToken cancellationToken)
         {
             var client = _httpClientFactory.CreateClient(HttpClientName);
             var url = BuildUrl(relativePath);
@@ -62,6 +99,13 @@ namespace BoardVerse.Services.Services.Bgg
             throw new HttpRequestException(
                 $"BGG API did not return data for '{relativePath}' after {_settings.MaxRetryAttempts} attempts.");
         }
+
+        /// <summary>
+        /// Kiểm tra XML BGG có chứa khối <c>&lt;statistics&gt;</c> hay không.
+        /// Dùng cheap regex check trên raw string (không parse XML đầy đủ).
+        /// </summary>
+        private static bool ContainsStatistics(string xml) =>
+            xml.Contains("<statistics", StringComparison.Ordinal);
 
         private string BuildUrl(string relativePath)
         {
@@ -111,6 +155,17 @@ namespace BoardVerse.Services.Services.Bgg
                 ?? ParseInt(item.Element("minplaytime")?.Attribute("value")?.Value)
                 ?? 60;
 
+            // BGG <statistics><averageweight value="X.X"/> — chỉ trả về khi request có stats=1
+            // và game đã có đủ community vote (thường >0).
+            var averageWeightText = item
+                .Element("statistics")
+                ?.Element("averageweight")
+                ?.Attribute("value")
+                ?.Value;
+            double? weight = ParseDouble(averageWeightText);
+            if (weight is < 1.0 or > 5.0)
+                weight = null;
+
             return new BggThingData
             {
                 Id = id,
@@ -120,6 +175,7 @@ namespace BoardVerse.Services.Services.Bgg
                 MinPlayers = Math.Max(1, minPlayers),
                 MaxPlayers = Math.Max(1, maxPlayers),
                 PlayTime = Math.Max(1, playTime),
+                Weight = weight,
                 Categories = categories,
                 Mechanics = mechanics
             };
@@ -142,6 +198,9 @@ namespace BoardVerse.Services.Services.Bgg
 
         private static int? ParseInt(string? value) =>
             int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : null;
+
+        private static double? ParseDouble(string? value) =>
+            double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var n) ? n : null;
 
         private static string DecodeHtml(string value) =>
             WebUtility.HtmlDecode(value ?? string.Empty).Trim();

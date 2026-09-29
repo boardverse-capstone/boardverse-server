@@ -183,4 +183,48 @@ Cập nhật riêng thumbnail URL của game (tách thành endpoint riêng vì f
 - `400` — URL không hợp lệ
 - `404` — Không tìm thấy game
 
-> **Lưu ý:** Backend không upload file — chỉ lưu URL do client cung cấp. Xem [third-party-services.md](../third-party-services.md) — không có CDN/file storage tích hợp.
+> **Lưu ý:** Backend không upload file — chỉ lưu URL do client gửi. Xem [third-party-services.md](../third-party-services.md) — không có CDN/file storage tích hợp.
+
+---
+
+## GET /api/v1/admin/master-games/missing-weight
+
+Liệt kê board game master đang **thiếu `Weight`** (giá trị `Weight` = null).
+
+**Dùng cho:** Admin kiểm tra các game import từ BGG mà BGG chưa trả về `averageweight` (do game quá mới / chưa đủ vote cộng đồng), hoặc admin tạo game master thủ công nhưng quên set `Weight`. Sau đó dùng [`PUT /api/v1/admin/master-games/{gameTemplateId}`](#put-apiv1adminmaster-gamesgametemplateid) với `{ "weight": 2.5 }` để bù.
+
+**Query:**
+
+| Param | Mặc định | Mô tả |
+|---|---|---|
+| `includeInactive` | `false` | Khi `true`, bao gồm cả game đã vô hiệu hóa (`IsActive = false`). |
+
+**Response 200:**
+```json
+{
+  "data": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "name": "Some New Game",
+      "searchAliases": null,
+      "thumbnailUrl": null,
+      "description": null,
+      "bggId": 123456,
+      "weight": null,
+      "isActive": true,
+      "minPlayers": 2,
+      "maxPlayers": 4,
+      "playTime": 60,
+      "createdAt": "...",
+      "updatedAt": "..."
+    }
+  ]
+}
+```
+
+Danh sách sort theo `name` tăng dần (alphabetical).
+
+**Response codes:**
+- `200` — Lấy danh sách thành công (có thể rỗng nếu tất cả game đều đã set Weight).
+- `401` — Thiếu/sai token.
+- `403` — Không phải Admin.

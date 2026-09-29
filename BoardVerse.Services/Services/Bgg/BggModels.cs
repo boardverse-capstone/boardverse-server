@@ -9,6 +9,15 @@
         public int MinPlayers { get; init; } = 1;
         public int MaxPlayers { get; init; } = 4;
         public int PlayTime { get; init; } = 60;
+
+        /// <summary>
+        /// BGG Complexity Weight — độ phức tạp game thang 1.0 → 5.0.
+        /// Nguồn: BoardGameGeek (averageweight community vote).
+        /// Dùng trong MatchScore để bonus/penalize dựa trên trình độ người chơi.
+        /// Null nếu BGG chưa có đủ vote hoặc stats không được request.
+        /// </summary>
+        public double? Weight { get; init; }
+
         public IReadOnlyList<string> Categories { get; init; } = [];
         public IReadOnlyList<string> Mechanics { get; init; } = [];
     }

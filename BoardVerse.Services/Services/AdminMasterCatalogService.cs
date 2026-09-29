@@ -253,6 +253,16 @@ namespace BoardVerse.Services.Services
             if (request.BggId.HasValue)
                 game.BggId = request.BggId.Value;
 
+            if (request.Weight.HasValue)
+            {
+                game.Weight = request.Weight.Value;
+                // BR-AUDIT-WEIGHT-01: ghi nhận Weight do admin set thủ công.
+                game.WeightSource = Core.Enum.WeightSource.Manual;
+                // Khi admin set Weight thủ công, reset retry counter vì không cần BGG retry nữa.
+                game.BggRetryCount = 0;
+            }
+            // Note: không có API để clear weight (set null) vì [Range] không cho phép null → null vẫn giữ nguyên giá trị cũ.
+
             if (request.MinPlayers.HasValue)
                 game.MinPlayers = request.MinPlayers.Value;
 
@@ -282,6 +292,13 @@ namespace BoardVerse.Services.Services
             game.UpdatedAt = DateTime.UtcNow;
             await _gameTemplateRepository.SaveChangesAsync();
             return MapBoardGame(game);
+        }
+
+        public async Task<List<AdminBoardGameResponseDto>> GetGamesMissingWeightAsync(
+            bool includeInactive, CancellationToken cancellationToken = default)
+        {
+            var games = await _gameTemplateRepository.GetGamesWithMissingWeightAsync(includeInactive, cancellationToken);
+            return games.Select(MapBoardGame).ToList();
         }
 
         private async Task EnsureGameTemplateExistsAsync(Guid gameTemplateId)
@@ -354,6 +371,10 @@ namespace BoardVerse.Services.Services
                 ThumbnailUrl = game.ThumbnailUrl,
                 Description = game.Description,
                 BggId = game.BggId,
+                Weight = game.Weight,
+                WeightSource = game.WeightSource,
+                BggRetryCount = game.BggRetryCount,
+                LastBggRetryAt = game.LastBggRetryAt,
                 IsActive = game.IsActive,
                 MinPlayers = game.MinPlayers,
                 MaxPlayers = game.MaxPlayers,

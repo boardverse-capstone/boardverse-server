@@ -182,3 +182,34 @@ Import tự **map thể loại** từ BGG categories/mechanics sang slug nội b
 - BGG **không** cung cấp danh sách hộp game có cấu trúc.
 - Backend ưu tiên `GameCatalog` (curated theo `BggId`); nếu không có thì suy luận từ mechanics BGG.
 - Import yêu cầu ít nhất một linh kiện đã resolve.
+
+---
+
+## Ghi chú Weight (averageweight)
+
+`Weight` (BGG Complexity Weight, 1.0 → 5.0) lấy từ `<statistics><averageweight>` trong XML BGG.
+
+**Retry logic 2 lớp (đã implement):**
+
+1. **HTTP 202 Accepted** — retry với `RetryDelayMilliseconds` (mặc định 2000ms), tối đa `MaxRetryAttempts` lần (mặc định 5).
+2. **XML thiếu `<statistics>`** — nếu BGG trả 200 OK nhưng XML không có khối `<statistics>` (BGG chưa kịp tính averageweight do async queue), backend retry **1 lần** với `StatsRetryDelayMilliseconds` (mặc định 30 000ms = 30s).
+
+**Sau khi import, nếu `Weight = null` vẫn xảy ra:**
+
+- BGG chưa đủ vote cho game đó (game quá mới hoặc niche).
+- Backend log warning:
+  ```
+  BGG import: GameTemplate {GameId} (BggId={BggId}, Name={Name}) has no averageweight from BGG.
+  Admin should set Weight manually via PUT /api/v1/admin/master-games/{GameId}.
+  ```
+- Admin dùng:
+  - `GET /api/v1/admin/master-games/missing-weight` — danh sách game thiếu Weight.
+  - `PUT /api/v1/admin/master-games/{gameTemplateId}` với `{ "weight": 2.5 }` để set thủ công.
+
+**Config:**
+
+| Setting | Mặc định | Mô tả |
+|---|---|---|
+| `Bgg:MaxRetryAttempts` | 5 | Số lần retry HTTP 202 / transport error. |
+| `Bgg:RetryDelayMilliseconds` | 2000 | Delay giữa các lần retry HTTP. |
+| `Bgg:StatsRetryDelayMilliseconds` | 30000 | Delay khi retry do XML thiếu `<statistics>`. |

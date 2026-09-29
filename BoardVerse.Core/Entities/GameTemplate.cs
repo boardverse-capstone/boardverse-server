@@ -60,6 +60,23 @@ namespace BoardVerse.Core.Entities
         /// </summary>
         public double? Weight { get; set; }
 
+        /// <summary>
+        /// Nguồn gốc của <see cref="Weight"/>. Audit field: biết được Weight từ BGG import, admin set,
+        /// hay default rule. BR-AUDIT-WEIGHT-01: tracking để admin biết cần verify lại.
+        /// </summary>
+        public WeightSource WeightSource { get; set; } = WeightSource.BGG;
+
+        /// <summary>
+        /// Số lần background job đã thử fetch lại BGG cho game này mà vẫn missing Weight.
+        /// Reset về 0 khi Weight được set thành công.
+        /// </summary>
+        public int BggRetryCount { get; set; } = 0;
+
+        /// <summary>
+        /// Lần cuối background job thử fetch lại BGG. Null = chưa retry lần nào.
+        /// </summary>
+        public DateTime? LastBggRetryAt { get; set; }
+
         public bool IsActive { get; set; } = true;
 
         // === Tournament Support ===

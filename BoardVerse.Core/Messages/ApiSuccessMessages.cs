@@ -223,6 +223,7 @@ public const string SePayQrPreviewGenerated = "Đã tạo QR test cho payment ac
             public const string GameCategoriesUpdated = "Cập nhật thể loại game thành công.";
             public const string BoardGameUpdated = "Cập nhật board game thành công.";
             public const string ThumbnailUpdated = "Cập nhật ảnh thumbnail thành công.";
+            public const string MissingWeightGamesRetrieved = "Lấy danh sách board game đang thiếu weight thành công.";
         }
 
         public static class AdminConfig

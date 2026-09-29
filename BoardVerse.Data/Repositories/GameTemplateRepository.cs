@@ -178,6 +178,41 @@ namespace BoardVerse.Data.Repositories
                 .AnyAsync(c => c.CafeId == cafeId && c.GameTemplateId == gameTemplateId && c.BoxQuantity > 0);
         }
 
+        public async Task<List<GameTemplate>> GetGamesWithMissingWeightAsync(bool includeInactive, CancellationToken cancellationToken = default)
+        {
+            var query = _context.GameTemplates
+                .AsNoTracking()
+                .Where(g => g.Weight == null);
+
+            if (!includeInactive)
+                query = query.Where(g => g.IsActive);
+
+            return await query
+                .OrderBy(g => g.Name)
+                .ToListAsync(cancellationToken);
+        }
+
+        public async Task<List<GameTemplate>> GetMissingWeightRetryCandidatesAsync(
+            int maxRetryRounds,
+            int batchSize,
+            CancellationToken cancellationToken = default)
+        {
+            return await _context.GameTemplates
+                .AsNoTracking()
+                .Where(g =>
+                    g.Weight == null &&
+                    g.BggId != null &&
+                    g.IsActive &&
+                    g.BggRetryCount < maxRetryRounds)
+                // Ưu tiên game chưa retry lần nào (NULLS FIRST) → game retry nhiều → retry ít → cuối cùng.
+                .OrderBy(g => g.LastBggRetryAt == null ? 0 : 1)
+                .ThenBy(g => g.LastBggRetryAt)
+                .ThenBy(g => g.BggRetryCount)
+                .ThenBy(g => g.Name)
+                .Take(batchSize)
+                .ToListAsync(cancellationToken);
+        }
+
         /// <summary>
         /// Top N board game được chơi nhiều nhất trong hệ thống.
         /// Đếm theo số lần xuất hiện trong <see cref="ActiveSession.GameTemplateId"/> (primary game)

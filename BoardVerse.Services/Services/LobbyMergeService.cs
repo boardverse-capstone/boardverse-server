@@ -133,16 +133,33 @@ public class LobbyMergeService : ILobbyMergeService
         if (!validSourceStatuses.Contains(sourceLobby.Status))
             throw new ConflictException(LobbyMergeErrors.SourceLobbyNotValidForMerge);
 
-        // 5. Validate cùng cafe và cùng game
-        // Cả reservation lobby lẫn walk-in lobby đều có CafeId / GameTemplateId.
-        // Dùng trực tiếp lobby entity fields — đủ để validate cross-cafe và cross-game.
-        // Reservation.CafeId/GameId chỉ cần khi lookup Reservation khác (vd. payment/capture),
-        // không cần ở đây.
+        // 5. Validate cùng cafe
         if (sourceLobby.CafeId != targetLobby.CafeId)
             throw new BadRequestException(LobbyMergeErrors.MergeCannotCrossCafes);
 
+        // 5b. BR Exception 4 (boardverse-business-context.mdc) — cross-game merge:
+        // A3 rời Nhóm A (game đã trả về quán qua ComponentCheck) → đứng độc lập → merge Nhóm B (game khác).
+        // Logic giống Gap 4 fix trong ActiveSessionService.MergeSessionAsync:
+        // chỉ chặn khi Nguồn còn box InUse (game đang chơi trên bàn) khác game với Đích.
+        // Nếu Nguồn không còn box InUse (game đã trả / lobby chưa attach box) → cho phép cross-game.
         if (sourceLobby.GameTemplateId != targetLobby.GameTemplateId)
-            throw new BadRequestException(LobbyMergeErrors.MergeDifferentGames);
+        {
+            var sourceHasActiveBox = await _db.ActiveSessionGames
+                .AsNoTracking()
+                .AnyAsync(g =>
+                    g.ActiveSession!.LobbyId == sourceLobby.Id &&
+                    g.CafeInventoryBox!.Status == CafeGameInventoryStatus.InUse,
+                    cancellationToken);
+
+            if (sourceHasActiveBox)
+            {
+                throw new BadRequestException(LobbyMergeErrors.MergeDifferentGames);
+            }
+            // else: source không còn game đang chơi trên bàn → cho phép merge khác game
+            _logger.LogInformation(
+                "LobbyMerge: cho phép cross-game merge Source={SourceLobbyId} (game={SourceGameId}) → Target={TargetLobbyId} (game={TargetGameId}) do source không còn box InUse.",
+                sourceLobby.Id, sourceLobby.GameTemplateId, targetLobby.Id, targetLobby.GameTemplateId);
+        }
 
         // 6. Validate idempotency key — check FIRST so retries return the same result
         if (!string.IsNullOrWhiteSpace(dto.IdempotencyKey))
@@ -171,14 +188,15 @@ public class LobbyMergeService : ILobbyMergeService
         if (existingPending)
             throw new ConflictException(LobbyMergeErrors.MergeRequestAlreadyPending);
 
-        // 9. Đếm member count của source lobby
-        var sourceMembers = await _lobbyMemberRepository.GetByLobbyAsync(dto.SourceLobbyId, cancellationToken);
-        var activeMembers = sourceMembers.Where(m => m.IsActive && m.Status == LobbyMemberStatus.Ready).ToList();
-
-        // 10. Tính combinedCount, seatCapacity, fitsCapacity
-        var targetMembers = await _lobbyMemberRepository.GetByLobbyAsync(dto.TargetLobbyId, cancellationToken);
-        var targetActiveMembers = targetMembers.Count(m => m.IsActive && m.Status == LobbyMemberStatus.Ready);
-        var combinedCount = targetActiveMembers + activeMembers.Count;
+        // 9. Đếm member count của source lobby + target lobby.
+        // Gap #5 Fix (2026-09-29): Source có thể là WALK-IN lobby (ReservationId == null).
+        // Walk-in lobbies KHÔNG có LobbyMembers rows — chỉ có ActiveSessionMembers
+        // (guest slots với IsGuestSlot=true, UserId=null). Nếu dùng _lobbyMemberRepository
+        // cho walk-in source/target sẽ trả 0 → combinedCount = 0, ghost merge bug.
+        // Helper LoadSourceMemberCountsAsync xử lý cả 2 path.
+        var sourceCounts = await LoadSourceMemberCountsAsync(sourceLobby, cancellationToken);
+        var targetCounts = await LoadSourceMemberCountsAsync(targetLobby, cancellationToken);
+        var combinedCount = sourceCounts.ActiveCount + targetCounts.ActiveCount;
 
         // Lấy seat capacity từ SeatInventory của target reservation
         int seatCapacity = int.MaxValue; // fallback: không giới hạn nếu không tìm thấy
@@ -211,8 +229,8 @@ public class LobbyMergeService : ILobbyMergeService
             TargetLobbyId = dto.TargetLobbyId,
             RequestedByUserId = staffUserId,
             Status = LobbyMergeRequestStatus.Pending,
-            SourceMembersCount = sourceMembers.Count,
-            SourceActiveMembersAtRequest = activeMembers.Count,
+            SourceMembersCount = sourceCounts.TotalCount,
+            SourceActiveMembersAtRequest = sourceCounts.ActiveCount,
             Reason = dto.Reason,
             ExpiresAt = DateTime.UtcNow.AddMinutes(MergeRequestExpiryMinutes),
             IdempotencyKey = dto.IdempotencyKey,
@@ -236,8 +254,8 @@ public class LobbyMergeService : ILobbyMergeService
             "MergeRequested",
             new
             {
-                sourceMembersCount = sourceMembers.Count,
-                activeMembersAtRequest = activeMembers.Count,
+                sourceMembersCount = sourceCounts.TotalCount,
+                activeMembersAtRequest = sourceCounts.ActiveCount,
                 reason = dto.Reason
             },
             success: true);
@@ -308,13 +326,22 @@ public class LobbyMergeService : ILobbyMergeService
                 .FirstOrDefaultAsync(cancellationToken)
                 ?? throw new NotFoundException(LobbyMergeErrors.TargetSessionNotFound);
 
-            // ===== Step 5: G8 — Seat availability check =====
-            // Kiểm tra AvailableSeats >= số member cần ghép trước khi thực hiện
-            var activeMembers = sourceLobby.Members
-                .Where(m => m.IsActive && m.Status == LobbyMemberStatus.Ready)
-                .ToList();
+            // ===== Step 5: G8 — Seat availability check + Gap #5: Walk-in support =====
+            // Kiểm tra AvailableSeats >= số member cần ghép trước khi thực hiện.
+            //
+            // Gap #5 Fix (2026-09-29): Source có thể là WALK-IN lobby (ReservationId == null).
+            // Walk-in lobbies KHÔNG có LobbyMembers — chỉ có ActiveSessionMembers trong
+            // source's ActiveSession (guest slots). Dùng helper LoadSourceTransferableMembersAsync
+            // để chọn đúng nguồn dữ liệu (LobbyMember cho online, ActiveSessionMember cho walk-in).
+            var sourceTransferSet = await LoadSourceTransferableMembersAsync(
+                sourceLobby, cancellationToken);
+            var activeMembers = sourceTransferSet.ActiveMembers;
+            var walkInMembers = sourceTransferSet.WalkInMembers;
+            var sourceActiveSession = sourceTransferSet.SourceActiveSession;
+            // Tổng số transferable members (online LobbyMember + walk-in ActiveSessionMember)
+            var totalTransferable = activeMembers.Count + walkInMembers.Count;
 
-            if (activeMembers.Count > 0)
+            if (totalTransferable > 0)
             {
                 // Lấy SeatInventory với FOR UPDATE để tránh race condition
                 var (sourceReservation, targetReservation) = await LoadReservationsAsync(
@@ -343,11 +370,11 @@ public class LobbyMergeService : ILobbyMergeService
                 var seatInventory = await _seatInventoryRepository.GetForUpdateAsync(
                     cafeId, seatPlayDate, seatStartTime, seatEndTime, cancellationToken);
 
-                if (seatInventory != null && seatInventory.AvailableSeats < activeMembers.Count)
+                if (seatInventory != null && seatInventory.AvailableSeats < totalTransferable)
                 {
                     _logger.LogWarning(
                         "Seat not available for merge: RequestId={RequestId} | Available={Available} | Required={Required}",
-                        requestId, seatInventory.AvailableSeats, activeMembers.Count);
+                        requestId, seatInventory.AvailableSeats, totalTransferable);
 
                     throw new ConflictException(
                         LobbyMergeErrors.SeatNotAvailableForMerge);
@@ -469,8 +496,10 @@ public class LobbyMergeService : ILobbyMergeService
                 }
             }
 
-            // ===== Step 9: Không có member nào active → từ chối nhẹ =====
-            if (activeMembers.Count == 0)
+            // ===== Step 9: Không có member nào active → throw ConflictException =====
+            // Trước đây code silently đánh Rejected + return success → staff thấy "thành công"
+            // nhưng thực tế 0 member di chuyển. Fix: throw ConflictException với message rõ ràng.
+            if (totalTransferable == 0)
             {
                 mergeRequest.Status = LobbyMergeRequestStatus.Rejected;
                 mergeRequest.ReviewedByUserId = staffUserId;
@@ -488,21 +517,14 @@ public class LobbyMergeService : ILobbyMergeService
                 await _db.SaveChangesAsync(cancellationToken);
                 if (ownedTx != null) await ownedTx.CommitAsync(cancellationToken);
 
-                return new LobbyMergeApprovedDto
-                {
-                    MergeRequestId = mergeRequest.Id,
-                    SourceLobbyId = sourceLobby.Id,
-                    TargetLobbyId = targetLobby.Id,
-                    MembersTransferred = 0,
-                    TargetActiveSessionId = targetSession.Id,
-                    IdempotencyKey = mergeRequest.IdempotencyKey
-                };
+                throw new ConflictException(ApiErrorMessages.Lobby.LobbyMerge.NoActiveMembersToTransfer);
             }
 
             // ===== Step 10: Transfer từng member =====
             // Gap #1/#5: track ActiveSessionLobbySource đã tạo để update SourceDissolved sau dissolve
             var createdSources = new List<ActiveSessionLobbySource>();
 
+            // ===== Sub-step 10a: Transfer online LobbyMembers (ReservationId != null) =====
             foreach (var member in activeMembers)
             {
                 // Audit log trước khi thay đổi
@@ -516,7 +538,8 @@ public class LobbyMergeService : ILobbyMergeService
                         userId = member.UserId,
                         previousLobbyId = sourceLobby.Id,
                         newLobbyId = targetLobby.Id,
-                        transferredAt = DateTime.UtcNow
+                        transferredAt = DateTime.UtcNow,
+                        transferType = "LobbyMember"
                     },
                     success: true);
                 _db.LobbyMergeAuditLogs.Add(transferAudit);
@@ -563,10 +586,81 @@ public class LobbyMergeService : ILobbyMergeService
                 createdSources.Add(source);
             }
 
+            // ===== Sub-step 10b: Transfer walk-in ActiveSessionMembers (ReservationId == null) =====
+            // Walk-in source lobby không có LobbyMember rows — chỉ có ActiveSessionMember
+            // guest slots. Cần move trực tiếp các ActiveSessionMember rows sang target session.
+            foreach (var walkInMember in walkInMembers)
+            {
+                var transferAudit = CreateAuditLog(
+                    mergeRequest.Id, sourceLobby.Id, targetLobby.Id,
+                    sourceLobby.ReservationId, targetLobby.ReservationId,
+                    staffUserId, "MemberTransferred",
+                    new
+                    {
+                        memberId = walkInMember.Id,
+                        userId = walkInMember.UserId,
+                        guestDisplayName = walkInMember.GuestDisplayName,
+                        previousLobbyId = sourceLobby.Id,
+                        newLobbyId = targetLobby.Id,
+                        previousSessionId = walkInMember.ActiveSessionId,
+                        newSessionId = targetSession.Id,
+                        transferredAt = DateTime.UtcNow,
+                        transferType = "ActiveSessionMember"
+                    },
+                    success: true);
+                _db.LobbyMergeAuditLogs.Add(transferAudit);
+
+                // Chuyển ActiveSessionMember từ source session sang target session
+                walkInMember.ActiveSessionId = targetSession.Id;
+                walkInMember.MergedFromLobbyId = sourceLobby.Id;
+                walkInMember.MergedAt = DateTime.UtcNow;
+                if (walkInMember.OriginalSessionId == null && sourceActiveSession != null)
+                {
+                    walkInMember.OriginalSessionId = sourceActiveSession.Id;
+                }
+                if (walkInMember.OriginalLobbyId == null)
+                {
+                    walkInMember.OriginalLobbyId = sourceLobby.Id;
+                }
+
+                // Insert ActiveSessionLobbySource cho walk-in member (giữ audit trail nguồn)
+                var source = new ActiveSessionLobbySource
+                {
+                    Id = Guid.NewGuid(),
+                    ActiveSessionId = targetSession.Id,
+                    LobbyId = sourceLobby.Id,
+                    ReservationId = sourceLobby.ReservationId, // null cho walk-in
+                    MergedByUserId = staffUserId,
+                    MergedAt = DateTime.UtcNow,
+                    SourceDissolved = false,
+                    DepositStatusAtMerge = depositStatusAtMerge ?? BookingDepositStatus.Pending,
+                    CreatedAt = DateTime.UtcNow
+                };
+                _db.ActiveSessionLobbySources.Add(source);
+                createdSources.Add(source);
+            }
+
             // ===== Step 11: Dissolve source lobby nếu không còn member =====
-            var remainingMembers = await _lobbyMemberRepository.GetByLobbyAsync(
-                sourceLobby.Id, cancellationToken);
-            var stillActive = remainingMembers.Count(m => m.IsActive && m.Status == LobbyMemberStatus.Ready);
+            // Tính cả LobbyMember (online) và ActiveSessionMember Playing (walk-in) để xác định còn active hay không.
+            int stillActive;
+            if (sourceLobby.ReservationId.HasValue)
+            {
+                var remainingMembers = await _lobbyMemberRepository.GetByLobbyAsync(
+                    sourceLobby.Id, cancellationToken);
+                stillActive = remainingMembers.Count(m => m.IsActive && m.Status == LobbyMemberStatus.Ready);
+            }
+            else
+            {
+                // Walk-in source: đếm ActiveSessionMember còn Playing trong ActiveSession của source
+                var remainingWalkIn = sourceActiveSession == null
+                    ? 0
+                    : await _db.ActiveSessionMembers
+                        .CountAsync(m =>
+                            m.ActiveSessionId == sourceActiveSession.Id &&
+                            m.Status == IndividualSessionStatus.Playing,
+                            cancellationToken);
+                stillActive = remainingWalkIn;
+            }
 
             if (stillActive == 0)
             {
@@ -612,7 +706,9 @@ public class LobbyMergeService : ILobbyMergeService
                     staffUserId, "SourceLobbyDissolved",
                     new
                     {
-                        previousMembersCount = activeMembers.Count,
+                        previousMembersCount = totalTransferable,
+                        lobbyMembersCount = activeMembers.Count,
+                        walkInMembersCount = walkInMembers.Count,
                         dissolvedAt = DateTime.UtcNow
                     },
                     success: true);
@@ -640,7 +736,9 @@ public class LobbyMergeService : ILobbyMergeService
                 staffUserId, "MergeApproved",
                 new
                 {
-                    membersTransferred = activeMembers.Count,
+                    membersTransferred = totalTransferable,
+                    lobbyMembersTransferred = activeMembers.Count,
+                    walkInMembersTransferred = walkInMembers.Count,
                     sourceDissolved = stillActive == 0,
                     reviewNote
                 },
@@ -656,7 +754,14 @@ public class LobbyMergeService : ILobbyMergeService
             {
                 // G21: Expire pending invites cho source lobby và các member vừa được ghép
                 // BR-LOBBY-INVITE-09: Lobby terminal → tất cả pending invite chuyển Expired ngay
-                var transferredUserIds = activeMembers.Select(m => m.UserId).ToList();
+                // Lấy cả LobbyMember.UserIds (online) và walk-in guest UserIds (walk-in)
+                var lobbyMemberUserIds = activeMembers.Select(m => m.UserId).ToList();
+                var walkInUserIds = walkInMembers
+                    .Where(m => m.UserId.HasValue)
+                    .Select(m => m.UserId!.Value)
+                    .ToList();
+                var transferredUserIds = lobbyMemberUserIds.Concat(walkInUserIds).Distinct().ToList();
+
                 await _lobbyInviteRepository.ExpirePendingForUsersAsync(
                     lobbyId: sourceLobby.Id,
                     inviteeIds: transferredUserIds,
@@ -664,10 +769,10 @@ public class LobbyMergeService : ILobbyMergeService
 
                 // G19: Notify source lobby (Nhóm A) — members biết lobby đã bị absorbed
                 await _lobbyHubService.NotifyLobbyMergedInto(
-                    sourceLobby.Id, targetLobby.Id, mergeRequest.Id, activeMembers.Count);
+                    sourceLobby.Id, targetLobby.Id, mergeRequest.Id, totalTransferable);
 
                 // G20: Notify target lobby (Nhóm B) — thông báo member mới từ merge
-                if (activeMembers.Count > 0)
+                if (totalTransferable > 0)
                 {
                     await _lobbyHubService.NotifyMemberJoinedFromMerge(
                         targetLobby.Id, transferredUserIds, sourceLobby.Id, mergeRequest.Id);
@@ -682,15 +787,15 @@ public class LobbyMergeService : ILobbyMergeService
             }
 
             _logger.LogInformation(
-                "LobbyMerge approved: RequestId={RequestId} | Source={SourceLobbyId} | Target={TargetLobbyId} | MembersTransferred={Count}",
-                requestId, sourceLobby.Id, targetLobby.Id, activeMembers.Count);
+                "LobbyMerge approved: RequestId={RequestId} | Source={SourceLobbyId} | Target={TargetLobbyId} | LobbyMembersTransferred={LobbyCount} | WalkInMembersTransferred={WalkInCount} | Total={Count}",
+                requestId, sourceLobby.Id, targetLobby.Id, activeMembers.Count, walkInMembers.Count, totalTransferable);
 
             return new LobbyMergeApprovedDto
             {
                 MergeRequestId = mergeRequest.Id,
                 SourceLobbyId = sourceLobby.Id,
                 TargetLobbyId = targetLobby.Id,
-                MembersTransferred = activeMembers.Count,
+                MembersTransferred = totalTransferable,
                 TargetActiveSessionId = targetSession.Id,
                 IdempotencyKey = mergeRequest.IdempotencyKey
             };
@@ -915,6 +1020,103 @@ public class LobbyMergeService : ILobbyMergeService
     }
 
     // ===== Private helpers =====
+
+    /// <summary>
+    /// Counts member cho cả online (LobbyMember) và walk-in (ActiveSessionMember) lobby.
+    /// Online  : lobby.ReservationId.HasValue → count LobbyMembers.
+    /// Walk-in : lobby.ReservationId == null → count ActiveSessionMembers trong lobby.ActiveSessionId.
+    /// </summary>
+    private readonly record struct LobbyMemberCounts(int TotalCount, int ActiveCount);
+
+    /// <summary>
+    /// Result set cho LoadSourceTransferableMembersAsync.
+    /// - ActiveMembers : LobbyMember rows cho online lobby (IsActive + Status = Ready).
+    /// - WalkInMembers : ActiveSessionMember rows cho walk-in lobby (Status = Playing).
+    /// - SourceActiveSession : walk-in session của source lobby (null với online lobby).
+    /// </summary>
+    private readonly record struct LobbyMergeSourceTransferSet(
+        IReadOnlyList<LobbyMember> ActiveMembers,
+        IReadOnlyList<ActiveSessionMember> WalkInMembers,
+        ActiveSession? SourceActiveSession);
+
+    /// <summary>
+    /// Đếm member count của 1 lobby (online hoặc walk-in).
+    /// Online  : LobbyMember.Status = Ready là "active", các status khác (Joined/Kicked/Left/LobbyTerminated) là "inactive".
+    /// Walk-in : ActiveSessionMember.Status = Playing là "active", các status khác (SuspendedMutation/Finished) là "inactive".
+    /// </summary>
+    private async Task<LobbyMemberCounts> LoadSourceMemberCountsAsync(
+        Lobby lobby,
+        CancellationToken cancellationToken)
+    {
+        // Online lobby — dùng LobbyMember
+        if (lobby.ReservationId.HasValue)
+        {
+            var members = await _lobbyMemberRepository.GetByLobbyAsync(lobby.Id, cancellationToken);
+            var activeCount = members.Count(m => m.IsActive && m.Status == LobbyMemberStatus.Ready);
+            return new LobbyMemberCounts(members.Count, activeCount);
+        }
+
+        // Walk-in lobby — dùng ActiveSessionMember trong ActiveSession liên kết
+        if (!lobby.ActiveSessionId.HasValue)
+        {
+            // Walk-in lobby không có ActiveSessionId → lobby trống hoàn toàn
+            return new LobbyMemberCounts(0, 0);
+        }
+
+        var sessionMembers = await _db.ActiveSessionMembers
+            .AsNoTracking()
+            .Where(m => m.ActiveSessionId == lobby.ActiveSessionId.Value)
+            .ToListAsync(cancellationToken);
+
+        // Defensive: ToListAsync() should return empty list, but in some InMemory DB
+        // edge cases có thể trả null → fallback để tránh NRE.
+        var sessionMembersList = sessionMembers ?? new List<ActiveSessionMember>();
+        var activePlaying = sessionMembersList.Count(m => m.Status == IndividualSessionStatus.Playing);
+        return new LobbyMemberCounts(sessionMembersList.Count, activePlaying);
+    }
+
+    /// <summary>
+    /// Load transferable members cho cả online (LobbyMember) và walk-in (ActiveSessionMember).
+    /// Online  : trả LobbyMember có IsActive && Status == Ready.
+    /// Walk-in : trả ActiveSessionMember có Status == Playing (kèm source ActiveSession để update sau).
+    /// </summary>
+    private async Task<LobbyMergeSourceTransferSet> LoadSourceTransferableMembersAsync(
+        Lobby sourceLobby,
+        CancellationToken cancellationToken)
+    {
+        // Online lobby — dùng LobbyMember
+        if (sourceLobby.ReservationId.HasValue)
+        {
+            var members = await _lobbyMemberRepository.GetByLobbyAsync(sourceLobby.Id, cancellationToken);
+            var active = members
+                .Where(m => m.IsActive && m.Status == LobbyMemberStatus.Ready)
+                .ToList();
+            return new LobbyMergeSourceTransferSet(active, Array.Empty<ActiveSessionMember>(), null);
+        }
+
+        // Walk-in lobby — dùng ActiveSessionMember
+        if (!sourceLobby.ActiveSessionId.HasValue)
+        {
+            return new LobbyMergeSourceTransferSet(
+                Array.Empty<LobbyMember>(),
+                Array.Empty<ActiveSessionMember>(),
+                null);
+        }
+
+        var sourceSession = await _db.ActiveSessions
+            .FirstOrDefaultAsync(s => s.Id == sourceLobby.ActiveSessionId.Value, cancellationToken);
+
+        var walkInMembers = await _db.ActiveSessionMembers
+            .Where(m =>
+                m.ActiveSessionId == sourceLobby.ActiveSessionId.Value &&
+                m.Status == IndividualSessionStatus.Playing)
+            .ToListAsync(cancellationToken);
+
+        return new LobbyMergeSourceTransferSet(
+            Array.Empty<LobbyMember>(),
+            walkInMembers,
+            sourceSession);
+    }
 
     /// <summary>
     /// Load reservations của source và target lobby (dùng cho seat availability check).

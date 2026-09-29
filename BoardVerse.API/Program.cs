@@ -366,6 +366,7 @@ if (!builder.Environment.IsEnvironment("Testing"))
     builder.Services.AddHostedService<OutboxPublisherHostedService>();
     builder.Services.AddHostedService<OutboxCleanupJob>(); // GAP-R4-A8: cleanup processed events > 30 days
     builder.Services.AddHostedService<DeviceTokenCleanupJob>(); // GAP-R6-FCM-CLEANUP: cleanup stale FCM tokens
+    builder.Services.AddHostedService<MissingWeightBggRetryJob>(); // BR-AUDIT-WEIGHT-01: auto-heal missing Weight from BGG
 }
 
 // SignalR Hubs for real-time updates

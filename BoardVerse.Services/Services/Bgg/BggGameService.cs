@@ -111,6 +111,12 @@ namespace BoardVerse.Services.Services.Bgg
                     PlayTime = thing.PlayTime,
                     BggId = thing.Id,
                     BggSyncedAt = syncedAt,
+                    Weight = thing.Weight,
+                    // Audit: BR-AUDIT-WEIGHT-01 — track nguồn gốc Weight.
+                    // Game mới từ BGG luôn được đánh dấu BGG (kể cả khi Weight = null
+                    // vì WeightSource vẫn phản ánh "đã attempt lấy từ BGG, không có sẵn").
+                    WeightSource = Core.Enum.WeightSource.BGG,
+                    BggRetryCount = 0,
                     CreatedAt = syncedAt,
                     UpdatedAt = syncedAt,
                     Components = []
@@ -131,6 +137,13 @@ namespace BoardVerse.Services.Services.Bgg
                 existing.PlayTime = thing.PlayTime;
                 existing.BggId = thing.Id;
                 existing.BggSyncedAt = syncedAt;
+                if (thing.Weight.HasValue)
+                {
+                    existing.Weight = thing.Weight.Value;
+                    existing.WeightSource = Core.Enum.WeightSource.BGG;
+                    // Reset retry counter khi BGG lần đầu trả Weight thành công.
+                    existing.BggRetryCount = 0;
+                }
                 existing.UpdatedAt = syncedAt;
                 ApplySearchAliases(existing);
 
@@ -150,6 +163,15 @@ namespace BoardVerse.Services.Services.Bgg
             }
 
             await _context.SaveChangesAsync();
+
+            if (!thing.Weight.HasValue)
+            {
+                _logger.LogWarning(
+                    "BGG import: GameTemplate {GameId} (BggId={BggId}, Name={Name}) has no averageweight from BGG. Admin should set Weight manually via PUT /api/v1/admin/master-games/{GameId}.",
+                    existing.Id,
+                    request.BggId,
+                    thing.Name);
+            }
 
             _logger.LogInformation(
                 "Imported BGG game {BggId} ({Name}) as GameTemplate {GameId}, created={Created}.",
@@ -171,6 +193,71 @@ namespace BoardVerse.Services.Services.Bgg
                     : preview.Components.FirstOrDefault()?.Source ?? GameComponentCatalogSource.Unknown,
                 PreservedComponentCount = preservedCount
             };
+        }
+
+        public async Task<BggReimportResult> ReimportWeightAsync(Guid gameTemplateId, CancellationToken cancellationToken = default)
+        {
+            var game = await _context.GameTemplates.FirstOrDefaultAsync(g => g.Id == gameTemplateId, cancellationToken);
+            if (game == null)
+            {
+                _logger.LogDebug("ReimportWeight: GameTemplate {GameId} not found, skipping.", gameTemplateId);
+                return BggReimportResult.GameNotFound;
+            }
+
+            if (!game.BggId.HasValue)
+            {
+                _logger.LogDebug("ReimportWeight: GameTemplate {GameId} has no BggId, skipping.", gameTemplateId);
+                return BggReimportResult.NoBggId;
+            }
+
+            if (game.Weight.HasValue)
+            {
+                _logger.LogDebug("ReimportWeight: GameTemplate {GameId} already has Weight={Weight}, skipping.", gameTemplateId, game.Weight);
+                return BggReimportResult.AlreadyHasWeight;
+            }
+
+            BggThingData? thing = null;
+            try
+            {
+                thing = await FetchThingForImportAsync(game.BggId.Value);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException)
+            {
+                game.BggRetryCount += 1;
+                game.LastBggRetryAt = DateTime.UtcNow;
+                game.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync(cancellationToken);
+                _logger.LogWarning(ex,
+                    "ReimportWeight: BGG API transient failure for GameTemplate {GameId} (BggId={BggId}). RetryCount now {RetryCount}.",
+                    gameTemplateId, game.BggId, game.BggRetryCount);
+                return BggReimportResult.TransientFailure;
+            }
+
+            game.BggSyncedAt = DateTime.UtcNow;
+            game.BggRetryCount += 1;
+            game.LastBggRetryAt = game.BggSyncedAt;
+
+            if (thing.Weight.HasValue)
+            {
+                game.Weight = thing.Weight.Value;
+                game.WeightSource = Core.Enum.WeightSource.BGG;
+                // Reset retry counter khi BGG lần đầu trả Weight thành công.
+                game.BggRetryCount = 0;
+                game.UpdatedAt = game.BggSyncedAt.Value;
+                await _context.SaveChangesAsync(cancellationToken);
+                _logger.LogInformation(
+                    "ReimportWeight: GameTemplate {GameId} (BggId={BggId}, Name={Name}) successfully got Weight={Weight} from BGG after {RetryCount} retries.",
+                    gameTemplateId, game.BggId, game.Name, thing.Weight, game.BggRetryCount);
+                return BggReimportResult.WeightUpdated;
+            }
+
+            // BGG vẫn chưa có Weight — chỉ update retry counter.
+            game.UpdatedAt = game.BggSyncedAt.Value;
+            await _context.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation(
+                "ReimportWeight: GameTemplate {GameId} (BggId={BggId}) still has no Weight from BGG after {RetryCount} retries. Admin may need to set manually.",
+                gameTemplateId, game.BggId, game.BggRetryCount);
+            return BggReimportResult.WeightStillMissing;
         }
 
         /// <summary>
@@ -344,6 +431,7 @@ namespace BoardVerse.Services.Services.Bgg
                 MinPlayers = thing.MinPlayers,
                 MaxPlayers = thing.MaxPlayers,
                 PlayTime = thing.PlayTime,
+                Weight = thing.Weight,
                 Categories = thing.Categories,
                 Mechanics = thing.Mechanics,
                 Components = components,

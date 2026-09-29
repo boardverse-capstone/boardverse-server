@@ -34,6 +34,25 @@ Ghép nhóm lobby (Lobby Merge). Theo **Exception Path §4 — boardverse-busine
 
 ## Luồng nghiệp vụ
 
+### Cross-game merge (Gap 4 fix 2026-09-29)
+
+Theo **BR Exception 4** (`boardverse-business-context.mdc`), player rời nhóm sau khi đã trả game về quán có thể nhập nhóm khác đang chơi game khác. Logic tương tự `ActiveSessionService.MergeSessionAsync` (Gap 4 fix).
+
+| Tình huống source lobby | Cross-game merge |
+|---|---|
+| Chưa attach box nào (lobby `Open`/`Viable`/`Full`) | ✅ **Cho phép** |
+| Có box nhưng đã trả về quán (`CafeInventoryBox.Status = Available` / `Maintenance`) — sau `ComponentCheck` | ✅ **Cho phép** |
+| Có box `InUse` (game đang chơi trên bàn) | ❌ **Chặn** — staff phải `EndGame` + `ComponentCheck` trước khi merge |
+
+**Ví dụ thực tế:**
+1. A3 ngồi Nhóm A đang chơi Catan → nhân viên gọi `EndGame` + `ComponentCheck` → box Catan trả về quán (`Status = Available`).
+2. A3 đứng dậy, đi sang bàn Nhóm B đang chơi Splendor.
+3. Staff quét mã A3 → `POST /merge-requests` với `sourceLobbyId = A`, `targetLobbyId = B` (khác `GameTemplateId`).
+4. Backend kiểm tra Nhóm A không còn box `InUse` → cho phép tạo request Pending.
+5. Staff duyệt → A3 chuyển sang Nhóm B, tiếp tục chơi Splendor.
+
+**Lý do chặn khi source còn box InUse:** vì live merge đang transfer box từ source sang target, nếu game khác nhau sẽ gây xung đột kiểm kê linh kiện (BR-12). Cross-game chỉ an toàn khi game Nguồn đã được kiểm kê và trả về quán.
+
 ```
 1. Staff quét mã định danh của A3 tại POS
    → POST /api/cafes/{cafeId}/lobby-merge/merge-requests
@@ -200,6 +219,7 @@ Tạo yêu cầu ghép nhóm. Staff POS gọi khi scan mã member A3 muốn nh�
 - Chưa có `Pending` request nào cho cùng `(sourceLobbyId, targetLobbyId)`
 - Ghế khả dụng đủ cho các member đang active ở Nguồn
 - Member muốn ghép phải là `IsActive = true` trong Nguồn
+- **Cross-game merge (Gap 4 fix 2026-09-29)**: cho phép merge khác `GameTemplateId` **khi Nguồn không còn box game InUse** (game đã được trả về quán qua `ComponentCheck`). Chỉ BLOCK khi Nguồn còn box `InUse` của game khác → staff phải `EndGame` + `ComponentCheck` trước khi tạo merge request.
 
 ### Response 201
 
@@ -234,6 +254,7 @@ Tạo yêu cầu ghép nhóm. Staff POS gọi khi scan mã member A3 muốn nh�
 | Code | Khi nào | Message |
 |---|---|---|
 | `400` | Dữ liệu không hợp lệ | `ValidationFailed` |
+| `400` | Source còn box game InUse khác game với target (Gap 4 fix 2026-09-29) | `MergeDifferentGames` |
 | `401` | Thiếu token | `Unauthorized` |
 | `403` | Không thuộc quán | `AccessForbidden` |
 | `404` | Lobby không tồn tại | `LobbyNotFound` |

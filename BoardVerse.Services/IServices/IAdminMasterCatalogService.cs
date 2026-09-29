@@ -32,5 +32,16 @@ namespace BoardVerse.Services.IServices
         Task<AdminBoardGameResponseDto> UpdateThumbnailAsync(
             Guid gameTemplateId,
             AdminUpdateThumbnailRequestDto request, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Lấy danh sách game master đang thiếu <c>Weight</c> (Weight = null).
+        /// Dùng cho admin — game import từ BGG mà BGG chưa có đủ vote averageweight,
+        /// hoặc admin tạo tay nhưng quên set Weight.
+        /// </summary>
+        /// <param name="includeInactive">Khi true, bao gồm cả game IsActive = false.</param>
+        /// <param name="cancellationToken">Token hủy.</param>
+        /// <returns>Danh sách AdminBoardGameResponseDto, sort theo Name.</returns>
+        Task<List<AdminBoardGameResponseDto>> GetGamesMissingWeightAsync(
+            bool includeInactive, CancellationToken cancellationToken = default);
     }
 }

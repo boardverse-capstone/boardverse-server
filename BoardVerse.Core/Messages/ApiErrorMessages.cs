@@ -2516,6 +2516,14 @@ public static class LobbyMerge
     public const string SourceLobbyNotValidForMerge =
         "Phòng nguồn không ở trạng thái hợp lệ để ghép nhóm. " +
         "Phòng phải đang tuyển người (Open/Viable/Full) hoặc đang chơi (InProgress).";
+
+    // Gap #5 Fix (2026-09-29): Walk-in source không có member active nào để chuyển.
+    // Trước đây controller trả 200 với membersTransferred=0 (misleading "Ghép nhóm thành công!")
+    // mặc dù thực tế 0 member được chuyển. Giờ throw ConflictException để trả 409 rõ ràng.
+    public const string NoActiveMembersToTransfer =
+        "Không thể duyệt ghép nhóm: phòng nguồn không còn thành viên active nào để chuyển sang phòng đích. " +
+        "Phòng nguồn có thể đã được giải tán hoặc tất cả thành viên đã rời đi trước khi staff duyệt. " +
+        "Yêu cầu ghép nhóm đã được đánh dấu là Từ chối.";
 }
 }
 
