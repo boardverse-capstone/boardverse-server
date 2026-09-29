@@ -1153,6 +1153,18 @@ public const string SePayBankInfoIncomplete =
 
  public static string SoloPlayNotSupported(Guid id, int minPlayers) =>
  $"Không hỗ trợ chơi solo cho board game '{id}'. Số người chơi tối thiểu là {minPlayers}; hãy chọn chế độ nhóm.";
+
+ /// <summary>URL ảnh proxy không hợp lệ (rỗng / không đúng scheme / không parse được).</summary>
+ public const string ThumbnailUrlInvalid =
+ "URL ảnh không hợp lệ. Vui lòng kiểm tra lại đường dẫn (phải là http/https).";
+
+ /// <summary>URL ảnh proxy trỏ tới host không nằm trong whitelist — chặn SSRF.</summary>
+ public const string ThumbnailHostNotAllowed =
+ "Nguồn ảnh không được hỗ trợ. Hiện chỉ proxy ảnh từ BoardGameGeek CDN.";
+
+ /// <summary>Backend proxy ảnh thất bại (upstream timeout / 5xx / non-image response).</summary>
+ public const string ThumbnailProxyFailed =
+ "Không thể tải ảnh từ nguồn. Vui lòng thử lại sau hoặc báo lỗi cho admin.";
  }
 
  public static class Bgg
@@ -1426,7 +1438,7 @@ public const string SePayBankInfoIncomplete =
  $"Cần tối thiểu {min} bàn công cộng.";
 
  public static string MinGamesOwnedRequired(int min) =>
- $"Cần tối thiểu {min} game sở hữu.";
+ $"Cần tối thiểu {min} bản game trong kho (tính theo tổng số lượng hộp, không phải số loại game).";
 
  public static string MinSpaceImagesActivationRequired(int min) =>
  $"Cần tối thiểu {min} ảnh không gian hợp lệ.";
@@ -3377,6 +3389,10 @@ public static class Settlement
 
         public static string ConfigurationKeyMissing(string key) =>
         $"Thiếu cấu hình '{key}'. Liên hệ admin.";
+
+        public static string InternalLogicError(string traceId) =>
+        $"Hệ thống đang gặp lỗi xử lý nội bộ (mã tra cứu: {traceId}). " +
+        $"Vui lòng thử lại sau ít phút hoặc liên hệ admin kèm mã trên để được hỗ trợ.";
 
         public const string FirebaseCredentialsMissing =
         "Firebase:CredentialsJson chưa được cấu hình. Set trong appsettings.json hoặc env FIREBASE_CREDENTIALS_JSON.";

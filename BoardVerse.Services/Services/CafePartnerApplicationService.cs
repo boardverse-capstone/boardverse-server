@@ -892,8 +892,8 @@ namespace BoardVerse.Services.Services
                 blockers.Add(ApiErrorMessages.CafePartner.MinPublicTablesRequired(CafePartnerActivationRules.MinPublicTables));
             }
 
-            var activeGamesCount = cafe.Inventories?.Count(i => i.IsActive) ?? 0;
-            if (activeGamesCount < CafePartnerActivationRules.MinGamesOwned)
+            var totalGameCopies = cafe.Inventories?.Where(i => i.IsActive).Sum(i => i.BoxQuantity) ?? 0;
+            if (totalGameCopies < CafePartnerActivationRules.MinGamesOwned)
             {
                 blockers.Add(ApiErrorMessages.CafePartner.MinGamesOwnedRequired(CafePartnerActivationRules.MinGamesOwned));
             }
@@ -1105,7 +1105,7 @@ namespace BoardVerse.Services.Services
             // NumberOfTables/NumberOfGamesOwned are derived from navigation collections
             // to stay in sync with tables managed via POS endpoints and inventory rows.
             var numberOfTables = cafe.Tables?.Count(t => t.IsActive) ?? 0;
-            var numberOfGamesOwned = cafe.Inventories?.Count(i => i.IsActive) ?? 0;
+            var numberOfGamesOwned = cafe.Inventories?.Where(i => i.IsActive).Sum(i => i.BoxQuantity) ?? 0;
             var blockers = application?.Status == CafePartnerApplicationStatus.Approved
                 ? GetActivationBlockers(cafe)
                 : new List<string>();

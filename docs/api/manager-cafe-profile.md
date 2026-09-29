@@ -162,7 +162,7 @@ Kích hoạt quán (DATA_BLANK → ACTIVE) khi đủ điều kiện ràng buộc
 | Yêu cầu | Mô tả |
 |----------|--------|
 | `seatCount >= 5` | Tối thiểu 5 ghế |
-| `gameCount >= 20` | Tối thiểu 20 game |
+| `gameCount >= 20` | Tối thiểu 20 **bản game** trong kho (đếm theo `BoxQuantity`, không theo số loại game — 20 hộp Catan hợp lệ) |
 | `images >= 3` | Tối thiểu 3 ảnh |
 | `openingTime` | Đã cấu hình giờ mở cửa |
 | `tableLayout` | Đã cấu hình sơ đồ bàn |
@@ -367,7 +367,7 @@ muốn đổi trực tiếp sang trạng thái cụ thể.
 
 | Từ → Đến | Điều kiện áp dụng |
 |---|---|
-| `* → ACTIVE` | Áp dụng đầy đủ điều kiện kích hoạt (giống `/activate`, `/reopen`): ≥5 bàn, ≥20 game, ≥3 ảnh, giờ mở cửa, sơ đồ bàn, GPS. |
+| `* → ACTIVE` | Áp dụng đầy đủ điều kiện kích hoạt (giống `/activate`, `/reopen`): ≥5 bàn, ≥20 **bản game** (tổng `BoxQuantity`), ≥3 ảnh, giờ mở cửa, sơ đồ bàn, GPS. |
 | `* → DATA_BLANK` hoặc `* → INACTIVE` | Yêu cầu **không còn phiên bàn đang chạy** (cùng rule với `/deactivate`, `/close`). |
 | `BANNED → *` | Bị chặn — Manager phải liên hệ Admin. |
 | `* → BANNED` | Bị chặn — chỉ Admin có quyền. |

@@ -95,14 +95,19 @@ namespace BoardVerse.API.Middleware
                 // ConflictException, ForbiddenException, BadRequestException, InternalServerErrorException).
                 // Any code still throwing InvalidOperationException is a bug and should be logged so it can
                 // be migrated; do NOT leak message content or regex-match it for a status code.
+                //
+                // Sinh traceId ngắn (8 hex) để log và response cùng chia sẻ 1 mã — admin tra log theo
+                // traceId sẽ thấy ngay exception gốc mà không lộ message nội bộ ra client.
+                var traceId = Guid.NewGuid().ToString("N")[..8];
                 _logger.LogError(ex,
-                    "Unexpected InvalidOperationException (should be AppException). Path: {Path}",
-                    context.Request.Path);
+                    "Unexpected InvalidOperationException (should be AppException). " +
+                    "TraceId={TraceId} | Path={Path}",
+                    traceId, context.Request.Path);
 
                 var response = new ApiResponse
                 {
                     StatusCode = (int)HttpStatusCode.InternalServerError,
-                    Message = ApiErrorMessages.System.ConfigurationMissing,
+                    Message = ApiErrorMessages.System.InternalLogicError(traceId),
                     Data = null,
                     Timestamp = DateTime.UtcNow,
                     Path = context.Request.Path.Value ?? string.Empty
@@ -112,6 +117,16 @@ namespace BoardVerse.API.Middleware
                 context.Response.StatusCode = response.StatusCode;
                 var payload = JsonSerializer.Serialize(response, jsonOptions);
                 await context.Response.WriteAsync(payload);
+            }
+            catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+            {
+                // Client đã ngắt request (đóng tab, refresh, navigation, timeout). Đây KHÔNG phải lỗi
+                // server — chỉ là EF Core/đã thấy CancellationToken bị hủy khi client mất kết nối.
+                // Log ở mức Information để tránh noise; không ghi body vì response đã bị abort.
+                _logger.LogInformation(
+                    "Request cancelled by client. Path={Path}",
+                    context.Request.Path);
+                // Không ghi response — client không còn đọc được.
             }
             catch (Exception ex)
             {

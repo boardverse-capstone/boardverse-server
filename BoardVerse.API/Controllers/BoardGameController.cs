@@ -2,6 +2,7 @@
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
+using BoardVerse.Services.Services.Images;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -13,10 +14,14 @@ namespace BoardVerse.API.Controllers
     public class BoardGameController : BaseApiController
     {
         private readonly IBoardGameService _boardGameService;
+        private readonly IThumbnailProxyService _thumbnailProxy;
 
-        public BoardGameController(IBoardGameService boardGameService)
+        public BoardGameController(
+            IBoardGameService boardGameService,
+            IThumbnailProxyService thumbnailProxy)
         {
             _boardGameService = boardGameService;
+            _thumbnailProxy = thumbnailProxy;
         }
 
         /// <summary>
@@ -121,6 +126,47 @@ namespace BoardVerse.API.Controllers
         {
             var result = await _boardGameService.ResolvePlayNavigationAsync(id, request);
             return NewResponse(200, ApiSuccessMessages.BoardGame.PlayNavigationResolved, result);
+        }
+
+        /// <summary>
+        /// Proxy ảnh thumbnail từ nguồn ngoài (BoardGameGeek CDN) về server-side để bypass CORS
+        /// cho Flutter Web (CanvasKit renderer taint canvas khi upstream không trả
+        /// <c>Access-Control-Allow-Origin</c>).
+        /// Mobile (Android/iOS) load ảnh trực tiếp từ upstream — gọi endpoint này vẫn hoạt động nhưng tốn thêm 1 round-trip.
+        /// Whitelist host hiện tại: <c>cf.geekdo-images.com</c>, <c>cf.geekdo.com</c>,
+        /// <c>images.boardgamegeek.com</c>, <c>boardgamegeek.com</c>. [Role: Public — không cần đăng nhập.]
+        /// </summary>
+        /// <param name="url">URL ảnh gốc (vd. <c>https://cf.geekdo-images.com/.../pic123.png</c>). Phải là http/https.</param>
+        /// <response code="200">Trả về ảnh binary (Content-Type theo upstream, vd <c>image/png</c>, <c>image/jpeg</c>) kèm <c>Cache-Control: public, max-age=86400</c> (24h).</response>
+        /// <response code="400">URL rỗng hoặc không đúng định dạng http/https.</response>
+        /// <response code="502">Upstream lỗi / timeout / trả non-image / vượt size cap / host không nằm trong whitelist.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpGet("thumbnail-proxy")]
+        [ProducesResponseType(200)]
+        [ProducesResponseType(typeof(object), 400)]
+        [ProducesResponseType(typeof(object), 502)]
+        [ProducesResponseType(500)]
+        public async Task<IActionResult> GetThumbnailProxy([FromQuery] string? url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                return NewResponse(400, ApiErrorMessages.BoardGame.ThumbnailUrlInvalid, null);
+            }
+
+            var result = await _thumbnailProxy.FetchAsync(url);
+            if (result == null)
+            {
+                // Service đã log lý do cụ thể (host / timeout / non-2xx / non-image / oversize).
+                // Trả generic 502 cho client — ops team xem log để debug.
+                return NewResponse(502, ApiErrorMessages.BoardGame.ThumbnailProxyFailed, null);
+            }
+
+            // Cache 24h trên client + CDN. Thumbnail BGG ít khi thay đổi.
+            Response.Headers["Cache-Control"] = "public, max-age=86400";
+            return new FileStreamResult(result.Value.Stream, result.Value.ContentType)
+            {
+                EnableRangeProcessing = false
+            };
         }
     }
 }
