@@ -1452,16 +1452,21 @@ public class LobbyMergeService : ILobbyMergeService
         long depositAmount)
     {
         // BR-REFUND-03: grace 15 phút + chưa có member → hoàn 100%.
+        // Reservation.CurrentPlayers là mirror của lobby.Members.Count(IsActive),
+        // được SyncReservationCurrentPlayersAsync cập nhật mỗi join/leave (xem LobbyService).
         var minutesSinceCreated = (now - sourceReservation.CreatedAt).TotalMinutes;
-        var hasMembers = sourceReservation.PlayerCount > 0;
+        var hasMembers = sourceReservation.CurrentPlayers > 0;
         if (minutesSinceCreated <= DissolveGraceMinutes && !hasMembers)
         {
             return ("Grace-15p-NoMember", 1.0m, depositAmount);
         }
 
-        // Nếu không có ScheduledStartTime → mặc định 50% (matching BR-REFUND-02).
-        var scheduledStart = deposit.ScheduledAt ?? sourceReservation.ScheduledStartTime;
-        if (!scheduledStart.HasValue || scheduledStart.Value == default)
+        // Nếu deposit không kèm ScheduledAt → dùng ScheduledStartTime trên reservation.
+        // Reservation.ScheduledStartTime là DateTime (non-nullable) — check default(DateTime)
+        // thay vì HasValue/Value như DateTime?.
+        var reservationStart = sourceReservation.ScheduledStartTime;
+        DateTime? scheduledStart = deposit.ScheduledAt ?? (reservationStart == default(DateTime) ? null : reservationStart);
+        if (!scheduledStart.HasValue)
         {
             return ("Legacy-NoScheduledTime", 0.5m, (long)(depositAmount * 0.5m));
         }
