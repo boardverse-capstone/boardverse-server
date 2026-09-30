@@ -42,7 +42,7 @@ API vận hành quầy: bàn, kho hộp game, phiên chơi, kiểm kê, khách v
 | `/boxes/{boxId}/status` | PATCH | **Đổi trạng thái hộp game** sau khi staff bổ sung linh kiện (`Maintenance`/`Damaged` → `Available`) hoặc đánh dấu hỏng (`Maintenance`/`Damaged`/`Retired`). Không cho phép set `InUse`. (FIX 2026-08-24) | `CafePosController` |
 | `/sessions/{sessionId}/return-game` | POST | Trả 1 game sớm: tính `surcharge_fine`, cập nhật box status (session vẫn ACTIVE) | `CafePosController` |
 | `/sessions/{sessionId}/games` | POST | Gán thêm game vào phiên (Exception 6) | `CafePosController` |
-| `/sessions/{sessionId}/guest-slots` | POST | Thêm khách vô danh (BR-13) | `CafePosController` |
+| `/sessions/{sessionId}/guest-slots` | POST | Thêm khách vô danh (BR-13). **BR-13 revised 2026-10-01:** Hỗ trợ `designateAsHost: true` để staff chỉ định walk-in guest làm primary customer (khắc phục FE hiển thị "Khách vãng lai" / staff làm host). Chỉ áp dụng cho walk-in session (`IsWalkInSession = true`) và khi chưa có host member nào. | `CafePosController` |
 | `/sessions/{sessionId}/members/add` | POST | Thêm thành viên đến muộn (Exception 8) | `CafePosController` |
 | `/sessions/{sessionId}/inventory-loss` | POST | Ghi nhận hao hụt trước phiên (Exception 7) | `CafePosController` |
 | `/sessions/{sessionId}/checkout` | POST | Thanh toán toàn bộ sau kiểm kê (BR-15). **FIX 2026-08-24:** Response giờ trả `Members[i].{Subtotal, PenaltyAmount, DepositAppliedAmount, TotalAmount}` cho từng member. Trước đây chỉ `PenaltyAmount` được copy → `Subtotal/TotalAmount = 0` mặc dù backend đã tính đúng. | `CafePosController` |
@@ -630,7 +630,7 @@ POS staff dashboard — mở danh sách **reservation sắp tới** của 1 quá
 | `toDate` | `yyyy-MM-dd` (UTC) | `fromDate + 3 ngày` | Filter `playDate ≤ toDate` (inclusive). Range tối đa 30 ngày. |
 | `statuses` | CSV `ReservationStatus` | (xem dưới) | Filter theo trạng thái. VD: `?statuses=Holding,Confirmed`. |
 | `lobbyStatusFilter` | CSV `LobbyStatus` | — | Filter theo lobby status. VD: `?lobbyStatusFilter=Open,Viable,PendingCafeApproval`. |
-| `includeCancelled` | bool | `false` | Nếu `true` và FE không truyền `statuses` → default filter sẽ gộp thêm `Expired`, `CancelledByPlayer`, `CancelledByCafe`, `NoShow`. |
+| `includeCancelled` | bool | `false` | Nếu `true` và FE không truyền `statuses` → default filter sẽ gộp thêm `Expired`, `AbsorbedByMerge`, `CancelledByPlayer`, `CancelledByCafe`, `NoShow` (BR-MERGE-01). |
 | `sortBy` | int | `0` | `0` = `scheduledStartTime` (default), `1` = `createdAt`, `2` = `playDate`. |
 | `sortDir` | `asc`/`desc` | `asc` | Sort direction. |
 | `pageNumber` | int ≥ 1 | `1` | Số trang (1-indexed). |
@@ -650,6 +650,7 @@ Chỉ trả các trạng thái **chưa kết thúc** — tức "player đã đ�
 | `AwaitingDeposit` | ❌ | Chưa trừ BVC (player chưa xác nhận) |
 | `Completed` / `EarlyCheckout` | ❌ | Đã kết thúc → xem tab PAID riêng |
 | `Expired` | ❌ | Timeout (chỉ hiển thị khi `includeCancelled=true`) |
+| `AbsorbedByMerge` | ❌ | Source reservation đã bị staff POS merge sang bàn khác — vẫn xem được khi `includeCancelled=true` (BR-MERGE-01) |
 | `CancelledByPlayer` / `CancelledByCafe` | ❌ | Đã hủy (chỉ hiển thị khi `includeCancelled=true`) |
 | `NoShow` | ❌ | Host không đến (chỉ hiển thị khi `includeCancelled=true`) |
 
@@ -1048,6 +1049,146 @@ POST /api/cafes/{cafeId}/pos/sessions/{s1}/pay
 
 ---
 
+## POST /api/cafes/{cafeId}/pos/sessions/{sessionId}/guest-slots
+
+**Thêm khách vô danh vào phiên chơi (BR-13).** Endpoint này dùng trong 2 use case:
+
+1. **Walk-in thuần** (guest không có app / hết pin) — staff nhập tên hiển thị rồi bấm thêm vào session.
+2. **Walk-in + designate host** (BR-13 revised 2026-10-01) — staff thêm guest đầu tiên với `designateAsHost: true` để chỉ định guest làm "khách đầu nhóm" (primary customer / host của lobby walk-in). Khắc phục triệt để vấn đề "staff thành host của lobby" khi trước đây `Lobby.HostUserId` luôn trỏ về staff do session được staff tạo.
+
+| Aspect | Detail |
+|---|---|
+| **Role** | Manager (chủ quán) hoặc CafeStaff thuộc cafe |
+| **BR** | BR-13 (revised 2026-10-01), BR-22 |
+
+### Request body — `AddGuestSlotRequestDto`
+
+```json
+{
+  "displayName": "Nguyễn Văn A",
+  "phoneNumber": "0901234567",
+  "designateAsHost": true
+}
+```
+
+| Field | Type | Required | Mô tả |
+|---|---|---|---|
+| `displayName` | string | Có (hoặc `username`) | Tên hiển thị, 2–100 ký tự. |
+| `username` | string | Alias | Alias JSON cho `displayName`. Nếu cả 2 cùng gửi → ưu tiên `displayName`. |
+| `phoneNumber` | string | Không | SĐT VN (10–11 chữ số, đầu 03/05/07/08/09). Tối đa 20 ký tự. |
+| `designateAsHost` | bool | Không (mặc định `false`) | **BR-13 revised:** Staff đánh dấu guest này là primary customer / host của lobby walk-in. Chỉ hợp lệ với walk-in session. |
+
+### Validation
+
+| Quy tắc | Mã lỗi | Message |
+|---|---|---|
+| Cả `displayName` và `username` đều rỗng | `400` | `Pos.GuestSlotDisplayNameInvalid` |
+| `displayName`/`username` < 2 hoặc > 100 ký tự | `400` | `Pos.GuestSlotDisplayNameInvalid` |
+| `phoneNumber` sai format VN | `400` | `Pos.GuestSlotPhoneNumberInvalid` |
+| `designateAsHost = true` nhưng session KHÔNG phải walk-in (`IsWalkInSession = false`) | `409` | `Pos.CannotDesignateHostForReservedSession` |
+| `designateAsHost = true` nhưng session đã có primary customer (host member khác) | `409` | `Pos.SessionAlreadyHasHost` |
+| Session không tồn tại / không thuộc cafe | `404` | — |
+
+### Hành vi khi `designateAsHost = true`
+
+1. Service set `ActiveSessionMember.IsHost = true` cho member vừa thêm.
+2. `MapSession.ResolveHostDisplayName` (gọi khi build `ActiveSessionResponseDto`) trả về `DisplayName` thay vì "Khách vãng lai" fallback.
+3. `ActiveSessionResponseDto.HostName` (xem chi tiết bên dưới) sẽ hiển thị `DisplayName` của guest host — FE render đúng tên khách đầu nhóm.
+4. **`Lobby.HostUserId` giữ nguyên = staff** (FK an toàn — nhiều chỗ trong codebase đang đọc `HostUserId` để audit "ai tạo lobby"). Audit field `ActiveSession.StartedByStaffId` vẫn trỏ về staff thật.
+5. **Mỗi session chỉ có 1 host duy nhất** — request thứ 2 với `designateAsHost = true` cho session đã có host → 409.
+
+### Response 200 — `ActiveSessionResponseDto`
+
+Trả về session đầy đủ với member mới. Field mới quan trọng:
+
+```json
+{
+  "id": "session-guid",
+  "hostId": "staff-guid",
+  "hostName": "Nguyễn Văn A",
+  "members": [
+    {
+      "id": "member-guid",
+      "userId": null,
+      "userName": "Nguyễn Văn A",
+      "isGuestSlot": true,
+      "isHost": true
+    }
+  ]
+}
+```
+
+#### Field mới: `HostName` (BR-13 revised 2026-10-01)
+
+`ActiveSessionResponseDto` thêm field `HostName` để FE hiển thị đúng "khách đầu nhóm" thay vì tên staff:
+
+| Tình huống | `HostName` = |
+|---|---|
+| Reservation/Booking flow có Host.User | `Host.User.Username` |
+| Walk-in flow có primary customer (User) | `Member.User.Username` |
+| Walk-in flow có host guest slot (`designateAsHost = true`) | `Member.GuestDisplayName` |
+| Walk-in thuần không có primary (legacy) | `"Khách vãng lai"` |
+
+> Trước đây chỉ trả `HostId` → FE render ra `Staff.Username` → hiển thị rất awkward "Hóa đơn của NV Hưng". Giờ `HostName` trả đúng tên khách đầu nhóm.
+
+### Ví dụ curl
+
+**Thêm guest bình thường (không phải host):**
+
+```bash
+curl -X POST "https://api.boardverse.local/api/cafes/{cafeId}/pos/sessions/{sessionId}/guest-slots" \
+  -H "Authorization: Bearer <staff-jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"displayName": "Khách A", "phoneNumber": "0901234567"}'
+```
+
+**Thêm guest làm primary customer (walk-in):**
+
+```bash
+curl -X POST "https://api.boardverse.local/api/cafes/{cafeId}/pos/sessions/{sessionId}/guest-slots" \
+  -H "Authorization: Bearer <staff-jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"displayName": "Nguyễn Văn A", "designateAsHost": true}'
+# → member mới có isHost = true, HostName = "Nguyễn Văn A"
+```
+
+### Lỗi
+
+| Code | Mô tả |
+|------|-------|
+| 400 | Tên hiển thị không hợp lệ (rỗng, < 2, > 100 ký tự) hoặc SĐT sai format. |
+| 401 | Thiếu token. |
+| 403 | Không thuộc cafe. |
+| 404 | Session không tồn tại. |
+| 409 | `designateAsHost = true` mà session không phải walk-in, hoặc session đã có host member. |
+
+### Use case thực tế
+
+**Walk-in 3 khách không có app:**
+
+```powershell
+# 1. Staff tạo session walk-in (host mặc định = staff tạo)
+POST /api/cafes/{cafeId}/pos/sessions
+{ "cafeTableId": "guid", "barcode": "BV-..." }
+
+# 2. Staff thêm guest đầu tiên + designate làm host
+POST /api/cafes/{cafeId}/pos/sessions/{id}/guest-slots
+{ "displayName": "Nguyễn Văn A", "designateAsHost": true }
+# → HostName = "Nguyễn Văn A", member[0].isHost = true
+
+# 3. Staff thêm guest thứ 2, thứ 3 (KHÔNG designate host)
+POST /api/cafes/{cafeId}/pos/sessions/{id}/guest-slots
+{ "displayName": "Trần Văn B" }
+
+POST /api/cafes/{cafeId}/pos/sessions/{id}/guest-slots
+{ "displayName": "Lê Văn C" }
+
+# → Session có 3 members, 1 host. ActiveSessionResponseDto.HostName = "Nguyễn Văn A"
+# → POS hiển thị đúng tên khách đầu nhóm trên hóa đơn
+```
+
+---
+
 ## POST /api/cafes/{cafeId}/pos/sessions/dispute-played-time
 
 Mở audit ticket khi player khiếu nại về giờ chơi (`StartedAt` / `EndedAt`). Endpoint **chỉ audit**, không tự ý sửa hóa đơn — manager sẽ review và dùng [`override-played-time`](#post-apicafescafeidpossessionsoverride-played-time) để sửa nếu cần.
@@ -1335,6 +1476,8 @@ Trả về chi tiết 1 phiên chơi: `startedAt`, `elapsedMinutes`, `estimatedR
 **Dùng khi:** Frontend cần load lại session sau SignalR reconnect, hoặc sau khi submit component-check để refresh `Status`.
 
 **Response 200:** `ActiveSessionDto`
+
+> **Field mới (2026-10-01):** `hostName` — Tên hiển thị của host (xem [POST /guest-slots §Field mới: HostName](#field-mới-hostname-br-13-revised-2026-10-01)). Walk-in session thuần sẽ trả "Khách vãng lai" trước đây — giờ hiển thị đúng tên guest được `designateAsHost` để FE/POS không phải render tên staff.
 
 ---
 
@@ -1868,6 +2011,21 @@ POST /api/cafes/{cafeId}/pos/sessions/{id}/guest-slots
 # `userName = "Khách A"` (từ displayName hoặc username), `userId = null`.
 # Validation: tên phải từ 2-100 ký tự; sai sẽ trả 400 với message Pos.GuestSlotDisplayNameInvalid.
 
+# BR-13 (revised 2026-10-01) Permanent fix:
+# Staff chỉ định walk-in guest làm "khách đầu nhóm" (primary customer / host) — KHẮC PHỤC vấn đề
+# "staff thành host của lobby". Sau khi staff thêm guest đầu tiên với designateAsHost=true,
+# session.HostName sẽ hiển thị tên guest thay vì tên staff.
+POST /api/cafes/{cafeId}/pos/sessions/{id}/guest-slots
+{
+  "displayName": "Nguyễn Văn A",
+  "designateAsHost": true
+}
+# → ActiveSessionMember.IsHost = true cho guest vừa thêm.
+# → MapSession.ResolveHostDisplayName trả "Nguyễn Văn A" (không phải "Khách vãng lai").
+# → Validate: chỉ cho phép khi session.IsWalkInSession = true và CHƯA có host member nào.
+#   Nếu Reservation/Booking flow → 409 "Phiên đã có host user thật".
+#   Nếu session đã có primary customer → 409 "Mỗi phiên chỉ có 1 host".
+
 # Thêm thành viên đến muộn (Exception 8)
 POST /api/cafes/{cafeId}/pos/sessions/{id}/members/add
 {
@@ -2065,9 +2223,20 @@ POST /api/cafes/{cafeId}/pos/sessions/{id}/pay
 >   Pay **không** tính lại để tránh drift khi `cafe.BasePrice` đổi giữa 2 phase.
 >   Pay chỉ validate `session.Subtotal >= 0` (nếu âm → throw 409 "skip Checkout").
 > - **Fix J (Lobby terminal guard):** Trước khi `CompleteAndCaptureAsync`, validate Lobby còn `InProgress`.
->   Nếu Lobby đã `Closed/TimeoutFailed/HostCancelled/RejectedByCafe/ExpiredByCafe` → skip capture
+>   Nếu Lobby đã `Closed/TimeoutFailed/HostCancelled/RejectedByCafe/ExpiredByCafe/RatingOpen/Dissolved` → skip capture
 >   (đã refund ở BR-REFUND-01, capture sẽ double-credit). Payment vẫn commit cho cash invoice;
 >   `PaySessionResponse.BvcCaptureStatus = SkippedLobbyTerminal`.
+>   - **Walk-in permanent fix (2026-10-01 — BR-13 revised):** Nếu `session.IsWalkInSession == true` HOẶC `lobby.IsWalkInLobby == true`
+>     → **bypass toàn bộ** lobby-status guard + BVC capture. Lý do: walk-in session do POS staff tạo **không có
+>     Reservation** → **không có BVC held** để capture. Bypass tránh 2 lỗi:
+>     1. Throw 409 `LobbyNotInProgressForCapture` khi staff tạo walk-in lobby với status cũ (Open/Full) trước
+>        khi flow mới hoàn tất → `MapSession.ResolveHostDisplayName` trả "Khách vãng lai" / lobby ở `Open` thay vì `InProgress`.
+>     2. Gọi `CompleteAndCaptureAsync` trên lobby không có reservation → fail vì cố capture từ ví không tồn tại.
+>     Walk-in vẫn commit payment cho khách (`session.Status = Paid`), chỉ skip BVC capture:
+>     `PaySessionResponse.BvcCaptureStatus = NotApplicable`. Apply SQL migration
+>     `sql/add_walk_in_session_audit_fields.sql` để thêm 2 cột audit (`IsWalkInSession`, `IsWalkInLobby`,
+>     `StartedByStaffId` ở cả `ActiveSessions` và `Lobbies`) — heuristic backfill có ở
+>     `sql/fix_pay_session_409_walk_in_permanent.sql`.
 > - **Fix K (Status re-check trong transaction):** `Status == UNPAID` được validate **bên trong**
 >   `BeginTransaction` block (race với concurrent pay cùng sessionId hoặc webhook tự pay).
 >

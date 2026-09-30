@@ -47,7 +47,7 @@ public class UpcomingReservationsQuery
     public List<LobbyStatus>? LobbyStatusFilter { get; set; }
 
     /// <summary>
-    /// Cho phép trả các trạng thái terminal (CancelledByPlayer/CancelledByCafe/Expired/NoShow).
+    /// Cho phép trả các trạng thái terminal (AbsorbedByMerge/CancelledByPlayer/CancelledByCafe/Expired/NoShow).
     /// Khi false, chỉ active (Holding/Confirmed/CheckedIn/InProgress/WaitingCheckIn).
     /// Default false.
     /// </summary>

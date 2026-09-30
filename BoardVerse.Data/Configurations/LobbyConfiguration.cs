@@ -85,6 +85,11 @@ namespace BoardVerse.Data.Configurations
             builder.HasIndex(l => l.ScheduledStartTime);
             builder.HasIndex(l => l.ScheduledEndTime);
             builder.HasIndex(l => new { l.IsPrivate, l.Status, l.ScheduledStartTime });
+
+            // BR-13 (revised 2026-09-30): Walk-in audit fields.
+            // Default false = backward compat với lobby cũ (IsWalkInLobby = false).
+            builder.Property(l => l.IsWalkInLobby).HasDefaultValue(false);
+            builder.Property(l => l.StartedByStaffId); // nullable
         }
     }
 

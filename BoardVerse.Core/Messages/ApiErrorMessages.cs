@@ -585,6 +585,19 @@ public const string SessionCannotResumeHasCheckedOutMembers =
  public const string GuestSlotCannotPartialCheckout =
  "Khách vô danh (BR-13) không thể tách nhóm thanh toán một phần. Vui lòng gộp vào hóa đơn của host hoặc thu tiền mặt tại quầy.";
 
+ /// <summary>
+ /// BR-13 (revised 2026-10-01) Permanent fix: chỉ walk-in session mới được designate guest làm host.
+ /// Reservation/Booking flow đã có host user thật (session.HostId = User).
+ /// </summary>
+ public const string GuestSlotDesignateHostNotAllowedForReservation =
+ "Chỉ có thể chỉ định khách vô danh làm host cho phiên walk-in. Phiên này qua Reservation/Booking — đã có host user thật.";
+
+ /// <summary>
+ /// BR-13 (revised 2026-10-01) Permanent fix: mỗi session chỉ có 1 host duy nhất.
+ /// </summary>
+ public const string GuestSlotDesignateHostSessionAlreadyHasHost =
+ "Phiên đã có khách đầu nhóm (primary customer). Mỗi phiên chỉ có 1 host. Hãy bỏ chọn 'Designate as host'.";
+
  public const string PartialCheckoutRequiresAtLeastOneMember =
  "Cần chọn ít nhất 1 thành viên để thanh toán một phần.";
 
@@ -2536,6 +2549,37 @@ public static class LobbyMerge
         "Không thể duyệt ghép nhóm: phòng nguồn không còn thành viên active nào để chuyển sang phòng đích. " +
         "Phòng nguồn có thể đã được giải tán hoặc tất cả thành viên đã rời đi trước khi staff duyệt. " +
         "Yêu cầu ghép nhóm đã được đánh dấu là Từ chối.";
+
+    // ===== H1+H2 (2026-09-30): CancelMergeRequestAsync staff permission + cross-cafe =====
+    // Trước đây Cancel không check staff permission + cross-cafe → bất kỳ user đăng nhập
+    // đều có thể cancel merge request của cafe khác (security bug). Fix message riêng
+    // để UX rõ ràng khi staff cancel request không thuộc quán mình.
+    public const string CancelPermissionDenied =
+        "Bạn không có quyền hủy yêu cầu ghép nhóm này. Yêu cầu này thuộc quán khác hoặc bạn không phải staff của quán.";
+
+    // ===== H4 (2026-09-30): BR-RISK-04 hard reject cho Suspended/Banned =====
+    // Trước đây code chỉ giảm cap heldBalance cho Suspended/Banned về 200k BVC nhưng vẫn
+    // cho phép merge. Theo BR-RISK-04: Suspended/Banned chặn "tạo lobby, join lobby" → merge
+    // = "join lobby khác" → phải reject hẳn (không phải chỉ giảm cap).
+    public static string MemberAccountRestricted(string memberName, string status) =>
+        $"Thành viên '{memberName}' có tài khoản ở trạng thái '{status}' và không được phép ghép vào phòng khác. " +
+        $"Vui lòng liên hệ hỗ trợ để được xem xét.";
+
+    // ===== H5 (2026-09-30): Source lobby đã chuyển trạng thái giữa Create và Approve =====
+    // Race condition: Step 3 chỉ check target lobby lúc Approve. Source lobby có thể đã
+    // HostCancelled / Closed / ExpiredByCafe giữa lúc staff tạo request và duyệt.
+    public const string SourceLobbyClosedDuringReview =
+        "Phòng nguồn đã được đóng hoặc hủy trước khi staff duyệt. Vui lòng tạo yêu cầu ghép mới với phòng khác.";
+
+    // ===== H3 (2026-09-30): Approve - transferring member đã host 1+ lobby active khác =====
+    // BR-USER-LIMIT-01: Tổng lobby (host + member) ≤ 2 active cho mỗi user.
+    // BR-USER-LIMIT-05 (đã bỏ ngày 2026-09-12): host được phép transfer sang lobby khác,
+    // NHƯNG cap tổng vẫn áp dụng. Merge = "join lobby khác" → nếu user đã host 1 lobby
+    // + member 1 lobby khác, sau merge sẽ thành host 1 + member 2 → vi phạm.
+    public static string MemberExceedsLobbyLimitAfterMerge(string memberName, int currentHostCount, int currentMemberCount) =>
+        $"Thành viên '{memberName}' đang tham gia {currentHostCount} phòng (host) + {currentMemberCount} phòng (member) = {currentHostCount + currentMemberCount} lobby. " +
+        $"Sau khi ghép sẽ vượt giới hạn BR-USER-LIMIT-01 (tối đa 2 lobby/user). " +
+        $"Vui lòng yêu cầu thành viên rời bớt lobby khác trước khi ghép.";
 }
 }
 

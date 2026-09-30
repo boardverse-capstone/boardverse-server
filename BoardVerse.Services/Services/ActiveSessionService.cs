@@ -239,12 +239,37 @@ namespace BoardVerse.Services.Services
                 throw new BadRequestException(ApiErrorMessages.Pos.GuestSlotPhoneNumberInvalid);
             }
 
+            // BR-13 (revised 2026-10-01) Permanent fix: Validate DesignateAsHost.
+            // 1. Chỉ cho phép khi phiên là walk-in (IsWalkInSession = true).
+            //    Reservation/Booking flow đã có host user thật → không cần designate guest.
+            // 2. Chỉ cho phép khi CHƯA có primary customer (mỗi session 1 host duy nhất).
+            // 3. Validate đầy đủ TRƯỚC khi AddMember để tránh tạo member rồi mới reject.
+            if (request.DesignateAsHost)
+            {
+                if (!session.IsWalkInSession)
+                {
+                    throw new ConflictException(
+                        ApiErrorMessages.Pos.GuestSlotDesignateHostNotAllowedForReservation);
+                }
+
+                var existingHostMember = session.Members?
+                    .Any(m => m.IsHost) ?? false;
+                if (existingHostMember)
+                {
+                    throw new ConflictException(
+                        ApiErrorMessages.Pos.GuestSlotDesignateHostSessionAlreadyHasHost);
+                }
+            }
+
+            var isHost = request.DesignateAsHost;
+
             await _activeSessionRepository.AddMemberAsync(new ActiveSessionMember
             {
                 Id = Guid.NewGuid(),
                 ActiveSessionId = session.Id,
                 UserId = null,
                 IsGuestSlot = true,
+                IsHost = isHost,
                 GuestDisplayName = request.DisplayName,
                 GuestPhoneNumber = string.IsNullOrWhiteSpace(normalizedPhone) ? null : normalizedPhone,
                 Status = IndividualSessionStatus.Playing,
@@ -265,6 +290,36 @@ namespace BoardVerse.Services.Services
             digits.Length is 10 or 11
             && digits.StartsWith('0')
             && digits[1] is '3' or '5' or '7' or '8' or '9';
+
+        /// <summary>
+        /// BR-13 (revised 2026-10-01): Resolve display name cho host của ActiveSession.
+        /// Mirror logic trong <c>CafePosService.ResolveHostDisplayName</c> (dùng cho MapSession).
+        /// </summary>
+        private static string ResolveHostDisplayNameForMap(ActiveSession session)
+        {
+            if (!session.IsWalkInSession)
+            {
+                return session.Host?.Username ?? string.Empty;
+            }
+
+            var primaryCustomer = session.Members?
+                .FirstOrDefault(m => m.IsHost && m.UserId.HasValue);
+
+            if (primaryCustomer?.User?.Username is { } customerUsername)
+            {
+                return customerUsername;
+            }
+
+            var hostGuest = session.Members?
+                .FirstOrDefault(m => m.IsHost && m.IsGuestSlot);
+
+            if (hostGuest is not null && !string.IsNullOrWhiteSpace(hostGuest.GuestDisplayName))
+            {
+                return hostGuest.GuestDisplayName;
+            }
+
+            return "Khách vãng lai";
+        }
 
         public async Task<ActiveSessionResponseDto> PartialCheckoutAsync(Guid cafeId, Guid sessionId, PartialCheckoutRequestDto request, CancellationToken ct = default)
         {
@@ -1110,11 +1165,39 @@ namespace BoardVerse.Services.Services
                         throw new NotFoundException(
                             ApiErrorMessages.System.LobbyNotFoundForCapture(session.LobbyId.Value));
                     }
-                    if (lobby.Status is LobbyStatus.Closed
+
+                    // BR-13 permanent fix (2026-09-30): Walk-in session do POS staff tạo
+                    // KHÔNG có Reservation → KHÔNG có BVC held để capture.
+                    // Skip TOÀN BỘ lobby-status guard + BVC capture để:
+                    //   1. Tránh throw 409 LobbyNotInProgressForCapture (giả sử staff tạo walk-in lobby
+                    //      với status Open/Full cũ trước khi flow mới hoàn tất → vẫn pass).
+                    //   2. Tránh gọi CompleteAndCaptureAsync trên lobby không có reservation
+                    //      → fail vì cố capture từ ví không tồn tại.
+                    // Check 2 lớp để permanent:
+                    //   Lớp 1: session.IsWalkInSession (set bởi code ngay khi tạo, luôn đúng kể cả
+                    //           khi DB chưa migrate audit columns) → source-of-truth PRIMARY.
+                    //   Lớp 2: lobby.IsWalkInLobby (DB column, mirror ActiveSession — chỉ để verify
+                    //           consistency sau khi apply SQL migration `AddWalkInSessionAuditFields`).
+                    // Walk-in vẫn commit payment cho khách (session.Status = Paid), chỉ skip BVC capture.
+                    if (session.IsWalkInSession || lobby.IsWalkInLobby)
+                    {
+                        bvcCaptureStatus = BvcCaptureStatus.NotApplicable;
+                        _logger.LogInformation(
+                            "PaySession: Walk-in session {SessionId} (Lobby {LobbyId}, started by StaffId={StaffId}) → skip lobby status guard + BVC capture.",
+                            sessionId, lobby.Id, lobby.StartedByStaffId);
+                    }
+                    // Lobby "đã đóng" về mặt capture: BVC đã được xử lý (captured / released / refunded)
+                    // từ lần pay đầu tiên của session khác cùng lobby, hoặc host đã dissolve trước
+                    // check-in (BR-DISSOLVE). Pay session này vẫn commit payment cho khách, chỉ skip
+                    // capture để tránh double-credit. RatingOpen = lobby đã vào window đánh giá Karma
+                    // sau khi session đầu tiên close (xem KarmaRatingService.OpenLobbyKarmaRatingWindowAsync).
+                    else if (lobby.Status is LobbyStatus.Closed
                         or LobbyStatus.TimeoutFailed
                         or LobbyStatus.HostCancelled
                         or LobbyStatus.RejectedByCafe
-                        or LobbyStatus.ExpiredByCafe)
+                        or LobbyStatus.ExpiredByCafe
+                        or LobbyStatus.RatingOpen
+                        or LobbyStatus.Dissolved)
                     {
                         _logger.LogWarning(
                             "PaySession: Lobby {LobbyId} đã terminal ({Status}) → skip capture, vẫn commit payment cho session {SessionId}.",
@@ -1123,6 +1206,8 @@ namespace BoardVerse.Services.Services
                     }
                     else if (lobby.Status != LobbyStatus.InProgress)
                     {
+                        // Open / Full / Viable / PendingActivation / PendingCafeApproval / WaitingCheckIn
+                        // = lobby chưa đến trạng thái chơi tại quán → không capture BVC đang held.
                         throw new ConflictException(
                             ApiErrorMessages.System.LobbyNotInProgressForCapture);
                     }
@@ -1553,6 +1638,11 @@ namespace BoardVerse.Services.Services
                 Id = session.Id,
                 CafeId = session.CafeId,
                 HostId = session.HostId,
+                // BR-13 (revised 2026-10-01): HostName cho FE render.
+                // Trước đây không set → FE tự resolve từ session.HostId, fallback = staff user
+                // khi là walk-in (rất awkward — nhân viên hiện ra thay vì khách đầu nhóm).
+                // Giờ: walk-in có primary customer / host guest → hiển thị tên customer.
+                HostName = ResolveHostDisplayNameForMap(session),
                 CafeTableId = session.CafeTableId,
                 TableName = session.CafeTable?.Name ?? string.Empty,
                 TableNumber = TableNumberHelper.Parse(session.CafeTable?.Name),

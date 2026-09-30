@@ -133,6 +133,10 @@ public class Reservation
     /// <summary>
     /// True nếu reservation này đã bị absorbed vào reservation khác (ghép nhóm).
     /// Khi ghép, reservation bị absorbed sẽ được đánh dấu và không còn active.
+    /// <para>
+    /// <b>BR-MERGE-01:</b> LUÔN đi kèm <c>Status = <see cref="Enum.ReservationStatus.AbsorbedByMerge"/></c>
+    /// (KHÔNG dùng <c>CancelledByPlayer</c> — merge không phải host cancel và không áp refund policy).
+    /// </para>
     /// </summary>
     public bool SourceDissolved { get; set; } = false;
 

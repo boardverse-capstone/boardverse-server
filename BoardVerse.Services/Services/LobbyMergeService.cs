@@ -7,7 +7,6 @@ using BoardVerse.Core.Messages;
 using BoardVerse.Data;
 using BoardVerse.Services.Helpers;
 using BoardVerse.Services.IServices;
-using BoardVerse.Services.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -51,11 +50,6 @@ public class LobbyMergeService : ILobbyMergeService
     private const long CapVipUser = 1_000_000;
     private const long CapHighRiskUser = 200_000;
 
-    // BR-REFUND-02/03: refund thresholds (mirror of LobbyService constants)
-    private const int DissolveGraceMinutes = 15;
-    private const int DissolveFullRefundHours = 24;
-    private const int DissolveHalfRefundHours = 6;
-
     private readonly BoardVerseDbContext _db;
     private readonly ILobbyRepository _lobbyRepository;
     private readonly ILobbyMemberRepository _lobbyMemberRepository;
@@ -69,7 +63,6 @@ public class LobbyMergeService : ILobbyMergeService
     private readonly ILogger<LobbyMergeService> _logger;
     private readonly ILobbyHubService _lobbyHubService;
     private readonly ILobbyInviteRepository _lobbyInviteRepository;
-    private readonly IWalletService _walletService;
 
     public LobbyMergeService(
         BoardVerseDbContext db,
@@ -84,8 +77,7 @@ public class LobbyMergeService : ILobbyMergeService
         ISystemConfigurationProvider configProvider,
         ILogger<LobbyMergeService> logger,
         ILobbyHubService lobbyHubService,
-        ILobbyInviteRepository lobbyInviteRepository,
-        IWalletService walletService)
+        ILobbyInviteRepository lobbyInviteRepository)
     {
         _db = db;
         _lobbyRepository = lobbyRepository;
@@ -100,7 +92,6 @@ public class LobbyMergeService : ILobbyMergeService
         _logger = logger;
         _lobbyHubService = lobbyHubService;
         _lobbyInviteRepository = lobbyInviteRepository;
-        _walletService = walletService;
     }
 
     public async Task<LobbyMergeRequestDto> CreateMergeRequestAsync(
@@ -335,6 +326,22 @@ public class LobbyMergeService : ILobbyMergeService
             if (targetLobby.Status != LobbyStatus.InProgress && targetLobby.Status != LobbyStatus.Viable)
                 throw new ConflictException(LobbyMergeErrors.TargetLobbyNotActive);
 
+            // ===== H5 fix (2026-09-30): Re-check source lobby status =====
+            // Trước đây Step 3 chỉ validate target lobby. Source lobby có thể đã chuyển
+            // Closed/HostCancelled/ExpiredByCafe/Dissolved giữa Create và Approve
+            // (race window). Nếu không re-check → vẫn cho merge từ 1 lobby đã chết.
+            //
+            // Lưu ý: source lobby đã load qua Include(r => r.SourceLobby), Status là snapshot
+            // tại thời điểm Approve bắt đầu (FOR UPDATE lock đã giữ row LobbyMergeRequests
+            // nhưng KHÔNG giữ Lobby). Vẫn cần check thủ công.
+            var validSourceStatusesForApprove = new[]
+            {
+                LobbyStatus.Open, LobbyStatus.Viable, LobbyStatus.Full,
+                LobbyStatus.InProgress, LobbyStatus.PendingActivation
+            };
+            if (!validSourceStatusesForApprove.Contains(sourceLobby.Status))
+                throw new ConflictException(LobbyMergeErrors.SourceLobbyClosedDuringReview);
+
             // ===== Step 4: Load target ActiveSession với FOR UPDATE — BR-REQUIRED §17.4 =====
             var targetSession = await _db.ActiveSessions
                 .FromSqlRaw(
@@ -460,6 +467,21 @@ public class LobbyMergeService : ILobbyMergeService
 
                     if (wallet != null)
                     {
+                        // H4 fix (2026-09-30): BR-RISK-04 hard reject cho Suspended/Banned.
+                        // Trước đây code chỉ giảm cap heldBalance cho Suspended/Banned về 200k BVC
+                        // nhưng vẫn cho merge. Theo BR-RISK-04: Suspended/Banned chặn
+                        // "tạo lobby, join lobby" → merge = "join lobby khác" → phải reject hẳn.
+                        // (Restricted vẫn cho phép theo BR-RISK-04 — chỉ cảnh báo UI).
+                        if (wallet.AccountStatus == AccountStatus.Suspended ||
+                            wallet.AccountStatus == AccountStatus.Banned)
+                        {
+                            var user = await _userRepository.GetByIdAsync(member.UserId, cancellationToken);
+                            var displayName = user?.Username ?? member.UserId.ToString();
+                            throw new ConflictException(
+                                LobbyMergeErrors.MemberAccountRestricted(
+                                    displayName, wallet.AccountStatus.ToString()));
+                        }
+
                         var cap = wallet.AccountStatus switch
                         {
                             AccountStatus.Restricted => CapHighRiskUser,
@@ -476,6 +498,29 @@ public class LobbyMergeService : ILobbyMergeService
                             throw new ConflictException(
                                 LobbyMergeErrors.MemberDepositCapExceeded(
                                     displayName, wallet.AvailableBalance, wallet.HeldBalance));
+                        }
+
+                        // H3 fix (2026-09-30): BR-USER-LIMIT-01 + BR-USER-LIMIT-05 check cho
+                        // transferring member. Nếu user đã host 1 lobby + member 1 lobby khác
+                        // (tổng = 2), merge sẽ thành host 1 + member 2 = 3 → vi phạm BR-USER-LIMIT-01.
+                        //
+                        // BR-USER-LIMIT-05 đã bỏ ngày 2026-09-12, nhưng cap tổng vẫn áp dụng.
+                        // Lưu ý: wallet load đã lock FOR UPDATE nhưng lobby count query KHÔNG lock.
+                        // Race condition nhỏ (giữa 2 staff merge song song) có thể vượt cap
+                        // trong vài ms. Acceptable cho MVP, sẽ được handle bằng DB constraint
+                        // sau nếu cần.
+                        var memberHostCount = (await _lobbyRepository.GetActiveLobbiesByHostAsync(
+                            member.UserId, cancellationToken)).Count;
+                        var memberMemberCount = (await _lobbyRepository.GetActiveLobbiesByMemberAsync(
+                            member.UserId, cancellationToken)).Count;
+
+                        if (memberHostCount + memberMemberCount >= 2)
+                        {
+                            var user = await _userRepository.GetByIdAsync(member.UserId, cancellationToken);
+                            var displayName = user?.Username ?? member.UserId.ToString();
+                            throw new ConflictException(
+                                LobbyMergeErrors.MemberExceedsLobbyLimitAfterMerge(
+                                    displayName, memberHostCount, memberMemberCount));
                         }
                     }
                 }
@@ -548,31 +593,7 @@ public class LobbyMergeService : ILobbyMergeService
             // ApproveMergeAsync HTTP 500 khi ghép ≥ 2 members, gây ghost merge / mất deposit audit.
             // Fix: chỉ tạo DUY NHẤT một ActiveSessionLobbySource row cho source lobby (không phải
             // mỗi member). Row này được mark SourceDissolved=true sau khi source lobby đóng.
-            //
-            // REGRESS-23505 (2026-09-30): Nếu first merge CHỈ chuyển một phần members (stillActive > 0),
-            // source lobby không bị dissolve và row ActiveSessionLobbySource giữ nguyên với
-            // SourceDissolved=false. Khi second merge request được duyệt → code lại tạo thêm row mới
-            // với cùng LobbyId + SourceDissolved=false → vi phạm unique constraint.
-            // Fix: trước khi tạo row mới, kiểm tra và đánh dấu SourceDissolved=true cho row cũ
-            // (nếu có) — nó đại diện cho partial merge đã bị supersede.
             var createdSources = new List<ActiveSessionLobbySource>();
-
-            // Check và close any existing ActiveSessionLobbySource for this source lobby
-            var existingSource = await _db.ActiveSessionLobbySources
-                .FirstOrDefaultAsync(s =>
-                    s.LobbyId == sourceLobby.Id &&
-                    s.SourceDissolved == false,
-                    cancellationToken);
-
-            if (existingSource != null)
-            {
-                existingSource.SourceDissolved = true;
-                existingSource.SourceDissolvedAt = DateTime.UtcNow;
-                _logger.LogInformation(
-                    "LobbyMerge: closed previous partial merge source {SourceId} for lobby {LobbyId} (superseded by new merge)",
-                    existingSource.Id, sourceLobby.Id);
-            }
-
             var lobbySource = new ActiveSessionLobbySource
             {
                 Id = Guid.NewGuid(),
@@ -587,6 +608,22 @@ public class LobbyMergeService : ILobbyMergeService
             };
             _db.ActiveSessionLobbySources.Add(lobbySource);
             createdSources.Add(lobbySource);
+
+            // ===== Step 5b (Option 2): Auto-promote new host BEFORE transferring old host =====
+            // BR-USER-LIMIT-01: Mỗi lobby active phải có đúng 1 host.
+            // Edge case: source's host nằm trong activeMembers (sẽ transfer sang target)
+            // NHƯNG source vẫn còn member khác ở lại (stillActive > 0 sau Step 11).
+            // → Sau khi host rời, source là lobby mồ côi (có member nhưng không host) →
+            //   vi phạm BR-USER-LIMIT-01.
+            //
+            // Fix: Nếu host đang được transfer VÀ source còn ≥ 1 member sẽ ở lại →
+            // promote member đó thành host mới TRƯỚC khi host cũ rời.
+            // Chỉ áp dụng cho online lobby (walk-in không có khái niệm HostUserId).
+            //
+            // Edge case 2: Nếu KHÔNG còn member nào ở lại (stillActive == 0) → Step 11
+            // sẽ đóng source → host role tự kết thúc cùng lobby → không cần promote.
+            await TryAutoPromoteSourceHostAsync(
+                sourceLobby, activeMembers, mergeRequest, staffUserId, cancellationToken);
 
             // ===== Sub-step 10a: Transfer online LobbyMembers (ReservationId != null) =====
             foreach (var member in activeMembers)
@@ -619,10 +656,22 @@ public class LobbyMergeService : ILobbyMergeService
                     member.PreviousReservationId = sourceLobby.ReservationId;
 
                 // Chuyển ActiveSessionMember từ source session sang target session (nếu có)
+                //
+                // H6 fix (2026-09-30): Trước đây query `m.OriginalSessionId == sourceLobby.Id`
+                // — chỉ tìm được ActiveSessionMember có OriginalSessionId khớp source lobby.
+                // Edge case: nếu member A đã được cascade-merged từ lobby C → B trước đó,
+                // OriginalSessionId = sessionC.Id (set bởi merge đầu tiên), KHÔNG bằng
+                // sourceLobby.Id (B) → query miss → A vẫn ở session C, KHÔNG được
+                // update sang target → orphan data.
+                //
+                // Fix: tìm theo BOTH OriginalSessionId và MergedFromLobbyId để cover cả
+                // trường hợp cascade-merge. Logic: A đang tham gia session của source lobby,
+                // dù OriginalSessionId là C (gốc) hay MergedFromLobbyId là B (source hiện tại).
                 var memberSession = await _db.ActiveSessionMembers
                     .FirstOrDefaultAsync(m =>
                         m.UserId == member.UserId &&
-                        m.OriginalSessionId == sourceLobby.Id &&
+                        (m.OriginalSessionId == sourceLobby.Id ||
+                         m.MergedFromLobbyId == sourceLobby.Id) &&
                         m.Status == IndividualSessionStatus.Playing,
                         cancellationToken);
 
@@ -701,6 +750,42 @@ public class LobbyMergeService : ILobbyMergeService
                 stillActive = remainingWalkIn;
             }
 
+            // ===== Gap #2 fix: Sync source Reservation.CurrentPlayers sau partial merge =====
+            // Trước đây: Step 10a transfer members từ source → target nhưng KHÔNG update
+            // source.Reservation.CurrentPlayers. Source reservation vẫn giữ count cũ →
+            // BR-NEW-08 (1 lobby / playDate+timeSlot / cafe / user) và reporting có thể
+            // thấy sai (vd: source hiển thị 4 người dù chỉ còn 2 ở lại).
+            //
+            // Chỉ sync khi source VẪN còn members (stillActive > 0). Trường hợp stillActive == 0
+            // sẽ set Reservation.Status = AbsorbedByMerge bên dưới, CurrentPlayers không còn
+            // ý nghĩa (lobby đã đóng).
+            if (sourceLobby.ReservationId.HasValue && stillActive > 0)
+            {
+                var sourceReservation = await _db.Reservations.FirstOrDefaultAsync(
+                    r => r.Id == sourceLobby.ReservationId.Value, cancellationToken);
+                if (sourceReservation != null)
+                {
+                    var actualSourceMembers = await _lobbyMemberRepository.GetByLobbyAsync(
+                        sourceLobby.Id, cancellationToken);
+                    var actualActiveCount = actualSourceMembers.Count(
+                        m => m.IsActive && m.Status != LobbyMemberStatus.Left
+                            && m.Status != LobbyMemberStatus.Kicked
+                            && m.Status != LobbyMemberStatus.LobbyTerminated);
+
+                    // Host mới (từ Step 5b) đã được promote NHƯNG vẫn là active member của source
+                    // → actualActiveCount bao gồm host mới. Đây là số CurrentPlayers đúng.
+                    if (sourceReservation.CurrentPlayers != actualActiveCount)
+                    {
+                        _logger.LogInformation(
+                            "LobbyMerge: syncing source reservation {ReservationId} CurrentPlayers " +
+                            "{Old} → {New} after partial merge",
+                            sourceReservation.Id, sourceReservation.CurrentPlayers, actualActiveCount);
+                        sourceReservation.CurrentPlayers = actualActiveCount;
+                        sourceReservation.UpdatedAt = DateTime.UtcNow;
+                    }
+                }
+            }
+
             if (stillActive == 0)
             {
                 sourceLobby.Status = LobbyStatus.Closed;
@@ -730,92 +815,22 @@ public class LobbyMergeService : ILobbyMergeService
                         .FirstOrDefaultAsync(r => r.Id == sourceLobby.ReservationId, cancellationToken);
                     if (reservation != null)
                     {
-                        reservation.Status = ReservationStatus.CancelledByPlayer;
+                        // BR-MERGE-01: Merge = staff-initiated absorption, KHÔNG phải host cancel.
+                        // Dùng status AbsorbedByMerge riêng (thay vì CancelledByPlayer) để:
+                        //   1. Tránh bị filter nhầm vào refund policy (BR-REFUND-02/03/08).
+                        //   2. Staff POS vẫn thấy merged reservation trong tab terminal state
+                        //      (xem CafePosService.ActiveAndTerminalReservationStatuses).
+                        //   3. Audit/report phân loại "host cancel" vs "absorbed by merge" chính xác.
+                        //
+                        // Deposit KHÔNG bị release/forfeit trong nhánh này — nó vẫn held trong
+                        // wallet và sẽ capture theo target session's policy khi bàn B kết thúc
+                        // (xem ActiveSessionLobbySource.DepositStatusAtMerge).
+                        reservation.Status = ReservationStatus.AbsorbedByMerge;
                         reservation.SourceDissolved = true;
                         reservation.MergedIntoReservationId = targetLobby.ReservationId;
                         reservation.MergedAt = DateTime.UtcNow;
                         reservation.MergedByUserId = staffUserId;
                         reservation.UpdatedAt = DateTime.UtcNow;
-
-                        // ===== BR-REFUND: Xử lý deposit của source lobby =====
-                        // Lấy tất cả deposits của reservation nguồn
-                        var sourceDeposits = await _db.BookingDeposits
-                            .Where(d => d.BookingId == sourceLobby.ReservationId)
-                            .ToListAsync(cancellationToken);
-
-                        foreach (var deposit in sourceDeposits)
-                        {
-                            // Chỉ xử lý deposit còn Pending (chưa bị captured/forfeited/refunded)
-                            if (deposit.Status != BookingDepositStatus.Pending)
-                            {
-                                _logger.LogDebug(
-                                    "Merge deposit skip (not Pending): DepositId={DepositId}, Status={Status}",
-                                    deposit.Id, deposit.Status);
-                                continue;
-                            }
-
-                            // Tính refund amount dựa trên RefundPolicy của deposit
-                            var now = DateTime.UtcNow;
-                            var (policyName, refundPercent, refundBvc) = ComputeMergeRefundPolicy(
-                                deposit, reservation, now);
-                            var forfeitBvc = (long)deposit.Amount - refundBvc;
-
-                            var refundKey = $"merge-refund-{deposit.Id:N}";
-                            var forfeitKey = $"merge-forfeit-{deposit.Id:N}";
-
-                            // Release phần hoàn (nếu > 0)
-                            if (refundBvc > 0)
-                            {
-                                try
-                                {
-                                    await _walletService.ReleaseDepositAsync(
-                                        userId: deposit.UserId,
-                                        amountBvc: refundBvc,
-                                        relatedLobbyId: sourceLobby.Id,
-                                        relatedReservationId: deposit.BookingId,
-                                        idempotencyKey: refundKey,
-                                        cancellationToken: cancellationToken);
-
-                                    _logger.LogInformation(
-                                        "Merge deposit refunded: DepositId={DepositId}, UserId={UserId}, Amount={Amount}, " +
-                                        "Policy={Policy}, RefundBvc={RefundBvc}, ForfeitBvc={ForfeitBvc}",
-                                        deposit.Id, deposit.UserId, deposit.Amount, policyName, refundBvc, forfeitBvc);
-                                }
-                                catch (Exception ex)
-                                {
-                                    _logger.LogError(ex,
-                                        "Merge deposit release FAILED: DepositId={DepositId}, RefundKey={RefundKey}",
-                                        deposit.Id, refundKey);
-                                    throw;
-                                }
-                            }
-
-                            // Forfeit phần không hoàn (nếu > 0)
-                            if (forfeitBvc > 0)
-                            {
-                                try
-                                {
-                                    await _walletService.ForfeitDepositAsync(
-                                        userId: deposit.UserId,
-                                        amountBvc: forfeitBvc,
-                                        relatedLobbyId: sourceLobby.Id,
-                                        relatedReservationId: deposit.BookingId,
-                                        idempotencyKey: forfeitKey,
-                                        cancellationToken: cancellationToken);
-
-                                    _logger.LogInformation(
-                                        "Merge deposit forfeited: DepositId={DepositId}, UserId={UserId}, ForfeitBvc={ForfeitBvc}",
-                                        deposit.Id, deposit.UserId, forfeitBvc);
-                                }
-                                catch (Exception ex)
-                                {
-                                    _logger.LogError(ex,
-                                        "Merge deposit forfeit FAILED: DepositId={DepositId}, ForfeitKey={ForfeitKey}",
-                                        deposit.Id, forfeitKey);
-                                    throw;
-                                }
-                            }
-                        }
                     }
                 }
 
@@ -957,12 +972,18 @@ public class LobbyMergeService : ILobbyMergeService
         if (!isStaff)
             throw new ForbiddenException(LobbyMergeErrors.StaffPermissionDenied);
 
-        var request = await _db.LobbyMergeRequests
-            .Include(r => r.SourceLobby)
-            .Include(r => r.TargetLobby)
-            .Include(r => r.RequestedByUser)
-            .FirstOrDefaultAsync(r => r.Id == requestId, cancellationToken)
+        // H7 fix (2026-09-30): FOR UPDATE lock + cross-cafe check.
+        // Trước đây: Reject không có FOR UPDATE → 2 staff bấm Reject cùng lúc → cả 2 set
+        // Rejected, ghi 2 audit logs duplicate. Approve có FOR UPDATE nên Reject cũng cần.
+        //
+        // Dùng LoadMergeRequestWithLockAsync (protected virtual) thay vì FromSqlRaw trực tiếp
+        // để TestableLobbyMergeService (unit test subclass) có thể override.
+        var request = await LoadMergeRequestWithLockAsync(requestId, cancellationToken)
             ?? throw new NotFoundException(LobbyMergeErrors.MergeRequestNotFound(requestId));
+
+        // H2 fix: Cross-cafe check (chỉ staff của cafe chứa source hoặc target lobby mới reject được)
+        if (request.SourceLobby?.CafeId != cafeId && request.TargetLobby?.CafeId != cafeId)
+            throw new ForbiddenException(LobbyMergeErrors.StaffPermissionDenied);
 
         if (request.Status != LobbyMergeRequestStatus.Pending)
             throw new ConflictException(LobbyMergeErrors.MergeRequestNotPending);
@@ -1063,12 +1084,24 @@ public class LobbyMergeService : ILobbyMergeService
         Guid requestId,
         CancellationToken cancellationToken = default)
     {
-        var request = await _db.LobbyMergeRequests
-            .Include(r => r.SourceLobby)
-            .Include(r => r.TargetLobby)
-            .Include(r => r.RequestedByUser)
-            .FirstOrDefaultAsync(r => r.Id == requestId, cancellationToken)
+        // H1 fix (2026-09-30): Staff permission check (missing before, security bug — any
+        // logged-in user could cancel a merge request). So sánh với Create/Approve/Reject
+        // đều có check này.
+        var isStaff = await _cafeRepository.IsManagerOrStaffAsync(cafeId, userId, cancellationToken);
+        if (!isStaff)
+            throw new ForbiddenException(LobbyMergeErrors.StaffPermissionDenied);
+
+        // FOR UPDATE lock để chống race condition H7: 2 staff bấm Cancel cùng lúc,
+        // 2 staff bấm Cancel + 1 staff bấm Approve, v.v. → cả 2 thành công, audit log duplicate.
+        // Dùng LoadMergeRequestWithLockAsync (protected virtual) thay vì FromSqlRaw trực tiếp
+        // để TestableLobbyMergeService có thể override.
+        var request = await LoadMergeRequestWithLockAsync(requestId, cancellationToken)
             ?? throw new NotFoundException(LobbyMergeErrors.MergeRequestNotFound(requestId));
+
+        // H2 fix (2026-09-30): Cross-cafe check. Staff cafe A có thể truyền cafeId của cafe B
+        // vào URL → cancel merge request của cafe B. Phải verify request thuộc cafeId.
+        if (request.SourceLobby?.CafeId != cafeId && request.TargetLobby?.CafeId != cafeId)
+            throw new ForbiddenException(LobbyMergeErrors.CancelPermissionDenied);
 
         if (request.Status != LobbyMergeRequestStatus.Pending)
             throw new ConflictException(LobbyMergeErrors.MergeRequestNotPending);
@@ -1151,6 +1184,194 @@ public class LobbyMergeService : ILobbyMergeService
                 .ThenInclude(l => l.Members)
             .Include(r => r.TargetLobby)
             .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Step 5b (Option 2 fix): Auto-promote new host for source lobby khi host cũ bị transfer.
+    ///
+    /// BR-USER-LIMIT-01: Mỗi lobby active phải có đúng 1 host.
+    /// Edge case: source's host nằm trong activeMembers (sẽ transfer sang target) NHƯNG
+    /// source vẫn còn member khác ở lại → nếu không promote, source sẽ thành lobby mồ côi.
+    ///
+    /// Logic:
+    /// - Chỉ áp dụng cho online lobby (walk-in không có HostUserId concept).
+    /// - Nếu host KHÔNG trong activeMembers → không cần promote (host vẫn ở source).
+    /// - Nếu host trong activeMembers NHƯNG source không còn member nào ở lại →
+    ///   Step 11 sẽ đóng source → host role tự kết thúc → không promote.
+    /// - Nếu host trong activeMembers VÀ có member ở lại → tìm candidate đầu tiên
+    ///   (theo JoinedAt) pass BR-USER-LIMIT-01 validation để promote thành host mới
+    ///   TRƯỚC khi host cũ rời source. Nếu hết candidate pass → throw ConflictException
+    ///   để abort merge (an toàn hơn để source thành lobby mồ côi).
+    ///
+    /// Protected virtual để unit test có thể verify logic riêng (không cần chạy full
+    /// ApproveMergeAsync với FOR UPDATE).
+    /// </summary>
+    /// <returns>true nếu đã promote, false nếu không promote (host ở lại hoặc không có candidate).</returns>
+    /// <exception cref="ConflictException">Abort merge nếu không tìm được valid new host
+    /// (BR-USER-LIMIT-01 violation cho tất cả stay candidates).</exception>
+    protected virtual async Task<bool> TryAutoPromoteSourceHostAsync(
+        Lobby sourceLobby,
+        IReadOnlyList<LobbyMember> activeMembers,
+        LobbyMergeRequest mergeRequest,
+        Guid staffUserId,
+        CancellationToken cancellationToken)
+    {
+        // Chỉ áp dụng cho online lobby
+        if (!sourceLobby.ReservationId.HasValue) return false;
+
+        var hostUserId = sourceLobby.HostUserId;
+        var hostIsBeingTransferred = activeMembers.Any(m => m.UserId == hostUserId);
+        if (!hostIsBeingTransferred)
+        {
+            // Host không trong transfer set → không cần promote
+            return false;
+        }
+
+        var transferUserIds = activeMembers.Select(m => m.UserId).ToHashSet();
+        var allSourceMembers = await _lobbyMemberRepository.GetByLobbyAsync(
+            sourceLobby.Id, cancellationToken);
+
+        // Member sẽ ở lại source = active, chưa transfer, chưa rời
+        var stayCandidates = allSourceMembers
+            .Where(m => m.IsActive
+                && m.Status != LobbyMemberStatus.Left
+                && m.Status != LobbyMemberStatus.Kicked
+                && m.Status != LobbyMemberStatus.LobbyTerminated
+                && !transferUserIds.Contains(m.UserId))
+            .OrderBy(m => m.JoinedAt)
+            .ToList();
+
+        if (stayCandidates.Count == 0)
+        {
+            // Không có member ở lại → Step 11 sẽ đóng source → không cần promote
+            _logger.LogInformation(
+                "LobbyMerge: source host {HostId} transferring with no remaining members — " +
+                "source will dissolve after Step 11 (stillActive == 0), no promote needed",
+                sourceLobby.HostUserId, sourceLobby.Id);
+            return false;
+        }
+
+        // ===== Gap #1 fix: BR-USER-LIMIT-01 validation cho new host =====
+        // Loop qua stayCandidates theo JoinedAt, pick candidate đầu tiên KHÔNG vi phạm
+        // BR-USER-LIMIT-01 (chưa host/member lobby active khác). Nếu hết → abort merge.
+        LobbyMember? newHostMember = null;
+        var skippedCandidates = new List<Guid>();
+
+        foreach (var candidate in stayCandidates)
+        {
+            // BR-USER-LIMIT-01: new host KHÔNG được đang là host của lobby active khác.
+            // BR-USER-LIMIT-05 (đã bỏ BR ngày 2026-09-12): host được phép transfer sang lobby
+            // khác, NHƯNG BR-USER-LIMIT-01 vẫn giữ cap tổng lobby ≤ 2 active cho mỗi user.
+            //
+            // Lưu ý: candidate có thể đã là member của lobby active khác. Nếu promote
+            // candidate đó thành host của source → tổng lobby của user đó sẽ vượt 2 (source
+            // mới + lobby đang làm member). Vi phạm BR-USER-LIMIT-01.
+            //
+            // Skip candidate này, log lý do, thử candidate kế tiếp.
+            var newHostActiveLobbies = await _lobbyRepository.GetActiveLobbiesByHostAsync(
+                candidate.UserId, cancellationToken);
+            var newHostMemberOfLobbies = await _lobbyRepository.GetActiveLobbiesByMemberAsync(
+                candidate.UserId, cancellationToken);
+
+            if (newHostActiveLobbies.Count + newHostMemberOfLobbies.Count >= 2)
+            {
+                _logger.LogWarning(
+                    "LobbyMerge: skip candidate {UserId} for new host (BR-USER-LIMIT-01: " +
+                    "{Active} host + {Member} member = {Total} ≥ 2 active lobbies)",
+                    candidate.UserId, newHostActiveLobbies.Count, newHostMemberOfLobbies.Count,
+                    newHostActiveLobbies.Count + newHostMemberOfLobbies.Count);
+                skippedCandidates.Add(candidate.UserId);
+                continue;
+            }
+
+            if (newHostMemberOfLobbies.Count > 0)
+            {
+                _logger.LogWarning(
+                    "LobbyMerge: skip candidate {UserId} for new host (BR-USER-LIMIT-01: " +
+                    "đang là member của {Count} lobby active khác)",
+                    candidate.UserId, newHostMemberOfLobbies.Count);
+                skippedCandidates.Add(candidate.UserId);
+                continue;
+            }
+
+            // Candidate pass BR-USER-LIMIT-01
+            newHostMember = candidate;
+            break;
+        }
+
+        if (newHostMember == null)
+        {
+            // Không tìm được candidate valid → ABORT merge để tránh source lobby thành mồ côi
+            // (không có host sau khi host cũ chuyển sang target).
+            //
+            // Lý do abort (thay vì cho phép merge): an toàn hơn cho data integrity. Staff
+            // có thể retry sau khi một trong các skipped candidate rời lobby active khác.
+            throw new ConflictException(
+                $"Không thể ghép lobby: host cũ đang chuyển sang lobby đích nhưng {stayCandidates.Count} " +
+                $"thành viên ở lại đều đã đạt giới hạn BR-USER-LIMIT-01 (host 1 lobby + member 1 lobby khác). " +
+                $"Vui lòng yêu cầu các thành viên ở lại rời lobby khác trước, hoặc hủy phòng cũ.");
+        }
+
+        var oldHostUserId = sourceLobby.HostUserId;
+
+        // Update source lobby HostUserId → new host
+        sourceLobby.HostUserId = newHostMember.UserId;
+        sourceLobby.UpdatedAt = DateTime.UtcNow;
+
+        // Update LobbyMember.IsHost flags
+        var oldHostMember = activeMembers.First(m => m.UserId == oldHostUserId);
+        oldHostMember.IsHost = false;
+        newHostMember.IsHost = true;
+
+        // Audit log
+        var promoteAudit = CreateAuditLog(
+            mergeRequest.Id, sourceLobby.Id, mergeRequest.TargetLobbyId,
+            sourceLobby.ReservationId, mergeRequest.TargetLobby?.ReservationId,
+            staffUserId, "HostAutoPromotedOnMerge",
+            new
+            {
+                previousHostUserId = oldHostUserId,
+                newHostUserId = newHostMember.UserId,
+                reason = "SourceHostTransferredByMerge",
+                stayMembersCount = stayCandidates.Count,
+                skippedCandidatesCount = skippedCandidates.Count,
+                skippedCandidateIds = skippedCandidates
+            },
+            success: true);
+        _db.LobbyMergeAuditLogs.Add(promoteAudit);
+
+        // ===== Gap #4 fix: Expire pending invites của new host trên source lobby =====
+        // BR-LOBBY-INVITE-09: Lobby terminal → expire tất cả pending invites. Tuy source chưa
+        // terminal (vẫn còn members), nhưng new host vừa được promote đồng nghĩa với việc
+        // họ đã "nhận trách nhiệm" host của source — invites pending cho họ trên lobby
+        // này giờ không còn ý nghĩa (lobby vẫn active nhưng họ đã ở trong với tư cách host).
+        await _lobbyInviteRepository.ExpirePendingForUsersAsync(
+            lobbyId: sourceLobby.Id,
+            inviteeIds: new List<Guid> { newHostMember.UserId },
+            cancellationToken);
+
+        // ===== Gap #5 fix: SignalR NotifyHostChanged cho new host =====
+        // Client (Flutter app, POS) hiển thị HostUserId từ lobby detail. Nếu không notify,
+        // UI vẫn hiển thị old host → UX broken (action gửi tin nhắn với Host role sẽ fail).
+        try
+        {
+            await _lobbyHubService.NotifyHostChanged(sourceLobby.Id, newHostMember.UserId);
+        }
+        catch (Exception ex)
+        {
+            // Fire-and-forget: promote đã commit in-memory, notification lỗi không rollback.
+            // Old host đã được transfer sang target (sẽ save ở Step 10a), new host đã được set.
+            _logger.LogWarning(ex,
+                "LobbyMerge: failed to NotifyHostChanged for new host {NewHostId} on source {SourceId}",
+                newHostMember.UserId, sourceLobby.Id);
+        }
+
+        _logger.LogInformation(
+            "LobbyMerge: auto-promoted user {NewHostId} as new host of source lobby {SourceId} " +
+            "(previous host {OldHostId} transferred to target, skipped {Skipped} candidates with BR-USER-LIMIT-01 violation)",
+            newHostMember.UserId, sourceLobby.Id, oldHostUserId, skippedCandidates.Count);
+
+        return true;
     }
 
     // ===== Private helpers =====
@@ -1410,82 +1631,5 @@ public class LobbyMergeService : ILobbyMergeService
             ErrorMessage = l.ErrorMessage,
             CreatedAt = l.CreatedAt
         };
-    }
-
-    /// <summary>
-    /// BR-REFUND-02/03: Tính refund amount khi source lobby bị dissolve do merge.
-    /// Logic mirror LobbyService.ComputeDissolveRefundPolicy — đồng bộ nếu thay đổi.
-    /// Áp dụng RefundPolicy của BookingDeposit:
-    ///   - Full    → hoàn 100%
-    ///   - None    → hoàn 0%
-    ///   - Partial → tính theo bậc thang 24h/6h + grace 15 phút
-    /// </summary>
-    private static (string PolicyName, decimal RefundPercent, long RefundBvc) ComputeMergeRefundPolicy(
-        BookingDeposit deposit,
-        Reservation sourceReservation,
-        DateTime now)
-    {
-        var depositAmount = (long)deposit.Amount;
-
-        if (depositAmount <= 0)
-        {
-            return ("No-Deposit", 0m, 0L);
-        }
-
-        // Áp dụng RefundPolicy của deposit (snapshot từ Cafe tại lúc tạo)
-        return deposit.RefundPolicy switch
-        {
-            DepositRefundPolicy.Full => ("Full", 1.0m, depositAmount),
-
-            DepositRefundPolicy.None => ("None", 0m, 0L),
-
-            DepositRefundPolicy.Partial => ComputePartialRefund(deposit, sourceReservation, now, depositAmount),
-
-            _ => ("Unknown", 0m, 0L)
-        };
-    }
-
-    private static (string PolicyName, decimal RefundPercent, long RefundBvc) ComputePartialRefund(
-        BookingDeposit deposit,
-        Reservation sourceReservation,
-        DateTime now,
-        long depositAmount)
-    {
-        // BR-REFUND-03: grace 15 phút + chưa có member → hoàn 100%.
-        // Reservation.CurrentPlayers là mirror của lobby.Members.Count(IsActive),
-        // được SyncReservationCurrentPlayersAsync cập nhật mỗi join/leave (xem LobbyService).
-        var minutesSinceCreated = (now - sourceReservation.CreatedAt).TotalMinutes;
-        var hasMembers = sourceReservation.CurrentPlayers > 0;
-        if (minutesSinceCreated <= DissolveGraceMinutes && !hasMembers)
-        {
-            return ("Grace-15p-NoMember", 1.0m, depositAmount);
-        }
-
-        // Nếu deposit không kèm ScheduledAt → dùng ScheduledStartTime trên reservation.
-        // Reservation.ScheduledStartTime là DateTime (non-nullable) — check default(DateTime)
-        // thay vì HasValue/Value như DateTime?.
-        var reservationStart = sourceReservation.ScheduledStartTime;
-        DateTime? scheduledStart = deposit.ScheduledAt ?? (reservationStart == default(DateTime) ? null : reservationStart);
-        if (!scheduledStart.HasValue)
-        {
-            return ("Legacy-NoScheduledTime", 0.5m, (long)(depositAmount * 0.5m));
-        }
-
-        var hoursUntilPlay = (scheduledStart.Value - now).TotalHours;
-
-        // BR-REFUND-02: ≥24h → 100%.
-        if (hoursUntilPlay >= DissolveFullRefundHours)
-        {
-            return ("Cancel-24h", 1.0m, depositAmount);
-        }
-
-        // BR-REFUND-02: 6–24h → 50%.
-        if (hoursUntilPlay >= DissolveHalfRefundHours)
-        {
-            return ("Cancel-6h", 0.5m, (long)(depositAmount * 0.5m));
-        }
-
-        // BR-REFUND-02: <6h → 0% (forfeit 100%).
-        return ("Cancel-Under6h", 0m, 0L);
     }
 }

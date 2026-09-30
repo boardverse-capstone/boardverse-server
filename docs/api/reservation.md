@@ -259,7 +259,7 @@ Khác với `GET /api/v1/reservations` (mặc định chỉ host + 1 ngày):
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `participationType` | enum | No | `Host` \| `Member`. Null = lấy cả hai. |
-| `statuses` | enum[] | No | Filter theo trạng thái (vd: `Holding`, `Confirmed`, `Completed`, `CancelledByPlayer`). |
+| `statuses` | enum[] | No | Filter theo trạng thái (vd: `Holding`, `Confirmed`, `Completed`, `CancelledByPlayer`, `AbsorbedByMerge`). |
 | `cafeId` | guid | No | Filter theo cafe. |
 | `fromDate` | date | No | Ngày bắt đầu (inclusive). Null = không giới hạn dưới. |
 | `toDate` | date | No | Ngày kết thúc (inclusive). Null = không giới hạn trên. |

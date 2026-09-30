@@ -23,6 +23,12 @@ namespace BoardVerse.Data.Configurations
                 .HasDefaultValueSql("now() at time zone 'utc'")
                 .IsConcurrencyToken();
 
+            // BR-13 (revised 2026-09-30): Walk-in audit fields.
+            // Default false = backward compat với phiên cũ (IsWalkInSession = false).
+            // Chỉ set true khi tạo qua CafePosService.StartGameSessionAsync (walk-in thuần).
+            builder.Property(s => s.IsWalkInSession).HasDefaultValue(false);
+            builder.Property(s => s.StartedByStaffId); // nullable
+
             // FK nullable: CafeTableId + CafeInventoryBoxId có thể null khi staff
             // attach game sau khi phiên đã chạy.
 

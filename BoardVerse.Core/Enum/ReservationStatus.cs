@@ -10,7 +10,14 @@
 /// AwaitingDeposit → Holding → Confirmed → CheckedIn → InProgress → Completed
 ///                                       ↘ Expired ↘ NoShow ↘ EarlyCheckout
 ///                                       ↘ CancelledByPlayer / CancelledByCafe
+///                                       ↘ AbsorbedByMerge (staff POS merge)
 /// </code>
+/// <para>
+/// <b>Phân biệt quan trọng (BR-MERGE-01):</b> <see cref="AbsorbedByMerge"/> KHÔNG
+/// phải cancellation. Reservation bị staff POS merge (absorbed) vào reservation khác
+/// vẫn giữ deposit held trong wallet — capture theo target session's policy khi kết
+/// thúc. Tuyệt đối KHÔNG dùng <see cref="CancelledByPlayer"/> cho merge case.
+/// </para>
 /// </remarks>
 public enum ReservationStatus
 {
@@ -42,12 +49,33 @@ public enum ReservationStatus
     /// <summary>Đến recruitmentDeadline mà chưa đủ người (timeout failed).</summary>
     Expired = 8,
 
-    /// <summary>Host tự hủy — hoàn 1 phần / 0% BVC theo BR-REFUND-02.</summary>
+    /// <summary>
+    /// BR-REFUND-02: Host tự hủy reservation trước khi chơi. Trigger refund policy 1 phần / 0% BVC.
+    /// <para>⚠️ KHÔNG dùng cho merge — dùng <see cref="AbsorbedByMerge"/>.</para>
+    /// </summary>
     CancelledByPlayer = 9,
 
     /// <summary>Quán hủy (BR-REFUND-04) — hoàn 100% BVC, không phạt.</summary>
     CancelledByCafe = 10,
 
     /// <summary>Host không đến sau scheduledTime + grace → forfeit deposit (BR §21A.9).</summary>
-    NoShow = 11
+    NoShow = 11,
+
+    /// <summary>
+    /// BR-MERGE-01: Source reservation bị staff POS merge (absorbed) vào target reservation.
+    /// <para>
+    /// Đây KHÔNG phải host cancellation. Host Nhóm A vẫn đang ở quán và tiếp tục chơi tại
+    /// bàn mới (Nhóm B). Do đó deposit KHÔNG được refund, KHÔNG được forfeit — vẫn giữ
+    /// held trong wallet và sẽ capture theo target session's policy khi bàn B kết thúc.
+    /// </para>
+    /// <para>
+    /// LUÔN đi kèm <c>Reservation.SourceDissolved = true</c> và
+    /// <c>Reservation.MergedIntoReservationId = target.ReservationId</c>.
+    /// </para>
+    /// <para>
+    /// Đặt bởi <c>LobbyMergeService.ApproveMergeAsync</c> (Step 11) khi source lobby
+    /// được dissolve sau khi transfer members sang target.
+    /// </para>
+    /// </summary>
+    AbsorbedByMerge = 12
 }

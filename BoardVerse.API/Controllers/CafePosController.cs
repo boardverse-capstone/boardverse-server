@@ -366,7 +366,7 @@ public async Task<IActionResult> GetPaidSessions(
         /// <param name="lobbyStatusFilter">CSV <c>LobbyStatus</c>. Null = không filter.
         /// Ví dụ: <c>?lobbyStatusFilter=Open,Viable,PendingCafeApproval</c>.</param>
         /// <param name="includeCancelled">True = nếu FE không truyền <paramref name="statuses"/>,
-        /// default filter sẽ gộp thêm <c>Expired, CancelledByPlayer, CancelledByCafe, NoShow</c>.</param>
+        /// default filter sẽ gộp thêm <c>Expired, AbsorbedByMerge, CancelledByPlayer, CancelledByCafe, NoShow</c> (BR-MERGE-01).</param>
         /// <param name="sortBy">0 = scheduledStartTime (default), 1 = createdAt, 2 = playDate.</param>
         /// <param name="sortDir">"asc" (default) hoặc "desc".</param>
         /// <param name="pageNumber">Số trang (1-indexed, mặc định 1).</param>
