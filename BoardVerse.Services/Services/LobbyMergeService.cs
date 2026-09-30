@@ -7,6 +7,7 @@ using BoardVerse.Core.Messages;
 using BoardVerse.Data;
 using BoardVerse.Services.Helpers;
 using BoardVerse.Services.IServices;
+using BoardVerse.Services.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -50,6 +51,11 @@ public class LobbyMergeService : ILobbyMergeService
     private const long CapVipUser = 1_000_000;
     private const long CapHighRiskUser = 200_000;
 
+    // BR-REFUND-02/03: refund thresholds (mirror of LobbyService constants)
+    private const int DissolveGraceMinutes = 15;
+    private const int DissolveFullRefundHours = 24;
+    private const int DissolveHalfRefundHours = 6;
+
     private readonly BoardVerseDbContext _db;
     private readonly ILobbyRepository _lobbyRepository;
     private readonly ILobbyMemberRepository _lobbyMemberRepository;
@@ -63,6 +69,7 @@ public class LobbyMergeService : ILobbyMergeService
     private readonly ILogger<LobbyMergeService> _logger;
     private readonly ILobbyHubService _lobbyHubService;
     private readonly ILobbyInviteRepository _lobbyInviteRepository;
+    private readonly IWalletService _walletService;
 
     public LobbyMergeService(
         BoardVerseDbContext db,
@@ -77,7 +84,8 @@ public class LobbyMergeService : ILobbyMergeService
         ISystemConfigurationProvider configProvider,
         ILogger<LobbyMergeService> logger,
         ILobbyHubService lobbyHubService,
-        ILobbyInviteRepository lobbyInviteRepository)
+        ILobbyInviteRepository lobbyInviteRepository,
+        IWalletService walletService)
     {
         _db = db;
         _lobbyRepository = lobbyRepository;
@@ -92,6 +100,7 @@ public class LobbyMergeService : ILobbyMergeService
         _logger = logger;
         _lobbyHubService = lobbyHubService;
         _lobbyInviteRepository = lobbyInviteRepository;
+        _walletService = walletService;
     }
 
     public async Task<LobbyMergeRequestDto> CreateMergeRequestAsync(
@@ -539,7 +548,31 @@ public class LobbyMergeService : ILobbyMergeService
             // ApproveMergeAsync HTTP 500 khi ghép ≥ 2 members, gây ghost merge / mất deposit audit.
             // Fix: chỉ tạo DUY NHẤT một ActiveSessionLobbySource row cho source lobby (không phải
             // mỗi member). Row này được mark SourceDissolved=true sau khi source lobby đóng.
+            //
+            // REGRESS-23505 (2026-09-30): Nếu first merge CHỈ chuyển một phần members (stillActive > 0),
+            // source lobby không bị dissolve và row ActiveSessionLobbySource giữ nguyên với
+            // SourceDissolved=false. Khi second merge request được duyệt → code lại tạo thêm row mới
+            // với cùng LobbyId + SourceDissolved=false → vi phạm unique constraint.
+            // Fix: trước khi tạo row mới, kiểm tra và đánh dấu SourceDissolved=true cho row cũ
+            // (nếu có) — nó đại diện cho partial merge đã bị supersede.
             var createdSources = new List<ActiveSessionLobbySource>();
+
+            // Check và close any existing ActiveSessionLobbySource for this source lobby
+            var existingSource = await _db.ActiveSessionLobbySources
+                .FirstOrDefaultAsync(s =>
+                    s.LobbyId == sourceLobby.Id &&
+                    s.SourceDissolved == false,
+                    cancellationToken);
+
+            if (existingSource != null)
+            {
+                existingSource.SourceDissolved = true;
+                existingSource.SourceDissolvedAt = DateTime.UtcNow;
+                _logger.LogInformation(
+                    "LobbyMerge: closed previous partial merge source {SourceId} for lobby {LobbyId} (superseded by new merge)",
+                    existingSource.Id, sourceLobby.Id);
+            }
+
             var lobbySource = new ActiveSessionLobbySource
             {
                 Id = Guid.NewGuid(),
@@ -703,6 +736,86 @@ public class LobbyMergeService : ILobbyMergeService
                         reservation.MergedAt = DateTime.UtcNow;
                         reservation.MergedByUserId = staffUserId;
                         reservation.UpdatedAt = DateTime.UtcNow;
+
+                        // ===== BR-REFUND: Xử lý deposit của source lobby =====
+                        // Lấy tất cả deposits của reservation nguồn
+                        var sourceDeposits = await _db.BookingDeposits
+                            .Where(d => d.BookingId == sourceLobby.ReservationId)
+                            .ToListAsync(cancellationToken);
+
+                        foreach (var deposit in sourceDeposits)
+                        {
+                            // Chỉ xử lý deposit còn Pending (chưa bị captured/forfeited/refunded)
+                            if (deposit.Status != BookingDepositStatus.Pending)
+                            {
+                                _logger.LogDebug(
+                                    "Merge deposit skip (not Pending): DepositId={DepositId}, Status={Status}",
+                                    deposit.Id, deposit.Status);
+                                continue;
+                            }
+
+                            // Tính refund amount dựa trên RefundPolicy của deposit
+                            var now = DateTime.UtcNow;
+                            var (policyName, refundPercent, refundBvc) = ComputeMergeRefundPolicy(
+                                deposit, reservation, now);
+                            var forfeitBvc = (long)deposit.Amount - refundBvc;
+
+                            var refundKey = $"merge-refund-{deposit.Id:N}";
+                            var forfeitKey = $"merge-forfeit-{deposit.Id:N}";
+
+                            // Release phần hoàn (nếu > 0)
+                            if (refundBvc > 0)
+                            {
+                                try
+                                {
+                                    await _walletService.ReleaseDepositAsync(
+                                        userId: deposit.UserId,
+                                        amountBvc: refundBvc,
+                                        relatedLobbyId: sourceLobby.Id,
+                                        relatedReservationId: deposit.BookingId,
+                                        idempotencyKey: refundKey,
+                                        cancellationToken: cancellationToken);
+
+                                    _logger.LogInformation(
+                                        "Merge deposit refunded: DepositId={DepositId}, UserId={UserId}, Amount={Amount}, " +
+                                        "Policy={Policy}, RefundBvc={RefundBvc}, ForfeitBvc={ForfeitBvc}",
+                                        deposit.Id, deposit.UserId, deposit.Amount, policyName, refundBvc, forfeitBvc);
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogError(ex,
+                                        "Merge deposit release FAILED: DepositId={DepositId}, RefundKey={RefundKey}",
+                                        deposit.Id, refundKey);
+                                    throw;
+                                }
+                            }
+
+                            // Forfeit phần không hoàn (nếu > 0)
+                            if (forfeitBvc > 0)
+                            {
+                                try
+                                {
+                                    await _walletService.ForfeitDepositAsync(
+                                        userId: deposit.UserId,
+                                        amountBvc: forfeitBvc,
+                                        relatedLobbyId: sourceLobby.Id,
+                                        relatedReservationId: deposit.BookingId,
+                                        idempotencyKey: forfeitKey,
+                                        cancellationToken: cancellationToken);
+
+                                    _logger.LogInformation(
+                                        "Merge deposit forfeited: DepositId={DepositId}, UserId={UserId}, ForfeitBvc={ForfeitBvc}",
+                                        deposit.Id, deposit.UserId, forfeitBvc);
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogError(ex,
+                                        "Merge deposit forfeit FAILED: DepositId={DepositId}, ForfeitKey={ForfeitKey}",
+                                        deposit.Id, forfeitKey);
+                                    throw;
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -1297,5 +1410,77 @@ public class LobbyMergeService : ILobbyMergeService
             ErrorMessage = l.ErrorMessage,
             CreatedAt = l.CreatedAt
         };
+    }
+
+    /// <summary>
+    /// BR-REFUND-02/03: Tính refund amount khi source lobby bị dissolve do merge.
+    /// Logic mirror LobbyService.ComputeDissolveRefundPolicy — đồng bộ nếu thay đổi.
+    /// Áp dụng RefundPolicy của BookingDeposit:
+    ///   - Full    → hoàn 100%
+    ///   - None    → hoàn 0%
+    ///   - Partial → tính theo bậc thang 24h/6h + grace 15 phút
+    /// </summary>
+    private static (string PolicyName, decimal RefundPercent, long RefundBvc) ComputeMergeRefundPolicy(
+        BookingDeposit deposit,
+        Reservation sourceReservation,
+        DateTime now)
+    {
+        var depositAmount = (long)deposit.Amount;
+
+        if (depositAmount <= 0)
+        {
+            return ("No-Deposit", 0m, 0L);
+        }
+
+        // Áp dụng RefundPolicy của deposit (snapshot từ Cafe tại lúc tạo)
+        return deposit.RefundPolicy switch
+        {
+            DepositRefundPolicy.Full => ("Full", 1.0m, depositAmount),
+
+            DepositRefundPolicy.None => ("None", 0m, 0L),
+
+            DepositRefundPolicy.Partial => ComputePartialRefund(deposit, sourceReservation, now, depositAmount),
+
+            _ => ("Unknown", 0m, 0L)
+        };
+    }
+
+    private static (string PolicyName, decimal RefundPercent, long RefundBvc) ComputePartialRefund(
+        BookingDeposit deposit,
+        Reservation sourceReservation,
+        DateTime now,
+        long depositAmount)
+    {
+        // BR-REFUND-03: grace 15 phút + chưa có member → hoàn 100%.
+        var minutesSinceCreated = (now - sourceReservation.CreatedAt).TotalMinutes;
+        var hasMembers = sourceReservation.PlayerCount > 0;
+        if (minutesSinceCreated <= DissolveGraceMinutes && !hasMembers)
+        {
+            return ("Grace-15p-NoMember", 1.0m, depositAmount);
+        }
+
+        // Nếu không có ScheduledStartTime → mặc định 50% (matching BR-REFUND-02).
+        var scheduledStart = deposit.ScheduledAt ?? sourceReservation.ScheduledStartTime;
+        if (!scheduledStart.HasValue || scheduledStart.Value == default)
+        {
+            return ("Legacy-NoScheduledTime", 0.5m, (long)(depositAmount * 0.5m));
+        }
+
+        var hoursUntilPlay = (scheduledStart.Value - now).TotalHours;
+
+        // BR-REFUND-02: ≥24h → 100%.
+        if (hoursUntilPlay >= DissolveFullRefundHours)
+        {
+            return ("Cancel-24h", 1.0m, depositAmount);
+        }
+
+        // BR-REFUND-02: 6–24h → 50%.
+        if (hoursUntilPlay >= DissolveHalfRefundHours)
+        {
+            return ("Cancel-6h", 0.5m, (long)(depositAmount * 0.5m));
+        }
+
+        // BR-REFUND-02: <6h → 0% (forfeit 100%).
+        return ("Cancel-Under6h", 0m, 0L);
     }
 }

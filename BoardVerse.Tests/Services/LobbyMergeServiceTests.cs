@@ -39,6 +39,7 @@ public class LobbyMergeServiceTests : IDisposable
     private readonly Mock<ILogger<LobbyMergeService>> _logger = new();
     private readonly Mock<ILobbyHubService> _hubService = new();
     private readonly Mock<ILobbyInviteRepository> _inviteRepo = new();
+    private readonly Mock<IWalletService> _walletService = new();
 
     // In-memory DB cho các test dùng DB persistence (G22 idempotency)
     private BoardVerseDbContext _db;
@@ -82,7 +83,8 @@ public class LobbyMergeServiceTests : IDisposable
         _configProvider.Object,
         _logger.Object,
         _hubService.Object,
-        _inviteRepo.Object);
+        _inviteRepo.Object,
+        _walletService.Object);
 
     /// <summary>
     /// Tạo service mới với DbContext ĐÃ CLEAR (đã có data từ test setup).
@@ -1595,11 +1597,13 @@ public class LobbyMergeServiceTests : IDisposable
             ISystemConfigurationProvider configProvider,
             ILogger<LobbyMergeService> logger,
             ILobbyHubService lobbyHubService,
-            ILobbyInviteRepository lobbyInviteRepository)
+            ILobbyInviteRepository lobbyInviteRepository,
+            IWalletService walletService)
             : base(
                 db, lobbyRepository, lobbyMemberRepository, cafeRepository,
                 userRepository, walletRepository, depositRepository, seatInventoryRepository,
-                httpContextAccessor, configProvider, logger, lobbyHubService, lobbyInviteRepository)
+                httpContextAccessor, configProvider, logger, lobbyHubService, lobbyInviteRepository,
+                walletService)
         {
             _testDb = db;
         }
@@ -1630,5 +1634,6 @@ public class LobbyMergeServiceTests : IDisposable
         _configProvider.Object,
         _logger.Object,
         _hubService.Object,
-        _inviteRepo.Object);
+        _inviteRepo.Object,
+        _walletService.Object);
 }
