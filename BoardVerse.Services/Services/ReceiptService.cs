@@ -8,6 +8,7 @@ using BoardVerse.Data;
 using BoardVerse.Services.IServices;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace BoardVerse.Services.Services
 {
@@ -80,6 +81,119 @@ namespace BoardVerse.Services.Services
                 sessionId, receipt.CafeName, memberItems.Count);
 
             return receipt;
+        }
+
+        // ============================================================
+        // M2/C2.15: Per-member receipt (Gap #32)
+        // ============================================================
+        public async Task<ReceiptFileDto> GenerateMemberReceiptAsync(
+            Guid sessionId,
+            Guid memberId,
+            string format,
+            CancellationToken cancellationToken = default)
+        {
+            // ===== Validate format =====
+            // Currently only 'json' is implemented. QuestPDF/PNG generation
+            // sẽ được tích hợp ở release sau (xem docs/api/m2-member-payment.md).
+            var normalizedFormat = format?.Trim().ToLowerInvariant() ?? string.Empty;
+            if (normalizedFormat != "json")
+            {
+                throw new BadRequestException(
+                    ApiErrorMessages.Receipt.UnsupportedReceiptFormat(format ?? "(null)"));
+            }
+
+            // ===== Lookup session + member =====
+            var session = await _dbContext.ActiveSessions
+                .Include(s => s.Cafe)
+                .Include(s => s.GameTemplate)
+                .Include(s => s.CafeTable)
+                .Include(s => s.Members)
+                    .ThenInclude(m => m.User)
+                .FirstOrDefaultAsync(s => s.Id == sessionId, cancellationToken);
+
+            if (session == null)
+            {
+                throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFoundById(sessionId));
+            }
+
+            if (session.Status != GroupSessionStatus.Paid)
+            {
+                throw new ConflictException(ApiErrorMessages.Receipt.OnlyForPaidSession(session.Status.ToString()));
+            }
+
+            var member = session.Members.FirstOrDefault(m => m.Id == memberId);
+            if (member == null)
+            {
+                throw new NotFoundException(ApiErrorMessages.Receipt.MemberNotInSession(memberId));
+            }
+
+            // ===== Build DTO =====
+            var receipt = BuildMemberReceipt(session, member);
+
+            _logger.LogInformation(
+                "M2/C2.15 Generated member receipt. SessionId={SessionId}, MemberId={MemberId}, Format={Format}",
+                sessionId, memberId, normalizedFormat);
+
+            // ===== Generate file =====
+            // Hiện tại chỉ hỗ trợ JSON content; PDF/PNG là placeholder cho phase sau
+            // khi bổ sung QuestPDF dependency.
+            var json = JsonSerializer.Serialize(receipt, new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            });
+            var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+
+            return new ReceiptFileDto
+            {
+                Bytes = bytes,
+                ContentType = "application/json",
+                FileName = $"receipt-{sessionId:N}-{memberId:N}.json"
+            };
+        }
+
+        private static MemberReceiptDto BuildMemberReceipt(ActiveSession session, ActiveSessionMember member)
+        {
+            // Tính subtotal cho member (dùng logic giống GenerateSessionReceiptAsync).
+            var subtotal = CalculateMemberSubtotal(session, member);
+            var total = CalculateMemberTotal(session, member);
+
+            // Tính thời gian chơi cá nhân.
+            var memberStart = member.JoinedAt;
+            var memberEnd = member.LeftAt ?? session.EndedAt ?? DateTime.UtcNow;
+            var duration = (int)Math.Max(0, (memberEnd - memberStart).TotalMinutes);
+
+            return new MemberReceiptDto
+            {
+                SessionId = session.Id,
+                MemberId = member.Id,
+                UserId = member.UserId,
+                DisplayName = member.IsGuestSlot
+                    ? member.GuestDisplayName ?? "Khách vô danh"
+                    : member.User?.Username ?? $"User_{member.UserId?.ToString()[..8] ?? "unknown"}",
+                IsHost = member.IsHost,
+                IsGuestSlot = member.IsGuestSlot,
+                CafeName = session.Cafe?.Name ?? "Unknown Cafe",
+                CafeAddress = session.Cafe?.Address ?? "Unknown Address",
+                GameName = session.GameTemplate?.Name ?? "Unknown Game",
+                TableName = session.CafeTable?.Name,
+                SessionStart = memberStart,
+                SessionEnd = memberEnd,
+                DurationMinutes = duration,
+                Subtotal = subtotal,
+                DepositApplied = member.DepositAppliedAmount,
+                PenaltyAmount = member.IsGuestSlot ? 0m : member.PenaltyAmount,
+                TotalAmount = total,
+                PaidAt = member.PaidAt ?? session.PaidAt ?? DateTime.UtcNow,
+                PaymentMethod = member.PaymentMethod,
+                PaymentStatus = member.PaymentStatus.ToString(),
+                OrderId = session.OrderId,
+                TransactionId = member.TransactionId,
+                PaidBvcAmount = member.PaidBvcAmount,
+                PaidCashRemainder = member.PaidCashRemainder,
+                BvcRefundedAt = member.BvcRefundedAt,
+                BvcRefundReason = member.BvcRefundReason
+            };
         }
 
         public async Task<RevenueReportDto> GetRevenueReportAsync(

@@ -192,7 +192,7 @@ public class CafeServiceTests
         };
 
         var cafeRepo = new Mock<ICafeRepository>();
-        cafeRepo.Setup(r => r.GetAllActiveCafesAsync(pagination, It.IsAny<CancellationToken>()))
+        cafeRepo.Setup(r => r.GetAllActiveCafesAsync(pagination, null, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(expected)
             .Verifiable();
 
@@ -201,7 +201,7 @@ public class CafeServiceTests
         var result = await service.GetAllActiveCafesAsync(pagination);
 
         Assert.Same(expected, result);
-        cafeRepo.Verify(r => r.GetAllActiveCafesAsync(pagination, It.IsAny<CancellationToken>()), Times.Once);
+        cafeRepo.Verify(r => r.GetAllActiveCafesAsync(pagination, null, null, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

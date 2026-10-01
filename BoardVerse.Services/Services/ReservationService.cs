@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Text.Json;
 
 using BoardVerse.Core.Constants;
 using BoardVerse.Core.DTOs.Reservation;
@@ -265,6 +266,8 @@ public class ReservationService : IReservationService
             BaseDeposit = quote.BaseDeposit,
             RiskMultiplier = quote.RiskMultiplier,
             MinDepositApplied = quote.MinDepositApplied,
+            // hide loading "DepositPerPerson" giờ populate từ calculator (post-clamp + post-BR03).
+            DepositPerPerson = quote.DepositPerPerson,
 #pragma warning restore CS0618
             FinalDeposit = quote.FinalDeposit,
             CurrentBalance = wallet.AvailableBalance,
@@ -2752,6 +2755,250 @@ public class ReservationService : IReservationService
                 "TriggerKarmaAggregationAsync failed cho LobbyId={LobbyId}, ActiveSessionId={ActiveSessionId}. " +
                 "Capture BVC vẫn thành công nhưng Karma aggregation bị skip — cần re-run thủ công.",
                 lobbyId, activeSessionId);
+        }
+    }
+
+    /// <summary>
+    /// M1 / BR-DEPOSIT-05 / BR-15 modified: Áp Host Deposit Discount thay cho BR-09 capture 100%.
+    /// Capture phần discount + release phần remainder về host wallet.
+    /// docs/design/host-deposit-discount-and-bvc-payment-design.md §B2.4 + §A6.
+    /// </summary>
+    public async Task ApplyHostDepositDiscountAndCaptureAsync(
+        Guid reservationId,
+        Guid lobbyId,
+        Guid activeSessionId,
+        HostDepositUsageMode hostDepositUsage,
+        long totalDiscountApplied,
+        DateTime payTime,
+        CancellationToken ct = default)
+    {
+        if (totalDiscountApplied <= 0)
+        {
+            _logger.LogWarning(
+                "ApplyHostDepositDiscountAndCaptureAsync: totalDiscountApplied=0, skip. ReservationId={ReservationId}",
+                reservationId);
+            return;
+        }
+
+        var reservation = await _reservationRepository.GetByIdAsync(reservationId, includeRelations: false, ct)
+            ?? throw new NotFoundException(
+                ApiErrorMessages.Reservation.NotFound(reservationId));
+
+        if (reservation.Status == ReservationStatus.Completed)
+        {
+            _logger.LogInformation(
+                "ApplyHostDepositDiscountAndCaptureAsync: Reservation {ReservationId} đã Completed → idempotent skip.",
+                reservationId);
+            return;
+        }
+
+        // Validate reservation status (whitelist tương tự IsReservationEligibleForDiscount).
+        var eligibleStatuses = new[]
+        {
+            ReservationStatus.Holding,
+            ReservationStatus.Confirmed,
+            ReservationStatus.CheckedIn,
+            ReservationStatus.InProgress
+        };
+
+        if (!eligibleStatuses.Contains(reservation.Status))
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Reservation.CompleteCaptureInvalidStatus(reservation.Id, reservation.Status));
+        }
+
+        const int maxRetries = 3;
+        for (var attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                await ExecuteDiscountCaptureTransactionAsync(
+                    reservation,
+                    activeSessionId,
+                    hostDepositUsage,
+                    totalDiscountApplied,
+                    payTime,
+                    ct);
+
+                // Karma aggregation + settlement giống flow cũ (try/catch riêng, không block capture).
+                await TriggerKarmaAggregationAsync(lobbyId, activeSessionId, ct);
+                await TriggerSettlementTransferAsync(reservation, activeSessionId, ct);
+                return;
+            }
+            catch (DbUpdateException dbx) when (IsSerializationFailure(dbx) && attempt < maxRetries)
+            {
+                _logger.LogWarning(
+                    "ApplyHostDepositDiscountAndCaptureAsync: serialization failure attempt {Attempt}/{Max}. ReservationId={ReservationId}",
+                    attempt, maxRetries, reservationId);
+
+                _db.ChangeTracker.Clear();
+                reservation = await _reservationRepository.GetByIdAsync(reservationId, includeRelations: false, ct)
+                    ?? throw new InternalServerErrorException(
+                        ApiErrorMessages.Reservation.NotFound(reservationId));
+            }
+        }
+
+        throw new InternalServerErrorException(
+            ApiErrorMessages.System.BvcCaptureRetryExhausted(lobbyId, maxRetries));
+    }
+
+    /// <summary>
+    /// Inner transaction cho <see cref="ApplyHostDepositDiscountAndCaptureAsync"/>.
+    /// Tương tự <see cref="ExecuteCompleteAndCaptureTransactionAsync"/> nhưng:
+    ///   - Capture = totalDiscountApplied (KHÔNG capture theo playedRatio).
+    ///   - Release remainder = DepositAmount - totalDiscountApplied về host wallet.
+    ///   - Reservation snapshot: HostDepositUsageSnapshot + DiscountAppliedAmount + DiscountAuditTrail JSON.
+    /// </summary>
+    private async Task ExecuteDiscountCaptureTransactionAsync(
+        Reservation reservation,
+        Guid activeSessionId,
+        HostDepositUsageMode hostDepositUsage,
+        long totalDiscountApplied,
+        DateTime payTime,
+        CancellationToken ct)
+    {
+        var (ownedTx, tx) = await BeginTransactionIfNeededAsync(ct);
+        try
+        {
+            // 1. Lock + validate seat inventory (giống flow cũ).
+            SeatInventory? seatInventory;
+            if (reservation.SeatInventoryId.HasValue)
+            {
+                seatInventory = await _seatInventoryRepository.GetByIdForUpdateAsync(reservation.SeatInventoryId.Value);
+            }
+            else
+            {
+                seatInventory = await _seatInventoryRepository.GetForUpdateAsync(
+                    reservation.CafeId, reservation.PlayDate,
+                    TimeOnly.FromDateTime(reservation.ScheduledStartTime),
+                    TimeOnly.FromDateTime(reservation.ScheduledEndTime));
+            }
+            if (seatInventory == null)
+            {
+                throw new ConflictException(
+                    ApiErrorMessages.System.SeatInventoryMissingForReservation(
+                        reservation.CafeId, reservation.PlayDate,
+                        $"{reservation.ScheduledStartTime:HH:mm}-{reservation.ScheduledEndTime:HH:mm}"));
+            }
+
+            GameInventory? gameInventory;
+            if (reservation.GameInventoryId.HasValue)
+            {
+                gameInventory = await _gameInventoryRepository.GetByIdForUpdateAsync(reservation.GameInventoryId.Value);
+            }
+            else
+            {
+                gameInventory = await _gameInventoryRepository.GetForUpdateAsync(
+                    reservation.CafeId, reservation.GameId, reservation.PlayDate,
+                    TimeOnly.FromDateTime(reservation.ScheduledStartTime),
+                    TimeOnly.FromDateTime(reservation.ScheduledEndTime));
+            }
+            if (gameInventory == null)
+            {
+                throw new ConflictException(
+                    ApiErrorMessages.System.GameInventoryMissingForReservation(
+                        reservation.CafeId, reservation.PlayDate,
+                        $"{reservation.ScheduledStartTime:HH:mm}-{reservation.ScheduledEndTime:HH:mm}"));
+            }
+
+            if (seatInventory.InUseSeats < reservation.MaxPlayers)
+            {
+                throw new ConflictException(
+                    ApiErrorMessages.Reservation.SeatInventoryStateInvalidOnCapture(seatInventory.InUseSeats, reservation.MaxPlayers));
+            }
+
+            if (gameInventory.InUseCopies < 1)
+            {
+                throw new ConflictException(ApiErrorMessages.Reservation.GameInventoryStateInvalidOnCapture);
+            }
+
+            // 2. Release seat + game inventory.
+            seatInventory.InUseSeats -= reservation.MaxPlayers;
+            seatInventory.UpdatedAt = payTime;
+            await _seatInventoryRepository.UpdateAsync(seatInventory);
+
+            gameInventory.InUseCopies -= 1;
+            gameInventory.UpdatedAt = payTime;
+            await _gameInventoryRepository.UpdateAsync(gameInventory);
+
+            // 3. Update reservation → Completed + snapshot fields.
+            reservation.Status = ReservationStatus.Completed;
+            reservation.ActualEndAt = payTime;
+            var scheduledMinutes = (int)(reservation.ScheduledEndTime - reservation.ScheduledStartTime).TotalMinutes;
+            var checkedInAt = reservation.CheckedInAt ?? reservation.ScheduledStartTime;
+            var playedMinutes = Math.Max(0, (decimal)(payTime - checkedInAt).TotalMinutes);
+            reservation.PlayedRatio = scheduledMinutes > 0
+                ? Math.Max(0m, Math.Min(1m, playedMinutes / scheduledMinutes))
+                : 0m;
+            reservation.EndReason = reservation.PlayedRatio >= 0.9m
+                ? SessionEndReason.OnTime
+                : SessionEndReason.EarlyLeave;
+
+            // M1: Host Deposit Discount snapshot fields
+            reservation.HostDepositUsageSnapshot = hostDepositUsage.ToString();
+            reservation.DiscountAppliedAmount = totalDiscountApplied;
+            reservation.UpdatedAt = payTime;
+            reservation.DiscountAuditTrail = JsonSerializer.Serialize(new
+            {
+                appliedAt = payTime,
+                appliedAmount = totalDiscountApplied,
+                hostDepositUsage = hostDepositUsage.ToString(),
+                depositAmount = reservation.DepositAmount,
+                remainingToRefund = Math.Max(0, reservation.DepositAmount - totalDiscountApplied)
+            });
+
+            await _reservationRepository.UpdateAsync(reservation);
+
+            // 4. Update lobby → Closed.
+            var lobby = await _lobbyRepository.GetByIdAsync(reservation.LobbyId ?? Guid.Empty);
+            if (lobby != null)
+            {
+                lobby.Status = LobbyStatus.Closed;
+                lobby.ClosedAt = payTime;
+                lobby.UpdatedAt = payTime;
+                MarkLobbyMembersInactive(lobby, payTime);
+                await _lobbyRepository.UpdateAsync(lobby);
+            }
+
+            // 5. Capture discount + release remainder (idempotent qua deterministic key).
+            //    M1 Phase 2: discount flow supersede BR-09 capture 100% theo playedRatio.
+            var captureKey = $"capture-discount-{reservation.Id:N}";
+            await _walletService.CaptureDepositAsync(
+                reservation.HostId,
+                totalDiscountApplied,
+                lobby?.Id,
+                reservation.Id,
+                captureKey,
+                ct);
+
+            var remainder = reservation.DepositAmount - totalDiscountApplied;
+            if (remainder > 0)
+            {
+                var releaseKey = $"release-remainder-{reservation.Id:N}";
+                await _walletService.ReleaseDepositAsync(
+                    reservation.HostId,
+                    remainder,
+                    lobby?.Id,
+                    reservation.Id,
+                    releaseKey,
+                    ct);
+            }
+
+            if (tx != null) await tx.CommitAsync(ct);
+
+            _logger.LogInformation(
+                "M1 Host Deposit Discount applied: ReservationId={ReservationId}, Mode={Mode}, " +
+                "TotalDiscount={Discount}BVC, RemainderReleased={Remainder}BVC, DepositAmount={Deposit}BVC",
+                reservation.Id, hostDepositUsage, totalDiscountApplied, remainder, reservation.DepositAmount);
+        }
+        catch
+        {
+            if (tx != null) await tx.RollbackAsync(ct);
+            throw;
+        }
+        finally
+        {
+            if (tx != null) await tx.DisposeAsync();
         }
     }
 

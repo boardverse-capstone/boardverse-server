@@ -165,8 +165,86 @@ public class Reservation
     // TD-02: Navigation cho Rating/NoShowVote trên Reservation (nullable cho legacy rows chỉ có BookingId)
     public virtual ICollection<BookingRating> Ratings { get; set; } = [];
     public virtual ICollection<BookingNoShowVote> NoShowVotes { get; set; } = [];
-    // TD-02: Navigation cho KarmaShortPlayRecord (§4.3 + §9.6)
+    // TD-02: Navigation cho Award/KarmaShortPlayRecord (§4.3 + §9.6)
     public virtual ICollection<KarmaShortPlayRecord> ShortPlayRecords { get; set; } = [];
-    // TD-02: Navigation cho BvcLedgerEntry
+    // TD-02: Navigation cho Award/AccountingEntry
     public virtual ICollection<BvcLedgerEntry> LedgerEntries { get; set; } = [];
+
+    // ===== M1: Host Deposit Discount (BR-15 modified) =====
+    // docs/design/host-deposit-discount-and-bvc-payment-design.md §B1.4
+
+    /// <summary>
+    /// M1: Snapshot của <see cref="Enum.HostDepositUsageMode"/> lúc Pay (audit trail).
+    /// Stored dạng string để ổn định khi enum reorder sau này.
+    /// Giá trị: "None" | "DiscountGroup" | "DiscountHostOnly".
+    /// Nullable: null = session cũ chưa có flow này (backward compat).
+    /// </summary>
+    public string? HostDepositUsageSnapshot { get; set; }
+
+    /// <summary>
+    /// M1: Tổng discount đã áp dụng cho session (BVC).
+    /// = tổng deposit phân bổ cho active members (DiscountGroup) HOẶC = deposit áp vào host (DiscountHostOnly).
+    /// Default = 0 (chưa apply).
+    /// </summary>
+    public long DiscountAppliedAmount { get; set; }
+
+    /// <summary>
+    /// M1: Tổng discount đã refund (BVC) — nếu session bị cancel sau khi apply discount.
+    /// Hiếm xảy ra; dùng cho audit trail.
+    /// Default = 0.
+    /// </summary>
+    public long DiscountRefundedAmount { get; set; }
+
+    /// <summary>
+    /// M1: Audit trail JSON cho deposit discount distribution.
+    /// Format: <c>{ "appliedAt": "...", "appliedAmount": 100, "skippedReason": "...", "activeMembersAtPay": [...] }</c>.
+    /// Nullable: null = chưa apply discount (session cũ).
+    /// </summary>
+    public string? DiscountAuditTrail { get; set; }
+
+    // ===== M1 / Exception 4: Host Deposit FOLLOWS on Merge =====
+    // docs/design/host-deposit-discount-and-bvc-payment-design.md §A6 + §B3.6
+
+    /// <summary>
+    /// M1 / Exception 4 (CẬP NHẬT 2026-10-01): Tổng deposit (BVC) đã được "chuyển" từ các
+    /// source reservation (qua merge chain) sang reservation này.
+    /// <para>
+    /// <b>Effective deposit tại Pay time:</b>
+    /// <c>effectiveDeposit = DepositAmount + CarriedOverDepositBvc</c>.
+    /// </para>
+    /// <para>
+    /// <b>Nguyên tắc:</b> Khi source lobby dissolve (stillActive == 0) do lobby merge,
+    /// <c>source.Reservation.DepositAmount + source.CarriedOverDepositBvc</c> được CỘNG
+    /// vào target.CarriedOverDepositBvc (KHÔNG refund về Host's wallet). Xem
+    /// <c>LobbyMergeService.ApproveMergeAsync</c> Step 11.
+    /// </para>
+    /// <para>
+    /// <b>Multi-hop chain:</b> Nếu target cũng bị merge (target's target dissolve) →
+    /// carried-over accumulate tiếp. KHÔNG cần traverse chain — đã encode sẵn.
+    /// </para>
+    /// Default = 0.
+    /// </summary>
+    public long CarriedOverDepositBvc { get; set; } = 0;
+
+    /// <summary>
+    /// M1 / Exception 4: Audit trail — danh sách Reservation IDs (CSV) mà deposit đã được
+    /// carry over từ đó vào reservation này. Ví dụ: <c>"abc-123,def-456"</c> nghĩa là có
+    /// 2 source reservations đã merge vào reservation này (trực tiếp hoặc qua chain).
+    /// <para>
+    /// Nullable: <c>null</c> = reservation này chưa nhận deposit từ merge.
+    /// Max 500 chars (~20 GUID).
+    /// </para>
+    /// </summary>
+    public string? CarriedOverFromReservationIds { get; set; }
+
+    /// <summary>
+    /// M1 / Exception 4: Audit trail — danh sách User IDs (CSV) của các host đã góp
+    /// deposit vào reservation này qua merge. Ví dụ: <c>"host-A-id,host-B-id"</c>.
+    /// <para>
+    /// Dùng để report "host nào đã góp bao nhiêu deposit cho cafe nào".
+    /// Nullable: <c>null</c> = reservation này chưa nhận deposit từ merge.
+    /// Max 500 chars.
+    /// </para>
+    /// </summary>
+    public string? CarriedOverFromUserIds { get; set; }
 }

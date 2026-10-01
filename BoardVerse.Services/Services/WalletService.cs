@@ -771,6 +771,88 @@ public class WalletService : IWalletService
     }
 
     /// <summary>
+    /// M1 / Option A: Refund per-member deposit về wallet khi member merge sang lobby khác (Exception 4).
+    /// Di chuyển heldBalance → availableBalance, ghi ledger DEPOSIT_REFUND_MERGE.
+    /// docs/design/host-deposit-discount-and-bvc-payment-design.md §B3.3.
+    /// </summary>
+    /// <remarks>
+    /// Tại sao KHÔNG dùng <see cref="ReleaseDepositAsync"/>:
+    /// - Release dùng cho host cancel / timeout → có thể áp forfeit policy (BR-REFUND-02/03).
+    /// - Refund_Merge 100% cho member (Option A — khuyến nghị, không forfeit).
+    /// - Audit trail khác biệt: merge refund có <c>FromSessionId/ToSessionId</c> trong MemberDepositAuditLog,
+    ///   release thì chỉ có <c>RelatedReservationId</c>.
+    ///
+    /// Validation flow (idempotent):
+    /// 1. Skip nếu amount = 0 (BR-22 per-member deposit chưa active → member.DepositId null → caller pass 0).
+    /// 2. Lookup ledger entry theo idempotencyKey. Nếu đã có → return existing entry.
+    /// 3. Lock wallet FOR UPDATE, validate HeldBalance >= amount.
+    /// 4. heldBalance -= amount; availableBalance += amount; totalActiveDeposit -= amount.
+    /// 5. Insert ledger entry DEPOSIT_REFUND_MERGE.
+    /// </remarks>
+    public async Task<BvcLedgerEntry> RefundMemberDepositOnMergeAsync(
+        Guid userId,
+        long amountBvc,
+        Guid depositId,
+        string idempotencyKey,
+        string? notes = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            throw new BadRequestException(ApiErrorMessages.Wallet.IdempotencyKeyRequired);
+        }
+
+        // BR-22 forward-compat: nếu member chưa có per-member deposit → skip silently.
+        // Caller đã check member.DepositId != null trước khi gọi, nhưng guard thêm 1 lớp.
+        if (amountBvc <= 0)
+        {
+            _logger.LogInformation(
+                "RefundMemberDepositOnMergeAsync: skip amount=0. UserId={UserId}, DepositId={DepositId}",
+                userId, depositId);
+            // Trả 1 entry "noop" để caller có thể update member.DepositRefundLedgerId mà không null.
+            // Actually trả null để caller check và skip luôn.
+            return null!;
+        }
+
+        await ApplyBalanceMutationAsync(
+            userId,
+            amountBvc,
+            LedgerEntryType.DepositRefund_Merge,
+            relatedLobbyId: null,    // Không biết lobby tại thời điểm refund (member đã rời)
+            relatedReservationId: null,
+            idempotencyKey,
+            (w, amt) =>
+            {
+                if (w.HeldBalance < amt)
+                {
+                    throw new BadRequestException(
+                        ApiErrorMessages.Wallet.HeldBalanceInsufficient(w.HeldBalance, amt));
+                }
+                // Move held → available (giống Release nhưng KHÔNG trừ TotalActiveDeposit nếu BR-22 thật sự có active deposit cho member này).
+                // BR-22 forward-compat: TotalActiveDeposit mirror tổng held across sessions.
+                // Khi refund merge → giảm held nhưng vẫn mirror tổng.
+                w.HeldBalance -= amt;
+                w.AvailableBalance += amt;
+                w.TotalActiveDeposit = Math.Max(0, w.TotalActiveDeposit - amt);
+            },
+            cancellationToken);
+
+        // Set note với context merge (sau khi ledger đã insert, update Note là append-only OK vì update field note).
+        var entry = await _ledgerRepository.GetByIdempotencyKeyAsync(idempotencyKey, cancellationToken);
+        if (entry != null && !string.IsNullOrWhiteSpace(notes))
+        {
+            entry.Note = notes;
+            await _ledgerRepository.SaveChangesAsync(cancellationToken);
+        }
+
+        _logger.LogInformation(
+            "M1 / Option A: Refunded member deposit on merge. UserId={UserId}, Amount={Amount}BVC, DepositId={DepositId}, IdempotencyKey={Key}",
+            userId, amountBvc, depositId, idempotencyKey);
+
+        return entry!;
+    }
+
+    /// <summary>
     /// W-07: Resolve OrderId from SePay webhook transferContent.
     /// Uses exact OrderId lookup instead of fragile 8-char hash prefix matching.
     /// Idempotent: cùng OrderId + success → chỉ cộng ví 1 lần.
@@ -1595,6 +1677,169 @@ public class WalletService : IWalletService
             ReconciledAt = DateTime.UtcNow
         };
     }
+
+    // ============================================================
+    // M2 — Member BVC bill payment (Case 2 — docs §C2.1, §C2.5, §C2.8, §C2.12)
+    // ============================================================
+
+    /// <summary>
+    /// M2 / Task C2.1 + C2.5 + C2.12: Trừ trực tiếp BVC từ <c>availableBalance</c> cho member bill payment.
+    /// Idempotent theo <paramref name="idempotencyKey"/>.
+    /// </summary>
+    /// <remarks>
+    /// Khác với <see cref="HoldDepositAsync"/>:
+    /// - Hold đẩy tiền sang heldBalance (giữ cho reservation) — vẫn thuộc wallet user.
+    /// - DirectDebit trừ thẳng availableBalance — tiền đi về doanh thu quán (settlement).
+    /// <para>
+    /// Flow:
+    /// </para>
+    /// <list type="number">
+    ///   <item>Validate amount &gt; 0, idempotency key không rỗng.</item>
+    ///   <item>Idempotency: lookup ledger entry theo key. Nếu có → return existing.</item>
+    ///   <item>Begin Serializable transaction (hoặc dùng ambient nếu caller đã wrap).</item>
+    ///   <item>Lock wallet FOR UPDATE; validate availableBalance &gt;= amount.</item>
+    ///   <item>availableBalance -= amount (KHÔNG touch heldBalance).</item>
+    ///   <item>Insert ledger entry <c>MemberBillDebit</c> với Note = "BVC payment for member {memberId} bill {billId}".</item>
+    ///   <item>C2.12: Nếu availableBalance vượt constant <c>HeldBalanceCapBvc</c> (1.000.000 BVC),
+    ///         log warning (no notification ở M2 — notification là C2.9).</item>
+    /// </list>
+    /// </remarks>
+    public async Task<BvcLedgerEntry> DirectDebitForBillAsync(
+        Guid userId,
+        long amountBvc,
+        Guid memberId,
+        Guid billId,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (amountBvc <= 0)
+        {
+            throw new BadRequestException(ApiErrorMessages.Wallet.AmountMustBePositive);
+        }
+
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            throw new BadRequestException(ApiErrorMessages.Wallet.IdempotencyKeyRequired);
+        }
+
+        await ApplyBalanceMutationAsync(
+            userId,
+            amountBvc,
+            LedgerEntryType.MemberBillDebit,
+            relatedLobbyId: null,        // MemberBill không liên kết lobby trực tiếp
+            relatedReservationId: null,
+            idempotencyKey,
+            (w, amt) =>
+            {
+                if (w.AvailableBalance < amt)
+                {
+                    throw new BadRequestException(
+                        ApiErrorMessages.Wallet.BvcBillPaymentExceedsBalance(w.AvailableBalance, amt));
+                }
+                // Direct debit: availableBalance -= amount. KHÔNG đẩy vào heldBalance
+                // (tiền đi thẳng về doanh thu quán, settlement handled ở Phase khác).
+                w.AvailableBalance -= amt;
+
+                // C2.12: HeldBalance cap warning (Gap #9 BR-USER-LIMIT-03).
+                // Sau debit, nếu balance vượt constant cap → log warning. Notification là C2.9 (defer).
+                if (w.AvailableBalance > HeldBalanceCapBvc)
+                {
+                    _logger.LogWarning(
+                        "M2 C2.12: User {UserId} available balance {Current}BVC exceeds cap {Cap}BVC after debit. " +
+                        "Manual review recommended. MemberId={MemberId}, DebitAmount={Amount}BVC.",
+                        userId, w.AvailableBalance, HeldBalanceCapBvc, memberId, amt);
+                }
+            },
+            cancellationToken);
+
+        // Cập nhật Note với context sau khi ledger đã insert (append-only OK cho field note).
+        var entry = await _ledgerRepository.GetByIdempotencyKeyAsync(idempotencyKey, cancellationToken);
+        if (entry != null)
+        {
+            entry.Note = $"BVC payment for member {memberId} bill {billId}";
+            await _ledgerRepository.SaveChangesAsync(cancellationToken);
+        }
+
+        _logger.LogInformation(
+            "M2 C2.1: Direct debit for member bill. UserId={UserId}, MemberId={MemberId}, BillId={BillId}, " +
+            "Amount={Amount}BVC, IdempotencyKey={Key}",
+            userId, memberId, billId, amountBvc, idempotencyKey);
+
+        return entry!;
+    }
+
+    /// <summary>
+    /// M2 / Task C2.8: Refund BVC bill payment về <c>availableBalance</c>.
+    /// Idempotent theo <paramref name="idempotencyKey"/>.
+    /// </summary>
+    /// <remarks>
+    /// Đối ứng với <see cref="DirectDebitForBillAsync"/> — dùng cho flow refund bill sai / dispute (Gap #11).
+    /// Khác với <see cref="RefundMemberDepositOnMergeAsync"/> (refund deposit khi merge, BR § III.2):
+    /// - RefundMemberDepositOnMerge chuyển heldBalance → available (deposit refund).
+    /// - RefundMemberBill cộng vào availableBalance từ ledger <c>MemberBillDebit</c> trước đó.
+    /// <para>
+    /// Flow:
+    /// </para>
+    /// <list type="number">
+    ///   <item>Validate amount &gt; 0.</item>
+    ///   <item>Idempotency: lookup ledger entry theo key. Nếu có → return existing.</item>
+    ///   <item>Begin transaction.</item>>
+    ///   <item>Lock wallet; availableBalance += amount.</item>
+    ///   <item>Insert ledger entry <c>MemberBillRefund</c>.</item>
+    /// </list>
+    /// </remarks>
+    public async Task<BvcLedgerEntry> RefundMemberBillAsync(
+        Guid userId,
+        long amountBvc,
+        Guid memberId,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (amountBvc <= 0)
+        {
+            throw new BadRequestException(ApiErrorMessages.Wallet.AmountMustBePositive);
+        }
+
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            throw new BadRequestException(ApiErrorMessages.Wallet.IdempotencyKeyRequired);
+        }
+
+        await ApplyBalanceMutationAsync(
+            userId,
+            amountBvc,
+            LedgerEntryType.MemberBillRefund,
+            relatedLobbyId: null,
+            relatedReservationId: null,
+            idempotencyKey,
+            (w, amt) =>
+            {
+                // Refund: cộng vào availableBalance (KHÔNG đụng heldBalance).
+                w.AvailableBalance += amt;
+            },
+            cancellationToken);
+
+        // Update Note sau insert (append-only OK cho field note).
+        var entry = await _ledgerRepository.GetByIdempotencyKeyAsync(idempotencyKey, cancellationToken);
+        if (entry != null)
+        {
+            entry.Note = $"BVC refund for member {memberId} bill (dispute / correction)";
+            await _ledgerRepository.SaveChangesAsync(cancellationToken);
+        }
+
+        _logger.LogInformation(
+            "M2 C2.8: Refund member bill BVC. UserId={UserId}, MemberId={MemberId}, Amount={Amount}BVC, IdempotencyKey={Key}",
+            userId, memberId, amountBvc, idempotencyKey);
+
+        return entry!;
+    }
+
+    /// <summary>
+    /// C2.12: HeldBalance cap — log warning khi wallet vượt ngưỡng an toàn (BR-USER-LIMIT-03).
+    /// Wallet entity hiện KHÔNG có <c>MaxAvailableBalanceBvc</c> (forward-compat) → dùng constant tạm.
+    /// Threshold 1.000.000 BVC = 1 tỷ VND — vượt ngưỡng này cần manual review.
+    /// </summary>
+    private const long HeldBalanceCapBvc = 1_000_000L;
 
     /// <summary>
     /// BUGFIX (subagent audit #8): Generate OrderId dạng hash 18 char từ GUID + nanoseconds + userId.

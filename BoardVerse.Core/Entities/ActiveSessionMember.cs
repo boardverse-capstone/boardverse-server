@@ -64,7 +64,21 @@ namespace BoardVerse.Core.Entities
         /// <summary>Thời điểm bắt đầu chơi (có thể khác StartedAt của session gốc khi ghép nhóm).</summary>
         public DateTime JoinedAt { get; set; }
 
-        /// <summary>Thời điểm kết thúc phiên cá nhân.</summary>
+        /// <summary>
+        /// Thời điểm kết thúc phiên cá nhân. Được set khi:
+        /// (1) Member checkout sớm (early leave) → LeftAt = checkout_time
+        /// (2) Member merge sang session khác (Exception 4) → LeftAt = merge_time
+        /// (3) Admin force-remove → LeftAt = removal_time
+        ///
+        /// Ảnh hưởng (BR-15 modified - Host Deposit Discount):
+        /// - Khi session Pay: filter <c>LeftAt > payTime</c> → members đã rời EXCLUDED khỏi deposit discount
+        ///   (chỉ DiscountGroup mode; DiscountHostOnly không bị ảnh hưởng)
+        /// - Member đã merge: bill consolidated tại session hiện tại (Exception 4 - BR-MERGE-01)
+        ///
+        /// Empty và null là KHÁC NHAU:
+        /// - null = member đang active (default khi tạo)
+        /// - empty DateTime = data corruption; sửa trong service layer
+        /// </summary>
         public DateTime? LeftAt { get; set; }
 
         /// <summary>Tổng phút chơi của cá nhân này.</summary>
@@ -164,6 +178,87 @@ namespace BoardVerse.Core.Entities
         /// Số tài khoản / nội dung chuyển khoản hiển thị trên QR.
         /// </summary>
         public string? QrTransferContent { get; set; }
+
+        // === M1: Per-Member Deposit Refund Tracking (Option A) ===
+        // docs/design/host-deposit-discount-and-bvc-payment-design.md §B1.3
+
+        /// <summary>
+        /// M1 / Option A: Thời điểm deposit được refund về wallet (khi member merge sang lobby khác - Exception 4).
+        /// Nullable: null = chưa refund.
+        /// Set bởi <c>MergeService.HandleMemberMergeAsync</c> + <c>WalletService.RefundMemberDepositOnMergeAsync</c>.
+        /// </summary>
+        public DateTime? DepositRefundedAt { get; set; }
+
+        /// <summary>
+        /// M1 / Option A: Lý do refund (e.g., "Merged từ Lobby X", "DepositConsumed_BeforeMerge", "GuestSlot_NoDeposit").
+        /// Max 500 ký tự. Set cùng <see cref="DepositRefundedAt"/>.
+        /// </summary>
+        public string? DepositRefundReason { get; set; }
+
+        /// <summary>
+        /// M1 / Option A: FK to <c>BvcLedgerEntry.Id</c> của refund transaction.
+        /// Nullable: null = chưa refund.
+        /// Set bởi <c>WalletService.RefundMemberDepositOnMergeAsync</c> sau khi insert <see cref="Core.Enum.LedgerEntryType.DepositRefund_Merge"/> entry.
+        /// </summary>
+        public Guid? DepositRefundLedgerId { get; set; }
+
+        // === M2: BVC Payment Tracking (Case 2 — Member BVC bill payment) ===
+        // docs/design/host-deposit-discount-and-bvc-payment-design.md §C1.2
+
+        /// <summary>
+        /// M2: Số BVC đã trừ từ wallet cho bill của member này.
+        /// Long (BVC integer), mặc định 0. Set bởi <c>WalletSessionPaymentService.PayMemberBillAsync</c>.
+        /// </summary>
+        public long PaidBvcAmount { get; set; }
+
+        /// <summary>
+        /// M2: Số VND cash còn lại khi member trả partial BVC + cash (MemberPaymentStatus.PartialBvc).
+        /// Mặc định 0. Chỉ set khi status = PartialBvc.
+        /// </summary>
+        public decimal PaidCashRemainder { get; set; }
+
+        /// <summary>
+        /// M2: Thời điểm refund BVC về wallet (Gap #11 — bill sai / dispute).
+        /// Nullable: null = chưa refund.
+        /// Set bởi <c>WalletSessionPaymentService.RefundMemberBillAsync</c>.
+        /// </summary>
+        public DateTime? BvcRefundedAt { get; set; }
+
+        /// <summary>
+        /// M2: Lý do refund BVC (vd: "BillSai", "DisputeResolved").
+        /// Max 500 ký tự. Set cùng <see cref="BvcRefundedAt"/>.
+        /// </summary>
+        public string? BvcRefundReason { get; set; }
+
+        // === M2/C2.16: Force-close tracking (Gap #33) ===
+        // docs/design/host-deposit-discount-and-bvc-payment-design.md §C2.16
+        // Lưu các dấu vết khi Manager force-close session có unpaid members.
+
+        /// <summary>
+        /// M2/C2.16: Thời điểm member bị mark NoShow (Manager chọn UnpaidMemberHandling = "MarkNoShow").
+        /// Nullable: null = chưa bị mark NoShow.
+        /// Set bởi <c>ForceCloseService</c>.
+        /// </summary>
+        public DateTime? NoShowAt { get; set; }
+
+        /// <summary>
+        /// M2/C2.16: Lý do mark NoShow (vd: "ForceClose_MarkNoShow").
+        /// Max 500 ký tự. Set cùng <see cref="NoShowAt"/>.
+        /// </summary>
+        public string? NoShowReason { get; set; }
+
+        /// <summary>
+        /// M2/C2.16: Thời điểm member được host cover (Manager chọn UnpaidMemberHandling = "CompensationByHost").
+        /// Nullable: null = chưa được cover.
+        /// Set bởi <c>ForceCloseService</c>.
+        /// </summary>
+        public DateTime? PaidByHostAt { get; set; }
+
+        /// <summary>
+        /// M2/C2.16: UserId của host đã cover bill cho member (thường = session.HostId).
+        /// Nullable: null = chưa được cover. Set cùng <see cref="PaidByHostAt"/>.
+        /// </summary>
+        public Guid? PaidByHostUserId { get; set; }
 
         // === Navigation ===
         public virtual ActiveSession ActiveSession { get; set; } = null!;

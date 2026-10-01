@@ -20,6 +20,11 @@ Quản lý ví BVC (BoardVerse Coin) + sổ cái ledger. Phase 1 theo `lobby-boo
 4. [State machine](#state-machine)
 5. [Idempotency](#idempotency)
 6. [Quy tắc BR áp dụng](#quy-tắc-br-áp-dụng)
+7. [BVC Refund Request — Player](#bvc-refund-request--player)
+8. [Admin — Wallet Adjust](#admin--wallet-adjust)
+9. [Admin — Wallet Listing](#admin--wallet-listing)
+10. [Admin — Refund Request Review](#admin--refund-request-review)
+11. [M2: Member BVC Bill Payment (Case 2)](#m2-member-bvc-bill-payment-case-2)
 
 ---
 
@@ -995,3 +1000,219 @@ Giải quyết yêu cầu hoàn. Duyệt (approve) hoặc từ chối (reject).
 | `404` | Request không tồn tại. |
 | `409` | Request đã ở terminal state. |
 | `500` | Lỗi hệ thống. |
+
+---
+
+# M2: Member BVC Bill Payment (Case 2)
+
+> **Phần bổ sung 2026-10-01** — `docs/design/host-deposit-discount-and-bvc-payment-design.md` §C2.
+> Member (hoặc staff) dùng BVC để trả bill cá nhân thay vì cash/QR.
+> Service: `WalletSessionPaymentService` + `WalletService.DirectDebitForBillAsync/RefundMemberBillAsync`.
+
+## Bảng ledger mới (M2)
+
+| `LedgerEntryType` | Value | Ý nghĩa |
+|---|---|---|
+| `MemberBillDebit` | 9 | Member trả bill bằng BVC — `availableBalance -= amount`. |
+| `MemberBillRefund` | 10 | Refund BVC về wallet khi bill sai / dispute — `availableBalance += amount`. |
+
+> Project dùng `HasConversion<int>()` → KHÔNG CẦN `ALTER TYPE` trên DB khi extend enum.
+
+## GET `/api/v1/sessions/{sessionId}/members/{memberId}/bill-preview`
+
+Preview hóa đơn cá nhân của 1 member trong session (trước khi thanh toán).
+
+### Authorization
+
+| Role | Quyền |
+|---|---|
+| `Admin`, `Manager`, `CafeStaff` | ✅ luôn |
+| `Player` | ✅ nếu `member.UserId == currentUser.Id` HOẶC là host của session |
+
+### Path
+
+| Param | Type | Description |
+|---|---|---|
+| `sessionId` | Guid | ID phiên chơi |
+| `memberId` | Guid | ID thành viên |
+
+### Response `200` — `MemberBillPreviewDto`
+
+```json
+{
+  "sessionId": "...",
+  "memberId": "...",
+  "userId": "...",
+  "displayName": "player_a",
+  "isGuestSlot": false,
+  "subtotal": 60000,
+  "penaltyAmount": 0,
+  "depositAppliedAmount": 50000,
+  "totalDue": 10000,
+  "allowBvcPenalty": true,
+  "paymentStatus": "NotPaid"
+}
+```
+
+> `totalDue = subtotal + penalty (nếu !isGuestSlot) - depositAppliedAmount`.
+> Guest slot (`isGuestSlot=true`) → `penaltyAmount = 0` (BR-14, Gap #5).
+> `paymentStatus` hiện tại của member (NotPaid | PaidBvc | PartialBvc | PaidCash | PaidByHost | RefundedBvc) — cho UI biết đã paid hay chưa.
+
+### Error responses
+
+| Code | Message |
+|---|---|
+| `404` | Session hoặc member không tồn tại. |
+| `403` | Player không phải member này và không phải host. |
+
+---
+
+## POST `/api/v1/sessions/{sessionId}/members/{memberId}/pay-bill`
+
+Member (hoặc staff) thanh toán bill cá nhân bằng BVC.
+
+### Authorization
+
+Giống `bill-preview`. Ngoài ra nếu `IFeatureFlagService.IsMemberBvcPaymentEnabled() == false` → `403 "Feature đang tắt, liên hệ admin."`
+
+### Request body — `MemberBillPaymentRequestDto`
+
+```json
+{
+  "bvcAmount": 100,
+  "idempotencyKey": "uuid-v4"
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `bvcAmount` | long | ✅ | Số BVC muốn trừ. Phải `0 < bvcAmount ≤ totalDue` (Gap #6). |
+| `idempotencyKey` | string | ✅ | 8–128 ký tự. UNIQUE. Format khuyến nghị: `bvc-pay-{sessionId}-{memberId}-{ts}`. |
+
+### Response `200` — `MemberBillPaymentResponseDto`
+
+```json
+{
+  "memberId": "...",
+  "bvcAmount": 100,
+  "cashRemainder": 0,
+  "status": "PaidBvc",
+  "paymentMethod": "BVC",
+  "paidAt": "2026-10-01T15:30:00Z",
+  "ledgerEntryId": "...",
+  "auditLogId": "..."
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `memberId` | Guid | ID member đã thanh toán. |
+| `bvcAmount` | long | Số BVC đã trừ. |
+| `cashRemainder` | decimal | Số VND cash còn lại (khi `PartialBvc`). 0 nếu trả full BVC. |
+| `status` | enum | `PaidBvc` \| `PartialBvc` — `MemberPaymentStatus`. |
+| `paymentMethod` | string | `"BVC"` (full) \| `"BVC_PARTIAL"` (split). |
+| `paidAt` | DateTime | Thời điểm thanh toán. |
+| `ledgerEntryId` | Guid | FK → `BvcLedgerEntry.Id` (audit trail với wallet). |
+| `auditLogId` | Guid | FK → `MemberPaymentAuditLog.Id`. **Bắt buộc cho refund flow** (Pass §C2.8). |
+
+Trạng thái:
+
+| Trường hợp | `status` | `paymentMethod` |
+|---|---|---|
+| `bvcAmount == totalDue` | `PaidBvc` | `BVC` |
+| `0 < bvcAmount < totalDue` | `PartialBvc` | `BVC_PARTIAL` (cash còn lại staff collect riêng) |
+
+### Side effects
+
+1. Validate session status = `Unpaid` (throw 409 nếu khác).
+2. Validate member status = `NotPaid` (throw 409 nếu đã paid).
+3. **Distinct UserId check (Gap #7)**: query `session.Members`; nếu có ≥2 members cùng `UserId` không null → throw 409 `ConflictException`.
+4. Lock member row + wallet row (`Serializable`).
+5. Validate amount > 0 và ≤ totalDue (Gap #6).
+6. **Idempotency**: lookup `MemberPaymentAuditLog` by `IdempotencyKey`. Nếu tồn tại → trả về row cũ (không double-debit).
+7. Call `WalletService.DirectDebitForBillAsync` → insert ledger entry `MemberBillDebit`.
+8. Update `ActiveSessionMember`: `PaidBvcAmount`, `PaidCashRemainder`, `PaymentStatus`, `PaidAt`, `TransactionId`.
+9. Insert `MemberPaymentAuditLog` row (audit trail).
+10. **All-paid trigger (C2.10)**: nếu `session.Members.All(m => m.PaymentStatus NOT IN (NotPaid, PartialBvc))` → atomic flip `session.Status = Paid`.
+
+### Error responses
+
+| Code | Message |
+|---|---|
+| `400` | `BvcAmount` không hợp lệ (≤0 hoặc > totalDue). |
+| `403` | Feature flag tắt, hoặc không có quyền. |
+| `404` | Session hoặc member không tồn tại. |
+| `409` | Session không ở `Unpaid`; member đã paid; duplicate UserId trong session; idempotency conflict (amount khác). |
+| `500` | DB / gateway error. |
+
+---
+
+## POST `/api/v1/sessions/{sessionId}/refund-bill/{memberPaymentAuditLogId}`
+
+Refund BVC về wallet khi bill sai / dispute (Gap #11).
+
+> **Path lưu ý:** endpoint này dùng `memberPaymentAuditLogId` (không phải `memberId`) làm path param, vì refund dựa trên audit log cụ thể đã sin ra từ `pay-bill`. Audit log đã có cả `memberId` + `userId` nên không cần truyền memberId.
+
+### Authorization
+
+`[Authorize(Roles = "Admin,Manager,CafeStaff")]` — staff mới được refund.
+
+### Path
+
+| Param | Type | Description |
+|---|---|---|
+| `sessionId` | Guid | ID phiên chơi (chỉ để routing — không dùng trong logic refund). |
+| `memberPaymentAuditLogId` | Guid | ID của `MemberPaymentAuditLog` cần refund (nhận từ response của `pay-bill`). |
+
+### Request body — `MemberBillRefundRequestDto`
+
+```json
+{
+  "reason": "BillSai",
+  "idempotencyKey": "refund-bvc-..."
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `reason` | string | ✅ | Lý do refund (audit trail), max 500 ký tự. |
+| `idempotencyKey` | string | ✅ | Idempotency key (BR §XVII.1), max 100 ký tự. Format khuyến nghị: `refund-bvc-{AuditLogId}-{Timestamp:o}`. |
+
+### Response `200` — `MemberBillRefundResponseDto`
+
+```json
+{
+  "memberPaymentAuditLogId": "...",
+  "memberId": "...",
+  "refundedBvc": 100,
+  "refundedAt": "2026-10-01T16:00:00Z",
+  "refundReason": "BillSai",
+  "refundLedgerEntryId": "..."
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `memberPaymentAuditLogId` | Guid | Echo audit log ID đã refund. |
+| `memberId` | Guid | ID member được refund. |
+| `refundedBvc` | long | Số BVC đã hoàn về wallet (mirror của `AmountBvc` trong audit log). |
+| `refundedAt` | DateTime | Thời điểm refund. |
+| `refundReason` | string | Echo lý do từ request. |
+| `refundLedgerEntryId` | Guid | FK → `BvcLedgerEntry.Id` của refund transaction (`MemberBillRefund`). |
+
+### Side effects
+
+1. Lookup audit log; nếu đã `RefundedAt != null` → throw 409.
+2. Call `WalletService.RefundMemberBillAsync(auditLog.UserId, auditLog.AmountBvc, ...)` → insert ledger entry `MemberBillRefund`.
+3. Update `MemberPaymentAuditLog.RefundedAt`, `RefundReason`, `RefundLedgerEntryId`.
+4. Update `ActiveSessionMember.BvcRefundedAt`, `BvcRefundReason`, `PaymentStatus = RefundedBvc`.
+
+### Error responses
+
+| Code | Message |
+|---|---|
+| `400` | `Reason` hoặc `IdempotencyKey` rỗng / quá dài. |
+| `403` | Không có quyền refund. |
+| `404` | Audit log không tồn tại. |
+| `409` | Đã refund trước đó. |
+| `500` | DB error. |

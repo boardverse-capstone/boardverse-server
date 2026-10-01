@@ -91,6 +91,22 @@ public class LobbyMergeRequest
     /// </summary>
     public bool FitsCapacity { get; set; }
 
+    /// <summary>
+    /// Danh sách member cụ thể sẽ được chuyển sang lobby đích (JSON-serialized List&lt;Guid&gt;).
+    /// <c>null</c> hoặc empty → transfer TẤT CẢ active members (backward compatible).
+    /// <para>
+    /// Stored as JSON string (text column) thay vì jsonb để:
+    /// <list type="bullet">
+    /// <item>Tương thích với cả PostgreSQL và SQL Server (EF Core test trên cả 2 provider).</item>
+    /// <item>Đơn giản hóa query — chỉ load/save, không cần index.</item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// Semantics: Online source → <c>LobbyMember.Id</c>; Walk-in source → <c>ActiveSessionMember.Id</c>.
+    /// </para>
+    /// </summary>
+    public string? SelectedMemberIdsJson { get; set; }
+
     // === Audit ===
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

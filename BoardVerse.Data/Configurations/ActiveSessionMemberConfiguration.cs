@@ -80,6 +80,44 @@ namespace BoardVerse.Data.Configurations
             builder.Property(m => m.QrTransferContent)
                 .HasMaxLength(500)
                 .IsRequired(false);
+
+            // ===== M1 / Option A: Per-member deposit refund tracking =====
+            // docs/design/host-deposit-discount-and-bvc-payment-design.md §B1.3
+
+            builder.Property(m => m.DepositRefundedAt)
+                .HasColumnType("timestamp with time zone");
+
+            builder.Property(m => m.DepositRefundReason)
+                .HasMaxLength(500)
+                .IsRequired(false);
+
+            builder.Property(m => m.DepositRefundLedgerId);
+
+            // Index cho query "members đã được refund" (filter khi audit)
+            builder.HasIndex(m => m.DepositRefundedAt)
+                .HasDatabaseName("IX_ActiveSessionMembers_DepositRefundedAt");
+
+            // ===== M2/C2.16: Force-close tracking (Gap #33) =====
+            // docs/design/host-deposit-discount-and-bvc-payment-design.md §C2.16
+
+            builder.Property(m => m.NoShowAt)
+                .HasColumnType("timestamp with time zone")
+                .IsRequired(false);
+
+            builder.Property(m => m.NoShowReason)
+                .HasMaxLength(500)
+                .IsRequired(false);
+
+            builder.Property(m => m.PaidByHostAt)
+                .HasColumnType("timestamp with time zone")
+                .IsRequired(false);
+
+            builder.Property(m => m.PaidByHostUserId)
+                .IsRequired(false);
+
+            // Index cho query audit "members bị NoShow" trong 30 ngày.
+            builder.HasIndex(m => m.NoShowAt)
+                .HasDatabaseName("IX_ActiveSessionMembers_NoShowAt");
         }
     }
 }

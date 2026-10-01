@@ -28,6 +28,16 @@ namespace BoardVerse.Data
         public DbSet<ActiveSessionMember> ActiveSessionMembers => Set<ActiveSessionMember>();
         public DbSet<ActiveSessionLobbySource> ActiveSessionLobbySources => Set<ActiveSessionLobbySource>();
         public DbSet<MemberPayment> MemberPayments => Set<MemberPayment>();
+
+        // ===== M2: Per-member BVC payment audit log (Case 2) =====
+        // docs/design/host-deposit-discount-and-bvc-payment-design.md §C1.3
+        public DbSet<MemberPaymentAuditLog> MemberPaymentAuditLogs => Set<MemberPaymentAuditLog>();
+
+        // ===== M2/C2.16: Force-close entities (Gap #33) =====
+        // docs/design/host-deposit-discount-and-bvc-payment-design.md §C2.16
+        public DbSet<MemberDebt> MemberDebts => Set<MemberDebt>();
+        public DbSet<ForceCloseAuditLog> ForceCloseAuditLogs => Set<ForceCloseAuditLog>();
+
         public DbSet<ActiveSessionGame> ActiveSessionGames => Set<ActiveSessionGame>();
         public DbSet<ComponentCheckResult> ComponentCheckResults => Set<ComponentCheckResult>();
         public DbSet<SessionExtensionRequest> SessionExtensionRequests => Set<SessionExtensionRequest>();
@@ -72,6 +82,10 @@ namespace BoardVerse.Data
 
         // GAP-10 Fix: Audit table cho mọi SePay webhook.
         public DbSet<PaymentWebhookAudit> PaymentWebhookAudits => Set<PaymentWebhookAudit>();
+
+        // ===== M1 / Option A: Per-member BVC deposit audit log =====
+        // docs/design/host-deposit-discount-and-bvc-payment-design.md §B1.5
+        public DbSet<MemberDepositAuditLog> MemberDepositAuditLogs => Set<MemberDepositAuditLog>();
 
         // BR-REFUND-01..07 (docs/time-slot-fixed-end-design (1).md §9.4)
         public DbSet<RefundTransaction> RefundTransactions => Set<RefundTransaction>();

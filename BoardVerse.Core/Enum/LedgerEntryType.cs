@@ -32,5 +32,29 @@ public enum LedgerEntryType
     AdminCredit = 6,
 
     /// <summary>Admin/support trừ BVC thủ công (penalty, refund manual). availableBalance -= amount.</summary>
-    AdminDebit = 7
+    AdminDebit = 7,
+
+    /// <summary>
+    /// BR-22 + Option A: Hoàn cọc về wallet khi member merge sang lobby khác (Exception 4).
+    /// availableBalance += amount.
+    /// Phân biệt với <see cref="DepositRelease"/> (host cancel/timeout): merge refund KHÔNG tịch thu,
+    /// chỉ trả lại tiền cho member đã tách nhóm.
+    /// </summary>
+    DepositRefund_Merge = 8,
+
+    /// <summary>
+    /// M2 / Case 2: Member trả bill cá nhân bằng BVC (debit trực tiếp availableBalance).
+    /// availableBalance -= amount. KHÔNG qua heldBalance (tiền đi thẳng về doanh thu quán).
+    /// Phân biệt với <see cref="DepositHold"/>: hold là giữ tiền cho reservation;
+    /// bill debit là thanh toán cuối (settlement về cafe).
+    /// docs/design/host-deposit-discount-and-bvc-payment-design.md §C2.1.
+    /// </summary>
+    MemberBillDebit = 9,
+
+    /// <summary>
+    /// M2 / Case 2: Refund bill BVC sai / dispute (Gap #11).
+    /// availableBalance += amount. Đối ứng với <see cref="MemberBillDebit"/>.
+    /// docs/design/host-deposit-discount-and-bvc-payment-design.md §C2.8.
+    /// </summary>
+    MemberBillRefund = 10
 }

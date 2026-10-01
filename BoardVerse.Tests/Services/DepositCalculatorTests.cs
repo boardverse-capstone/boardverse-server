@@ -21,20 +21,40 @@ public class DepositCalculatorTests
             CafeId = Guid.NewGuid(),
             Capacity = capacity,
             DepositRatePerPerson = ratePerPerson,
+            MinDepositRatePerPerson = 1,
+            MaxDepositRatePerPerson = 100,
+            // Mặc định BR-NEW-01: cùng ngày 50 BVC, +1 ngày 50, +2 100, +3-4 150, +5-7 200.
+            // Test muốn assert pure formula thì gọi WithNoMinDepositCap() hoặc override thủ công.
             MaxPlayersPerLobbySameDay = 30,
             MaxPlayersPerLobby1Day = 20,
             MaxPlayersPerLobby2Days = 15,
             MaxPlayersPerLobby3To4Days = 10,
             MaxPlayersPerLobby5To7Days = 6,
-            MinDepositSameDay = 50,
-            MinDeposit1Day = 50,
-            MinDeposit2Days = 100,
-            MinDeposit3To4Days = 150,
-            MinDeposit5To7Days = 200,
+            MinDepositSameDay = 0,
+            MinDeposit1Day = 0,
+            MinDeposit2Days = 0,
+            MinDeposit3To4Days = 0,
+            MinDeposit5To7Days = 0,
             RequireApprovalForDistant = true,
             DistantThresholdDays = 2,
             RecruitmentDeadlineBufferMinutes = 120
         };
+    }
+
+    /// <summary>
+    /// Trả về CafeConfig với BR-NEW-01 minimum deposit theo distance áp dụng (test riêng).
+    /// </summary>
+    private static CafeConfig BuildCafeConfigWithBrNew01Min(
+        long minSameDay = 50, long minOneDay = 50, long minTwoDays = 100,
+        long min3To4Days = 150, long min5To7Days = 200)
+    {
+        var config = BuildCafeConfig();
+        config.MinDepositSameDay = minSameDay;
+        config.MinDeposit1Day = minOneDay;
+        config.MinDeposit2Days = minTwoDays;
+        config.MinDeposit3To4Days = min3To4Days;
+        config.MinDeposit5To7Days = min5To7Days;
+        return config;
     }
 
     private static ReservationQuoteRequestDto BuildRequest(
@@ -55,84 +75,181 @@ public class DepositCalculatorTests
         };
     }
 
-    // ===== BR-DEPOSIT-02 (2026-08-27): baseDeposit (BVC/người) = 20% × cafeBasePrice → BVC; finalDeposit = baseDeposit × maxPlayers =====
+    // ===== BR-DEPOSIT-02..04 + BR-NEW-01 (2026-10-01): baseDeposit = DepositRatePerPerson × maxPlayers; finalDeposit = max(minDepositByDistance, baseDeposit × riskMultiplier) =====
 
     [Fact]
-    public void Calculate_SameDay_Returns20PercentOfBasePricePerPerson()
+    public void Calculate_BR_DEPOSIT_02_BasicFormula_RatePerPersonTimesMaxPlayers()
     {
-        // Arrange: cafeBasePrice = 100,000 VND → 20% = 20,000 VND → 20 BVC/người
+        // BR-DEPOSIT-02: baseDeposit = DepositRatePerPerson (BVC/người) × finalMaxPlayers.
+        // BR-DEPOSIT-04: riskAdjusted = round(baseDeposit × walletRiskMultiplier).
+        // BR-NEW-01: finalDeposit = max(minDepositByDistance, riskAdjusted).
+
+        // Arrange: ratePerPerson = 5 BVC/người (từ CafeConfig.DepositRatePerPerson), maxPlayers = 6, riskMultiplier = 1.0
         var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
         var request = BuildRequest(DateOnly.FromDateTime(now.Date), maxPlayers: 6);
         var config = BuildCafeConfig(ratePerPerson: 5);
 
-        // Act: cafeBasePrice = 100,000 VND, maxPlayers = 6
-        // depositVndPerPerson = 20,000 VND → baseDeposit = 20 BVC/người
-        // finalDeposit = 20 × 6 = 120 BVC
+        // Act: cafeBasePrice = 100,000 VND → BR-03 cap = floor(50,000/1000) = 50 BVC (no cap on perPersonBvc=5).
+        //       perPersonBvc = min(clamp(5, 1, 100), 50) = 5
+        //       baseDeposit = 5 × 6 = 30
+        //       riskAdjusted = round(30 × 1.0) = 30
+        //       finalDeposit = max(0, 30) = 30
         var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, walletRiskMultiplier: 1.0m, isCoolingOff: false, isPrivateLobby: false, now: now);
 
-        // Assert: new formula 2026-08-27 — baseDeposit per person, finalDeposit = baseDeposit × maxPlayers
-        // [2026-08-27] DepositPerPerson/BaseDeposit không còn được set trong result (deprecated, default = 0).
-        // Chỉ assert FinalDeposit là đủ (FE chỉ render FinalDeposit).
-        Assert.Equal(120, result.FinalDeposit); // 20 × 6
+        // Assert
+        Assert.Equal(5, result.DepositPerPerson);
+        Assert.Equal(30, result.BaseDeposit);
+        Assert.Equal(30, result.FinalDeposit);
         Assert.Equal(DistanceBucket.SameDay, result.Distance);
-        Assert.Equal(0, result.MinDepositApplied); // deprecated
     }
 
     [Fact]
-    public void Calculate_SmallBasePrice_FloorsPerPersonToMin1Bvc()
+    public void Calculate_BR_DEPOSIT_04_WithRiskMultiplier_AppliesMultiplier()
     {
-        // Arrange: cafeBasePrice = 2,000 VND → 20% = 400 VND → 0.4 BVC → floor 1 BVC/người
+        // BR-DEPOSIT-04: riskAdjusted = round(baseDeposit × walletRiskMultiplier).
+        // BR-RISK-03 mapping: riskMultiplier ∈ [1.0, 2.0]; cooling-off × 2.
+
+        // Arrange: ratePerPerson = 10, maxPlayers = 4, riskMultiplier = 1.25
         var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
-        var request = BuildRequest(DateOnly.FromDateTime(now.Date), maxPlayers: 6);
-        var config = BuildCafeConfig();
+        var request = BuildRequest(DateOnly.FromDateTime(now.Date), maxPlayers: 4);
+        var config = BuildCafeConfig(ratePerPerson: 10);
 
-        // Act: depositVndPerPerson = 400 VND → 0.4 BVC → floor 1 BVC
-        // finalDeposit = 1 × 6 = 6 BVC
-        var result = _calculator.Calculate(request, config, cafeBasePrice: 2_000m, 1.0m, false, false, now);
+        // Act: perPersonBvc = 10, baseDeposit = 10 × 4 = 40
+        //       riskAdjusted = round(40 × 1.25) = round(50.0) = 50
+        //       finalDeposit = max(0, 50) = 50
+        var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, walletRiskMultiplier: 1.25m, isCoolingOff: false, isPrivateLobby: false, now: now);
 
-        // Assert: Math.Max(1, RoundToBvc(400/1000)) = Math.Max(1, 0) = 1 BVC/người
-        // [2026-08-27] DepositPerPerson deprecated, không assert. FE chỉ render FinalDeposit.
-        Assert.Equal(6, result.FinalDeposit); // 1 × 6
+        // Assert
+        Assert.Equal(10, result.DepositPerPerson);
+        Assert.Equal(40, result.BaseDeposit);
+        Assert.Equal(50, result.FinalDeposit);
+        Assert.Equal(1.25m, result.RiskMultiplier);
     }
 
     [Fact]
-    public void Calculate_VariousBasePrices_ConvertsCorrectly()
+    public void Calculate_BR_DEPOSIT_04_WithCoolingOffHighMultiplier_DoublesDeposit()
     {
+        // BR-NEW-10 + BR-RISK-03: cooling-off → walletRiskMultiplier × 2 (caller đã pre-multiply).
+        // Test: ratePerPerson = 10, maxPlayers = 4, riskMultiplier = 2.0 (cooling-off × 2 của riskScore=1.0).
+
         // Arrange
         var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
         var request = BuildRequest(DateOnly.FromDateTime(now.Date), maxPlayers: 4);
-        var config = BuildCafeConfig();
+        var config = BuildCafeConfig(ratePerPerson: 10);
 
-        // Act & Assert
-        // cafeBasePrice = 50,000 VND → 20% = 10,000 VND → 10 BVC/người
-        // finalDeposit = 10 × 4 = 40 BVC
-        var r50 = _calculator.Calculate(request, config, cafeBasePrice: 50_000m, 1.0m, false, false, now);
-        Assert.Equal(40, r50.FinalDeposit);
+        // Act: baseDeposit = 10 × 4 = 40
+        //       riskAdjusted = round(40 × 2.0) = 80
+        //       finalDeposit = max(0, 80) = 80
+        var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, walletRiskMultiplier: 2.0m, isCoolingOff: true, isPrivateLobby: false, now: now);
 
-        // cafeBasePrice = 150,000 VND → 20% = 30,000 VND → 30 BVC/người
-        // finalDeposit = 30 × 4 = 120 BVC
-        var r150 = _calculator.Calculate(request, config, cafeBasePrice: 150_000m, 1.0m, false, false, now);
-        Assert.Equal(120, r150.FinalDeposit);
-
-        // cafeBasePrice = 200,000 VND → 20% = 40,000 VND → 40 BVC/người
-        // finalDeposit = 40 × 4 = 160 BVC
-        var r200 = _calculator.Calculate(request, config, cafeBasePrice: 200_000m, 1.0m, false, false, now);
-        Assert.Equal(160, r200.FinalDeposit);
+        // Assert
+        Assert.Equal(40, result.BaseDeposit);
+        Assert.Equal(80, result.FinalDeposit);
+        Assert.Equal(2.0m, result.RiskMultiplier);
     }
 
     [Fact]
-    public void Calculate_DifferentMaxPlayers_ReturnsCorrectFinalDeposit()
+    public void Calculate_BR_NEW_01_MinDepositByDistance_OverridesBaseFormula()
     {
-        // Arrange: cafeBasePrice = 50,000 VND → 20% = 10 BVC/người
-        var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
-        var config = BuildCafeConfig();
+        // BR-NEW-01: finalDeposit = max(minDepositByDistance(distance), baseDeposit × riskMultiplier).
 
-        // Act & Assert: cùng cafeBasePrice, maxPlayers khác nhau cho finalDeposit khác nhau
-        Assert.Equal(10, _calculator.Calculate(BuildRequest(DateOnly.FromDateTime(now.Date), minPlayers: 1, maxPlayers: 1), config, cafeBasePrice: 50_000m, 1.0m, false, false, now).FinalDeposit);
-        Assert.Equal(20, _calculator.Calculate(BuildRequest(DateOnly.FromDateTime(now.Date), minPlayers: 1, maxPlayers: 2), config, cafeBasePrice: 50_000m, 1.0m, false, false, now).FinalDeposit);
-        Assert.Equal(50, _calculator.Calculate(BuildRequest(DateOnly.FromDateTime(now.Date), minPlayers: 2, maxPlayers: 5), config, cafeBasePrice: 50_000m, 1.0m, false, false, now).FinalDeposit);
-        Assert.Equal(80, _calculator.Calculate(BuildRequest(DateOnly.FromDateTime(now.Date), minPlayers: 2, maxPlayers: 8), config, cafeBasePrice: 50_000m, 1.0m, false, false, now).FinalDeposit);
-        Assert.Equal(100, _calculator.Calculate(BuildRequest(DateOnly.FromDateTime(now.Date), minPlayers: 2, maxPlayers: 10), config, cafeBasePrice: 50_000m, 1.0m, false, false, now).FinalDeposit);
+        // Arrange: ratePerPerson = 5, maxPlayers = 6 → baseDeposit = 30
+        //           SameDay minDeposit = 50 → finalDeposit = max(50, 30) = 50
+        var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
+        var request = BuildRequest(DateOnly.FromDateTime(now.Date), maxPlayers: 6);
+        var config = BuildCafeConfigWithBrNew01Min(minSameDay: 50);
+
+        // Act
+        var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, walletRiskMultiplier: 1.0m, isCoolingOff: false, isPrivateLobby: false, now: now);
+
+        // Assert: baseDeposit = 30 nhưng finalDeposit lấy minDepositByDistance = 50
+        Assert.Equal(30, result.BaseDeposit);
+        Assert.Equal(50, result.MinDepositApplied);
+        Assert.Equal(50, result.FinalDeposit);
+    }
+
+    [Fact]
+    public void Calculate_BR_DEPOSIT_03_RatePerPerson_BelowMin_ClampedToMin()
+    {
+        // BR-DEPOSIT-03: DepositRatePerPerson ∈ [MinDepositRatePerPerson=1, MaxDepositRatePerPerson=100] BVC/người.
+
+        // Arrange: ratePerPerson = 0 (dưới min=1), maxPlayers = 4
+        var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
+        var request = BuildRequest(DateOnly.FromDateTime(now.Date), maxPlayers: 4);
+        var config = BuildCafeConfig(ratePerPerson: 0);
+
+        // Act: perPersonBvc = clamp(0, 1, 100) = 1
+        //       baseDeposit = 1 × 4 = 4
+        //       finalDeposit = max(0, 4) = 4
+        var result = _calculator.Calculate(request, config, cafeBasePrice: 100_000m, walletRiskMultiplier: 1.0m, isCoolingOff: false, isPrivateLobby: false, now: now);
+
+        // Assert
+        Assert.Equal(1, result.DepositPerPerson);
+        Assert.Equal(4, result.BaseDeposit);
+        Assert.Equal(4, result.FinalDeposit);
+    }
+
+    [Fact]
+    public void Calculate_BR_DEPOSIT_03_RatePerPerson_AboveMax_ClampedToMax()
+    {
+        // BR-DEPOSIT-03: DepositRatePerPerson ≤ 100 BVC/người.
+
+        // Arrange: ratePerPerson = 200 (trên max=100), maxPlayers = 4
+        var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
+        var request = BuildRequest(DateOnly.FromDateTime(now.Date), maxPlayers: 4);
+        var config = BuildCafeConfig(ratePerPerson: 200);
+
+        // Act: cafeBasePrice = 1,000,000 → BR-03 cap = floor(500,000/1000) = 500 (no cap on perPersonBvc=100).
+        //       perPersonBvc = clamp(200, 1, 100) = 100
+        //       baseDeposit = 100 × 4 = 400
+        //       finalDeposit = max(0, 400) = 400
+        var result = _calculator.Calculate(request, config, cafeBasePrice: 1_000_000m, walletRiskMultiplier: 1.0m, isCoolingOff: false, isPrivateLobby: false, now: now);
+
+        // Assert
+        Assert.Equal(100, result.DepositPerPerson);
+        Assert.Equal(400, result.BaseDeposit);
+        Assert.Equal(400, result.FinalDeposit);
+    }
+
+    [Fact]
+    public void Calculate_BR_03_Cap_PerPersonBvcCappedAt50PercentOfBasePrice()
+    {
+        // BR-03: "Phí đặt cọc ≤ 50% × Mức phí giờ đầu (hoặc Giá vé vào cổng)".
+        // Implementation: perPersonBvc = min(perPersonBvc, floor(50% × cafeBasePrice / 1000)).
+
+        // Arrange: ratePerPerson = 50, cafeBasePrice = 30,000 VND
+        //           BR-03 cap = floor(30,000 × 0.5 / 1000) = 15 BVC
+        //           perPersonBvc = min(50, 15) = 15 (bị BR-03 cap)
+        var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
+        var request = BuildRequest(DateOnly.FromDateTime(now.Date), maxPlayers: 4);
+        var config = BuildCafeConfig(ratePerPerson: 50);
+
+        // Act
+        var result = _calculator.Calculate(request, config, cafeBasePrice: 30_000m, walletRiskMultiplier: 1.0m, isCoolingOff: false, isPrivateLobby: false, now: now);
+
+        // Assert
+        Assert.Equal(15, result.DepositPerPerson);
+        Assert.Equal(60, result.BaseDeposit); // 15 × 4
+        Assert.Equal(60, result.FinalDeposit);
+    }
+
+    [Fact]
+    public void Calculate_BR_DEPOSIT_02_DifferentMaxPlayers_ReturnsCorrectFinalDeposit()
+    {
+        // BR-DEPOSIT-02: finalDeposit scales linearly với maxPlayers khi ratePerPerson & riskMultiplier cố định.
+
+        // Arrange: ratePerPerson = 10 (cafe config)
+        var now = new DateTime(2026, 8, 2, 10, 0, 0, DateTimeKind.Utc);
+        var config = BuildCafeConfig(ratePerPerson: 10);
+
+        // BR-03 cap = floor(100,000 × 0.5 / 1000) = 50 BVC (no cap on ratePerPerson=10).
+        // baseDeposit = 10 × maxPlayers.
+        // finalDeposit = max(0, 10 × maxPlayers) = 10 × maxPlayers (no minDeposit, no risk).
+        Assert.Equal(10, _calculator.Calculate(BuildRequest(DateOnly.FromDateTime(now.Date), minPlayers: 1, maxPlayers: 1), config, cafeBasePrice: 100_000m, walletRiskMultiplier: 1.0m, isCoolingOff: false, isPrivateLobby: false, now: now).FinalDeposit);
+        Assert.Equal(20, _calculator.Calculate(BuildRequest(DateOnly.FromDateTime(now.Date), minPlayers: 1, maxPlayers: 2), config, cafeBasePrice: 100_000m, walletRiskMultiplier: 1.0m, isCoolingOff: false, isPrivateLobby: false, now: now).FinalDeposit);
+        Assert.Equal(50, _calculator.Calculate(BuildRequest(DateOnly.FromDateTime(now.Date), minPlayers: 2, maxPlayers: 5), config, cafeBasePrice: 100_000m, walletRiskMultiplier: 1.0m, isCoolingOff: false, isPrivateLobby: false, now: now).FinalDeposit);
+        Assert.Equal(80, _calculator.Calculate(BuildRequest(DateOnly.FromDateTime(now.Date), minPlayers: 2, maxPlayers: 8), config, cafeBasePrice: 100_000m, walletRiskMultiplier: 1.0m, isCoolingOff: false, isPrivateLobby: false, now: now).FinalDeposit);
+        Assert.Equal(100, _calculator.Calculate(BuildRequest(DateOnly.FromDateTime(now.Date), minPlayers: 2, maxPlayers: 10), config, cafeBasePrice: 100_000m, walletRiskMultiplier: 1.0m, isCoolingOff: false, isPrivateLobby: false, now: now).FinalDeposit);
     }
 
     // ===== BR-NEW-11: cafe approval =====

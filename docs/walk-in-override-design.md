@@ -1713,6 +1713,44 @@ Test Case 3: Walk-in expire
  14. Background job chạy → status = Expired
  15. POS banner không còn hiển thị
 
+---
+
+## 17. Tài liệu liên quan
+
+### 17.1. Doc mới về Host Deposit Discount + BVC Payment
+
+Cập nhật **2026-10-01**: Một design doc mới đã được tạo ở [`docs/design/host-deposit-discount-and-bvc-payment-design.md`](./design/host-deposit-discount-and-bvc-payment-design.md) — định nghĩa luồng **Case 2: Member BVC Payment** (thay thế / bổ sung cho luồng split bill hiện tại).
+
+**Phạm vi doc mới:**
+
+| Mục | Liên quan với walk-in-override |
+|---|---|
+| **A4. Gap Coverage Matrix** | Liệt kê 34 gaps — bao gồm Gap #31 (early checkout) liên quan đến soft-release |
+| **A5. Existing APIs Reference** | Reference endpoint `/pay-member` (Split Bill) đã có sẵn — covers per-member payment scenarios |
+| **C2. Backend Code — Case 2 (BVC Member Payment)** | Luồng member thanh toán phần bill cá nhân bằng BVC (wallet), song song với flow CASH/QR hiện tại |
+| **C2.15. Per-member receipt** | Endpoint mới `GET /sessions/{id}/members/{memberId}/receipt` cho từng member |
+| **C2.16. Force close unpaid** | Endpoint mới `POST /sessions/{id}/force-close` cho manager khi member no-show |
+
+**Quan trọng:** Doc walk-in-override tập trung vào BR-REFUND-06/07/08 (soft-release + walk-in override). Doc mới `host-deposit-discount-and-bvc-payment-design.md` tập trung vào:
+- **Case 1**: Host dùng deposit làm discount cho cả nhóm (BR-DEPOSIT-22).
+- **Case 2**: Member thanh toán phần bill cá nhân bằng BVC wallet.
+- **Option A**: Refund per-member deposit on merge.
+
+Khi review BR-REFUND-06 (soft-release refund 30% khi played ≥50%) cần đối chiếu với **Doc A2 §2 (2 Cases phân biệt)** của doc mới để đảm bảo flow deposit discount không xung đột.
+
+### 17.2. Doc cũ (legacy / backward-compat)
+
+- `docs/api/cafe-pos.md` §"Split Bill — Thanh toán per-member" — Reference cho endpoint `POST /pay-member` (đã implement từ 2026-08-24).
+- `docs/api/payment.md` §"Member Payment Webhook" — Reference cho `/api/payments/sepay/webhook/member-payment`.
+- `docs/api/cafe-pos.md` §"Luồng 9 — Member về sớm" — Reference cho `POST /partial-checkout` (early checkout, đã có).
+
+### 17.3. Cập nhật ngày 2026-10-01
+
+- Doc mới `host-deposit-discount-and-bvc-payment-design.md` v1.2 đã được verify code thực tế (xem A7 trong doc đó).
+- 6/8 gaps đã có sẵn (`/pay-member`, `/partial-checkout`, `/webhook/member-payment`).
+- Chỉ 2 endpoints mới cần implement: per-member receipt + force-close.
+- C2.16 cần schema changes (3 enum values + 2 entities mới) — xem §A7 trong doc mới.
+
 Test Case 4: Late cancel (BR-REFUND-08)
  16. Player B book slot Chiều (13:00-18:00), check-in 13:00
  17. Player B cancel trên app lúc 15:00 (played 2h/5h = 40%)

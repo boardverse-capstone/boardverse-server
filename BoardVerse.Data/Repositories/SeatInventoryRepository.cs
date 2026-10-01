@@ -92,12 +92,32 @@ public class SeatInventoryRepository : ISeatInventoryRepository
         return Task.CompletedTask;
     }
 
-    public Task UpdateAsync(SeatInventory seatInventory, CancellationToken cancellationToken = default)
+    public async Task UpdateAsync(SeatInventory seatInventory, CancellationToken cancellationToken = default)
     {
-        seatInventory.UpdatedAt = DateTime.UtcNow;
-        // xmin (concurrency token) is PostgreSQL system column — auto-managed by DB, no manual increment needed
-        _db.SeatInventories.Update(seatInventory);
-        return Task.CompletedTask;
+        // BR-REQUIRED §17.3: Bypass EF tracking + UseXminAsConcurrencyToken here.
+        // GetForUpdateAsync uses AsNoTracking() (raw SQL with FOR UPDATE), so original xmin is
+        // never tracked. Calling _db.SeatInventories.Update(entity) would set OriginalValues
+        // for the shadow xmin property to default(uint) = 0, causing the SaveChangesAsync
+        // UPDATE to use "WHERE xmin = 0" and match 0 rows. We already hold a row lock via
+        // FOR UPDATE in the same transaction, so a plain conditional UPDATE (using the unique
+        // index columns) is sufficient — no need for xmin check.
+        var now = DateTime.UtcNow;
+        await _db.Database.ExecuteSqlInterpolatedAsync($@"
+            UPDATE ""SeatInventories""
+            SET ""HeldSeats"" = {seatInventory.HeldSeats},
+                ""InUseSeats"" = {seatInventory.InUseSeats},
+                ""UpdatedAt"" = {now}
+            WHERE ""Id"" = {seatInventory.Id};
+        ", cancellationToken);
+
+        seatInventory.UpdatedAt = now;
+        // Detach any tracked instance EF auto-attached from the earlier FromSqlRaw so that
+        // a subsequent SaveChangesAsync in the same scope does not redundantly UPDATE again.
+        var local = _db.SeatInventories.Local.FirstOrDefault(s => s.Id == seatInventory.Id);
+        if (local != null)
+        {
+            _db.Entry(local).State = Microsoft.EntityFrameworkCore.EntityState.Detached;
+        }
     }
 
     public Task SaveChangesAsync(CancellationToken cancellationToken = default)

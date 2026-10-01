@@ -794,9 +794,33 @@ namespace BoardVerse.Services.Services
         }
 
         public async Task<PaginatedResponse<NearbyCafeDto>> GetAllActiveCafesAsync(
-            PaginationParams paginationParams)
+            PaginationParams paginationParams,
+            Guid? userIdForLocation = null,
+            CancellationToken cancellationToken = default)
         {
-            return await _cafeRepository.GetAllActiveCafesAsync(paginationParams);
+            // Nếu controller truyền userId và user đã có vị trí lưu trong profile,
+            // lấy lat/lng để tính DistanceMeters + sort theo khoảng cách.
+            double? latitude = null;
+            double? longitude = null;
+
+            if (userIdForLocation.HasValue)
+            {
+                var profile = await _userProfileRepository.GetProfileByUserIdAsync(
+                    userIdForLocation.Value,
+                    cancellationToken);
+                if (profile?.LastKnownLatitude is { } lat
+                    && profile.LastKnownLongitude is { } lng)
+                {
+                    latitude = lat;
+                    longitude = lng;
+                }
+            }
+
+            return await _cafeRepository.GetAllActiveCafesAsync(
+                paginationParams,
+                latitude,
+                longitude,
+                cancellationToken);
         }
 
         public async Task<PaginatedResponse<CafeActiveGameDto>> GetActiveGamesByCafeAsync(

@@ -971,6 +971,33 @@ public static string SessionMustBeActiveForGameAssignment(string current) =>
 
  public static string AvailableBalanceInsufficient(long required, long available) =>
  $"Số dư BVC khả dụng không đủ. Cần {required:N0} BVC nhưng chỉ có {available:N0} BVC.";
+
+ // ===== M2: Member BVC bill payment (Case 2 — docs §C2) =====
+ /// <summary>M2: Wallet không đủ BVC để trả bill (Gap #9 BR-USER-LIMIT-03 variant).</summary>
+ public static string BvcBillPaymentExceedsBalance(long current, long requested) =>
+ $"Số dư BVC khả dụng ({current} BVC) không đủ để thanh toán bill {requested} BVC. Nhấn 'Nạp BVC' để nạp thêm nhé!";
+
+ /// <summary>M2: BvcAmount > totalDue — overpayment (Gap #6).</summary>
+ public static string BvcBillOverpayment(long bvcAmount, decimal totalDue) =>
+ $"Số BVC thanh toán ({bvcAmount} BVC) vượt quá tổng bill ({totalDue:N0} VND). Vui lòng chọn số BVC nhỏ hơn hoặc bằng tổng bill.";
+
+ /// <summary>M2: Session có ≥ 2 members cùng UserId (Gap #7 multi-account).</summary>
+ public static string DuplicateUserIdInSession(string userIds) =>
+ $"Phiên chơi có nhiều thành viên trùng UserId: {userIds}. Đây là lỗi dữ liệu — liên hệ admin.";
+
+ public const string MemberAlreadyPaid =
+ "Thành viên này đã thanh toán rồi. Không thể thanh toán lại.";
+
+ public const string SessionNotUnpaidForMemberBill =
+ "Phiên chơi không ở trạng thái chờ thanh toán (Unpaid). Không thể thanh toán bill từng thành viên.";
+
+ /// <summary>M2 / Gap-#1: Player không phải member này và không phải host session — không có quyền xem/trả bill của member khác.</summary>
+ public const string MemberBillAccessDenied =
+ "Bạn không có quyền xem hoặc thanh toán bill của thành viên này. Chỉ chính thành viên, host của phiên, hoặc nhân viên/manager/admin của quán mới có quyền.";
+
+ /// <summary>M2 / Gap-#3: IdempotencyKey đã được dùng bởi member khác trong cùng hệ thống.</summary>
+ public const string IdempotencyKeyAlreadyUsed =
+ "Idempotency key đã được sử dụng cho một yêu cầu thanh toán khác. Vui lòng dùng key mới.";
  }
 
  public static class Payment
@@ -1840,6 +1867,13 @@ public const string SePayBankInfoIncomplete =
 
  public const string InvalidRequestBody =
  "Dữ liệu gửi lên không hợp lệ. Vui lòng kiểm tra và thử lại.";
+
+ /// <summary>
+ /// 403 Forbidden — dùng khi user xác thực nhưng không có quyền thao tác tài nguyên cụ thể.
+ /// (M2/C2.16 — ReceiptController force-close flow.)
+ /// </summary>
+ public const string Forbidden =
+ "Bạn không có quyền thực hiện thao tác này trên tài nguyên được yêu cầu.";
  }
 
  public static class Validation
@@ -2530,6 +2564,17 @@ public static class LobbyMerge
     public const string MergeDifferentGames =
         "Hai nhóm đang chơi game khác nhau. Không thể ghép nhóm khi game không giống nhau.";
 
+    // Gap-fix 2026-10-01: Phân biệt 2 trường hợp cross-game block.
+    // Khi source còn box InUse nhưng CheckStatus chưa phải Checked → staff phải
+    // kiểm kê linh kiện + trả game về quán trước khi ghép (theo BR Exception 4).
+    // Trước đây cả 2 case dùng chung MergeDifferentGames → staff không biết phải làm gì
+    // tiếp theo, đặc biệt khi 2 lobby cùng tên game trong UI nhưng khác GameTemplateId.
+    public static string MergeSourceBoxNotCheckedYet(string sourceGameName, string targetGameName) =>
+        $"Bàn nguồn đang chơi '{sourceGameName}' nhưng chưa hoàn tất kiểm kê linh kiện (Component Check). " +
+        $"Game này khác với game '{targetGameName}' của bàn đích. " +
+        $"Vui lòng kiểm kê linh kiện và trả game về quán trước khi ghép nhóm, " +
+        $"hoặc chọn bàn nguồn đang chơi cùng game với bàn đích.";
+
     public const string ReservationAlreadyAbsorbed =
         "Nhóm nguồn đã được ghép vào nhóm khác trước đó. Không thể ghép lại.";
 
@@ -2580,6 +2625,21 @@ public static class LobbyMerge
         $"Thành viên '{memberName}' đang tham gia {currentHostCount} phòng (host) + {currentMemberCount} phòng (member) = {currentHostCount + currentMemberCount} lobby. " +
         $"Sau khi ghép sẽ vượt giới hạn BR-USER-LIMIT-01 (tối đa 2 lobby/user). " +
         $"Vui lòng yêu cầu thành viên rời bớt lobby khác trước khi ghép.";
+
+    // ===== SelectedMemberIds (Option 1 fix 2026-10-01) =====
+    // Staff truyền SelectedMemberIds vào CreateLobbyMergeRequestDto để chỉ chọn 1 vài member
+    // cụ thể transfer (thay vì transfer TẤT CẢ active members). Validate khi tạo request:
+    // tất cả ID phải match active member hiện tại của source lobby (LobbyMember cho online,
+    // ActiveSessionMember cho walk-in). Nếu có ID không match → reject ngay tại Create để staff
+    // biết sai trước khi 15 phút hết hạn (Approve cũng re-validate vì member có thể rời
+    // giữa Create và Approve).
+    public static string InvalidSelectedMemberIds(string invalidIds) =>
+        $"Một hoặc nhiều ID trong SelectedMemberIds không phải là thành viên active hiện tại của phòng nguồn: {invalidIds}. " +
+        $"Vui lòng kiểm tra lại danh sách hoặc bỏ trống SelectedMemberIds để chuyển tất cả.";
+
+    public const string SelectedMemberIdsEmptyAfterFilter =
+        "Tất cả ID trong SelectedMemberIds không còn là thành viên active của phòng nguồn (có thể đã rời giữa lúc tạo và duyệt request). " +
+        "Yêu cầu ghép nhóm đã được đánh dấu là Từ chối.";
 }
 }
 
@@ -3408,6 +3468,12 @@ public static class Settlement
     {
         public static string OnlyForPaidSession(string currentStatus) =>
         $"Receipt chỉ có thể tạo cho phiên đã thanh toán. Trạng thái hiện tại: {currentStatus}.";
+
+        public static string MemberNotInSession(Guid memberId) =>
+        $"Không tìm thấy thành viên '{memberId}' trong phiên chơi.";
+
+        public static string UnsupportedReceiptFormat(string format) =>
+        $"Định dạng receipt không được hỗ trợ: '{format}'. Chỉ chấp nhận 'json' hiện tại (PDF/PNG sẽ được hỗ trợ khi tích hợp QuestPDF ở release sau).";
     }
 
     public static class FriendReport
@@ -3716,6 +3782,26 @@ public static class Settlement
 
             public const string SessionPausedCannotExtend =
                 "Phiên chơi đang tạm dừng, vui lòng liên hệ nhân viên để tiếp tục trước khi gia hạn.";
+
+            // ===== M2/C2.16: Force-close (Gap #33) =====
+            // docs/design/host-deposit-discount-and-bvc-payment-design.md §C2.16
+            public static string ForceCloseSessionNotUnpaid(string currentStatus) =>
+                $"Phiên chơi phải ở trạng thái Unpaid để force-close. Trạng thái hiện tại: {currentStatus}.";
+
+            public const string ForceCloseNoUnpaidMembers =
+                "Phiên chơi không có thành viên nào chưa thanh toán. Vui lòng dùng thanh toán thông thường.";
+
+            public const string ForceCloseHostNotPaid =
+                "Host phải thanh toán bill trước khi chọn 'CompensationByHost'. Vui lòng thanh toán bill của host trước.";
+
+            public const string ForceCloseAllowLatePaymentRequired =
+                "Còn thành viên chưa thanh toán. Vui lòng chọn AllowLatePayment=false và xử lý tất cả, hoặc để true để cho phép trả sau.";
+
+            public const string ForceCloseInvalidHandling =
+                "Cách xử lý unpaid members không hợp lệ. Chỉ chấp nhận 'MarkNoShow' | 'MarkAsDebt' | 'CompensationByHost'.";
+
+            public static string ForceCloseGuestNotCovered(string displayName) =>
+                $"Khách vô danh '{displayName}' không thể được cover bởi host. Vui lòng chọn MarkNoShow hoặc MarkAsDebt.";
         }
 
     public static class Discovery

@@ -21,14 +21,13 @@ public enum DistanceBucket
 public class DepositQuoteResult
 {
     /// <summary>
-    /// [2026-08-27 — đã bỏ hiển thị] BVC cọc trên đầu người = round(20% × cafeBasePrice / 1000), floor ≥ 1.
-    /// Service không gán field này nữa (default = 0). Internal use only.
+    /// BVC cọc / người sau khi áp BR-DEPOSIT-03 clamp [Min, Max] và BR-03 cap (50% × basePrice).
     /// </summary>
-    [Obsolete("FE không hiển thị DepositPerPerson. Field giữ default = 0 cho backward compat.")]
     public long DepositPerPerson { get; set; }
 
-    /// <summary>Deprecated: baseDeposit = DepositPerPerson (giữ lại cho backward compat FE).</summary>
-    [Obsolete("Field cũ. BaseDeposit = DepositPerPerson cũ.")]
+    /// <summary>
+    /// baseDeposit = DepositPerPerson × finalMaxPlayers (BR-DEPOSIT-02, chưa áp riskMultiplier).
+    /// </summary>
     public long BaseDeposit { get; set; }
 
     /// <summary>minDeposit theo khoảng cách playDate (BR-NEW-01).</summary>
@@ -38,8 +37,8 @@ public class DepositQuoteResult
     public decimal RiskMultiplier { get; set; }
 
     /// <summary>
-    /// finalDeposit = max(minDepositApplied, ratePerPerson × maxPlayers × riskMultiplier).
-    /// BR-DEPOSIT-02.
+    /// finalDeposit = max(minDepositByDistance(distance), baseDeposit × riskMultiplier).
+    /// BR-DEPOSIT-02 + BR-DEPOSIT-04 + BR-NEW-01.
     /// </summary>
     public long FinalDeposit { get; set; }
 

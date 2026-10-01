@@ -77,5 +77,35 @@ public enum ReservationStatus
     /// được dissolve sau khi transfer members sang target.
     /// </para>
     /// </summary>
-    AbsorbedByMerge = 12
+    AbsorbedByMerge = 12,
+
+    // ====================================================================
+    // M1 AUDIT VALUES (docs/design/host-deposit-discount-and-bvc-payment-design.md §B1.8)
+    // ====================================================================
+    // Range 100-199 dành cho audit trail của BR-15 (Host Deposit Discount).
+    // KHÔNG dùng cho query chính — chỉ ghi log/audit khi deposit distribution skip.
+
+    /// <summary>
+    /// BR-15: Host chọn 1 trong 3 HostDepositUsageMode và phân bổ thành công.
+    /// Set trên <c>ActiveSession</c> (không phải Reservation) lúc POS Pay thành công.
+    /// Reservation giữ status gốc (CheckedIn/InProgress) — value này chỉ apply cho ActiveSession audit.
+    /// </summary>
+    DiscountApplied = 100,
+
+    /// <summary>
+    /// BR-15 skip reason #4: Lobby đã Closed/CancelledByCafe/TimeoutFailed → không áp discount.
+    /// Set trên Reservation để trace "host đã chọn DiscountGroup nhưng lobby invalid".
+    /// </summary>
+    DiscountSkipped_LobbyTerminal = 101,
+
+    /// <summary>
+    /// BR-15 skip reason #3: All members đã merge sang session khác (LeftAt != null)
+    /// → không có active member nào để áp discount.
+    /// </summary>
+    DiscountSkipped_MemberMerged = 102,
+
+    /// <summary>
+    /// BR-15 skip reason #2: Reservation đã bị Cancelled trước khi Pay.
+    /// </summary>
+    DiscountSkipped_CancelledReservation = 103
 }

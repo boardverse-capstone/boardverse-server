@@ -66,8 +66,12 @@ namespace BoardVerse.Services.IServices
 
         /// <summary>
         /// Lấy tất cả quán đang ACTIVE cho player (không filter Location, không yêu cầu gameTemplateId).
+        /// Nếu userId có vị trí đã lưu trong profile, sẽ tự tính DistanceMeters và sắp xếp theo khoảng cách.
         /// </summary>
-        Task<PaginatedResponse<NearbyCafeDto>> GetAllActiveCafesAsync(PaginationParams paginationParams);
+        Task<PaginatedResponse<NearbyCafeDto>> GetAllActiveCafesAsync(
+            PaginationParams paginationParams,
+            Guid? userIdForLocation = null,
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Lấy danh sách board game đang hoạt động tại 1 cafe cho player (public browse).

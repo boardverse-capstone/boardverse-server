@@ -22,5 +22,15 @@ public enum GroupSessionStatus
     /// BR-END-05: Auto-release khi staff quên end session.
     /// Grace 30 phút sau ScheduledEndTime → auto-release.
     /// </summary>
-    Closed = 4
+    Closed = 4,
+
+    /// <summary>
+    /// M2/C2.16: Force-close khi session vẫn còn unpaid members.
+    /// Set bởi <c>ForceCloseService</c> khi Manager force-close và
+    /// không cho phép late payment — bill đã chốt nhưng 1 số members chưa pay.
+    /// Khác <see cref="Unpaid"/>: UnpaidForced = terminal, bill đã settle;
+    /// Unpaid = vẫn chờ members pay.
+    /// (2026-10-01)
+    /// </summary>
+    UnpaidForced = 5
 }

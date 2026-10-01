@@ -121,7 +121,10 @@ namespace BoardVerse.API.Controllers
 
         /// <summary>
         /// Lấy danh sách tất cả quán cafe đang hoạt động cho player (ACTIVE, IsActive=true).
-        /// Không filter theo vị trí, không yêu cầu tựa game — sắp xếp theo tên A→Z.
+        /// Không filter theo vị trí, không yêu cầu tựa game.
+        /// Nếu player đã lưu vị trí trong profile, mỗi quán sẽ trả về DistanceMeters (mét) và
+        /// danh sách được sắp xếp theo khoảng cách tăng dần (gần nhất trước), tie-đequal theo tên.
+        /// Nếu player chưa có vị trí lưu, DistanceMeters = 0 và sắp xếp theo tên A→Z.
         /// [Role: Player — cần đăng nhập.]
         /// </summary>
         /// <param name="pageNumber">Số trang (mặc định 1).</param>
@@ -136,7 +139,8 @@ namespace BoardVerse.API.Controllers
             [FromQuery] int pageSize = 20)
         {
             var pagination = new PaginationParams { PageNumber = pageNumber, PageSize = pageSize };
-            var result = await _cafeService.GetAllActiveCafesAsync(pagination);
+            var userId = GetUserIdFromClaims();
+            var result = await _cafeService.GetAllActiveCafesAsync(pagination, userId);
             return this.NewResponse(200, ApiSuccessMessages.Cafe.ListRetrieved, result);
         }
 

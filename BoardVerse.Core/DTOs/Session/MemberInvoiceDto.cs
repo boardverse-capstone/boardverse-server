@@ -29,6 +29,13 @@ namespace BoardVerse.Core.DTOs.Session
         /// <summary>Số tiền cọc đã áp dụng (chỉ dành cho thành viên có booking).</summary>
         public decimal DepositAppliedAmount { get; set; }
 
+        /// <summary>
+        /// M1: BVC discount đã apply cho member này từ host deposit (BR-15 modified).
+        /// = 0 nếu HostDepositUsage = None hoặc member EXCLUDED khỏi discount
+        /// (đã merge/early leave + DiscountGroup mode).
+        /// </summary>
+        public long DiscountAppliedAmount { get; set; }
+
         /// <summary>Tổng tiền thành viên phải trả.</summary>
         public decimal TotalAmount { get; set; }
 
