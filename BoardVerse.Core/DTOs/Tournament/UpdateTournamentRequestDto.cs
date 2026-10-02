@@ -53,6 +53,13 @@ public class UpdateTournamentRequestDto
     [Range(0, 10_000_000)]
     public decimal? EntryFee { get; set; }
 
+    /// <summary>
+    /// Mô tả giải thưởng cho người thắng. Optional — null = giữ nguyên,
+    /// empty string = xoá giải thưởng, string mới = cập nhật. Tối đa 1000 ký tự.
+    /// </summary>
+    [StringLength(1000)]
+    public string? Prize { get; set; }
+
     /// <summary>URL ảnh đại diện cho tournament (thumbnail/banner).</summary>
     [StringLength(500)]
     public string? ImageUrl { get; set; }

@@ -39,6 +39,15 @@ public class CreateTournamentRequestDto
     [Range(0, 10_000_000)]
     public decimal EntryFee { get; set; } = 0m;
 
+    /// <summary>
+    /// Mô tả giải thưởng cho người thắng (vd: "500.000 VND + 1 board game Splendor").
+    /// Optional — để trống/không gửi = "không có giải thưởng". Tối đa 1000 ký tự.
+    /// Field độc lập với <see cref="EntryFee"/>: có thể có EntryFee > 0 nhưng không có giải,
+    /// hoặc EntryFee = 0 nhưng vẫn có giải thưởng (vd: giải free, nhà tài trợ tặng).
+    /// </summary>
+    [StringLength(1000)]
+    public string? Prize { get; set; }
+
     /// <summary>URL ảnh đại diện cho tournament (thumbnail/banner). Optional.</summary>
     [StringLength(500)]
     public string? ImageUrl { get; set; }

@@ -57,6 +57,14 @@ public class Tournament
     /// <summary>Phí tham gia (VNĐ). Default 0 (miễn phí). Manager có thể set khi tạo tournament.</summary>
     public decimal EntryFee { get; set; } = 0m;
 
+    /// <summary>
+    /// Mô tả giải thưởng cho người thắng (VNĐ tiền mặt, voucher, board game, v.v.).
+    /// Optional — null/empty = "không có giải thưởng" (giải free, prize-less).
+    /// Manager nhập tự do khi tạo tournament (vd: "500.000 VND + 1 board game Splendor").
+    /// Hiển thị cho player ở màn hình chi tiết tournament để tăng吸引力 (BR-PRZ-01).
+    /// </summary>
+    public string? Prize { get; set; }
+
     /// <summary>URL ảnh đại diện cho tournament (thumbnail/banner). Optional.</summary>
     public string? ImageUrl { get; set; }
 
