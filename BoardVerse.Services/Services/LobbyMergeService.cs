@@ -236,7 +236,7 @@ public class LobbyMergeService : ILobbyMergeService
         //      40001 với exponential backoff + jitter (Postgres recommendation).
         var ambientTx = _db.Database.CurrentTransaction;
 
-        // ===== Postgres Serializable retry loop (SQLSTATE 40001) =====
+        // ===== Postgres Serializable retry loop (SQLSTATE 40001 + 40P01) =====
         // Pattern theo hướng dẫn retry của Postgres documentation:
         //   https://www.postgresql.org/docs/current/transaction-iso.html#XACT-SERIALIZABLE
         //
@@ -244,14 +244,22 @@ public class LobbyMergeService : ILobbyMergeService
         //   1. Begin fresh transaction (Serializable).
         //   2. Execute validation + create entities + SaveChanges.
         //   3. On success → commit + break.
-        //   4. On 40001 → rollback + ChangeTracker.Clear() + delay + retry.
-        //   5. On 23505 (unique violation) → 23505 handler → ConflictException (no retry).
-        //   6. On other errors → rollback + throw (preserves existing behavior).
+        //   4. On 40001/40P01 (vẫn còn attempts) → rollback + ChangeTracker.Clear() + delay + retry.
+        //   5. On 40001/40P01 (hết attempts) → rollback + throw ConflictException với message thân thiện.
+        //   6. On 23505 (unique violation) → 23505 handler → ConflictException (no retry).
+        //   7. On other errors → rollback + throw (preserves existing behavior).
         //
         // Retry chỉ áp dụng khi WE own transaction (ambientTx == null). Nếu caller đã
         // wrap ambient transaction riêng thì không rollback được → không retry, để
         // caller xử lý (caller nên dùng isolation thấp hơn hoặc retry ở layer cao hơn).
-        const int maxSerializationRetries = 3;
+        //
+        // Tuning (2026-10-02): max 5 attempts, base 200ms, exponential 200/400/800/1600/3200ms
+        // (~3.1s total). Tăng từ 3 attempts/100ms vì production logs cho thấy cafe đông
+        // (>=3 staff merge cùng lúc) có thể giữ conflict window > 700ms. Jitter 0-50ms
+        // tránh thundering herd.
+        const int maxSerializationRetries = 5;
+        const int serializationBaseDelayMs = 200;
+        const int serializationJitterMs = 50;
         int serializationRetryCount = 0;
 
         LobbyMergeRequestDto? resultDto = null;
@@ -509,11 +517,11 @@ public class LobbyMergeService : ILobbyMergeService
             && ambientTx == null
             && serializationRetryCount < maxSerializationRetries)
         {
-            // ===== Postgres 40001 serialization_failure retry =====
+            // ===== Postgres 40001/40P01 retry (còn attempts) =====
             // 2 transactions đồng thời cùng đọc cùng row ActiveSession/Members (qua
             // Include chain trong CafePosRepository.GetActiveSessionByIdAsync) rồi cùng
-            // INSERT LobbyMergeRequest → Postgres phát hiện rw-antidependency cycle →
-            // abort transaction này với 40001. Postgres hint: retry.
+            // INSERT LobbyMergeRequest → Postgres phát hiện rw-antidependency cycle (40001)
+            // hoặc deadlock cycle (40P01) → abort transaction này. Postgres hint: retry.
             serializationRetryCount++;
             if (ownedTx != null)
             {
@@ -530,18 +538,50 @@ public class LobbyMergeService : ILobbyMergeService
             // sẽ cố re-insert các entities đã được add từ attempt trước).
             _db.ChangeTracker.Clear();
 
-            // Exponential backoff + jitter: 100ms, 200ms, 400ms (+ random 0-50ms).
-            // Jitter tránh thundering herd khi nhiều request cùng retry đồng thời.
-            var delayMs = (int)(100 * Math.Pow(2, serializationRetryCount - 1))
-                          + Random.Shared.Next(0, 50);
+            // Exponential backoff + jitter: 200ms, 400ms, 800ms, 1600ms, 3200ms
+            // (+ random 0-50ms). Jitter tránh thundering herd khi nhiều request cùng retry
+            // đồng thời. Tổng backoff tối đa 3 attempts × exponential = ~6.2s khi hết attempts.
+            var delayMs = (int)(serializationBaseDelayMs * Math.Pow(2, serializationRetryCount - 1))
+                          + Random.Shared.Next(0, serializationJitterMs);
             _logger.LogWarning(
-                "LobbyMerge.CreateRequest: Postgres serialization failure (40001) on attempt {Attempt}/{Max}. " +
-                "Source={SourceLobbyId} | Target={TargetLobbyId} | By={UserId}. Retrying in {Delay}ms.",
+                "LobbyMerge.CreateRequest: Postgres transient failure on attempt {Attempt}/{Max}. " +
+                "Source={SourceLobbyId} | Target={TargetLobbyId} | By={UserId}. Retrying in {Delay}ms. Error: {Error}",
                 serializationRetryCount, maxSerializationRetries,
-                dto.SourceLobbyId, dto.TargetLobbyId, staffUserId, delayMs);
+                dto.SourceLobbyId, dto.TargetLobbyId, staffUserId, delayMs,
+                ex.InnerException is PostgresException pg
+                    ? $"{pg.SqlState} {pg.MessageText}"
+                    : ex.Message);
 
             await Task.Delay(delayMs, cancellationToken);
             continue; // Retry với fresh transaction + fresh data
+        }
+        catch (Exception ex) when (
+            IsSerializationFailure(ex)
+            && ambientTx == null
+            && serializationRetryCount >= maxSerializationRetries)
+        {
+            // ===== Postgres 40001/40P01 retries exhausted (2026-10-02 fix) =====
+            // Trước đây 5 attempts fail → exception bubble lên middleware dưới dạng
+            // InvalidOperationException("transient failure") + PostgresException ở InnerException.
+            // Client thấy HTTP 500 với message lạ → staff không biết phải thử lại hay báo admin.
+            // Fix: catch retries-exhausted riêng → throw ConflictException với message
+            // thân thiện tiếng Việt → API trả 409 "Vui lòng thử lại" thay vì 500.
+            if (ownedTx != null)
+            {
+                try { await ownedTx.RollbackAsync(cancellationToken); }
+                catch (InvalidOperationException)
+                {
+                    // SaveChangesAsync đã trigger auto-rollback; bỏ qua.
+                }
+            }
+
+            _logger.LogError(ex,
+                "LobbyMerge.CreateRequest: Postgres transient failure exhausted {Max} attempts. " +
+                "Source={SourceLobbyId} | Target={TargetLobbyId} | By={UserId}. " +
+                "Returning ConflictException(SerializationRetriesExhausted).",
+                maxSerializationRetries, dto.SourceLobbyId, dto.TargetLobbyId, staffUserId);
+
+            throw new ConflictException(LobbyMergeErrors.SerializationRetriesExhausted);
         }
         catch
         {
@@ -563,7 +603,7 @@ public class LobbyMergeService : ILobbyMergeService
         {
             if (ownedTx != null) await ownedTx.DisposeAsync();
         }
-        } // end while (true) — Postgres 40001 retry loop
+        } // end while (true) — Postgres 40001/40P01 retry loop
         return resultDto!;
     }
 
@@ -584,8 +624,9 @@ public class LobbyMergeService : ILobbyMergeService
     }
 
     /// <summary>
-    /// Detect Postgres serialization_failure (SQLSTATE 40001) — xảy ra khi Serializable
-    /// isolation phát hiện read/write dependency giữa 2 transactions đồng thời.
+    /// Detect Postgres serialization_failure (SQLSTATE 40001) hoặc deadlock_detected (40P01)
+    /// — xảy ra khi Serializable isolation phát hiện read/write dependency giữa 2 transactions
+    /// đồng thời, hoặc 2 transactions khóa chéo nhau (deadlock).
     ///
     /// Stack trace điển hình (xem production logs 2026-10-02):
     ///   - 2 staff tại cùng cafe gọi CreateMergeRequestAsync đồng thời
@@ -596,29 +637,39 @@ public class LobbyMergeService : ILobbyMergeService
     ///     (Tx1 read ActiveSession → Tx2 write LobbyMergeRequest with same SourceLobby →
     ///      Tx1 write LobbyMergeRequest with same TargetLobby → cycle detected)
     ///   - Postgres abort 1 transaction với 40001.
+    ///   HOẶC 2 transaction khóa chéo (Tx1 giữ row A chờ row B, Tx2 giữ row B chờ row A)
+    ///   → Postgres chọn 1 victim, abort với 40P01.
     ///
-    /// Postgres hint: "The transaction might succeed if retried."
+    /// Cả 2 SQLSTATE đều transient, Postgres hint: "The transaction might succeed if retried."
     /// Reference: https://www.postgresql.org/docs/current/transaction-iso.html#XACT-SERIALIZABLE
+    /// Reference: https://www.postgresql.org/docs/current/errcodes-appendix.html
     ///
     /// Bug fix (2026-10-02): Hàm trước chỉ check `ex is DbUpdateException` ở outermost.
     /// Nhưng EF Core's <c>NpgsqlExecutionStrategy</c> wrap <c>DbUpdateException</c> thành
     /// <c>InvalidOperationException("An exception has been raised that is likely due
     /// to a transient failure.")</c> TRƯỚC khi ném ra service code. Kết quả: retry catch
     /// không match (outermost là InvalidOperationException), exception bubble lên middleware
-    /// → HTTP 500. Fix: walk <c>InnerException</c> chain để tìm <c>PostgresException(40001)</c>
-    /// bất kể nó được wrap ở tầng nào.
+    /// → HTTP 500. Fix: walk <c>InnerException</c> chain để tìm <c>PostgresException</c> bất
+    /// kể nó được wrap ở tầng nào.
+    ///
+    /// Bug fix (2026-10-02 — gap 2): Trước đây chỉ check <c>40001</c>, bỏ sót <c>40P01</c>.
+    /// Production logs cho thấy 2 staff merge cùng 1 nhóm trong 1s có thể trigger 40P01
+    /// (deadlock) thay vì 40001 (serialization failure). Reference services đã handle cả 2
+    /// (xem <c>BoardVerse.Services.Services.LobbyService.IsSerializationFailure</c> line 1343).
     /// </summary>
-    private static bool IsSerializationFailure(Exception ex)
+    internal static bool IsSerializationFailure(Exception ex)
     {
         // Walk InnerException chain. EF execution strategy có thể wrap nhiều tầng:
         //   InvalidOperationException
         //     → DbUpdateException
-        //       → PostgresException(SqlState="40001")
+        //       → PostgresException(SqlState="40001" hoặc "40P01")
+        // 40001 = serialization_failure (Serializable isolation phát hiện rw-antidependency cycle).
+        // 40P01 = deadlock_detected (2 transactions khóa chéo nhau, Postgres chọn 1 victim).
         for (Exception? cursor = ex; cursor != null; cursor = cursor.InnerException)
         {
             if (cursor is DbUpdateException dbe
                 && dbe.InnerException is PostgresException pg
-                && pg.SqlState == "40001")
+                && (pg.SqlState == "40001" || pg.SqlState == "40P01"))
             {
                 return true;
             }
@@ -636,10 +687,10 @@ public class LobbyMergeService : ILobbyMergeService
         // ===== Ambient Transaction Pattern — BR-REQUIRED §17.5 =====
         var ambientTx = _db.Database.CurrentTransaction;
 
-        // ===== Postgres Serializable retry loop (SQLSTATE 40001) =====
+        // ===== Postgres Serializable retry loop (SQLSTATE 40001 + 40P01) =====
         // Bug fix (2026-10-02): Trước đây ApproveMergeAsync KHÔNG có retry loop — chỉ
-        // CreateMergeRequestAsync mới có. Production logs cho thấy 40001 cũng xảy ra ở
-        // approve flow khi 2 staff approve/reject/cancel cùng lúc trên cùng merge request,
+        // CreateMergeRequestAsync mới có. Production logs cho thấy 40001/40P01 cũng xảy ra
+        // ở approve flow khi 2 staff approve/reject/cancel cùng lúc trên cùng merge request,
         // hoặc khi đọc ActiveSession row bị lock bởi concurrent CafePosService flow
         // (PaySessionAsync, ForceCloseServiceAsync, Etc.).
         //
@@ -647,12 +698,17 @@ public class LobbyMergeService : ILobbyMergeService
         //   1. Begin fresh transaction (Serializable).
         //   2. Execute validation + transfers + SaveChanges.
         //   3. On success → commit + break.
-        //   4. On 40001 → rollback + ChangeTracker.Clear() + delay + retry.
-        //   5. On 23505 (unique violation) / other → rollback + throw.
+        //   4. On 40001/40P01 (còn attempts) → rollback + ChangeTracker.Clear() + delay + retry.
+        //   5. On 40001/40P01 (hết attempts) → rollback + throw ConflictException.
+        //   6. On 23505 (unique violation) / other → rollback + throw.
         //
         // Retry chỉ áp dụng khi WE own transaction (ambientTx == null). Nếu caller đã
         // wrap ambient transaction riêng thì không rollback được → không retry.
-        const int maxSerializationRetries = 3;
+        //
+        // Tuning (2026-10-02): max 5 attempts, base 200ms — đồng bộ với CreateMergeRequestAsync.
+        const int maxSerializationRetries = 5;
+        const int serializationBaseDelayMs = 200;
+        const int serializationJitterMs = 50;
         int serializationRetryCount = 0;
 
         LobbyMergeApprovedDto? resultDto = null;
@@ -1556,10 +1612,10 @@ public class LobbyMergeService : ILobbyMergeService
             && ambientTx == null
             && serializationRetryCount < maxSerializationRetries)
         {
-            // ===== Postgres 40001 serialization_failure retry =====
+            // ===== Postgres 40001/40P01 retry (còn attempts) =====
             // 2 staff approve cùng target lobby hoặc cùng ActiveSession row đang bị lock bởi
-            // CafePosService flow khác → Postgres phát hiện rw-antidependency cycle → abort
-            // transaction này với 40001. Postgres recommendation: retry.
+            // CafePosService flow khác → Postgres phát hiện rw-antidependency cycle (40001)
+            // hoặc deadlock cycle (40P01) → abort transaction này. Postgres recommendation: retry.
             //
             // Bug fix (2026-10-02): Trước đây ApproveMergeAsync không có retry catch → bug
             // nghiêm trọng vì Step 4 FromSqlRaw + Include(s => s.Members) load full graph
@@ -1582,17 +1638,47 @@ public class LobbyMergeService : ILobbyMergeService
             // sẽ cố re-insert các entities đã được add từ attempt trước).
             _db.ChangeTracker.Clear();
 
-            // Exponential backoff + jitter: 100ms, 200ms, 400ms (+ random 0-50ms).
-            // Jitter tránh thundering herd khi nhiều request cùng retry đồng thời.
-            var delayMs = (int)(100 * Math.Pow(2, serializationRetryCount - 1))
-                          + Random.Shared.Next(0, 50);
+            // Exponential backoff + jitter: 200ms, 400ms, 800ms, 1600ms, 3200ms
+            // (+ random 0-50ms). Jitter tránh thundering herd.
+            var delayMs = (int)(serializationBaseDelayMs * Math.Pow(2, serializationRetryCount - 1))
+                          + Random.Shared.Next(0, serializationJitterMs);
             _logger.LogWarning(
-                "LobbyMerge.Approve: Postgres serialization failure (40001) on attempt {Attempt}/{Max}. " +
-                "RequestId={RequestId}. Retrying in {Delay}ms.",
-                serializationRetryCount, maxSerializationRetries, requestId, delayMs);
+                "LobbyMerge.Approve: Postgres transient failure on attempt {Attempt}/{Max}. " +
+                "RequestId={RequestId}. Retrying in {Delay}ms. Error: {Error}",
+                serializationRetryCount, maxSerializationRetries, requestId, delayMs,
+                ex.InnerException is PostgresException pg
+                    ? $"{pg.SqlState} {pg.MessageText}"
+                    : ex.Message);
 
             await Task.Delay(delayMs, cancellationToken);
             continue; // Retry với fresh transaction + fresh data
+        }
+        catch (Exception ex) when (
+            IsSerializationFailure(ex)
+            && ambientTx == null
+            && serializationRetryCount >= maxSerializationRetries)
+        {
+            // ===== Postgres 40001/40P01 retries exhausted (2026-10-02 fix) =====
+            // 5 attempts fail → throw ConflictException với message thân thiện thay vì để
+            // InvalidOperationException bubble lên middleware → 500 "transient failure".
+            if (ownedTx != null)
+            {
+                try
+                {
+                    await ownedTx.RollbackAsync(cancellationToken);
+                }
+                catch (InvalidOperationException)
+                {
+                    // Transaction đã được commit ở Step 9 → rollback không hợp lệ. Bỏ qua.
+                }
+            }
+
+            _logger.LogError(ex,
+                "LobbyMerge.Approve: Postgres transient failure exhausted {Max} attempts. " +
+                "RequestId={RequestId}. Returning ConflictException(SerializationRetriesExhausted).",
+                maxSerializationRetries, requestId);
+
+            throw new ConflictException(LobbyMergeErrors.SerializationRetriesExhausted);
         }
         catch
         {
@@ -1618,7 +1704,7 @@ public class LobbyMergeService : ILobbyMergeService
         {
             if (ownedTx != null) await ownedTx.DisposeAsync();
         }
-        } // end while (true) — Postgres 40001 retry loop
+        } // end while (true) — Postgres 40001/40P01 retry loop
         return resultDto!;
     }
 

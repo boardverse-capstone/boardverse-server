@@ -2656,6 +2656,21 @@ public static class LobbyMerge
         $"phòng nguồn muốn chuyển {sourceActive} thành viên, tổng cộng {targetActive + sourceActive} người " +
         $"vượt quá sức chứa của quán trong khung giờ này ({targetCapacity} chỗ). " +
         $"Vui lòng chọn lại số thành viên cần chuyển (giảm SelectedMemberIds) hoặc tách thành nhiều yêu cầu nhỏ hơn.";
+
+    // ===== H6 (2026-10-02): Postgres 40001/40P01 retries exhausted =====
+    // Bug fix: Trước đây 5 attempts liên tiếp fail với serialization_failure (40001) hoặc
+    // deadlock_detected (40P01) → InvalidOperationException bubble lên middleware → HTTP 500
+    // "transient failure". Giờ throw ConflictException(SerializationRetriesExhausted) để UX
+    // rõ ràng: staff thấy HTTP 409 với message "thử lại sau ít phút" thay vì 500 chung chung.
+    // Context (source lobby, target lobby, requestId, staff userId) đã được _logger.LogError
+    // ghi vào application log trước đó → admin có thể trace lại nếu cần.
+    //
+    // Không dùng pattern method (Guid, int) như BvcCaptureRetryExhausted vì 2 call sites
+    // (CreateRequest line 584, ApproveMergeAsync line 1681) đều throw không kèm args. Nếu
+    // sau này muốn truyền ID vào message, đổi thành static string method và update 2 call sites.
+    public const string SerializationRetriesExhausted =
+        "Hệ thống quán đang bận (Postgres không thể hoàn tất giao dịch sau nhiều lần thử). " +
+        "Vui lòng thử lại sau ít phút. Nếu lỗi tiếp tục xảy ra, liên hệ đội kỹ thuật kèm thời gian xảy ra.";
 }
 }
 

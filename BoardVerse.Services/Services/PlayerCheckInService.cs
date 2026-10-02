@@ -128,7 +128,7 @@ public class PlayerCheckInService : IPlayerCheckInService
                 ApiErrorMessages.Reservation.NotReservationMember(reservation.Id, playerUserId));
         }
 
-        // Validate trong check-in window (BR-06: grace 30 phút sau scheduledTime).
+        // Validate trong check-in window (windowStart = -1h, windowEnd = +30 min quanh ScheduledStartTime/ScheduledEndTime).
         var now = DateTime.UtcNow;
         // windowStart = 1 giờ trước để player có thể scan sớm (linh hoạt).
         // windowEnd = 30 phút sau scheduledEndTime (grace period BR-06).

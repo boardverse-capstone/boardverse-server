@@ -2308,15 +2308,15 @@ public class ReservationService : IReservationService
     /// GAP #2 fix: BR §21A.7 step 3 — "Thời gian nằm trong khung giờ cho phép".
     ///
     /// Time window:
-    /// - Early grace: scheduledTime - 15 phút (BR-CHECKIN-01: cho phép khách đến sớm).
+    /// - Early grace: scheduledTime - 30 phút (BR-CHECKIN-01: cho phép khách đến sớm).
     /// - Late grace: scheduledEndTime + 30 phút (BR-END-05: grace period, không tính extra).
     ///
     /// Trả 400 Bad Request qua ApiExceptionMiddleware nếu ngoài window.
     /// </summary>
     private async Task ValidateCheckInTimeWindowAsync(Reservation reservation, DateTime now)
     {
-        // BR-CHECKIN-01: Check-in trong [-15 min, +30 min] quanh [ScheduledStartTime, ScheduledEndTime].
-        const int EarlyGraceMinutes = 15;
+        // BR-CHECKIN-01: Check-in trong [-30 min, +30 min] quanh [ScheduledStartTime, ScheduledEndTime].
+        const int EarlyGraceMinutes = 30;
         const int LateGraceMinutes = 30;
 
         var scheduledStart = reservation.ScheduledStartTime;

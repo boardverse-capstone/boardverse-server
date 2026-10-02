@@ -313,6 +313,7 @@ Tạo yêu cầu ghép nhóm. Staff POS gọi khi scan mã member A3 muốn nh�
 | `409` | Lobby đích không active | `TargetLobbyNotActive` |
 | `409` | Đã có request pending | `MergeRequestAlreadyExists` |
 | `409` | Không đủ ghế | `InsufficientSeatsForMerge` |
+| `409` | **Postgres retry exhausted** — 5 lần serialization_failure (40001) hoặc deadlock_detected (40P01) liên tiếp (Bug fix 2026-10-02) | `SerializationRetriesExhausted` |
 | `500` | Lỗi hệ thống | `InternalServerError` |
 
 ---
@@ -415,6 +416,7 @@ Duyệt yêu cầu ghép nhóm — thực hiện atomic trong transaction.
 | `409` | Cap deposit vượt | `UserDepositCapExceeded` |
 | `409` | **Source lobby rỗng** — không có member active nào để chuyển (Bug fix 2026-09-29) | `NoActiveMembersToTransfer` |
 | `409` | Deposit đã captured | `SourceDepositAlreadyCaptured` |
+| `409` | **Postgres retry exhausted** — 5 lần serialization_failure (40001) hoặc deadlock_detected (40P01) liên tiếp (Bug fix 2026-10-02) | `SerializationRetriesExhausted` |
 | `500` | Lỗi hệ thống | `InternalServerError` |
 
 ---
