@@ -526,8 +526,8 @@ namespace BoardVerse.Services.Services
                 var overlapList = await _lobbyRepository.GetOverlappingLobbiesAsync(
                     userId,
                     lobby.PlayDate.Value,
-                    lobby.PreferredStartTime ?? (lobby.ScheduledStartTime.HasValue ? TimeOnly.FromDateTime(lobby.ScheduledStartTime.Value) : TimeOnly.MinValue),
-                    lobby.PreferredEndTime ?? (lobby.ScheduledStartTime.HasValue ? TimeOnly.FromDateTime(lobby.ScheduledStartTime.Value.AddHours(2)) : TimeOnly.MinValue),
+                    lobby.PreferredStartTime ?? (lobby.ScheduledStartTime.HasValue ? TimeOnly.FromDateTime(CafeSchedule.ToVietnamLocal(lobby.ScheduledStartTime.Value)) : TimeOnly.MinValue),
+                    lobby.PreferredEndTime ?? (lobby.ScheduledStartTime.HasValue ? TimeOnly.FromDateTime(CafeSchedule.ToVietnamLocal(lobby.ScheduledStartTime.Value.AddHours(2))) : TimeOnly.MinValue),
                     lobby.RecruitmentDeadline ?? DateTime.MinValue);
 
                 if (overlapList.Any())
@@ -1279,8 +1279,8 @@ namespace BoardVerse.Services.Services
                 && lobby.PlayDate.HasValue
                 && (lobby.PreferredStartTime.HasValue || lobby.ScheduledStartTime.HasValue))
             {
-                var startTime = lobby.PreferredStartTime ?? TimeOnly.FromDateTime(lobby.ScheduledStartTime!.Value);
-                var endTime = lobby.PreferredEndTime ?? (lobby.ScheduledStartTime.HasValue ? TimeOnly.FromDateTime(lobby.ScheduledStartTime.Value.AddHours(2)) : TimeOnly.MinValue);
+                var startTime = lobby.PreferredStartTime ?? TimeOnly.FromDateTime(CafeSchedule.ToVietnamLocal(lobby.ScheduledStartTime!.Value));
+                var endTime = lobby.PreferredEndTime ?? (lobby.ScheduledStartTime.HasValue ? TimeOnly.FromDateTime(CafeSchedule.ToVietnamLocal(lobby.ScheduledStartTime.Value.AddHours(2))) : TimeOnly.MinValue);
                 var seatInv = await _seatInventoryRepository.GetForUpdateAsync(
                     lobby.CafeId.Value, lobby.PlayDate.Value, startTime, endTime);
                 if (seatInv != null && lobby.MaxMembers > 0)
@@ -2140,8 +2140,8 @@ namespace BoardVerse.Services.Services
                 GameId = l.GameTemplateId,
                 GameName = l.GameTemplate?.Name ?? string.Empty,
                 PlayDate = l.PlayDate ?? DateOnly.FromDateTime(DateTime.UtcNow),
-                PreferredStartTime = l.PreferredStartTime ?? TimeOnly.FromDateTime(l.ScheduledStartTime ?? DateTime.UtcNow),
-                PreferredEndTime = l.PreferredEndTime ?? TimeOnly.FromDateTime(l.Reservation?.ScheduledEndTime ?? l.ScheduledStartTime ?? DateTime.UtcNow),
+                PreferredStartTime = l.PreferredStartTime ?? TimeOnly.FromDateTime(CafeSchedule.ToVietnamLocal(l.ScheduledStartTime ?? DateTime.UtcNow)),
+                PreferredEndTime = l.PreferredEndTime ?? TimeOnly.FromDateTime(CafeSchedule.ToVietnamLocal(l.Reservation?.ScheduledEndTime ?? l.ScheduledStartTime ?? DateTime.UtcNow)),
                 CurrentPlayers = l.Members?.Count(m => m.IsActive) ?? 0,
                 MinPlayers = l.MinPlayers,
                 MaxPlayers = l.MaxMembers,
@@ -2161,6 +2161,139 @@ namespace BoardVerse.Services.Services
                 TotalCount = totalCount,
                 Page = page,
                 PageSize = pageSize
+            };
+        }
+
+        /// <summary>
+        /// Admin endpoint: lấy toàn bộ lobby trong hệ thống với filter tuỳ ý, có phân trang.
+        /// Validate từng giá trị <c>Statuses</c> là enum hợp lệ trước khi query.
+        /// </summary>
+        public async Task<GetAllLobbiesResponseDto> GetAllLobbiesAsync(
+            GetAllLobbiesRequestDto request, CancellationToken cancellationToken = default)
+        {
+            var page = Math.Max(1, request.Page);
+            var pageSize = Math.Clamp(request.PageSize, 1, 200);
+
+            List<LobbyStatus>? parsedStatuses = null;
+            if (request.Statuses != null && request.Statuses.Count > 0)
+            {
+                parsedStatuses = new List<LobbyStatus>(request.Statuses.Count);
+                foreach (var raw in request.Statuses)
+                {
+                    if (!Enum.IsDefined(typeof(LobbyStatus), raw))
+                    {
+                        throw new BadRequestException(
+                            $"Giá trị status không hợp lệ: {raw}. Hợp lệ: {string.Join(",", Enum.GetNames(typeof(LobbyStatus)))}");
+                    }
+                    parsedStatuses.Add((LobbyStatus)raw);
+                }
+            }
+
+            var (items, totalCount) = await _lobbyRepository.GetAllLobbiesAsync(
+                request.HostUserId,
+                request.GameTemplateId,
+                request.CafeId,
+                parsedStatuses,
+                request.FromDate,
+                request.ToDate,
+                page,
+                pageSize,
+                cancellationToken);
+
+            return new GetAllLobbiesResponseDto
+            {
+                Items = items.Select(MapLobbySummaryDto).ToList(),
+                TotalCount = totalCount,
+                Page = page,
+                PageSize = pageSize
+            };
+        }
+
+        /// <summary>
+        /// Lấy toàn bộ lobby của user hiện tại (host hoặc member, cả active + terminal).
+        /// </summary>
+        public async Task<GetAllLobbiesResponseDto> GetLobbyHistoryAsync(
+            Guid userId,
+            GetLobbyHistoryRequestDto request, CancellationToken cancellationToken = default)
+        {
+            var page = Math.Max(1, request.Page);
+            var pageSize = Math.Clamp(request.PageSize, 1, 100);
+
+            // Hỗ trợ cả 2 cách truyền status: list<int> + comma-separated string.
+            var parsed = new HashSet<LobbyStatus>();
+
+            if (request.Statuses != null)
+            {
+                foreach (var raw in request.Statuses)
+                {
+                    if (!Enum.IsDefined(typeof(LobbyStatus), raw))
+                    {
+                        throw new BadRequestException(
+                            $"Giá trị status không hợp lệ: {raw}. Hợp lệ: {string.Join(",", Enum.GetNames(typeof(LobbyStatus)))}");
+                    }
+                    parsed.Add((LobbyStatus)raw);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.StatusFilter))
+            {
+                foreach (var token in request.StatusFilter.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    if (!Enum.TryParse<LobbyStatus>(token, ignoreCase: true, out var s))
+                    {
+                        throw new BadRequestException(
+                            $"Giá trị statusFilter không hợp lệ: '{token}'. Hợp lệ: {string.Join(",", Enum.GetNames(typeof(LobbyStatus)))}");
+                    }
+                    parsed.Add(s);
+                }
+            }
+
+            var (items, totalCount) = await _lobbyRepository.GetUserLobbyHistoryAsync(
+                userId,
+                parsed.Count == 0 ? null : parsed.ToList(),
+                request.AsHost,
+                request.FromDate,
+                request.ToDate,
+                page,
+                pageSize,
+                cancellationToken);
+
+            return new GetAllLobbiesResponseDto
+            {
+                Items = items.Select(MapLobbySummaryDto).ToList(),
+                TotalCount = totalCount,
+                Page = page,
+                PageSize = pageSize
+            };
+        }
+
+        private static LobbySummaryDto MapLobbySummaryDto(Lobby lobby)
+        {
+            return new LobbySummaryDto
+            {
+                Id = lobby.Id,
+                HostUserId = lobby.HostUserId,
+                HostUserName = lobby.HostUser?.Profile?.LastResolvedDisplayName
+                    ?? lobby.HostUser?.Username,
+                GameTemplateId = lobby.GameTemplateId,
+                GameName = lobby.GameTemplate?.Name,
+                CafeId = lobby.CafeId,
+                CafeName = lobby.Cafe?.Name,
+                Status = lobby.Status,
+                ScheduledStartTime = lobby.ScheduledStartTime,
+                ScheduledEndTime = lobby.ScheduledEndTime,
+                PlayDate = lobby.PlayDate,
+                PreferredStartTime = lobby.PreferredStartTime,
+                PreferredEndTime = lobby.PreferredEndTime,
+                MaxMembers = lobby.MaxMembers,
+                MinPlayers = lobby.MinPlayers,
+                CurrentMembers = lobby.Members?.Count(m => m.IsActive) ?? 0,
+                IsPrivate = lobby.IsPrivate,
+                ShareCode = lobby.ShareCode,
+                ClosedAt = lobby.ClosedAt,
+                ClosedReason = lobby.ClosedReason,
+                CreatedAt = lobby.CreatedAt,
+                UpdatedAt = lobby.UpdatedAt
             };
         }
 

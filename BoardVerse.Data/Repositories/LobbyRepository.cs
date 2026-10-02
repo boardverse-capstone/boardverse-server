@@ -763,6 +763,131 @@ namespace BoardVerse.Data.Repositories
             return (items, totalCount);
         }
 
+        /// <summary>
+        /// Admin: lấy toàn bộ lobby hệ thống với filter tuỳ ý, có phân trang.
+        /// Sắp xếp theo CreatedAt desc (lobby mới nhất trước).
+        /// </summary>
+        public async Task<(IReadOnlyList<Lobby> Items, int TotalCount)> GetAllLobbiesAsync(
+            Guid? hostUserId,
+            Guid? gameTemplateId,
+            Guid? cafeId,
+            List<LobbyStatus>? statuses,
+            DateTime? fromDate,
+            DateTime? toDate,
+            int page,
+            int pageSize, CancellationToken cancellationToken = default)
+        {
+            var query = _db.Lobbies
+                .Include(l => l.GameTemplate)
+                .Include(l => l.HostUser)
+                    .ThenInclude(u => u.Profile)
+                .Include(l => l.Cafe)
+                .Include(l => l.Members)
+                .AsQueryable();
+
+            if (hostUserId.HasValue)
+            {
+                query = query.Where(l => l.HostUserId == hostUserId.Value);
+            }
+
+            if (gameTemplateId.HasValue)
+            {
+                query = query.Where(l => l.GameTemplateId == gameTemplateId.Value);
+            }
+
+            if (cafeId.HasValue)
+            {
+                query = query.Where(l => l.CafeId == cafeId.Value);
+            }
+
+            if (statuses != null && statuses.Count > 0)
+            {
+                // Lobby.Status dùng HasConversion<string>() — so sánh enum-to-enum, EF Core tự translate.
+                query = query.Where(l => statuses.Contains(l.Status));
+            }
+
+            if (fromDate.HasValue)
+            {
+                query = query.Where(l => l.CreatedAt >= fromDate.Value);
+            }
+
+            if (toDate.HasValue)
+            {
+                query = query.Where(l => l.CreatedAt <= toDate.Value);
+            }
+
+            var totalCount = await query.CountAsync(cancellationToken);
+
+            var items = await query
+                .OrderByDescending(l => l.CreatedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync(cancellationToken);
+
+            return (items, totalCount);
+        }
+
+        /// <summary>
+        /// Lấy toàn bộ lobby của user (host hoặc member, cả active + terminal).
+        /// Sắp xếp theo CreatedAt desc.
+        /// </summary>
+        public async Task<(IReadOnlyList<Lobby> Items, int TotalCount)> GetUserLobbyHistoryAsync(
+            Guid userId,
+            List<LobbyStatus>? statuses,
+            bool? asHost,
+            DateTime? fromDate,
+            DateTime? toDate,
+            int page,
+            int pageSize, CancellationToken cancellationToken = default)
+        {
+            var query = _db.Lobbies
+                .Include(l => l.GameTemplate)
+                .Include(l => l.HostUser)
+                    .ThenInclude(u => u.Profile)
+                .Include(l => l.Cafe)
+                .Include(l => l.Members)
+                .Where(l =>
+                    l.HostUserId == userId
+                    || l.Members.Any(m => m.UserId == userId && m.IsActive));
+
+            if (asHost.HasValue)
+            {
+                if (asHost.Value)
+                {
+                    query = query.Where(l => l.HostUserId == userId);
+                }
+                else
+                {
+                    query = query.Where(l => l.Members.Any(m => m.UserId == userId && m.IsActive));
+                }
+            }
+
+            if (statuses != null && statuses.Count > 0)
+            {
+                query = query.Where(l => statuses.Contains(l.Status));
+            }
+
+            if (fromDate.HasValue)
+            {
+                query = query.Where(l => l.CreatedAt >= fromDate.Value);
+            }
+
+            if (toDate.HasValue)
+            {
+                query = query.Where(l => l.CreatedAt <= toDate.Value);
+            }
+
+            var totalCount = await query.CountAsync(cancellationToken);
+
+            var items = await query
+                .OrderByDescending(l => l.CreatedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync(cancellationToken);
+
+            return (items, totalCount);
+        }
+
         // === BR-RISK-01 Signals ===
 
         /// <summary>

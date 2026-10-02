@@ -1,4 +1,5 @@
 using BoardVerse.Core.Common;
+using BoardVerse.Core.Constants;
 using BoardVerse.Core.DTOs.Cafe;
 using BoardVerse.Core.DTOs.Discovery;
 using BoardVerse.Core.DTOs.Game;
@@ -182,7 +183,7 @@ public class BoardGameDiscoveryService : IBoardGameDiscoveryService
                     MaxMembers = l.MaxMembers,
                     PlayDate = l.ScheduledStartTime?.Date,
                     StartTime = l.ScheduledStartTime.HasValue
-                        ? TimeOnly.FromDateTime(l.ScheduledStartTime.Value)
+                        ? TimeOnly.FromDateTime(CafeSchedule.ToVietnamLocal(l.ScheduledStartTime.Value))
                         : null,
                     CafeId = l.CafeId,
                     CafeName = l.CafeName,
@@ -1307,7 +1308,7 @@ public class BoardGameDiscoveryService : IBoardGameDiscoveryService
                     MaxMembers = l.MaxMembers,
                     PlayDate = l.ScheduledStartTime?.Date,
                     StartTime = l.ScheduledStartTime.HasValue
-                        ? TimeOnly.FromDateTime(l.ScheduledStartTime.Value)
+                        ? TimeOnly.FromDateTime(CafeSchedule.ToVietnamLocal(l.ScheduledStartTime.Value))
                         : null,
                     CafeId = l.CafeId,
                     CafeName = l.CafeName,

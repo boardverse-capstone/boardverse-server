@@ -65,8 +65,10 @@ public class ReservationServiceTimeValidationTests
         var (scheduledStart, scheduledEnd) = CafeSchedule.BuildScheduledStartEndFromPreferred(
             playDate, new TimeOnly(10, 0), new TimeOnly(14, 0));
 
-        Assert.Equal(new DateTime(2026, 8, 15, 10, 0, 0), scheduledStart);
-        Assert.Equal(new DateTime(2026, 8, 15, 14, 0, 0), scheduledEnd);
+        // FIX TZ-DT-UTC-TEST-01 (2026-10-02): output giờ là Kind=Utc.
+        // 10:00 VN = 03:00 UTC; 14:00 VN = 07:00 UTC cùng ngày.
+        Assert.Equal(new DateTime(2026, 8, 15, 3, 0, 0, DateTimeKind.Utc), scheduledStart);
+        Assert.Equal(new DateTime(2026, 8, 15, 7, 0, 0, DateTimeKind.Utc), scheduledEnd);
     }
 
     [Fact]
@@ -76,8 +78,9 @@ public class ReservationServiceTimeValidationTests
         var (scheduledStart, scheduledEnd) = CafeSchedule.BuildScheduledStartEndFromPreferred(
             playDate, new TimeOnly(17, 0), new TimeOnly(23, 0));
 
-        Assert.Equal(playDate, DateOnly.FromDateTime(scheduledStart));
-        Assert.Equal(playDate, DateOnly.FromDateTime(scheduledEnd));
+        // Convert về VN local trước khi so sánh DateOnly (early morning VN = previous day UTC).
+        Assert.Equal(playDate, DateOnly.FromDateTime(CafeSchedule.ToVietnamLocal(scheduledStart)));
+        Assert.Equal(playDate, DateOnly.FromDateTime(CafeSchedule.ToVietnamLocal(scheduledEnd)));
     }
 
     [Fact]
@@ -87,8 +90,10 @@ public class ReservationServiceTimeValidationTests
         var (scheduledStart, scheduledEnd) = CafeSchedule.BuildScheduledStartEndFromPreferred(
             playDate, new TimeOnly(21, 0), new TimeOnly(0, 0));
 
-        Assert.Equal(new DateTime(2026, 8, 18, 21, 0, 0), scheduledStart);
-        Assert.Equal(new DateTime(2026, 8, 19, 0, 0, 0), scheduledEnd);
+        // 21:00 VN = 14:00 UTC; 00:00 của 19/08 VN = 17:00 UTC của 18/08.
+        Assert.Equal(new DateTime(2026, 8, 18, 14, 0, 0, DateTimeKind.Utc), scheduledStart);
+        Assert.Equal(new DateTime(2026, 8, 18, 17, 0, 0, DateTimeKind.Utc), scheduledEnd);
+        // Duration giữ nguyên vì TimeSpan.Subtract là Kind-agnostic.
         Assert.Equal(TimeSpan.FromHours(3), scheduledEnd - scheduledStart);
     }
 
@@ -218,7 +223,9 @@ public class ReservationServiceTimeValidationTests
         var (scheduledStart, scheduledEnd) = CafeSchedule.BuildScheduledStartEndFromPreferred(
             new DateOnly(2026, 10, 2), new TimeOnly(16, 0), new TimeOnly(20, 0));
 
-        Assert.Equal(DateTimeKind.Unspecified, scheduledStart.Kind);
+        // FIX TZ-DT-UTC-TEST-01 (2026-10-02): BuildScheduledStartEndFromPreferred giờ trả về
+        // Kind=Utc (UTC ticks). JSON serializer sẽ render "Z" suffix → FE chuyển local chính xác.
+        Assert.Equal(DateTimeKind.Utc, scheduledStart.Kind);
 
         var nowUtc = new DateTime(2026, 10, 2, 8, 43, 0, DateTimeKind.Utc); // 15:43 VN
         var scheduledStartUtc = CafeSchedule.ToUtcAssumingVietnamLocal(scheduledStart);
