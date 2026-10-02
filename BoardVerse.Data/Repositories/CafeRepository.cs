@@ -26,6 +26,23 @@ namespace BoardVerse.Data.Repositories
                 .FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
         }
 
+        public async Task<IReadOnlyDictionary<Guid, string>> GetCafeNamesByIdsAsync(
+            IReadOnlyCollection<Guid> cafeIds,
+            CancellationToken cancellationToken = default)
+        {
+            if (cafeIds == null || cafeIds.Count == 0)
+            {
+                return new Dictionary<Guid, string>();
+            }
+
+            // Chỉ project 2 cột Id + Name để EF chỉ SELECT đúng 2 cột này,
+            // tránh generate SELECT c.* gồm các cột đã gỡ khỏi DB (vd TableLayoutJson).
+            return await _context.Cafes
+                .Where(c => cafeIds.Contains(c.Id))
+                .Select(c => new { c.Id, c.Name })
+                .ToDictionaryAsync(c => c.Id, c => c.Name, cancellationToken);
+        }
+
         /// <summary>
         /// Lấy Cafe kèm Manager navigation (FK User) — dùng cho AdminCafeController.GET /api/admin/cafes/{id}
         /// cần render ManagerName/ManagerEmail. Include Manager tránh NullRef khi map DTO.

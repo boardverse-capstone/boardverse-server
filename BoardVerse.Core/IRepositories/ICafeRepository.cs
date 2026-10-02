@@ -5,6 +5,7 @@ using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
 
+using System.Collections.Generic;
 using System.Threading;
 namespace BoardVerse.Core.IRepositories
 {
@@ -13,6 +14,15 @@ namespace BoardVerse.Core.IRepositories
         Task<Cafe?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
         Task<Cafe?> GetActiveByIdAsync(Guid id, CancellationToken cancellationToken = default);
         Task<Cafe?> GetByIdWithInventoriesAsync(Guid id, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Lookup tên cafe theo batch — chỉ project 2 cột Id + Name để tránh EF generate
+        /// SELECT c.* (gồm các cột đã gỡ khỏi DB như TableLayoutJson) và tránh N+1.
+        /// Trả về dictionary Id → Name; nếu input rỗng trả dictionary rỗng.
+        /// </summary>
+        Task<IReadOnlyDictionary<Guid, string>> GetCafeNamesByIdsAsync(
+            IReadOnlyCollection<Guid> cafeIds,
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Lấy Cafe kèm Manager navigation (FK User) — dùng cho Admin GET /api/admin/cafes/{id}

@@ -81,13 +81,27 @@ public class LobbyAtRiskWarningJob : BackgroundService
                         && l.RecruitmentDeadline > now
                         && l.CreatedAt < now)
             .Include(l => l.Members.Where(m => m.IsActive))
-            .Include(l => l.Cafe)
             .AsSplitQuery()
             .AsNoTracking()
             .ToListAsync(ct);
 
         if (lobbies.Count == 0)
             return;
+
+        // Lookup Cafe.Name riêng (chỉ cần 2 cột) tránh EF generate SELECT c.*
+        // bao gồm các cột đã gỡ khỏi DB (vd TableLayoutJson).
+        var cafeIds = lobbies
+            .Where(l => l.CafeId.HasValue)
+            .Select(l => l.CafeId!.Value)
+            .Distinct()
+            .ToList();
+
+        var cafeNameById = cafeIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : await db.Cafes
+                .Where(c => cafeIds.Contains(c.Id))
+                .Select(c => new { c.Id, c.Name })
+                .ToDictionaryAsync(c => c.Id, c => c.Name, ct);
 
         // Lọc bỏ những lobby đã được cảnh báo at-risk
         var atRiskSent = await db.LobbyAtRiskWarnings
@@ -143,7 +157,7 @@ public class LobbyAtRiskWarningJob : BackgroundService
                     {
                         { "lobbyId", lobby.Id.ToString() },
                         { "cafeId", lobby.CafeId?.ToString() ?? "" },
-                        { "cafeName", lobby.Cafe?.Name ?? "" },
+                        { "cafeName", (lobby.CafeId.HasValue && cafeNameById.TryGetValue(lobby.CafeId.Value, out var n)) ? n : "" },
                         { "currentPlayers", currentPlayers.ToString() },
                         { "minPlayers", minPlayers.ToString() },
                         { "missingPlayers", missingPlayers.ToString() },

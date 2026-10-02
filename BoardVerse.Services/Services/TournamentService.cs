@@ -2114,6 +2114,14 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         var upcoming = await _tournamentRepository.GetTournamentsStartingSoonAsync(now, ct);
         var sentCount = 0;
 
+        // Lookup CafeName theo batch (tránh N+1) — Cafe entity chứa các cột
+        // đã gỡ khỏi DB (vd TableLayoutJson), nên không Include(t.Cafe).
+        var cafeIds = upcoming
+            .Select(t => t.CafeId)
+            .Distinct()
+            .ToList();
+        var cafeNameById = await _cafeRepository.GetCafeNamesByIdsAsync(cafeIds, ct);
+
         foreach (var tournament in upcoming)
         {
             ct.ThrowIfCancellationRequested();
@@ -2131,6 +2139,8 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
             if (reminderType == null) continue;
 
+            var cafeName = cafeNameById.TryGetValue(tournament.CafeId, out var n) ? n : "";
+
             // Láº¥y participants chÆ°a check-in (chá»‰ gá»­i reminder cho user online)
             var notCheckedIn = tournament.Participants
                 .Where(p => p.UserId.HasValue &&
@@ -2142,11 +2152,11 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
                 var message = reminderType switch
                 {
                     "30min" => ApiErrorMessages.Tournament.Reminder30Minutes(
-                        tournament.Title, tournament.StartTime, tournament.Cafe?.Name ?? ""),
+                        tournament.Title, tournament.StartTime, cafeName),
                     "15min" => ApiErrorMessages.Tournament.Reminder15Minutes(
-                        tournament.Title, tournament.StartTime, tournament.Cafe?.Name ?? ""),
+                        tournament.Title, tournament.StartTime, cafeName),
                     "5min" => ApiErrorMessages.Tournament.Reminder5Minutes(
-                        tournament.Title, tournament.StartTime, tournament.Cafe?.Name ?? ""),
+                        tournament.Title, tournament.StartTime, cafeName),
                     _ => null
                 };
 
