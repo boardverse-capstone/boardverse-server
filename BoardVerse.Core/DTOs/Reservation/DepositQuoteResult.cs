@@ -16,40 +16,47 @@ public enum DistanceBucket
 }
 
 /// <summary>
-/// Kết quả tính cọc (BR-DEPOSIT-02..04 + BR-NEW-01).
+/// Kết quả tính cọc — công thức đơn giản 2026-10-02:
+///   perPersonBvc = max(1, floor(cafeBasePrice × 20% / 1000))
+///   finalDeposit = perPersonBvc × maxPlayers × riskMultiplier
 /// </summary>
 public class DepositQuoteResult
 {
     /// <summary>
-    /// BVC cọc / người sau khi áp BR-DEPOSIT-03 clamp [Min, Max] và BR-03 cap (50% × basePrice).
+    /// 2026-10-02: BVC cọc / người = max(1, floor(cafeBasePrice × 20% / 1000)).
+    /// Công thức cũ (clamp DepositRatePerPerson + BR-03 cap 50%) đã bỏ.
     /// </summary>
     public long DepositPerPerson { get; set; }
 
     /// <summary>
-    /// baseDeposit = DepositPerPerson × finalMaxPlayers (BR-DEPOSIT-02, chưa áp riskMultiplier).
+    /// 2026-10-02: baseDeposit = DepositPerPerson × finalMaxPlayers (chưa áp riskMultiplier).
     /// </summary>
     public long BaseDeposit { get; set; }
 
-    /// <summary>minDeposit theo khoảng cách playDate (BR-NEW-01).</summary>
+    /// <summary>
+    /// [2026-10-02 OBSOLETE] BR-NEW-01 cũ: minDeposit theo khoảng cách playDate.
+    /// Luôn = 0 với công thức mới (bỏ minDepositByDistance floor). Giữ field cho backward compat FE.
+    /// </summary>
+    [Obsolete("2026-10-02: bỏ minDepositByDistance floor. Field luôn = 0.")]
     public long MinDepositApplied { get; set; }
 
     /// <summary>riskMultiplier từ wallet (BR-RISK-03, 1.0..2.0).</summary>
     public decimal RiskMultiplier { get; set; }
 
     /// <summary>
-    /// finalDeposit = max(minDepositByDistance(distance), baseDeposit × riskMultiplier).
-    /// BR-DEPOSIT-02 + BR-DEPOSIT-04 + BR-NEW-01.
+    /// 2026-10-02: finalDeposit = baseDeposit × riskMultiplier.
+    /// Công thức cũ (max(MinDepositApplied, baseDeposit × riskMultiplier)) đã bỏ phần max.
     /// </summary>
     public long FinalDeposit { get; set; }
 
     /// <summary>
-    /// Giá vé cơ bản của cafe (VND) — dùng để FE hiển thị breakdown
-    /// "Tiền cọc = X% × {CafeBasePriceVnd:N0}đ = {FinalDeposit} BVC".
+    /// Giá vé cơ bản của cafe (VND) — input cho công thức cọc.
+    /// FE dùng để render "Tiền cọc = 20% × {CafeBasePriceVnd:N0}đ = {FinalDeposit} BVC".
     /// </summary>
     public decimal CafeBasePriceVnd { get; set; }
 
     /// <summary>
-    /// % cọc hiện tại (0.20 = 20%). Config trong code, không phụ thuộc BR-NEW-01 nữa.
+    /// % cọc cố định (2026-10-02: 0.20 = 20% × basePrice).
     /// </summary>
     public decimal DepositPercentage { get; set; }
 

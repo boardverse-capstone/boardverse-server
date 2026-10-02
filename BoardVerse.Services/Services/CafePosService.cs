@@ -219,20 +219,6 @@ namespace BoardVerse.Services.Services
                 .ToList();
         }
 
-        public async Task SyncTablesAsync(Guid cafeId, Guid managerId, IReadOnlyList<string> tableNames, CancellationToken cancellationToken = default)
-        {
-            var items = tableNames
-                .Select((name, index) => new CafeTableSyncItem
-                {
-                    Name = name,
-                    SortOrder = index,
-                    SeatCount = null
-                })
-                .ToList();
-
-            await SyncTablesAsync(cafeId, managerId, items);
-        }
-
         public async Task SyncTablesAsync(Guid cafeId, Guid managerId, IReadOnlyList<CafeTableSyncItem> tables, CancellationToken cancellationToken = default)
         {
             // GAP-R4-A24 Fix: dùng EnsurePosAccessAsync để consistent với các method khác.

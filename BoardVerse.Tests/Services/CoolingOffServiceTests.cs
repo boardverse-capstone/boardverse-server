@@ -147,7 +147,9 @@ public class CoolingOffServiceTests
         Assert.NotNull(wallet.CoolingOffExpiresAt);
         Assert.True(wallet.CoolingOffExpiresAt > DateTime.UtcNow.AddDays(29));
         Assert.True(wallet.CoolingOffExpiresAt < DateTime.UtcNow.AddDays(31));
-        Assert.Equal(2.0m, wallet.RiskMultiplier);
+        // 2026-10-02: Cooling-off KHÔNG nhân RiskMultiplier nữa (đơn giản hóa).
+        // Wallet.RiskMultiplier giữ nguyên giá trị do risk score recompute job quản lý.
+        Assert.Equal(1.0m, wallet.RiskMultiplier);
     }
 
     [Fact]
@@ -250,9 +252,11 @@ public class CoolingOffServiceTests
     }
 
     [Fact]
-    public async Task DetectAndActivateAsync_Should_BumpRiskMultiplier_To2x_When_AlreadyHigher()
+    public async Task DetectAndActivateAsync_Should_NotChangeRiskMultiplier_When_AlreadyHigher()
     {
-        // Arrange: wallet có RiskMultiplier = 1.5 (cảnh báo). Activate → max(1.5, 2.0) = 2.0.
+        // Arrange: wallet có RiskMultiplier = 1.5 (cảnh báo từ risk score job).
+        // 2026-10-02: Activate cooling-off KHÔNG nhân RiskMultiplier nữa (đơn giản hóa).
+        // → 1.5 giữ nguyên sau activate.
         var userId = Guid.NewGuid();
         var wallet = CreateWallet(userId);
         wallet.RiskMultiplier = 1.5m;
@@ -271,8 +275,9 @@ public class CoolingOffServiceTests
         // Act
         await _sut.DetectAndActivateAsync(DateTime.UtcNow, 100);
 
-        // Assert: RiskMultiplier bumped to 2.0 (max of existing 1.5 and threshold 2.0).
-        Assert.Equal(2.0m, wallet.RiskMultiplier);
+        // Assert: RiskMultiplier giữ nguyên (1.5 → 1.5), không bump lên 2.0.
+        Assert.Equal(1.5m, wallet.RiskMultiplier);
+        Assert.True(wallet.IsCoolingOff); // cooling-off vẫn active
     }
 
     // ===== ExpireOverdueAsync =====
@@ -320,12 +325,13 @@ public class CoolingOffServiceTests
     // ===== EscalateAsync =====
 
     [Fact]
-    public async Task EscalateAsync_Should_ExtendTo30Days_And_MultiplyTo3x_When_CurrentlyCoolingOff()
+    public async Task EscalateAsync_Should_ExtendTo30Days_Without_MultiplyChange_When_CurrentlyCoolingOff()
     {
-        // Arrange: user đang cooling-off với multiplier 2.0 (đã trigger).
+        // Arrange: user đang cooling-off với multiplier 1.0 (risk score job chưa bump).
+        // 2026-10-02: Escalate KHÔNG nhân RiskMultiplier nữa — chỉ gia hạn ExpiresAt.
         var userId = Guid.NewGuid();
         var wallet = CreateWallet(userId, isCoolingOff: true);
-        wallet.RiskMultiplier = 2.0m;
+        wallet.RiskMultiplier = 1.0m;
         wallet.CoolingOffExpiresAt = DateTime.UtcNow.AddDays(15);
 
         _walletRepo.Setup(r => r.GetByUserIdForUpdateAsync(userId, It.IsAny<CancellationToken>()))
@@ -342,16 +348,18 @@ public class CoolingOffServiceTests
         // Gia hạn +30 ngày từ now (≈ 30 ngày từ hiện tại, tolerance ±1 phút).
         var daysUntilExpiry = (wallet.CoolingOffExpiresAt!.Value - DateTime.UtcNow).TotalDays;
         Assert.True(daysUntilExpiry > 29.9 && daysUntilExpiry < 30.1, $"Expected ~30 days, got {daysUntilExpiry}");
-        Assert.Equal(3.0m, wallet.RiskMultiplier);
+        // RiskMultiplier giữ nguyên — không bị escalate nhân.
+        Assert.Equal(1.0m, wallet.RiskMultiplier);
     }
 
     [Fact]
-    public async Task EscalateAsync_Should_KeepHigherMultiplier_When_AlreadyAt3x()
+    public async Task EscalateAsync_Should_KeepRiskMultiplier_When_CalledMultipleTimes()
     {
-        // Arrange: đã escalate trước đó, multiplier = 3.0.
+        // Arrange: đã escalate trước đó, multiplier = 1.5 (do risk score job).
+        // 2026-10-02: Escalate KHÔNG nhân multiplier nữa, nên multiplier giữ nguyên qua nhiều lần escalate.
         var userId = Guid.NewGuid();
         var wallet = CreateWallet(userId, isCoolingOff: true);
-        wallet.RiskMultiplier = 3.0m;
+        wallet.RiskMultiplier = 1.5m;
 
         _walletRepo.Setup(r => r.GetByUserIdForUpdateAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(wallet);
@@ -359,8 +367,8 @@ public class CoolingOffServiceTests
         // Act
         await _sut.EscalateAsync(userId, "Second escalation");
 
-        // Assert: max(3.0, 3.0) = 3.0 (không giảm).
-        Assert.Equal(3.0m, wallet.RiskMultiplier);
+        // Assert: 1.5 giữ nguyên (không bị nhân thành 3.0 như trước).
+        Assert.Equal(1.5m, wallet.RiskMultiplier);
     }
 
     [Fact]

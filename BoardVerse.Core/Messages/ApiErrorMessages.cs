@@ -3616,9 +3616,6 @@ public static class Settlement
         public const string ReservationInvalidRequest =
             "Yêu cầu không hợp lệ. Vui lòng kiểm tra lại các trường và thử lại.";
 
-        public const string ReservationOnlyOneOfTableNamesOrTables =
-            "Chỉ được gửi một trong hai: tableNames (legacy) hoặc tables (cấu hình mới). Không gửi cả hai.";
-
         public static string ReservationInvalidTableConfig(string reason) =>
             $"Cấu hình bàn không hợp lệ: {reason}.";
 

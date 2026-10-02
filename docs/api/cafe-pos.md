@@ -246,21 +246,7 @@ curl -G "https://api.boardverse.local/api/cafes/{cafeId}/pos/tables" \
 
 **Role:** Manager — phải là chủ quán (ManagerId của cafe).
 
-**Body — hỗ trợ 2 shape (chọn 1, không gửi cả 2):**
-
-### Shape A (legacy) — chỉ tên
-
-```json
-{
-  "tableNames": ["Bàn 1", "Bàn 2", "Bàn 3"]
-}
-```
-
-- Bàn mới → SeatCount mặc định 4.
-- Bàn đã tồn tại (match case-insensitive theo Name) → chỉ cập nhật Name/SortOrder, **giữ nguyên SeatCount**.
-- Bàn active không có trong list → soft-delete (IsActive=false) nếu Status = Available.
-
-### Shape B (mới) — Name + SeatCount + SortOrder
+**Body — shape duy nhất:**
 
 ```json
 {
@@ -276,11 +262,10 @@ curl -G "https://api.boardverse.local/api/cafes/{cafeId}/pos/tables" \
 - Bàn mới → dùng SeatCount từ payload, hoặc default 4 nếu null.
 - Bàn đã tồn tại (match case-insensitive theo Name) → cập nhật Name/SortOrder, **SeatCount chỉ ghi đè khi payload có giá trị** (nếu null → giữ nguyên).
 - Bàn active không có trong list → soft-delete nếu Status = Available.
-- `sortOrder` null → dùng index trong mảng.
+- `sortOrder` null → auto-append sau MAX(SortOrder của bàn active hiện tại).
 
 **Validation:**
-- Phải có ít nhất 1 phần tử trong `tableNames` hoặc `tables`.
-- Không được gửi cả 2 shape cùng lúc → 400.
+- Phải có ít nhất 1 phần tử trong `tables`.
 - `name` 1–100 ký tự, trim khoảng trắng 2 đầu.
 - `seatCount` 1–50; `sortOrder` 0–9999.
 
@@ -334,13 +319,6 @@ Kết quả:
 
 **Ví dụ curl:**
 ```bash
-# Shape A — legacy
-curl -X PUT "https://api.boardverse.local/api/cafes/{cafeId}/pos/tables" \
-  -H "Authorization: Bearer <manager-jwt>" \
-  -H "Content-Type: application/json" \
-  -d '{"tableNames": ["Bàn 1", "Bàn 2", "Bàn 3"]}'
-
-# Shape B — mới (set SeatCount ngay khi tạo / đổi tên)
 curl -X PUT "https://api.boardverse.local/api/cafes/{cafeId}/pos/tables" \
   -H "Authorization: Bearer <manager-jwt>" \
   -H "Content-Type: application/json" \
@@ -402,8 +380,8 @@ Cập nhật một phần thông tin bàn. Dùng để **đổi `SeatCount` cho 
 | | `PUT /tables` (sync all) | `PATCH /tables/{tableId}` (partial) |
 |--|---|---|
 | Use case | Manager thiết kế lại toàn bộ sơ đồ | Tinh chỉnh 1 bàn (SeatCount, đổi tên) |
-| Shape | `tableNames[]` (legacy) hoặc `tables[]` (Name + SeatCount + SortOrder) | `name`, `seatCount`, `sortOrder` từng bàn |
-| SeatCount? | ✅ (shape mới) / ❌ (shape cũ giữ nguyên) | ✅ cập nhật được |
+| Shape | `tables[]` (Name + SeatCount + SortOrder) | `name`, `seatCount`, `sortOrder` từng bàn |
+| SeatCount? | ✅ Optional (null = giữ nguyên DB / default 4 cho bàn mới) | ✅ cập nhật được |
 | Xóa mềm? | ✅ tự động (bàn không có trong list) | ❌ giữ nguyên |
 | Khi có session? | ✅ cập nhật được | ❌ bị chặn |
 

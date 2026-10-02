@@ -27,6 +27,7 @@ public class WalletServiceTests
     private readonly Mock<ISePayAccountService> _mockSePayAccount;
     private readonly Mock<IQrImageProxyService> _mockQrProxy;
     private readonly Mock<ILogger<WalletService>> _mockLogger;
+    private readonly Mock<IPaymentWebhookAuditRepository> _mockWebhookAuditRepo; // GAP 3.2
     private readonly BoardVerseDbContext DbContext;
     private readonly WalletService _service;
 
@@ -40,6 +41,7 @@ public class WalletServiceTests
         _mockSePayAccount = new Mock<ISePayAccountService>();
         _mockQrProxy = new Mock<IQrImageProxyService>();
         _mockLogger = new Mock<ILogger<WalletService>>();
+        _mockWebhookAuditRepo = new Mock<IPaymentWebhookAuditRepository>(); // GAP 3.2
 
         var fakeDbContext = new FakeDbContext();
         DbContext = fakeDbContext;
@@ -58,7 +60,8 @@ public class WalletServiceTests
             _mockSePayAccount.Object,
             _mockQrProxy.Object,
             _mockLogger.Object,
-            DbContext);
+            DbContext,
+            _mockWebhookAuditRepo.Object);
     }
 
     #region GetOrCreateWalletAsync

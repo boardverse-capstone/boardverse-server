@@ -531,7 +531,7 @@ Lý do:
 
 ### 4.17. Cooling-off và yêu cầu cafe duyệt
 
-**BR-NEW-10 (Cooling-off)**: Nếu user rơi vào một trong các điều kiện sau:
+**BR-NEW-10 (Cooling-off)** (cập nhật 2026-10-02 — bỏ ảnh hưởng lên cọc): Nếu user rơi vào một trong các điều kiện sau:
 
 - Lobby timeout (`timeoutFailed`) liên tiếp **3 lần** trong vòng **7 ngày**.
 - Lobby bị host hủy sau grace (`hostCancelled`) liên tiếp **3 lần** trong **7 ngày**.
@@ -539,10 +539,12 @@ Lý do:
 
 → Kích hoạt **cooling-off**:
 
-- User không được tạo lobby có `playDate` > 1 ngày trong tương lai.
-- Cọc nhân **×2** cho mọi lobby mới (kết hợp với `riskMultiplier` hiện tại).
+- User **không được tạo lobby** có `playDate` > 1 ngày trong tương lai (validation tại `EligibilityValidator` / `ReservationService.ConfirmAsync`).
+- Cọc giữ nguyên theo `DepositCalculator` tiêu chuẩn — **không nhân thêm hệ số** do cooling-off (đã bỏ `RiskMultiplier = max(current, 2.0/3.0)` khỏi `CoolingOffService`).
 - Thời hạn cooling-off: **30 ngày**, sau đó hệ thống tự đánh giá lại.
-- Trong thời gian cooling-off, nếu user tiếp tục fail → gia hạn thêm 30 ngày, cọc ×3.
+- Trong thời gian cooling-off, nếu user tiếp tục fail → gia hạn thêm 30 ngày (chỉ gia hạn, không tăng hệ số cọc).
+
+Trường `WalletEntity.isCoolingOff = true` và `coolingOffExpiresAt` được set. Cọc vẫn được tính đúng theo BR-DEPOSIT-02 / BR-RISK-03 (nếu `riskScore > 0`).
 
 **BR-NEW-11 (Cafe duyệt lobby public > 2 ngày)**: Lobby **public** có `playDate` cách `now` ≥ 2 ngày phải được cafe duyệt trước khi publish. Lobby **private** (mời bạn) không cần cafe duyệt dù playDate xa.
 
@@ -1251,7 +1253,7 @@ lib/features/reservation/
 | BR-NEW-02 | 1 lobby active / playDate / user | Validate lúc tạo lobby |
 | BR-NEW-05 | Tối đa 5 lần tạo/hủy / playDate | Counter theo host + playDate |
 | BR-NEW-08 | 1 lobby active / playDate+timeSlot / cafe / user | Validate lúc tạo lobby |
-| BR-NEW-10 | Cooling-off nếu fail 3 lần / 7 ngày | Background job theo dõi |
+| BR-NEW-10 | Cooling-off nếu fail 3 lần / 7 ngày (chỉ hạn chế tạo lobby xa; **không nhân cọc** — 2026-10-02) | Background job |
 | BR-NEW-11 | Cafe duyệt lobby > 2 ngày | Workflow approval |
 | BR-NEW-12 | Cafe cấu hình hạn mức riêng | `cafe_config` table |
 | BR-NEW-13 | Notification 4 mốc (48h/24h/2h/30p) | Scheduled job |
@@ -1471,7 +1473,7 @@ Xử lý đa lớp:
 
   5. BR-NEW-10 (cooling-off):
      - Sau 3 lobby fail/no-show liên tiếp → cooling-off 30 ngày.
-     - Cọc ×2, chỉ được đặt trong ngày.
+     - **KHÔNG** nhân cọc thêm (đã bỏ 2026-10-02); chỉ hạn chế tạo lobby có `playDate` > 1 ngày.
 
 Kết luận:
   Thay vì spam 28 lobby, attacker chỉ spam được 2-3 lobby trước khi bị chặn đa lớp.
@@ -1978,14 +1980,14 @@ Partition:
 | 22 | Host có lobby có thể join lobby khác? | **Có** (BR-USER-LIMIT-05 ĐÃ BỎ), nếu không overlap lịch và tổng ≤ 2. |
 | 23 | Cap tổng cọc active / user? | 500k user thường, 1tr VIP, 200k risk cao (BR-USER-LIMIT-03). |
 | 24 | 1 lobby / cafe / user / playDate+timeSlot? | Có (BR-NEW-08). Tránh chiếm nhiều slot cùng quán. |
-| 25 | Cooling-off nếu fail nhiều? | Có (BR-NEW-10). 3 lần fail / 7 ngày → cooling-off 30 ngày, cọc ×2. |
+| 25 | Cooling-off nếu fail nhiều? | Có (BR-NEW-10). 3 lần fail / 7 ngày → cooling-off 30 ngày; **không nhân cọc** (chỉ hạn chế tạo lobby xa, 2026-10-02). |
 | 26 | Cafe duyệt lobby > 2 ngày? | Có (BR-NEW-11). Pending 24 giờ, không duyệt → hoàn cọc. |
 | 27 | Cafe có thể cấu hình hạn mức riêng? | Có (BR-NEW-12). Mặc định theo BR-NEW-01. |
 | 28 | Notification mốc nào? | 48h / 24h trước deadline + 2h / 30p trước playDate (nếu có preferredStartTime). |
 | 29 | Phạm vi MVP cho player risk alert? | 6 signals cốt lõi (SIG-01/03/04/05/06/08), 4 admin actions (ADM-01/02/05/06). |
 | 30 | Multi-account detection trong MVP? | Có: detect + alert, admin review thủ công. Auto-flag tài khoản mới ở phase sau. |
 | 31 | User có thấy riskScore chi tiết? | Không. Chỉ thấy `riskLevel` (low/medium/high/critical) + giải thích chung (BR-RISK-09). |
-| 32 | Cooling-off có kết hợp riskScore? | Có (BR-RISK-03). Cooling-off nhân cọc ×2 dựa trên riskScore hiện tại. |
+| 32 | Cooling-off có kết hưởng lên cọc? | **Không** (2026-10-02). Cooling-off chỉ hạn chế tạo lobby xa; cọc vẫn theo BR-RISK-03 mapping (`1.0 + riskScore/100`). |
 | 33 | Admin role tách thành mấy mức? | 3 roles: Support + Risk + Senior (BR-RISK-07). |
 | 34 | User bị khóa có khiếu nại? | `suspended` khiếu nại được, admin review 48 giờ (BR-RISK-10). `banned` không khiếu nại. |
 | 35 | Lưu lịch sử riskScore bao lâu? | 365 ngày, partition theo tháng (BR-RISK-11). |
@@ -2167,18 +2169,20 @@ Lưu ý:
 
 ### 17.7. Cooling-off (BR-NEW-10)
 
+> **Cập nhật 2026-10-02**: BR-NEW-10 giờ **chỉ hạn chế quyền tạo lobby có `playDate` > 1 ngày** và gia hạn 30 ngày khi tái phạm. **Không còn nhân cọc ×2/×3** khi cooling-off active. Xem chi tiết tại §4.17.
+
 Khi nào kích hoạt:
 
 - Lobby `timeoutFailed` liên tiếp **3 lần** trong **7 ngày**.
 - Lobby `hostCancelled` (sau grace) liên tiếp **3 lần** trong **7 ngày**.
 - Tổng cọc forfeit/no-show vượt **500.000 BVC** trong **30 ngày**.
 
-Hành vi khi cooling-off:
+Hành vi khi cooling-off (chỉ áp dụng từ 2026-10-02):
 
-- User không được tạo lobby có `playDate` > 1 ngày trong tương lai.
-- Cọc nhân **×2** cho mọi lobby mới (kết hợp với `riskMultiplier` hiện tại).
+- User **không được tạo lobby** có `playDate` > 1 ngày trong tương lai.
+- **Cọc giữ nguyên** theo `DepositCalculator` tiêu chuẩn (BR-DEPOSIT-02 + BR-RISK-03 nếu áp dụng). Không nhân thêm hệ số cooling-off.
 - Thời hạn cooling-off: **30 ngày**, sau đó hệ thống tự đánh giá lại.
-- Trong thời gian cooling-off, nếu user tiếp tục fail → gia hạn thêm 30 ngày, cọc ×3.
+- Trong thời gian cooling-off, nếu user tiếp tục fail → **gia hạn thêm 30 ngày** (chỉ gia hạn, không tăng hệ số cọc).
 
 Trường `WalletEntity.isCoolingOff = true` và `coolingOffExpiresAt` được set.
 
@@ -2300,7 +2304,7 @@ Kịch bản: Attacker tạo user mới, spam 28 lobby × 50k BVC × maxPlayers 
 | 1 lobby / playDate+timeSlot / cafe / user | BR-NEW-08 | Sau lobby đầu tiên ở Cafe A, slot morning, ngày X → lobby thứ 2 cùng slot bị từ chối. |
 | Hạn mức theo khoảng cách | BR-NEW-01 | Lobby > 2 ngày: maxPlayers = 6-15 (giảm từ 30). |
 | Cafe duyệt > 2 ngày | BR-NEW-11 | Cafe phát hiện pattern spam → từ chối. |
-| Cooling-off | BR-NEW-10 | Sau 3 lobby fail → cooling-off 30 ngày, cọc ×2, chỉ đặt trong ngày. |
+| Cooling-off | BR-NEW-10 | Sau 3 lobby fail → cooling-off 30 ngày; **không nhân cọc** (chỉ hạn chế tạo lobby xa, 2026-10-02). |
 
 Kết luận: thay vì spam 28 lobby, attacker chỉ spam được **2-3 lobby** trước khi bị chặn đa lớp.
 
@@ -2380,11 +2384,7 @@ riskScore = 75   → riskMultiplier = 1.75
 riskScore = 100  → riskMultiplier = 2.0
 ```
 
-Khi BR-NEW-10 (cooling-off) active:
-
-```
-riskMultiplier = (1.0 + (riskScore / 100) × 1.0) × 2.0
-```
+> **Cập nhật 2026-10-02**: BR-NEW-10 (cooling-off) **không còn nhân thêm hệ số** lên `riskMultiplier`. Cooling-off chỉ hạn chế quyền tạo lobby xa và gia hạn thời gian. Xem §4.17.
 
 Khi BR-RISK-03 critical active:
 
@@ -2538,7 +2538,7 @@ banned         ← khóa vĩnh viễn
 ```
 ⏰ Bạn đang trong thời gian giới hạn (còn 25 ngày).
    Bạn chỉ có thể tạo lobby có playDate trong ngày.
-   Tiền cọc được nhân đôi để đảm bảo cam kết.
+   (Cập nhật 2026-10-02: tiền cọc KHÔNG nhân đôi khi cooling-off.)
 ```
 
 **BR-RISK-09**: Chỉ hiển thị `riskLevel` (low/medium/high/critical) cho user, không hiển thị `riskScore` chi tiết và signals cụ thể. Tránh user "game the system".
@@ -2695,7 +2695,7 @@ signals (JSONB snapshot)
 
 | BR cũ | BR mới | Quan hệ |
 |-------|--------|---------|
-| BR-NEW-10 (cooling-off) | BR-RISK-03 | Cooling-off input vào riskMultiplier |
+| BR-NEW-10 (cooling-off) | BR-RISK-03 (chỉ phần riskScore mapping) | **Đã tách 2026-10-02**: cooling-off không còn input vào `riskMultiplier`. Cooling-off chỉ hạn chế tạo lobby xa; cọc theo BR-RISK-03 thuần. |
 | BR-NEW-08 (1 lobby/cafe) | BR-RISK-04 + ADM-04 | Lặp vi phạm có thể bị khóa |
 | BR-USER-LIMIT-03 (cap cọc) | BR-RISK-04 + ADM-02 | Spam vượt cap có thể bị tạm khóa |
 

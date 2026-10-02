@@ -229,6 +229,10 @@ Tạo yêu cầu ghép nhóm. Staff POS gọi khi scan mã member A3 muốn nh�
 {
   "sourceLobbyId": "guid-nhom-a",
   "targetLobbyId": "guid-nhom-b",
+  "selectedMemberIds": [
+    "guid-lobby-member-a-3",
+    "guid-active-session-member-walk-in-1"
+  ],
   "reason": "Khách muốn chuyển sang nhóm bạn",
   "idempotencyKey": "MERGE-a3-user-id-1234567890"
 }
@@ -238,8 +242,18 @@ Tạo yêu cầu ghép nhóm. Staff POS gọi khi scan mã member A3 muốn nh�
 |---|---|---|---|
 | `sourceLobbyId` | Guid | ✅ | Lobby nguồn — nhóm mà member muốn rời (Nhóm A) |
 | `targetLobbyId` | Guid | ✅ | Lobby đích — nhóm đang active tại quán (Nhóm B) |
+| `selectedMemberIds` | `Guid[]` | ✅ **Required (non-empty)** | Danh sách member cụ thể sẽ được chuyển sang lobby đích. **Bắt buộc từ 2026-10-02** — đảm bảo staff chọn đúng người cần ghép, không bị FE bug "chọn 2 → ghép cả 4" (Xem [Bug 2026-10-02](#bug-2026-10-02---selectedmemberids-bắt-buộc)). Xem [ID semantics](#id-semantics-của-selectedmemberids) bên dưới để biết dùng `LobbyMember.Id` hay `ActiveSessionMember.Id`. |
 | `reason` | string | ❌ | Lý do ghép (max 500 ký tự) |
 | `idempotencyKey` | string | ❌ | Key chống trùng (format đề xuất: `MERGE-{memberId}-{timestampMs}`) |
+
+### ID semantics của `selectedMemberIds`
+
+| Loại source lobby | Mỗi `Guid` trong `selectedMemberIds` là |
+|---|---|
+| **Online source** (`SourceLobby.ReservationId != null`) | `LobbyMember.Id` của member active trong source lobby |
+| **Walk-in source** (`SourceLobby.ReservationId == null`) | `ActiveSessionMember.Id` (bao gồm cả guest slot có `UserId = null`) |
+
+**Không dùng `UserId`** cho field này — dùng `Id` của `LobbyMember`/`ActiveSessionMember` để tránh nhầm lẫn giữa các session khác nhau của cùng một user. Khi `Approve`, BE re-filter theo `Id` (không theo `UserId`) để đảm bảo đúng member FE đã tick.
 
 ### Validation
 
@@ -248,7 +262,9 @@ Tạo yêu cầu ghép nhóm. Staff POS gọi khi scan mã member A3 muốn nh�
 - `targetLobbyId` phải đang `InProgress` (active session)
 - `sourceLobbyId` phải đang `InProgress` (member đang chơi tại quán)
 - Chưa có `Pending` request nào cho cùng `(sourceLobbyId, targetLobbyId)`
-- Ghế khả dụng đủ cho các member đang active ở Nguồn
+- **`selectedMemberIds` phải là array non-empty** (throw `BadRequest` nếu `null`/`[]`/không truyền). Đây là validation mới từ 2026-10-02 — trước đó `selectedMemberIds = null` được phép và mặc định "transfer TẤT CẢ active members", dẫn đến bug staff chọn 2 người nhưng ghép cả 4 người.
+- Mọi `Guid` trong `selectedMemberIds` phải khớp `Id` của `LobbyMember` (online) hoặc `ActiveSessionMember` (walk-in) đang active trong source lobby. Nếu có ID không match → throw `InvalidSelectedMemberIds` (400).
+- Ghế khả dụng đủ cho **số member trong `selectedMemberIds`** (BE tính lại `combinedCount` dựa trên số selected, không phải tổng active của source).
 - Member muốn ghép phải là `IsActive = true` trong Nguồn
 - **Cross-game merge (Gap 4 fix 2026-09-29)**: cho phép merge khác `GameTemplateId` **khi Nguồn không còn box game InUse** (game đã được trả về quán qua `ComponentCheck`). Chỉ BLOCK khi Nguồn còn box `InUse` của game khác → staff phải `EndGame` + `ComponentCheck` trước khi tạo merge request.
 
@@ -268,11 +284,14 @@ Tạo yêu cầu ghép nhóm. Staff POS gọi khi scan mã member A3 muốn nh�
     "requestedByUserName": "Nguyen Van Staff",
     "status": "Pending",
     "statusText": "Đang chờ duyệt",
-    "sourceMembersCount": 2,
-    "sourceActiveMembersAtRequest": 2,
+    "sourceMembersCount": 4,
+    "sourceActiveMembersAtRequest": 4,
+    "selectedMemberIds": [
+      "guid-lobby-member-a-3"
+    ],
     "reason": "Khách muốn chuyển sang nhóm bạn",
     "expiresAt": "2026-09-24T11:30:00Z",
-    "combinedCount": 6,
+    "combinedCount": 3,
     "seatCapacity": 8,
     "fitsCapacity": true,
     "createdAt": "2026-09-23T11:30:00Z"
@@ -285,6 +304,8 @@ Tạo yêu cầu ghép nhóm. Staff POS gọi khi scan mã member A3 muốn nh�
 | Code | Khi nào | Message |
 |---|---|---|
 | `400` | Dữ liệu không hợp lệ | `ValidationFailed` |
+| `400` | **`selectedMemberIds` rỗng hoặc không truyền** (Bug fix 2026-10-02) | `SelectedMemberIdsRequired` |
+| `400` | Có `Guid` trong `selectedMemberIds` không khớp member active của source | `InvalidSelectedMemberIds` |
 | `400` | Source còn box game InUse khác game với target (Gap 4 fix 2026-09-29) | `MergeDifferentGames` |
 | `401` | Thiếu token | `Unauthorized` |
 | `403` | Không thuộc quán | `AccessForbidden` |
@@ -293,6 +314,39 @@ Tạo yêu cầu ghép nhóm. Staff POS gọi khi scan mã member A3 muốn nh�
 | `409` | Đã có request pending | `MergeRequestAlreadyExists` |
 | `409` | Không đủ ghế | `InsufficientSeatsForMerge` |
 | `500` | Lỗi hệ thống | `InternalServerError` |
+
+---
+
+## Bug 2026-10-02 — `selectedMemberIds` bắt buộc
+
+### Triệu chứng
+
+Staff tick 2 member trên UI → bấm "Gửi" → cả 4 active member của source lobby đều được transfer sang target lobby.
+
+### Nguyên nhân
+
+Trước 2026-10-02, `selectedMemberIds` là optional. Khi FE không truyền (hoặc truyền `null`/`[]`), BE mặc định **transfer TẤT CẢ active members** của source lobby. FE dù đã tick đúng 2 người nhưng body chỉ chứa `sourceLobbyId`/`targetLobbyId` → BE loop toàn bộ members → staff thấy cả 4 người "biến mất" khỏi source, 4 người "tự xuất hiện" ở target.
+
+### Fix
+
+Từ 2026-10-02, `selectedMemberIds` trở thành **required non-empty** trong request body của `POST /merge-requests`:
+
+- Nếu FE không truyền field này → BE throw `BadRequest` với `SelectedMemberIdsRequired` (400).
+- BE chỉ transfer đúng các member có `Id` nằm trong `selectedMemberIds` (filter online LobbyMembers và walk-in ActiveSessionMembers).
+- FE phải cập nhật `lobby-merge.service.ts` để luôn truyền danh sách ID đã tick, kể cả khi chỉ tick 1 người.
+
+### Migration cho FE
+
+```ts
+// src/features/lobby-merge/services/lobby-merge.service.ts
+const body: Record<string, unknown> = {
+  sourceLobbyId,
+  targetLobbyId,
+  selectedMemberIds: payload.memberUserIds, // ← new field, REQUIRED, không bao giờ null
+};
+```
+
+Lưu ý: `selectedMemberIds` chứa `Id` của `LobbyMember` (online) hoặc `ActiveSessionMember` (walk-in) — **không phải `UserId`**. FE lấy từ `lobby-merge-create-dialog.tsx` UI state đã tick, giữ nguyên `memberIds` hiện tại.
 
 ---
 

@@ -18,13 +18,10 @@ namespace BoardVerse.Services.IServices
             CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Legacy overload — đồng bộ chỉ tên bàn (giữ nguyên SeatCount cũ, default 4 cho bàn mới).
-        /// </summary>
-        Task SyncTablesAsync(Guid cafeId, Guid managerId, IReadOnlyList<string> tableNames, CancellationToken cancellationToken = default);
-
-        /// <summary>
-        /// Overload mới — đồng bộ cả Name + SeatCount + SortOrder trong một lần PUT.
-        /// PUT /api/cafes/{cafeId}/pos/tables shape mới.
+        /// Đồng bộ cả Name + SeatCount + SortOrder trong một lần PUT.
+        /// PUT /api/cafes/{cafeId}/pos/tables.
+        /// SeatCount null → giữ nguyên DB (match bàn cũ) hoặc default 4 (bàn mới).
+        /// SortOrder null → auto-append sau max SortOrder của cafe.
         /// </summary>
         Task SyncTablesAsync(Guid cafeId, Guid managerId, IReadOnlyList<CafeTableSyncItem> tables, CancellationToken cancellationToken = default);
 

@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using BoardVerse.Core.Common;
 using BoardVerse.Core.Constants;
 using BoardVerse.Core.DTOs.CafePartner;
+using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
@@ -380,7 +381,17 @@ namespace BoardVerse.Services.Services
             if (cafe.Tables == null || cafe.Tables.Count == 0)
             {
                 var defaultNames = CafePartnerTableLayoutHelper.GenerateDefaultNames(CafePartnerActivationRules.MinPublicTables);
-                await _cafeRepository.SyncCafeTablesAsync(cafe.Id, defaultNames, cancellationToken);
+                // Convert string[] → CafeTableSyncItem[] (service chỉ nhận shape mới).
+                // Để null SeatCount/SortOrder để helper auto-fill default 4 và auto-append SortOrder.
+                var seedItems = defaultNames
+                    .Select(name => new CafeTableSyncItem
+                    {
+                        Name = name,
+                        SeatCount = null,
+                        SortOrder = null
+                    })
+                    .ToList();
+                await _cafeRepository.SyncCafeTablesAsync(cafe.Id, seedItems, cancellationToken);
             }
 
             var utcNow = DateTime.UtcNow;

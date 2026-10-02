@@ -23,6 +23,10 @@ public class BvcTopUpRequestConfiguration : IEntityTypeConfiguration<BvcTopUpReq
         builder.Property(e => e.GatewayTransactionId)
             .HasMaxLength(128);
 
+        // Gap 3.5: FailureReason cho debug/audit khi top-up fail.
+        builder.Property(e => e.FailureReason)
+            .HasMaxLength(500);
+
         builder.Property(e => e.Status)
             .HasConversion<int>();
 

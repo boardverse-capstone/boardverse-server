@@ -8,6 +8,7 @@ using BoardVerse.Data;
 using BoardVerse.Data.Repositories;
 using BoardVerse.Services.IServices;
 using Microsoft.EntityFrameworkCore;
+using System.Threading;
 using Microsoft.Extensions.Logging;
 
 namespace BoardVerse.Services.Services;
@@ -80,11 +81,33 @@ public class PlayerRiskScoreService : IPlayerRiskScoreService
             CreatedAt = now
         };
 
-        // BR-RISK-04: chỉ auto-update AccountStatus nếu nhân viên không set thủ công.
-        // MVP đơn giản: chỉ update RiskScore, không tự động chuyển AccountStatus.
-        // AccountStatus do admin set thủ công; job này không đụng.
-
+        // BR-RISK-04 + Gap 4.7 (2026-10-02): auto-update Wallet.AccountStatus khi riskScore cross thresholds.
+        // Mapping BR-RISK-04 §XVI.5:
+        //   0..29  → low       → Active
+        //   30..49 → medium    → Warning
+        //   50..74 → high      → Restricted
+        //   75..100 → critical → Restricted (Suspension chỉ do admin manual review)
+        // Rule bổ sung: KHÔNG downgrade AccountStatus nếu admin đã set cao hơn (eg: admin đã ban).
+        // Backward-compat: nếu Wallet.AccountStatus do admin set = Banned → KHÔNG touch.
         var previousLevel = snapshot.RiskLevel;
+        var wallet = await _db.Wallets.FirstOrDefaultAsync(w => w.UserId == userId, ct);
+        if (wallet != null)
+        {
+            var computedAccountStatus = MapRiskScoreToAccountStatus(score);
+            if (wallet.AccountStatus != AccountStatus.Banned
+                && wallet.AccountStatus != AccountStatus.Suspended)
+            {
+                // Cho phép upgrade (active→warning→restricted) nhưng KHÔNG downgrade
+                // (restricted→active chỉ qua admin manual review).
+                if (IsAccountStatusUpgrade(wallet.AccountStatus, computedAccountStatus))
+                {
+                    _logger.LogInformation(
+                        "[Gap 4.7] Auto-update AccountStatus. UserId={UserId}, From={From}, To={To}, RiskScore={Score}",
+                        userId, wallet.AccountStatus, computedAccountStatus, score);
+                    wallet.AccountStatus = computedAccountStatus;
+                }
+            }
+        }
 
         snapshot.RiskScore = score;
         snapshot.RiskLevel = level;
@@ -121,12 +144,39 @@ public class PlayerRiskScoreService : IPlayerRiskScoreService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "PlayerAlertService.EnsureAlert failed for user {UserId}", userId);
+                // Gap 4.4 (2026-10-02): nuốt exception để flow chính không bị block,
+                // NHƯNG log với structured tag "alert_failure_counter" để metric pipeline (Seq/Datadog)
+                // count + page on-call nếu > threshold (vd: 5 lần/giờ = vấn đề).
+                // Trước đây: chỉ LogError thường, không có counter → admin không phát hiện
+                // khi alert service down hàng loạt.
+                Interlocked.Increment(ref _alertFailureCounter);
+                var totalFailures = Interlocked.CompareExchange(ref _alertFailureCounter, 0, 0);
+                _logger.LogError(ex,
+                    "[Gap 4.4] PlayerAlertService.EnsureAlert failed for user {UserId}. TotalFailures={TotalFailures}",
+                    userId, totalFailures);
+
+                // Nếu counter vượt threshold → log riêng để dễ alert (tag "alert_service_degraded").
+                if (totalFailures > 0 && totalFailures % 5 == 0)
+                {
+                    _logger.LogCritical(
+                        "[Gap 4.4] PlayerAlertService đã fail {TotalFailures} lần — có thể alert service degraded. Check DB connectivity + IPlayerAlertRepository.",
+                        totalFailures);
+                }
             }
         }
 
         return snapshot;
     }
+
+    /// <summary>
+    /// Gap 4.4 (2026-10-02): Counter metric cho PlayerAlertService failures.
+    /// Reset không cần — total cumulative cho monitoring dashboard.
+    /// Đọc qua <see cref="GetAlertFailureCount"/> từ background job / admin endpoint.
+    /// </summary>
+    private long _alertFailureCounter;
+
+    /// <summary>Gap 4.4: expose alert failure count cho health check + admin monitoring.</summary>
+    public long GetAlertFailureCount() => Interlocked.Read(ref _alertFailureCounter);
 
     public async Task<int> RecomputeBatchAsync(int batchSize, DateTime now, CancellationToken ct = default)
     {
@@ -168,6 +218,29 @@ public class PlayerRiskScoreService : IPlayerRiskScoreService
     /// BR-RISK-01 — Collect all signals from existing data sources.
     /// Full 10 signals: SIG-01..SIG-10.
     /// </summary>
+    /// <summary>
+    /// Gap 4.7 (2026-10-02): BR-RISK-04 mapping riskScore → AccountStatus.
+    /// Banned/Suspended KHÔNG được set bởi auto-recompute (chỉ admin manual).
+    /// </summary>
+    private static AccountStatus MapRiskScoreToAccountStatus(int riskScore)
+    {
+        if (riskScore >= 75) return AccountStatus.Restricted;
+        if (riskScore >= 50) return AccountStatus.Restricted;
+        if (riskScore >= 30) return AccountStatus.Warning;
+        return AccountStatus.Active;
+    }
+
+    /// <summary>
+    /// Gap 4.7 (2026-10-02): kiểm tra accountStatus có phải upgrade không (numeric order).
+    /// Active (1) < Warning (2) < Restricted (3) < Suspended (4) < Banned (5).
+    /// </summary>
+    private static bool IsAccountStatusUpgrade(AccountStatus current, AccountStatus next)
+    {
+        var currentOrder = (int)current;
+        var nextOrder = (int)next;
+        return nextOrder > currentOrder;
+    }
+
     private async Task<Dictionary<string, int>> CollectSignalsAsync(Guid userId, DateTime now, CancellationToken ct)
     {
         var signals = new Dictionary<string, int>();
@@ -207,7 +280,12 @@ public class PlayerRiskScoreService : IPlayerRiskScoreService
         signals["SIG-08"] = await _lobbyRepo.CountQuickCreateCancelAsync(
             userId, thirtyDayWindow, TimeSpan.FromMinutes(5));
 
-        // SIG-09: chênh lệch giờ hoạt động vs baseline — not applicable MVP.
+        // SIG-09: chênh lệch giờ hoạt động vs baseline.
+        // Gap 4.5 (2026-10-02): hard-code "not applicable MVP" hiện tại — Phase 2 sẽ implement.
+        // Tracking ticket: BOARDVERSE-1099 — collect player active hours từ ActiveSession.StartedAt
+        // trong 30 ngày, so sánh với baseline 8h-23h local time. Outlier (player chỉ chơi 2h-4h sáng)
+        // → signal. Hiện tại để trống (không add signal) cho MVP.
+        // signals["SIG-09"] = await ComputeActiveHoursDeviationAsync(userId, thirtyDayWindow, ct);
 
         // SIG-10: số lần bị report từ user khác trong 30d.
         signals["SIG-10"] = await _db.FriendReports

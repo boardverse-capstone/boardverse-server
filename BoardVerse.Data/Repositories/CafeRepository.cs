@@ -859,25 +859,6 @@ namespace BoardVerse.Data.Repositories
                     c.PartnerOperationalStatus != null, cancellationToken);
         }
 
-        public async Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<string> tableNames, CancellationToken cancellationToken = default)
-        {
-            var existingTables = await _context.CafeTables
-                .Where(t => t.CafeId == cafeId)
-                .ToListAsync(cancellationToken);
-
-            var loadedIds = existingTables.Select(t => t.Id).ToHashSet();
-            CafeTableSyncHelper.ApplySync(cafeId, tableNames, existingTables);
-
-            foreach (var table in existingTables.Where(t => !loadedIds.Contains(t.Id)))
-            {
-                _context.CafeTables.Add(table);
-            }
-
-            await RefreshTableLayoutJsonAsync(cafeId, cancellationToken);
-
-            await _context.SaveChangesAsync(cancellationToken);
-        }
-
         public async Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<CafeTableSyncItem> tables, CancellationToken cancellationToken = default)
         {
             var existingTables = await _context.CafeTables

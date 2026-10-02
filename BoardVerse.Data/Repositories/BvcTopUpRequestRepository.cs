@@ -26,6 +26,17 @@ public class BvcTopUpRequestRepository : IBvcTopUpRequestRepository
             .FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
     }
 
+    /// <inheritdoc />
+    public async Task<BvcTopUpRequest?> GetByIdForUpdateAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        // Gap 3.4: SELECT ... FOR UPDATE — caller phải wrap Serializable transaction.
+        // Dùng raw SQL để bypass EF tracking + chắc chắn DB trả row locked.
+        return await _db.BvcTopUpRequests
+            .FromSqlInterpolated($@"SELECT * FROM ""BvcTopUpRequests"" WHERE ""Id"" = {id} FOR UPDATE")
+            .AsTracking()
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public Task<BvcTopUpRequest?> GetByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken = default)
     {
         return _db.BvcTopUpRequests

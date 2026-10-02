@@ -6,23 +6,22 @@ using BoardVerse.Core.Messages;
 namespace BoardVerse.Services.Services;
 
 /// <summary>
-/// Tính toán cọc theo công thức BR-DEPOSIT-02..04 + BR-NEW-01 + BR-03 (chặn trần 50% × giờ đầu).
+/// Tính toán cọc theo công thức đơn giản (2026-10-02):
+///   perPersonBvc  = max(1, floor(cafeBasePrice × cafeDepositPercentage / 1000))    // % × giá vé cơ bản
+///   baseDeposit   = perPersonBvc × finalMaxPlayers                // BR-DEPOSIT-02 simplified
+///   riskAdjusted  = round(baseDeposit × walletRiskMultiplier)     // BR-DEPOSIT-04 (giữ để chống abuse)
+///   finalDeposit  = riskAdjusted                                  // bỏ minDepositByDistance (BR-NEW-01 floor)
 ///
-/// Công thức canonical (BR §IV):
-///   perPersonBvc  = clamp(cafeConfig.DepositRatePerPerson,
-///                          cafeConfig.MinDepositRatePerPerson,
-///                          cafeConfig.MaxDepositRatePerPerson)        // BR-DEPOSIT-03
-///   perPersonBvc  = min(perPersonBvc, floor(50% × cafeBasePrice/1000)) // BR-03 (chặn trần)
-///   baseDeposit   = perPersonBvc × finalMaxPlayers                     // BR-DEPOSIT-02
-///   riskAdjusted  = round(baseDeposit × walletRiskMultiplier)         // BR-DEPOSIT-04 + BR-NEW-10
-///   finalDeposit  = max(minDepositByDistance(distance), riskAdjusted) // BR-NEW-01
+/// Ví dụ (user-supplied):
+///   cafeBasePrice = 10.000 VND, cafeDepositPercentage = 0.20, maxPlayers = 3, riskMultiplier = 1.0
+///     → perPersonBvc = max(1, floor(10.000 × 0.20 / 1000)) = max(1, 2) = 2 BVC
+///     → baseDeposit = 2 × 3 = 6 BVC
+///     → riskAdjusted = 6 × 1.0 = 6
+///     → finalDeposit = 6 BVC
 ///
-/// Ví dụ:
-///   ratePerPerson = 5 BVC, maxPlayers = 8, basePrice = 50.000 VND, riskMultiplier = 1.0
-///     → perPersonBvc = min(5, floor(25.000/1000)) = min(5, 25) = 5
-///     → baseDeposit = 5 × 8 = 40 BVC
-///     → riskAdjusted = 40 × 1.0 = 40
-///     → finalDeposit = max(MinDepositSameDay, 40)
+/// Lưu ý: CafeConfig.DepositRatePerPerson / Min/MaxDepositRatePerPerson / MinDeposit*Days
+/// không còn ảnh hưởng đến cọc nữa (đánh dấu [Obsolete] trong entity).
+/// Cọc chỉ phụ thuộc vào (cafeBasePrice, cafeDepositPercentage, maxPlayers, riskMultiplier).
 /// </summary>
 public class DepositCalculator
 {
@@ -30,11 +29,35 @@ public class DepositCalculator
     private const int BufferWarningMinutes = 120;
     private const int MaxDaysInFuture = 7;
     private const int BvcPerVnd = 1000; // 1 BVC = 1.000 VND (BR §II.2)
-    private const decimal Br03CapPercent = 0.50m; // BR-03: 50% × basePrice
+
+    /// <summary>
+    /// Phần trăm giá vé cơ bản mặc định khi <see cref="CafeConfig.DepositPercentageOfBasePrice"/> = 0/unset.
+    /// 2026-10-02: 20% là con số cân bằng giữa "không quá rẻ để spam" và "không quá đắt để user từ bỏ" (gap 1.7).
+    /// </summary>
+    public const decimal DefaultDepositPercentOfBasePrice = 0.20m;
+
+    /// <summary>
+    /// Giới hạn dưới BR-03: % cọc tối thiểu 10% (đủ lớn để chống spam).
+    /// </summary>
+    public const decimal MinDepositPercentOfBasePrice = 0.10m;
+
+    /// <summary>
+    /// Giới hạn trên BR-03: % cọc tối đa 50% giá vé cơ bản (BR-03 cũ).
+    /// </summary>
+    public const decimal MaxDepositPercentOfBasePrice = 0.50m;
 
     /// <summary>
     /// Tính quote cho 1 reservation (§21A.2).
     /// Trả về DepositQuoteResult — caller (ReservationService) tự quyết định allow hay throw.
+    ///
+    /// <paramref name="cafeDepositPercentage"/>: % cọc theo giá vé cơ bản (gap 1.2).
+    /// Lấy từ <see cref="CafeConfig.DepositPercentageOfBasePrice"/> (mặc định 0.20 = 20% nếu 0/unset).
+    /// Bị clamp [0.10, 0.50] theo BR-03 (giới hạn an toàn hệ thống).
+    ///
+    /// <paramref name="isCoolingOff"/>: hiện no-op — multiplier (×2 khi cooling-off) đã được
+    /// áp dụng sẵn tại <paramref name="walletRiskMultiplier"/> bởi <see cref="WalletService"/>
+    /// / <see cref="CoolingOffService"/>. Parameter giữ để backward-compat với callers cũ và
+    /// để dễ debug "lobby cooling-off ×2" (gap 1.6).
     /// </summary>
     public DepositQuoteResult Calculate(
         ReservationQuoteRequestDto request,
@@ -79,41 +102,45 @@ public class DepositCalculator
                 finalMaxPlayers, cafeConfig.Capacity));
         }
 
-        // ===== BR-DEPOSIT-02 (canonical) =====
+        // ===== Công thức đơn giản (2026-10-02) =====
 
-        // 1. perPersonBvc = cafeConfig.DepositRatePerPerson, clamp [Min, Max] theo BR-DEPOSIT-03.
-        var perPersonBvc = Math.Clamp(
-            cafeConfig.DepositRatePerPerson,
-            cafeConfig.MinDepositRatePerPerson,
-            cafeConfig.MaxDepositRatePerPerson);
+        // 0. Resolve % cọc theo giá vé cơ bản (gap 1.2).
+        //    Lấy từ CafeConfig.DepositPercentageOfBasePrice (default 0.20).
+        //    Clamp [0.10, 0.50] theo BR-03 cap 50% (an toàn hệ thống).
+        //    Nếu cafeConfig.DepositPercentageOfBasePrice <= 0 → dùng default 0.20.
+        var rawDepositPercent = cafeConfig.DepositPercentageOfBasePrice > 0
+            ? cafeConfig.DepositPercentageOfBasePrice
+            : DefaultDepositPercentOfBasePrice;
+        var depositPercent = Math.Clamp(rawDepositPercent,
+            MinDepositPercentOfBasePrice, MaxDepositPercentOfBasePrice);
 
-        // 2. BR-03 (chặn trần): perPersonBvc ≤ floor(50% × cafeBasePrice / 1000).
-        //    "Phí đặt cọc ≤ 50% × Mức phí giờ đầu (hoặc Giá vé vào cổng)".
-        //    Nếu basePrice <= 0 (chưa cấu hình), BR-03 không áp dụng — giữ ratePerPerson ban đầu.
-        decimal br03MaxPerPersonBvc = cafeBasePrice > 0
-            ? Math.Floor(cafeBasePrice * Br03CapPercent / BvcPerVnd)
-            : perPersonBvc;
-        perPersonBvc = Math.Min(perPersonBvc, (long)Math.Max(0, br03MaxPerPersonBvc));
+        // 1. perPersonBvc = max(1, floor(cafeBasePrice × depositPercent / 1000)).
+        //    - depositPercent × basePrice quy đổi sang BVC (1 BVC = 1.000 VND).
+        //    - floor để giữ BVC nguyên (BR §II.2: "Nguyên - không tạo 0.5 / 1.25 BVC").
+        //    - max(1) để tránh perPersonBvc = 0 khi basePrice quá thấp (< 5.000 VND).
+        //    - Bỏ BR-03 cap 50% ngay tại đây (đã clamp ở trên), BR-DEPOSIT-03 clamp [1,100] — không cần nữa.
+        //    - Bỏ CafeConfig.DepositRatePerPerson — cọc suy ra trực tiếp từ basePrice × depositPercent.
+        var rawPerPersonBvc = cafeBasePrice > 0
+            ? (long)Math.Floor(cafeBasePrice * depositPercent / BvcPerVnd)
+            : 0L;
+        var perPersonBvc = Math.Max(1L, rawPerPersonBvc);
 
-        // 3. baseDeposit = perPersonBvc × finalMaxPlayers (BR-DEPOSIT-02).
+        // 2. baseDeposit = perPersonBvc × finalMaxPlayers (BR-DEPOSIT-02 simplified).
         var baseDeposit = perPersonBvc * finalMaxPlayers;
 
-        // 4. riskAdjusted = baseDeposit × walletRiskMultiplier (BR-DEPOSIT-04 + BR-NEW-10 cooling-off ×2).
+        // 3. riskAdjusted = baseDeposit × walletRiskMultiplier (BR-RISK-03).
+        //    2026-10-02: Cooling-off KHÔNG còn nhân RiskMultiplier lên cọc (đơn giản hóa theo yêu cầu).
+        //      - BR-NEW-10 §XI.2 "cọc ×2" và "cọc ×3" đã bỏ.
+        //      - CoolingOffService.ActivateCoolingOffAsync KHÔNG set RiskMultiplier nữa.
+        //      - CoolingOffService.EscalateAsync KHÔNG nhân RiskMultiplier nữa.
+        //    → walletRiskMultiplier đến từ risk score recompute job (BR-RISK-03 mapping 1.0 + riskScore/100).
+        //    → isCoolingOff parameter không còn ảnh hưởng cọc, chỉ giữ cho debug/audit.
         var riskAdjusted = (long)Math.Round(
             baseDeposit * (double)walletRiskMultiplier,
             MidpointRounding.AwayFromZero);
 
-        // 5. BR-NEW-01: finalDeposit = max(minDepositByDistance(distance), riskAdjusted).
-        var minDepositByDistance = distance switch
-        {
-            DistanceBucket.SameDay => cafeConfig.MinDepositSameDay,
-            DistanceBucket.OneDay => cafeConfig.MinDeposit1Day,
-            DistanceBucket.TwoDays => cafeConfig.MinDeposit2Days,
-            DistanceBucket.ThreeToFourDays => cafeConfig.MinDeposit3To4Days,
-            DistanceBucket.FiveToSevenDays => cafeConfig.MinDeposit5To7Days,
-            _ => 0
-        };
-        var finalDeposit = Math.Max(minDepositByDistance, riskAdjusted);
+        // 4. finalDeposit = riskAdjusted (bỏ BR-NEW-01 minDepositByDistance — không còn áp dụng).
+        var finalDeposit = riskAdjusted;
 
         // Calculate buffer từ preferredStartTime
         var scheduledTime = request.PlayDate.ToDateTime(request.PreferredStartTime);
@@ -132,18 +159,21 @@ public class DepositCalculator
 
         return new DepositQuoteResult
         {
-            // BR-DEPOSIT-02/03: perPersonBvc sau khi áp clamp + BR-03 cap.
+            // 2026-10-02: perPersonBvc = max(1, floor(basePrice × depositPercent / 1000)).
             DepositPerPerson = perPersonBvc,
-            // BR-DEPOSIT-02: baseDeposit = perPersonBvc × finalMaxPlayers (chưa áp riskMultiplier).
+            // 2026-10-02: baseDeposit = perPersonBvc × finalMaxPlayers.
             BaseDeposit = baseDeposit,
-            // BR-NEW-01: minimum deposit theo khoảng cách playDate (snapshot cho FE debug).
-            MinDepositApplied = minDepositByDistance,
-            // BR-DEPOSIT-04/BR-NEW-10: riskMultiplier từ wallet (1.0..2.0 cooling-off ×2).
+            // 2026-10-02: minDepositByDistance đã bỏ, giữ field = 0 để backward compat FE.
+            MinDepositApplied = 0,
+            // BR-DEPOSIT-04/BR-NEW-10: riskMultiplier từ wallet (1.0..2.0 cooling-off ×2, 3.0 là ×3 escalate).
             RiskMultiplier = walletRiskMultiplier,
-            // finalDeposit = max(MinDepositApplied, baseDeposit × riskMultiplier) — số BVC phải cọc.
+            // finalDeposit = baseDeposit × riskMultiplier.
             FinalDeposit = finalDeposit,
             // Raw VND từ Cafe.BasePrice, FE render "Giá vé cơ bản: {CafeBasePriceVnd:N0}đ".
             CafeBasePriceVnd = cafeBasePrice,
+            // 2026-10-02 (gap 1.2): % cọc đọc từ CafeConfig.DepositPercentageOfBasePrice, clamp [0.10, 0.50].
+            // Default 0.20 nếu config = 0. Stakeholder confirm 2026-03 (gap 1.7).
+            DepositPercentage = depositPercent,
             Distance = distance,
             MaxPlayersApplied = finalMaxPlayers,
             BufferMinutes = bufferMinutes,

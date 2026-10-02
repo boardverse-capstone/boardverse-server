@@ -6,6 +6,14 @@ namespace BoardVerse.Core.IRepositories;
 public interface IBvcTopUpRequestRepository
 {
     Task<BvcTopUpRequest?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gap 3.4: Lock BvcTopUpRequest theo Id (FOR UPDATE) để chống race condition giữa
+    /// Cancel + Update Amount. Caller phải wrap transaction Serializable.
+    /// Lock row level — request thứ 2 đợi đến khi request thứ 1 commit/rollback.
+    /// </summary>
+    Task<BvcTopUpRequest?> GetByIdForUpdateAsync(Guid id, CancellationToken cancellationToken = default);
+
     Task<BvcTopUpRequest?> GetByOrderIdAsync(string orderId, CancellationToken cancellationToken = default);
     Task<BvcTopUpRequest?> GetByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken = default);
 

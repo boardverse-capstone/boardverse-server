@@ -88,9 +88,9 @@ namespace BoardVerse.Core.IRepositories
             Guid gameTemplateId,
             int limit = 10, CancellationToken cancellationToken = default);
         Task<Cafe?> GetPartnerCafeByManagerIdAsync(Guid managerUserId, CancellationToken cancellationToken = default);
-        Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<string> tableNames, CancellationToken cancellationToken = default);
         /// <summary>
-        /// Overload — đồng bộ cả Name + SeatCount + SortOrder.
+        /// Đồng bộ cả Name + SeatCount + SortOrder. PUT /api/cafes/{cafeId}/pos/tables.
+        /// SeatCount nâng cấp null → giữ nguyên DB; SortOrder null → auto-append sau max.
         /// </summary>
         Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<CafeTableSyncItem> tables, CancellationToken cancellationToken = default);
         Task RefreshTableLayoutJsonAsync(Guid cafeId, CancellationToken cancellationToken = default);
