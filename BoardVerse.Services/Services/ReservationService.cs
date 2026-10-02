@@ -148,9 +148,17 @@ public class ReservationService : IReservationService
         ValidatePlayDate(request.PlayDate, nowLocal);
         var now = GetNowUtc(); // UTC cho các bước còn lại (tương thích code cũ).
 
-        // Validate preferredStartTime + preferredEndTime hợp lệ.
-        var (timeValid, timeError) = CafeSchedule.ValidatePreferredTimeRange(
-            request.PreferredStartTime, request.PreferredEndTime);
+        // Validate preferredStartTime + preferredEndTime hợp lệ — RESOLVER-AWARE (hỗ trợ 24/7).
+        // FIX 24/7 (2026-10-02): trước đây dùng sync method ValidatePreferredTimeRange (hard-coded
+        // DefaultOpenTime=06:00 / DefaultCloseTime=23:00) reject 24/7 cafe. Đổi sang method async
+        // resolve qua IScheduleResolver → tôn trọng CafeScheduleOverride + 24/7.
+        var (timeValid, timeError) = await CafeSchedule.ValidatePreferredTimeRangeAsync(
+            _scheduleResolver,
+            request.CafeId,
+            request.PlayDate,
+            request.PreferredStartTime,
+            request.PreferredEndTime,
+            cancellationToken);
         if (!timeValid)
         {
             throw new BadRequestException(timeError!);
@@ -419,9 +427,15 @@ public class ReservationService : IReservationService
         ValidatePlayDate(request.PlayDate, now);
         ValidatePlayersWindowRaw(request.MinPlayers, request.MaxPlayers);
 
-        // Validate preferredStartTime + preferredEndTime nằm trong giờ mở/đóng cửa cafe.
-        var (timeValid, timeError) = CafeSchedule.ValidatePreferredTimeRange(
-            request.PreferredStartTime, request.PreferredEndTime);
+        // Validate preferredStartTime + preferredEndTime nằm trong giờ mở/đóng cửa cafe — RESOLVER-AWARE.
+        // FIX 24/7 (2026-10-02): dùng method async thay cho sync hard-coded để support 24/7 cafe.
+        var (timeValid, timeError) = await CafeSchedule.ValidatePreferredTimeRangeAsync(
+            _scheduleResolver,
+            request.CafeId,
+            request.PlayDate,
+            request.PreferredStartTime,
+            request.PreferredEndTime,
+            cancellationToken);
         if (!timeValid)
         {
             throw new BadRequestException(timeError!);

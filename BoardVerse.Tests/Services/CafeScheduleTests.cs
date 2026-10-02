@@ -1,4 +1,5 @@
 using BoardVerse.Core.Constants;
+using Moq;
 using Xunit;
 
 namespace BoardVerse.Tests.Services;
@@ -221,5 +222,198 @@ public class CafeScheduleTests
         // 22:30 VN = 15:30 UTC; 23:00 VN = 16:00 UTC.
         Assert.Equal(new DateTime(2026, 8, 14, 15, 30, 0, DateTimeKind.Utc), scheduledStart);
         Assert.Equal(new DateTime(2026, 8, 14, 16, 0, 0, DateTimeKind.Utc), scheduledEnd);
+    }
+
+    // ===== FIX 24/7 (2026-10-02): ValidatePreferredTimeRangeAsync (resolver-aware) =====
+
+    private static Mock<IScheduleResolver> BuildResolver(
+        Guid cafeId,
+        DateOnly playDate,
+        TimeOnly openTime,
+        TimeOnly closeTime,
+        bool isClosed = false)
+    {
+        var resolver = new Mock<IScheduleResolver>();
+        resolver
+            .Setup(r => r.ResolveAsync(cafeId, playDate, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ResolvedSchedule(openTime, closeTime, isClosed, HasOverride: true));
+        // next day
+        resolver
+            .Setup(r => r.ResolveAsync(cafeId, playDate.AddDays(1), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ResolvedSchedule(openTime, closeTime, isClosed, HasOverride: true));
+        return resolver;
+    }
+
+    [Fact]
+    public async Task ValidatePreferredTimeRangeAsync_DefaultCafe_ReturnsTrueForNormalRange()
+    {
+        var cafeId = Guid.NewGuid();
+        var playDate = new DateOnly(2026, 10, 2);
+        var resolver = BuildResolver(cafeId, playDate, new TimeOnly(6, 0), new TimeOnly(23, 0));
+
+        var (isValid, error) = await CafeSchedule.ValidatePreferredTimeRangeAsync(
+            resolver.Object, cafeId, playDate,
+            new TimeOnly(10, 0), new TimeOnly(14, 0));
+
+        Assert.True(isValid);
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public async Task ValidatePreferredTimeRangeAsync_24x7Cafe_AcceptsEarlyMorningStart()
+    {
+        // Cafe mở 24/7 (00:00 → 23:59) — start 02:00 phải pass (default method reject vì <06:00).
+        var cafeId = Guid.NewGuid();
+        var playDate = new DateOnly(2026, 10, 2);
+        var resolver = BuildResolver(cafeId, playDate, new TimeOnly(0, 0), new TimeOnly(23, 59));
+
+        var (isValid, error) = await CafeSchedule.ValidatePreferredTimeRangeAsync(
+            resolver.Object, cafeId, playDate,
+            new TimeOnly(2, 0), new TimeOnly(5, 0));
+
+        Assert.True(isValid);
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public async Task ValidatePreferredTimeRangeAsync_24x7Cafe_AcceptsLateNightEnd()
+    {
+        // Cafe mở 24/7 — end 23:30 phải pass (default method reject vì >23:00).
+        var cafeId = Guid.NewGuid();
+        var playDate = new DateOnly(2026, 10, 2);
+        var resolver = BuildResolver(cafeId, playDate, new TimeOnly(0, 0), new TimeOnly(23, 59));
+
+        var (isValid, error) = await CafeSchedule.ValidatePreferredTimeRangeAsync(
+            resolver.Object, cafeId, playDate,
+            new TimeOnly(22, 0), new TimeOnly(23, 30));
+
+        Assert.True(isValid);
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public async Task ValidatePreferredTimeRangeAsync_24x7Cafe_AcceptsFullOvernightSession()
+    {
+        // Session 23:30 → 02:00 (next day) — cả 2 ngày cùng 24/7.
+        var cafeId = Guid.NewGuid();
+        var playDate = new DateOnly(2026, 10, 2);
+        var resolver = BuildResolver(cafeId, playDate, new TimeOnly(0, 0), new TimeOnly(23, 59));
+
+        var (isValid, error) = await CafeSchedule.ValidatePreferredTimeRangeAsync(
+            resolver.Object, cafeId, playDate,
+            new TimeOnly(23, 30), new TimeOnly(2, 0));
+
+        Assert.True(isValid);
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public async Task ValidatePreferredTimeRangeAsync_CafeClosed_ReturnsFalse()
+    {
+        var cafeId = Guid.NewGuid();
+        var playDate = new DateOnly(2026, 10, 2);
+        var resolver = BuildResolver(cafeId, playDate, new TimeOnly(0, 0), new TimeOnly(23, 59), isClosed: true);
+
+        var (isValid, error) = await CafeSchedule.ValidatePreferredTimeRangeAsync(
+            resolver.Object, cafeId, playDate,
+            new TimeOnly(10, 0), new TimeOnly(14, 0));
+
+        Assert.False(isValid);
+        Assert.Contains("đóng cửa", error);
+    }
+
+    [Fact]
+    public async Task ValidatePreferredTimeRangeAsync_StartBeforeResolvedOpen_ReturnsFalse()
+    {
+        // Cafe open 10:00 — start 08:00 phải reject.
+        var cafeId = Guid.NewGuid();
+        var playDate = new DateOnly(2026, 10, 2);
+        var resolver = BuildResolver(cafeId, playDate, new TimeOnly(10, 0), new TimeOnly(23, 0));
+
+        var (isValid, error) = await CafeSchedule.ValidatePreferredTimeRangeAsync(
+            resolver.Object, cafeId, playDate,
+            new TimeOnly(8, 0), new TimeOnly(14, 0));
+
+        Assert.False(isValid);
+        Assert.Contains("mở cửa", error);
+        Assert.Contains("10:00", error);
+    }
+
+    [Fact]
+    public async Task ValidatePreferredTimeRangeAsync_EndAfterResolvedClose_ReturnsFalse()
+    {
+        // Cafe close 22:00 — end 23:00 phải reject.
+        var cafeId = Guid.NewGuid();
+        var playDate = new DateOnly(2026, 10, 2);
+        var resolver = BuildResolver(cafeId, playDate, new TimeOnly(10, 0), new TimeOnly(22, 0));
+
+        var (isValid, error) = await CafeSchedule.ValidatePreferredTimeRangeAsync(
+            resolver.Object, cafeId, playDate,
+            new TimeOnly(18, 0), new TimeOnly(23, 0));
+
+        Assert.False(isValid);
+        Assert.Contains("đóng cửa", error);
+        Assert.Contains("22:00", error);
+    }
+
+    [Fact]
+    public async Task ValidatePreferredTimeRangeAsync_ZeroDuration_ReturnsFalse()
+    {
+        // Start == End phải reject dù cafe có mở 24/7 hay không.
+        var cafeId = Guid.NewGuid();
+        var playDate = new DateOnly(2026, 10, 2);
+        var resolver = BuildResolver(cafeId, playDate, new TimeOnly(0, 0), new TimeOnly(23, 59));
+
+        var (isValid, error) = await CafeSchedule.ValidatePreferredTimeRangeAsync(
+            resolver.Object, cafeId, playDate,
+            new TimeOnly(12, 0), new TimeOnly(12, 0));
+
+        Assert.False(isValid);
+        Assert.Contains("khác thời gian bắt đầu", error);
+    }
+
+    [Fact]
+    public async Task ValidatePreferredTimeRangeAsync_Overnight_NextDayClosed_ReturnsFalse()
+    {
+        // Start 22:00 day 1, end 02:00 day 2 — day 2 đóng cửa → reject.
+        var cafeId = Guid.NewGuid();
+        var playDate = new DateOnly(2026, 10, 2);
+        var resolver = new Mock<IScheduleResolver>();
+        resolver
+            .Setup(r => r.ResolveAsync(cafeId, playDate, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ResolvedSchedule(new TimeOnly(10, 0), new TimeOnly(23, 0), IsClosed: false, HasOverride: true));
+        resolver
+            .Setup(r => r.ResolveAsync(cafeId, playDate.AddDays(1), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ResolvedSchedule(new TimeOnly(10, 0), new TimeOnly(23, 0), IsClosed: true, HasOverride: true));
+
+        var (isValid, error) = await CafeSchedule.ValidatePreferredTimeRangeAsync(
+            resolver.Object, cafeId, playDate,
+            new TimeOnly(22, 0), new TimeOnly(2, 0));
+
+        Assert.False(isValid);
+        Assert.Contains("đóng cửa", error);
+    }
+
+    [Fact]
+    public async Task ValidatePreferredTimeRangeAsync_Overnight_NextDayCloseEarlierThanRespectedTo_ReturnsFalse()
+    {
+        // Start 22:00 day 1 (close 23:00), end 05:00 day 2 (close 04:00) → end > 04:00.
+        var cafeId = Guid.NewGuid();
+        var playDate = new DateOnly(2026, 10, 2);
+        var resolver = new Mock<IScheduleResolver>();
+        resolver
+            .Setup(r => r.ResolveAsync(cafeId, playDate, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ResolvedSchedule(new TimeOnly(10, 0), new TimeOnly(23, 0), IsClosed: false, HasOverride: true));
+        resolver
+            .Setup(r => r.ResolveAsync(cafeId, playDate.AddDays(1), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ResolvedSchedule(new TimeOnly(0, 0), new TimeOnly(4, 0), IsClosed: false, HasOverride: true));
+
+        var (isValid, error) = await CafeSchedule.ValidatePreferredTimeRangeAsync(
+            resolver.Object, cafeId, playDate,
+            new TimeOnly(22, 0), new TimeOnly(5, 0));
+
+        Assert.False(isValid);
+        Assert.Contains("đóng cửa", error);
+        Assert.Contains("04:00", error);
     }
 }
