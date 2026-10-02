@@ -873,27 +873,7 @@ namespace BoardVerse.Data.Repositories
                 _context.CafeTables.Add(table);
             }
 
-            await RefreshTableLayoutJsonAsync(cafeId, cancellationToken);
-
             await _context.SaveChangesAsync(cancellationToken);
-        }
-
-        public async Task RefreshTableLayoutJsonAsync(Guid cafeId, CancellationToken cancellationToken = default)
-        {
-            var cafe = await _context.Cafes.FirstOrDefaultAsync(c => c.Id == cafeId, cancellationToken);
-            if (cafe == null)
-            {
-                return;
-            }
-
-            var activeNames = await _context.CafeTables
-                .Where(t => t.CafeId == cafeId && t.IsActive)
-                .OrderBy(t => t.SortOrder)
-                .Select(t => t.Name)
-                .ToListAsync(cancellationToken);
-
-            cafe.TableLayoutJson = System.Text.Json.JsonSerializer.Serialize(activeNames);
-            cafe.UpdatedAt = DateTime.UtcNow;
         }
 
         public async Task SaveChangesAsync(CancellationToken cancellationToken = default)

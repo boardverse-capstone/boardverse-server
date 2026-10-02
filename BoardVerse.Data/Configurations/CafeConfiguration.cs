@@ -54,10 +54,6 @@ namespace BoardVerse.Data.Configurations
                 .IsRequired()
                 .HasDefaultValue("[]");
 
-            builder.Property(c => c.TableLayoutJson)
-                .IsRequired()
-                .HasDefaultValue("[]");
-
             builder.Property(c => c.PopularGamesList)
                 .IsRequired()
                 .HasMaxLength(2000)

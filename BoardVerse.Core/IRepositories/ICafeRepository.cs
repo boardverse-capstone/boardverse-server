@@ -93,7 +93,6 @@ namespace BoardVerse.Core.IRepositories
         /// SeatCount nâng cấp null → giữ nguyên DB; SortOrder null → auto-append sau max.
         /// </summary>
         Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<CafeTableSyncItem> tables, CancellationToken cancellationToken = default);
-        Task RefreshTableLayoutJsonAsync(Guid cafeId, CancellationToken cancellationToken = default);
         Task SaveChangesAsync(CancellationToken cancellationToken = default);
 
         // === Admin: Full CRUD ===

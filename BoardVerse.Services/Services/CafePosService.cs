@@ -288,10 +288,6 @@ namespace BoardVerse.Services.Services
             await _posRepository.UpdateTableAsync(table);
             await _posRepository.SaveChangesAsync();
 
-            // Keep TableLayoutJson in sync with the (possibly renamed/reordered) table.
-            await _cafeRepository.RefreshTableLayoutJsonAsync(cafeId);
-            await _cafeRepository.SaveChangesAsync();
-
             return new CafeTableStatusDto
             {
                 Id = table.Id,

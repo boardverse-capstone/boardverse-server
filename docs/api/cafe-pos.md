@@ -328,10 +328,6 @@ curl -X PUT "https://api.boardverse.local/api/cafes/{cafeId}/pos/tables" \
       ]}'
 ```
 
-**Sau khi sync → `TableLayoutJson` (cache trên `Cafe`) được tự động refresh** với danh sách tên bàn active theo SortOrder.
-
----
-
 ## PATCH /api/cafes/{cafeId}/pos/tables/{tableId}
 
 Cập nhật một phần thông tin bàn. Dùng để **đổi `SeatCount` cho từng bàn** (ảnh hưởng đến `AvailableSeats` cho booking — BR-05).

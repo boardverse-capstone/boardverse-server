@@ -549,7 +549,6 @@ classDiagram
  +decimal BasePrice
  +decimal TieredBlockRate
  +int TieredBlockMinutes
- +string TableLayoutJson
  +DateTime OperationalProfileUpdatedAt
  +bool IsPricingLocked
  +decimal DepositPercentage
@@ -1849,7 +1848,6 @@ Ký hiệu:
 | `BasePrice` | `decimal` | BR-01 |
 | `TieredBlockRate` | `decimal?` | BR-16 |
 | `TieredBlockMinutes` | `int` | BR-16 |
-| `TableLayoutJson` | `string` | |
 | `OperationalProfileUpdatedAt` | `DateTime?` | |
 | `IsPricingLocked` | `bool` | BR-04 |
 | `DepositPercentage` | `decimal` | BR-02/03 — max 50% |

@@ -280,6 +280,8 @@ public class ReservationService : IReservationService
             RecruitmentDeadline = recruitmentDeadline,
             MinPlayers = request.MinPlayers,
             MaxPlayers = quote.MaxPlayersApplied,
+            CafeBasePriceVnd = quote.CafeBasePriceVnd,
+            DurationMinutes = (int)(scheduledEndTime - scheduledStartTime).TotalMinutes,
 #pragma warning disable CS0618 // Obsolete DTO fields kept for legacy FE compatibility
             DepositRatePerPerson = cafeConfig.DepositRatePerPerson,
             BaseDeposit = quote.BaseDeposit,
@@ -287,7 +289,10 @@ public class ReservationService : IReservationService
             MinDepositApplied = quote.MinDepositApplied,
             // hide loading "DepositPerPerson" giờ populate từ calculator (post-clamp + post-BR03).
             DepositPerPerson = quote.DepositPerPerson,
+            // [2026-08-27 — đã bỏ hiển thị] % tính cọc; giữ field cho backward compat.
+            DepositPercentage = quote.DepositPercentage,
 #pragma warning restore CS0618
+            DepositUnit = "BVC",
             FinalDeposit = quote.FinalDeposit,
             CurrentBalance = wallet.AvailableBalance,
             MissingAmount = Math.Max(0, quote.FinalDeposit - wallet.AvailableBalance),

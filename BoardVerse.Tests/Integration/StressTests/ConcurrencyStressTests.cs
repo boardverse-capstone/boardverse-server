@@ -469,7 +469,7 @@ public class ConcurrencyStressTests : IClassFixture<ConcurrencyStressTests.Stres
                 "\"Id\", \"Name\", \"Address\", \"ManagerId\", \"CreatedAt\", \"UpdatedAt\", " +
                 "\"IsActive\", \"NumberOfTables\", \"NumberOfPrivateRooms\", " +
                 "\"SpaceImageUrlsJson\", \"NumberOfGamesOwned\", \"PopularGamesList\", " +
-                "\"HasGameMaster\", \"BillingModel\", \"TableLayoutJson\", " +
+                "\"HasGameMaster\", \"BillingModel\", " +
                 "\"TotalSeats\", \"TieredBlockMinutes\", " +
                 "\"IsPricingLocked\", \"DepositPercentage\", \"DefaultHoldDurationMinutes\", " +
                 "\"BasePrice\", \"RefundPolicy\", \"RefundTiersJson\") " +
@@ -477,7 +477,7 @@ public class ConcurrencyStressTests : IClassFixture<ConcurrencyStressTests.Stres
                 "{0}, {1}, {2}, {3}, {4}, {5}, " +
                 "TRUE, 0, 0, " +
                 "'[]', 0, '', " +
-                "FALSE, 'ByHour', '[]', " +
+                "FALSE, 'ByHour', " +
                 "0, 15, " +
                 "FALSE, 0.5, 30, " +
                 "0, 0, '[{{\"minHoursBeforeScheduled\":24,\"refundPercent\":50}},{{\"minHoursBeforeScheduled\":12,\"refundPercent\":25}},{{\"minHoursBeforeScheduled\":0,\"refundPercent\":0}}]'" +

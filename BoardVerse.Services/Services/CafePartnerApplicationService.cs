@@ -916,12 +916,6 @@ namespace BoardVerse.Services.Services
                 blockers.Add(ApiErrorMessages.CafePartner.MinSpaceImagesActivationRequired(CafePartnerActivationRules.MinSpaceImages));
             }
 
-            var tableNames = DeserializeStringList(cafe.TableLayoutJson);
-            if (tableNames.Count < activeTablesCount)
-            {
-                blockers.Add(ApiErrorMessages.CafePartner.TableLayoutRequired);
-            }
-
             if (!cafe.Latitude.HasValue || !cafe.Longitude.HasValue)
             {
                 blockers.Add(ApiErrorMessages.CafePartner.GpsLocationRequiredBeforeActivation);
@@ -1112,10 +1106,10 @@ namespace BoardVerse.Services.Services
         private static ManagerCafeProfileResponseDto MapManagerCafeProfile(CafePartnerApplication? application, Cafe cafe)
         {
             var spaceUrls = DeserializeStringList(cafe.SpaceImageUrlsJson);
-            var tableNames = DeserializeStringList(cafe.TableLayoutJson);
             // NumberOfTables/NumberOfGamesOwned are derived from navigation collections
             // to stay in sync with tables managed via POS endpoints and inventory rows.
-            var numberOfTables = cafe.Tables?.Count(t => t.IsActive) ?? 0;
+            var activeTables = cafe.Tables?.Where(t => t.IsActive).ToList() ?? new List<CafeTable>();
+            var numberOfTables = activeTables.Count;
             var numberOfGamesOwned = cafe.Inventories?.Where(i => i.IsActive).Sum(i => i.BoxQuantity) ?? 0;
             var blockers = application?.Status == CafePartnerApplicationStatus.Approved
                 ? GetActivationBlockers(cafe)
@@ -1149,7 +1143,6 @@ namespace BoardVerse.Services.Services
                 DepositPercentage = cafe.DepositPercentage,
                 DefaultHoldDurationMinutes = cafe.DefaultHoldDurationMinutes,
                 IsPricingLocked = cafe.IsPricingLocked,
-                TableNames = tableNames,
                 ApplicationStatus = application != null
                     ? CafePartnerStatusMapper.ToApiApplicationStatus(application.Status)
                     : CafePartnerStatusMapper.ToApiApplicationStatus(Core.Enum.CafePartnerApplicationStatus.PendingApproval),
@@ -1157,7 +1150,8 @@ namespace BoardVerse.Services.Services
                     ? CafePartnerStatusMapper.ToApiOperationalStatus(operational)
                     : null,
                 OperationalStatusReason = cafe.PartnerOperationalStatusReason,
-                IsTableLayoutConfigured = tableNames.Count >= numberOfTables && numberOfTables > 0,
+                IsTableLayoutConfigured = numberOfTables > 0
+                    && activeTables.All(t => !string.IsNullOrWhiteSpace(t.Name)),
                 CanActivate = application?.Status == CafePartnerApplicationStatus.Approved &&
                               CafePartnerOperationalStatusHelper.CanManagerActivate(cafe.PartnerOperationalStatus) &&
                               blockers.Count == 0,
