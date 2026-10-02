@@ -1,4 +1,5 @@
 ﻿using BoardVerse.Core.Common;
+using BoardVerse.Core.DTOs.Cafe;
 using BoardVerse.Core.DTOs.Game;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
@@ -21,10 +22,12 @@ public class BoardGameServiceTests
     private static IBoardGameService BuildService(
         Mock<IGameTemplateRepository> gameRepo,
         Mock<ICategoryRepository>? categoryRepo = null,
+        Mock<ICafeRepository>? cafeRepo = null,
         IMemoryCache? memoryCache = null) =>
         new BoardGameService(
             gameRepo.Object,
             (categoryRepo ?? new Mock<ICategoryRepository>()).Object,
+            (cafeRepo ?? new Mock<ICafeRepository>()).Object,
             memoryCache ?? new MemoryCache(new MemoryCacheOptions()));
 
     private static GameTemplate SoloGame() => new()
@@ -447,5 +450,191 @@ public class BoardGameServiceTests
         Assert.Equal(2, result.RoomConfiguration.MinPlayers);
         Assert.Equal(2, result.RoomConfiguration.MaxPlayers);
         Assert.Equal(2, result.RoomConfiguration.DefaultPlayerCount);
+    }
+
+    // =============== GetActiveCafesByBoardGameAsync ===============
+
+    [Fact]
+    public async Task GetActiveCafesByBoardGameAsync_BoardGameMissing_ThrowsNotFound()
+    {
+        var gameRepo = new Mock<IGameTemplateRepository>();
+        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((GameTemplate?)null);
+
+        var service = BuildService(gameRepo);
+
+        await Assert.ThrowsAsync<BoardGameNotFoundException>(() =>
+            service.GetActiveCafesByBoardGameAsync(GameId, new ActiveCafesByBoardGameQueryDto()));
+    }
+
+    [Fact]
+    public async Task GetActiveCafesByBoardGameAsync_BoardGameMissing_DoesNotCallCafeRepository()
+    {
+        // Negative test: khi board game không tồn tại, service phải fail-fast và KHÔNG query xuống CafeRepository.
+        var gameRepo = new Mock<IGameTemplateRepository>();
+        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((GameTemplate?)null);
+
+        var cafeRepo = new Mock<ICafeRepository>();
+        var service = BuildService(gameRepo, cafeRepo: cafeRepo);
+
+        await Assert.ThrowsAsync<BoardGameNotFoundException>(() =>
+            service.GetActiveCafesByBoardGameAsync(GameId, new ActiveCafesByBoardGameQueryDto()));
+
+        cafeRepo.Verify(
+            r => r.GetActiveCafesByBoardGameAsync(
+                It.IsAny<Guid>(),
+                It.IsAny<double?>(),
+                It.IsAny<double?>(),
+                It.IsAny<string?>(),
+                It.IsAny<PaginationParams>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task GetActiveCafesByBoardGameAsync_NoLocation_DelegatesToRepository()
+    {
+        var query = new ActiveCafesByBoardGameQueryDto
+        {
+            Latitude = null,
+            Longitude = null,
+            Name = "  Catan Cafe  ",
+            PageNumber = 2,
+            PageSize = 10
+        };
+        var expected = new PaginatedResponse<NearbyCafeDto>
+        {
+            Data = [new NearbyCafeDto { Id = Guid.NewGuid(), Name = "Catan Cafe Thủ Đức" }],
+            Meta = new PaginationMeta { CurrentPage = 2, PageSize = 10, TotalItems = 1, TotalPages = 1 }
+        };
+
+        var gameRepo = new Mock<IGameTemplateRepository>();
+        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(MultiplayerGame());
+
+        var cafeRepo = new Mock<ICafeRepository>();
+        cafeRepo.Setup(r => r.GetActiveCafesByBoardGameAsync(
+                GameId,
+                It.Is<double?>(v => v == null),
+                It.Is<double?>(v => v == null),
+                "  Catan Cafe  ",
+                It.Is<PaginationParams>(p => p.PageNumber == 2 && p.PageSize == 10),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expected)
+            .Verifiable();
+
+        var service = BuildService(gameRepo, cafeRepo: cafeRepo);
+        var result = await service.GetActiveCafesByBoardGameAsync(GameId, query);
+
+        Assert.Same(expected, result);
+        cafeRepo.Verify();
+    }
+
+    [Fact]
+    public async Task GetActiveCafesByBoardGameAsync_WithLocation_PassesCoordinatesToRepository()
+    {
+        var lat = 10.776889;
+        var lng = 106.700806;
+        var query = new ActiveCafesByBoardGameQueryDto
+        {
+            Latitude = lat,
+            Longitude = lng,
+            PageNumber = 1,
+            PageSize = 20
+        };
+
+        var gameRepo = new Mock<IGameTemplateRepository>();
+        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(MultiplayerGame());
+
+        var cafeRepo = new Mock<ICafeRepository>();
+        cafeRepo.Setup(r => r.GetActiveCafesByBoardGameAsync(
+                GameId,
+                lat,
+                lng,
+                null,
+                It.IsAny<PaginationParams>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaginatedResponse<NearbyCafeDto>
+            {
+                Data = [],
+                Meta = new PaginationMeta { CurrentPage = 1, PageSize = 20, TotalItems = 0, TotalPages = 0 }
+            })
+            .Verifiable();
+
+        var service = BuildService(gameRepo, cafeRepo: cafeRepo);
+        await service.GetActiveCafesByBoardGameAsync(GameId, query);
+
+        cafeRepo.Verify();
+    }
+
+    [Fact]
+    public async Task GetActiveCafesByBoardGameAsync_PartialLocation_TreatsAsNoLocation()
+    {
+        // Chỉ truyền Latitude mà không truyền Longitude → coi như không có location,
+        // tránh tính khoảng cách sai trong SQL.
+        var query = new ActiveCafesByBoardGameQueryDto
+        {
+            Latitude = 10.776889,
+            Longitude = null,
+            PageNumber = 1,
+            PageSize = 20
+        };
+
+        var gameRepo = new Mock<IGameTemplateRepository>();
+        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(MultiplayerGame());
+
+        var cafeRepo = new Mock<ICafeRepository>();
+        cafeRepo.Setup(r => r.GetActiveCafesByBoardGameAsync(
+                GameId,
+                It.Is<double?>(v => v == null),
+                It.Is<double?>(v => v == null),
+                null,
+                It.IsAny<PaginationParams>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaginatedResponse<NearbyCafeDto>
+            {
+                Data = [],
+                Meta = new PaginationMeta { CurrentPage = 1, PageSize = 20, TotalItems = 0, TotalPages = 0 }
+            })
+            .Verifiable();
+
+        var service = BuildService(gameRepo, cafeRepo: cafeRepo);
+        await service.GetActiveCafesByBoardGameAsync(GameId, query);
+
+        cafeRepo.Verify();
+    }
+
+    [Fact]
+    public async Task GetActiveCafesByBoardGameAsync_EmptyResult_ReturnsEmptyPage()
+    {
+        var query = new ActiveCafesByBoardGameQueryDto();
+        var empty = new PaginatedResponse<NearbyCafeDto>
+        {
+            Data = [],
+            Meta = new PaginationMeta { CurrentPage = 1, PageSize = 20, TotalItems = 0, TotalPages = 0 }
+        };
+
+        var gameRepo = new Mock<IGameTemplateRepository>();
+        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(MultiplayerGame());
+
+        var cafeRepo = new Mock<ICafeRepository>();
+        cafeRepo.Setup(r => r.GetActiveCafesByBoardGameAsync(
+                GameId,
+                It.IsAny<double?>(),
+                It.IsAny<double?>(),
+                It.IsAny<string?>(),
+                It.IsAny<PaginationParams>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(empty);
+
+        var service = BuildService(gameRepo, cafeRepo: cafeRepo);
+        var result = await service.GetActiveCafesByBoardGameAsync(GameId, query);
+
+        Assert.Empty(result.Data);
+        Assert.Equal(0, result.Meta.TotalItems);
     }
 }

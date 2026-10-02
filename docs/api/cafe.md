@@ -343,10 +343,12 @@ Xem thông tin **chi tiết** quán cafe — **không cần token**. Bao gồm p
 | **Operational** | `operationalStatus` (DataBlank/Active/Inactive/Banned), `operationalStatusReason`, `isCurrentlyOpen` |
 | **Refund Policy (BR-18)** | `refundPolicy` (Full/Partial/None), `refundTiers` (khi Partial) |
 | **Deposit Config** | `depositRatePerPerson` (BVC/người), `cafeConfig` (hạn mức riêng của cafe) |
-| **Seat Availability** | `availableSeats`, `heldSeats`, `inUseSeats`, `availableSeatsByTimeSlot` |
+| **Seat Availability** | `availableSeats`, `heldSeats`, `inUseSeats`, `availableSeatsByTimeSlot` (transitional — xem note dưới) |
 | **Cafe Config (BR-NEW-12)** | `cafeConfig` (maxPlayers, minDeposit, approval settings) |
 | **Schedule** | `scheduleOverrides` (ngày lễ, giờ mở đặc biệt) |
 | **Additional** | `numberOfTables`, `numberOfPrivateRooms`, `numberOfGamesOwned`, `hasGameMaster`, `distanceKm` (nếu truyền lat/lng) |
+
+> **Note về `availableSeatsByTimeSlot` (transitional):** Field này hiện trả về `Dictionary<string, int>` với key là `TimeSlot` enum (`Morning` / `Afternoon` / `Evening` / `LateNight`). Theo BR-NEW-15 (2026-08-18), `TimeSlot` enum đang được refactor dần. Có thể bị loại bỏ trong tương lai khi toàn bộ flow chuyển sang dùng `preferredStartTime` + `preferredEndTime`. Hiện tại vẫn còn được dùng bởi `ICafeRepository.GetAvailableSeatsByTimeSlotAsync` để tính seat inventory tổng quát. Nếu client app không cần granularity theo slot, có thể bỏ qua field này.
 
 **Lỗi:** `404` cafe không tồn tại hoặc inactive.
 
@@ -597,8 +599,8 @@ Lấy danh sách reservation của 1 cafe cho Manager/CafeStaff. Filter theo sta
         "gameTemplateId": "guid",
         "gameName": "Catan",
         "playDate": "2026-08-15",
-        "timeSlot": "Evening",
-        "preferredStartTime": "19:00",
+        "preferredStartTime": "19:00:00",
+        "preferredEndTime": "22:00:00",
         "minPlayers": 3,
         "maxPlayers": 4,
         "currentPlayers": 4,
@@ -665,7 +667,8 @@ Lấy danh sách lobby của 1 cafe cho Manager/CafeStaff. Filter theo lobby sta
         "gameTemplateId": "guid",
         "gameName": "Catan",
         "playDate": "2026-08-15",
-        "timeSlot": "Evening",
+        "preferredStartTime": "19:00:00",
+        "preferredEndTime": "22:00:00",
         "minPlayers": 3,
         "maxPlayers": 4,
         "currentPlayers": 2,

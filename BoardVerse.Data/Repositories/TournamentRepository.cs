@@ -112,14 +112,16 @@ public class TournamentRepository : ITournamentRepository
     public async Task<IReadOnlyList<Tournament>> GetTournamentsStartingSoonAsync(DateTime now, CancellationToken ct = default)
     {
         var windowEnd = now.AddMinutes(30);
+        // Note: bỏ .Include(t => t.Cafe) vì Cafe entity còn chứa các cột
+        // đã gỡ khỏi DB (vd TableLayoutJson). Service sẽ lookup CafeName riêng.
         return await _db.Tournaments
             .Include(t => t.Participants)
-            .Include(t => t.Cafe)
             .Include(t => t.GameTemplate)
             .Where(t => (t.Status == TournamentStatus.RegistrationOpen || t.Status == TournamentStatus.RegistrationClosed)
                 && t.StartTime > now
                 && t.StartTime <= windowEnd)
             .OrderBy(t => t.StartTime)
+            .AsNoTracking()
             .ToListAsync(ct);
     }
 

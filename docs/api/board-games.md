@@ -12,6 +12,7 @@ API tra cứu **danh mục board game** dành cho người chơi: tìm kiếm g�
 | `/` | GET | Tìm kiếm + lọc + phân trang |
 | `/top5` | GET | Top 5 board game được chơi nhiều nhất trong hệ thống (widget UI mobile) |
 | `/{id}` | GET | Chi tiết game + linh kiện |
+| `/{id}/active-cafes` | GET | Danh sách quán cafe đang ACTIVE có game này trong kho và có thể chơi được (mirror ngược của `/api/cafes/{cafeId}/active-games`) |
 | `/{id}/play-configuration` | GET | Kiểm tra min/max người và chế độ chơi khả dụng |
 | `/{id}/play-navigation` | POST | Điều hướng Solo Booking hoặc tạo phòng chờ nhóm |
 | `/thumbnail-proxy` | GET | Proxy ảnh thumbnail từ BoardGameGeek CDN (bypass CORS cho Flutter Web) |
@@ -307,6 +308,149 @@ GET /api/v1/board-games/66666666-6666-6666-6666-666666666666
 
 ---
 
+## GET /api/v1/board-games/{boardgameId}/active-cafes
+
+Lấy danh sách quán cafe đang ACTIVE có board game này trong kho và có thể chơi được. Đây là **chiều ngược** của `GET /api/cafes/{cafeId}/active-games` — player hỏi "chơi game này ở đâu?" sau khi xem chi tiết game.
+
+| Auth | Mô tả |
+|---|---|
+| `[AllowAnonymous]` | Public — không cần đăng nhập. |
+
+### Điều kiện quán được trả về
+
+Quán cafe phải thỏa mãn **đồng thời**:
+
+| Điều kiện | Mô tả |
+|---|---|
+| `Cafe.IsActive = true` | Quán chưa bị soft-delete |
+| `Cafe.PartnerOperationalStatus = Active` | Quán đang hoạt động vận hành (không `Inactive`/`Banned`/`DataBlank`) |
+| `CafeGameInventory.IsActive = true` | Quán chưa xóa mềm khỏi kho game |
+| `CafeGameInventory.Status ∈ {Available, InUse}` | Kho game ở trạng thái phục vụ được (không `Damaged`/`Maintenance`/`Retired`) |
+| `GameTemplate.IsActive = true` | Master game vẫn active |
+
+> Endpoint này **throw 404** nếu `boardgameId` không tồn tại hoặc master game đã bị deactivate (giúp client phân biệt "không có quán nào" với "game này không tồn tại").
+
+### Path
+
+| Param | Type | Required | Mô tả |
+|---|---|---|---|
+| `boardgameId` | Guid | Yes | Mã board game (`GameTemplates.Id`) |
+
+### Query parameters
+
+| Param | Type | Required | Mô tả |
+|---|---|---|---|
+| `latitude` | double | No | Vĩ độ player (WGS84, -90 đến 90). Truyền kèm `longitude` để server tính `DistanceMeters` và sort theo khoảng cách tăng dần. |
+| `longitude` | double | No | Kinh độ player (WGS84, -180 đến 180). Phải truyền kèm `latitude`; nếu chỉ truyền 1 trong 2 → bỏ qua, dùng sort theo tên. |
+| `name` | string | No | Lọc theo tên quán (case-insensitive, partial match). |
+| `pageNumber` | int | No | Số trang (mặc định 1). |
+| `pageSize` | int | No | Kích thước trang (mặc định 20). |
+
+### Sort mặc định
+
+- Có `latitude` + `longitude` → sort theo `DistanceMeters` tăng dần (gần nhất trước), tie-break theo tên.
+- Không có location → sort theo tên A→Z (giống `GET /api/cafes`).
+
+### Ví dụ request
+
+```http
+GET /api/v1/board-games/11111111-1111-1111-1111-111111111111/active-cafes
+```
+
+```http
+GET /api/v1/board-games/11111111-1111-1111-1111-111111111111/active-cafes?latitude=10.776889&longitude=106.700806&pageSize=5
+```
+
+```http
+GET /api/v1/board-games/11111111-1111-1111-1111-111111111111/active-cafes?name=catan
+```
+
+### Response 200
+
+Trả về `PaginatedResponse<NearbyCafeDto>` (giống `GET /api/cafes/nearby`) — mỗi phần tử gồm:
+
+| Field | Mô tả |
+|-------|-------|
+| `id` / `name` / `address` / `phoneNumber` / `description` | Thông tin cơ bản quán |
+| `latitude` / `longitude` | Tọa độ quán (nullable) |
+| `distanceMeters` | Khoảng cách tới player (mét); 0 nếu không truyền lat/lng |
+| `totalSeats` / `billingModel` / `basePrice` / `tieredBlockRate` / `tieredBlockMinutes` | Biểu phí (BR-01/BR-16) |
+| `depositPercentage` / `isPricingLocked` | Cấu hình cọc (BR-02/BR-04) |
+| `hasSePayConfigured` | Quán đã cấu hình SePay cho session payment |
+| `availableGameCount` | Số hộp board game này đang `Available` (có thể chơi ngay) |
+| `totalGameBoxCount` | Tổng số hộp vật lý cho game này (`Available` + `InUse`) |
+| `availableTableCount` / `totalTableCount` | Bàn còn trống / tổng bàn |
+| `meta` | Phân trang (currentPage, pageSize, totalItems, totalPages) |
+
+```json
+{
+  "statusCode": 200,
+  "message": "Lấy danh sách quán cafe có board game đang hoạt động thành công.",
+  "data": {
+    "data": [
+      {
+        "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        "name": "BoardVerse Cafe Thủ Đức",
+        "address": "12 Võ Văn Ngân",
+        "latitude": 10.85,
+        "longitude": 106.77,
+        "phoneNumber": "0901234567",
+        "description": "Quán board game chuyên Catan, Avalon.",
+        "createdAt": "2025-09-01T00:00:00Z",
+        "distanceMeters": 1250.5,
+        "totalSeats": 30,
+        "billingModel": "TimeBased",
+        "basePrice": 50000,
+        "tieredBlockRate": 10000,
+        "tieredBlockMinutes": 15,
+        "depositPercentage": 0.5,
+        "isPricingLocked": false,
+        "hasSePayConfigured": true,
+        "availableGameCount": 2,
+        "totalGameBoxCount": 3,
+        "availableTableCount": 4,
+        "totalTableCount": 6
+      }
+    ],
+    "meta": {
+      "currentPage": 1,
+      "pageSize": 20,
+      "totalItems": 1,
+      "totalPages": 1,
+      "hasPrevious": false,
+      "hasNext": false
+    }
+  }
+}
+```
+
+### Response 404 — Board game không tồn tại / inactive
+
+```json
+{
+  "statusCode": 404,
+  "message": "Không tìm thấy board game '11111111-1111-1111-1111-111111111111' hoặc game đã bị vô hiệu hóa.",
+  "data": null
+}
+```
+
+**Lỗi:** `404` board game không tồn tại / inactive, `500` lỗi hệ thống.
+
+### PowerShell mẫu
+
+```powershell
+# Tất cả quán có Catan (không có location → sort theo tên A→Z)
+curl.exe "http://localhost:5022/api/v1/board-games/11111111-1111-1111-1111-111111111111/active-cafes"
+
+# Kèm location để sort theo khoảng cách + lọc theo tên
+curl.exe "http://localhost:5022/api/v1/board-games/11111111-1111-1111-1111-111111111111/active-cafes?latitude=10.776889&longitude=106.700806&name=catan&pageSize=5"
+
+# Board game không tồn tại → 404
+curl.exe -i "http://localhost:5022/api/v1/board-games/00000000-0000-0000-0000-000000000000/active-cafes"
+```
+
+---
+
 ## GET /api/v1/board-games/{id}/play-configuration
 
 Kiểm tra cấu hình số người chơi từ `GameTemplates` (`MinPlayers`, `MaxPlayers`) và xác định chế độ chơi UI có thể hiển thị.
@@ -560,6 +704,23 @@ curl.exe -I "http://localhost:5022/api/v1/board-games/thumbnail-proxy?url=https%
 | 1.6 Thumbnail proxy (URL rỗng) | `?url=` | 400 + `ThumbnailUrlInvalid` |
 | 1.7 Thumbnail proxy (non-http scheme) | `?url=ftp://cf.geekdo-images.com/x.png` | 400 hoặc 502 tùy đường đi validation |
 | 1.8 Thumbnail proxy (oversize) | response upstream > 5 MB | 502 |
+
+---
+
+## Acceptance Criteria — checklist test (`/{boardgameId}/active-cafes`)
+
+| AC | Test | Kỳ vọng |
+|----|------|---------|
+| AC-1 Board game không tồn tại | `GET /active-cafes` với `boardgameId` Guid.Empty | 404 + `BoardGameNotFoundException` |
+| AC-2 Board game đã `IsActive=false` | `GET /active-cafes` với game inactive | 404 + `BoardGameNotFoundException` |
+| AC-3 Có kết quả, không location | `GET /active-cafes` không truyền lat/lng | 200 + danh sách quán sort theo tên A→Z |
+| AC-4 Có kết quả, có location | `GET /active-cafes?latitude=...&longitude=...` | 200 + `DistanceMeters` được tính + sort theo khoảng cách |
+| AC-5 Partial location (chỉ lat) | `?latitude=...` (không có lng) | 200 + sort theo tên (coi như không có location) |
+| AC-6 Filter theo tên | `?name=catan` | 200 + chỉ quán có tên chứa "catan" |
+| AC-7 Không có quán nào | game tồn tại nhưng 0 quán match filter | 200 + `data: []`, `totalItems: 0` |
+| AC-8 Phân trang | `?pageNumber=2&pageSize=5` | 200 + `meta.currentPage=2`, `pageSize=5` |
+| AC-9 Board game thiếu 1 trong các filter kho | game có `CafeGameInventory.Status=Damaged` | Quán đó KHÔNG xuất hiện trong response |
+| AC-10 Quán bị `IsActive=false` | quán đã soft-delete | Quán đó KHÔNG xuất hiện trong response |
 
 ---
 
@@ -974,3 +1135,21 @@ Xóa board game khỏi danh sách đã lưu của player (xóa cứng, không to
 curl.exe -X DELETE "http://localhost:5022/api/v1/discovery/saved/66666666-6666-6666-6666-666666666666" ^
   -H "Authorization: Bearer <player-token>"
 ```
+
+---
+
+## Tổng kết file đã thay đổi (build pass 2026-10-03) — `/{boardgameId}/active-cafes`
+
+Thêm endpoint **mirror ngược** của `GET /api/cafes/{cafeId}/active-games`. Player hỏi "chơi game này ở đâu?" thay vì "quán này có những game nào?". Cùng shape response (`PaginatedResponse<NearbyCafeDto>`) để frontend dùng lại UI component hiện có.
+
+| File | Loại thay đổi | Ghi chú |
+|---|---|---|
+| `BoardVerse.API/Controllers/BoardGameController.cs` | Sửa | Thêm action `GetActiveCafesByBoardGame` (route `/{boardgameId}/active-cafes`, public, `[AllowAnonymous]`). |
+| `BoardVerse.Services/IServices/IBoardGameService.cs` | Sửa | Thêm method `GetActiveCafesByBoardGameAsync`. |
+| `BoardVerse.Services/Services/BoardGameService.cs` | Sửa | Implement `GetActiveCafesByBoardGameAsync`: validate board game active (404 nếu không), chỉ truyền `lat`/`lng` xuống repo khi cả 2 cùng có. Inject thêm `ICafeRepository`. |
+| `BoardVerse.Core/IRepositories/ICafeRepository.cs` | Sửa | Thêm method `GetActiveCafesByBoardGameAsync` mirror ngược của `GetActiveGamesByCafeAsync`. |
+| `BoardVerse.Data/Repositories/CafeRepository.cs` | Sửa | Implement query: filter theo `Cafe.IsActive + PartnerOperationalStatus=Active + CafeGameInventory.{IsActive, Status ∈ {Available,InUse}} + GameTemplate.IsActive`; sort theo `DistanceMeters` khi có lat/lng, ngược lại sort theo tên. Đếm `AvailableGameCount`/`TotalGameBoxCount` từ `CafeInventoryBox` (vật lý). |
+| `BoardVerse.Core/DTOs/Game/ActiveCafesByBoardGameQueryDto.cs` | **Mới** | Query DTO: `Latitude`, `Longitude`, `Name`, `PageNumber`, `PageSize`. |
+| `BoardVerse.Core/Messages/ApiSuccessMessages.cs` | Sửa | Thêm `BoardGame.ActiveCafesRetrieved`. |
+| `BoardVerse.Tests/Services/BoardGameServiceTests.cs` | Sửa | 6 unit test mới (404 khi game không tồn tại, fail-fast không gọi CafeRepository, có/không location, partial location, empty result). Cập nhật `BuildService` helper để inject `Mock<ICafeRepository>`. |
+| `docs/api/board-games.md` | Cập nhật | Tài liệu này — bổ sung section `GET /api/v1/board-games/{boardgameId}/active-cafes` (điều kiện filter, query params, response shape, error 404, AC checklist). |

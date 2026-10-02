@@ -87,13 +87,27 @@ public class LobbyNotificationJob : BackgroundService
             .OrderBy(l => l.RecruitmentDeadline)
             .Take(BatchSize)
             .Include(l => l.Members.Where(m => m.IsActive))
-            .Include(l => l.Cafe)
             .AsSplitQuery()
             .AsNoTracking()
             .ToListAsync(ct);
 
         if (lobbies.Count == 0)
             return;
+
+        // Lookup Cafe.Name riêng (chỉ cần 2 cột) tránh EF generate SELECT c.*
+        // bao gồm các cột đã gỡ khỏi DB (vd TableLayoutJson).
+        var cafeIds = lobbies
+            .Where(l => l.CafeId.HasValue)
+            .Select(l => l.CafeId!.Value)
+            .Distinct()
+            .ToList();
+
+        var cafeNameById = cafeIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : await db.Cafes
+                .Where(c => cafeIds.Contains(c.Id))
+                .Select(c => new { c.Id, c.Name })
+                .ToDictionaryAsync(c => c.Id, c => c.Name, ct);
 
         var sentRecords = await db.LobbyNotificationSents
             .Where(s => lobbies.Select(l => l.Id).Contains(s.LobbyId))
@@ -102,6 +116,11 @@ public class LobbyNotificationJob : BackgroundService
         var grouped = sentRecords.GroupBy(s => new { s.LobbyId, s.Milestone }).ToDictionary(g => g.Key, g => g.First());
 
         var newRecords = new List<LobbyNotificationSent>();
+
+        // Local helper: lookup CafeName từ dictionary (tránh load navigation Cafe vốn
+        // chứa các cột đã gỡ khỏi DB như TableLayoutJson).
+        string GetCafeName(Lobby l) =>
+            l.CafeId.HasValue && cafeNameById.TryGetValue(l.CafeId.Value, out var n) ? n : "";
 
         foreach (var lobby in lobbies)
         {
@@ -137,7 +156,7 @@ public class LobbyNotificationJob : BackgroundService
                     LobbyNotificationMilestone.At2hPreferredStart,
                     scheduledTime,
                     TimeSpan.FromHours(2),
-                    $"Phòng '{lobby.Description ?? "Không tên"}' bắt đầu sau 2 giờ tại {lobby.Cafe?.Name ?? "quán"}.",
+                    $"Phòng '{lobby.Description ?? "Không tên"}' bắt đầu sau 2 giờ tại {GetCafeName(lobby) ?? "quán"}.",
                     "Lobby2hReminder",
                     ct);
             }
@@ -151,7 +170,7 @@ public class LobbyNotificationJob : BackgroundService
                     LobbyNotificationMilestone.At30mPreferredStart,
                     scheduledTime,
                     TimeSpan.FromMinutes(30),
-                    $"Phòng '{lobby.Description ?? "Không tên"}' bắt đầu sau 30 phút. Hãy chuẩn bị đến {lobby.Cafe?.Name ?? "quán"} nhé!",
+                    $"Phòng '{lobby.Description ?? "Không tên"}' bắt đầu sau 30 phút. Hãy chuẩn bị đến {GetCafeName(lobby) ?? "quán"} nhé!",
                     "Lobby30mReminder",
                     ct);
             }
@@ -220,7 +239,7 @@ public class LobbyNotificationJob : BackgroundService
                     {
                         { "lobbyId", lobby.Id.ToString() },
                         { "cafeId", lobby.CafeId?.ToString() ?? "" },
-                        { "cafeName", lobby.Cafe?.Name ?? "" },
+                        { "cafeName", GetCafeName(lobby) },
                         { "currentPlayers", currentPlayers.ToString() },
                         { "minPlayers", lobby.MinPlayers.ToString() },
                         { "milestone", milestone.ToString() }

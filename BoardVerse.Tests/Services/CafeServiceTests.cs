@@ -332,6 +332,162 @@ public class CafeServiceTests
         Assert.Equal(20, capturedQuery.PageSize);
     }
 
+    public class SafeTimeOnlyTests
+    {
+        private static readonly Guid CafeId = Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+
+        [Fact]
+        public void NullValue_ReturnsNull()
+        {
+            var service = BuildService();
+
+            var result = service.SafeTimeOnly(CafeId, "WeekdayOpen", null);
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void NormalTime_ReturnsExpectedTimeOnly()
+        {
+            var service = BuildService();
+
+            var result = service.SafeTimeOnly(CafeId, "WeekdayOpen", new TimeSpan(8, 30, 0));
+
+            Assert.Equal(new TimeOnly(8, 30, 0), result);
+        }
+
+        [Fact]
+        public void MaximumValidTime_ReturnsExpectedTimeOnly()
+        {
+            // 23:59:59.9999999 = 863,999,999,999 ticks — đúng ranh giới trên của TimeOnly.
+            var service = BuildService();
+
+            var result = service.SafeTimeOnly(CafeId, "WeekdayClose", new TimeSpan(0, 23, 59, 59, 999).Add(TimeSpan.FromTicks(9999)));
+
+            Assert.NotNull(result);
+            Assert.Equal(23, result.Value.Hour);
+            Assert.Equal(59, result.Value.Minute);
+        }
+
+        /// <summary>
+        /// Regression test cho bug 2026-10-03: dữ liệu cũ lưu "24:00:00" (đóng cửa lúc nửa đêm) gây
+        /// <c>ArgumentOutOfRangeException: Ticks must be between 0 and TimeOnly.MaxValue.Ticks</c>
+        /// khi gọi <c>TimeOnly.FromTimeSpan</c> tại <c>MapToManagerDtoAsync</c>. Giờ phải map về 00:00:00.
+        /// </summary>
+        [Fact]
+        public void Exactly24Hours_ClampsToMidnight()
+        {
+            var service = BuildService();
+
+            var result = service.SafeTimeOnly(CafeId, "WeekdayClose", TimeSpan.FromHours(24));
+
+            Assert.NotNull(result);
+            Assert.Equal(new TimeOnly(0, 0), result.Value);
+        }
+
+        [Fact]
+        public void Beyond24Hours_ClampsToMidnight()
+        {
+            var service = BuildService();
+
+            var result = service.SafeTimeOnly(CafeId, "WeekendClose", TimeSpan.FromHours(25));
+
+            Assert.NotNull(result);
+            Assert.Equal(new TimeOnly(0, 0), result.Value);
+        }
+
+        [Fact]
+        public void NegativeTimeSpan_ReturnsNull()
+        {
+            var service = BuildService();
+
+            var result = service.SafeTimeOnly(CafeId, "WeekdayOpen", TimeSpan.FromHours(-1));
+
+            Assert.Null(result);
+        }
+
+        private static CafeService BuildService()
+        {
+            var cafeRepo = new Mock<ICafeRepository>();
+            var profileRepo = new Mock<IUserProfileRepository>();
+            var config = new Mock<ISystemConfigurationProvider>();
+            var bookingRepo = new Mock<IBookingRepository>();
+            var hubService = new Mock<ILobbyHubService>();
+            var pushNotificationService = new Mock<IPushNotificationService>();
+            var lobbyRepo = new Mock<ILobbyRepository>();
+            var reservationRepo = new Mock<IReservationRepository>();
+            var activeSessionRepo = new Mock<IActiveSessionRepository>();
+            var logger = new Mock<ILogger<CafeService>>();
+
+            config.Setup(c => c.GetDoubleAsync(SystemConfigKeys.MatchmakingRadiusKm, GeoLocationHelper.DefaultNearbyRadiusKm, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(GeoLocationHelper.DefaultNearbyRadiusKm);
+
+            return new CafeService(
+                cafeRepo.Object,
+                profileRepo.Object,
+                config.Object,
+                bookingRepo.Object,
+                hubService.Object,
+                pushNotificationService.Object,
+                lobbyRepo.Object,
+                reservationRepo.Object,
+                activeSessionRepo.Object,
+                logger.Object);
+        }
+    }
+
+    public class ParseTimeInputGuardTests
+    {
+        /// <summary>
+        /// Regression test cho input validator <c>CafePartnerApplicationService.ParseTime</c>:
+        /// <c>TimeSpan.TryParseExact("hh\:mm", ...)</c> tự chặn các giờ &gt;= 24 hoặc &lt; 0 vì format "hh" chỉ chấp nhận 00-23.
+        /// Đây là lớp bảo vệ thực sự tại input. Có thêm range check phòng thủ ở ParseTime (>= 24h || &lt; 0) nhưng
+        /// không thể trigger từ input hợp lệ qua TryParseExact — chỉ kích hoạt nếu sau này đổi format.
+        /// </summary>
+        [Theory]
+        [InlineData("24:00")]
+        [InlineData("25:00")]
+        [InlineData("99:00")]
+        public void ParseTime_OutOfRangeHourFormat_ThrowsBadRequestWithTimeFormatMessage(string input)
+        {
+            var asm = typeof(BoardVerse.Services.Services.CafePartnerApplicationService).Assembly;
+            var type = asm.GetType("BoardVerse.Services.Services.CafePartnerApplicationService", throwOnError: true)!;
+            var method = type.GetMethod("ParseTime", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+
+            var ex = Assert.Throws<System.Reflection.TargetInvocationException>(() => method.Invoke(null, [input, "WeekdayClose"]));
+            var inner = Assert.IsType<BadRequestException>(ex.InnerException);
+            Assert.Contains("HH:mm", inner.Message);
+        }
+
+        [Theory]
+        [InlineData("00:00")]
+        [InlineData("08:30")]
+        [InlineData("23:59")]
+        public void ParseTime_InRange_ReturnsTimeSpan(string input)
+        {
+            var asm = typeof(BoardVerse.Services.Services.CafePartnerApplicationService).Assembly;
+            var type = asm.GetType("BoardVerse.Services.Services.CafePartnerApplicationService", throwOnError: true)!;
+            var method = type.GetMethod("ParseTime", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+
+            var result = (TimeSpan)method.Invoke(null, [input, "WeekdayClose"])!;
+
+            Assert.True(result >= TimeSpan.Zero);
+            Assert.True(result < TimeSpan.FromHours(24));
+        }
+
+        [Fact]
+        public void ParseTime_InvalidFormat_ThrowsBadRequestWithTimeFormatMessage()
+        {
+            var asm = typeof(BoardVerse.Services.Services.CafePartnerApplicationService).Assembly;
+            var type = asm.GetType("BoardVerse.Services.Services.CafePartnerApplicationService", throwOnError: true)!;
+            var method = type.GetMethod("ParseTime", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+
+            var ex = Assert.Throws<System.Reflection.TargetInvocationException>(() => method.Invoke(null, ["abc", "WeekdayClose"]));
+            var inner = Assert.IsType<BadRequestException>(ex.InnerException);
+            Assert.Contains("HH:mm", inner.Message);
+        }
+    }
+
     private static Mock<IPushNotificationService>? pushNotificationService;
 
     private static CafeService BuildService(
