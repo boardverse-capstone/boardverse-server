@@ -50,6 +50,18 @@ public class TournamentMatchBracket
     public int? Player3CardsBought { get; set; }
     public int? Player4CardsBought { get; set; }
 
+    /// <summary>Số thẻ Noble sở hữu của Player1. Tiebreaker #2.</summary>
+    public int? Player1NobleCards { get; set; }
+    public int? Player2NobleCards { get; set; }
+    public int? Player3NobleCards { get; set; }
+    public int? Player4NobleCards { get; set; }
+
+    /// <summary>Số gems còn lại của Player1. Tiebreaker #3.</summary>
+    public int? Player1GemsRemaining { get; set; }
+    public int? Player2GemsRemaining { get; set; }
+    public int? Player3GemsRemaining { get; set; }
+    public int? Player4GemsRemaining { get; set; }
+
     // === Result ===
     /// <summary>UserId của người thắng ván này (1 trong 4 player).</summary>
     public Guid? WinnerPlayerId { get; set; }

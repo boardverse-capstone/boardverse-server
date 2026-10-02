@@ -48,4 +48,12 @@ public class UpdateTournamentRequestDto
     /// <summary>Manager chỉ định số rounds Swiss (1-5). Null = giữ nguyên PreliminaryRounds.</summary>
     [Range(1, 5)]
     public int? PreliminaryRounds { get; set; }
+
+    /// <summary>Phí tham dự (VNĐ). Range 0-10,000,000.</summary>
+    [Range(0, 10_000_000)]
+    public decimal? EntryFee { get; set; }
+
+    /// <summary>URL ảnh đại diện cho tournament (thumbnail/banner).</summary>
+    [StringLength(500)]
+    public string? ImageUrl { get; set; }
 }

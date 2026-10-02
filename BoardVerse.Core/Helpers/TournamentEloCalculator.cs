@@ -93,28 +93,33 @@ public static IReadOnlyDictionary<Guid, int> CalculateMatchEloChanges(
     }
 
     /// <summary>
-    /// Tính điểm Swiss (Win=1, Draw=0.5, Loss=0) cho mỗi participant.
+    /// Tính điểm Swiss theo công thức BPA (đã tích lũy trong TournamentParticipant.SwissScore).
     /// Dùng để xếp hạng Top 4 cho Final.
+    /// Xem <see cref="BoardVerse.Core.Helpers.SplendorScoringHelper"/> cho công thức chi tiết.
     /// </summary>
-    public static double CalculateSwissScore(TournamentParticipant p)
+    public static decimal CalculateSwissScore(TournamentParticipant p)
     {
-        return p.SwissWins * 1.0 + p.SwissDraws * 0.5;
+        return p.SwissScore;
     }
 
     /// <summary>
-    /// Xếp hạng Top N participants theo:
-    /// 1) SwissScore giảm dần
-    /// 2) TotalPrestigePoints giảm dần (snapshot tổng sau 3 vòng)
-    /// 3) TotalCardsBought tăng dần (Splendor rule: ít thẻ = tốt hơn khi hòa Prestige)
+    /// Xếp hạng Top N participants theo công thức BPA Splendor Tournament:
+    /// 1) SwissScore giảm dần (công thức BPA: 1st=1000+ratio, 2nd=100+ratio, ...)
+    /// 2) Tiebreaker khi hòa SwissScore (theo thứ tự ưu tiên BPA):
+    ///    a. Ít thẻ Development nhất
+    ///    b. Nhiều thẻ Noble nhất
+    ///    c. Nhiều gems còn lại nhất
+    /// Nguồn: https://bgtournament.wordpress.com/splendor/tournament-format/
     /// </summary>
     public static IReadOnlyList<TournamentParticipant> RankBySwiss(
         IEnumerable<TournamentParticipant> participants,
         int takeCount)
     {
         return participants
-            .OrderByDescending(p => CalculateSwissScore(p))
-            .ThenByDescending(p => p.TotalPrestigePoints)
+            .OrderByDescending(p => p.SwissScore)
             .ThenBy(p => p.TotalCardsBought)
+            .ThenByDescending(p => p.TotalNobleCards)
+            .ThenByDescending(p => p.TotalGemsRemaining)
             .Take(takeCount)
             .ToList();
     }

@@ -34,8 +34,14 @@ public class TournamentParticipantResponseDto
     public Guid? CheckedInByStaffId { get; set; }
     public Guid? RegisteredByStaffId { get; set; }
     public TournamentParticipantStatus Status { get; set; }
+
+    /// <summary>Tổng điểm Swiss tích lũy (theo công thức BPA).</summary>
+    public decimal SwissScore { get; set; }
+
     public int TotalPrestigePoints { get; set; }
     public int TotalCardsBought { get; set; }
+    public int TotalNobleCards { get; set; }
+    public int TotalGemsRemaining { get; set; }
     public int? FinalRank { get; set; }
 
     // === Elo (BR-10: chỉ dùng trong phân hệ Giải đấu) ===
@@ -55,9 +61,6 @@ public class TournamentParticipantResponseDto
     public int SwissWins { get; set; }
     public int SwissDraws { get; set; }
     public int SwissLosses { get; set; }
-
-    /// <summary>Điểm Swiss = Wins + Draws*0.5.</summary>
-    public double SwissScore { get; set; }
 
     // === T-03: Waitlist ===
     /// <summary>True nếu user được thêm vào waitlist thay vì đăng ký trực tiếp.</summary>

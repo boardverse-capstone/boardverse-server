@@ -54,8 +54,11 @@ public class Tournament
     /// <summary>Số người tối đa. Mặc định 32 (= 8 bàn). Phải là bội số của 4.</summary>
     public int MaxParticipants { get; set; } = 32;
 
-    /// <summary>Phí tham gia. Hiện tại = 0 (miễn phí). Để sẵn cho tương lai.</summary>
+    /// <summary>Phí tham gia (VNĐ). Default 0 (miễn phí). Manager có thể set khi tạo tournament.</summary>
     public decimal EntryFee { get; set; } = 0m;
+
+    /// <summary>URL ảnh đại diện cho tournament (thumbnail/banner). Optional.</summary>
+    public string? ImageUrl { get; set; }
 
     // === Format ===
     /// <summary>Tổng số vòng Swiss + 1 vòng Final. Mặc định 4 (3 Swiss + 1 Final).</summary>

@@ -34,6 +34,9 @@ public class TournamentConfiguration : IEntityTypeConfiguration<Tournament>
             .IsRequired()
             .HasDefaultValue(0m);
 
+        builder.Property(t => t.ImageUrl)
+            .HasMaxLength(500);
+
         builder.Property(t => t.TotalRounds).IsRequired().HasDefaultValue(4);
         builder.Property(t => t.PreliminaryRounds).IsRequired().HasDefaultValue(3);
         builder.Property(t => t.FinalistCount).IsRequired().HasDefaultValue(4);
@@ -129,8 +132,11 @@ public class TournamentParticipantConfiguration : IEntityTypeConfiguration<Tourn
             .HasConversion<int>()
             .IsRequired();
 
+        builder.Property(p => p.SwissScore).HasPrecision(18, 4).IsRequired().HasDefaultValue(0m);
         builder.Property(p => p.TotalPrestigePoints).IsRequired().HasDefaultValue(0);
         builder.Property(p => p.TotalCardsBought).IsRequired().HasDefaultValue(0);
+        builder.Property(p => p.TotalNobleCards).IsRequired().HasDefaultValue(0);
+        builder.Property(p => p.TotalGemsRemaining).IsRequired().HasDefaultValue(0);
         builder.Property(p => p.FinalRank);
 
         // === Elo fields (BR-10) ===
@@ -213,6 +219,16 @@ public class TournamentMatchBracketConfiguration : IEntityTypeConfiguration<Tour
         builder.Property(m => m.Player2CardsBought);
         builder.Property(m => m.Player3CardsBought);
         builder.Property(m => m.Player4CardsBought);
+
+        builder.Property(m => m.Player1NobleCards);
+        builder.Property(m => m.Player2NobleCards);
+        builder.Property(m => m.Player3NobleCards);
+        builder.Property(m => m.Player4NobleCards);
+
+        builder.Property(m => m.Player1GemsRemaining);
+        builder.Property(m => m.Player2GemsRemaining);
+        builder.Property(m => m.Player3GemsRemaining);
+        builder.Property(m => m.Player4GemsRemaining);
 
         builder.Property(m => m.WinnerPlayerId);
 

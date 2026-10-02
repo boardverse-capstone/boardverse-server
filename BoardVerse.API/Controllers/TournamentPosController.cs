@@ -31,7 +31,7 @@ public class TournamentPosController : BaseApiController
     /// Tạo giải đấu Splendor mới. [Role: Manager — phải là ManagerId của cafe.]
     /// </summary>
     /// <param name="cafeId">Mã quán cafe.</param>
-    /// <param name="request">Thông tin giải: tiêu đề, giờ bắt đầu, cấu hình karma.</param>
+    /// <param name="request">Thông tin giải: tiêu đề, giờ bắt đầu, phí tham dự, ảnh, cấu hình karma.</param>
     /// <response code="201">Tạo giải thành công (trạng thái Draft).</response>
     /// <response code="400">Dữ liệu không hợp lệ (ví dụ: MaxParticipants không phải bội số của 4).</response>
     /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
@@ -417,10 +417,10 @@ public class TournamentPosController : BaseApiController
     }
 
     /// <summary>
-    /// Ghi nhận kết quả bàn đấu: điểm từng người + người thắng. [Role: Manager]
+    /// Ghi nhận kết quả bàn đấu: điểm từng người + tiebreaker (cards/nobles/gems) + người thắng. [Role: Manager]
     /// </summary>
     /// <param name="matchId">Mã bàn đấu (từ URL).</param>
-    /// <param name="request">Điểm từng người chơi + người thắng.</param>
+    /// <param name="request">Điểm từng người chơi + tiebreaker data + người thắng.</param>
     /// <response code="200">Ghi nhận kết quả thành công.</response>
     /// <response code="400">Winner không nằm trong 4 người chơi.</response>
     /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>

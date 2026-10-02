@@ -3113,6 +3113,9 @@ public static class LobbyMerge
  public const string ParticipantNotFound =
  "Không tìm thấy người chơi.";
 
+ public static string ParticipantNotFoundById(Guid participantId) =>
+ $"Không tìm thấy người chơi với mã '{participantId}'.";
+
  public const string ParticipantNotInTournament =
  "Người chơi không thuộc giải đấu này.";
 
