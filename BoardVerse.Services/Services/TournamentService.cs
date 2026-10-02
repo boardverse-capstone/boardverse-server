@@ -130,6 +130,7 @@ public class TournamentService : ITournamentService
             MinParticipants = minParticipants,
             MaxParticipants = request.MaxParticipants,
             EntryFee = request.EntryFee,
+            Prize = request.Prize?.Trim(),
             ImageUrl = request.ImageUrl?.Trim(),
             TotalRounds = 4,
             PreliminaryRounds = 3,
@@ -252,6 +253,13 @@ public class TournamentService : ITournamentService
         if (request.NoShowKarmaPenalty.HasValue)
         {
             tournament.NoShowKarmaPenalty = TournamentKarmaPolicy.ClampPenalty(request.NoShowKarmaPenalty.Value);
+        }
+
+        // Prize: null = giữ nguyên, empty string = xoá, string mới = cập nhật.
+        // Cho phép manager tự do sửa mô tả giải thưởng khi giải còn Draft.
+        if (request.Prize != null)
+        {
+            tournament.Prize = string.IsNullOrWhiteSpace(request.Prize) ? null : request.Prize.Trim();
         }
 
         // WinnerKarmaBonus / FinalistKarmaBonus: há»‡ thá»‘ng tá»± tÃ­nh theo rank, khÃ´ng cho manager nháº­p tay.
@@ -2872,6 +2880,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
             MinParticipants = tournament.MinParticipants,
             MaxParticipants = tournament.MaxParticipants,
             EntryFee = tournament.EntryFee,
+            Prize = tournament.Prize,
             TotalRounds = tournament.TotalRounds,
             PreliminaryRounds = tournament.PreliminaryRounds,
             FinalistCount = tournament.FinalistCount,
@@ -3669,6 +3678,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
             MinParticipants = minParticipants,
             MaxParticipants = request.MaxParticipants,
             EntryFee = request.EntryFee,
+            Prize = request.Prize?.Trim(),
             TotalRounds = request.TotalRounds > 0 ? request.TotalRounds : 4,
             PreliminaryRounds = request.PreliminaryRounds > 0 ? request.PreliminaryRounds : 3,
             FinalistCount = request.FinalistCount > 0 ? request.FinalistCount : 4,
@@ -3734,6 +3744,11 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         if (request.EntryFee.HasValue)
         {
             tournament.EntryFee = request.EntryFee.Value;
+        }
+
+        if (request.Prize != null)
+        {
+            tournament.Prize = string.IsNullOrWhiteSpace(request.Prize) ? null : request.Prize.Trim();
         }
 
         if (request.MinKarmaRequirement.HasValue)

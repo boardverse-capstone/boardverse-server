@@ -4,8 +4,10 @@ using BoardVerse.Core.DTOs.Game;
 using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
+using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.Helpers;
 using BoardVerse.Core.IRepositories;
+using BoardVerse.Core.Messages;
 using Microsoft.EntityFrameworkCore;
 
 namespace BoardVerse.Data.Repositories
@@ -553,6 +555,181 @@ namespace BoardVerse.Data.Repositories
                 FitsGroupSize = fitsGroup,
                 Status = ((CafeGameInventoryStatus)status).ToString(),
                 Categories = categories
+            };
+        }
+
+        /// <summary>
+        /// Lấy danh sách quán cafe ACTIVE có boardgame cụ thể trong kho (player browse theo game).
+        /// Quán "có boardgame này chơi được" khi:
+        ///   • CafeGameInventory.GameTemplateId = gameTemplateId
+        ///   • CafeGameInventory.IsActive = true
+        ///   • Cafe.IsActive = true và PartnerOperationalStatus = Active
+        ///   • GameTemplate.IsActive = true
+        ///   • CafeGameInventory.Status ∈ {Available, InUse}
+        /// Trả shape <see cref="NearbyCafeDto"/> — kèm <c>AvailableGameCount</c>/<c>TotalGameBoxCount</c>
+        /// của riêng game này tại quán + <c>SelectedGameAvailabilityStatus</c> cho biết có thể chơi ngay hay không.
+        /// Hỗ trợ filter: latitude/longitude/radiusKm (PostGIS IsWithinDistance), name (partial match),
+        /// availableOnly (chỉ quán có ≥1 hộp Available). Sort theo distance khi có lat/lng,
+        /// ngược lại theo tên A→Z.
+        /// </summary>
+        public async Task<PaginatedResponse<NearbyCafeDto>> GetActiveCafesByGameAsync(
+            Guid gameTemplateId,
+            ActiveCafesByGameQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            var inventoryQuery = _context.CafeGameInventories
+                .AsNoTracking()
+                .Where(i =>
+                    i.GameTemplateId == gameTemplateId
+                    && i.IsActive
+                    && i.GameTemplate.IsActive
+                    && (i.Status == CafeGameInventoryStatus.Available
+                        || i.Status == CafeGameInventoryStatus.InUse));
+
+            // Lấy danh sách cafeId có inventory active cho game này.
+            var cafeIdsWithGame = inventoryQuery.Select(i => i.CafeId).Distinct();
+
+            var cafesQuery = _context.Cafes
+                .AsNoTracking()
+                .Where(c =>
+                    c.IsActive
+                    && c.PartnerOperationalStatus == CafePartnerOperationalStatus.Active
+                    && cafeIdsWithGame.Contains(c.Id));
+
+            // === Filter theo tên (partial match, case-insensitive) ===
+            if (!string.IsNullOrWhiteSpace(query.Name))
+            {
+                var term = query.Name.Trim().ToLower();
+                cafesQuery = cafesQuery.Where(c => c.Name.ToLower().Contains(term));
+            }
+
+            // === Filter theo vị trí + bán kính (PostGIS IsWithinDistance) ===
+            bool hasOrigin = query.Latitude.HasValue && query.Longitude.HasValue;
+            NetTopologySuite.Geometries.Point? origin = null;
+            if (hasOrigin)
+            {
+                try
+                {
+                    GeoLocationHelper.ValidateCoordinates(query.Latitude!.Value, query.Longitude!.Value);
+                }
+                catch (ArgumentOutOfRangeException ex)
+                {
+                    throw new BadRequestException(ex.ParamName switch
+                    {
+                        "latitude" => ApiErrorMessages.Cafe.InvalidLatitudeForNearbySearch,
+                        "longitude" => ApiErrorMessages.Cafe.InvalidLongitudeForNearbySearch,
+                        _ => ApiErrorMessages.Cafe.InvalidLatitudeForNearbySearch
+                    });
+                }
+
+                if (query.RadiusKm is < GeoLocationHelper.MinNearbyRadiusKm or > GeoLocationHelper.MaxNearbyRadiusKm)
+                {
+                    throw new BadRequestException(ApiErrorMessages.Cafe.InvalidNearbySearchRadius(
+                        GeoLocationHelper.MinNearbyRadiusKm,
+                        GeoLocationHelper.MaxNearbyRadiusKm));
+                }
+
+                origin = GeoLocationHelper.ToPoint(query.Latitude!.Value, query.Longitude!.Value);
+                var radiusMeters = query.RadiusKm * 1000;
+                cafesQuery = cafesQuery.Where(c => c.Location != null && c.Location.IsWithinDistance(origin, radiusMeters));
+            }
+
+            // === AvailableOnly — chỉ giữ quán có ít nhất 1 hộp Available của game này ===
+            if (query.AvailableOnly)
+            {
+                var availableCafeIds = await _context.CafeInventoryBoxes
+                    .AsNoTracking()
+                    .Where(b =>
+                        b.IsActive
+                        && b.CafeGameInventory.IsActive
+                        && b.CafeGameInventory.GameTemplateId == gameTemplateId
+                        && b.Status == CafeGameInventoryStatus.Available)
+                    .Select(b => (Guid?)b.CafeGameInventory.CafeId)
+                    .Distinct()
+                    .ToListAsync(cancellationToken);
+
+                cafesQuery = cafesQuery.Where(c => availableCafeIds.Contains(c.Id));
+            }
+
+            var projected = cafesQuery.Select(c => new NearbyCafeDto
+            {
+                Id = c.Id,
+                Name = c.Name,
+                Address = c.Address,
+                Latitude = c.Latitude,
+                Longitude = c.Longitude,
+                PhoneNumber = c.PhoneNumber,
+                Description = c.Description,
+                CreatedAt = c.CreatedAt,
+                DistanceMeters = hasOrigin && c.Location != null
+                    ? c.Location.Distance(origin!)
+                    : 0,
+                TotalSeats = c.TotalSeats,
+                BillingModel = CafePartnerStatusMapper.ToApiBillingModel(c.BillingModel),
+                BasePrice = c.BasePrice,
+                TieredBlockRate = c.TieredBlockRate,
+                TieredBlockMinutes = c.TieredBlockMinutes,
+                DepositPercentage = c.DepositPercentage,
+                IsPricingLocked = c.IsPricingLocked,
+                HasSePayConfigured = c.SePayMerchantId != null && c.SePayMerchantId != ""
+                                     && c.SePayApiKey != null && c.SePayApiKey != ""
+                                     && c.SePaySecretKey != null && c.SePaySecretKey != "",
+                AvailableGameCount = _context.CafeInventoryBoxes.Count(b =>
+                    b.CafeGameInventory.CafeId == c.Id
+                    && b.IsActive
+                    && b.CafeGameInventory.IsActive
+                    && b.CafeGameInventory.GameTemplateId == gameTemplateId
+                    && b.Status == CafeGameInventoryStatus.Available),
+                TotalGameBoxCount = _context.CafeInventoryBoxes.Count(b =>
+                    b.CafeGameInventory.CafeId == c.Id
+                    && b.IsActive
+                    && b.CafeGameInventory.IsActive
+                    && b.CafeGameInventory.GameTemplateId == gameTemplateId
+                    && (b.Status == CafeGameInventoryStatus.Available
+                        || b.Status == CafeGameInventoryStatus.InUse)),
+                AvailableTableCount = _context.CafeTables.Count(t =>
+                    t.CafeId == c.Id
+                    && t.IsActive
+                    && t.Status == CafeTableStatus.Available),
+                TotalTableCount = _context.CafeTables.Count(t =>
+                    t.CafeId == c.Id
+                    && t.IsActive)
+            });
+
+            var totalItems = await projected.CountAsync(cancellationToken);
+
+            // Có lat/lng → sắp xếp theo khoảng cách tăng dần (gần nhất trước), tie-break theo tên.
+            // Không có lat/lng → sắp xếp theo tên A→Z.
+            IOrderedQueryable<NearbyCafeDto> ordered = hasOrigin
+                ? projected.OrderBy(c => c.DistanceMeters).ThenBy(c => c.Name)
+                : projected.OrderBy(c => c.Name);
+
+            var items = await ordered
+                .Skip((query.PageNumber - 1) * query.PageSize)
+                .Take(query.PageSize)
+                .ToListAsync(cancellationToken);
+
+            // Sau khi có items, enrich thêm SelectedGameAvailabilityStatus + EstimatedWaitMinutes
+            // cho game được chọn (giống flow EnrichNearbyWithGameWaitAsync của GetNearbyAsync).
+            if (items.Count > 0)
+            {
+                await EnrichNearbyWithGameWaitAsync(items, gameTemplateId, cancellationToken);
+            }
+
+            var totalPages = totalItems == 0
+                ? 0
+                : (int)Math.Ceiling(totalItems / (double)query.PageSize);
+
+            return new PaginatedResponse<NearbyCafeDto>
+            {
+                Data = items,
+                Meta = new PaginationMeta
+                {
+                    CurrentPage = query.PageNumber,
+                    PageSize = query.PageSize,
+                    TotalItems = totalItems,
+                    TotalPages = totalPages
+                }
             };
         }
 

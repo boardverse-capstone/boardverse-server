@@ -34,6 +34,9 @@ public class TournamentConfiguration : IEntityTypeConfiguration<Tournament>
             .IsRequired()
             .HasDefaultValue(0m);
 
+        builder.Property(t => t.Prize)
+            .HasMaxLength(1000);
+
         builder.Property(t => t.ImageUrl)
             .HasMaxLength(500);
 
