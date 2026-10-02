@@ -151,6 +151,51 @@ public class ReservationConfiguration : IEntityTypeConfiguration<Reservation>
             .WithOne(record => record.Reservation)
             .HasForeignKey(record => record.ReservationId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        // ===== M1: Host Deposit Discount (BR-15 modified) =====
+        // docs/design/host-deposit-discount-and-bvc-payment-design.md §B1.4
+
+        builder.Property(r => r.HostDepositUsageSnapshot)
+            .HasMaxLength(20)
+            .IsRequired(false);
+
+        builder.Property(r => r.DiscountAppliedAmount)
+            .IsRequired()
+            .HasDefaultValue(0L);
+
+        builder.Property(r => r.DiscountRefundedAmount)
+            .IsRequired()
+            .HasDefaultValue(0L);
+
+        builder.Property(r => r.DiscountAuditTrail)
+            .HasColumnType("jsonb")
+            .IsRequired(false);
+
+        // Index cho query "tổng deposit đã apply được theo cafe / theo tháng" (reporting)
+        builder.HasIndex(r => new { r.CafeId, r.Status })
+            .HasDatabaseName("IX_Reservations_Cafe_Status_Discount")
+            .HasFilter("\"DiscountAppliedAmount\" > 0");
+
+        // ===== M1 / Exception 4: Host Deposit FOLLOWS on Merge =====
+        // docs/design/host-deposit-discount-and-bvc-payment-design.md §B3.5 + §B3.7
+        // (CẬP NHẬT 2026-10-01: deposit KHÔNG refund về wallet, mà accumulate vào target pool)
+
+        builder.Property(r => r.CarriedOverDepositBvc)
+            .IsRequired()
+            .HasDefaultValue(0L);
+
+        builder.Property(r => r.CarriedOverFromReservationIds)
+            .HasMaxLength(500)
+            .IsRequired(false);
+
+        builder.Property(r => r.CarriedOverFromUserIds)
+            .HasMaxLength(500)
+            .IsRequired(false);
+
+        // Index cho reporting "tổng carried-over deposit theo cafe"
+        builder.HasIndex(r => r.CafeId)
+            .HasDatabaseName("IX_Reservations_CarriedOver")
+            .HasFilter("\"CarriedOverDepositBvc\" > 0");
     }
 }
 

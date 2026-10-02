@@ -130,6 +130,8 @@ public const string SePayQrPreviewGenerated = "Đã tạo QR test cho payment ac
             public const string PartialCheckoutRequested = "Yêu cầu thanh toán một phần thành công.";
             public const string DepositSettlementReleased = "Đã tạo bản ghi giải ngân deposit.";
             public const string ReceiptGenerated = "Tạo receipt thành công."; // P-01
+            public const string MemberReceiptGenerated = "Tạo receipt cho thành viên thành công."; // M2/C2.15
+            public const string ForceCloseCompleted = "Force-close phiên chơi thành công."; // M2/C2.16
         }
 
         public static class Settlement

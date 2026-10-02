@@ -25,6 +25,28 @@ public interface ISeatInventoryRepository
 
     Task AddAsync(SeatInventory seatInventory, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Adjust HeldSeats / InUseSeats counters atomically by delta without touching EF tracker.
+    /// FIX 2026-10-02 (ReservationService ConfirmAsync DbUpdateConcurrencyException):
+    /// The legacy UpdateAsync(entity) path goes through SaveChangesAsync which fires
+    /// UseXminAsConcurrencyToken (xmin) check. Because the row was loaded via AsNoTracking,
+    /// original xmin is never captured → WHERE xmin = 0 → 0 rows affected → concurrency
+    /// exception, deterministically failing 3/3 retries.
+    /// This method bypasses EF tracking entirely by running an UPDATE ... SET col = col + delta
+    /// directly. Combined with FOR UPDATE lock acquired by GetForUpdateAsync earlier in the
+    /// same transaction, this is race-free.
+    /// </summary>
+    /// <param name="id">SeatInventory.Id (primary key).</param>
+    /// <param name="heldDelta">Increment to HeldSeats (may be negative; floor at 0 via GREATEST).</param>
+    /// <param name="inUseDelta">Increment to InUseSeats (may be negative; floor at 0 via GREATEST).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task AdjustCountersAsync(Guid id, int heldDelta, int inUseDelta, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// DEPRECATED — has known race-condition + EF tracker bug. Use AdjustCountersAsync instead.
+    /// See: ReservationService.ConfirmAsync line 875 (DbUpdateConcurrencyException after fix).
+    /// </summary>
+    [Obsolete("Use AdjustCountersAsync(id, heldDelta, inUseDelta, ct) — UpdateAsync triggers EF tracking path which fails with UseXminAsConcurrencyToken when the row was loaded AsNoTracking. Will be removed after migration.")]
     Task UpdateAsync(SeatInventory seatInventory, CancellationToken cancellationToken = default);
 
     Task SaveChangesAsync(CancellationToken cancellationToken = default);

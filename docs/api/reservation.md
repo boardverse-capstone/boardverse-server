@@ -259,7 +259,7 @@ Khác với `GET /api/v1/reservations` (mặc định chỉ host + 1 ngày):
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `participationType` | enum | No | `Host` \| `Member`. Null = lấy cả hai. |
-| `statuses` | enum[] | No | Filter theo trạng thái (vd: `Holding`, `Confirmed`, `Completed`, `CancelledByPlayer`). |
+| `statuses` | enum[] | No | Filter theo trạng thái (vd: `Holding`, `Confirmed`, `Completed`, `CancelledByPlayer`, `AbsorbedByMerge`). |
 | `cafeId` | guid | No | Filter theo cafe. |
 | `fromDate` | date | No | Ngày bắt đầu (inclusive). Null = không giới hạn dưới. |
 | `toDate` | date | No | Ngày kết thúc (inclusive). Null = không giới hạn trên. |
@@ -707,7 +707,7 @@ Trường `warnings` chứa các cảnh báo từ server:
 | `low` | 1.0 | Bình thường |
 | `medium` | 1.25 | 2-3 lobby fail trong 30 ngày |
 | `high` | 1.5 | ≥4 lobby fail hoặc từng no-show |
-| `critical` | 2.0 | Cooling-off hoặc tài khoản bị hạn chế |
+| `critical` | 2.0 | Tài khoản bị hạn chế (riskScore ≥ 75). **Cooling-off không còn đẩy riskMultiplier lên 2.0** — chỉ là cờ UI cảnh báo (cập nhật 2026-10-02). |
 ```
 
 ### Lỗi thường gặp
@@ -732,7 +732,7 @@ Trường `warnings` chứa các cảnh báo từ server:
 | `400` | Buffer 60-120 phút (cảnh báo) | BR-LOBBY-01c |
 | `401` | Thiếu token | - |
 | `403` | User bị `suspended` / `banned` | BR-RISK-04 |
-| `403` | Cooling-off active (chỉ tạo lobby trong ngày, cọc ×2) | BR-NEW-10 |
+| `403` | Cooling-off active (chỉ tạo lobby trong ngày; cọc giữ nguyên theo `riskMultiplier`, không nhân thêm — cập nhật 2026-10-02) | BR-NEW-10 |
 | `403` | User đang là member của lobby active (không được host) | BR-USER-LIMIT-04 |
 | `403` | User đang là host của 1 lobby (không được host thêm) | BR-USER-LIMIT-01 |
 | `409` | Đã có lobby overlap (lịch chồng lấn +30 phút) | BR-USER-LIMIT-02 |
@@ -827,11 +827,14 @@ Nếu `isPrivate: true`, lobby không cần cafe duyệt dù playDate cách xa.
 
 ### Cooling-off (BR-NEW-10)
 
+> **Cập nhật 2026-10-02**: BR-NEW-10 giờ **chỉ hạn chế quyền tạo lobby có `playDate > 1 ngày`** và gia hạn 30 ngày khi tái phạm. **Cọc KHÔNG nhân ×2/×3** khi cooling-off active — chỉ tuân theo `riskMultiplier` mapping (`1.0 + riskScore/100`). Xem chi tiết BR-NEW-10 trong rule file.
+
 Khi active:
 
 - User **không được tạo lobby** có `playDate > 1 ngày`
-- Cọc **nhân ×2** (kết hợp với `riskMultiplier`)
+- Cọc **giữ nguyên** theo `DepositCalculator` (BR-DEPOSIT-02 + BR-RISK-03 nếu áp dụng). Không nhân thêm hệ số cooling-off.
 - Thời hạn **30 ngày**
+- Tái phạm → gia hạn thêm 30 ngày (chỉ gia hạn, không tăng hệ số cọc)
 
 Trigger: 3 lobby fail (`timeoutFailed` hoặc `hostCancelled` sau grace) trong 7 ngày.
 

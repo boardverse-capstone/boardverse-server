@@ -40,6 +40,7 @@ public class WalletService : IWalletService
     private readonly IQrImageProxyService _qrImageProxy;
     private readonly ILogger<WalletService> _logger;
     private readonly BoardVerseDbContext _db; // GAP #13: cần cho BeginTransactionAsync
+    private readonly IPaymentWebhookAuditRepository _webhookAuditRepository; // GAP 3.2: audit BVC top-up webhook
 
     public WalletService(
         IWalletRepository walletRepository,
@@ -50,7 +51,8 @@ public class WalletService : IWalletService
         ISePayAccountService sePayAccountService,
         IQrImageProxyService qrImageProxy,
         ILogger<WalletService> logger,
-        BoardVerseDbContext db)
+        BoardVerseDbContext db,
+        IPaymentWebhookAuditRepository webhookAuditRepository)
     {
         _walletRepository = walletRepository;
         _ledgerRepository = ledgerRepository;
@@ -61,6 +63,7 @@ public class WalletService : IWalletService
         _qrImageProxy = qrImageProxy;
         _logger = logger;
         _db = db;
+        _webhookAuditRepository = webhookAuditRepository;
     }
 
     public async Task<WalletDto> GetOrCreateWalletAsync(Guid userId, bool includeHeld, CancellationToken cancellationToken = default)
@@ -202,6 +205,13 @@ public class WalletService : IWalletService
             || string.IsNullOrWhiteSpace(master.BankCode)
             || string.IsNullOrWhiteSpace(master.AccountNumber))
         {
+            // Gap 3.7: Ngoài throw PaymentException, log cảnh báo ngay tại đây để
+            // Ops / admin monitor log tự động (cấu hình alert rule trên Seq/Datadog:
+            // "SePayMasterAccountMissing" → page on-call). Nếu có hệ thống notification
+            // (Slack/email), sẽ trigger qua cùng alert pipeline.
+            _logger.LogCritical(
+                "[Gap 3.7] SePay Master Account NOT CONFIGURED. Top-up BLOCKED. UserId={UserId}, Key={Key}, ActionRequired=Configure bai-master + active=true",
+                userId, request.IdempotencyKey);
             throw new PaymentException(ApiErrorMessages.Payment.SePayMasterAccountNotFound);
         }
 
@@ -234,6 +244,8 @@ public class WalletService : IWalletService
             _logger.LogError(
                 "Top-up gateway failed. UserId={UserId}, Key={Key}, Error={Error}",
                 userId, request.IdempotencyKey, result.ErrorMessage);
+            // Gap 3.5: throw vẫn fail — FailureReason không lưu vì transaction rollback.
+            // Đã log error đầy đủ để admin query log.
             throw new PaymentException(ApiErrorMessages.Wallet.TopUpGatewayFailed);
         }
 
@@ -271,7 +283,14 @@ public class WalletService : IWalletService
                 userId, request.IdempotencyKey);
             await topUpTx.RollbackAsync(default);
             // Replay existing request
-            return await CreateTopUpAsync(userId, request);
+            // Gap 3.6: đảm bảo QrUrl fallback vẫn có khi master account unavailable.
+            // Nếu qrUrlForReplay null (master off) → set QrUrl từ OrderId raw để client có thể render thủ công.
+            var replayResult = await CreateTopUpAsync(userId, request);
+            if (string.IsNullOrEmpty(replayResult.QrUrl) && !string.IsNullOrEmpty(existingTopUp.OrderId))
+            {
+                replayResult.QrUrl = $"BVC-{existingTopUp.OrderId}"; // raw identifier — FE render VietQR từ master config
+            }
+            return replayResult;
         }
 
         await topUpTx.CommitAsync(default);
@@ -280,14 +299,15 @@ public class WalletService : IWalletService
             "Top-up quote created. UserId={UserId}, BvcAmount={Bvc}, OrderId={OrderId}, TopUpRequestId={TopUpRequestId}",
             userId, bvcAmount, orderId, topUpRequest.Id);
 
-        // Proxy ảnh QR từ vietqr.app về server-side để trả Base64 cho Flutter Web (bypass CORS).
+        // Gap 3.6: Proxy ảnh QR từ vietqr.app về server-side để trả Base64 cho Flutter Web (bypass CORS).
         // Fail thì vẫn trả response, chỉ thiếu QrImageBase64 — client vẫn có QrUrl để load trực tiếp.
         var qrBase64 = await TryFetchQrBase64Async(result.QrImageUrl, userId, orderId);
+        var qrUrl = result.QrImageUrl ?? $"BVC-{orderId}"; // Fallback: FE render từ master config
 
         return new TopUpResponseDto
         {
             PaymentUrl = paymentUrl,
-            QrUrl = result.QrImageUrl,
+            QrUrl = qrUrl,
             QrImageBase64 = qrBase64,
             OrderId = orderId,
             ExpectedBvc = bvcAmount,
@@ -325,30 +345,44 @@ public class WalletService : IWalletService
             throw new BadRequestException(ApiErrorMessages.Wallet.TopUpIdInvalid);
         }
 
-        var topUp = await _topUpRequestRepository.GetByIdAsync(topUpId, cancellationToken);
-        if (topUp == null)
+        // Gap 3.4: Wrap trong Serializable transaction + FOR UPDATE lock BvcTopUpRequest theo Id.
+        // Chống race với UpdateTopUpAmountAsync — 2 request đồng thời có thể cùng thấy
+        // Status=Pending, cùng pass check, cùng update → inconsistency.
+        await using var tx = await _db.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, cancellationToken);
+        try
         {
-            throw new NotFoundException(ApiErrorMessages.Wallet.TopUpNotFound(topUpId));
-        }
+            var topUp = await _topUpRequestRepository.GetByIdForUpdateAsync(topUpId, cancellationToken);
+            if (topUp == null)
+            {
+                throw new NotFoundException(ApiErrorMessages.Wallet.TopUpNotFound(topUpId));
+            }
 
-        if (topUp.UserId != userId)
+            if (topUp.UserId != userId)
+            {
+                throw new ForbiddenException(ApiErrorMessages.Wallet.TopUpNotOwned);
+            }
+
+            if (topUp.Status != BvcTopUpStatus.Pending)
+            {
+                throw new ConflictException(ApiErrorMessages.Wallet.TopUpNotCancellable);
+            }
+
+            topUp.Status = BvcTopUpStatus.Cancelled;
+            topUp.UpdatedAt = DateTime.UtcNow;
+            await _topUpRequestRepository.UpdateAsync(topUp);
+            await _topUpRequestRepository.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+
+            _logger.LogInformation(
+                "Top-up cancelled by user. TopUpId={TopUpId}, UserId={UserId}, OrderId={OrderId}",
+                topUpId, userId, topUp.OrderId);
+        }
+        catch
         {
-            throw new ForbiddenException(ApiErrorMessages.Wallet.TopUpNotOwned);
+            await tx.RollbackAsync(cancellationToken);
+            throw;
         }
-
-        if (topUp.Status != BvcTopUpStatus.Pending)
-        {
-            throw new ConflictException(ApiErrorMessages.Wallet.TopUpNotCancellable);
-        }
-
-        topUp.Status = BvcTopUpStatus.Cancelled;
-        topUp.UpdatedAt = DateTime.UtcNow;
-        await _topUpRequestRepository.UpdateAsync(topUp);
-        await _topUpRequestRepository.SaveChangesAsync(cancellationToken);
-
-        _logger.LogInformation(
-            "Top-up cancelled by user. TopUpId={TopUpId}, UserId={UserId}, OrderId={OrderId}",
-            topUpId, userId, topUp.OrderId);
     }
 
     /// <summary>
@@ -372,34 +406,55 @@ public class WalletService : IWalletService
         ValidateTopUpAmount(request.AmountVnd);
         ValidateIdempotencyKey(request.IdempotencyKey);
 
-        var existing = await _topUpRequestRepository.GetByIdAsync(topUpId, cancellationToken);
-        if (existing == null)
-        {
-            throw new NotFoundException(ApiErrorMessages.Wallet.TopUpNotFound(topUpId));
-        }
+        long oldExpectedBvc = 0; // Captured trong try-block để dùng sau commit.
 
-        if (existing.UserId != userId)
+        // Gap 3.4: Wrap trong Serializable transaction + FOR UPDATE lock BvcTopUpRequest theo Id.
+        // Chống race condition với CancelTopUpAsync + duplicate UpdateTopUpAmountAsync calls.
+        await using var tx = await _db.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, cancellationToken);
+        try
         {
-            throw new ForbiddenException(ApiErrorMessages.Wallet.TopUpNotOwned);
-        }
+            var existing = await _topUpRequestRepository.GetByIdForUpdateAsync(topUpId, cancellationToken);
+            if (existing == null)
+            {
+                throw new NotFoundException(ApiErrorMessages.Wallet.TopUpNotFound(topUpId));
+            }
 
-        if (existing.Status != BvcTopUpStatus.Pending)
+            if (existing.UserId != userId)
+            {
+                throw new ForbiddenException(ApiErrorMessages.Wallet.TopUpNotOwned);
+            }
+
+            if (existing.Status != BvcTopUpStatus.Pending)
+            {
+                throw new ConflictException(ApiErrorMessages.Wallet.TopUpNotUpdateable);
+            }
+
+            // Idempotency: nếu IdempotencyKey mới trùng key đơn khác đang Pending → dùng đơn đó.
+            var conflictByKey = await _topUpRequestRepository.GetByIdempotencyKeyAsync(request.IdempotencyKey);
+            if (conflictByKey != null && conflictByKey.Id != topUpId)
+            {
+                throw new ConflictException(
+                    ApiErrorMessages.Wallet.TopUpIdempotencyKeyConflict(conflictByKey.Id));
+            }
+
+            // Đánh dấu đơn cũ = Cancelled.
+            existing.Status = BvcTopUpStatus.Cancelled;
+            existing.UpdatedAt = DateTime.UtcNow;
+            await _topUpRequestRepository.UpdateAsync(existing);
+            await _topUpRequestRepository.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+
+            // Capture giá trị cần thiết trước khi ra khỏi block (fix CS0103 'existing' does not exist).
+            oldExpectedBvc = existing.ExpectedBvc;
+        }
+        catch
         {
-            throw new ConflictException(ApiErrorMessages.Wallet.TopUpNotUpdateable);
+            await tx.RollbackAsync(cancellationToken);
+            throw;
         }
-
-        // Idempotency: nếu IdempotencyKey mới trùng key đơn khác đang Pending → dùng đơn đó.
-        var conflictByKey = await _topUpRequestRepository.GetByIdempotencyKeyAsync(request.IdempotencyKey);
-        if (conflictByKey != null && conflictByKey.Id != topUpId)
-        {
-            throw new ConflictException(
-                ApiErrorMessages.Wallet.TopUpIdempotencyKeyConflict(conflictByKey.Id));
-        }
-
-        // Đánh dấu đơn cũ = Cancelled.
-        existing.Status = BvcTopUpStatus.Cancelled;
-        existing.UpdatedAt = DateTime.UtcNow;
-        await _topUpRequestRepository.UpdateAsync(existing);
+        // Note: tx đã commit (early-release lock) sau khi đánh dấu đơn cũ Cancelled.
+        // Phần tạo đơn mới bên dưới có thể chạy ngoài transaction (no need lock nữa vì đơn cũ đã terminal).
 
         // Tạo đơn mới (logic giống CreateTopUpAsync từ bước gọi SePay).
         // Skip validate account-status vì đơn cũ đã pass; skip idempotency-key lookup
@@ -473,7 +528,7 @@ public class WalletService : IWalletService
 
         _logger.LogInformation(
             "Top-up amount updated. OldTopUpId={OldTopUpId}, NewTopUpId={NewTopUpId}, UserId={UserId}, OldBvc={OldBvc}, NewBvc={NewBvc}, OrderId={OrderId}",
-            topUpId, newTopUp.Id, userId, existing.ExpectedBvc, bvcAmount, orderId);
+            topUpId, newTopUp.Id, userId, oldExpectedBvc, bvcAmount, orderId);
 
         var qrBase64 = await TryFetchQrBase64Async(result.QrImageUrl, userId, orderId);
 
@@ -771,6 +826,88 @@ public class WalletService : IWalletService
     }
 
     /// <summary>
+    /// M1 / Option A: Refund per-member deposit về wallet khi member merge sang lobby khác (Exception 4).
+    /// Di chuyển heldBalance → availableBalance, ghi ledger DEPOSIT_REFUND_MERGE.
+    /// docs/design/host-deposit-discount-and-bvc-payment-design.md §B3.3.
+    /// </summary>
+    /// <remarks>
+    /// Tại sao KHÔNG dùng <see cref="ReleaseDepositAsync"/>:
+    /// - Release dùng cho host cancel / timeout → có thể áp forfeit policy (BR-REFUND-02/03).
+    /// - Refund_Merge 100% cho member (Option A — khuyến nghị, không forfeit).
+    /// - Audit trail khác biệt: merge refund có <c>FromSessionId/ToSessionId</c> trong MemberDepositAuditLog,
+    ///   release thì chỉ có <c>RelatedReservationId</c>.
+    ///
+    /// Validation flow (idempotent):
+    /// 1. Skip nếu amount = 0 (BR-22 per-member deposit chưa active → member.DepositId null → caller pass 0).
+    /// 2. Lookup ledger entry theo idempotencyKey. Nếu đã có → return existing entry.
+    /// 3. Lock wallet FOR UPDATE, validate HeldBalance >= amount.
+    /// 4. heldBalance -= amount; availableBalance += amount; totalActiveDeposit -= amount.
+    /// 5. Insert ledger entry DEPOSIT_REFUND_MERGE.
+    /// </remarks>
+    public async Task<BvcLedgerEntry> RefundMemberDepositOnMergeAsync(
+        Guid userId,
+        long amountBvc,
+        Guid depositId,
+        string idempotencyKey,
+        string? notes = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            throw new BadRequestException(ApiErrorMessages.Wallet.IdempotencyKeyRequired);
+        }
+
+        // BR-22 forward-compat: nếu member chưa có per-member deposit → skip silently.
+        // Caller đã check member.DepositId != null trước khi gọi, nhưng guard thêm 1 lớp.
+        if (amountBvc <= 0)
+        {
+            _logger.LogInformation(
+                "RefundMemberDepositOnMergeAsync: skip amount=0. UserId={UserId}, DepositId={DepositId}",
+                userId, depositId);
+            // Trả 1 entry "noop" để caller có thể update member.DepositRefundLedgerId mà không null.
+            // Actually trả null để caller check và skip luôn.
+            return null!;
+        }
+
+        await ApplyBalanceMutationAsync(
+            userId,
+            amountBvc,
+            LedgerEntryType.DepositRefund_Merge,
+            relatedLobbyId: null,    // Không biết lobby tại thời điểm refund (member đã rời)
+            relatedReservationId: null,
+            idempotencyKey,
+            (w, amt) =>
+            {
+                if (w.HeldBalance < amt)
+                {
+                    throw new BadRequestException(
+                        ApiErrorMessages.Wallet.HeldBalanceInsufficient(w.HeldBalance, amt));
+                }
+                // Move held → available (giống Release nhưng KHÔNG trừ TotalActiveDeposit nếu BR-22 thật sự có active deposit cho member này).
+                // BR-22 forward-compat: TotalActiveDeposit mirror tổng held across sessions.
+                // Khi refund merge → giảm held nhưng vẫn mirror tổng.
+                w.HeldBalance -= amt;
+                w.AvailableBalance += amt;
+                w.TotalActiveDeposit = Math.Max(0, w.TotalActiveDeposit - amt);
+            },
+            cancellationToken);
+
+        // Set note với context merge (sau khi ledger đã insert, update Note là append-only OK vì update field note).
+        var entry = await _ledgerRepository.GetByIdempotencyKeyAsync(idempotencyKey, cancellationToken);
+        if (entry != null && !string.IsNullOrWhiteSpace(notes))
+        {
+            entry.Note = notes;
+            await _ledgerRepository.SaveChangesAsync(cancellationToken);
+        }
+
+        _logger.LogInformation(
+            "M1 / Option A: Refunded member deposit on merge. UserId={UserId}, Amount={Amount}BVC, DepositId={DepositId}, IdempotencyKey={Key}",
+            userId, amountBvc, depositId, idempotencyKey);
+
+        return entry!;
+    }
+
+    /// <summary>
     /// W-07: Resolve OrderId from SePay webhook transferContent.
     /// Uses exact OrderId lookup instead of fragile 8-char hash prefix matching.
     /// Idempotent: cùng OrderId + success → chỉ cộng ví 1 lần.
@@ -896,6 +1033,11 @@ public class WalletService : IWalletService
                 _logger.LogWarning(
                     "Top-up webhook OrderId not found. OrderId={OrderId}, GatewayTxn={GatewayTxn}",
                     orderId, gatewayTransactionId);
+                // Gap 3.2: ghi audit record cho OrderId-not-found để trace raw webhook không map được.
+                await TryWriteTopUpAuditAsync(orderId, gatewayTransactionId, amountBvc, status,
+                    result: "order_not_found",
+                    detail: "BvcTopUpRequest không tồn tại với OrderId này.",
+                    isSuccess: false, errorMessage: "OrderId not found", cancellationToken);
                 await tx.RollbackAsync(cancellationToken);
                 return;
             }
@@ -906,6 +1048,11 @@ public class WalletService : IWalletService
                 _logger.LogInformation(
                     "Top-up webhook duplicate (already terminal). OrderId={OrderId}, Status={Status}",
                     orderId, topUp.Status);
+                // Gap 3.2: ghi audit record cho duplicate replay.
+                await TryWriteTopUpAuditAsync(orderId, gatewayTransactionId, amountBvc, status,
+                    result: "already_terminal",
+                    detail: $"BvcTopUpRequest.Status={topUp.Status} (skip idempotent)",
+                    isSuccess: true, errorMessage: null, cancellationToken);
                 await tx.RollbackAsync(cancellationToken);
                 return;
             }
@@ -921,7 +1068,21 @@ public class WalletService : IWalletService
                     _logger.LogWarning(
                         "Top-up webhook amount mismatch. OrderId={OrderId}, Expected={Expected}, Received={Received}",
                         orderId, topUp.ExpectedBvc, amountBvc);
-                    await tx.RollbackAsync(cancellationToken);
+                    // Gap 3.2 + 3.5: ghi audit + đánh BvcTopUpRequest.Status=Failed + FailureReason.
+                    var mismatchReason = TruncateFailureReason(
+                        $"amount_mismatch expected={topUp.ExpectedBvc} received={amountBvc}");
+                    topUp.Status = BvcTopUpStatus.Failed;
+                    topUp.FailureReason = mismatchReason;
+                    topUp.GatewayTransactionId = gatewayTransactionId;
+                    topUp.UpdatedAt = now;
+                    await _topUpRequestRepository.UpdateAsync(topUp);
+
+                    await TryWriteTopUpAuditAsync(orderId, gatewayTransactionId, amountBvc, status,
+                        result: "amount_mismatch",
+                        detail: $"Expected={topUp.ExpectedBvc} BVC, received={amountBvc} BVC",
+                        isSuccess: false, errorMessage: mismatchReason, cancellationToken);
+
+                    await tx.CommitAsync(cancellationToken);
                     return;
                 }
 
@@ -948,6 +1109,12 @@ public class WalletService : IWalletService
                 topUp.UpdatedAt = now;
                 await _topUpRequestRepository.UpdateAsync(topUp);
 
+                // Gap 3.2: ghi audit success trước commit.
+                await TryWriteTopUpAuditAsync(orderId, gatewayTransactionId, amountBvc, status,
+                    result: "success",
+                    detail: $"UserId={topUp.UserId}, LedgerEntryId={ledgerEntry?.Id}",
+                    isSuccess: true, errorMessage: null, cancellationToken);
+
                 await tx.CommitAsync(cancellationToken);
 
                 _logger.LogInformation(
@@ -956,22 +1123,35 @@ public class WalletService : IWalletService
             }
             else if (normalized is "failed" or "canceled" or "cancelled")
             {
+                // Gap 3.5: ghi failure reason vào BvcTopUpRequest.FailureReason để debug + audit.
+                var reasonText = TruncateFailureReason($"Webhook status={normalized}");
                 topUp.Status = BvcTopUpStatus.Failed;
                 topUp.GatewayTransactionId = gatewayTransactionId;
+                topUp.FailureReason = reasonText;
                 topUp.UpdatedAt = now;
                 await _topUpRequestRepository.UpdateAsync(topUp);
+
+                // Gap 3.2: ghi audit webhook (failed/cancelled).
+                await TryWriteTopUpAuditAsync(orderId, gatewayTransactionId, amountBvc, status,
+                    result: normalized == "failed" ? "webhook_failed" : "webhook_cancelled",
+                    detail: reasonText ?? "Unknown reason",
+                    isSuccess: false, errorMessage: normalized, cancellationToken);
 
                 await tx.CommitAsync(cancellationToken);
 
                 _logger.LogInformation(
-                    "Top-up webhook failed/cancelled. OrderId={OrderId}, Status={Status}",
-                    orderId, normalized);
+                    "Top-up webhook failed/cancelled. OrderId={OrderId}, Status={Status}, Reason={Reason}",
+                    orderId, normalized, reasonText);
             }
             else
             {
                 _logger.LogWarning(
                     "Top-up webhook unknown status. OrderId={OrderId}, Status={Status}. Ignored.",
                     orderId, normalized);
+                // Gap 3.2: ghi audit cho unknown status.
+                await TryWriteTopUpAuditAsync(orderId, gatewayTransactionId, amountBvc, status,
+                    result: "unknown_status", detail: $"Status={normalized}",
+                    isSuccess: false, errorMessage: "Unknown status", cancellationToken);
                 await tx.RollbackAsync(cancellationToken);
             }
         }
@@ -979,6 +1159,51 @@ public class WalletService : IWalletService
         {
             await tx.RollbackAsync(cancellationToken);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Gap 3.2: Ghi PaymentWebhookAudit cho BVC top-up webhook.
+    /// Best-effort — nuốt exception để không block webhook flow chính (gap 4.4 hardening).
+    /// </summary>
+    private async Task TryWriteTopUpAuditAsync(
+        string orderId,
+        string gatewayTransactionId,
+        long amountBvc,
+        string rawStatus,
+        string result,
+        string detail,
+        bool isSuccess,
+        string? errorMessage,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var audit = new PaymentWebhookAudit
+            {
+                Id = Guid.NewGuid(),
+                Endpoint = "wallet/topup-webhook",
+                OrderId = orderId,
+                GatewayTransactionId = string.IsNullOrWhiteSpace(gatewayTransactionId) ? null : gatewayTransactionId,
+                Amount = amountBvc * 1000m, // BVC → VND
+                Currency = "BVC",
+                Status = rawStatus ?? string.Empty,
+                Result = result,
+                Detail = TruncateFailureReason(detail),
+                Payload = $"{{\"orderId\":\"{orderId}\",\"amountBvc\":{amountBvc},\"status\":\"{rawStatus}\"}}",
+                ProcessedAt = DateTime.UtcNow,
+                ProcessedBy = "WalletService.HandleTopUpWebhookAsync",
+                IsSuccess = isSuccess,
+                ErrorMessage = errorMessage
+            };
+            // AddAsync tự SaveChangesAsync. Không cần gọi riêng.
+            await _webhookAuditRepository.AddAsync(audit, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Failed to write PaymentWebhookAudit for BVC top-up. OrderId={OrderId}, Result={Result}",
+                orderId, result);
         }
     }
 
@@ -1596,6 +1821,169 @@ public class WalletService : IWalletService
         };
     }
 
+    // ============================================================
+    // M2 — Member BVC bill payment (Case 2 — docs §C2.1, §C2.5, §C2.8, §C2.12)
+    // ============================================================
+
+    /// <summary>
+    /// M2 / Task C2.1 + C2.5 + C2.12: Trừ trực tiếp BVC từ <c>availableBalance</c> cho member bill payment.
+    /// Idempotent theo <paramref name="idempotencyKey"/>.
+    /// </summary>
+    /// <remarks>
+    /// Khác với <see cref="HoldDepositAsync"/>:
+    /// - Hold đẩy tiền sang heldBalance (giữ cho reservation) — vẫn thuộc wallet user.
+    /// - DirectDebit trừ thẳng availableBalance — tiền đi về doanh thu quán (settlement).
+    /// <para>
+    /// Flow:
+    /// </para>
+    /// <list type="number">
+    ///   <item>Validate amount &gt; 0, idempotency key không rỗng.</item>
+    ///   <item>Idempotency: lookup ledger entry theo key. Nếu có → return existing.</item>
+    ///   <item>Begin Serializable transaction (hoặc dùng ambient nếu caller đã wrap).</item>
+    ///   <item>Lock wallet FOR UPDATE; validate availableBalance &gt;= amount.</item>
+    ///   <item>availableBalance -= amount (KHÔNG touch heldBalance).</item>
+    ///   <item>Insert ledger entry <c>MemberBillDebit</c> với Note = "BVC payment for member {memberId} bill {billId}".</item>
+    ///   <item>C2.12: Nếu availableBalance vượt constant <c>HeldBalanceCapBvc</c> (1.000.000 BVC),
+    ///         log warning (no notification ở M2 — notification là C2.9).</item>
+    /// </list>
+    /// </remarks>
+    public async Task<BvcLedgerEntry> DirectDebitForBillAsync(
+        Guid userId,
+        long amountBvc,
+        Guid memberId,
+        Guid billId,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (amountBvc <= 0)
+        {
+            throw new BadRequestException(ApiErrorMessages.Wallet.AmountMustBePositive);
+        }
+
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            throw new BadRequestException(ApiErrorMessages.Wallet.IdempotencyKeyRequired);
+        }
+
+        await ApplyBalanceMutationAsync(
+            userId,
+            amountBvc,
+            LedgerEntryType.MemberBillDebit,
+            relatedLobbyId: null,        // MemberBill không liên kết lobby trực tiếp
+            relatedReservationId: null,
+            idempotencyKey,
+            (w, amt) =>
+            {
+                if (w.AvailableBalance < amt)
+                {
+                    throw new BadRequestException(
+                        ApiErrorMessages.Wallet.BvcBillPaymentExceedsBalance(w.AvailableBalance, amt));
+                }
+                // Direct debit: availableBalance -= amount. KHÔNG đẩy vào heldBalance
+                // (tiền đi thẳng về doanh thu quán, settlement handled ở Phase khác).
+                w.AvailableBalance -= amt;
+
+                // C2.12: HeldBalance cap warning (Gap #9 BR-USER-LIMIT-03).
+                // Sau debit, nếu balance vượt constant cap → log warning. Notification là C2.9 (defer).
+                if (w.AvailableBalance > HeldBalanceCapBvc)
+                {
+                    _logger.LogWarning(
+                        "M2 C2.12: User {UserId} available balance {Current}BVC exceeds cap {Cap}BVC after debit. " +
+                        "Manual review recommended. MemberId={MemberId}, DebitAmount={Amount}BVC.",
+                        userId, w.AvailableBalance, HeldBalanceCapBvc, memberId, amt);
+                }
+            },
+            cancellationToken);
+
+        // Cập nhật Note với context sau khi ledger đã insert (append-only OK cho field note).
+        var entry = await _ledgerRepository.GetByIdempotencyKeyAsync(idempotencyKey, cancellationToken);
+        if (entry != null)
+        {
+            entry.Note = $"BVC payment for member {memberId} bill {billId}";
+            await _ledgerRepository.SaveChangesAsync(cancellationToken);
+        }
+
+        _logger.LogInformation(
+            "M2 C2.1: Direct debit for member bill. UserId={UserId}, MemberId={MemberId}, BillId={BillId}, " +
+            "Amount={Amount}BVC, IdempotencyKey={Key}",
+            userId, memberId, billId, amountBvc, idempotencyKey);
+
+        return entry!;
+    }
+
+    /// <summary>
+    /// M2 / Task C2.8: Refund BVC bill payment về <c>availableBalance</c>.
+    /// Idempotent theo <paramref name="idempotencyKey"/>.
+    /// </summary>
+    /// <remarks>
+    /// Đối ứng với <see cref="DirectDebitForBillAsync"/> — dùng cho flow refund bill sai / dispute (Gap #11).
+    /// Khác với <see cref="RefundMemberDepositOnMergeAsync"/> (refund deposit khi merge, BR § III.2):
+    /// - RefundMemberDepositOnMerge chuyển heldBalance → available (deposit refund).
+    /// - RefundMemberBill cộng vào availableBalance từ ledger <c>MemberBillDebit</c> trước đó.
+    /// <para>
+    /// Flow:
+    /// </para>
+    /// <list type="number">
+    ///   <item>Validate amount &gt; 0.</item>
+    ///   <item>Idempotency: lookup ledger entry theo key. Nếu có → return existing.</item>
+    ///   <item>Begin transaction.</item>>
+    ///   <item>Lock wallet; availableBalance += amount.</item>
+    ///   <item>Insert ledger entry <c>MemberBillRefund</c>.</item>
+    /// </list>
+    /// </remarks>
+    public async Task<BvcLedgerEntry> RefundMemberBillAsync(
+        Guid userId,
+        long amountBvc,
+        Guid memberId,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (amountBvc <= 0)
+        {
+            throw new BadRequestException(ApiErrorMessages.Wallet.AmountMustBePositive);
+        }
+
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            throw new BadRequestException(ApiErrorMessages.Wallet.IdempotencyKeyRequired);
+        }
+
+        await ApplyBalanceMutationAsync(
+            userId,
+            amountBvc,
+            LedgerEntryType.MemberBillRefund,
+            relatedLobbyId: null,
+            relatedReservationId: null,
+            idempotencyKey,
+            (w, amt) =>
+            {
+                // Refund: cộng vào availableBalance (KHÔNG đụng heldBalance).
+                w.AvailableBalance += amt;
+            },
+            cancellationToken);
+
+        // Update Note sau insert (append-only OK cho field note).
+        var entry = await _ledgerRepository.GetByIdempotencyKeyAsync(idempotencyKey, cancellationToken);
+        if (entry != null)
+        {
+            entry.Note = $"BVC refund for member {memberId} bill (dispute / correction)";
+            await _ledgerRepository.SaveChangesAsync(cancellationToken);
+        }
+
+        _logger.LogInformation(
+            "M2 C2.8: Refund member bill BVC. UserId={UserId}, MemberId={MemberId}, Amount={Amount}BVC, IdempotencyKey={Key}",
+            userId, memberId, amountBvc, idempotencyKey);
+
+        return entry!;
+    }
+
+    /// <summary>
+    /// C2.12: HeldBalance cap — log warning khi wallet vượt ngưỡng an toàn (BR-USER-LIMIT-03).
+    /// Wallet entity hiện KHÔNG có <c>MaxAvailableBalanceBvc</c> (forward-compat) → dùng constant tạm.
+    /// Threshold 1.000.000 BVC = 1 tỷ VND — vượt ngưỡng này cần manual review.
+    /// </summary>
+    private const long HeldBalanceCapBvc = 1_000_000L;
+
     /// <summary>
     /// BUGFIX (subagent audit #8): Generate OrderId dạng hash 18 char từ GUID + nanoseconds + userId.
     /// Trước đây dùng Substring(0, 18) trên GUID:N (32 chars) → collision risk cao +
@@ -1603,6 +1991,11 @@ public class WalletService : IWalletService
     /// </summary>
     private static string GenerateOrderId(Guid userId)
     {
+        // Gap 3.3: OrderId = SHA256 9 bytes (18 hex chars uppercase).
+        // Birthday paradox: xác suất collision trong 1 năm với ~1M top-up = 1M² / 2^72 ≈ 5.4e-11.
+        // → Cứ ~ 5.4 tỷ top-up mới có ~50% collision. An toàn cho MVP + production scale hiện tại.
+        // DB có UNIQUE constraint trên BvcTopUpRequests.OrderId → collision bị reject + replay.
+        // (Verified by tests: WalletServiceTests.GenerateOrderId_HasExpectedFormat).
         var input = $"{userId:N}-{DateTime.UtcNow.Ticks}-{Guid.NewGuid():N}";
         var bytes = System.Text.Encoding.UTF8.GetBytes(input);
         var hash = System.Security.Cryptography.SHA256.HashData(bytes);
@@ -1613,5 +2006,17 @@ public class WalletService : IWalletService
             sb.Append(hash[i].ToString("X2"));
         }
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Gap 3.5: Trim failure reason về 500 chars trước khi lưu DB.
+    /// Tránh spam reason dài từ SePay (gateway có thể trả raw HTML / stack trace).
+    /// </summary>
+    private static string? TruncateFailureReason(string? reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason)) return null;
+        const int MaxLen = 500;
+        var trimmed = reason.Trim();
+        return trimmed.Length > MaxLen ? trimmed[..MaxLen] : trimmed;
     }
 }

@@ -14,5 +14,14 @@ public enum IndividualSessionStatus
     SuspendedMutation = 1,
 
     /// <summary>Thời gian chơi chính thức dừng. Thanh toán cá nhân HOẶC kết toán gộp.</summary>
-    Finished = 2
+    Finished = 2,
+
+    /// <summary>
+    /// M2/C2.16: Member không thanh toán trong grace period khi session bị force-close.
+    /// Set bởi <c>ForceCloseService</c> khi Manager chọn
+    /// UnpaidMemberHandling = "MarkNoShow".
+    /// Khác <see cref="Finished"/>: NoShow = phạt, không có hóa đơn thanh toán; Finished = bill đã settled.
+    /// (2026-10-01)
+    /// </summary>
+    NoShow = 3
 }

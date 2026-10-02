@@ -136,17 +136,45 @@ namespace BoardVerse.Data.Repositories
 
         public async Task SyncInventoryBoxesAsync(Guid inventoryId, CancellationToken cancellationToken = default)
         {
-            var inventory = await _context.CafeGameInventories
-                .FirstOrDefaultAsync(i => i.Id == inventoryId);
+            // GAP-INVENTORY-ADD-BOXES: Check the change tracker FIRST for an Added entity
+            // that hasn't been persisted to the DB yet.
+            //
+            // Bug context (2026-10-02): Trong flow AddToInventoryAsync của manager onboarding
+            // (Step 2 — tạo quán), service gọi AddAsync → SyncInventoryBoxesAsync →
+            // SaveChangesAsync liên tiếp. Inventory lúc này đang ở EntityState.Added
+            // (chỉ trong change tracker, chưa có trong DB). Query FirstOrDefaultAsync cũ
+            // chỉ truy vấn DB → trả về null → method return sớm → 0 box được sinh.
+            // Kết quả: CafeGameInventory.BoxQuantity = 12 hiển thị đúng, nhưng bảng
+            // CafeInventoryBoxes rỗng — POS không có QR nào để quét cho 12 hộp game.
+            //
+            // Update path không bị bug vì GetByIdWithDetailsAsync load entity từ DB
+            // (state=Unchanged/Modified) nên query sau cùng tìm thấy được.
+            //
+            // Fix: check change tracker trước khi query DB. Nếu entity đang ở bất kỳ
+            // state nào (Added/Unchanged/Modified) trong tracker với Id khớp → dùng luôn.
+            var inventory = _context.ChangeTracker
+                .Entries<CafeGameInventory>()
+                .Where(e => e.Entity.Id == inventoryId)
+                .Select(e => e.Entity)
+                .FirstOrDefault();
 
             if (inventory == null)
             {
+                // Fallback: query DB cho entity đã persist (Update/Restore/SyncBoxes paths).
+                inventory = await _context.CafeGameInventories
+                    .FirstOrDefaultAsync(i => i.Id == inventoryId, cancellationToken);
+            }
+
+            if (inventory == null)
+            {
+                // Thực sự không tồn tại — silent return giữ hành vi cũ để tránh throw
+                // giữa luồng (BackfillMissingInventoryBoxesAsync có thể race với xóa mềm).
                 return;
             }
 
             var existingBoxes = await _context.CafeInventoryBoxes
                 .Where(b => b.CafeGameInventoryId == inventoryId)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             var loadedIds = existingBoxes.Select(b => b.Id).ToHashSet();
             CafeInventoryBoxSyncHelper.ApplySync(inventory, existingBoxes);

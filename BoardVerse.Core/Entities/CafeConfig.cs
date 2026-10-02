@@ -20,11 +20,27 @@ public class CafeConfig
     public int MaxPlayersPerLobby3To4Days { get; set; } = 10;
     public int MaxPlayersPerLobby5To7Days { get; set; } = 6;
 
-    /// <summary>BVC — theo BR-NEW-01 §8. 1 BVC = 1.000 VND.</summary>
+    /// <summary>
+    /// [2026-10-02 OBSOLETE] BR-NEW-01 cũ: minimum deposit BVC cho lobby cùng ngày.
+    /// Công thức cọc mới không áp dụng minDepositByDistance — giữ field cho backward compat DB.
+    /// </summary>
+    [Obsolete("2026-10-02: bỏ minDepositByDistance floor. Field giữ cho backward compat DB.")]
     public long MinDepositSameDay { get; set; } = 50;
+
+    /// <summary>[2026-10-02 OBSOLETE] BR-NEW-01 cũ.</summary>
+    [Obsolete("2026-10-02: bỏ minDepositByDistance floor. Field giữ cho backward compat DB.")]
     public long MinDeposit1Day { get; set; } = 50;
+
+    /// <summary>[2026-10-02 OBSOLETE] BR-NEW-01 cũ.</summary>
+    [Obsolete("2026-10-02: bỏ minDepositByDistance floor. Field giữ cho backward compat DB.")]
     public long MinDeposit2Days { get; set; } = 100;
+
+    /// <summary>[2026-10-02 OBSOLETE] BR-NEW-01 cũ.</summary>
+    [Obsolete("2026-10-02: bỏ minDepositByDistance floor. Field giữ cho backward compat DB.")]
     public long MinDeposit3To4Days { get; set; } = 150;
+
+    /// <summary>[2026-10-02 OBSOLETE] BR-NEW-01 cũ.</summary>
+    [Obsolete("2026-10-02: bỏ minDepositByDistance floor. Field giữ cho backward compat DB.")]
     public long MinDeposit5To7Days { get; set; } = 200;
 
     public bool RequireApprovalForDistant { get; set; } = true;
@@ -43,20 +59,36 @@ public class CafeConfig
     /// <summary>BR-REFUND-03: grace period cho phép host hủy 100% không phạt.</summary>
     public int CancellationGraceMinutes { get; set; } = 15;
 
-    /// <summary>BR-DEPOSIT-03: BVC / người mà cafe cấu hình (1 ≤ x ≤ 100).</summary>
+    /// <summary>
+    /// [2026-10-02 OBSOLETE] BR-DEPOSIT-03 cũ: BVC / người mà cafe cấu hình.
+    /// Công thức cọc mới (2026-10-02) suy ra trực tiếp từ cafeBasePrice × 20% / 1000,
+    /// không còn phụ thuộc field này. Giữ lại để backward compat DB / DTO.
+    /// </summary>
+    [Obsolete("2026-10-02: cọc suy ra từ cafeBasePrice × 20%. Field không còn ảnh hưởng tính toán.")]
     public long DepositRatePerPerson { get; set; } = 5;
 
     /// <summary>
-    /// BR-DEPOSIT-03: Giới hạn tối thiểu số BVC / người.
-    /// Mặc định 1 BVC = 1.000 VND.
+    /// [2026-10-02 OBSOLETE] BR-DEPOSIT-03 cũ: min BVC / người.
+    /// Field không còn dùng trong công thức cọc mới (2026-10-02).
     /// </summary>
+    [Obsolete("2026-10-02: không còn dùng clamp [Min,Max]. Field giữ cho backward compat.")]
     public long MinDepositRatePerPerson { get; set; } = 1;
 
     /// <summary>
-    /// BR-DEPOSIT-03: Giới hạn tối đa số BVC / người.
-    /// Mặc định 100 BVC = 100.000 VND.
+    /// [2026-10-02] BR-02/BR-03 cũ: floor + ceiling BVC / người.
+    /// Field không còn dùng trong công thức cọc mới (2026-10-02).
     /// </summary>
+    [Obsolete("2026-10-02: không còn dùng clamp [Min,Max]. Field giữ cho backward compat.")]
     public long MaxDepositRatePerPerson { get; set; } = 100;
+
+    /// <summary>
+    /// 2026-10-02: Phần trăm giá vé cơ bản quy đổi thành cọc.
+    /// BR-02: cho phép cafe cấu hình (mặc định 0.20 = 20%).
+    /// Stakeholder confirm 2026-03: 20% là con số cân bằng giữa "không quá rẻ để spam" và
+    /// "không quá đắt để user từ bỏ".
+    /// Range an toàn hệ thống: 0.10 ≤ value ≤ 0.50 (BR-03 cap 50%).
+    /// </summary>
+    public decimal DepositPercentageOfBasePrice { get; set; } = 0.20m;
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

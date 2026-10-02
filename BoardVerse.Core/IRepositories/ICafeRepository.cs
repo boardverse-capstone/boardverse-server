@@ -53,11 +53,17 @@ namespace BoardVerse.Core.IRepositories
 
         /// <summary>
         /// Lấy tất cả quán đang ACTIVE (IsActive=true, PartnerOperationalStatus=Active), không filter Location.
-        /// Sắp xếp theo Name A→Z. Trả về shape <see cref="NearbyCafeDto"/> (giống /nearby) để player thấy
-        /// được AvailableGameCount/TotalGameBoxCount/AvailableTableCount/TotalTableCount.
+        /// Sắp xếp theo Name A→Z khi không có lat/lng; sắp xếp theo DistanceMeters tăng dần khi truyền lat/lng.
+        /// Trả về shape <see cref="NearbyCafeDto"/> (giống /nearby) để player thấy
+        /// được AvailableGameCount/TotalGameBoxCount/AvailableTableCount/TotalTableCount + DistanceMeters.
         /// </summary>
+        /// <param name="latitude">Vĩ độ player (tùy chọn; có thì tính DistanceMeters và sort theo khoảng cách).</param>
+        /// <param name="longitude">Kinh độ player (tùy chọn; cần đi kèm latitude).</param>
         Task<PaginatedResponse<NearbyCafeDto>> GetAllActiveCafesAsync(
-            PaginationParams paginationParams, CancellationToken cancellationToken = default);
+            PaginationParams paginationParams,
+            double? latitude = null,
+            double? longitude = null,
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Lấy danh sách board game đang hoạt động của 1 cafe (player browse).
@@ -82,12 +88,11 @@ namespace BoardVerse.Core.IRepositories
             Guid gameTemplateId,
             int limit = 10, CancellationToken cancellationToken = default);
         Task<Cafe?> GetPartnerCafeByManagerIdAsync(Guid managerUserId, CancellationToken cancellationToken = default);
-        Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<string> tableNames, CancellationToken cancellationToken = default);
         /// <summary>
-        /// Overload — đồng bộ cả Name + SeatCount + SortOrder.
+        /// Đồng bộ cả Name + SeatCount + SortOrder. PUT /api/cafes/{cafeId}/pos/tables.
+        /// SeatCount nâng cấp null → giữ nguyên DB; SortOrder null → auto-append sau max.
         /// </summary>
         Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<CafeTableSyncItem> tables, CancellationToken cancellationToken = default);
-        Task RefreshTableLayoutJsonAsync(Guid cafeId, CancellationToken cancellationToken = default);
         Task SaveChangesAsync(CancellationToken cancellationToken = default);
 
         // === Admin: Full CRUD ===

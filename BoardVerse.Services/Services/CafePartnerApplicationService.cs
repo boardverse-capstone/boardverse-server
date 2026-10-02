@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using BoardVerse.Core.Common;
 using BoardVerse.Core.Constants;
 using BoardVerse.Core.DTOs.CafePartner;
+using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
@@ -380,7 +381,17 @@ namespace BoardVerse.Services.Services
             if (cafe.Tables == null || cafe.Tables.Count == 0)
             {
                 var defaultNames = CafePartnerTableLayoutHelper.GenerateDefaultNames(CafePartnerActivationRules.MinPublicTables);
-                await _cafeRepository.SyncCafeTablesAsync(cafe.Id, defaultNames, cancellationToken);
+                // Convert string[] → CafeTableSyncItem[] (service chỉ nhận shape mới).
+                // Để null SeatCount/SortOrder để helper auto-fill default 4 và auto-append SortOrder.
+                var seedItems = defaultNames
+                    .Select(name => new CafeTableSyncItem
+                    {
+                        Name = name,
+                        SeatCount = null,
+                        SortOrder = null
+                    })
+                    .ToList();
+                await _cafeRepository.SyncCafeTablesAsync(cafe.Id, seedItems, cancellationToken);
             }
 
             var utcNow = DateTime.UtcNow;
@@ -905,12 +916,6 @@ namespace BoardVerse.Services.Services
                 blockers.Add(ApiErrorMessages.CafePartner.MinSpaceImagesActivationRequired(CafePartnerActivationRules.MinSpaceImages));
             }
 
-            var tableNames = DeserializeStringList(cafe.TableLayoutJson);
-            if (tableNames.Count < activeTablesCount)
-            {
-                blockers.Add(ApiErrorMessages.CafePartner.TableLayoutRequired);
-            }
-
             if (!cafe.Latitude.HasValue || !cafe.Longitude.HasValue)
             {
                 blockers.Add(ApiErrorMessages.CafePartner.GpsLocationRequiredBeforeActivation);
@@ -1101,10 +1106,10 @@ namespace BoardVerse.Services.Services
         private static ManagerCafeProfileResponseDto MapManagerCafeProfile(CafePartnerApplication? application, Cafe cafe)
         {
             var spaceUrls = DeserializeStringList(cafe.SpaceImageUrlsJson);
-            var tableNames = DeserializeStringList(cafe.TableLayoutJson);
             // NumberOfTables/NumberOfGamesOwned are derived from navigation collections
             // to stay in sync with tables managed via POS endpoints and inventory rows.
-            var numberOfTables = cafe.Tables?.Count(t => t.IsActive) ?? 0;
+            var activeTables = cafe.Tables?.Where(t => t.IsActive).ToList() ?? new List<CafeTable>();
+            var numberOfTables = activeTables.Count;
             var numberOfGamesOwned = cafe.Inventories?.Where(i => i.IsActive).Sum(i => i.BoxQuantity) ?? 0;
             var blockers = application?.Status == CafePartnerApplicationStatus.Approved
                 ? GetActivationBlockers(cafe)
@@ -1138,7 +1143,6 @@ namespace BoardVerse.Services.Services
                 DepositPercentage = cafe.DepositPercentage,
                 DefaultHoldDurationMinutes = cafe.DefaultHoldDurationMinutes,
                 IsPricingLocked = cafe.IsPricingLocked,
-                TableNames = tableNames,
                 ApplicationStatus = application != null
                     ? CafePartnerStatusMapper.ToApiApplicationStatus(application.Status)
                     : CafePartnerStatusMapper.ToApiApplicationStatus(Core.Enum.CafePartnerApplicationStatus.PendingApproval),
@@ -1146,7 +1150,8 @@ namespace BoardVerse.Services.Services
                     ? CafePartnerStatusMapper.ToApiOperationalStatus(operational)
                     : null,
                 OperationalStatusReason = cafe.PartnerOperationalStatusReason,
-                IsTableLayoutConfigured = tableNames.Count >= numberOfTables && numberOfTables > 0,
+                IsTableLayoutConfigured = numberOfTables > 0
+                    && activeTables.All(t => !string.IsNullOrWhiteSpace(t.Name)),
                 CanActivate = application?.Status == CafePartnerApplicationStatus.Approved &&
                               CafePartnerOperationalStatusHelper.CanManagerActivate(cafe.PartnerOperationalStatus) &&
                               blockers.Count == 0,

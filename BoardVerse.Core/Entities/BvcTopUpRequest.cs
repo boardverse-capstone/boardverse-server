@@ -34,6 +34,13 @@ public class BvcTopUpRequest
     /// <summary>Mã SePay transaction id (nhận từ webhook).</summary>
     public string? GatewayTransactionId { get; set; }
 
+    /// <summary>
+    /// 2026-10-02 (Gap 3.5): Lý do top-up fail (gateway reject, webhook status failed/cancelled,
+    /// amount mismatch, timeout, ...). Giúp admin debug + audit khi user khiếu nại.
+    /// Trim length 500 tại write-path (<see cref="WalletService.TruncateFailureReason"/>).
+    /// </summary>
+    public string? FailureReason { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime ExpiresAt { get; set; }

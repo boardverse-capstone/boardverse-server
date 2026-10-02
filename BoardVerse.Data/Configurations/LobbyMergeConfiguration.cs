@@ -32,11 +32,29 @@ public class LobbyMergeRequestConfiguration : IEntityTypeConfiguration<LobbyMerg
         builder.Property(r => r.SeatCapacity).IsRequired();
         builder.Property(r => r.FitsCapacity).IsRequired();
 
+        // SelectedMemberIdsJson: serialized List<Guid>. Dùng text để tương thích
+        // cả PostgreSQL và SQL Server (tránh provider-specific jsonb).
+        builder.Property(r => r.SelectedMemberIdsJson).HasColumnType("text");
+
         // Unique index trên IdempotencyKey để tránh duplicate request
         builder.HasIndex(r => r.IdempotencyKey)
             .IsUnique()
             .HasDatabaseName("UX_LobbyMergeRequests_IdempotencyKey")
             .HasFilter("\"IdempotencyKey\" IS NOT NULL");
+
+        // Partial unique index trên (SourceLobbyId, TargetLobbyId) WHERE Status = 0 (Pending).
+        // Index này được tạo bằng raw SQL (xem sql/ folder) — không có EF migration tracking.
+        // đảm bảo DB-level race safety: 2 request cùng SET (Source, Target, Pending) chỉ
+        // một INSERT thành công, request còn lại nhận PostgresException SqlState 23505.
+        // LobbyMergeService.CreateMergeRequestAsync catch 23505 và map sang
+        // ConflictException(MergeRequestAlreadyPending).
+        //
+        // Sync EF model với DB để future `dotnet ef migrations add` không DROP/RECREATE
+        // index này (sẽ phá vỡ race-safety guarantee trên production).
+        builder.HasIndex(r => new { r.SourceLobbyId, r.TargetLobbyId })
+            .IsUnique()
+            .HasDatabaseName("IX_LMR_SourceTarget_Pending")
+            .HasFilter("\"Status\" = 0");
 
         // Index cho query pending requests
         builder.HasIndex(r => new { r.Status, r.ExpiresAt })

@@ -49,9 +49,10 @@ CafePartnerApplication          Cafe (1:1 qua CreatedCafeId)
 |-------|----------|
 | `CafeTables` (bảng riêng) | Bàn runtime — trạng thái `Available` / `InUse` / `Reserved`. Quản lý qua POS endpoints `PUT /pos/tables` và `PATCH /pos/tables/{id}` |
 | `CafeGameInventory` (bảng riêng) | Kho game runtime — quản lý qua `POST /inventory` |
-| `TableLayoutJson` (cache) | JSON snapshot của `CafeTables.Name` (active) — được refresh tự động khi `PUT /pos/tables`. Dùng cho `GetActivationBlockers` đảm bảo tên bàn đã được cấu hình trước khi activate. |
 
 > Trước đây `Cafe.NumberOfTables`, `Cafe.NumberOfGamesOwned`, `Cafe.PopularGamesList` là các trường riêng trên `Cafe`, gây trùng lặp với `CafeTables` và `CafeGameInventory`. Hiện tại các giá trị này **derive** từ navigation collections tại tầng service, không còn được nhập qua `PUT /operational-profile`.
+>
+> Trước đây `Cafe.TableLayoutJson` là cache tên bàn (auto-sync từ `CafeTables`) nhưng đã được loại bỏ — `IsTableLayoutConfigured` hiện được tính trực tiếp từ số lượng `CafeTables` active và tên không rỗng.
 
 ---
 

@@ -164,6 +164,22 @@ public class Lobby
     /// </summary>
     public const int ReadyTimeoutMinutes = 20;
 
+    // === BR-13 (revised 2026-09-30): Walk-in audit fields ===
+    /// <summary>
+    /// BR-13 (revised 2026-09-30): True khi lobby được tạo bởi POS staff cho walk-in session
+    /// (không qua Reservation/Booking). Default false (backward compat với lobby cũ).
+    /// Khi true: <c>HostUserId</c> = staff.UserId (audit), <c>StartedByStaffId</c> = staff.UserId
+    /// (audit field chính xác cho staff). Mirror của <c>ActiveSession.IsWalkInSession</c>.
+    /// </summary>
+    public bool IsWalkInLobby { get; set; } = false;
+
+    /// <summary>
+    /// BR-13 (revised 2026-09-30): UserId của POS staff đã khởi tạo lobby walk-in.
+    /// Null khi <c>IsWalkInLobby = false</c>. Audit field chính xác (tương tự
+    /// <c>ActiveSession.StartedByStaffId</c>).
+    /// </summary>
+    public Guid? StartedByStaffId { get; set; }
+
     // === Audit ===
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

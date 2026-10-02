@@ -1,4 +1,5 @@
 ﻿using BoardVerse.Core.DTOs.Reservation;
+using BoardVerse.Core.Enum;
 
 using System.Threading;
 namespace BoardVerse.Services.IServices;
@@ -112,6 +113,34 @@ public interface IReservationService
     /// Không throw nếu reservation không tồn tại (legacy session không có lobbyId → cũ).
     /// </summary>
     Task CompleteAndCaptureAsync(Guid lobbyId, Guid activeSessionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// M1 / BR-DEPOSIT-05 / BR-15 modified: Áp Host Deposit Discount distribution thay cho BR-09 capture 100%.
+    /// Flow:
+    ///   1. Capture <paramref name="totalDiscountApplied"/> BVC về doanh thu quán (DepositCapture).
+    ///   2. Release <c>reservation.DepositAmount - totalDiscountApplied</c> về host wallet (DepositRelease).
+    ///   3. Update reservation snapshot: HostDepositUsageSnapshot, DiscountAppliedAmount, DiscountAuditTrail JSON, Status = Completed.
+    ///   4. Giải phóng seat + game inventory (giống <see cref="CompleteAndCaptureAsync"/>).
+    ///   5. Phát Outbox event SessionCompleted.
+    /// Idempotent theo reservationId: nếu reservation đã Completed → skip (giống CompleteAndCaptureAsync).
+    /// </summary>
+    /// <param name="reservationId">Reservation áp discount.</param>
+    /// <param name="lobbyId">FK để load reservation (backward compat).</param>
+    /// <param name="activeSessionId">ActiveSession id (cho audit).</param>
+    /// <param name="hostDepositUsage">Mode (DiscountGroup / DiscountHostOnly).</param>
+    /// <param name="totalDiscountApplied">Tổng BVC đã phân bổ cho members (từ BuildMemberInvoices).</param>
+    /// <param name="payTime">Timestamp Pay.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <exception cref="NotFoundException">Reservation không tồn tại.</exception>
+    /// <exception cref="ConflictException">Reservation status invalid cho discount.</exception>
+    Task ApplyHostDepositDiscountAndCaptureAsync(
+        Guid reservationId,
+        Guid lobbyId,
+        Guid activeSessionId,
+        HostDepositUsageMode hostDepositUsage,
+        long totalDiscountApplied,
+        DateTime payTime,
+        CancellationToken ct = default);
 
     /// <summary>
     /// BR-END-01..05 (docs/time-slot-fixed-end-design (1).md §3.4 + §21A.8):

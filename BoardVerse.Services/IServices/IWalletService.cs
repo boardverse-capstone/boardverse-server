@@ -130,6 +130,32 @@ public interface IWalletService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// M1 / Option A — Refund per-member deposit về wallet khi member merge sang lobby khác (Exception 4).
+    /// Di chuyển tiền heldBalance → availableBalance, ghi ledger DEPOSIT_REFUND_MERGE.
+    /// <para>
+    /// Khác với <see cref="ReleaseDepositAsync"/>:
+    /// - Dùng <c>LedgerEntryType.DepositRefund_Merge</c> (phân biệt audit trail cho merge vs cancel).
+    /// - KHÔNG tịch thu — refund 100% cho member (Option A — khuyến nghị).
+    /// - Validate deposit status = Held (không refund lại deposit đã capture/release/forfeit).
+    /// </para>
+    /// Idempotent theo <paramref name="idempotencyKey"/>.
+    /// BR-22 forward-compat: chỉ refund được khi deposit per-member đã được set.
+    /// </summary>
+    /// <param name="userId">User được refund (member.UserId).</param>
+    /// <param name="amountBvc">Số BVC refund.</param>
+    /// <param name="depositId">Deposit ID gốc của member (member.DepositId).</param>
+    /// <param name="idempotencyKey">Format: <c>refund-merge-{MemberId}-{DepositId}-{Timestamp:o}</c>.</param>
+    /// <param name="notes">Ghi chú context (vd: "Member merge từ Lobby X → Y").</param>
+    /// <returns>Ledger entry đã ghi.</returns>
+    Task<BvcLedgerEntry> RefundMemberDepositOnMergeAsync(
+        Guid userId,
+        long amountBvc,
+        Guid depositId,
+        string idempotencyKey,
+        string? notes = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Phase 2: Xử lý SePay webhook cho BVC top-up (OrderId prefix BVC-XXX).
     /// Idempotent theo OrderId. Cùng OrderId + success → chỉ cộng ví 1 lần.
     /// </summary>
@@ -242,6 +268,57 @@ public interface IWalletService
     /// Computed = Credits - Debits; compare with wallet.AvailableBalance.
     /// </summary>
     Task<WalletReconcileResultDto> ReconcileWalletAsync(Guid userId);
+
+    // ============================================================
+    // M2 — Member BVC bill payment (Case 2 — docs §C2.1, §C2.5, §C2.8, §C2.12)
+    // ============================================================
+
+    /// <summary>
+    /// M2 / Task C2.1: Trừ trực tiếp BVC từ <c>availableBalance</c> cho member bill payment.
+    /// Khác với <see cref="HoldDepositAsync"/>: KHÔNG đẩy vào heldBalance — tiền đi thẳng về doanh thu quán.
+    /// Idempotent theo <paramref name="idempotencyKey"/> (BR §XVII.1) — cùng key + amount → return existing entry.
+    /// <para>
+    /// Validate trước khi trừ:
+    /// </para>
+    /// <list type="bullet">
+    ///   <item><c>amountBvc &gt; 0</c> (throw BadRequestException).</item>
+    ///   <item><c>availableBalance &gt;= amountBvc</c> (throw BadRequestException).</item>
+    /// </list>
+    /// </summary>
+    /// <param name="userId">User trả bill (member.UserId, không phải member.Id).</param>
+    /// <param name="amountBvc">Số BVC trừ (long, integer BVC).</param>
+    /// <param name="memberId">ActiveSessionMember.Id — ghi vào ledger Note để audit.</param>
+    /// <param name="billId">Bill ID (= sessionId cho MemberBillDebit) — ghi vào ledger Note.</param>
+    /// <param name="idempotencyKey">UNIQUE constraint ở DB.</param>
+    /// <returns>Ledger entry vừa tạo (existing nếu idempotent replay).</returns>
+    /// <exception cref="BadRequestException">Amount &lt;= 0 hoặc wallet không đủ BVC.</exception>
+    /// <exception cref="NotFoundException">Wallet không tồn tại.</exception>
+    Task<BvcLedgerEntry> DirectDebitForBillAsync(
+        Guid userId,
+        long amountBvc,
+        Guid memberId,
+        Guid billId,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// M2 / Task C2.8: Refund BVC bill payment về <c>availableBalance</c>.
+    /// Cộng tiền vào wallet, ghi ledger <c>MemberBillRefund</c> (đối ứng với <c>MemberBillDebit</c>).
+    /// Idempotent theo <paramref name="idempotencyKey"/>.
+    /// </summary>
+    /// <param name="userId">User được refund (member.UserId).</param>
+    /// <param name="amountBvc">Số BVC refund.</param>
+    /// <param name="memberId">ActiveSessionMember.Id — ghi vào ledger Note.</param>
+    /// <param name="idempotencyKey">UNIQUE constraint ở DB.</param>
+    /// <returns>Ledger entry refund vừa tạo.</returns>
+    /// <exception cref="BadRequestException">Amount &lt;= 0.</exception>
+    /// <exception cref="NotFoundException">Wallet không tồn tại.</exception>
+    Task<BvcLedgerEntry> RefundMemberBillAsync(
+        Guid userId,
+        long amountBvc,
+        Guid memberId,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>

@@ -10,7 +10,14 @@
 /// AwaitingDeposit → Holding → Confirmed → CheckedIn → InProgress → Completed
 ///                                       ↘ Expired ↘ NoShow ↘ EarlyCheckout
 ///                                       ↘ CancelledByPlayer / CancelledByCafe
+///                                       ↘ AbsorbedByMerge (staff POS merge)
 /// </code>
+/// <para>
+/// <b>Phân biệt quan trọng (BR-MERGE-01):</b> <see cref="AbsorbedByMerge"/> KHÔNG
+/// phải cancellation. Reservation bị staff POS merge (absorbed) vào reservation khác
+/// vẫn giữ deposit held trong wallet — capture theo target session's policy khi kết
+/// thúc. Tuyệt đối KHÔNG dùng <see cref="CancelledByPlayer"/> cho merge case.
+/// </para>
 /// </remarks>
 public enum ReservationStatus
 {
@@ -42,12 +49,63 @@ public enum ReservationStatus
     /// <summary>Đến recruitmentDeadline mà chưa đủ người (timeout failed).</summary>
     Expired = 8,
 
-    /// <summary>Host tự hủy — hoàn 1 phần / 0% BVC theo BR-REFUND-02.</summary>
+    /// <summary>
+    /// BR-REFUND-02: Host tự hủy reservation trước khi chơi. Trigger refund policy 1 phần / 0% BVC.
+    /// <para>⚠️ KHÔNG dùng cho merge — dùng <see cref="AbsorbedByMerge"/>.</para>
+    /// </summary>
     CancelledByPlayer = 9,
 
     /// <summary>Quán hủy (BR-REFUND-04) — hoàn 100% BVC, không phạt.</summary>
     CancelledByCafe = 10,
 
     /// <summary>Host không đến sau scheduledTime + grace → forfeit deposit (BR §21A.9).</summary>
-    NoShow = 11
+    NoShow = 11,
+
+    /// <summary>
+    /// BR-MERGE-01: Source reservation bị staff POS merge (absorbed) vào target reservation.
+    /// <para>
+    /// Đây KHÔNG phải host cancellation. Host Nhóm A vẫn đang ở quán và tiếp tục chơi tại
+    /// bàn mới (Nhóm B). Do đó deposit KHÔNG được refund, KHÔNG được forfeit — vẫn giữ
+    /// held trong wallet và sẽ capture theo target session's policy khi bàn B kết thúc.
+    /// </para>
+    /// <para>
+    /// LUÔN đi kèm <c>Reservation.SourceDissolved = true</c> và
+    /// <c>Reservation.MergedIntoReservationId = target.ReservationId</c>.
+    /// </para>
+    /// <para>
+    /// Đặt bởi <c>LobbyMergeService.ApproveMergeAsync</c> (Step 11) khi source lobby
+    /// được dissolve sau khi transfer members sang target.
+    /// </para>
+    /// </summary>
+    AbsorbedByMerge = 12,
+
+    // ====================================================================
+    // M1 AUDIT VALUES (docs/design/host-deposit-discount-and-bvc-payment-design.md §B1.8)
+    // ====================================================================
+    // Range 100-199 dành cho audit trail của BR-15 (Host Deposit Discount).
+    // KHÔNG dùng cho query chính — chỉ ghi log/audit khi deposit distribution skip.
+
+    /// <summary>
+    /// BR-15: Host chọn 1 trong 3 HostDepositUsageMode và phân bổ thành công.
+    /// Set trên <c>ActiveSession</c> (không phải Reservation) lúc POS Pay thành công.
+    /// Reservation giữ status gốc (CheckedIn/InProgress) — value này chỉ apply cho ActiveSession audit.
+    /// </summary>
+    DiscountApplied = 100,
+
+    /// <summary>
+    /// BR-15 skip reason #4: Lobby đã Closed/CancelledByCafe/TimeoutFailed → không áp discount.
+    /// Set trên Reservation để trace "host đã chọn DiscountGroup nhưng lobby invalid".
+    /// </summary>
+    DiscountSkipped_LobbyTerminal = 101,
+
+    /// <summary>
+    /// BR-15 skip reason #3: All members đã merge sang session khác (LeftAt != null)
+    /// → không có active member nào để áp discount.
+    /// </summary>
+    DiscountSkipped_MemberMerged = 102,
+
+    /// <summary>
+    /// BR-15 skip reason #2: Reservation đã bị Cancelled trước khi Pay.
+    /// </summary>
+    DiscountSkipped_CancelledReservation = 103
 }

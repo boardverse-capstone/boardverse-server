@@ -210,27 +210,10 @@ public class CafePosServiceTests
         Assert.Null(result.LobbyId);
     }
 
-    // ===================== SyncTablesAsync (string overload) =====================
-
-    [Fact]
-    public async Task SyncTablesAsync_StringNames_ConvertsToCafeTableSyncItems()
-    {
-        _cafeRepo.Setup(r => r.SyncCafeTablesAsync(CafeId, It.IsAny<IReadOnlyList<CafeTableSyncItem>>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
-
-        var service = CreateService();
-
-        await service.SyncTablesAsync(CafeId, ManagerId, new[] { "Table 1", "Table 2", "Table 3" });
-
-        _cafeRepo.Verify(r => r.SyncCafeTablesAsync(
-            CafeId,
-            It.Is<IReadOnlyList<CafeTableSyncItem>>(items =>
-                items.Count == 3
-                && items[0].Name == "Table 1" && items[0].SortOrder == 0
-                && items[1].Name == "Table 2" && items[1].SortOrder == 1
-                && items[2].Name == "Table 3" && items[2].SortOrder == 2),
-            It.IsAny<CancellationToken>()), Times.Once);
-    }
+    // ===================== SyncTablesAsync =====================
+    // Verify rằng service forward đúng Name + SeatCount + SortOrder xuống repository
+    // để CafeTableSyncHelper tạo/cập nhật bàn. Service KHÔNG tự auto-fill SortOrder theo
+    // index — đó là trách nhiệm của helper.
 
     [Fact]
     public async Task SyncTablesAsync_DuplicateSortOrder_ThrowsBadRequest()
@@ -248,6 +231,91 @@ public class CafePosServiceTests
                 new CafeTableSyncItem { Name = "T2", SortOrder = 0 } // duplicate
             }));
         Assert.Contains("0", ex.Message);
+    }
+
+    [Fact]
+    public async Task SyncTablesAsync_TablesItems_PreservesSeatCountAndSortOrder()
+    {
+        _cafeRepo.Setup(r => r.SyncCafeTablesAsync(CafeId, It.IsAny<IReadOnlyList<CafeTableSyncItem>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var service = CreateService();
+
+        var payload = new[]
+        {
+            new CafeTableSyncItem { Name = "Bàn 1", SeatCount = 4,  SortOrder = 0 },
+            new CafeTableSyncItem { Name = "Bàn 2", SeatCount = 4,  SortOrder = 1 },
+            new CafeTableSyncItem { Name = "Bàn 3", SeatCount = 4,  SortOrder = 2 },
+            new CafeTableSyncItem { Name = "Bàn 4", SeatCount = 4,  SortOrder = 3 },
+            new CafeTableSyncItem { Name = "Bàn 5", SeatCount = 4,  SortOrder = 4 },
+            new CafeTableSyncItem { Name = "Bàn 6", SeatCount = 4,  SortOrder = 5 },
+            new CafeTableSyncItem { Name = "Bàn 7", SeatCount = 4,  SortOrder = 6 },
+            new CafeTableSyncItem { Name = "Bàn 8", SeatCount = 4,  SortOrder = 7 },
+            new CafeTableSyncItem { Name = "Bàn 9", SeatCount = 4,  SortOrder = 8 },
+            new CafeTableSyncItem { Name = "Bàn 10", SeatCount = 4, SortOrder = 9 }
+        };
+
+        await service.SyncTablesAsync(CafeId, ManagerId, payload);
+
+        _cafeRepo.Verify(r => r.SyncCafeTablesAsync(
+            CafeId,
+            It.Is<IReadOnlyList<CafeTableSyncItem>>(items =>
+                items.Count == 10
+                && items[0].Name == "Bàn 1"  && items[0].SeatCount == 4  && items[0].SortOrder == 0
+                && items[9].Name == "Bàn 10" && items[9].SeatCount == 4  && items[9].SortOrder == 9),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task SyncTablesAsync_TablesItems_MixedSeatCount_PassesThrough()
+    {
+        // Đảm bảo service forward nguyên SeatCount + SortOrder mà caller truyền vào.
+        _cafeRepo.Setup(r => r.SyncCafeTablesAsync(CafeId, It.IsAny<IReadOnlyList<CafeTableSyncItem>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var service = CreateService();
+
+        var payload = new[]
+        {
+            new CafeTableSyncItem { Name = "Bàn VIP",    SeatCount = 12, SortOrder = 0 },
+            new CafeTableSyncItem { Name = "Bàn thường", SeatCount = 4,  SortOrder = 5 }
+        };
+
+        await service.SyncTablesAsync(CafeId, ManagerId, payload);
+
+        _cafeRepo.Verify(r => r.SyncCafeTablesAsync(
+            CafeId,
+            It.Is<IReadOnlyList<CafeTableSyncItem>>(items =>
+                items.Count == 2
+                && items[0].Name == "Bàn VIP"    && items[0].SeatCount == 12 && items[0].SortOrder == 0
+                && items[1].Name == "Bàn thường" && items[1].SeatCount == 4  && items[1].SortOrder == 5),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task SyncTablesAsync_TablesItems_NullSeatCount_ForwardedAsNull()
+    {
+        // Service KHÔNG độn default 4 — đó là trách nhiệm của helper. Service chỉ forward payload.
+        _cafeRepo.Setup(r => r.SyncCafeTablesAsync(CafeId, It.IsAny<IReadOnlyList<CafeTableSyncItem>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var service = CreateService();
+
+        var payload = new[]
+        {
+            new CafeTableSyncItem { Name = "Bàn A", SeatCount = null, SortOrder = 0 }
+        };
+
+        await service.SyncTablesAsync(CafeId, ManagerId, payload);
+
+        _cafeRepo.Verify(r => r.SyncCafeTablesAsync(
+            CafeId,
+            It.Is<IReadOnlyList<CafeTableSyncItem>>(items =>
+                items.Count == 1
+                && items[0].Name == "Bàn A"
+                && items[0].SeatCount == null
+                && items[0].SortOrder == 0),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // ===================== GetActiveSessionsAsync =====================

@@ -467,11 +467,23 @@ public class DissolveLobbyAsyncTests
 
         await service.DissolveLobbyAsync(lobbyId, hostId);
 
-        Assert.Equal(0, seatInv.HeldSeats);
-        Assert.Equal(0, gameInv.HeldCopies);
+        // FIX 2026-10-02: AdjustCountersAsync bypasses EF tracker — in-memory seatInv/gameInv
+        // không còn được mutate bởi service. Correctness check chuyển sang Verify trên
+        // AdjustCountersAsync với delta chính xác (lobby.MaxMembers=4, gameHeld=1).
+        // Bỏ Assert.Equal(0, seatInv.HeldSeats) cũ vì snapshot in-memory giờ là stale.
 
-        seatRepo.Verify(r => r.UpdateAsync(seatInv, It.IsAny<CancellationToken>()), Times.Once);
-        gameRepo.Verify(r => r.UpdateAsync(gameInv, It.IsAny<CancellationToken>()), Times.Once);
+        // Verify AdjustCountersAsync với delta đúng (lobby.MaxMembers=4, gameHeld=1).
+        // Moq Verify nhận expression tree, không hỗ trợ named argument → positional.
+        seatRepo.Verify(r => r.AdjustCountersAsync(
+            seatInv.Id,
+            -4,
+            0,
+            It.IsAny<CancellationToken>()), Times.Once);
+        gameRepo.Verify(r => r.AdjustCountersAsync(
+            gameInv.Id,
+            -1,
+            0,
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

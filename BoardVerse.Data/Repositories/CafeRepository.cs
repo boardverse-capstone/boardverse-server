@@ -307,12 +307,21 @@ namespace BoardVerse.Data.Repositories
 
         public async Task<PaginatedResponse<NearbyCafeDto>> GetAllActiveCafesAsync(
             PaginationParams paginationParams,
+            double? latitude = null,
+            double? longitude = null,
             CancellationToken cancellationToken = default)
         {
             var query = _context.Cafes
                 .AsNoTracking()
                 .Where(c => c.IsActive
                     && c.PartnerOperationalStatus == CafePartnerOperationalStatus.Active);
+
+            // Tính khoảng cách nếu player truyền lat/lng; nếu không thì DistanceMeters = 0
+            // và sắp xếp theo tên A→Z (giữ nguyên hành vi cũ).
+            bool hasOrigin = latitude.HasValue && longitude.HasValue;
+            NetTopologySuite.Geometries.Point? origin = hasOrigin
+                ? GeoLocationHelper.ToPoint(latitude!.Value, longitude!.Value)
+                : null;
 
             var projected = query.Select(c => new NearbyCafeDto
             {
@@ -324,7 +333,9 @@ namespace BoardVerse.Data.Repositories
                 PhoneNumber = c.PhoneNumber,
                 Description = c.Description,
                 CreatedAt = c.CreatedAt,
-                DistanceMeters = 0,
+                DistanceMeters = origin != null && c.Location != null
+                    ? c.Location.Distance(origin)
+                    : 0,
                 TotalSeats = c.TotalSeats,
                 BillingModel = CafePartnerStatusMapper.ToApiBillingModel(c.BillingModel),
                 BasePrice = c.BasePrice,
@@ -352,8 +363,14 @@ namespace BoardVerse.Data.Repositories
             });
 
             var totalItems = await projected.CountAsync(cancellationToken);
-            var items = await projected
-                .OrderBy(c => c.Name)
+
+            // Có lat/lng → sắp xếp theo khoảng cách tăng dần (gần nhất trước), fallback tên khi trùng distance.
+            // Không có lat/lng → sắp xếp theo tên A→Z (giữ hành vi cũ).
+            IOrderedQueryable<NearbyCafeDto> ordered = hasOrigin
+                ? projected.OrderBy(c => c.DistanceMeters).ThenBy(c => c.Name)
+                : projected.OrderBy(c => c.Name);
+
+            var items = await ordered
                 .Skip((paginationParams.PageNumber - 1) * paginationParams.PageSize)
                 .Take(paginationParams.PageSize)
                 .ToListAsync(cancellationToken);
@@ -842,25 +859,6 @@ namespace BoardVerse.Data.Repositories
                     c.PartnerOperationalStatus != null, cancellationToken);
         }
 
-        public async Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<string> tableNames, CancellationToken cancellationToken = default)
-        {
-            var existingTables = await _context.CafeTables
-                .Where(t => t.CafeId == cafeId)
-                .ToListAsync(cancellationToken);
-
-            var loadedIds = existingTables.Select(t => t.Id).ToHashSet();
-            CafeTableSyncHelper.ApplySync(cafeId, tableNames, existingTables);
-
-            foreach (var table in existingTables.Where(t => !loadedIds.Contains(t.Id)))
-            {
-                _context.CafeTables.Add(table);
-            }
-
-            await RefreshTableLayoutJsonAsync(cafeId, cancellationToken);
-
-            await _context.SaveChangesAsync(cancellationToken);
-        }
-
         public async Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<CafeTableSyncItem> tables, CancellationToken cancellationToken = default)
         {
             var existingTables = await _context.CafeTables
@@ -875,27 +873,7 @@ namespace BoardVerse.Data.Repositories
                 _context.CafeTables.Add(table);
             }
 
-            await RefreshTableLayoutJsonAsync(cafeId, cancellationToken);
-
             await _context.SaveChangesAsync(cancellationToken);
-        }
-
-        public async Task RefreshTableLayoutJsonAsync(Guid cafeId, CancellationToken cancellationToken = default)
-        {
-            var cafe = await _context.Cafes.FirstOrDefaultAsync(c => c.Id == cafeId, cancellationToken);
-            if (cafe == null)
-            {
-                return;
-            }
-
-            var activeNames = await _context.CafeTables
-                .Where(t => t.CafeId == cafeId && t.IsActive)
-                .OrderBy(t => t.SortOrder)
-                .Select(t => t.Name)
-                .ToListAsync(cancellationToken);
-
-            cafe.TableLayoutJson = System.Text.Json.JsonSerializer.Serialize(activeNames);
-            cafe.UpdatedAt = DateTime.UtcNow;
         }
 
         public async Task SaveChangesAsync(CancellationToken cancellationToken = default)

@@ -122,7 +122,7 @@ Lấy danh sách user đang trong trạng thái **cooling-off** (A-05).
         "gamerTier": "Bronze",
         "isCoolingOff": true,
         "coolingOffExpiresAt": "2026-08-14T15:00:00Z",
-        "riskMultiplier": 2.0,
+        "riskMultiplier": 1.0,
         "failedLobbyCount": 3,
         "coolingOffTriggerReason": "3 lobby failures trong 7 ngày"
       }
@@ -134,6 +134,8 @@ Lấy danh sách user đang trong trạng thái **cooling-off** (A-05).
   }
 }
 ```
+
+> **Cập nhật 2026-10-02**: `riskMultiplier` KHÔNG còn bị đẩy lên `2.0` khi user vào cooling-off — chỉ phản ánh mapping `riskScore` (BR-RISK-03). Cooling-off giờ chỉ set `IsCoolingOff=true` + `CoolingOffExpiresAt`, không tác động lên `RiskMultiplier`.
 
 **Lỗi:** `401`, `403`.
 
@@ -248,7 +250,7 @@ Ghi audit log với `AdminActionType.AccountStatusChange` + metadata JSON (`admi
     "username": "alice",
     "riskScore": 78,
     "riskLevel": "critical",
-    "riskMultiplier": 2.0,
+    "riskMultiplier": 1.78,
     "accountStatus": "restricted",
     "isCoolingOff": true,
     "coolingOffExpiresAt": "2026-09-12T15:00:00Z",
@@ -262,6 +264,8 @@ Ghi audit log với `AdminActionType.AccountStatusChange` + metadata JSON (`admi
   }
 }
 ```
+
+> **Cập nhật 2026-10-02**: `riskMultiplier` chỉ phản ánh mapping `1.0 + riskScore/100`. Với `riskScore=78` → `riskMultiplier = 1.78`. Cooling-off KHÔNG còn set `riskMultiplier = 2.0` (xem BR-NEW-10 cập nhật). Nếu muốn `riskMultiplier = 2.0`, cần `riskScore = 100` (không do cooling-off).
 
 **Field mapping (BR-RISK-01/03/04):**
 

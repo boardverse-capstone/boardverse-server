@@ -119,8 +119,13 @@ public class ConcurrencyStressTests : IClassFixture<ConcurrencyStressTests.Stres
             {
                 await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
                 // Replicate ExecuteConfirmTransactionAsync inventory lock.
+                // FIX 2026-09-21: explicit SELECT columns + xmin (không dùng AsNoTracking
+                // vì cần tracked entity để SaveChangesAsync generate UPDATE + xmin check).
+                // SELECT * sẽ bị EF wrap trong subquery làm rớt xmin shadow property.
                 var seat = await db.SeatInventories
-                    .FromSqlRaw(@"SELECT * FROM ""SeatInventories""
+                    .FromSqlRaw(@"SELECT ""Id"", ""CafeId"", ""PlayDate"", ""ScheduledStartTime"", ""ScheduledEndTime"",
+                                          ""TotalSeats"", ""HeldSeats"", ""InUseSeats"", ""CreatedAt"", ""UpdatedAt"", xmin
+                                  FROM ""SeatInventories""
                                   WHERE ""CafeId"" = {0} AND ""PlayDate"" = {1} AND ""ScheduledStartTime"" = {2} AND ""ScheduledEndTime"" = {3}
                                   FOR UPDATE",
                         cafeId, playDate, scheduledStart, scheduledEnd)
@@ -140,7 +145,10 @@ public class ConcurrencyStressTests : IClassFixture<ConcurrencyStressTests.Stres
             }
             catch (Exception ex)
             {
-                return ($"FAIL:{ex.GetType().Name}", uid);
+                var msg = ex is Npgsql.PostgresException pe
+                    ? $"SqlState={pe.SqlState}, Message={pe.MessageText}"
+                    : ex.GetType().Name;
+                return ($"FAIL:{msg}", uid);
             }
         })).ToList();
 
@@ -461,7 +469,7 @@ public class ConcurrencyStressTests : IClassFixture<ConcurrencyStressTests.Stres
                 "\"Id\", \"Name\", \"Address\", \"ManagerId\", \"CreatedAt\", \"UpdatedAt\", " +
                 "\"IsActive\", \"NumberOfTables\", \"NumberOfPrivateRooms\", " +
                 "\"SpaceImageUrlsJson\", \"NumberOfGamesOwned\", \"PopularGamesList\", " +
-                "\"HasGameMaster\", \"BillingModel\", \"TableLayoutJson\", " +
+                "\"HasGameMaster\", \"BillingModel\", " +
                 "\"TotalSeats\", \"TieredBlockMinutes\", " +
                 "\"IsPricingLocked\", \"DepositPercentage\", \"DefaultHoldDurationMinutes\", " +
                 "\"BasePrice\", \"RefundPolicy\", \"RefundTiersJson\") " +
@@ -469,7 +477,7 @@ public class ConcurrencyStressTests : IClassFixture<ConcurrencyStressTests.Stres
                 "{0}, {1}, {2}, {3}, {4}, {5}, " +
                 "TRUE, 0, 0, " +
                 "'[]', 0, '', " +
-                "FALSE, 'ByHour', '[]', " +
+                "FALSE, 'ByHour', " +
                 "0, 15, " +
                 "FALSE, 0.5, 30, " +
                 "0, 0, '[{{\"minHoursBeforeScheduled\":24,\"refundPercent\":50}},{{\"minHoursBeforeScheduled\":12,\"refundPercent\":25}},{{\"minHoursBeforeScheduled\":0,\"refundPercent\":0}}]'" +
@@ -504,8 +512,8 @@ public class ConcurrencyStressTests : IClassFixture<ConcurrencyStressTests.Stres
 
             // 4. Seed SeatInventory — 30 ghế cho (CafeId, PlayDate, ScheduledStartTime, ScheduledEndTime).
             await db.Database.ExecuteSqlRawAsync(
-                "INSERT INTO \"SeatInventories\" (\"Id\", \"CafeId\", \"PlayDate\", \"ScheduledStartTime\", \"ScheduledEndTime\", \"TotalSeats\", \"HeldSeats\", \"InUseSeats\", \"RowVersion\", \"CreatedAt\", \"UpdatedAt\") " +
-                "VALUES ({0}, {1}, {2}, {3}, {4}, 30, 0, 0, 0, {5}, {5}) ON CONFLICT (\"Id\") DO NOTHING;",
+                "INSERT INTO \"SeatInventories\" (\"Id\", \"CafeId\", \"PlayDate\", \"ScheduledStartTime\", \"ScheduledEndTime\", \"TotalSeats\", \"HeldSeats\", \"InUseSeats\", \"CreatedAt\", \"UpdatedAt\") " +
+                "VALUES ({0}, {1}, {2}, {3}, {4}, 30, 0, 0, {5}, {5}) ON CONFLICT (\"Id\") DO NOTHING;",
                 seatInventoryId,
                 SeedCafeId,
                 SeedPlayDate,
@@ -515,8 +523,8 @@ public class ConcurrencyStressTests : IClassFixture<ConcurrencyStressTests.Stres
 
             // 5. Seed GameInventory — 5 copy cho (CafeId, GameId, PlayDate, ScheduledStartTime, ScheduledEndTime).
             await db.Database.ExecuteSqlRawAsync(
-                "INSERT INTO \"GameInventories\" (\"Id\", \"CafeId\", \"GameId\", \"PlayDate\", \"ScheduledStartTime\", \"ScheduledEndTime\", \"TotalCopies\", \"HeldCopies\", \"InUseCopies\", \"RowVersion\", \"CreatedAt\", \"UpdatedAt\") " +
-                "VALUES ({0}, {1}, {2}, {3}, {4}, {5}, 5, 0, 0, 0, {6}, {6}) ON CONFLICT (\"Id\") DO NOTHING;",
+                "INSERT INTO \"GameInventories\" (\"Id\", \"CafeId\", \"GameId\", \"PlayDate\", \"ScheduledStartTime\", \"ScheduledEndTime\", \"TotalCopies\", \"HeldCopies\", \"InUseCopies\", \"CreatedAt\", \"UpdatedAt\") " +
+                "VALUES ({0}, {1}, {2}, {3}, {4}, {5}, 5, 0, 0, {6}, {6}) ON CONFLICT (\"Id\") DO NOTHING;",
                 gameInventoryId,
                 SeedCafeId,
                 SeedGameId,

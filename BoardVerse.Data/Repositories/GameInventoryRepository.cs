@@ -78,12 +78,40 @@ public class GameInventoryRepository : IGameInventoryRepository
         ", cancellationToken);
     }
 
-    public Task UpdateAsync(GameInventory gameInventory, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// FIX 2026-10-02: Atomic counter adjustment bypassing EF tracker. See ISeatInventoryRepository.AdjustCountersAsync.
+    /// </summary>
+    public async Task AdjustCountersAsync(Guid id, int heldDelta, int inUseDelta, CancellationToken cancellationToken = default)
     {
-        gameInventory.UpdatedAt = DateTime.UtcNow;
-        // xmin (concurrency token) is PostgreSQL system column — auto-managed by DB, no manual increment needed
-        _db.GameInventories.Update(gameInventory);
-        return Task.CompletedTask;
+        var now = DateTime.UtcNow;
+        await _db.Database.ExecuteSqlInterpolatedAsync($@"
+            UPDATE ""GameInventories""
+            SET ""HeldCopies"" = GREATEST(0, ""HeldCopies"" + {heldDelta}),
+                ""InUseCopies"" = GREATEST(0, ""InUseCopies"" + {inUseDelta}),
+                ""UpdatedAt"" = {now}
+            WHERE ""Id"" = {id};
+        ", cancellationToken);
+    }
+
+    [Obsolete("Use AdjustCountersAsync — UpdateAsync has DbUpdateConcurrencyException bug with UseXminAsConcurrencyToken + AsNoTracking.")]
+    public async Task UpdateAsync(GameInventory gameInventory, CancellationToken cancellationToken = default)
+    {
+        // See SeatInventoryRepository.UpdateAsync for rationale — same xmin + AsNoTracking issue.
+        var now = DateTime.UtcNow;
+        await _db.Database.ExecuteSqlInterpolatedAsync($@"
+            UPDATE ""GameInventories""
+            SET ""HeldCopies"" = {gameInventory.HeldCopies},
+                ""InUseCopies"" = {gameInventory.InUseCopies},
+                ""UpdatedAt"" = {now}
+            WHERE ""Id"" = {gameInventory.Id};
+        ", cancellationToken);
+
+        gameInventory.UpdatedAt = now;
+        var local = _db.GameInventories.Local.FirstOrDefault(g => g.Id == gameInventory.Id);
+        if (local != null)
+        {
+            _db.Entry(local).State = Microsoft.EntityFrameworkCore.EntityState.Detached;
+        }
     }
 
     public Task SaveChangesAsync(CancellationToken cancellationToken = default)

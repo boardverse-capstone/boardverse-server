@@ -26,7 +26,6 @@
         public decimal DepositPercentage { get; set; }
         public int DefaultHoldDurationMinutes { get; set; }
         public bool IsPricingLocked { get; set; }
-        public List<string> TableNames { get; set; } = new();
 
         public string ApplicationStatus { get; set; } = string.Empty;
         public string? OperationalStatus { get; set; }

@@ -585,6 +585,19 @@ public const string SessionCannotResumeHasCheckedOutMembers =
  public const string GuestSlotCannotPartialCheckout =
  "Khách vô danh (BR-13) không thể tách nhóm thanh toán một phần. Vui lòng gộp vào hóa đơn của host hoặc thu tiền mặt tại quầy.";
 
+ /// <summary>
+ /// BR-13 (revised 2026-10-01) Permanent fix: chỉ walk-in session mới được designate guest làm host.
+ /// Reservation/Booking flow đã có host user thật (session.HostId = User).
+ /// </summary>
+ public const string GuestSlotDesignateHostNotAllowedForReservation =
+ "Chỉ có thể chỉ định khách vô danh làm host cho phiên walk-in. Phiên này qua Reservation/Booking — đã có host user thật.";
+
+ /// <summary>
+ /// BR-13 (revised 2026-10-01) Permanent fix: mỗi session chỉ có 1 host duy nhất.
+ /// </summary>
+ public const string GuestSlotDesignateHostSessionAlreadyHasHost =
+ "Phiên đã có khách đầu nhóm (primary customer). Mỗi phiên chỉ có 1 host. Hãy bỏ chọn 'Designate as host'.";
+
  public const string PartialCheckoutRequiresAtLeastOneMember =
  "Cần chọn ít nhất 1 thành viên để thanh toán một phần.";
 
@@ -958,6 +971,33 @@ public static string SessionMustBeActiveForGameAssignment(string current) =>
 
  public static string AvailableBalanceInsufficient(long required, long available) =>
  $"Số dư BVC khả dụng không đủ. Cần {required:N0} BVC nhưng chỉ có {available:N0} BVC.";
+
+ // ===== M2: Member BVC bill payment (Case 2 — docs §C2) =====
+ /// <summary>M2: Wallet không đủ BVC để trả bill (Gap #9 BR-USER-LIMIT-03 variant).</summary>
+ public static string BvcBillPaymentExceedsBalance(long current, long requested) =>
+ $"Số dư BVC khả dụng ({current} BVC) không đủ để thanh toán bill {requested} BVC. Nhấn 'Nạp BVC' để nạp thêm nhé!";
+
+ /// <summary>M2: BvcAmount > totalDue — overpayment (Gap #6).</summary>
+ public static string BvcBillOverpayment(long bvcAmount, decimal totalDue) =>
+ $"Số BVC thanh toán ({bvcAmount} BVC) vượt quá tổng bill ({totalDue:N0} VND). Vui lòng chọn số BVC nhỏ hơn hoặc bằng tổng bill.";
+
+ /// <summary>M2: Session có ≥ 2 members cùng UserId (Gap #7 multi-account).</summary>
+ public static string DuplicateUserIdInSession(string userIds) =>
+ $"Phiên chơi có nhiều thành viên trùng UserId: {userIds}. Đây là lỗi dữ liệu — liên hệ admin.";
+
+ public const string MemberAlreadyPaid =
+ "Thành viên này đã thanh toán rồi. Không thể thanh toán lại.";
+
+ public const string SessionNotUnpaidForMemberBill =
+ "Phiên chơi không ở trạng thái chờ thanh toán (Unpaid). Không thể thanh toán bill từng thành viên.";
+
+ /// <summary>M2 / Gap-#1: Player không phải member này và không phải host session — không có quyền xem/trả bill của member khác.</summary>
+ public const string MemberBillAccessDenied =
+ "Bạn không có quyền xem hoặc thanh toán bill của thành viên này. Chỉ chính thành viên, host của phiên, hoặc nhân viên/manager/admin của quán mới có quyền.";
+
+ /// <summary>M2 / Gap-#3: IdempotencyKey đã được dùng bởi member khác trong cùng hệ thống.</summary>
+ public const string IdempotencyKeyAlreadyUsed =
+ "Idempotency key đã được sử dụng cho một yêu cầu thanh toán khác. Vui lòng dùng key mới.";
  }
 
  public static class Payment
@@ -1827,6 +1867,13 @@ public const string SePayBankInfoIncomplete =
 
  public const string InvalidRequestBody =
  "Dữ liệu gửi lên không hợp lệ. Vui lòng kiểm tra và thử lại.";
+
+ /// <summary>
+ /// 403 Forbidden — dùng khi user xác thực nhưng không có quyền thao tác tài nguyên cụ thể.
+ /// (M2/C2.16 — ReceiptController force-close flow.)
+ /// </summary>
+ public const string Forbidden =
+ "Bạn không có quyền thực hiện thao tác này trên tài nguyên được yêu cầu.";
  }
 
  public static class Validation
@@ -2517,6 +2564,17 @@ public static class LobbyMerge
     public const string MergeDifferentGames =
         "Hai nhóm đang chơi game khác nhau. Không thể ghép nhóm khi game không giống nhau.";
 
+    // Gap-fix 2026-10-01: Phân biệt 2 trường hợp cross-game block.
+    // Khi source còn box InUse nhưng CheckStatus chưa phải Checked → staff phải
+    // kiểm kê linh kiện + trả game về quán trước khi ghép (theo BR Exception 4).
+    // Trước đây cả 2 case dùng chung MergeDifferentGames → staff không biết phải làm gì
+    // tiếp theo, đặc biệt khi 2 lobby cùng tên game trong UI nhưng khác GameTemplateId.
+    public static string MergeSourceBoxNotCheckedYet(string sourceGameName, string targetGameName) =>
+        $"Bàn nguồn đang chơi '{sourceGameName}' nhưng chưa hoàn tất kiểm kê linh kiện (Component Check). " +
+        $"Game này khác với game '{targetGameName}' của bàn đích. " +
+        $"Vui lòng kiểm kê linh kiện và trả game về quán trước khi ghép nhóm, " +
+        $"hoặc chọn bàn nguồn đang chơi cùng game với bàn đích.";
+
     public const string ReservationAlreadyAbsorbed =
         "Nhóm nguồn đã được ghép vào nhóm khác trước đó. Không thể ghép lại.";
 
@@ -2536,6 +2594,95 @@ public static class LobbyMerge
         "Không thể duyệt ghép nhóm: phòng nguồn không còn thành viên active nào để chuyển sang phòng đích. " +
         "Phòng nguồn có thể đã được giải tán hoặc tất cả thành viên đã rời đi trước khi staff duyệt. " +
         "Yêu cầu ghép nhóm đã được đánh dấu là Từ chối.";
+
+    // ===== H1+H2 (2026-09-30): CancelMergeRequestAsync staff permission + cross-cafe =====
+    // Trước đây Cancel không check staff permission + cross-cafe → bất kỳ user đăng nhập
+    // đều có thể cancel merge request của cafe khác (security bug). Fix message riêng
+    // để UX rõ ràng khi staff cancel request không thuộc quán mình.
+    public const string CancelPermissionDenied =
+        "Bạn không có quyền hủy yêu cầu ghép nhóm này. Yêu cầu này thuộc quán khác hoặc bạn không phải staff của quán.";
+
+    // ===== H4 (2026-09-30): BR-RISK-04 hard reject cho Suspended/Banned =====
+    // Trước đây code chỉ giảm cap heldBalance cho Suspended/Banned về 200k BVC nhưng vẫn
+    // cho phép merge. Theo BR-RISK-04: Suspended/Banned chặn "tạo lobby, join lobby" → merge
+    // = "join lobby khác" → phải reject hẳn (không phải chỉ giảm cap).
+    public static string MemberAccountRestricted(string memberName, string status) =>
+        $"Thành viên '{memberName}' có tài khoản ở trạng thái '{status}' và không được phép ghép vào phòng khác. " +
+        $"Vui lòng liên hệ hỗ trợ để được xem xét.";
+
+    // ===== H5 (2026-09-30): Source lobby đã chuyển trạng thái giữa Create và Approve =====
+    // Race condition: Step 3 chỉ check target lobby lúc Approve. Source lobby có thể đã
+    // HostCancelled / Closed / ExpiredByCafe giữa lúc staff tạo request và duyệt.
+    public const string SourceLobbyClosedDuringReview =
+        "Phòng nguồn đã được đóng hoặc hủy trước khi staff duyệt. Vui lòng tạo yêu cầu ghép mới với phòng khác.";
+
+    // ===== H3 (2026-09-30): Approve - transferring member đã host 1+ lobby active khác =====
+    // BR-USER-LIMIT-01: Tổng lobby (host + member) ≤ 2 active cho mỗi user.
+    // BR-USER-LIMIT-05 (đã bỏ ngày 2026-09-12): host được phép transfer sang lobby khác,
+    // NHƯNG cap tổng vẫn áp dụng. Merge = "join lobby khác" → nếu user đã host 1 lobby
+    // + member 1 lobby khác, sau merge sẽ thành host 1 + member 2 → vi phạm.
+    public static string MemberExceedsLobbyLimitAfterMerge(string memberName, int currentHostCount, int currentMemberCount) =>
+        $"Thành viên '{memberName}' đang tham gia {currentHostCount} phòng (host) + {currentMemberCount} phòng (member) = {currentHostCount + currentMemberCount} lobby. " +
+        $"Sau khi ghép sẽ vượt giới hạn BR-USER-LIMIT-01 (tối đa 2 lobby/user). " +
+        $"Vui lòng yêu cầu thành viên rời bớt lobby khác trước khi ghép.";
+
+    // ===== SelectedMemberIds (Bug fix 2026-10-02 — PERMANENT ENFORCEMENT) =====
+    // Staff truyền SelectedMemberIds vào CreateLobbyMergeRequestDto để chỉ chọn 1 vài member
+    // cụ thể transfer. Từ 2026-10-02, field này là REQUIRED (non-empty) — không còn hỗ trợ
+    // null/empty như behavior cũ (transfer TẤT CẢ). Lý do: trước fix, FE bug làm body về
+    // {SourceLobbyId, TargetLobbyId} (không có selectedMemberIds) → BE mặc định transfer toàn bộ
+    // active members → staff thấy cả 4 người "biến mất" khỏi source dù chỉ tick 2.
+    //
+    // Validate khi tạo request:
+    //  - null hoặc empty  → SelectedMemberIdsRequired (400)
+    //  - Có ID không match → InvalidSelectedMemberIds (400)
+    //  - Tất cả ID không còn active tại Approve → SelectedMemberIdsEmptyAfterFilter (409)
+    //
+    // ID semantics:
+    //  - Online source  : LobbyMember.Id
+    //  - Walk-in source : ActiveSessionMember.Id (bao gồm cả guest slot)
+    public static string InvalidSelectedMemberIds(string invalidIds) =>
+        $"Một hoặc nhiều ID trong SelectedMemberIds không phải là thành viên active hiện tại của phòng nguồn: {invalidIds}. " +
+        $"Vui lòng kiểm tra lại danh sách member đã chọn.";
+
+    public const string SelectedMemberIdsRequired =
+        "Trường 'selectedMemberIds' là bắt buộc và phải chứa ít nhất 1 ID thành viên cần chuyển. " +
+        "Vui lòng chọn ít nhất 1 thành viên từ danh sách phòng nguồn trước khi gửi yêu cầu ghép nhóm.";
+
+    public const string SelectedMemberIdsEmptyAfterFilter =
+        "Tất cả ID trong SelectedMemberIds không còn là thành viên active của phòng nguồn (có thể đã rời giữa lúc tạo và duyệt request). " +
+        "Yêu cầu ghép nhóm đã được đánh dấu là Từ chối.";
+
+    // ===== BR-EXCEPTION-4 fix (2026-10-02): Validate seat capacity (targetActive + sourceActive <= targetSeatCapacity) =====
+    // Áp dụng cho cả Create + Approve (re-validate tại Approve vì member có thể đổi giữa
+    // 2 thời điểm). Throw InsufficientSeatsForMergeException với error code
+    // "InsufficientSeatsForMerge" (HTTP 409) + kèm 4 số liệu (targetActive, sourceActive,
+    // targetSeatCapacity, combinedCount) để UI/staff biết chính xác bao nhiêu ghế thiếu
+    // và quyết định giảm số member transfer hoặc hủy yêu cầu.
+    //
+    // Lý do KHÔNG dùng `SeatNotAvailableForMerge` cũ: message cũ quá chung chung
+    // ("Nhóm nhận đã gần đạt sức chứa tối đa") không có số liệu cụ thể. Staff không
+    // biết phải giảm bao nhiêu người hoặc nên hủy request.
+    public static string InsufficientSeatsForMerge(int targetActive, int sourceActive, int targetCapacity) =>
+        $"Không thể ghép nhóm: phòng đích đang có {targetActive} thành viên active, " +
+        $"phòng nguồn muốn chuyển {sourceActive} thành viên, tổng cộng {targetActive + sourceActive} người " +
+        $"vượt quá sức chứa của quán trong khung giờ này ({targetCapacity} chỗ). " +
+        $"Vui lòng chọn lại số thành viên cần chuyển (giảm SelectedMemberIds) hoặc tách thành nhiều yêu cầu nhỏ hơn.";
+
+    // ===== H6 (2026-10-02): Postgres 40001/40P01 retries exhausted =====
+    // Bug fix: Trước đây 5 attempts liên tiếp fail với serialization_failure (40001) hoặc
+    // deadlock_detected (40P01) → InvalidOperationException bubble lên middleware → HTTP 500
+    // "transient failure". Giờ throw ConflictException(SerializationRetriesExhausted) để UX
+    // rõ ràng: staff thấy HTTP 409 với message "thử lại sau ít phút" thay vì 500 chung chung.
+    // Context (source lobby, target lobby, requestId, staff userId) đã được _logger.LogError
+    // ghi vào application log trước đó → admin có thể trace lại nếu cần.
+    //
+    // Không dùng pattern method (Guid, int) như BvcCaptureRetryExhausted vì 2 call sites
+    // (CreateRequest line 584, ApproveMergeAsync line 1681) đều throw không kèm args. Nếu
+    // sau này muốn truyền ID vào message, đổi thành static string method và update 2 call sites.
+    public const string SerializationRetriesExhausted =
+        "Hệ thống quán đang bận (Postgres không thể hoàn tất giao dịch sau nhiều lần thử). " +
+        "Vui lòng thử lại sau ít phút. Nếu lỗi tiếp tục xảy ra, liên hệ đội kỹ thuật kèm thời gian xảy ra.";
 }
 }
 
@@ -3367,6 +3514,12 @@ public static class Settlement
     {
         public static string OnlyForPaidSession(string currentStatus) =>
         $"Receipt chỉ có thể tạo cho phiên đã thanh toán. Trạng thái hiện tại: {currentStatus}.";
+
+        public static string MemberNotInSession(Guid memberId) =>
+        $"Không tìm thấy thành viên '{memberId}' trong phiên chơi.";
+
+        public static string UnsupportedReceiptFormat(string format) =>
+        $"Định dạng receipt không được hỗ trợ: '{format}'. Chỉ chấp nhận 'json' hiện tại (PDF/PNG sẽ được hỗ trợ khi tích hợp QuestPDF ở release sau).";
     }
 
     public static class FriendReport
@@ -3492,9 +3645,6 @@ public static class Settlement
 
         public const string ReservationInvalidRequest =
             "Yêu cầu không hợp lệ. Vui lòng kiểm tra lại các trường và thử lại.";
-
-        public const string ReservationOnlyOneOfTableNamesOrTables =
-            "Chỉ được gửi một trong hai: tableNames (legacy) hoặc tables (cấu hình mới). Không gửi cả hai.";
 
         public static string ReservationInvalidTableConfig(string reason) =>
             $"Cấu hình bàn không hợp lệ: {reason}.";
@@ -3675,6 +3825,26 @@ public static class Settlement
 
             public const string SessionPausedCannotExtend =
                 "Phiên chơi đang tạm dừng, vui lòng liên hệ nhân viên để tiếp tục trước khi gia hạn.";
+
+            // ===== M2/C2.16: Force-close (Gap #33) =====
+            // docs/design/host-deposit-discount-and-bvc-payment-design.md §C2.16
+            public static string ForceCloseSessionNotUnpaid(string currentStatus) =>
+                $"Phiên chơi phải ở trạng thái Unpaid để force-close. Trạng thái hiện tại: {currentStatus}.";
+
+            public const string ForceCloseNoUnpaidMembers =
+                "Phiên chơi không có thành viên nào chưa thanh toán. Vui lòng dùng thanh toán thông thường.";
+
+            public const string ForceCloseHostNotPaid =
+                "Host phải thanh toán bill trước khi chọn 'CompensationByHost'. Vui lòng thanh toán bill của host trước.";
+
+            public const string ForceCloseAllowLatePaymentRequired =
+                "Còn thành viên chưa thanh toán. Vui lòng chọn AllowLatePayment=false và xử lý tất cả, hoặc để true để cho phép trả sau.";
+
+            public const string ForceCloseInvalidHandling =
+                "Cách xử lý unpaid members không hợp lệ. Chỉ chấp nhận 'MarkNoShow' | 'MarkAsDebt' | 'CompensationByHost'.";
+
+            public static string ForceCloseGuestNotCovered(string displayName) =>
+                $"Khách vô danh '{displayName}' không thể được cover bởi host. Vui lòng chọn MarkNoShow hoặc MarkAsDebt.";
         }
 
     public static class Discovery

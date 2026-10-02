@@ -239,12 +239,37 @@ namespace BoardVerse.Services.Services
                 throw new BadRequestException(ApiErrorMessages.Pos.GuestSlotPhoneNumberInvalid);
             }
 
+            // BR-13 (revised 2026-10-01) Permanent fix: Validate DesignateAsHost.
+            // 1. Chỉ cho phép khi phiên là walk-in (IsWalkInSession = true).
+            //    Reservation/Booking flow đã có host user thật → không cần designate guest.
+            // 2. Chỉ cho phép khi CHƯA có primary customer (mỗi session 1 host duy nhất).
+            // 3. Validate đầy đủ TRƯỚC khi AddMember để tránh tạo member rồi mới reject.
+            if (request.DesignateAsHost)
+            {
+                if (!session.IsWalkInSession)
+                {
+                    throw new ConflictException(
+                        ApiErrorMessages.Pos.GuestSlotDesignateHostNotAllowedForReservation);
+                }
+
+                var existingHostMember = session.Members?
+                    .Any(m => m.IsHost) ?? false;
+                if (existingHostMember)
+                {
+                    throw new ConflictException(
+                        ApiErrorMessages.Pos.GuestSlotDesignateHostSessionAlreadyHasHost);
+                }
+            }
+
+            var isHost = request.DesignateAsHost;
+
             await _activeSessionRepository.AddMemberAsync(new ActiveSessionMember
             {
                 Id = Guid.NewGuid(),
                 ActiveSessionId = session.Id,
                 UserId = null,
                 IsGuestSlot = true,
+                IsHost = isHost,
                 GuestDisplayName = request.DisplayName,
                 GuestPhoneNumber = string.IsNullOrWhiteSpace(normalizedPhone) ? null : normalizedPhone,
                 Status = IndividualSessionStatus.Playing,
@@ -265,6 +290,36 @@ namespace BoardVerse.Services.Services
             digits.Length is 10 or 11
             && digits.StartsWith('0')
             && digits[1] is '3' or '5' or '7' or '8' or '9';
+
+        /// <summary>
+        /// BR-13 (revised 2026-10-01): Resolve display name cho host của ActiveSession.
+        /// Mirror logic trong <c>CafePosService.ResolveHostDisplayName</c> (dùng cho MapSession).
+        /// </summary>
+        private static string ResolveHostDisplayNameForMap(ActiveSession session)
+        {
+            if (!session.IsWalkInSession)
+            {
+                return session.Host?.Username ?? string.Empty;
+            }
+
+            var primaryCustomer = session.Members?
+                .FirstOrDefault(m => m.IsHost && m.UserId.HasValue);
+
+            if (primaryCustomer?.User?.Username is { } customerUsername)
+            {
+                return customerUsername;
+            }
+
+            var hostGuest = session.Members?
+                .FirstOrDefault(m => m.IsHost && m.IsGuestSlot);
+
+            if (hostGuest is not null && !string.IsNullOrWhiteSpace(hostGuest.GuestDisplayName))
+            {
+                return hostGuest.GuestDisplayName;
+            }
+
+            return "Khách vãng lai";
+        }
 
         public async Task<ActiveSessionResponseDto> PartialCheckoutAsync(Guid cafeId, Guid sessionId, PartialCheckoutRequestDto request, CancellationToken ct = default)
         {
@@ -979,6 +1034,16 @@ namespace BoardVerse.Services.Services
             var session = await _activeSessionRepository.GetByIdAsync(sessionId)
                 ?? throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, sessionId));
 
+            // M1: khai báo trước để sử dụng trong transaction (BuildMemberInvoices gọi trong try) + response.
+            List<MemberInvoiceDto> memberInvoices = new();
+            BoardVerse.Core.Entities.Reservation? reservationForDiscount = null;
+
+            // M1: Load allComponentCheckResults một lần — dùng cả trong try block (cho BuildMemberInvoices)
+            // lẫn response build bên dưới (cho penalty details).
+            var allComponentCheckResults = session.Games?
+                .SelectMany(g => g.ComponentCheckResults ?? new List<BoardVerse.Core.Entities.ComponentCheckResult>())
+                .ToList() ?? new List<BoardVerse.Core.Entities.ComponentCheckResult>();
+
             // GAP-8 Fix: Validate cafeId matches session's CafeId
             if (session.CafeId != cafeId)
             {
@@ -1110,11 +1175,39 @@ namespace BoardVerse.Services.Services
                         throw new NotFoundException(
                             ApiErrorMessages.System.LobbyNotFoundForCapture(session.LobbyId.Value));
                     }
-                    if (lobby.Status is LobbyStatus.Closed
+
+                    // BR-13 permanent fix (2026-09-30): Walk-in session do POS staff tạo
+                    // KHÔNG có Reservation → KHÔNG có BVC held để capture.
+                    // Skip TOÀN BỘ lobby-status guard + BVC capture để:
+                    //   1. Tránh throw 409 LobbyNotInProgressForCapture (giả sử staff tạo walk-in lobby
+                    //      với status Open/Full cũ trước khi flow mới hoàn tất → vẫn pass).
+                    //   2. Tránh gọi CompleteAndCaptureAsync trên lobby không có reservation
+                    //      → fail vì cố capture từ ví không tồn tại.
+                    // Check 2 lớp để permanent:
+                    //   Lớp 1: session.IsWalkInSession (set bởi code ngay khi tạo, luôn đúng kể cả
+                    //           khi DB chưa migrate audit columns) → source-of-truth PRIMARY.
+                    //   Lớp 2: lobby.IsWalkInLobby (DB column, mirror ActiveSession — chỉ để verify
+                    //           consistency sau khi apply SQL migration `AddWalkInSessionAuditFields`).
+                    // Walk-in vẫn commit payment cho khách (session.Status = Paid), chỉ skip BVC capture.
+                    if (session.IsWalkInSession || lobby.IsWalkInLobby)
+                    {
+                        bvcCaptureStatus = BvcCaptureStatus.NotApplicable;
+                        _logger.LogInformation(
+                            "PaySession: Walk-in session {SessionId} (Lobby {LobbyId}, started by StaffId={StaffId}) → skip lobby status guard + BVC capture.",
+                            sessionId, lobby.Id, lobby.StartedByStaffId);
+                    }
+                    // Lobby "đã đóng" về mặt capture: BVC đã được xử lý (captured / released / refunded)
+                    // từ lần pay đầu tiên của session khác cùng lobby, hoặc host đã dissolve trước
+                    // check-in (BR-DISSOLVE). Pay session này vẫn commit payment cho khách, chỉ skip
+                    // capture để tránh double-credit. RatingOpen = lobby đã vào window đánh giá Karma
+                    // sau khi session đầu tiên close (xem KarmaRatingService.OpenLobbyKarmaRatingWindowAsync).
+                    else if (lobby.Status is LobbyStatus.Closed
                         or LobbyStatus.TimeoutFailed
                         or LobbyStatus.HostCancelled
                         or LobbyStatus.RejectedByCafe
-                        or LobbyStatus.ExpiredByCafe)
+                        or LobbyStatus.ExpiredByCafe
+                        or LobbyStatus.RatingOpen
+                        or LobbyStatus.Dissolved)
                     {
                         _logger.LogWarning(
                             "PaySession: Lobby {LobbyId} đã terminal ({Status}) → skip capture, vẫn commit payment cho session {SessionId}.",
@@ -1123,6 +1216,8 @@ namespace BoardVerse.Services.Services
                     }
                     else if (lobby.Status != LobbyStatus.InProgress)
                     {
+                        // Open / Full / Viable / PendingActivation / PendingCafeApproval / WaitingCheckIn
+                        // = lobby chưa đến trạng thái chơi tại quán → không capture BVC đang held.
                         throw new ConflictException(
                             ApiErrorMessages.System.LobbyNotInProgressForCapture);
                     }
@@ -1154,13 +1249,60 @@ namespace BoardVerse.Services.Services
                     // KHÔNG throw — payment vẫn commit để customer không mất tiền.
                 }
 
+                // M1: Load reservation + BuildMemberInvoices INSIDE transaction (trước khi capture BVC)
+                // để áp Host Deposit Discount và tính tổng discount cho capture flow.
+                // Side-effect: member.DepositAppliedAmount được set theo discount distribution → persist
+                // cùng SaveChanges bên dưới.
+                if (session.LobbyId.HasValue)
+                {
+                    reservationForDiscount = await _reservationRepository.GetByLobbyIdAsync(
+                        session.LobbyId.Value, ct);
+                }
+
+                #pragma warning disable CS0618
+                memberInvoices = BuildMemberInvoices(
+                    session,
+                    cafe,
+                    allComponentCheckResults,
+                    request.PenaltyItems,
+                    hostDepositUsage: request.HostDepositUsage,
+                    reservation: reservationForDiscount,
+                    payTime: now);
+                #pragma warning restore CS0618
+
                 // BR §21A.8 + BR-REVENUE-01: capture BVC deposit về doanh thu quán.
                 // Nếu thất bại → KHÔNG commit transaction; status Paid rollback.
                 // Caller sẽ thấy exception + retry; BVC vẫn ở heldBalance cho background retry.
+                // M1: Nếu HostDepositUsage != None → dùng flow discount mới (capture discount + release remainder).
+                // Else → fallback flow cũ (CompleteAndCaptureAsync capture toàn bộ theo playedRatio).
                 if (session.LobbyId.HasValue && bvcCaptureStatus == BvcCaptureStatus.Pending)
                 {
-                    await _reservationService.CompleteAndCaptureAsync(session.LobbyId.Value, sessionId);
-                    bvcCaptureStatus = BvcCaptureStatus.Captured;
+                    var localTotalDiscount = memberInvoices.Sum(m => m.DiscountAppliedAmount);
+                    // Re-load reservation để đảm bảo dùng data mới nhất trong transaction.
+                    var localReservation = await _reservationRepository.GetByLobbyIdAsync(
+                        session.LobbyId.Value, ct);
+
+                    if (request.HostDepositUsage != HostDepositUsageMode.None
+                        && localReservation != null
+                        && localTotalDiscount > 0
+                        && IsReservationEligibleForDiscount(localReservation))
+                    {
+                        await _reservationService.ApplyHostDepositDiscountAndCaptureAsync(
+                            reservationId: localReservation.Id,
+                            lobbyId: session.LobbyId.Value,
+                            activeSessionId: sessionId,
+                            hostDepositUsage: request.HostDepositUsage,
+                            totalDiscountApplied: localTotalDiscount,
+                            payTime: now,
+                            ct: ct);
+                        bvcCaptureStatus = BvcCaptureStatus.Captured;
+                    }
+                    else
+                    {
+                        // Flow cũ: capture theo playedRatio (BR-REFUND-04/05/06).
+                        await _reservationService.CompleteAndCaptureAsync(session.LobbyId.Value, sessionId);
+                        bvcCaptureStatus = BvcCaptureStatus.Captured;
+                    }
                 }
 
                 if (dbTx != null)
@@ -1253,12 +1395,33 @@ namespace BoardVerse.Services.Services
 
             // GAP-33 Fix: Build per-member invoices
             // Penalty #1: truyền componentCheckResults (persisted) + legacyPenaltyItems (deprecated).
-            var allComponentCheckResults = session.Games?
-                .SelectMany(g => g.ComponentCheckResults ?? new List<BoardVerse.Core.Entities.ComponentCheckResult>())
-                .ToList() ?? new List<BoardVerse.Core.Entities.ComponentCheckResult>();
+            // M1: BuildMemberInvoices đã được gọi bên trong transaction (trước capture) để có totalDiscount.
+            // memberInvoices đã có sẵn ở đây — KHÔNG gọi lại để tránh side-effect trùng (DepositAppliedAmount double-set).
+            // Nếu memberInvoices null (fallback khi lỗi) → gọi lại không tham số HostDepositUsage.
+
+            // M1: Load reservation để truyền HostDepositUsageSnapshot + discount fields
+            // vào BuildMemberInvoices. Chỉ load khi có LobbyId (walk-in không có reservation).
+            BoardVerse.Core.Entities.Reservation? reservation = null;
+            if (session.LobbyId.HasValue)
+            {
+                reservation = await _reservationRepository.GetByLobbyIdAsync(session.LobbyId.Value, ct);
+            }
 
             #pragma warning disable CS0618 // Back-compat: PenaltyItems obsolete, vẫn truyền sang BuildMemberInvoices cho POS client cũ.
-            var memberInvoices = BuildMemberInvoices(session, cafe, allComponentCheckResults, request.PenaltyItems);
+            // M1: BuildMemberInvoices đã được gọi bên trong transaction (trước capture) để có totalDiscount.
+            // memberInvoices đã có sẵn ở đây — KHÔNG gọi lại để tránh side-effect trùng (DepositAppliedAmount double-set).
+            // Nếu memberInvoices null (fallback khi lỗi) → gọi lại không tham số HostDepositUsage.
+            if (memberInvoices == null || memberInvoices.Count == 0)
+            {
+                memberInvoices = BuildMemberInvoices(
+                    session,
+                    cafe,
+                    allComponentCheckResults,
+                    request.PenaltyItems,
+                    hostDepositUsage: HostDepositUsageMode.None,
+                    reservation: reservationForDiscount,
+                    payTime: now);
+            }
 #pragma warning restore CS0618
 
             // §4.4: Map WalkInWindow nếu có (early checkout case)
@@ -1279,6 +1442,28 @@ namespace BoardVerse.Services.Services
                 "PaySessionCore completed. SessionId={SessionId}, Trigger={Trigger}, TotalAmount={TotalAmount}, BvcCaptureStatus={BvcStatus}, HasWalkInWindow={HasWindow}",
                 sessionId, trigger, session.TotalAmount, bvcCaptureStatus, createdWindow != null);
 
+            // M1: Tính breakdown cho response — đọc lại từ memberInvoices đã được BuildMemberInvoices
+            // tính sẵn. Tái sử dụng cùng pattern với session capture status ở trên.
+            var totalDiscountApplied = memberInvoices.Sum(m => m.DiscountAppliedAmount);
+            var discountBreakdown = memberInvoices
+                .Where(m => m.DiscountAppliedAmount > 0)
+                .Select(m => new DepositAppliedBreakdown
+                {
+                    MemberId = m.MemberId,
+                    UserId = m.UserId,
+                    DisplayName = m.DisplayName,
+                    IsHost = session.Members.FirstOrDefault(x => x.Id == m.MemberId)?.IsHost ?? false,
+                    IsGuestSlot = m.IsGuestSlot,
+                    MinutesPlayed = m.PlayedMinutes,
+                    DiscountAppliedBvc = m.DiscountAppliedAmount
+                })
+                .ToList();
+
+            string? lobbyStatusAtPay = session.LobbyId.HasValue
+                ? (await _lobbyRepository.GetByIdAsync(session.LobbyId.Value))?.Status.ToString()
+                : null;
+            string? reservationStatusAtPay = reservationForDiscount?.Status.ToString();
+
             return new PaySessionResponseDto
             {
                 SessionId = sessionId,
@@ -1290,7 +1475,20 @@ namespace BoardVerse.Services.Services
                 MemberInvoices = memberInvoices,
                 BvcCaptureStatus = bvcCaptureStatus,   // Bug #4 fix: enum trực tiếp, không cần Enum.Parse
                 WalkInWindow = walkInWindowDto,        // §4.4: early checkout WalkInWindow
-                Session = MapSessionDto(finalSession!)
+                Session = MapSessionDto(finalSession!),
+                // M1 / Host Deposit Discount
+                HostDepositDiscountApplied = totalDiscountApplied,
+                DepositAppliedBreakdown = discountBreakdown,
+                LobbyStatusAtPay = lobbyStatusAtPay,
+                ReservationStatusAtPay = reservationStatusAtPay,
+                DiscountSkippedReason = request.HostDepositUsage != HostDepositUsageMode.None
+                                       && totalDiscountApplied == 0
+                                       && reservationForDiscount != null
+                                       && reservationForDiscount.DepositAmount > 0
+                    ? (IsReservationEligibleForDiscount(reservationForDiscount)
+                        ? "NoActiveMembersOrZeroBill"
+                        : $"ReservationStatus={reservationForDiscount.Status}")
+                    : null
             };
         }
 
@@ -1301,15 +1499,22 @@ namespace BoardVerse.Services.Services
         /// Penalty #1: Đọc per-member penalty từ ComponentCheckResult.ResponsibleMemberId
         /// (single source of truth lưu lúc submit component-check), KHÔNG dùng penaltyItems
         /// từ client request. Back-compat: vẫn hỗ trợ penaltyItems (deprecated).
+        /// M1: Apply host deposit discount theo HostDepositUsageMode + Reservation.
         /// </summary>
+        /// <param name="hostDepositUsage">Mode chọn lúc Pay (None/DiscountGroup/DiscountHostOnly). Default: None.</param>
+        /// <param name="reservation">Reservation liên kết lobby (nullable cho walk-in). Source cho DepositAmount + status whitelist.</param>
+        /// <param name="payTime">Thời điểm Pay — dùng filter active members (LeftAt &gt; payTime).</param>
         private List<MemberInvoiceDto> BuildMemberInvoices(
             ActiveSession session,
             Cafe cafe,
             List<BoardVerse.Core.Entities.ComponentCheckResult> componentCheckResults,
-            List<ComponentPenaltyItemDto>? legacyPenaltyItems)
+            List<ComponentPenaltyItemDto>? legacyPenaltyItems,
+            HostDepositUsageMode hostDepositUsage = HostDepositUsageMode.None,
+            BoardVerse.Core.Entities.Reservation? reservation = null,
+            DateTime payTime = default)
         {
             var invoices = new List<MemberInvoiceDto>();
-            var now = DateTime.UtcNow;
+            var now = payTime == default ? DateTime.UtcNow : payTime;
 
             // Bug #1 fix: GAP-12 đã được giải quyết bằng cách persist member.TotalMinutesPlayed tại
             // CompleteCheckoutAsync (line 739-743). BuildMemberInvoices đọc thẳng từ member.TotalMinutesPlayed
@@ -1342,6 +1547,94 @@ namespace BoardVerse.Services.Services
                         ResponsibleMemberId = r.ResponsibleMemberId
                     }).ToList());
 
+            // ============================================================
+            // M1 / BR-15 modified: Host Deposit Discount pre-computation
+            // docs/design/host-deposit-discount-and-bvc-payment-design.md §A6 + §B2.1
+            // ============================================================
+            // Tính discount pool + danh sách active members trước khi loop.
+            // - DiscountGroup: pool = min(DepositAmount, sessionTotal), chia theo minutes cho active members.
+            // - DiscountHostOnly: pool = min(DepositAmount, hostSubtotal+Penalty), chỉ apply cho member.IsHost.
+            // - None: skip.
+            long hostDepositDiscount = 0;
+            var activeMembers = new List<ActiveSessionMember>();
+            var discountEligibleMembers = new List<ActiveSessionMember>();
+            long sessionTotalBeforeDiscount = 0;
+            int totalActiveMinutes = 0;
+
+            var reservationEligible = IsReservationEligibleForDiscount(reservation);
+            // Effective deposit = DepositAmount (gốc) + CarriedOverDepositBvc (từ merge chain).
+            // Khi target reservation sau merge có DepositAmount = 0 nhưng CarriedOverDepositBvc > 0
+            // (source deposit đã được transfer sang), vẫn phải coi là có deposit pool để apply discount.
+            // docs/design/host-deposit-discount-and-bvc-payment-design.md §A6 + §B3.3
+            var effectiveDeposit = reservation?.DepositAmount + reservation?.CarriedOverDepositBvc ?? 0L;
+            if (hostDepositUsage != HostDepositUsageMode.None
+                && reservationEligible
+                && effectiveDeposit > 0)
+            {
+                // Filter active members: LeftAt = null HOẶC LeftAt > payTime (chưa rời session).
+                // M1 / Exception 4: A3 đã merge → LeftAt != null → EXCLUDED khỏi Group A's discount.
+                activeMembers = session.Members
+                    .Where(m => !m.LeftAt.HasValue || m.LeftAt.Value > now)
+                    .ToList();
+
+                // M1 / Exception 4 — Host Deposit Follows:
+                // Effective deposit = DepositAmount (gốc) + CarriedOverDepositBvc (từ merge chain).
+                // Khi source lobby dissolve, source.Reservation.DepositAmount được cộng vào
+                // target.CarriedOverDepositBvc (xem LobbyMergeService.ApproveMergeAsync Step 11).
+                // → Discount pool tại Pay time là tổng deposit của TẤT CẢ lobby đã gộp vào session.
+                // docs/design/host-deposit-discount-and-bvc-payment-design.md §A6 + §B3.3
+                sessionTotalBeforeDiscount = (long)(session.Subtotal + session.PenaltyAmount);
+                hostDepositDiscount = Math.Min(effectiveDeposit, Math.Max(0, sessionTotalBeforeDiscount));
+
+                if (hostDepositUsage == HostDepositUsageMode.DiscountGroup)
+                {
+                    discountEligibleMembers = activeMembers
+                        .Where(m => m.TotalMinutesPlayed > 0)
+                        .ToList();
+                    totalActiveMinutes = discountEligibleMembers.Sum(m => m.TotalMinutesPlayed);
+                }
+                else if (hostDepositUsage == HostDepositUsageMode.DiscountHostOnly)
+                {
+                    var hostMember = activeMembers.FirstOrDefault(m => m.IsHost);
+                    if (hostMember != null)
+                    {
+                        discountEligibleMembers.Add(hostMember);
+                    }
+                }
+            }
+
+            // Pre-compute per-member discount theo mode.
+            // DiscountGroup: chia đều theo minutes (làm tròn ToEven).
+            // DiscountHostOnly: full hostDepositDiscount cho host (clamp theo host bill).
+            var memberDiscountMap = new Dictionary<Guid, long>();
+            if (hostDepositDiscount > 0 && discountEligibleMembers.Count > 0)
+            {
+                if (hostDepositUsage == HostDepositUsageMode.DiscountGroup && totalActiveMinutes > 0)
+                {
+                    long allocated = 0;
+                    foreach (var m in discountEligibleMembers)
+                    {
+                        var portion = (long)Math.Round(
+                            hostDepositDiscount * ((decimal)m.TotalMinutesPlayed / totalActiveMinutes),
+                            MidpointRounding.ToEven);
+                        memberDiscountMap[m.Id] = portion;
+                        allocated += portion;
+                    }
+                    // Adjust rounding drift: cuối cùng nhận phần chênh lệch để tổng đúng = hostDepositDiscount.
+                    var drift = hostDepositDiscount - allocated;
+                    if (drift != 0 && discountEligibleMembers.Count > 0)
+                    {
+                        var last = discountEligibleMembers[^1];
+                        memberDiscountMap[last.Id] = memberDiscountMap.GetValueOrDefault(last.Id, 0L) + drift;
+                    }
+                }
+                else if (hostDepositUsage == HostDepositUsageMode.DiscountHostOnly)
+                {
+                    var hostMember = discountEligibleMembers.First();
+                    memberDiscountMap[hostMember.Id] = hostDepositDiscount;
+                }
+            }
+
             foreach (var member in session.Members)
             {
                 // GAP-12 Fix: TotalMinutesPlayed đã được persist tại CompleteCheckoutAsync
@@ -1369,17 +1662,26 @@ namespace BoardVerse.Services.Services
 
                 var memberPenalty = persistedMemberPenalty + legacyMemberPenalty + member.PenaltyAmount;
 
+                // M1: Host Deposit Discount — clamp theo max bill của member (subtotal + penalty).
+                long memberDiscountApplied = 0;
+                if (memberDiscountMap.TryGetValue(member.Id, out var rawDiscount))
+                {
+                    var memberMax = (long)(memberSubtotal + memberPenalty);
+                    memberDiscountApplied = Math.Max(0, Math.Min(rawDiscount, memberMax));
+                    // Persist lại vào entity để Capture ở PaySessionCoreAsync đọc được.
+                    member.DepositAppliedAmount = memberDiscountApplied;
+                }
+
                 // Bug #3 fix: BR-09 — Deposit là phí giữ chỗ cho BoardVerse, KHÔNG cấn trừ vào hóa đơn.
                 // Tổng session.DepositAppliedAmount = 0 (Host đặt cọc thuộc BoardVerse, không trừ cash invoice).
                 // Trước đây code có `- member.DepositAppliedAmount` nhưng field này luôn = 0 theo BR-09,
                 // nên vô hại. Tuy nhiên nếu BR-22 per-member deposit được activate sau, code sẽ
                 // double-trừ → phải bỏ trừ ở đây để đúng comment BR-09.
                 //
-                // DepositAppliedAmount VẪN được include trong MemberInvoiceDto (line 660) để:
-                //   1. UI hiển thị "Bạn đã đặt cọc X BVC" cho khách biết.
-                //   2. Audit trail per-member deposit đã apply.
-                //   3. Forward-compat khi BR-22 per-member deposit được implement (chỉ hiển thị, không trừ).
-                var memberTotal = memberSubtotal + memberPenalty;
+                // M1: Nếu HostDepositUsage != None → memberDiscountApplied CẤN TRỪ vào TotalAmount.
+                // Đây là supersede của BR-09: thay vì capture 100% deposit về cafe, host chọn
+                // dùng deposit làm discount cho members (BR-DEPOSIT-05 mới).
+                var memberTotal = (decimal)memberSubtotal + memberPenalty - memberDiscountApplied;
                 memberTotal = Math.Max(0, memberTotal);
 
                 // Penalty #1: Ưu tiên penalty details từ persisted. Back-compat: nếu không có, dùng legacy.
@@ -1412,6 +1714,8 @@ namespace BoardVerse.Services.Services
                     PenaltyAmount = memberPenalty,
                     // GAP-10 Fix: Use member-level deposit
                     DepositAppliedAmount = member.DepositAppliedAmount,
+                    // M1: Discount từ host deposit
+                    DiscountAppliedAmount = memberDiscountApplied,
                     TotalAmount = memberTotal,
                     BvcCaptureStatus = member.IsGuestSlot ? BvcCaptureStatus.NotApplicable : BvcCaptureStatus.Pending,
                     PenaltyDetails = penaltyDetails
@@ -1419,6 +1723,42 @@ namespace BoardVerse.Services.Services
             }
 
             return invoices;
+        }
+
+        /// <summary>
+        /// M1: Whitelist Reservation statuses đủ điều kiện áp Host Deposit Discount.
+        /// docs/design/host-deposit-discount-and-bvc-payment-design.md §B2.2.
+        /// </summary>
+        /// <remarks>
+        /// Status hợp lệ: Holding / Confirmed / CheckedIn / InProgress.
+        /// Terminal (Completed/Expired/Cancelled*/NoShow/AbsorbedByMerge) → skip discount.
+        /// SourceDissolved = true (reservation bị absorbed bởi merge) → skip vì deposit đã được
+        /// re-route về target session's policy (xem BR-MERGE-01).
+        /// </remarks>
+        private static bool IsReservationEligibleForDiscount(BoardVerse.Core.Entities.Reservation? reservation)
+        {
+            if (reservation == null)
+            {
+                return false;
+            }
+
+            var eligibleStatuses = new[]
+            {
+                ReservationStatus.Holding,
+                ReservationStatus.Confirmed,
+                ReservationStatus.CheckedIn,
+                ReservationStatus.InProgress
+            };
+
+            // CẬP NHẬT 2026-10-01 (M1 / Exception 4 — Host Deposit Follows):
+            // Effective deposit check: reservation có thể áp discount nếu DepositAmount > 0
+            // HOẶC CarriedOverDepositBvc > 0 (deposit được carry over từ source merge).
+            // Target reservation sau merge có thể DepositAmount = 0 nhưng có carried-over pool
+            // → vẫn đủ điều kiện apply discount.
+            // docs/design/host-deposit-discount-and-bvc-payment-design.md §A6 + §B3.3
+            return eligibleStatuses.Contains(reservation.Status)
+                && !reservation.SourceDissolved
+                && (reservation.DepositAmount > 0 || reservation.CarriedOverDepositBvc > 0);
         }
 
         /// <summary>
@@ -1553,6 +1893,11 @@ namespace BoardVerse.Services.Services
                 Id = session.Id,
                 CafeId = session.CafeId,
                 HostId = session.HostId,
+                // BR-13 (revised 2026-10-01): HostName cho FE render.
+                // Trước đây không set → FE tự resolve từ session.HostId, fallback = staff user
+                // khi là walk-in (rất awkward — nhân viên hiện ra thay vì khách đầu nhóm).
+                // Giờ: walk-in có primary customer / host guest → hiển thị tên customer.
+                HostName = ResolveHostDisplayNameForMap(session),
                 CafeTableId = session.CafeTableId,
                 TableName = session.CafeTable?.Name ?? string.Empty,
                 TableNumber = TableNumberHelper.Parse(session.CafeTable?.Name),

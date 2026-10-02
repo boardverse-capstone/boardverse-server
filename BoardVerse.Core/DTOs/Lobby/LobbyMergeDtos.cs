@@ -1,3 +1,4 @@
+using System.Text.Json;
 using BoardVerse.Core.Enum;
 
 namespace BoardVerse.Core.DTOs.Lobby;
@@ -23,6 +24,42 @@ public class CreateLobbyMergeRequestDto
     /// Format đề xuất: MERGE-{memberId:N}-{timestampMs}.
     /// </summary>
     public string? IdempotencyKey { get; set; }
+
+    /// <summary>
+    /// Danh sách member cụ thể sẽ được chuyển sang lobby đích.
+    /// <para>
+    /// <b>Bắt buộc từ 2026-10-02 — Bug fix permanent.</b> Phải chứa ít nhất 1 ID hợp lệ
+    /// (không phải <c>Guid.Empty</c>, không trùng). Service sẽ throw
+    /// <c>BadRequestException(SelectedMemberIdsRequired)</c> nếu trường này null, rỗng,
+    /// hoặc toàn <c>Guid.Empty</c>. Không còn behavior "transfer tất cả" khi null/empty
+    /// (đã bỏ từ 2026-10-02). Xem <c>docs/api/lobby-merge.md</c> §"Bug 2026-10-02".
+    /// </para>
+    /// <para>
+    /// ID semantics (phụ thuộc vào loại source lobby):
+    /// <list type="bullet">
+    /// <item>Online source (<c>SourceLobby.ReservationId != null</c>): mỗi Guid là
+    /// <c>LobbyMember.Id</c>.</item>
+    /// <item>Walk-in source (<c>SourceLobby.ReservationId == null</c>): mỗi Guid là
+    /// <c>ActiveSessionMember.Id</c> (bao gồm cả guest slot).</item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// Service sẽ:
+    /// <list type="number">
+    /// <item>Reject sớm tại Create nếu list rỗng (SelectedMemberIdsRequired).</item>
+    /// <item>Validate tất cả ID đều là member active hiện tại của source lobby.</item>
+    /// <item>Tính <c>CombinedCount</c> dựa trên số selected (không phải tổng active).</item>
+    /// <item>Re-check seat availability với số selected thay vì tổng.</item>
+    /// <item>Filter BR-USER-LIMIT-02/03 chỉ cho các member được chọn.</item>
+    /// <item>Chỉ transfer các member trong list; các member còn lại ở nguyên source lobby.</item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// Dùng khi staff muốn chỉ chuyển 1-2 người cụ thể, ví dụ:
+    /// A1, A2 về sớm + A3 muốn ghép Nhóm B, A4 ở lại Nhóm A.
+    /// </para>
+    /// </summary>
+    public List<Guid>? SelectedMemberIds { get; set; }
 }
 
 /// <summary>
@@ -67,6 +104,12 @@ public class LobbyMergeRequestDto
 
     /// <summary>True nếu CombinedCount <= SeatCapacity.</summary>
     public bool FitsCapacity { get; set; }
+
+    /// <summary>
+    /// Danh sách member cụ thể sẽ được chuyển sang lobby đích (null = transfer all).
+    /// Xem <see cref="CreateLobbyMergeRequestDto.SelectedMemberIds"/> cho semantics.
+    /// </summary>
+    public List<Guid>? SelectedMemberIds { get; set; }
 }
 
 /// <summary>
@@ -85,6 +128,14 @@ public class LobbyMergeApprovedDto
 
     /// <summary>Tổng số member đã chuyển từ lobby nguồn sang lobby đích.</summary>
     public int MembersTransferred { get; set; }
+
+    /// <summary>
+    /// Danh sách ID các member thực sự được chuyển sang lobby đích.
+    /// Rỗng nếu merge không có SelectedMemberIds (transfer all) — để tránh response DTO quá to
+    /// với case 30+ người. Khi SelectedMemberIds được truyền, trả về chính xác list đã chọn
+    /// (đã được validate) cho audit và UI confirmation.
+    /// </summary>
+    public List<Guid> TransferredMemberIds { get; set; } = new();
 
     /// <summary>ActiveSession của lobby đích sau khi merge.</summary>
     public Guid TargetActiveSessionId { get; set; }

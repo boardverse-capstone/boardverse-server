@@ -92,12 +92,58 @@ public class SeatInventoryRepository : ISeatInventoryRepository
         return Task.CompletedTask;
     }
 
-    public Task UpdateAsync(SeatInventory seatInventory, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// FIX 2026-10-02 (ReservationService ConfirmAsync DbUpdateConcurrencyException):
+    /// Atomic counter adjustment that bypasses EF tracker entirely.
+    /// Original UpdateAsync(entity) goes through SaveChangesAsync which fires
+    /// UseXminAsConcurrencyToken (xmin) check. The row was loaded via
+    /// GetForUpdateAsync(...).AsNoTracking(), so original xmin is never captured
+    /// → WHERE xmin = 0 (or default uint) → 0 rows affected → DbUpdateConcurrencyException
+    /// deterministically on every retry.
+    /// This method runs a raw UPDATE with column + delta arithmetic (atomic at DB level)
+    /// and skips EF tracker altogether. Combined with FOR UPDATE row lock from
+    /// GetForUpdateAsync, this is race-free and idempotent for our use cases.
+    /// GREATEST(0, ...) preserves the C# Math.Max(0, ...) floor semantics from the old code.
+    /// </summary>
+    public async Task AdjustCountersAsync(Guid id, int heldDelta, int inUseDelta, CancellationToken cancellationToken = default)
     {
-        seatInventory.UpdatedAt = DateTime.UtcNow;
-        // xmin (concurrency token) is PostgreSQL system column — auto-managed by DB, no manual increment needed
-        _db.SeatInventories.Update(seatInventory);
-        return Task.CompletedTask;
+        var now = DateTime.UtcNow;
+        await _db.Database.ExecuteSqlInterpolatedAsync($@"
+            UPDATE ""SeatInventories""
+            SET ""HeldSeats"" = GREATEST(0, ""HeldSeats"" + {heldDelta}),
+                ""InUseSeats"" = GREATEST(0, ""InUseSeats"" + {inUseDelta}),
+                ""UpdatedAt"" = {now}
+            WHERE ""Id"" = {id};
+        ", cancellationToken);
+    }
+
+    [Obsolete("Use AdjustCountersAsync — UpdateAsync has DbUpdateConcurrencyException bug with UseXminAsConcurrencyToken + AsNoTracking.")]
+    public async Task UpdateAsync(SeatInventory seatInventory, CancellationToken cancellationToken = default)
+    {
+        // BR-REQUIRED §17.3: Bypass EF tracking + UseXminAsConcurrencyToken here.
+        // GetForUpdateAsync uses AsNoTracking() (raw SQL with FOR UPDATE), so original xmin is
+        // never tracked. Calling _db.SeatInventories.Update(entity) would set OriginalValues
+        // for the shadow xmin property to default(uint) = 0, causing the SaveChangesAsync
+        // UPDATE to use "WHERE xmin = 0" and match 0 rows. We already hold a row lock via
+        // FOR UPDATE in the same transaction, so a plain conditional UPDATE (using the unique
+        // index columns) is sufficient — no need for xmin check.
+        var now = DateTime.UtcNow;
+        await _db.Database.ExecuteSqlInterpolatedAsync($@"
+            UPDATE ""SeatInventories""
+            SET ""HeldSeats"" = {seatInventory.HeldSeats},
+                ""InUseSeats"" = {seatInventory.InUseSeats},
+                ""UpdatedAt"" = {now}
+            WHERE ""Id"" = {seatInventory.Id};
+        ", cancellationToken);
+
+        seatInventory.UpdatedAt = now;
+        // Detach any tracked instance EF auto-attached from the earlier FromSqlRaw so that
+        // a subsequent SaveChangesAsync in the same scope does not redundantly UPDATE again.
+        var local = _db.SeatInventories.Local.FirstOrDefault(s => s.Id == seatInventory.Id);
+        if (local != null)
+        {
+            _db.Entry(local).State = Microsoft.EntityFrameworkCore.EntityState.Detached;
+        }
     }
 
     public Task SaveChangesAsync(CancellationToken cancellationToken = default)

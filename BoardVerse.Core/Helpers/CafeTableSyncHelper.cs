@@ -22,27 +22,6 @@ namespace BoardVerse.Core.Helpers
             int ArrayIndex);
 
         /// <summary>
-        /// Legacy overload — đồng bộ chỉ tên.
-        /// Tự gọi overload đầy đủ với SeatCount=null (giữ nguyên seatCount cũ cho bàn match, default 4 cho bàn mới).
-        /// </summary>
-        public static void ApplySync(Guid cafeId, IReadOnlyList<string> tableNames, IList<CafeTable> existingTables)
-        {
-            // SortOrder=null để ApplySync tự append vào cuối (MAX active + 1).
-            // Không ép SortOrder=index vì sẽ gây conflict với bàn cũ chưa có trong payload
-            // (vd: DB có [A=0, B=1, C=2], payload chỉ gồm [B, C] → SortOrder=0,1 sẽ trùng A cũ).
-            var items = tableNames
-                .Select(name => new CafeTableSyncItem
-                {
-                    Name = name,
-                    SortOrder = null,   // ← để helper tự auto-append
-                    SeatCount = null
-                })
-                .ToList();
-
-            ApplySync(cafeId, items, existingTables);
-        }
-
-        /// <summary>
         /// Đồng bộ sơ đồ bàn đầy đủ (Name + SeatCount + SortOrder) theo 3-phase matching:
         ///
         /// <para><b>Auto-fill SortOrder=null</b>:</para>

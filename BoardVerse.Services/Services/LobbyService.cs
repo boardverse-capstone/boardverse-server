@@ -111,7 +111,10 @@ namespace BoardVerse.Services.Services
 
         public async Task<LobbyResponseDto> CreateLobbyAsync(Guid hostUserId, CreateLobbyRequestDto request, CancellationToken cancellationToken = default)
         {
-            if (request.ScheduledStartTime < DateTime.UtcNow.AddMinutes(5))
+            // FIX TZ-LOBBY-02 (2026-10-02): request.ScheduledStartTime có thể là UTC hoặc VN local tuỳ
+            // serializer. Convert sang UTC trước khi so sánh với DateTime.UtcNow để tránh sai lệch.
+            var scheduledStartUtc = Core.Constants.CafeSchedule.ToUtcAssumingVietnamLocal(request.ScheduledStartTime);
+            if (scheduledStartUtc < DateTime.UtcNow.AddMinutes(5))
             {
                 throw new BadRequestException(ApiErrorMessages.Lobby.ScheduledStartTimeTooEarly);
             }
@@ -1036,7 +1039,7 @@ namespace BoardVerse.Services.Services
                 }
 
                 // 1. Release SeatInventory + GameInventory (BR-RESERVATION-01/02 + §XVII.4 atomic).
-                await ReleaseDissolveInventoriesAsync(reservation, lobby, now);
+                await ReleaseDissolveInventoriesAsync(reservation, lobby, now, cancellationToken);
 
                 // 2. Tính refund policy + BR-REFUND-02/03.
                 var hasMembers = lobby.Members.Any(m => !m.IsHost && m.IsActive);
@@ -1234,7 +1237,7 @@ namespace BoardVerse.Services.Services
         /// chưa từng được tạo (legacy lobby không gắn reservation flow).
         /// </summary>
         private async Task ReleaseDissolveInventoriesAsync(
-            Reservation? reservation, Lobby lobby, DateTime now)
+            Reservation? reservation, Lobby lobby, DateTime now, CancellationToken ct)
         {
             if (reservation?.CafeId != null
                 && reservation.PlayDate != default
@@ -1246,9 +1249,12 @@ namespace BoardVerse.Services.Services
                         reservation.CafeId, reservation.PlayDate, reservation.PreferredStartTime.Value, reservation.PreferredEndTime.Value);
                     if (seatInv != null && lobby.MaxMembers > 0)
                     {
-                        seatInv.HeldSeats = Math.Max(0, seatInv.HeldSeats - lobby.MaxMembers);
-                        seatInv.UpdatedAt = now;
-                        await _seatInventoryRepository.UpdateAsync(seatInv);
+                        // FIX 2026-10-02: AdjustCountersAsync — bypass EF tracker. Race-free với FOR UPDATE đã acquire.
+                        await _seatInventoryRepository.AdjustCountersAsync(
+                            seatInv.Id,
+                            heldDelta: -lobby.MaxMembers,
+                            inUseDelta: 0,
+                            cancellationToken: ct);
                     }
                 }
 
@@ -1258,9 +1264,11 @@ namespace BoardVerse.Services.Services
                         reservation.CafeId, reservation.GameId, reservation.PlayDate, reservation.PreferredStartTime.Value, reservation.PreferredEndTime.Value);
                     if (gameInv != null)
                     {
-                        gameInv.HeldCopies = Math.Max(0, gameInv.HeldCopies - 1);
-                        gameInv.UpdatedAt = now;
-                        await _gameInventoryRepository.UpdateAsync(gameInv);
+                        await _gameInventoryRepository.AdjustCountersAsync(
+                            gameInv.Id,
+                            heldDelta: -1,
+                            inUseDelta: 0,
+                            cancellationToken: ct);
                     }
                 }
                 return;
@@ -1277,9 +1285,12 @@ namespace BoardVerse.Services.Services
                     lobby.CafeId.Value, lobby.PlayDate.Value, startTime, endTime);
                 if (seatInv != null && lobby.MaxMembers > 0)
                 {
-                    seatInv.HeldSeats = Math.Max(0, seatInv.HeldSeats - lobby.MaxMembers);
-                    seatInv.UpdatedAt = now;
-                    await _seatInventoryRepository.UpdateAsync(seatInv);
+                    // FIX 2026-10-02: AdjustCountersAsync — bypass EF tracker.
+                    await _seatInventoryRepository.AdjustCountersAsync(
+                        seatInv.Id,
+                        heldDelta: -lobby.MaxMembers,
+                        inUseDelta: 0,
+                        cancellationToken: ct);
                 }
             }
         }
@@ -1656,7 +1667,7 @@ namespace BoardVerse.Services.Services
             }
 
             var now = DateTime.UtcNow;
-            var playDate = lobby.PlayDate ?? DateOnly.FromDateTime(now);
+            var playDate = lobby.PlayDate ?? DateOnly.FromDateTime(Core.Constants.CafeSchedule.ToVietnamLocal(now));
 
             // BR-NEW-15: Determine effective start/end times (from PreferredStartTime/PreferredEndTime, not TimeSlot)
             var effectiveStartTime = request.PreferredStartTime ?? lobby.PreferredStartTime;
@@ -1706,8 +1717,11 @@ namespace BoardVerse.Services.Services
             var leadTimeMinutes = lobby.CancellationLeadTimeMinutes > 0 ? lobby.CancellationLeadTimeMinutes : 20;
             var newDeadline = scheduledStartTime.AddMinutes(-leadTimeMinutes);
 
-            // BR-LOBBY-01b: Buffer phải >= 60 phút
-            var bufferMinutes = (newDeadline - now).TotalMinutes;
+            // BR-LOBBY-01b: Buffer phải >= 60 phút.
+            // FIX TZ-LOBBY-01 (2026-10-02): `newDeadline` là Unspecified VN local, `now` là UTC.
+            // Convert newDeadline sang UTC trước khi tính buffer để tránh sai lệch 7 giờ.
+            var newDeadlineUtc = Core.Constants.CafeSchedule.ToUtcAssumingVietnamLocal(newDeadline);
+            var bufferMinutes = (newDeadlineUtc - now).TotalMinutes;
             var bypassLobbyBuffer = await TimeWindowGuard.ShouldBypassAsync(
                 _httpContextAccessor?.HttpContext, _configProvider, _logger,
                 operation: "Lobby.TimeSlotChangeBuffer", entityId: lobby.Id);
@@ -1924,7 +1938,9 @@ namespace BoardVerse.Services.Services
 
             if (request.ScheduledStartTime.HasValue)
             {
-                if (request.ScheduledStartTime.Value < DateTime.UtcNow.AddMinutes(5))
+                // FIX TZ-LOBBY-03 (2026-10-02): same fix as CreateLobbyAsync — convert to UTC trước khi so sánh.
+                var scheduledStartUtc = Core.Constants.CafeSchedule.ToUtcAssumingVietnamLocal(request.ScheduledStartTime.Value);
+                if (scheduledStartUtc < DateTime.UtcNow.AddMinutes(5))
                 {
                     throw new BadRequestException(ApiErrorMessages.Lobby.ScheduledStartTimeTooEarly);
                 }

@@ -286,6 +286,13 @@ builder.Services.AddScoped<IGameTemplateService, GameTemplateService>();
 builder.Services.AddScoped<ICafeInventoryService, CafeInventoryService>();
 builder.Services.AddScoped<ICafePosService, CafePosService>();
 builder.Services.AddScoped<IReceiptService, ReceiptService>(); // P-01 & P-02
+
+// M2/C2.16: Force-close service (Gap #33).
+builder.Services.AddScoped<IForceCloseService, ForceCloseService>();
+// M2/C2.6, C2.7, C2.8: Member BVC bill payment (preview + pay + refund).
+builder.Services.AddScoped<IWalletSessionPaymentService, WalletSessionPaymentService>();
+// M2/C5.3: Payment breakdown report service.
+builder.Services.AddScoped<IPaymentBreakdownReportService, PaymentBreakdownReportService>();
 builder.Services.AddScoped<ILobbyService, LobbyService>();
 builder.Services.AddScoped<IActiveSessionService, ActiveSessionService>();
 builder.Services.AddScoped<IKarmaRatingService, KarmaRatingService>();
@@ -327,6 +334,13 @@ builder.Services.AddScoped<IDeviceTokenRepository, DeviceTokenRepository>();
 builder.Services.AddScoped<IDeviceTokenService, DeviceTokenService>();
 builder.Services.AddScoped<IPushNotificationService, FcmPushNotificationService>();
 
+// M2 Phase 6 / Task C5.1-C5.5: Feature flags + in-memory metrics hooks.
+// docs/design/host-deposit-discount-and-bvc-payment-design.md §C5.
+builder.Services.AddScoped<IFeatureFlagService, FeatureFlagService>();
+
+// M2 Phase 6 / Task C5.3: Payment breakdown report service.
+builder.Services.AddScoped<PaymentBreakdownReportService>();
+
 // Background Jobs for Lobby expiration — skip in Testing env (KarmaWindowJob interferes with integration tests)
 if (!builder.Environment.IsEnvironment("Testing"))
 {
@@ -338,6 +352,7 @@ if (!builder.Environment.IsEnvironment("Testing"))
     builder.Services.AddHostedService<BvcTopUpExpiryJob>(); // BVC top-up pending expire sau 30 phút
     builder.Services.AddHostedService<SettlementRetryJob>();
     builder.Services.AddHostedService<BvcCaptureRetryJob>(); // GAP-8 Fix: retry BVC capture for paid sessions
+    builder.Services.AddHostedService<BvcMemberNoShowCleanupJob>(); // M2/C2.13: BVC member no-show cleanup (scaffold)
     builder.Services.AddHostedService<TournamentExpiryJob>();
     builder.Services.AddHostedService<LobbyCleanupJob>();
     builder.Services.AddHostedService<TournamentReminderJob>();

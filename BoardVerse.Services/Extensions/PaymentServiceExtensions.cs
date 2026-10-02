@@ -54,6 +54,10 @@ public static class PaymentServiceExtensions
         services.AddScoped<IBvcTopUpRequestRepository, BvcTopUpRequestRepository>();
         services.AddScoped<IWalletService, WalletService>();
 
+        // M1 / Option A: Per-member BVC deposit audit log
+        // docs/design/host-deposit-discount-and-bvc-payment-design.md §B1.9
+        services.AddScoped<IMemberDepositAuditLogRepository, MemberDepositAuditLogRepository>();
+
         // BVC refund request — player gửi → admin duyệt (BR-RISK-05).
         services.AddScoped<IBvcRefundRequestRepository, BvcRefundRequestRepository>();
         services.AddScoped<IBvcRefundRequestService, BvcRefundRequestService>();
@@ -61,6 +65,14 @@ public static class PaymentServiceExtensions
         // Split bill service
         services.AddScoped<ITransactionRepository, TransactionRepository>();
         services.AddScoped<ISplitBillService, SplitBillService>();
+
+        // M1 / Option A — Refund per-member deposit khi member merge sang lobby khác.
+        // docs/design/host-deposit-discount-and-bvc-payment-design.md §B3.1.
+        services.AddScoped<IMergeService, MergeService>();
+
+        // M2 / Case 2 — Member BVC bill payment orchestration.
+        // docs/design/host-deposit-discount-and-bvc-payment-design.md §C2.
+        services.AddScoped<IWalletSessionPaymentService, WalletSessionPaymentService>();
 
         return services;
     }

@@ -1,4 +1,5 @@
-﻿using BoardVerse.Core.Entities;
+﻿using BoardVerse.Core.Constants;
+using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Data;
@@ -130,8 +131,12 @@ public class WalkInWindowRepository : IWalkInWindowRepository
     public async Task<IReadOnlyList<WalkInWindow>> GetExpiredAsync(CancellationToken ct = default)
     {
         var now = DateTime.UtcNow;
+        // FIX TZ-WALKIN-01 (2026-10-02): WalkInWindow.WindowEnd được set từ
+        // Reservation.ScheduledEndTime (Unspecified VN local raw), còn `now` là UTC.
+        // Convert now sang VN local để match với WindowEnd cùng Kind, tránh sai lệch 7 giờ.
+        var nowLocal = CafeSchedule.ToVietnamLocal(now);
         return await _db.WalkInWindows
-            .Where(w => w.WindowEnd < now
+            .Where(w => w.WindowEnd < nowLocal
                 && w.Status != WalkInWindowStatus.Closed
                 && w.Status != WalkInWindowStatus.Expired)
             .ToListAsync(ct);

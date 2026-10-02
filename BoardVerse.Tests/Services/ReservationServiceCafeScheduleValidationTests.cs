@@ -581,7 +581,6 @@ public class ReservationServiceCafeScheduleValidationTests
             .ReturnsAsync(new CafeConfig
             {
                 CafeId = request.CafeId,
-                DepositRatePerPerson = 10,
                 Capacity = 50,
                 RecruitmentDeadlineBufferMinutes = 120
             });

@@ -13,7 +13,12 @@ public class CafeTableSyncHelperTests
         var cafeId = Guid.NewGuid();
         var tables = new List<CafeTable>();
 
-        CafeTableSyncHelper.ApplySync(cafeId, ["Table A", "Table B"], tables);
+        var items = new List<CafeTableSyncItem>
+        {
+            new() { Name = "Table A", SeatCount = null, SortOrder = null },
+            new() { Name = "Table B", SeatCount = null, SortOrder = null }
+        };
+        CafeTableSyncHelper.ApplySync(cafeId, items, tables);
 
         Assert.Equal(2, tables.Count);
         Assert.Equal(0, tables[0].SortOrder);
@@ -38,7 +43,11 @@ public class CafeTableSyncHelperTests
             }
         };
 
-        CafeTableSyncHelper.ApplySync(cafeId, ["Table A"], tables);
+        var items = new List<CafeTableSyncItem>
+        {
+            new() { Name = "Table A", SeatCount = null, SortOrder = null }
+        };
+        CafeTableSyncHelper.ApplySync(cafeId, items, tables);
 
 // Behavior mới (auto-fill SortOrder): với FE không gửi SortOrder, bàn match Phase 1
 // sẽ GIỮ NGUYÊN SortOrder DB (không bị ghi đè). Lý do: manager thêm bàn mới mà không
@@ -92,7 +101,11 @@ public class CafeTableSyncHelperTests
 
         var originalIds = tables.Select(t => t.Id).ToList();
 
-        CafeTableSyncHelper.ApplySync(cafeId, ["New Table"], tables);
+        var items = new List<CafeTableSyncItem>
+        {
+            new() { Name = "New Table", SeatCount = null, SortOrder = null }
+        };
+        CafeTableSyncHelper.ApplySync(cafeId, items, tables);
 
         // 4 bàn: 3 cũ (soft-delete) + 1 mới.
         Assert.Equal(4, tables.Count);
@@ -967,9 +980,13 @@ public class CafeTableSyncHelperTests
             new() { Id = oldBId, CafeId = cafeId, Name = "B", SortOrder = 1, SeatCount = 4, IsActive = true }
         };
 
-        var names = new List<string> { "B", "C" };
+        var items = new List<CafeTableSyncItem>
+        {
+            new() { Name = "B", SeatCount = null, SortOrder = null },
+            new() { Name = "C", SeatCount = null, SortOrder = null }
+        };
 
-        CafeTableSyncHelper.ApplySync(cafeId, names, tables);
+        CafeTableSyncHelper.ApplySync(cafeId, items, tables);
 
         // A bị soft-delete.
         Assert.Equal(3, tables.Count);   // A(active=false), B(active=true), C(active=true)

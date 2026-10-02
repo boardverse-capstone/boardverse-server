@@ -5,6 +5,7 @@ using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
 using BoardVerse.Data;
 using BoardVerse.Services.IServices;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace BoardVerse.Services.Services;
@@ -25,6 +26,16 @@ public class CoolingOffService : ICoolingOffService
     private const int ForfeitWindowDays = 30;
     private static readonly TimeSpan CoolingOffDuration = TimeSpan.FromDays(30);
     private const int MaxExtendDays = 90;
+
+    // 2026-10-02: Cooling-off KHÔNG còn nhân RiskMultiplier lên cọc (đơn giản hóa theo yêu cầu).
+    // BR-NEW-10 §XI.2 "Cọc ×2 khi cooling-off" và "Cọc ×3 khi escalate" đã bỏ.
+    // Wallet.RiskMultiplier chỉ được quản lý bởi risk score recompute job (BR-RISK-03) — không bị cooling-off trigger.
+    // Hệ quả: cọc = baseDeposit (20% × cafeBasePrice/1000 × maxPlayers) bất kể cooling-off active hay không.
+    //
+    // Trước đây có 2 helpers:
+    //   - ComputeRiskMultiplierFromRiskScore(int riskScore, bool isCoolingOff): 1.0 + score/100 (×2 nếu cooling-off)
+    //   - ComputeEscalationRiskMultiplier(int riskScore): (1.0 + score/100) × 3.0
+    // → ĐÃ XÓA 2026-10-02 vì cooling-off không nhân multiplier nữa.
 
     public CoolingOffService(
         IWalletRepository walletRepository,
@@ -122,18 +133,18 @@ public class CoolingOffService : ICoolingOffService
 
         var now = DateTime.UtcNow;
 
-        // BR-NEW-10 §XI.2: gia hạn 30 ngày + cọc ×3.
-        // RiskMultiplier hiện tại (đã ×2) → bump lên ×3.
+        // BR-NEW-10 §XI.2: gia hạn cooling-off 30 ngày.
+        // 2026-10-02: KHÔNG nhân RiskMultiplier lên ×3 nữa (đơn giản hóa).
+        // RiskMultiplier được quản lý riêng bởi risk score recompute job (BR-RISK-03), không bị cooling-off trigger.
         wallet.CoolingOffExpiresAt = now.Add(CoolingOffDuration);
-        wallet.RiskMultiplier = Math.Max(wallet.RiskMultiplier, 3.0m);
         wallet.UpdatedAt = now;
 
         await _walletRepository.UpdateAsync(wallet);
         await _walletRepository.SaveChangesAsync();
 
         _logger.LogInformation(
-            "[BR-NEW-10] EscalateAsync: userId={UserId} cooling-off extended to {ExpiresAt}, multiplier={Multiplier}, reason={Reason}",
-            userId, wallet.CoolingOffExpiresAt, wallet.RiskMultiplier, reason);
+            "[BR-NEW-10] EscalateAsync: userId={UserId} cooling-off extended to {ExpiresAt} reason={Reason}",
+            userId, wallet.CoolingOffExpiresAt, reason);
     }
 
     public async Task<(int TimeoutFailedCount7d, int HostCancelledCount7d, long ForfeitAmount30d)> DetectSignalsAsync(
@@ -183,18 +194,44 @@ public class CoolingOffService : ICoolingOffService
 
     private async Task ActivateCoolingOffAsync(Wallet wallet, DateTime now, string reason, CancellationToken ct)
     {
-        // BR-NEW-10 §XI.2: cooling-off 30 ngày, cọc ×2.
+        // BR-NEW-10 §XI.2: cooling-off 30 ngày.
+        // 2026-10-02: KHÔNG nhân RiskMultiplier lên ×2 nữa (đơn giản hóa theo yêu cầu).
+        // BR-NEW-10 §XI.2 "cọc ×2" đã bỏ — cọc chỉ phụ thuộc (cafeBasePrice × 20% × maxPlayers).
+        // Wallet.RiskMultiplier giữ nguyên (do risk score recompute job quản lý, BR-RISK-03).
         wallet.IsCoolingOff = true;
         wallet.CoolingOffExpiresAt = now.Add(CoolingOffDuration);
-        wallet.RiskMultiplier = Math.Max(wallet.RiskMultiplier, 2.0m);
         wallet.UpdatedAt = now;
 
         await _walletRepository.UpdateAsync(wallet);
         await _walletRepository.SaveChangesAsync();
 
         _logger.LogInformation(
-            "[BR-NEW-10] Cooling-off ACTIVATED: userId={UserId} expiresAt={ExpiresAt} multiplier={Multiplier} reason={Reason}",
-            wallet.UserId, wallet.CoolingOffExpiresAt, wallet.RiskMultiplier, reason);
+            "[BR-NEW-10] Cooling-off ACTIVATED: userId={UserId} expiresAt={ExpiresAt} reason={Reason}",
+            wallet.UserId, wallet.CoolingOffExpiresAt, reason);
+    }
+
+    /// <summary>
+    /// Helper cũ (gap 4.1) — load riskScore từ PlayerRiskScore table.
+    /// 2026-10-02: ĐÃ XÓA việc sử dụng vì cooling-off không còn nhân RiskMultiplier nữa.
+    /// Giữ method nếu sau này cần dùng lại cho audit/reporting.
+    /// </summary>
+    private async Task<int> GetCurrentRiskScoreAsync(Guid userId, CancellationToken ct)
+    {
+        try
+        {
+            var score = await _db.PlayerRiskScores
+                .AsNoTracking()
+                .Where(r => r.UserId == userId)
+                .Select(r => (int?)r.RiskScore)
+                .FirstOrDefaultAsync(ct);
+            return score ?? 75;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "[Gap 4.1] Failed to load riskScore for userId={UserId}, using fallback 75", userId);
+            return 75;
+        }
     }
 
     public async Task ExtendAsync(Guid adminUserId, Guid targetUserId, int additionalDays, string reason, CancellationToken ct = default)

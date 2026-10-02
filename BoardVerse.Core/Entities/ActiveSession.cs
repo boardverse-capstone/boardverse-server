@@ -93,6 +93,27 @@ namespace BoardVerse.Core.Entities
         /// <summary>Last write timestamp. Used as concurrency token for optimistic concurrency on financial updates.</summary>
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+        // === BR-13 (revised 2026-09-30): Walk-in audit fields ===
+        /// <summary>
+        /// BR-13 (revised 2026-09-30): True khi phiên được tạo bởi POS staff cho khách vãng lai
+        /// (không qua Reservation/Booking). Default false (backward compat với phiên cũ).
+        /// Khi true:
+        ///   - <c>HostId</c> = staff.UserId (audit/SignalR, tránh NRE ở 30+ chỗ đang dùng HostId).
+        ///   - <c>StartedByStaffId</c> = staff.UserId (audit field chính xác cho staff).
+        ///   - <c>ActiveSessionMember</c> có thể có 1 row <c>IsHost = true</c> nếu staff chỉ định
+        ///     primary customer (Option B); nếu không có → MapSession hiển thị "Khách vãng lai".
+        /// MapSession check flag này để quyết định hiển thị HostName/HostId phù hợp.
+        /// </summary>
+        public bool IsWalkInSession { get; set; } = false;
+
+        /// <summary>
+        /// BR-13 (revised 2026-09-30): UserId của POS staff đã khởi tạo phiên walk-in.
+        /// Null khi <c>IsWalkInSession = false</c> (phiên do customer online tạo qua Reservation/Booking).
+        /// Khác <c>HostId</c>: HostId là field NOT NULL để tránh NRE; StartedByStaffId mới là audit field
+        /// chính xác. Dùng cho PlayerActionHistory / dispute resolution.
+        /// </summary>
+        public Guid? StartedByStaffId { get; set; }
+
         // === Navigation ===
         public virtual Cafe Cafe { get; set; } = null!;
         public virtual CafeTable? CafeTable { get; set; }

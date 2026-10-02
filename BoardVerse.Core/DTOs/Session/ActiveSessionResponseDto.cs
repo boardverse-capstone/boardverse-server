@@ -8,6 +8,17 @@ namespace BoardVerse.Core.DTOs.Session
         public Guid Id { get; set; }
         public Guid CafeId { get; set; }
         public Guid HostId { get; set; }
+
+        /// <summary>
+        /// BR-13 (revised 2026-10-01): Tên hiển thị của host cho FE.
+        /// - Reservation/Booking flow: <c>Host.Username</c>.
+        /// - Walk-in flow + có primary customer (User): <c>Member.User.Username</c>.
+        /// - Walk-in flow + có host guest slot: <c>Member.GuestDisplayName</c>.
+        /// - Walk-in thuần không có primary: "Khách vãng lai".
+        /// Trước đây chỉ trả HostId → FE render = staff user, trông rất awkward.
+        /// </summary>
+        public string HostName { get; set; } = string.Empty;
+
         public Guid? CafeTableId { get; set; }
         public string TableName { get; set; } = string.Empty;
 

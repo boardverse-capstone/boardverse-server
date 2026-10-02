@@ -219,20 +219,6 @@ namespace BoardVerse.Services.Services
                 .ToList();
         }
 
-        public async Task SyncTablesAsync(Guid cafeId, Guid managerId, IReadOnlyList<string> tableNames, CancellationToken cancellationToken = default)
-        {
-            var items = tableNames
-                .Select((name, index) => new CafeTableSyncItem
-                {
-                    Name = name,
-                    SortOrder = index,
-                    SeatCount = null
-                })
-                .ToList();
-
-            await SyncTablesAsync(cafeId, managerId, items);
-        }
-
         public async Task SyncTablesAsync(Guid cafeId, Guid managerId, IReadOnlyList<CafeTableSyncItem> tables, CancellationToken cancellationToken = default)
         {
             // GAP-R4-A24 Fix: dùng EnsurePosAccessAsync để consistent với các method khác.
@@ -301,10 +287,6 @@ namespace BoardVerse.Services.Services
 
             await _posRepository.UpdateTableAsync(table);
             await _posRepository.SaveChangesAsync();
-
-            // Keep TableLayoutJson in sync with the (possibly renamed/reordered) table.
-            await _cafeRepository.RefreshTableLayoutJsonAsync(cafeId);
-            await _cafeRepository.SaveChangesAsync();
 
             return new CafeTableStatusDto
             {
@@ -645,15 +627,37 @@ namespace BoardVerse.Services.Services
                 CafeTableId = table.Id,
                 CafeInventoryBoxId = box.Id,
                 GameTemplateId = gameTemplateId,
-                HostId = userId,
+                HostId = request.PrimaryCustomerUserId ?? userId,
                 StartedAt = now,
                 Status = GroupSessionStatus.Active,
-                CreatedAt = now
+                CreatedAt = now,
+                // BR-13 (revised 2026-09-30): Walk-in session audit fields.
+                // Set true cho mọi phiên qua StartGameSessionAsync (đây là flow POS walk-in thuần).
+                IsWalkInSession = true,
+                StartedByStaffId = userId
             };
 
-            // BR-13: Walk-in session KHÔNG tạo hostMember cho staff.
-            // Staff chỉ là người khởi tạo (lưu ở HostId) — KHÔNG phải customer, không tính tiền giờ,
-            // không hiển thị trong members list. Members của walk-in chỉ chứa guest slots / late members.
+            // BR-13 (revised 2026-09-30) Option B:
+            // Nếu staff chỉ định PrimaryCustomerUserId → tạo hostMember cho customer đó,
+            // bill gộp về customer (giống Reservation flow).
+            // Nếu không → KHÔNG tạo hostMember, MapSession hiển thị "Khách vãng lai",
+            // bill = tổng Subtotal + Penalty của tất cả guest slots.
+            if (request.PrimaryCustomerUserId.HasValue)
+            {
+                var hostMember = new ActiveSessionMember
+                {
+                    Id = Guid.NewGuid(),
+                    ActiveSessionId = session.Id,
+                    UserId = request.PrimaryCustomerUserId.Value,
+                    IsGuestSlot = false,
+                    IsHost = true,
+                    JoinedAt = now,
+                    Status = IndividualSessionStatus.Playing,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                };
+                await _posRepository.AddSessionMemberAsync(hostMember, cancellationToken);
+            }
 
             // BR-12: Auto-create ActiveSessionGame when starting session.
             // This ensures SubmitComponentCheck has a valid target when session enters CHECKING.
@@ -684,7 +688,7 @@ namespace BoardVerse.Services.Services
             var walkInLobby = new Lobby
             {
                 Id = Guid.NewGuid(),
-                HostUserId = userId,
+                HostUserId = request.PrimaryCustomerUserId ?? userId,
                 GameTemplateId = gameTemplateId,
                 CafeId = cafeId,
                 ReservationId = null,
@@ -697,7 +701,10 @@ namespace BoardVerse.Services.Services
                 ScheduledStartTime = now,
                 // ActiveSessionId intentionally null — set in Phase 2 after session.Id exists in DB.
                 CreatedAt = now,
-                UpdatedAt = now
+                UpdatedAt = now,
+                // BR-13 (revised 2026-09-30): Walk-in lobby audit fields (mirror ActiveSession).
+                IsWalkInLobby = true,
+                StartedByStaffId = userId
             };
             // session.LobbyId cũng để null — set in Phase 2 after walkInLobby.Id exists in DB.
 
@@ -1558,7 +1565,12 @@ namespace BoardVerse.Services.Services
             {
                 Id = session.Id,
                 HostId = session.HostId,
-                HostName = session.Host?.Username ?? string.Empty,
+                // BR-13 (revised 2026-09-30): Walk-in session display logic.
+                // Nếu IsWalkInSession = true:
+                //   - Có primary customer (1 ActiveSessionMember với IsHost = true) → hiển thị tên customer.
+                //   - Không có primary customer → hiển thị "Khách vãng lai".
+                // Nếu IsWalkInSession = false (Reservation/Booking flow) → hiển thị Host.Username bình thường.
+                HostName = ResolveHostDisplayName(session),
                 LobbyId = session.LobbyId,
                 CafeTableId = session.CafeTableId,
                 TableName = session.CafeTable?.Name ?? string.Empty,
@@ -1631,6 +1643,46 @@ namespace BoardVerse.Services.Services
         }
 
         /// <summary>
+        /// BR-13 (revised 2026-09-30, 2026-10-01): Resolve display name cho host của ActiveSession.
+        /// - Reservation/Booking flow (IsWalkInSession = false): trả về Host.Username bình thường.
+        /// - Walk-in flow (IsWalkInSession = true):
+        ///   - Có primary customer (1 ActiveSessionMember với IsHost = true, UserId != null): trả về tên customer đó.
+        ///   - Có host guest slot (ActiveSessionMember với IsHost = true, UserId = null): trả về
+        ///     <c>GuestDisplayName</c> (BR-13 revised 2026-10-01 — chỉ định walk-in guest làm host qua
+        ///     AddGuestSlotAsync với <c>DesignateAsHost = true</c>).
+        ///   - Không có primary customer: trả về "Khách vãng lai" (Option B fallback).
+        /// </summary>
+        private static string ResolveHostDisplayName(ActiveSession session)
+        {
+            if (!session.IsWalkInSession)
+            {
+                return session.Host?.Username ?? string.Empty;
+            }
+
+            // Walk-in: tìm primary customer (ActiveSessionMember.IsHost = true).
+            var primaryCustomer = session.Members?
+                .FirstOrDefault(m => m.IsHost && m.UserId.HasValue);
+
+            if (primaryCustomer?.User?.Username is { } customerUsername)
+            {
+                return customerUsername;
+            }
+
+            // BR-13 (revised 2026-10-01) Permanent fix:
+            // Nếu host member là guest slot (UserId = null) → hiển thị GuestDisplayName.
+            // Trước đây fallback về "Khách vãng lai" mặc dù staff đã chỉ định rõ.
+            var hostGuest = session.Members?
+                .FirstOrDefault(m => m.IsHost && m.IsGuestSlot);
+
+            if (hostGuest is not null && !string.IsNullOrWhiteSpace(hostGuest.GuestDisplayName))
+            {
+                return hostGuest.GuestDisplayName;
+            }
+
+            return "Khách vãng lai";
+        }
+
+        /// <summary>
         /// Map ActiveSession (PAID) → PaidSessionDto cho end-of-day report.
         /// BR-REVENUE-01: PaidSession là "doanh thu đã ghi nhận".
         /// </summary>
@@ -1641,7 +1693,9 @@ namespace BoardVerse.Services.Services
                 Id = session.Id,
                 CafeId = session.CafeId,
                 HostId = session.HostId,
-                HostName = session.Host?.Username ?? string.Empty,
+                // BR-13 (revised 2026-09-30): Paid session walk-in cũng hiển thị "Khách vãng lai"
+                // nếu không có primary customer (consistency với MapSession active display).
+                HostName = ResolveHostDisplayName(session),
                 LobbyId = session.LobbyId,
                 CafeTableId = session.CafeTableId,
                 TableName = session.CafeTable?.Name ?? string.Empty,
@@ -3394,11 +3448,17 @@ sessionGameId, cafeId, userId);
         /// <summary>
         /// Mở rộng <see cref="ActiveOnlyReservationStatuses"/> khi FE truyền <c>IncludeCancelled=true</c>
         /// mà KHÔNG truyền <c>Statuses</c> — staff muốn xem tab "đã hủy/hết hạn".
+        /// <para>
+        /// <b>BR-MERGE-01:</b> <c>AbsorbedByMerge</c> được liệt kê ở đây (chứ không phải
+        /// ActiveOnly) vì staff POS cần thấy merged reservation khi review lịch sử bàn
+        /// (vd: "tại sao Nhóm A biến mất?" → vì đã merge sang bàn B).
+        /// </para>
         /// </summary>
         private static readonly List<ReservationStatus> ActiveAndTerminalReservationStatuses =
         [
             .. ActiveOnlyReservationStatuses,
             ReservationStatus.Expired,
+            ReservationStatus.AbsorbedByMerge,
             ReservationStatus.CancelledByPlayer,
             ReservationStatus.CancelledByCafe,
             ReservationStatus.NoShow,

@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Text.Json;
 
 using BoardVerse.Core.Constants;
 using BoardVerse.Core.DTOs.Reservation;
@@ -121,12 +122,31 @@ public class ReservationService : IReservationService
         _settlementService = settlementService ?? throw new ArgumentNullException(nameof(settlementService));
     }
 
+    // ===== FIX TZ-RESV-01 (2026-10-02): Centralized timezone-aware "now" helpers =====
+    //
+    // Reservation.ScheduledStartTime/EndTime được build từ playDate + TimeOnly → Kind=Unspecified,
+    // raw ticks đại diện giờ VN local (UTC+7).
+    // ActiveSession.StartedAt/EndedAt và Reservation.CreatedAt/UpdatedAt set bằng DateTime.UtcNow → Kind=Utc.
+    // PlayDate là DateOnly — ngày theo giờ VN.
+    //
+    // Dùng helpers này để đảm bảo so sánh đúng khi server chạy ở timezone khác VN (Linux container mặc định UTC).
+    /// <summary>Now (UTC) — so sánh với ActiveSession.StartedAt, CreatedAt, UpdatedAt.</summary>
+    private DateTime GetNowUtc() => _timeProvider.GetUtcNow().UtcDateTime;
+
+    /// <summary>Now (VN local, Kind=Unspecified) — so sánh với ScheduledStartTime/EndTime.</summary>
+    private DateTime GetNowLocal() => Core.Constants.CafeSchedule.ToVietnamLocal(GetNowUtc());
+
+    /// <summary>Today (VN local DateOnly) — so sánh với request.PlayDate.</summary>
+    private DateOnly GetTodayLocal() => DateOnly.FromDateTime(GetNowLocal());
+
     // ===== 21A.2 QUOTE =====
 
     public async Task<ReservationQuoteDto> CreateQuoteAsync(Guid hostId, ReservationQuoteRequestDto request, CancellationToken cancellationToken = default)
     {
-        var now = _timeProvider.GetUtcNow().UtcDateTime;
-        ValidatePlayDate(request.PlayDate, now);
+        // FIX TZ-RESV-03: ValidatePlayDate cần "today" theo giờ VN local.
+        var nowLocal = GetNowLocal();
+        ValidatePlayDate(request.PlayDate, nowLocal);
+        var now = GetNowUtc(); // UTC cho các bước còn lại (tương thích code cũ).
 
         // Validate preferredStartTime + preferredEndTime hợp lệ.
         var (timeValid, timeError) = CafeSchedule.ValidatePreferredTimeRange(
@@ -260,12 +280,19 @@ public class ReservationService : IReservationService
             RecruitmentDeadline = recruitmentDeadline,
             MinPlayers = request.MinPlayers,
             MaxPlayers = quote.MaxPlayersApplied,
+            CafeBasePriceVnd = quote.CafeBasePriceVnd,
+            DurationMinutes = (int)(scheduledEndTime - scheduledStartTime).TotalMinutes,
 #pragma warning disable CS0618 // Obsolete DTO fields kept for legacy FE compatibility
             DepositRatePerPerson = cafeConfig.DepositRatePerPerson,
             BaseDeposit = quote.BaseDeposit,
             RiskMultiplier = quote.RiskMultiplier,
             MinDepositApplied = quote.MinDepositApplied,
+            // hide loading "DepositPerPerson" giờ populate từ calculator (post-clamp + post-BR03).
+            DepositPerPerson = quote.DepositPerPerson,
+            // [2026-08-27 — đã bỏ hiển thị] % tính cọc; giữ field cho backward compat.
+            DepositPercentage = quote.DepositPercentage,
 #pragma warning restore CS0618
+            DepositUnit = "BVC",
             FinalDeposit = quote.FinalDeposit,
             CurrentBalance = wallet.AvailableBalance,
             MissingAmount = Math.Max(0, quote.FinalDeposit - wallet.AvailableBalance),
@@ -795,13 +822,23 @@ public class ReservationService : IReservationService
                 $"lobby-bound-{lobby.Id:N}");
 
             // 17. Update inventory counters.
-            seatInventory.HeldSeats += quote.MaxPlayersApplied;
-            seatInventory.UpdatedAt = now;
-            await _seatInventoryRepository.UpdateAsync(seatInventory);
+            // FIX 2026-10-02: dùng AdjustCountersAsync thay cho UpdateAsync để bypass EF tracker.
+            // UpdateAsync(entity) cũ đi qua SaveChangesAsync → UseXminAsConcurrencyToken check.
+            // Vì row load qua AsNoTracking, original xmin không capture → WHERE xmin = 0 → 0 rows
+            // affected → DbUpdateConcurrencyException (đã fail 3/3 retries trên Confirm).
+            // AdjustCountersAsync chạy raw UPDATE SET col = col + delta, race-free với FOR UPDATE
+            // đã acquire ở step trước (GetForUpdateAsync).
+            await _seatInventoryRepository.AdjustCountersAsync(
+                seatInventory.Id,
+                heldDelta: quote.MaxPlayersApplied,
+                inUseDelta: 0,
+                cancellationToken: cancellationToken);
 
-            gameInventory.HeldCopies += 1;
-            gameInventory.UpdatedAt = now;
-            await _gameInventoryRepository.UpdateAsync(gameInventory);
+            await _gameInventoryRepository.AdjustCountersAsync(
+                gameInventory.Id,
+                heldDelta: 1,
+                inUseDelta: 0,
+                cancellationToken: cancellationToken);
 
             // 18. Insert Host as first lobby member (BR-DEPOSIT-01).
             if (lobby.Status != LobbyStatus.PendingCafeApproval)
@@ -1080,7 +1117,7 @@ public class ReservationService : IReservationService
             }
 
             // GAP #12 fix: Lock inventory rows TRƯỚC khi tính refund để tránh race.
-            await ReleaseInventoriesAsync(reservation, now);
+            await ReleaseInventoriesAsync(reservation, now, default);
 
             // Tính refund policy (BR-REFUND-02/03).
             // H7 Fix: hasMembers phải check "có member khác host đã tham gia" chứ không phải tổng số row.
@@ -1522,7 +1559,7 @@ public class ReservationService : IReservationService
             var refundIdempotencyKey = $"cafe-reject-{reservation.Id:N}";
 
             // GAP #12 fix: Lock inventory rows trước khi refund.
-            await ReleaseInventoriesAsync(reservation, now);
+            await ReleaseInventoriesAsync(reservation, now, default);
 
             if (reservation.DepositAmount > 0)
             {
@@ -1682,7 +1719,7 @@ public class ReservationService : IReservationService
                 {
                     // Timeout → refund 100% BVC.
                     // GAP #12 fix: Lock inventory rows trước khi refund.
-                    await ReleaseInventoriesAsync(reservation, now);
+                    await ReleaseInventoriesAsync(reservation, now, default);
 
                     var refundIdempotencyKey = $"timeout-{reservation.Id:N}";
                     if (reservation.DepositAmount > 0)
@@ -1800,7 +1837,7 @@ public class ReservationService : IReservationService
             try
             {
                 // GAP #12 fix: Lock inventory rows trước khi refund.
-                await ReleaseInventoriesAsync(reservation, now);
+                await ReleaseInventoriesAsync(reservation, now, default);
 
                 var refundIdempotencyKey = $"cafe-expired-{reservation.Id:N}";
                 if (reservation.DepositAmount > 0)
@@ -2198,16 +2235,19 @@ public class ReservationService : IReservationService
             }
 
             // 7. Move seat: held → inUse.
-            seatInventory.HeldSeats -= reservation.MaxPlayers;
-            seatInventory.InUseSeats += reservation.MaxPlayers;
-            seatInventory.UpdatedAt = now;
-            await _seatInventoryRepository.UpdateAsync(seatInventory);
+            // FIX 2026-10-02: AdjustCountersAsync — bypass EF tracker, race-free.
+            await _seatInventoryRepository.AdjustCountersAsync(
+                seatInventory.Id,
+                heldDelta: -reservation.MaxPlayers,
+                inUseDelta: reservation.MaxPlayers,
+                cancellationToken: cancellationToken);
 
             // 8. Move game copy: held → inUse.
-            gameInventory.HeldCopies -= 1;
-            gameInventory.InUseCopies += 1;
-            gameInventory.UpdatedAt = now;
-            await _gameInventoryRepository.UpdateAsync(gameInventory);
+            await _gameInventoryRepository.AdjustCountersAsync(
+                gameInventory.Id,
+                heldDelta: -1,
+                inUseDelta: 1,
+                cancellationToken: cancellationToken);
 
             // 9. Update reservation.
             // FIX 2026-08-27: set CheckedInAt để downstream (CompleteAndCaptureAsync,
@@ -2292,15 +2332,15 @@ public class ReservationService : IReservationService
     /// GAP #2 fix: BR §21A.7 step 3 — "Thời gian nằm trong khung giờ cho phép".
     ///
     /// Time window:
-    /// - Early grace: scheduledTime - 15 phút (BR-CHECKIN-01: cho phép khách đến sớm).
+    /// - Early grace: scheduledTime - 30 phút (BR-CHECKIN-01: cho phép khách đến sớm).
     /// - Late grace: scheduledEndTime + 30 phút (BR-END-05: grace period, không tính extra).
     ///
     /// Trả 400 Bad Request qua ApiExceptionMiddleware nếu ngoài window.
     /// </summary>
     private async Task ValidateCheckInTimeWindowAsync(Reservation reservation, DateTime now)
     {
-        // BR-CHECKIN-01: Check-in trong [-15 min, +30 min] quanh [ScheduledStartTime, ScheduledEndTime].
-        const int EarlyGraceMinutes = 15;
+        // BR-CHECKIN-01: Check-in trong [-30 min, +30 min] quanh [ScheduledStartTime, ScheduledEndTime].
+        const int EarlyGraceMinutes = 30;
         const int LateGraceMinutes = 30;
 
         var scheduledStart = reservation.ScheduledStartTime;
@@ -2308,8 +2348,20 @@ public class ReservationService : IReservationService
         // BR-NEW-15: ResolveAsync takes (cafeId, playDate) without TimeSlot.
         var resolvedSchedule = await _scheduleResolver.ResolveAsync(reservation.CafeId, reservation.PlayDate);
 
-        var windowStart = scheduledStart.AddMinutes(-EarlyGraceMinutes);
-        var windowEnd = scheduledEnd.AddMinutes(LateGraceMinutes);
+        // FIX TZ-CHECKIN-01 (2026-10-02): `now` ở đây là UTC (Kind=Utc) từ
+        // _timeProvider.GetUtcNow().UtcDateTime. Còn scheduledStart/End được build từ
+        // playDate.ToDateTime(preferredStart) có Kind=Unspecified, raw ticks đại diện giờ VN
+        // local. Trên server UTC, C# treat Unspecified như Local (=UTC), làm hệ thống fail
+        // kiểm tra cửa sổ check-in cho user VN. Convert sang UTC trước khi so sánh.
+        var scheduledStartUtc = Core.Constants.CafeSchedule.ToUtcAssumingVietnamLocal(scheduledStart);
+        var scheduledEndUtc = Core.Constants.CafeSchedule.ToUtcAssumingVietnamLocal(scheduledEnd);
+        var windowStart = scheduledStartUtc.AddMinutes(-EarlyGraceMinutes);
+        var windowEnd = scheduledEndUtc.AddMinutes(LateGraceMinutes);
+
+        // Hiển thị window theo giờ VN để error message thân thiện với user.
+        var windowStartLocal = Core.Constants.CafeSchedule.ToVietnamLocal(windowStart);
+        var windowEndLocal = Core.Constants.CafeSchedule.ToVietnamLocal(windowEnd);
+        var scheduledStartDisplay = Core.Constants.CafeSchedule.ToVietnamLocal(scheduledStartUtc);
 
         var bypassCheckInWindow = await TimeWindowGuard.ShouldBypassAsync(
             _httpContextAccessor?.HttpContext, _configProvider, _logger,
@@ -2332,14 +2384,15 @@ public class ReservationService : IReservationService
         {
             throw new ConflictException(
                 ApiErrorMessages.Reservation.CheckInTimeWindowInvalid(
-                    reservation.Id, scheduledStart, windowStart, windowEnd));
+                    reservation.Id, scheduledStartDisplay, windowStartLocal, windowEndLocal));
         }
 
         if (now > windowEnd)
         {
+            var scheduledEndDisplay = Core.Constants.CafeSchedule.ToVietnamLocal(scheduledEndUtc);
             throw new ConflictException(
                 ApiErrorMessages.Reservation.CheckInTimeWindowLate(
-                    reservation.Id, scheduledEnd, windowEnd));
+                    reservation.Id, scheduledEndDisplay, windowEndLocal));
         }
     }
 
@@ -2447,6 +2500,15 @@ public class ReservationService : IReservationService
 
     private static void ValidatePlayDate(DateOnly playDate, DateTime now)
     {
+        // FIX TZ-RESV-02 (2026-10-02): `today` phải theo giờ VN local, không phải UTC.
+        // Trước đây dùng `DateOnly.FromDateTime(now.Date)` trực tiếp từ `DateTime.UtcNow` —
+        // trên server UTC, nếu user tạo reservation lúc 00:30-07:00 giờ VN (= 17:30-24:00 UTC hôm trước),
+        // hệ thống tính `today` theo UTC nên lùi 1 ngày so với user. Ví dụ: user tạo ngày 02/10 16:00 UTC
+        // (= 02/10 23:00 VN) → today UTC = 02/10, today VN = 02/10 — OK. Nhưng user tạo 02/10 17:30 UTC
+        // (= 02/10 00:30 VN ngày 03) → today UTC = 02/10, today VN = 03/10 → user không thể tạo playDate
+        // cho "hôm nay VN" vì today VN > playDate. Ngược lại, nếu `now` được convert VN local trước khi
+        // gọi hàm này (xem callers), `today` luôn đúng.
+        // Caller PHẢI truyền `now` = VN local (Kind=Unspecified) từ GetNowLocal().
         var today = DateOnly.FromDateTime(now.Date);
         var maxDate = today.AddDays(MaxAdvanceBookingDays);
         if (playDate < today || playDate > maxDate)
@@ -2535,7 +2597,10 @@ public class ReservationService : IReservationService
             return ("Grace-15p-NoMember", 1.0m);
         }
 
-        var hoursUntilPlay = (scheduledTime - now).TotalHours;
+        // FIX TZ-RESV-05 (2026-10-02): scheduledTime là Unspecified VN local, now là UTC.
+        // Convert scheduledTime sang UTC trước khi tính hoursUntilPlay để tránh sai lệch 7 giờ.
+        var scheduledUtc = Core.Constants.CafeSchedule.ToUtcAssumingVietnamLocal(scheduledTime);
+        var hoursUntilPlay = (scheduledUtc - now).TotalHours;
 
         // BR-REFUND-02.
         if (hoursUntilPlay >= 24)
@@ -2559,16 +2624,20 @@ public class ReservationService : IReservationService
     ///
     /// Caller PHẢI đang trong một transaction (Serializable hoặc RepeatableRead).
     /// </summary>
-    private async Task ReleaseInventoriesAsync(Reservation reservation, DateTime now)
+    private async Task ReleaseInventoriesAsync(Reservation reservation, DateTime now, CancellationToken ct)
     {
         if (reservation.SeatInventoryId != null)
         {
             var seatInv = await _seatInventoryRepository.GetByIdForUpdateAsync(reservation.SeatInventoryId.Value);
             if (seatInv != null)
             {
-                seatInv.HeldSeats = Math.Max(0, seatInv.HeldSeats - reservation.MaxPlayers);
-                seatInv.UpdatedAt = now;
-                await _seatInventoryRepository.UpdateAsync(seatInv);
+                // FIX 2026-10-02: AdjustCountersAsync với GREATEST(0, ...) thay cho
+                // Math.Max(0, ...) ở C#. Race-free vì FOR UPDATE đã acquire ở GetByIdForUpdateAsync.
+                await _seatInventoryRepository.AdjustCountersAsync(
+                    seatInv.Id,
+                    heldDelta: -reservation.MaxPlayers,
+                    inUseDelta: 0,
+                    cancellationToken: ct);
             }
         }
 
@@ -2577,9 +2646,11 @@ public class ReservationService : IReservationService
             var gameInv = await _gameInventoryRepository.GetByIdForUpdateAsync(reservation.GameInventoryId.Value);
             if (gameInv != null)
             {
-                gameInv.HeldCopies = Math.Max(0, gameInv.HeldCopies - 1);
-                gameInv.UpdatedAt = now;
-                await _gameInventoryRepository.UpdateAsync(gameInv);
+                await _gameInventoryRepository.AdjustCountersAsync(
+                    gameInv.Id,
+                    heldDelta: -1,
+                    inUseDelta: 0,
+                    cancellationToken: ct);
             }
         }
     }
@@ -2752,6 +2823,255 @@ public class ReservationService : IReservationService
                 "TriggerKarmaAggregationAsync failed cho LobbyId={LobbyId}, ActiveSessionId={ActiveSessionId}. " +
                 "Capture BVC vẫn thành công nhưng Karma aggregation bị skip — cần re-run thủ công.",
                 lobbyId, activeSessionId);
+        }
+    }
+
+    /// <summary>
+    /// M1 / BR-DEPOSIT-05 / BR-15 modified: Áp Host Deposit Discount thay cho BR-09 capture 100%.
+    /// Capture phần discount + release phần remainder về host wallet.
+    /// docs/design/host-deposit-discount-and-bvc-payment-design.md §B2.4 + §A6.
+    /// </summary>
+    public async Task ApplyHostDepositDiscountAndCaptureAsync(
+        Guid reservationId,
+        Guid lobbyId,
+        Guid activeSessionId,
+        HostDepositUsageMode hostDepositUsage,
+        long totalDiscountApplied,
+        DateTime payTime,
+        CancellationToken ct = default)
+    {
+        if (totalDiscountApplied <= 0)
+        {
+            _logger.LogWarning(
+                "ApplyHostDepositDiscountAndCaptureAsync: totalDiscountApplied=0, skip. ReservationId={ReservationId}",
+                reservationId);
+            return;
+        }
+
+        var reservation = await _reservationRepository.GetByIdAsync(reservationId, includeRelations: false, ct)
+            ?? throw new NotFoundException(
+                ApiErrorMessages.Reservation.NotFound(reservationId));
+
+        if (reservation.Status == ReservationStatus.Completed)
+        {
+            _logger.LogInformation(
+                "ApplyHostDepositDiscountAndCaptureAsync: Reservation {ReservationId} đã Completed → idempotent skip.",
+                reservationId);
+            return;
+        }
+
+        // Validate reservation status (whitelist tương tự IsReservationEligibleForDiscount).
+        var eligibleStatuses = new[]
+        {
+            ReservationStatus.Holding,
+            ReservationStatus.Confirmed,
+            ReservationStatus.CheckedIn,
+            ReservationStatus.InProgress
+        };
+
+        if (!eligibleStatuses.Contains(reservation.Status))
+        {
+            throw new ConflictException(
+                ApiErrorMessages.Reservation.CompleteCaptureInvalidStatus(reservation.Id, reservation.Status));
+        }
+
+        const int maxRetries = 3;
+        for (var attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                await ExecuteDiscountCaptureTransactionAsync(
+                    reservation,
+                    activeSessionId,
+                    hostDepositUsage,
+                    totalDiscountApplied,
+                    payTime,
+                    ct);
+
+                // Karma aggregation + settlement giống flow cũ (try/catch riêng, không block capture).
+                await TriggerKarmaAggregationAsync(lobbyId, activeSessionId, ct);
+                await TriggerSettlementTransferAsync(reservation, activeSessionId, ct);
+                return;
+            }
+            catch (DbUpdateException dbx) when (IsSerializationFailure(dbx) && attempt < maxRetries)
+            {
+                _logger.LogWarning(
+                    "ApplyHostDepositDiscountAndCaptureAsync: serialization failure attempt {Attempt}/{Max}. ReservationId={ReservationId}",
+                    attempt, maxRetries, reservationId);
+
+                _db.ChangeTracker.Clear();
+                reservation = await _reservationRepository.GetByIdAsync(reservationId, includeRelations: false, ct)
+                    ?? throw new InternalServerErrorException(
+                        ApiErrorMessages.Reservation.NotFound(reservationId));
+            }
+        }
+
+        throw new InternalServerErrorException(
+            ApiErrorMessages.System.BvcCaptureRetryExhausted(lobbyId, maxRetries));
+    }
+
+    /// <summary>
+    /// Inner transaction cho <see cref="ApplyHostDepositDiscountAndCaptureAsync"/>.
+    /// Tương tự <see cref="ExecuteCompleteAndCaptureTransactionAsync"/> nhưng:
+    ///   - Capture = totalDiscountApplied (KHÔNG capture theo playedRatio).
+    ///   - Release remainder = DepositAmount - totalDiscountApplied về host wallet.
+    ///   - Reservation snapshot: HostDepositUsageSnapshot + DiscountAppliedAmount + DiscountAuditTrail JSON.
+    /// </summary>
+    private async Task ExecuteDiscountCaptureTransactionAsync(
+        Reservation reservation,
+        Guid activeSessionId,
+        HostDepositUsageMode hostDepositUsage,
+        long totalDiscountApplied,
+        DateTime payTime,
+        CancellationToken ct)
+    {
+        var (ownedTx, tx) = await BeginTransactionIfNeededAsync(ct);
+        try
+        {
+            // 1. Lock + validate seat inventory (giống flow cũ).
+            SeatInventory? seatInventory;
+            if (reservation.SeatInventoryId.HasValue)
+            {
+                seatInventory = await _seatInventoryRepository.GetByIdForUpdateAsync(reservation.SeatInventoryId.Value);
+            }
+            else
+            {
+                seatInventory = await _seatInventoryRepository.GetForUpdateAsync(
+                    reservation.CafeId, reservation.PlayDate,
+                    TimeOnly.FromDateTime(reservation.ScheduledStartTime),
+                    TimeOnly.FromDateTime(reservation.ScheduledEndTime));
+            }
+            if (seatInventory == null)
+            {
+                throw new ConflictException(
+                    ApiErrorMessages.System.SeatInventoryMissingForReservation(
+                        reservation.CafeId, reservation.PlayDate,
+                        $"{reservation.ScheduledStartTime:HH:mm}-{reservation.ScheduledEndTime:HH:mm}"));
+            }
+
+            GameInventory? gameInventory;
+            if (reservation.GameInventoryId.HasValue)
+            {
+                gameInventory = await _gameInventoryRepository.GetByIdForUpdateAsync(reservation.GameInventoryId.Value);
+            }
+            else
+            {
+                gameInventory = await _gameInventoryRepository.GetForUpdateAsync(
+                    reservation.CafeId, reservation.GameId, reservation.PlayDate,
+                    TimeOnly.FromDateTime(reservation.ScheduledStartTime),
+                    TimeOnly.FromDateTime(reservation.ScheduledEndTime));
+            }
+            if (gameInventory == null)
+            {
+                throw new ConflictException(
+                    ApiErrorMessages.System.GameInventoryMissingForReservation(
+                        reservation.CafeId, reservation.PlayDate,
+                        $"{reservation.ScheduledStartTime:HH:mm}-{reservation.ScheduledEndTime:HH:mm}"));
+            }
+
+            if (seatInventory.InUseSeats < reservation.MaxPlayers)
+            {
+                throw new ConflictException(
+                    ApiErrorMessages.Reservation.SeatInventoryStateInvalidOnCapture(seatInventory.InUseSeats, reservation.MaxPlayers));
+            }
+
+            if (gameInventory.InUseCopies < 1)
+            {
+                throw new ConflictException(ApiErrorMessages.Reservation.GameInventoryStateInvalidOnCapture);
+            }
+
+            // 2. Release seat + game inventory.
+            // FIX 2026-10-02: AdjustCountersAsync — bypass EF tracker.
+            await _seatInventoryRepository.AdjustCountersAsync(
+                seatInventory.Id,
+                heldDelta: 0,
+                inUseDelta: -reservation.MaxPlayers,
+                cancellationToken: ct);
+
+            await _gameInventoryRepository.AdjustCountersAsync(
+                gameInventory.Id,
+                heldDelta: 0,
+                inUseDelta: -1,
+                cancellationToken: ct);
+
+            // 3. Update reservation → Completed + snapshot fields.
+            reservation.Status = ReservationStatus.Completed;
+            reservation.ActualEndAt = payTime;
+            var scheduledMinutes = (int)(reservation.ScheduledEndTime - reservation.ScheduledStartTime).TotalMinutes;
+            var checkedInAt = reservation.CheckedInAt ?? reservation.ScheduledStartTime;
+            var playedMinutes = Math.Max(0, (decimal)(payTime - checkedInAt).TotalMinutes);
+            reservation.PlayedRatio = scheduledMinutes > 0
+                ? Math.Max(0m, Math.Min(1m, playedMinutes / scheduledMinutes))
+                : 0m;
+            reservation.EndReason = reservation.PlayedRatio >= 0.9m
+                ? SessionEndReason.OnTime
+                : SessionEndReason.EarlyLeave;
+
+            // M1: Host Deposit Discount snapshot fields
+            reservation.HostDepositUsageSnapshot = hostDepositUsage.ToString();
+            reservation.DiscountAppliedAmount = totalDiscountApplied;
+            reservation.UpdatedAt = payTime;
+            reservation.DiscountAuditTrail = JsonSerializer.Serialize(new
+            {
+                appliedAt = payTime,
+                appliedAmount = totalDiscountApplied,
+                hostDepositUsage = hostDepositUsage.ToString(),
+                depositAmount = reservation.DepositAmount,
+                remainingToRefund = Math.Max(0, reservation.DepositAmount - totalDiscountApplied)
+            });
+
+            await _reservationRepository.UpdateAsync(reservation);
+
+            // 4. Update lobby → Closed.
+            var lobby = await _lobbyRepository.GetByIdAsync(reservation.LobbyId ?? Guid.Empty);
+            if (lobby != null)
+            {
+                lobby.Status = LobbyStatus.Closed;
+                lobby.ClosedAt = payTime;
+                lobby.UpdatedAt = payTime;
+                MarkLobbyMembersInactive(lobby, payTime);
+                await _lobbyRepository.UpdateAsync(lobby);
+            }
+
+            // 5. Capture discount + release remainder (idempotent qua deterministic key).
+            //    M1 Phase 2: discount flow supersede BR-09 capture 100% theo playedRatio.
+            var captureKey = $"capture-discount-{reservation.Id:N}";
+            await _walletService.CaptureDepositAsync(
+                reservation.HostId,
+                totalDiscountApplied,
+                lobby?.Id,
+                reservation.Id,
+                captureKey,
+                ct);
+
+            var remainder = reservation.DepositAmount - totalDiscountApplied;
+            if (remainder > 0)
+            {
+                var releaseKey = $"release-remainder-{reservation.Id:N}";
+                await _walletService.ReleaseDepositAsync(
+                    reservation.HostId,
+                    remainder,
+                    lobby?.Id,
+                    reservation.Id,
+                    releaseKey,
+                    ct);
+            }
+
+            if (tx != null) await tx.CommitAsync(ct);
+
+            _logger.LogInformation(
+                "M1 Host Deposit Discount applied: ReservationId={ReservationId}, Mode={Mode}, " +
+                "TotalDiscount={Discount}BVC, RemainderReleased={Remainder}BVC, DepositAmount={Deposit}BVC",
+                reservation.Id, hostDepositUsage, totalDiscountApplied, remainder, reservation.DepositAmount);
+        }
+        catch
+        {
+            if (tx != null) await tx.RollbackAsync(ct);
+            throw;
+        }
+        finally
+        {
+            if (tx != null) await tx.DisposeAsync();
         }
     }
 
@@ -3383,14 +3703,19 @@ public class ReservationService : IReservationService
             }
 
             // 3. Move seat: inUse → Available.
-            seatInventory.InUseSeats -= reservation.MaxPlayers;
-            seatInventory.UpdatedAt = now;
-            await _seatInventoryRepository.UpdateAsync(seatInventory);
+            // FIX 2026-10-02: AdjustCountersAsync — bypass EF tracker.
+            await _seatInventoryRepository.AdjustCountersAsync(
+                seatInventory.Id,
+                heldDelta: 0,
+                inUseDelta: -reservation.MaxPlayers,
+                cancellationToken: ct);
 
             // 4. Move game copy: inUse → Available.
-            gameInventory.InUseCopies -= 1;
-            gameInventory.UpdatedAt = now;
-            await _gameInventoryRepository.UpdateAsync(gameInventory);
+            await _gameInventoryRepository.AdjustCountersAsync(
+                gameInventory.Id,
+                heldDelta: 0,
+                inUseDelta: -1,
+                cancellationToken: ct);
 
             // 5. Update reservation → Completed + compute lifecycle metadata.
             // FIX 2026-08-27: phải set ActualEndAt / CheckedInAt / PlayedRatio / EndReason
@@ -3776,7 +4101,7 @@ public class ReservationService : IReservationService
     /// </summary>
     /// <param name="scheduledStartTime">Thời gian bắt đầu dự kiến.</param>
     /// <param name="scheduledEndTime">Thời gian kết thúc dự kiến.</param>
-    /// <param name="now">Thời điểm hiện tại (UTC) để so sánh.</param>
+    /// <param name="now">Thời điểm hiện tại (UTC) để so sánh với <paramref name="scheduledStartTime"/>.</param>
     /// <param name="maxHours">Thời lượng tối đa cho phép (mặc định 12 giờ).</param>
     /// <param name="minMinutes">Thời lượng tối thiểu cho phép (mặc định 30 phút).</param>
     internal static void ValidateReservationTimeWindow(
@@ -3804,7 +4129,11 @@ public class ReservationService : IReservationService
         }
 
         // G11 fix: scheduledStartTime phải trong tương lai.
-        if (scheduledStartTime <= now)
+        // FIX TZ-RESV-04 (2026-10-02): scheduledStartTime là Unspecified VN local raw, còn `now`
+        // là UTC. Convert scheduledStartTime sang UTC trước khi so sánh để tránh sai lệch 7 giờ
+        // khi server ở timezone không phải VN (container Linux mặc định UTC).
+        var scheduledStartUtc = Core.Constants.CafeSchedule.ToUtcAssumingVietnamLocal(scheduledStartTime);
+        if (scheduledStartUtc <= now)
         {
             throw new BadRequestException(ApiErrorMessages.Reservation.StartTimeInPast);
         }

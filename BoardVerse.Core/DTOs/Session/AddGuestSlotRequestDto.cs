@@ -25,5 +25,17 @@ namespace BoardVerse.Core.DTOs.Session
         /// </summary>
         [StringLength(20, ErrorMessage = "Số điện thoại không được dài quá 20 ký tự.")]
         public string? PhoneNumber { get; set; }
+
+        /// <summary>
+        /// BR-13 (revised 2026-10-01) Permanent fix:
+        /// Staff đánh dấu khách vô danh này là "khách đầu nhóm" (primary customer / host của lobby walk-in).
+        /// Khi true:
+        ///   - Service set <c>ActiveSessionMember.IsHost = true</c> cho member vừa thêm.
+        ///   - <c>MapSession.ResolveHostDisplayName</c> sẽ hiển thị <c>DisplayName</c> thay vì "Khách vãng lai".
+        ///   - Lobby.HostUserId giữ nguyên = staff (FK an toàn cho 30+ chỗ đang đọc HostUserId);
+        ///     audit field <c>ActiveSession.StartedByStaffId</c> vẫn trỏ về staff thật.
+        /// Chỉ cho phép khi chưa có primary customer nào trong session (mỗi session 1 host duy nhất).
+        /// </summary>
+        public bool DesignateAsHost { get; set; } = false;
     }
 }

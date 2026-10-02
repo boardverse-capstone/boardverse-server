@@ -101,26 +101,29 @@ public class ReservationQuoteDto
     public decimal DepositPercentage { get; set; }
 
     /// <summary>
-    /// [2026-08-27 — đã bỏ hiển thị] BVC cọc/người = round(20% × cafeBasePrice / 1000), floor ≥ 1.
-    /// Backend không trả FE nữa — FE hiển thị chỉ dựa trên FinalDeposit + CafeBasePriceVnd.
+    /// BR-DEPOSIT-02/03: BVC cọc / người sau khi áp clamp [Min, Max] và BR-03 cap.
     /// </summary>
-    [Obsolete("FE không hiển thị DepositPerPerson nữa. Field giữ default = 0 cho backward compat.")]
     public long DepositPerPerson { get; set; }
 
-    /// <summary>Deprecated — không dùng trong flow mới.</summary>
-    [Obsolete("Field cũ từ BR-DEPOSIT-02 (ratePerPerson). FE không dùng.")]
+    /// <summary>
+    /// BR-DEPOSIT-02: BVC cọc / người (raw từ cafeConfig.DepositRatePerPerson, CHƯA clamp).
+    /// Dùng để FE hiển thị "Phí cọc: X BVC/người × maxPlayers người = Total".
+    /// </summary>
     public long DepositRatePerPerson { get; set; }
 
-    /// <summary>Deprecated — không dùng trong flow mới.</summary>
-    [Obsolete("Field cũ từ BR-DEPOSIT-02 (baseDeposit). FE không dùng.")]
+    /// <summary>
+    /// BR-DEPOSIT-02: baseDeposit = DepositRatePerPerson × maxPlayers (chưa áp riskMultiplier / min cap).
+    /// </summary>
     public long BaseDeposit { get; set; }
 
-    /// <summary>Deprecated — riskMultiplier hiện áp dụng nội bộ, không trả FE.</summary>
-    [Obsolete("RiskMultiplier hiện áp dụng nội bộ trong calculator. FE không cần biết.")]
+    /// <summary>
+    /// BR-DEPOSIT-04/BR-NEW-10: riskMultiplier từ wallet (1.0..2.0; cooling-off ×2).
+    /// </summary>
     public decimal RiskMultiplier { get; set; }
 
-    /// <summary>Deprecated — BR-NEW-01 không còn dùng với formula mới.</summary>
-    [Obsolete("BR-NEW-01 không còn áp dụng với formula 20% × BasePrice. Field giữ default = 0.")]
+    /// <summary>
+    /// BR-NEW-01: minimum deposit theo khoảng cách playDate (BVC). finalDeposit sẽ là max(MinDepositApplied, BaseDeposit × RiskMultiplier).
+    /// </summary>
     public long MinDepositApplied { get; set; }
 
     /// <summary>

@@ -1,4 +1,5 @@
-﻿using BoardVerse.Core.Entities;
+﻿using BoardVerse.Core.Constants;
+using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.Helpers;
@@ -77,10 +78,18 @@ public class ReservationNoShowDetectionJob : BackgroundService
         }
 
         var now = DateTime.UtcNow;
-        var cutoff = now.AddMinutes(-30); // BR-CHECKIN-02: grace 30 phút
+        // FIX TZ-NOSHOW-01 (2026-10-02): Reservation.ScheduledStartTime là Unspecified VN local raw,
+        // còn `now` là UTC. Trên server UTC, nếu chỉ so sánh trực tiếp, query chỉ match khi
+        // raw ticks của ScheduledStartTime < cutoff UTC. Vì ScheduledStartTime được build từ
+        // playDate + TimeOnly VN (raw ticks đại diện giờ VN local) còn cutoff là UTC → off by 7h.
+        // VD: cutoff = 08:13 UTC (= 15:13 VN). Reservation playDate=02/10, scheduledStart=16:00 VN
+        // raw ticks = 09:00 UTC khi interpret như UTC. 09:00Z < 08:13Z → false → KHÔNG match.
+        // → No-show detection KHÔNG trigger cho user VN.
+        // Fix: convert cutoff sang VN local (Kind=Unspecified) để match với ScheduledStartTime cùng Kind.
+        var cutoff = CafeSchedule.ToVietnamLocal(now).AddMinutes(-30); // BR-CHECKIN-02: grace 30 phút
 
-        // Query: Status = Confirmed AND ScheduledStartTime < (now - 30min)
-        // Sử dụng index IX_Reservations_ScheduledStartTime_Status
+        // Query: Status = Confirmed AND ScheduledStartTime < cutoffLocal
+        // Sử dụng index IX_Reservations_ScheduledStartTime_Status.
         var noShowCandidates = await reservationRepo.GetNoShowCandidatesAsync(cutoff, ct);
 
         if (noShowCandidates.Count == 0)
@@ -122,9 +131,46 @@ public class ReservationNoShowDetectionJob : BackgroundService
             .Include(r => r.Lobby)
             .ToListAsync(ct);
 
+        // Step 2b: GAP-NOSHOW-LOBBY-STATUS Fix (2026-10-02) — atomic flip Lobby.Status
+        // từ các trạng thái chờ check-in (Open/Full/Viable/WaitingCheckIn) → TimeoutFailed.
+        // Lý do: docs/time-slot-fixed-end-design.md §4.7 bước 2 yêu cầu "UPDATE Lobby.Status = TimeoutFailed"
+        // khi reservation chuyển sang NoShow. Trước fix này, lobby vẫn giữ `WaitingCheckIn` → mobile app
+        // hiển thị lobby đang chờ check-in mặc dù reservation backend đã NoShow → inconsistent state.
+        // Cũng dùng ExecuteUpdateAsync WHERE Status IN (...) để cluster-safe: nếu 2 instance
+        // cùng pick 1 batch, chỉ 1 flip được cho mỗi row (Postgres MVCC đảm bảo).
+        var lobbyIds = flippedReservations
+            .Where(r => r.LobbyId.HasValue)
+            .Select(r => r.LobbyId!.Value)
+            .Distinct()
+            .ToList();
+
+        var flippedLobbyCount = 0;
+        if (lobbyIds.Count > 0)
+        {
+            // Các lobby status mà NoShow có thể transition: Open, Full, Viable, WaitingCheckIn.
+            // KHÔNG touch terminal statuses (Closed, Cancelled, InProgress, ...).
+            var activeStatuses = new[]
+            {
+                LobbyStatus.Open.ToString(),
+                LobbyStatus.Full.ToString(),
+                LobbyStatus.Viable.ToString(),
+                LobbyStatus.WaitingCheckIn.ToString()
+            };
+            var closedReasonNoShow = $"Reservation NoShow lúc {now:HH:mm dd/MM/yyyy} (quá 30 phút sau ScheduledStartTime).";
+
+            flippedLobbyCount = await db.Lobbies
+                .Where(l => lobbyIds.Contains(l.Id) && activeStatuses.Contains(l.Status.ToString()))
+                .ExecuteUpdateAsync(l => l
+                    .SetProperty(x => x.Status, LobbyStatus.TimeoutFailed)
+                    .SetProperty(x => x.ClosedAt, (DateTime?)now)
+                    .SetProperty(x => x.ClosedReason, closedReasonNoShow)
+                    .SetProperty(x => x.UpdatedAt, now),
+                    ct);
+        }
+
         _logger.LogInformation(
-            "ReservationNoShowDetectionJob: atomic-flipped {Flipped} reservations (from {Candidate} candidates); processing side effects.",
-            flippedCount, noShowCandidates.Count);
+            "ReservationNoShowDetectionJob: atomic-flipped {Flipped} reservations + {LobbyCount} lobbies (from {Candidate} candidates); processing side effects.",
+            flippedCount, flippedLobbyCount, noShowCandidates.Count);
 
         foreach (var reservation in flippedReservations)
         {
@@ -217,7 +263,9 @@ public class ReservationNoShowDetectionJob : BackgroundService
                 reservation.Id, reservation.HostId);
         }
 
-        // 5. Outbox event
+        // 5. Outbox event cho Reservation NoShow (host wallet, ledger forfeit, walk-in window).
+        //    RealOutboxPublisher chưa có handler cho ReservationNoShow (enum=14) — chỉ log
+        //    warning default. SignalR + push cho host sẽ được gửi qua event LobbyNoShow bên dưới.
         var payload = System.Text.Json.JsonSerializer.Serialize(new
         {
             reservationId = reservation.Id,
@@ -240,9 +288,41 @@ public class ReservationNoShowDetectionJob : BackgroundService
             CreatedAt = now
         });
 
+        // 6. Outbox event cho Lobby cancellation (SignalR + push tới members).
+        //    GAP-NOSHOW-LOBBY-STATUS Fix (2026-10-02): gửi kèm `LobbyNoShow` để:
+        //      - NotifyLobbyCancelled broadcast tới SignalR group `lobby:{lobbyId}` (mobile app
+        //        tự động refresh lobby status → TimeoutFailed thay vì WaitingCheckIn).
+        //      - Push FCM tới host "No-show được ghi nhận" (giống flow LobbyCancelledByHost).
+        //    Idempotency key `lobby-noshow-{reservation.Id:N}` khác với forfeit key để tránh
+        //    dedup collision (cùng reservation nhưng 2 loại event khác nhau).
+        if (reservation.LobbyId.HasValue)
+        {
+            var lobbyPayload = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                reservationId = reservation.Id,
+                lobbyId = reservation.LobbyId.Value,
+                cafeId = reservation.CafeId,
+                hostId = reservation.HostId,
+                reason = "ReservationNoShow",
+                noShowAt = now
+            });
+
+            await outboxRepo.AddAsync(new OutboxEvent
+            {
+                Id = Guid.NewGuid(),
+                EventType = OutboxEventType.LobbyNoShow,
+                Payload = lobbyPayload,
+                IdempotencyKey = $"lobby-noshow-{reservation.Id:N}",
+                LobbyId = reservation.LobbyId.Value,
+                ReservationId = reservation.Id,
+                UserId = reservation.HostId,
+                CreatedAt = now
+            });
+        }
+
         _logger.LogInformation(
-            "Reservation {Id} marked as NoShow. Forfeited {Bvc} BVC",
-            reservation.Id, reservation.DepositAmount);
+            "Reservation {Id} marked as NoShow. Forfeited {Bvc} BVC. Lobby {LobbyId} → TimeoutFailed.",
+            reservation.Id, reservation.DepositAmount, reservation.LobbyId);
     }
 
     private async Task ReleaseInventoryAsync(Reservation reservation, DateTime now, CancellationToken ct)
@@ -257,9 +337,12 @@ public class ReservationNoShowDetectionJob : BackgroundService
         var seatInv = await seatInvRepo.GetAsync(reservation.CafeId, reservation.PlayDate, startTime, endTime);
         if (seatInv != null)
         {
-            seatInv.HeldSeats = Math.Max(0, seatInv.HeldSeats - reservation.MaxPlayers);
-            seatInv.UpdatedAt = now;
-            await seatInvRepo.UpdateAsync(seatInv);
+            // FIX 2026-10-02: AdjustCountersAsync — bypass EF tracker.
+            await seatInvRepo.AdjustCountersAsync(
+                seatInv.Id,
+                heldDelta: -reservation.MaxPlayers,
+                inUseDelta: 0,
+                cancellationToken: ct);
         }
 
         // Release game copy: use (cafeId, gameId, playDate, startTime, endTime)
@@ -267,9 +350,11 @@ public class ReservationNoShowDetectionJob : BackgroundService
             reservation.CafeId, reservation.GameId, reservation.PlayDate, startTime, endTime);
         if (gameInv != null)
         {
-            gameInv.HeldCopies = Math.Max(0, gameInv.HeldCopies - 1);
-            gameInv.UpdatedAt = now;
-            await gameInvRepo.UpdateAsync(gameInv);
+            await gameInvRepo.AdjustCountersAsync(
+                gameInv.Id,
+                heldDelta: -1,
+                inUseDelta: 0,
+                cancellationToken: ct);
         }
     }
 }

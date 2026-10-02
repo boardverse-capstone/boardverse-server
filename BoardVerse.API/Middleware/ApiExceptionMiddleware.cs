@@ -75,12 +75,27 @@ namespace BoardVerse.API.Middleware
                         topUpAction = "POST /api/v1/wallet/topup"
                     };
                 }
+                // BR-EXCEPTION-4 fix (2026-10-02): Khi ghép lobby vượt sức chứa ghế của quán,
+                // gửi kèm numbers (targetActiveMembers, sourceActiveMembers, targetSeatCapacity,
+                // combinedCount) để client/UI hiển thị thông báo cụ thể + suggest action.
+                else if (ex is InsufficientSeatsForMergeException seatsEx)
+                {
+                    data = new
+                    {
+                        targetActiveMembers = seatsEx.TargetActiveMembers,
+                        sourceActiveMembers = seatsEx.SourceActiveMembers,
+                        targetSeatCapacity = seatsEx.TargetSeatCapacity,
+                        combinedCount = seatsEx.CombinedCount,
+                        exceedBy = seatsEx.CombinedCount - seatsEx.TargetSeatCapacity
+                    };
+                }
 
                 var response = new ApiResponse
                 {
                     StatusCode = ex.StatusCode,
                     Message = ex.Message,
                     Data = data,
+                    ErrorCode = ex.ErrorCode,
                     Timestamp = DateTime.UtcNow,
                     Path = context.Request.Path.Value ?? string.Empty
                 };

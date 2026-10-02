@@ -84,15 +84,15 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
-        /// Đồng bộ sơ đồ bàn — tạo mới, cập nhật hoặc xóa bàn. Hỗ trợ 2 shape:
-        /// 1. Legacy: { "tableNames": ["Bàn 1", "Bàn 2"] } — chỉ tên, SeatCount giữ nguyên / default 4.
-        /// 2. Mới: { "tables": [{ "name": "Bàn 1", "seatCount": 8, "sortOrder": 0 }] } — đầy đủ Name + SeatCount + SortOrder.
-        /// Không gửi cả 2 cùng lúc. [Role: Manager — chủ quán]
+        /// Đồng bộ sơ đồ bàn — tạo mới, cập nhật hoặc xóa bàn.
+        /// Shape duy nhất: <c>tables: [{ name, seatCount, sortOrder }]</c>.
+        /// seatCount và sortOrder là optional — null giữ nguyên DB (SeatCount) hoặc auto-append (SortOrder).
+        /// [Role: Manager — chủ quán]
         /// </summary>
         /// <param name="cafeId">Mã định danh quán cafe.</param>
-        /// <param name="request">Danh sách bàn muốn đồng bộ (1 trong 2 shape).</param>
+        /// <param name="request">Danh sách bàn muốn đồng bộ.</param>
         /// <response code="200">Đồng bộ thành công, trả danh sách bàn hiện tại.</response>
-        /// <response code="400">Payload rỗng, gửi cả 2 shape, hoặc seatCount/sortOrder ngoài range.</response>
+        /// <response code="400">Payload rỗng, hoặc seatCount/sortOrder ngoài range.</response>
         /// <response code="401">Thiếu token.</response>
         /// <response code="403">Không phải Manager chủ quán.</response>
         /// <response code="404">Quán không tồn tại.</response>
@@ -105,28 +105,13 @@ namespace BoardVerse.API.Controllers
                 return this.NewResponse(400, ApiErrorMessages.System.ReservationInvalidRequest, null);
             }
 
-            var hasLegacy = request.TableNames != null && request.TableNames.Count > 0;
-            var hasNew = request.Tables != null && request.Tables.Count > 0;
-
-            if (hasLegacy && hasNew)
+            if (request.Tables == null || request.Tables.Count == 0)
             {
-                return this.NewResponse(400, ApiErrorMessages.System.ReservationOnlyOneOfTableNamesOrTables, null);
+                return this.NewResponse(400, ApiErrorMessages.System.ReservationInvalidTableConfig("Danh sách bàn không được rỗng"), null);
             }
 
-            if (!hasLegacy && !hasNew)
-            {
-                return this.NewResponse(400, ApiErrorMessages.System.ReservationInvalidTableConfig("Thiếu tableNames và tables"), null);
-            }
             var managerId = GetUserIdFromClaims();
-
-            if (hasNew)
-            {
-                await _posService.SyncTablesAsync(cafeId, managerId, request.Tables!);
-            }
-            else
-            {
-                await _posService.SyncTablesAsync(cafeId, managerId, request.TableNames!);
-            }
+            await _posService.SyncTablesAsync(cafeId, managerId, request.Tables);
 
             // Sync endpoint trả về TOÀN BỘ bàn (kể cả InUse/Reserved) để manager thấy đúng sơ đồ mới sync.
             // Filter available chỉ áp dụng cho màn hình POS monitor (GET /pos/tables) — không dùng cho sync response.
@@ -366,7 +351,7 @@ public async Task<IActionResult> GetPaidSessions(
         /// <param name="lobbyStatusFilter">CSV <c>LobbyStatus</c>. Null = không filter.
         /// Ví dụ: <c>?lobbyStatusFilter=Open,Viable,PendingCafeApproval</c>.</param>
         /// <param name="includeCancelled">True = nếu FE không truyền <paramref name="statuses"/>,
-        /// default filter sẽ gộp thêm <c>Expired, CancelledByPlayer, CancelledByCafe, NoShow</c>.</param>
+        /// default filter sẽ gộp thêm <c>Expired, AbsorbedByMerge, CancelledByPlayer, CancelledByCafe, NoShow</c> (BR-MERGE-01).</param>
         /// <param name="sortBy">0 = scheduledStartTime (default), 1 = createdAt, 2 = playDate.</param>
         /// <param name="sortDir">"asc" (default) hoặc "desc".</param>
         /// <param name="pageNumber">Số trang (1-indexed, mặc định 1).</param>

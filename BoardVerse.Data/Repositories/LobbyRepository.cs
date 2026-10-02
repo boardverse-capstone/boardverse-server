@@ -1,4 +1,5 @@
-﻿using BoardVerse.Core.Entities;
+﻿using BoardVerse.Core.DTOs.Lobby;
+using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Data;
@@ -26,6 +27,43 @@ namespace BoardVerse.Data.Repositories
                 .Include(l => l.Booking)
                 .Include(l => l.Reservation)
                 .FirstOrDefaultAsync(l => l.Id == lobbyId);
+        }
+
+        /// <summary>
+        /// Projection chỉ 7 fields cần thiết cho LobbyMergeService.CreateMergeRequestAsync.
+        /// <para>
+        /// Thay thế <c>GetByIdAsync</c> trong CreateMergeRequestAsync flow để giảm
+        /// predicate lock surface. Trước đây GetByIdAsync load FULL graph (Members/User/
+        /// Profile/GameTemplate/Cafe/Booking/Reservation) → 6-8 Include chains → 6-8 tables
+        /// bị predicate lock. Projection này chỉ load 1 table (Lobbies) → 1 predicate lock.
+        /// </para>
+        /// <para>
+        /// AsNoTracking: read-only projection, không cần EF tracking. EF Core 8 hỗ trợ
+        /// project vào record class non-entity.
+        /// </para>
+        /// <para>
+        /// Bug fix trace (2026-10-02): 95ms query load full ActiveSession graph từ
+        /// <c>GetActiveSessionByIdAsync</c> (CafePosRepository) KHÔNG được gọi từ
+        /// LobbyMergeService.CreateMergeRequestAsync — nó chỉ chạy ở CafePosService
+        /// (concurrent request từ POS flow). 95ms đó là transaction CONCURRENT, không phải
+        /// từ chính Create request. Tuy nhiên predicate lock của concurrent Tx vẫn conflict
+        /// với LobbyMerge Tx → giảm read scope ở Create giúp giảm cơ hội conflict.
+        /// </para>
+        /// </summary>
+        public async Task<LobbyMergeSummary?> GetMergeSummaryAsync(Guid lobbyId, CancellationToken cancellationToken = default)
+        {
+            return await _db.Lobbies
+                .AsNoTracking()
+                .Where(l => l.Id == lobbyId)
+                .Select(l => new LobbyMergeSummary(
+                    l.Id,
+                    l.Status,
+                    l.CafeId,
+                    l.GameTemplateId,
+                    l.ReservationId,
+                    l.HostUserId,
+                    l.ActiveSessionId))
+                .FirstOrDefaultAsync(cancellationToken);
         }
 
         /// <summary>

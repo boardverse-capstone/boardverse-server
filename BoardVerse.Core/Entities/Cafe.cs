@@ -58,8 +58,6 @@ namespace BoardVerse.Core.Entities
         /// <summary>Thời gian mỗi block tính tiền (phút). Mặc định 15 phút.</summary>
         public int TieredBlockMinutes { get; set; } = 15;
 
-        /// <summary>JSON array of table names configured on Web POS.</summary>
-        public string TableLayoutJson { get; set; } = "[]";
         public DateTime? OperationalProfileUpdatedAt { get; set; }
 
         // === BR-04: Pricing Lock ===
