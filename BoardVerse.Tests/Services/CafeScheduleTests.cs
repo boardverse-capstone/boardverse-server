@@ -126,8 +126,12 @@ public class CafeScheduleTests
         var (scheduledStart, scheduledEnd) = CafeSchedule.BuildScheduledStartEndFromPreferred(
             playDate, new TimeOnly(10, 0), new TimeOnly(14, 0));
 
-        Assert.Equal(new DateTime(2026, 8, 14, 10, 0, 0), scheduledStart);
-        Assert.Equal(new DateTime(2026, 8, 14, 14, 0, 0), scheduledEnd);
+        // FIX TZ-DT-UTC-TEST-01 (2026-10-02): output giờ là Kind=Utc (UTC ticks).
+        // 10:00 VN = 03:00 UTC cùng ngày; 14:00 VN = 07:00 UTC cùng ngày.
+        Assert.Equal(new DateTime(2026, 8, 14, 3, 0, 0, DateTimeKind.Utc), scheduledStart);
+        Assert.Equal(new DateTime(2026, 8, 14, 7, 0, 0, DateTimeKind.Utc), scheduledEnd);
+        Assert.Equal(DateTimeKind.Utc, scheduledStart.Kind);
+        Assert.Equal(DateTimeKind.Utc, scheduledEnd.Kind);
     }
 
     [Fact]
@@ -138,8 +142,9 @@ public class CafeScheduleTests
         var (scheduledStart, scheduledEnd) = CafeSchedule.BuildScheduledStartEndFromPreferred(
             playDate, new TimeOnly(6, 0), new TimeOnly(23, 0));
 
-        Assert.Equal(new DateTime(2026, 8, 14, 6, 0, 0), scheduledStart);
-        Assert.Equal(new DateTime(2026, 8, 14, 23, 0, 0), scheduledEnd);
+        // 06:00 VN = 23:00 UTC hôm trước; 23:00 VN = 16:00 UTC cùng ngày.
+        Assert.Equal(new DateTime(2026, 8, 13, 23, 0, 0, DateTimeKind.Utc), scheduledStart);
+        Assert.Equal(new DateTime(2026, 8, 14, 16, 0, 0, DateTimeKind.Utc), scheduledEnd);
     }
 
     [Fact]
@@ -150,8 +155,9 @@ public class CafeScheduleTests
         var (scheduledStart, scheduledEnd) = CafeSchedule.BuildScheduledStartEndFromPreferred(
             playDate, new TimeOnly(19, 0), new TimeOnly(22, 0));
 
-        Assert.Equal(new DateTime(2026, 8, 14, 19, 0, 0), scheduledStart);
-        Assert.Equal(new DateTime(2026, 8, 14, 22, 0, 0), scheduledEnd);
+        // 19:00 VN = 12:00 UTC; 22:00 VN = 15:00 UTC.
+        Assert.Equal(new DateTime(2026, 8, 14, 12, 0, 0, DateTimeKind.Utc), scheduledStart);
+        Assert.Equal(new DateTime(2026, 8, 14, 15, 0, 0, DateTimeKind.Utc), scheduledEnd);
     }
 
     [Fact]
@@ -161,8 +167,10 @@ public class CafeScheduleTests
         var (scheduledStart, scheduledEnd) = CafeSchedule.BuildScheduledStartEndFromPreferred(
             playDate, new TimeOnly(21, 0), new TimeOnly(0, 0));
 
-        Assert.Equal(new DateTime(2026, 8, 18, 21, 0, 0), scheduledStart);
-        Assert.Equal(new DateTime(2026, 8, 19, 0, 0, 0), scheduledEnd);
+        // 21:00 VN = 14:00 UTC; 00:00 VN hôm sau = 17:00 UTC ngày hôm trước (no, 00:00 của
+        // 19/08 VN = 17:00 UTC của 18/08).
+        Assert.Equal(new DateTime(2026, 8, 18, 14, 0, 0, DateTimeKind.Utc), scheduledStart);
+        Assert.Equal(new DateTime(2026, 8, 18, 17, 0, 0, DateTimeKind.Utc), scheduledEnd);
     }
 
     // ===== Edge cases =====
@@ -209,7 +217,9 @@ public class CafeScheduleTests
         var (scheduledStart, scheduledEnd) = CafeSchedule.BuildScheduledStartEndFromPreferred(
             playDate, new TimeOnly(22, 30), new TimeOnly(23, 0));
 
-        Assert.Equal(new DateTime(2026, 8, 14, 22, 30, 0), scheduledStart);
-        Assert.Equal(new DateTime(2026, 8, 14, 23, 0, 0), scheduledEnd);
+        // FIX TZ-DT-UTC-TEST-01 (2026-10-02): output Kind=Utc.
+        // 22:30 VN = 15:30 UTC; 23:00 VN = 16:00 UTC.
+        Assert.Equal(new DateTime(2026, 8, 14, 15, 30, 0, DateTimeKind.Utc), scheduledStart);
+        Assert.Equal(new DateTime(2026, 8, 14, 16, 0, 0, DateTimeKind.Utc), scheduledEnd);
     }
 }

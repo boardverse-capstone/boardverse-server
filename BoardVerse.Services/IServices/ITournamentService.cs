@@ -49,6 +49,11 @@ public interface ITournamentService
     /// <summary>Manager/POS: Lấy danh sách participants cho check-in (validate tournament ownership).</summary>
     Task<IReadOnlyList<TournamentParticipantResponseDto>> GetParticipantsForPosAsync(Guid managerId, Guid tournamentId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Public: Xem chi tiết 1 participant (điểm, thẻ, gems, nobles, win/draw/loss, tiebreaker data).
+    /// </summary>
+    Task<TournamentParticipantResponseDto> GetParticipantDetailAsync(Guid tournamentId, Guid participantId, CancellationToken cancellationToken = default);
+
     // === Player: Personal data ===
     /// <summary>
     /// Lấy danh sách tournament user đang/đã đăng ký (status filter optional).

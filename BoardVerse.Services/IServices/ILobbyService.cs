@@ -113,5 +113,18 @@ namespace BoardVerse.Services.IServices
             Guid cafeManagerUserId,
             Guid cafeId,
             CafeLobbiesRequestDto request, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Admin endpoint: lấy toàn bộ lobby trong hệ thống với filter tuỳ ý, có phân trang.
+        /// </summary>
+        Task<GetAllLobbiesResponseDto> GetAllLobbiesAsync(
+            GetAllLobbiesRequestDto request, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Lấy toàn bộ lobby của user hiện tại (host hoặc member, cả active + terminal).
+        /// </summary>
+        Task<GetAllLobbiesResponseDto> GetLobbyHistoryAsync(
+            Guid userId,
+            GetLobbyHistoryRequestDto request, CancellationToken cancellationToken = default);
     }
 }

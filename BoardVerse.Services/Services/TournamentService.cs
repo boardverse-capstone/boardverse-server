@@ -129,13 +129,14 @@ public class TournamentService : ITournamentService
             RoundDurationMinutes = request.RoundDurationMinutes,
             MinParticipants = minParticipants,
             MaxParticipants = request.MaxParticipants,
-            EntryFee = 0m,
+            EntryFee = request.EntryFee,
+            ImageUrl = request.ImageUrl?.Trim(),
             TotalRounds = 4,
             PreliminaryRounds = 3,
             FinalistCount = 4,
             HasThirdPlaceMatch = request.HasThirdPlaceMatch,
             CurrentRound = 0,
-            MinKarmaRequirement = TournamentKarmaPolicy.ClampKarma(request.MinKarmaRequirement),
+            MinKarmaRequirement = request.MinKarmaRequirement,
             MinEloRequirement = request.MinEloRequirement,
             MaxEloRequirement = request.MaxEloRequirement,
             WinnerKarmaBonus = TournamentKarmaPolicy.WinnerBonus,
@@ -1369,6 +1370,8 @@ public class TournamentService : ITournamentService
         {
             r.Score,
             r.CardsBought,
+            r.NobleCards,
+            r.GemsRemaining,
             ResolvedUserId = r.UserId
         }).ToList();
 
@@ -1417,21 +1420,29 @@ public class TournamentService : ITournamentService
             {
                 match.Player1Score = r.Score;
                 match.Player1CardsBought = r.CardsBought;
+                match.Player1NobleCards = r.NobleCards;
+                match.Player1GemsRemaining = r.GemsRemaining;
             }
             else if (match.Player2Id == r.ResolvedUserId)
             {
                 match.Player2Score = r.Score;
                 match.Player2CardsBought = r.CardsBought;
+                match.Player2NobleCards = r.NobleCards;
+                match.Player2GemsRemaining = r.GemsRemaining;
             }
             else if (match.Player3Id == r.ResolvedUserId)
             {
                 match.Player3Score = r.Score;
                 match.Player3CardsBought = r.CardsBought;
+                match.Player3NobleCards = r.NobleCards;
+                match.Player3GemsRemaining = r.GemsRemaining;
             }
             else if (match.Player4Id == r.ResolvedUserId)
             {
                 match.Player4Score = r.Score;
                 match.Player4CardsBought = r.CardsBought;
+                match.Player4NobleCards = r.NobleCards;
+                match.Player4GemsRemaining = r.GemsRemaining;
             }
         }
 
@@ -1528,7 +1539,7 @@ public class TournamentService : ITournamentService
                 WalkInDisplayName = p.WalkInDisplayName,
                 RegisteredAt = p.RegisteredAt,
                 CheckedInAt = p.CheckedInAt,
-                SwissScore = (decimal)(p.SwissWins + (p.SwissDraws * 0.5)),
+                SwissScore = p.SwissScore,
                 SwissWins = p.SwissWins,
                 SwissDraws = p.SwissDraws,
                 SwissLosses = p.SwissLosses,
@@ -1757,7 +1768,7 @@ public class TournamentService : ITournamentService
     private async Task RevertMatchSwissScoresAsync(Tournament tournament, TournamentMatchBracket match)
     {
         // PlayerNId = User.Id (FK reference to Users table).
-        // Tìm participant theo UserId để revert Swiss score cũ (PrestigePoints + CardsBought).
+        // Tìm participant theo UserId để revert Swiss score cũ (PrestigePoints + CardsBought + Nobles + Gems).
         // Walk-in cã UserId = null → không tham gia slot → không có gì để revert.
         var slotUserIds = new[]
         {
@@ -1765,30 +1776,68 @@ public class TournamentService : ITournamentService
             match.Player3Id, match.Player4Id
         }.Where(id => id.HasValue).Select(id => id!.Value).ToList();
 
+        // Sắp xếp players theo score để tính rank cũ
+        var playerScores = new List<(Guid UserId, int Score, int Cards, int Nobles, int Gems)>();
+        
+        if (match.Player1Id.HasValue)
+            playerScores.Add((match.Player1Id.Value, match.Player1Score ?? 0, match.Player1CardsBought ?? 0, match.Player1NobleCards ?? 0, match.Player1GemsRemaining ?? 0));
+        if (match.Player2Id.HasValue)
+            playerScores.Add((match.Player2Id.Value, match.Player2Score ?? 0, match.Player2CardsBought ?? 0, match.Player2NobleCards ?? 0, match.Player2GemsRemaining ?? 0));
+        if (match.Player3Id.HasValue)
+            playerScores.Add((match.Player3Id.Value, match.Player3Score ?? 0, match.Player3CardsBought ?? 0, match.Player3NobleCards ?? 0, match.Player3GemsRemaining ?? 0));
+        if (match.Player4Id.HasValue)
+            playerScores.Add((match.Player4Id.Value, match.Player4Score ?? 0, match.Player4CardsBought ?? 0, match.Player4NobleCards ?? 0, match.Player4GemsRemaining ?? 0));
+
+        var ranked = playerScores
+            .OrderByDescending(p => p.Score)
+            .ThenBy(p => p.Cards)
+            .ThenByDescending(p => p.Nobles)
+            .ThenByDescending(p => p.Gems)
+            .ToList();
+
+        int winnerScore = ranked.Count > 0 ? ranked[0].Score : 1;
+        int secondScore = ranked.Count > 1 ? ranked[1].Score : 1;
+
         foreach (var userId in slotUserIds)
         {
             var participant = tournament.Participants.FirstOrDefault(p => p.UserId == userId);
             if (participant == null) continue;
 
+            var playerData = ranked.FirstOrDefault(r => r.UserId == userId);
+            int rank = ranked.FindIndex(r => r.UserId == userId) + 1;
+            int playerScore = playerData.Score;
+
+            // Tính Swiss score cũ
+            decimal oldSwissScore = SplendorScoringHelper.CalculateSwissScore(rank, playerScore, winnerScore, secondScore);
+            participant.SwissScore = Math.Max(0m, participant.SwissScore - oldSwissScore);
+
             if (userId == match.Player1Id)
             {
                 participant.TotalPrestigePoints = Math.Max(0, participant.TotalPrestigePoints - (match.Player1Score ?? 0));
                 participant.TotalCardsBought = Math.Max(0, participant.TotalCardsBought - (match.Player1CardsBought ?? 0));
+                participant.TotalNobleCards = Math.Max(0, participant.TotalNobleCards - (match.Player1NobleCards ?? 0));
+                participant.TotalGemsRemaining = Math.Max(0, participant.TotalGemsRemaining - (match.Player1GemsRemaining ?? 0));
             }
             else if (userId == match.Player2Id)
             {
                 participant.TotalPrestigePoints = Math.Max(0, participant.TotalPrestigePoints - (match.Player2Score ?? 0));
                 participant.TotalCardsBought = Math.Max(0, participant.TotalCardsBought - (match.Player2CardsBought ?? 0));
+                participant.TotalNobleCards = Math.Max(0, participant.TotalNobleCards - (match.Player2NobleCards ?? 0));
+                participant.TotalGemsRemaining = Math.Max(0, participant.TotalGemsRemaining - (match.Player2GemsRemaining ?? 0));
             }
             else if (userId == match.Player3Id)
             {
                 participant.TotalPrestigePoints = Math.Max(0, participant.TotalPrestigePoints - (match.Player3Score ?? 0));
                 participant.TotalCardsBought = Math.Max(0, participant.TotalCardsBought - (match.Player3CardsBought ?? 0));
+                participant.TotalNobleCards = Math.Max(0, participant.TotalNobleCards - (match.Player3NobleCards ?? 0));
+                participant.TotalGemsRemaining = Math.Max(0, participant.TotalGemsRemaining - (match.Player3GemsRemaining ?? 0));
             }
             else if (userId == match.Player4Id)
             {
                 participant.TotalPrestigePoints = Math.Max(0, participant.TotalPrestigePoints - (match.Player4Score ?? 0));
                 participant.TotalCardsBought = Math.Max(0, participant.TotalCardsBought - (match.Player4CardsBought ?? 0));
+                participant.TotalNobleCards = Math.Max(0, participant.TotalNobleCards - (match.Player4NobleCards ?? 0));
+                participant.TotalGemsRemaining = Math.Max(0, participant.TotalGemsRemaining - (match.Player4GemsRemaining ?? 0));
             }
             participant.UpdatedAt = DateTime.UtcNow;
         }
@@ -1934,8 +1983,10 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         // Tiebreaker: CheckedInAt sá»›m hÆ¡n (FIFO trong nhÃ³m cÃ¹ng Ä‘iá»ƒm)
         var activeParticipants = tournament.Participants
             .Where(p => p.Status == TournamentParticipantStatus.Active)
-            .OrderByDescending(p => (p.SwissWins * 1.0) + (p.SwissDraws * 0.5))
-            .ThenByDescending(p => p.TotalPrestigePoints)
+            .OrderByDescending(p => p.SwissScore)
+            .ThenBy(p => p.TotalCardsBought)
+            .ThenByDescending(p => p.TotalNobleCards)
+            .ThenByDescending(p => p.TotalGemsRemaining)
             .ThenBy(p => p.CheckedInAt ?? p.RegisteredAt)
             .ToList();
 
@@ -2404,32 +2455,72 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
             match.Player3Id, match.Player4Id
         }.Where(id => id.HasValue).Select(id => id!.Value).ToList();
 
+        // Sắp xếp players theo score để tính rank
+        var playerScores = new List<(Guid UserId, int Score, int Cards, int Nobles, int Gems)>();
+        
+        if (match.Player1Id.HasValue)
+            playerScores.Add((match.Player1Id.Value, match.Player1Score ?? 0, match.Player1CardsBought ?? 0, match.Player1NobleCards ?? 0, match.Player1GemsRemaining ?? 0));
+        if (match.Player2Id.HasValue)
+            playerScores.Add((match.Player2Id.Value, match.Player2Score ?? 0, match.Player2CardsBought ?? 0, match.Player2NobleCards ?? 0, match.Player2GemsRemaining ?? 0));
+        if (match.Player3Id.HasValue)
+            playerScores.Add((match.Player3Id.Value, match.Player3Score ?? 0, match.Player3CardsBought ?? 0, match.Player3NobleCards ?? 0, match.Player3GemsRemaining ?? 0));
+        if (match.Player4Id.HasValue)
+            playerScores.Add((match.Player4Id.Value, match.Player4Score ?? 0, match.Player4CardsBought ?? 0, match.Player4NobleCards ?? 0, match.Player4GemsRemaining ?? 0));
+
+        // Sort theo prestige score giảm dần, tiebreak theo rules Splendor
+        var ranked = playerScores
+            .OrderByDescending(p => p.Score)
+            .ThenBy(p => p.Cards)           // Ít thẻ hơn = tốt hơn
+            .ThenByDescending(p => p.Nobles) // Nhiều noble hơn = tốt hơn
+            .ThenByDescending(p => p.Gems)   // Nhiều gems hơn = tốt hơn
+            .ToList();
+
+        // Tính Swiss score theo công thức BPA
+        int winnerScore = ranked.Count > 0 ? ranked[0].Score : 1;
+        int secondScore = ranked.Count > 1 ? ranked[1].Score : 1;
+
         foreach (var userId in playerIds)
         {
-            // Find participant by UserId (not Participant.Id)
             var participant = tournament.Participants.FirstOrDefault(p => p.UserId == userId);
             if (participant == null) continue;
 
+            var playerData = ranked.FirstOrDefault(r => r.UserId == userId);
+            int rank = ranked.FindIndex(r => r.UserId == userId) + 1;
+            int playerScore = playerData.Score;
+
+            // Aggregate tiebreaker data
             if (userId == match.Player1Id)
             {
                 participant.TotalPrestigePoints += match.Player1Score ?? 0;
                 participant.TotalCardsBought += match.Player1CardsBought ?? 0;
+                participant.TotalNobleCards += match.Player1NobleCards ?? 0;
+                participant.TotalGemsRemaining += match.Player1GemsRemaining ?? 0;
             }
             else if (userId == match.Player2Id)
             {
                 participant.TotalPrestigePoints += match.Player2Score ?? 0;
                 participant.TotalCardsBought += match.Player2CardsBought ?? 0;
+                participant.TotalNobleCards += match.Player2NobleCards ?? 0;
+                participant.TotalGemsRemaining += match.Player2GemsRemaining ?? 0;
             }
             else if (userId == match.Player3Id)
             {
                 participant.TotalPrestigePoints += match.Player3Score ?? 0;
                 participant.TotalCardsBought += match.Player3CardsBought ?? 0;
+                participant.TotalNobleCards += match.Player3NobleCards ?? 0;
+                participant.TotalGemsRemaining += match.Player3GemsRemaining ?? 0;
             }
             else if (userId == match.Player4Id)
             {
                 participant.TotalPrestigePoints += match.Player4Score ?? 0;
                 participant.TotalCardsBought += match.Player4CardsBought ?? 0;
+                participant.TotalNobleCards += match.Player4NobleCards ?? 0;
+                participant.TotalGemsRemaining += match.Player4GemsRemaining ?? 0;
             }
+
+            // Tính Swiss score theo công thức BPA
+            decimal matchSwissScore = SplendorScoringHelper.CalculateSwissScore(rank, playerScore, winnerScore, secondScore);
+            participant.SwissScore += matchSwissScore;
             participant.UpdatedAt = DateTime.UtcNow;
         }
 
@@ -2609,14 +2700,11 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         {
             _logger.LogWarning(
                 "[TournamentFinalRankFallback] TournamentId={TournamentId}, MatchId={MatchId}: " +
-                "WinnerPlayerId is null. Fallback to PrestigePoints ranking.",
+                "WinnerPlayerId is null. Fallback to full tiebreaker ranking.",
                 tournament.Id, finalMatch.Id);
 
             // Fallback: rank táº¥t cáº£ finalists theo PrestigePoints
-            var ranked = allFinalists
-                .OrderByDescending(p => p.TotalPrestigePoints)
-                .ThenBy(p => p.TotalCardsBought)
-                .ToList();
+            var ranked = allFinalists.OrderBy(p => p, Comparer<TournamentParticipant>.Create((p1, p2) => { int p1TurnOrder = GetTurnOrderInMatch(finalMatch, p1.UserId!.Value); int p2TurnOrder = GetTurnOrderInMatch(finalMatch, p2.UserId!.Value); return SplendorScoringHelper.CompareSwissRanking(p1.SwissScore, p1.TotalCardsBought, p1.TotalNobleCards, p1.TotalGemsRemaining, p1TurnOrder, p2.SwissScore, p2.TotalCardsBought, p2.TotalNobleCards, p2.TotalGemsRemaining, p2TurnOrder); })).ToList();
             for (var i = 0; i < ranked.Count; i++)
             {
                 ranked[i].FinalRank = i + 1;
@@ -2625,16 +2713,24 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         }
 
         // Losers: táº¥t cáº£ finalists trá»« winner, rank theo PrestigePoints
-        var losers = allFinalists
-            .Where(p => p.UserId != finalMatch.WinnerPlayerId)
-            .OrderByDescending(p => p.TotalPrestigePoints)
-            .ThenBy(p => p.TotalCardsBought)
-            .ToList();
+        var losers = allFinalists.Where(p => p.UserId != finalMatch.WinnerPlayerId).OrderBy(p => p, Comparer<TournamentParticipant>.Create((p1, p2) => { int p1TurnOrder = GetTurnOrderInMatch(finalMatch, p1.UserId!.Value); int p2TurnOrder = GetTurnOrderInMatch(finalMatch, p2.UserId!.Value); return SplendorScoringHelper.CompareSwissRanking(p1.SwissScore, p1.TotalCardsBought, p1.TotalNobleCards, p1.TotalGemsRemaining, p1TurnOrder, p2.SwissScore, p2.TotalCardsBought, p2.TotalNobleCards, p2.TotalGemsRemaining, p2TurnOrder); })).ToList();
 
         for (var i = 0; i < losers.Count; i++)
         {
             losers[i].FinalRank = i + 2;
         }
+    }
+
+    /// <summary>
+    /// Lấy turn order của player trong match (1-4, Player1 đi trước).
+    /// </summary>
+    private int GetTurnOrderInMatch(TournamentMatchBracket match, Guid userId)
+    {
+        if (match.Player1Id == userId) return 1;
+        if (match.Player2Id == userId) return 2;
+        if (match.Player3Id == userId) return 3;
+        if (match.Player4Id == userId) return 4;
+        return 0; // fallback
     }
 
     private async Task ApplyFinalKarmaBonusesAsync(Tournament tournament)
@@ -2859,8 +2955,22 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
             SwissWins = p.SwissWins,
             SwissDraws = p.SwissDraws,
             SwissLosses = p.SwissLosses,
-            SwissScore = TournamentEloCalculator.CalculateSwissScore(p)
+            SwissScore = p.SwissScore,
+            TotalNobleCards = p.TotalNobleCards,
+            TotalGemsRemaining = p.TotalGemsRemaining
         };
+    }
+
+    public async Task<TournamentParticipantResponseDto> GetParticipantDetailAsync(
+        Guid tournamentId, Guid participantId, CancellationToken cancellationToken = default)
+    {
+        var tournament = await _tournamentRepository.GetByIdAsync(tournamentId)
+            ?? throw new NotFoundException(ApiErrorMessages.Tournament.NotFound(tournamentId));
+
+        var participant = tournament.Participants.FirstOrDefault(p => p.Id == participantId)
+            ?? throw new NotFoundException(ApiErrorMessages.Tournament.ParticipantNotFoundById(participantId));
+
+        return MapParticipantDto(participant);
     }
 
     private static TournamentMatchResponseDto MapMatchDto(TournamentMatchBracket m)
@@ -3424,8 +3534,10 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
         // Round 2+ : sort theo Swiss score giáº£m dáº§n
         return active
-            .OrderByDescending(p => (p.SwissWins * 1.0) + (p.SwissDraws * 0.5))
-            .ThenByDescending(p => p.TotalPrestigePoints)
+            .OrderByDescending(p => p.SwissScore)
+            .ThenBy(p => p.TotalCardsBought)
+            .ThenByDescending(p => p.TotalNobleCards)
+            .ThenByDescending(p => p.TotalGemsRemaining)
             .ThenBy(p => p.CheckedInAt ?? p.RegisteredAt)
             .ToList();
     }
@@ -3797,3 +3909,5 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         return await BuildResponseAsync(tournament, null);
     }
 }
+
+

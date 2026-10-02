@@ -66,16 +66,35 @@ public class TournamentParticipant
     public TournamentParticipantStatus Status { get; set; } = TournamentParticipantStatus.Registered;
 
     /// <summary>
+    /// Tổng điểm Swiss tích lũy (theo công thức BPA Splendor Tournament).
+    /// Công thức: 1st = 1000 + ratio, 2nd = 100 + ratio, 3rd = 10 + ratio, 4th = 1 + ratio.
+    /// Thay thế cách tính cũ (wins + draws*0.5).
+    /// </summary>
+    public decimal SwissScore { get; set; }
+
+    /// <summary>
     /// Tổng điểm Prestige Points sau 3 vòng Swiss (snapshot lúc Final bắt đầu).
-    /// Cùng với CardsBought dùng để xếp hạng khi hòa.
+    /// Dùng để tính ratio trong công thức BPA.
     /// </summary>
     public int TotalPrestigePoints { get; set; }
 
     /// <summary>
-    /// Tổng số thẻ Development đã mua (tiebreaker khi hòa điểm Prestige).
+    /// Tổng số thẻ Development đã mua (tiebreaker #1 khi hòa Swiss score).
     /// Ít thẻ hơn = thắng khi hòa (theo luật Splendor).
     /// </summary>
     public int TotalCardsBought { get; set; }
+
+    /// <summary>
+    /// Tổng số thẻ Noble sở hữu (tiebreaker #2 khi hòa Swiss score).
+    /// Nhiều Noble hơn = thắng khi hòa.
+    /// </summary>
+    public int TotalNobleCards { get; set; }
+
+    /// <summary>
+    /// Tổng số gems còn lại (tiebreaker #3 khi hòa Swiss score).
+    /// Nhiều gems hơn = thắng khi hòa.
+    /// </summary>
+    public int TotalGemsRemaining { get; set; }
 
     /// <summary>
     /// Thứ hạng cuối cùng (1 = Winner). Set khi Tournament.Status = Completed.

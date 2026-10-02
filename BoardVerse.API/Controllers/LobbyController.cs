@@ -406,6 +406,54 @@ namespace BoardVerse.API.Controllers
         }
 
         /// <summary>
+        /// Lấy lịch sử tất cả lobby của user (cả active và đã đóng) — bao gồm HostCancelled,
+        /// TimeoutFailed, RejectedByCafe, ExpiredByCafe, Dissolved, Closed, RatingOpen, v.v.
+        /// Có phân trang + filter theo status, role (host/member), khoảng ngày tạo.
+        /// Sắp xếp theo CreatedAt desc (lobby mới nhất trước). [Role: Player]
+        /// </summary>
+        /// <param name="statuses">
+        /// Optional: lọc theo 1 hoặc nhiều LobbyStatus (enum int). Truyền nhiều giá trị bằng cách lặp query
+        /// (vd: <c>?statuses=0&amp;statuses=1</c>) hoặc comma-separated (vd: <c>?statuses=0,1</c>). Null = tất cả.
+        /// </param>
+        /// <param name="statusFilter">
+        /// Optional: comma-separated LobbyStatus enum values (vd: <c>"Open,Viable"</c>).
+        /// Hỗ trợ tên enum (case-insensitive). Nếu truyền cả 2 tham số thì union lại.
+        /// </param>
+        /// <param name="asHost">Optional: true = chỉ lobby user là host; false = chỉ lobby user là member; null = cả 2.</param>
+        /// <param name="fromDate">Optional: chỉ lấy lobby tạo từ ngày này trở đi (ISO 8601).</param>
+        /// <param name="toDate">Optional: chỉ lấy lobby tạo đến ngày này (ISO 8601).</param>
+        /// <param name="page">Trang (1-indexed, default 1).</param>
+        /// <param name="pageSize">Số lobby / trang (1-100, default 50).</param>
+        /// <response code="200">Danh sách lobby đã phân trang, bao gồm cả terminal states. Có thông tin host, game, cafe, status, thời gian.</response>
+        /// <response code="400">statuses/statusFilter/fromDate/toDate không hợp lệ.</response>
+        /// <response code="401">Thiếu token.</response>
+        /// <response code="500">Lỗi hệ thống.</response>
+        [HttpGet("history")]
+        public async Task<IActionResult> GetLobbyHistory(
+            [FromQuery] List<int>? statuses = null,
+            [FromQuery] string? statusFilter = null,
+            [FromQuery] bool? asHost = null,
+            [FromQuery] DateTime? fromDate = null,
+            [FromQuery] DateTime? toDate = null,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 50)
+        {
+            var userId = GetUserIdFromClaims();
+            var request = new GetLobbyHistoryRequestDto
+            {
+                Statuses = statuses,
+                StatusFilter = statusFilter,
+                AsHost = asHost,
+                FromDate = fromDate,
+                ToDate = toDate,
+                Page = page,
+                PageSize = pageSize
+            };
+            var result = await _lobbyService.GetLobbyHistoryAsync(userId, request);
+            return this.NewResponse(200, "Lấy lịch sử phòng chờ của bạn.", result);
+        }
+
+        /// <summary>
         /// Báo cáo phòng chờ vi phạm. [Role: Player]
         /// </summary>
         /// <param name="lobbyId">Mã phòng chờ.</param>

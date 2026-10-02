@@ -35,6 +35,14 @@ public class CreateTournamentRequestDto
     [Range(4, 32)]
     public int MaxParticipants { get; set; } = 32;
 
+    /// <summary>Phí tham dự (VNĐ). Default 0 = miễn phí. Range 0-10,000,000.</summary>
+    [Range(0, 10_000_000)]
+    public decimal EntryFee { get; set; } = 0m;
+
+    /// <summary>URL ảnh đại diện cho tournament (thumbnail/banner). Optional.</summary>
+    [StringLength(500)]
+    public string? ImageUrl { get; set; }
+
     /// <summary>Điểm Karma tối thiểu để đăng ký (gate). Range 0-100. Default 0 = không yêu cầu.</summary>
     [Range(0, 100)]
     public int MinKarmaRequirement { get; set; } = 0;

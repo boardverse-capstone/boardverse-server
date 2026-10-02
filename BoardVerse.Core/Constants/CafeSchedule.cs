@@ -103,8 +103,28 @@ public static class CafeSchedule
     }
 
     /// <summary>
-    /// Helper: build ScheduledStartTime + ScheduledEndTime (DateTime) từ user input.
-    /// Nếu end nhỏ hơn start, ScheduledEndTime thuộc ngày kế tiếp.
+    /// Helper: build ScheduledStartTime + ScheduledEndTime (DateTime, <b>Kind=Utc</b>) từ
+    /// user input playDate + preferredStart/End.
+    ///
+    /// <para>
+    /// FIX TZ-DT-UTC-01 (2026-10-02): trước đây trả về <c>Kind=Unspecified</c> với raw ticks
+    /// = VN local time. Điều này khiến JSON serialize ra dạng "2026-10-02T20:45:00" (không có
+    /// timezone) — FE không biết convert như thế nào, dẫn đến hiển thị sai giờ.
+    /// </para>
+    ///
+    /// <para>
+    /// Sau fix: convert sang UTC ngay tại đây (Kind=Utc, raw ticks = UTC). JSON serialize
+    /// ra dạng "2026-10-02T13:45:00Z" — FE chỉ cần <c>new Date(...).toLocaleString('vi-VN')</c>
+    /// là ra đúng 20:45 giờ VN.
+    /// </para>
+    ///
+    /// <para>
+    /// Lưu ý cho consumer: nếu cần hiển thị giờ VN (format <c>:HH:mm</c> cho log/error message,
+    /// hay truyền vào <c>TimeOnly.FromDateTime</c> cho inventory lookup), phải convert ngược
+    /// qua <see cref="ToVietnamLocal"/> trước.
+    /// </para>
+    ///
+    /// Nếu end nhỏ hơn start, ScheduledEndTime thuộc ngày kế tiếp (overnight session).
     /// </summary>
     public static (DateTime scheduledStart, DateTime scheduledEnd) BuildScheduledStartEndFromPreferred(
         DateOnly playDate,
@@ -115,9 +135,16 @@ public static class CafeSchedule
             ? playDate.AddDays(1)
             : playDate;
 
+        // Bước 1: build với raw DateTime (Kind=Unspecified), raw ticks = VN wall clock.
+        var startVnLocal = playDate.ToDateTime(preferredStart);
+        var endVnLocal = endDate.ToDateTime(preferredEnd);
+
+        // Bước 2: convert sang Kind=Utc để tất cả downstream (DB, JSON, comparison) thấy
+        // cùng 1 kind = Utc. EF Core với column cột `timestamp with time zone` sẽ store raw
+        // UTC ticks; System.Text.Json sẽ serialize thành "...Z".
         return (
-            playDate.ToDateTime(preferredStart),
-            endDate.ToDateTime(preferredEnd)
+            TimeZoneInfo.ConvertTimeToUtc(startVnLocal, VietnamTz),
+            TimeZoneInfo.ConvertTimeToUtc(endVnLocal, VietnamTz)
         );
     }
 }
