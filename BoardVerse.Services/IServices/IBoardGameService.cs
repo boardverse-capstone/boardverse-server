@@ -1,4 +1,5 @@
 using BoardVerse.Core.Common;
+using BoardVerse.Core.DTOs.Cafe;
 using BoardVerse.Core.DTOs.Game;
 
 using System.Threading;
@@ -23,6 +24,19 @@ namespace BoardVerse.Services.IServices
         Task<GamePlayNavigationResponseDto> ResolvePlayNavigationAsync(
             Guid gameTemplateId,
             ResolveGamePlayNavigationRequestDto request, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Lấy danh sách quán cafe đang ACTIVE có <paramref name="boardGameId"/> trong kho và có thể chơi được
+        /// (mirror ngược của <c>ICafeService.GetActiveGamesByCafeAsync</c>). Throw <see cref="BoardGameNotFoundException"/>
+        /// nếu board game không tồn tại hoặc đã bị vô hiệu hóa. Hỗ trợ location-based sort (lat/lng) hoặc sort theo tên.
+        /// </summary>
+        /// <param name="boardGameId">Mã GameTemplate.</param>
+        /// <param name="query">Optional filters: latitude, longitude, name, pageNumber, pageSize.</param>
+        /// <param name="cancellationToken">Token hủy.</param>
+        Task<PaginatedResponse<NearbyCafeDto>> GetActiveCafesByBoardGameAsync(
+            Guid boardGameId,
+            ActiveCafesByBoardGameQueryDto query,
+            CancellationToken cancellationToken = default);
     }
 }
 

@@ -89,6 +89,33 @@ namespace BoardVerse.Core.IRepositories
             Guid cafeId,
             CafeActiveGamesQueryDto query,
             CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Lấy danh sách quán cafe đang ACTIVE có <paramref name="boardGameId"/> trong kho và có thể chơi được
+        /// (player muốn biết "chơi game này ở đâu?"). Mirror ngược của <see cref="GetActiveGamesByCafeAsync"/>.
+        /// Filter áp dụng:
+        ///   • Cafe.IsActive = true, Cafe.PartnerOperationalStatus = Active.
+        ///   • CafeGameInventory.IsActive = true, CafeGameInventory.Status ∈ {Available, InUse}.
+        ///   • GameTemplate.IsActive = true (master game vẫn active).
+        /// Trả về shape <see cref="NearbyCafeDto"/> (giống <c>GET /api/cafes/nearby</c>) để player thấy
+        /// <c>DistanceMeters</c>, <c>AvailableGameCount</c>/<c>TotalGameBoxCount</c>, <c>AvailableTableCount</c>/<c>TotalTableCount</c>.
+        /// Hỗ trợ:
+        ///   • <paramref name="latitude"/>/<paramref name="longitude"/>: tính distance + sort theo khoảng cách tăng dần (null → sort theo tên A→Z).
+        ///   • <paramref name="name"/>: case-insensitive partial match trên tên quán (null → không filter).
+        /// </summary>
+        /// <param name="boardGameId">Mã GameTemplate của board game cần tra cứu.</param>
+        /// <param name="latitude">Vĩ độ player (tùy chọn; có thì tính DistanceMeters và sort theo khoảng cách).</param>
+        /// <param name="longitude">Kinh độ player (tùy chọn; cần đi kèm latitude).</param>
+        /// <param name="name">Tên quán filter (tùy chọn; case-insensitive partial match).</param>
+        /// <param name="paginationParams">Phân trang.</param>
+        /// <param name="cancellationToken">Token hủy.</param>
+        Task<PaginatedResponse<NearbyCafeDto>> GetActiveCafesByBoardGameAsync(
+            Guid boardGameId,
+            double? latitude,
+            double? longitude,
+            string? name,
+            PaginationParams paginationParams,
+            CancellationToken cancellationToken = default);
         Task<List<Cafe>> GetNearbyCafesAsync(Guid excludeCafeId, double radiusKm, CancellationToken cancellationToken = default);
         Task EnrichNearbyWithGameWaitAsync(IList<NearbyCafeDto> cafes, Guid gameTemplateId, CancellationToken cancellationToken = default);
         Task<IReadOnlyList<NearbyAlternativeGameSuggestionDto>> GetAlternativeGameSuggestionsAsync(

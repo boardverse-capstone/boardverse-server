@@ -573,6 +573,120 @@ namespace BoardVerse.Data.Repositories
             };
         }
 
+        /// <summary>
+        /// Lấy danh sách quán cafe đang ACTIVE có <paramref name="boardGameId"/> trong kho và có thể chơi được.
+        /// Mirror ngược của <see cref="GetActiveGamesByCafeAsync"/> — player hỏi "chơi game này ở đâu?".
+        /// Filter:
+        ///   • Cafe.IsActive = true, Cafe.PartnerOperationalStatus = Active.
+        ///   • CafeGameInventory.IsActive = true, CafeGameInventory.Status ∈ {Available, InUse}.
+        ///   • GameTemplate.IsActive = true (master game vẫn active).
+        /// </summary>
+        public async Task<PaginatedResponse<NearbyCafeDto>> GetActiveCafesByBoardGameAsync(
+            Guid boardGameId,
+            double? latitude,
+            double? longitude,
+            string? name,
+            PaginationParams paginationParams,
+            CancellationToken cancellationToken = default)
+        {
+            // Tính khoảng cách nếu player truyền lat/lng; nếu không thì DistanceMeters = 0
+            // và sắp xếp theo tên A→Z (giống GET /api/cafes).
+            bool hasOrigin = latitude.HasValue && longitude.HasValue;
+            NetTopologySuite.Geometries.Point? origin = hasOrigin
+                ? GeoLocationHelper.ToPoint(latitude!.Value, longitude!.Value)
+                : null;
+
+            var baseQuery = _context.Cafes
+                .AsNoTracking()
+                .Where(c => c.IsActive
+                    && c.PartnerOperationalStatus == CafePartnerOperationalStatus.Active
+                    && _context.CafeGameInventories.Any(i =>
+                        i.CafeId == c.Id
+                        && i.IsActive
+                        && i.GameTemplateId == boardGameId
+                        && i.GameTemplate.IsActive
+                        && (i.Status == CafeGameInventoryStatus.Available
+                            || i.Status == CafeGameInventoryStatus.InUse)));
+
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                var term = name.Trim().ToLower();
+                baseQuery = baseQuery.Where(c => c.Name.ToLower().Contains(term));
+            }
+
+            var projected = baseQuery.Select(c => new NearbyCafeDto
+            {
+                Id = c.Id,
+                Name = c.Name,
+                Address = c.Address,
+                Latitude = c.Latitude,
+                Longitude = c.Longitude,
+                PhoneNumber = c.PhoneNumber,
+                Description = c.Description,
+                CreatedAt = c.CreatedAt,
+                DistanceMeters = origin != null && c.Location != null
+                    ? c.Location.Distance(origin)
+                    : 0,
+                TotalSeats = c.TotalSeats,
+                BillingModel = CafePartnerStatusMapper.ToApiBillingModel(c.BillingModel),
+                BasePrice = c.BasePrice,
+                TieredBlockRate = c.TieredBlockRate,
+                TieredBlockMinutes = c.TieredBlockMinutes,
+                DepositPercentage = c.DepositPercentage,
+                IsPricingLocked = c.IsPricingLocked,
+                HasSePayConfigured = c.SePayMerchantId != null && c.SePayMerchantId != ""
+                                     && c.SePayApiKey != null && c.SePayApiKey != ""
+                                     && c.SePaySecretKey != null && c.SePaySecretKey != "",
+                AvailableGameCount = _context.CafeInventoryBoxes.Count(b =>
+                    b.CafeGameInventory.CafeId == c.Id
+                    && b.IsActive
+                    && b.CafeGameInventory.IsActive
+                    && b.CafeGameInventory.GameTemplateId == boardGameId
+                    && b.Status == CafeGameInventoryStatus.Available),
+                TotalGameBoxCount = _context.CafeInventoryBoxes.Count(b =>
+                    b.CafeGameInventory.CafeId == c.Id
+                    && b.IsActive
+                    && b.CafeGameInventory.IsActive
+                    && b.CafeGameInventory.GameTemplateId == boardGameId
+                    && (b.Status == CafeGameInventoryStatus.Available
+                        || b.Status == CafeGameInventoryStatus.InUse)),
+                AvailableTableCount = _context.CafeTables.Count(t =>
+                    t.CafeId == c.Id
+                    && t.IsActive
+                    && t.Status == CafeTableStatus.Available),
+                TotalTableCount = _context.CafeTables.Count(t =>
+                    t.CafeId == c.Id
+                    && t.IsActive)
+            });
+
+            var totalItems = await projected.CountAsync(cancellationToken);
+
+            IOrderedQueryable<NearbyCafeDto> ordered = hasOrigin
+                ? projected.OrderBy(c => c.DistanceMeters).ThenBy(c => c.Name)
+                : projected.OrderBy(c => c.Name);
+
+            var items = await ordered
+                .Skip((paginationParams.PageNumber - 1) * paginationParams.PageSize)
+                .Take(paginationParams.PageSize)
+                .ToListAsync(cancellationToken);
+
+            var totalPages = totalItems == 0
+                ? 0
+                : (int)Math.Ceiling(totalItems / (double)paginationParams.PageSize);
+
+            return new PaginatedResponse<NearbyCafeDto>
+            {
+                Data = items,
+                Meta = new PaginationMeta
+                {
+                    CurrentPage = paginationParams.PageNumber,
+                    PageSize = paginationParams.PageSize,
+                    TotalItems = totalItems,
+                    TotalPages = totalPages
+                }
+            };
+        }
+
         public async Task<PaginatedResponse<NearbyCafeDto>> SearchCafesAsync(
             string name,
             double? latitude,
