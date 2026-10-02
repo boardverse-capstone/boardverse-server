@@ -1,3 +1,4 @@
+using BoardVerse.Core.Constants;
 using BoardVerse.Core.DTOs.Common;
 using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.DTOs.Reservation;
@@ -558,7 +559,8 @@ namespace BoardVerse.Services.Services
                 BookingCode = deposit.OrderId,
                 DepositStatus = deposit.Status.ToString(),
                 DepositAmount = deposit.Amount,
-                ScheduledStartTime = deposit.ScheduledAt,
+                // FIX TZ-RESPONSE-01 (2026-10-03): trả local VN.
+                ScheduledStartTime = CafeSchedule.ToLocalForResponse(deposit.ScheduledAt) ?? DateTime.MinValue,
                 RegisteredMemberCount = lobbyInfo?.Members?.Count ?? 1,
                 CanCheckIn = canCheckIn,
                 CannotCheckInReason = cannotCheckInReason,
@@ -3593,9 +3595,10 @@ sessionGameId, cafeId, userId);
                     PlayDate = r.PlayDate,
                     PreferredStartTime = r.PreferredStartTime,
                     PreferredEndTime = r.PreferredEndTime,
-                    ScheduledStartTime = r.ScheduledStartTime,
-                    ScheduledEndTime = r.ScheduledEndTime,
-                    RecruitmentDeadline = r.RecruitmentDeadline,
+                    // FIX TZ-RESPONSE-01 (2026-10-03): trả local VN.
+                    ScheduledStartTime = CafeSchedule.ToLocalForResponse(r.ScheduledStartTime),
+                    ScheduledEndTime = CafeSchedule.ToLocalForResponse(r.ScheduledEndTime),
+                    RecruitmentDeadline = CafeSchedule.ToLocalForResponse(r.RecruitmentDeadline),
                 },
                 Lobby = r.Lobby == null
                     ? null
