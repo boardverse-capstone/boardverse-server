@@ -304,6 +304,7 @@ public const string SePayQrPreviewGenerated = "Đã tạo QR test cho payment ac
             public const string WalkInAdded = "Thêm khách vãng lai thành công.";
 
             public const string ParticipantsRetrieved = "Lấy danh sách người chơi thành công.";
+            public const string ParticipantDetailRetrieved = "Lấy chi tiết participant thành công.";
             public const string ParticipantStatusUpdated = "Cập nhật trạng thái người chơi thành công.";
 
             public const string MatchesRetrieved = "Lấy danh sách bàn đấu thành công.";

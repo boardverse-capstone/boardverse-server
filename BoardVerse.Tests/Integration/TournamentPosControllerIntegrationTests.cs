@@ -161,7 +161,8 @@ public class TournamentPosControllerIntegrationTests
         Assert.True(response.StatusCode == HttpStatusCode.OK ||
                    response.StatusCode == HttpStatusCode.NotFound
                    || response.StatusCode == HttpStatusCode.MethodNotAllowed
-                   || response.StatusCode == HttpStatusCode.Gone);
+                   || response.StatusCode == HttpStatusCode.Gone,
+                   $"Start returned unexpected status: {(int)response.StatusCode} {response.StatusCode}");
     }
 
     [IntegrationFact]

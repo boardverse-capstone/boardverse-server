@@ -111,34 +111,28 @@ public class TournamentEloCalculatorTests
     }
 
     [Fact]
-    public void CalculateSwissScore_3Wins2Losses_DefaultPoints()
+    public void CalculateSwissScore_ReturnsAccumulatedBpaScore()
     {
+        // SwissScore giờ là điểm tích lũy theo công thức BPA (xem SplendorScoringHelper),
+        // được cộng dồn qua các trận trong AggregateSwissScoresAsync. Field SwissWins/Losses
+        // vẫn tồn tại cho mục đích display nhưng không còn quyết định SwissScore.
         var participant = new Core.Entities.TournamentParticipant
         {
-            SwissWins = 3,
-            SwissDraws = 0,
-            SwissLosses = 2
+            SwissScore = 1102.5m
         };
 
-        // Win = 1 điểm, Loss = 0, Draw = 0.5
         var score = TournamentEloCalculator.CalculateSwissScore(participant);
 
-        Assert.Equal(3.0, score); // 3 * 1 + 0 * 0.5 + 2 * 0
+        Assert.Equal(1102.5m, score);
     }
 
     [Fact]
-    public void CalculateSwissScore_WithDraws()
+    public void CalculateSwissScore_DefaultZero_WhenNoMatchesPlayed()
     {
-        var participant = new Core.Entities.TournamentParticipant
-        {
-            SwissWins = 2,
-            SwissDraws = 1,
-            SwissLosses = 1
-        };
+        var participant = new Core.Entities.TournamentParticipant();
 
         var score = TournamentEloCalculator.CalculateSwissScore(participant);
 
-        // 2*1 + 1*0.5 + 1*0 = 2.5
-        Assert.Equal(2.5, score);
+        Assert.Equal(0m, score);
     }
 }

@@ -50,9 +50,17 @@ public class MatchPlayerResultDto
     [Range(0, 30)]
     public int Score { get; set; }
 
-    /// <summary>Số thẻ Development đã mua — dùng làm tiebreaker.</summary>
+    /// <summary>Số thẻ Development đã mua — dùng làm tiebreaker #1.</summary>
     [Range(0, 50)]
     public int CardsBought { get; set; }
+
+    /// <summary>Số thẻ Noble sở hữu — tiebreaker #2.</summary>
+    [Range(0, 10)]
+    public int NobleCards { get; set; }
+
+    /// <summary>Số gems còn lại — tiebreaker #3.</summary>
+    [Range(0, 100)]
+    public int GemsRemaining { get; set; }
 }
 
 public class TournamentMatchResponseDto
@@ -80,6 +88,16 @@ public class TournamentMatchResponseDto
     public int? Player2CardsBought { get; set; }
     public int? Player3CardsBought { get; set; }
     public int? Player4CardsBought { get; set; }
+
+    public int? Player1NobleCards { get; set; }
+    public int? Player2NobleCards { get; set; }
+    public int? Player3NobleCards { get; set; }
+    public int? Player4NobleCards { get; set; }
+
+    public int? Player1GemsRemaining { get; set; }
+    public int? Player2GemsRemaining { get; set; }
+    public int? Player3GemsRemaining { get; set; }
+    public int? Player4GemsRemaining { get; set; }
 
     public Guid? WinnerPlayerId { get; set; }
     public TournamentMatchStatus Status { get; set; }
