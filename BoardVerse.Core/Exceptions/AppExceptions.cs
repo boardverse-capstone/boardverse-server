@@ -7,6 +7,14 @@ namespace BoardVerse.Core.Exceptions
     {
         public int StatusCode { get; }
 
+        /// <summary>
+        /// Machine-readable error code (e.g. <c>InsufficientSeatsForMerge</c>, <c>RATE_LIMIT_EXCEEDED</c>).
+        /// Optional. Khi null, response chỉ trả <c>message</c> mà không có trường <c>errorCode</c>.
+        /// Convention: PascalCase identifier do domain quyết định (vd: <c>InsufficientSeatsForMerge</c>,
+        /// <c>NoActiveMembersToTransfer</c>). Tránh dùng UPPER_SNAKE_CASE để đồng nhất với class name.
+        /// </summary>
+        public string? ErrorCode { get; }
+
         public AppException(string message, int statusCode)
             : base(message)
         {
@@ -17,6 +25,20 @@ namespace BoardVerse.Core.Exceptions
             : base(message, innerException)
         {
             StatusCode = statusCode;
+        }
+
+        public AppException(string message, int statusCode, string errorCode)
+            : base(message)
+        {
+            StatusCode = statusCode;
+            ErrorCode = errorCode;
+        }
+
+        public AppException(string message, int statusCode, string errorCode, Exception innerException)
+            : base(message, innerException)
+        {
+            StatusCode = statusCode;
+            ErrorCode = errorCode;
         }
     }
 
@@ -48,6 +70,8 @@ namespace BoardVerse.Core.Exceptions
     {
         public ConflictException(string message = "Xung đột dữ liệu.") : base(message, 409) { }
         public ConflictException(string message, Exception innerException) : base(message, 409, innerException) { }
+        public ConflictException(string message, string errorCode) : base(message, 409, errorCode) { }
+        public ConflictException(string message, string errorCode, Exception innerException) : base(message, 409, errorCode, innerException) { }
     }
 
     public class UserBlockedException : ForbiddenException
@@ -251,6 +275,49 @@ namespace BoardVerse.Core.Exceptions
             CurrentBalance = currentBalance;
             RequiredBalance = requiredBalance;
             MissingAmount = requiredBalance - currentBalance;
+        }
+    }
+
+    /// <summary>
+    /// Exception khi ghép lobby nhưng tổng active members sau khi ghép vượt quá sức chứa ghế
+    /// của quán trong khung giờ đó. Áp dụng cho cả <c>CreateLobbyMergeRequest</c> và
+    /// <c>ApproveLobbyMergeRequest</c> (re-validate vì member có thể đổi giữa 2 thời điểm).
+    ///
+    /// Status: 409 (Conflict).
+    /// Error code: <c>InsufficientSeatsForMerge</c>.
+    ///
+    /// <b>Quy tắc BR-EXCEPTION-4 (fix 2026-10-02):</b> <c>targetActiveMembers + sourceActiveMembers &lt;= targetSeatCapacity</c>.
+    /// Nếu vi phạm → throw exception này để trả 409 với thông tin cụ thể cho staff.
+    /// </summary>
+    /// <remarks>
+    /// Được test qua <c>LobbyMergeServiceTests.CreateMergeRequestAsync_*</c> và
+    /// <c>LobbyMergeServiceTests.ApproveMergeAsync_*</c>. <c>targetActiveMembers</c> được tính
+    /// tại THỜI ĐIỂM validate (Create hay Approve), không dùng snapshot từ Create.
+    /// </remarks>
+    public class InsufficientSeatsForMergeException : ConflictException
+    {
+        /// <summary>Số thành viên ACTIVE hiện tại của target lobby TRƯỚC khi merge.</summary>
+        public int TargetActiveMembers { get; }
+
+        /// <summary>Số thành viên ACTIVE từ source lobby sẽ được transfer (vô hoặc selected subset).</summary>
+        public int SourceActiveMembers { get; }
+
+        /// <summary>Sức chứa tối đa của quán trong khung giờ target (<c>SeatInventory.TotalSeats</c>).</summary>
+        public int TargetSeatCapacity { get; }
+
+        /// <summary>Tổng active members sau khi merge (= <c>TargetActiveMembers + SourceActiveMembers</c>).</summary>
+        public int CombinedCount => TargetActiveMembers + SourceActiveMembers;
+
+        public InsufficientSeatsForMergeException(
+            int targetActiveMembers,
+            int sourceActiveMembers,
+            int targetSeatCapacity,
+            string message)
+            : base(message, "InsufficientSeatsForMerge")
+        {
+            TargetActiveMembers = targetActiveMembers;
+            SourceActiveMembers = sourceActiveMembers;
+            TargetSeatCapacity = targetSeatCapacity;
         }
     }
 }

@@ -117,11 +117,26 @@ public class LobbyMergeService : ILobbyMergeService
             throw new ForbiddenException(LobbyMergeErrors.StaffPermissionDenied);
 
         // 3. Validate source lobby tồn tại
-        var sourceLobby = await _lobbyRepository.GetByIdAsync(dto.SourceLobbyId, cancellationToken)
+        // Optimization (2026-10-02): Dùng projection GetMergeSummaryAsync thay vì
+        // GetByIdAsync để giảm predicate lock surface trong Serializable transaction.
+        // GetByIdAsync load full graph: LobbyMembers → User → Profile, GameTemplate,
+        // Cafe, Booking, Reservation. Mỗi Include chain đó tạo predicate lock riêng → tăng
+        // xác suất 40001 khi 2 staff merge cùng cafe đồng thời (2 concurrent transactions
+        // đọc cùng row range).
+        //
+        // CreateMergeRequestAsync chỉ cần 7 fields (Id, Status, CafeId, GameTemplateId,
+        // ReservationId, HostUserId, ActiveSessionId) → projection skip hoàn toàn các
+        // navigation tables. Query time giảm từ O(Members + Game + Cafe + ...) → chỉ
+        // load 1 row Lobby (7 columns). Predicate lock surface giảm tương ứng.
+        //
+        // Pass LobbyMergeSummary record thay vì Lobby entity vì CreateMergeRequestAsync
+        // chỉ READ các fields này — không update sourceLobby/targetLobby (Update chỉ xảy ra
+        // trong ApproveMergeAsync Step 11 khi đóng source lobby).
+        var sourceLobby = await _lobbyRepository.GetMergeSummaryAsync(dto.SourceLobbyId, cancellationToken)
             ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(dto.SourceLobbyId));
 
         // 4. Validate target lobby tồn tại và đang active (InProgress hoặc Viable)
-        var targetLobby = await _lobbyRepository.GetByIdAsync(dto.TargetLobbyId, cancellationToken)
+        var targetLobby = await _lobbyRepository.GetMergeSummaryAsync(dto.TargetLobbyId, cancellationToken)
             ?? throw new NotFoundException(ApiErrorMessages.Lobby.NotFound(dto.TargetLobbyId));
 
         if (targetLobby.Status != LobbyStatus.InProgress && targetLobby.Status != LobbyStatus.Viable)
@@ -214,17 +229,43 @@ public class LobbyMergeService : ILobbyMergeService
         //      tại INSERT time, không phải tại transaction start.
         //
         //   2. Outer caller có thể đã wrap transaction riêng → check ambient trước.
+        //
+        //   3. Postgres Serializable có thể throw 40001 (serialization_failure) khi 2
+        //      transaction đồng thời đọc cùng row ActiveSession + Members rồi cùng INSERT.
+        //      Xem IsSerializationFailure() để biết chi tiết. Retry loop bên dưới xử lý
+        //      40001 với exponential backoff + jitter (Postgres recommendation).
         var ambientTx = _db.Database.CurrentTransaction;
-        IDbContextTransaction? ownedTx = null;
-        if (ambientTx == null)
-        {
-            ownedTx = await _db.Database.BeginTransactionAsync(
-                System.Data.IsolationLevel.Serializable, cancellationToken);
-        }
 
-        LobbyMergeRequestDto? resultDto;
-        try
+        // ===== Postgres Serializable retry loop (SQLSTATE 40001) =====
+        // Pattern theo hướng dẫn retry của Postgres documentation:
+        //   https://www.postgresql.org/docs/current/transaction-iso.html#XACT-SERIALIZABLE
+        //
+        // Mỗi iteration:
+        //   1. Begin fresh transaction (Serializable).
+        //   2. Execute validation + create entities + SaveChanges.
+        //   3. On success → commit + break.
+        //   4. On 40001 → rollback + ChangeTracker.Clear() + delay + retry.
+        //   5. On 23505 (unique violation) → 23505 handler → ConflictException (no retry).
+        //   6. On other errors → rollback + throw (preserves existing behavior).
+        //
+        // Retry chỉ áp dụng khi WE own transaction (ambientTx == null). Nếu caller đã
+        // wrap ambient transaction riêng thì không rollback được → không retry, để
+        // caller xử lý (caller nên dùng isolation thấp hơn hoặc retry ở layer cao hơn).
+        const int maxSerializationRetries = 3;
+        int serializationRetryCount = 0;
+
+        LobbyMergeRequestDto? resultDto = null;
+        while (true)
         {
+            IDbContextTransaction? ownedTx = null;
+            if (ambientTx == null)
+            {
+                ownedTx = await _db.Database.BeginTransactionAsync(
+                    System.Data.IsolationLevel.Serializable, cancellationToken);
+            }
+
+            try
+            {
 
         // 6. Validate idempotency key — check FIRST so retries return the same result
         if (!string.IsNullOrWhiteSpace(dto.IdempotencyKey))
@@ -334,6 +375,45 @@ public class LobbyMergeService : ILobbyMergeService
 
         var fitsCapacity = seatCapacity >= combinedCount;
 
+        // ===== BR-EXCEPTION-4 fix (2026-10-02): Enforce seat capacity (targetActive + sourceActive <= targetSeatCapacity) =====
+        // Áp dụng cho CẢ Create + Approve (Approve re-validate vì member có thể đổi giữa 2 thời điểm).
+        //
+        // Trước đây code chỉ lưu `FitsCapacity = false` flag trên request nhưng KHÔNG throw → staff
+        // vẫn tạo được request vượt sức chứa. Approve đến cũng throw `SeatNotAvailableForMerge`
+        // chung chung ("Nhóm nhận đã gần đạt sức chứa tối đa") không có số liệu cụ thể → staff
+        // không biết phải giảm bao nhiêu người.
+        //
+        // Fix: throw `InsufficientSeatsForMergeException` (HTTP 409 + errorCode =
+        // "InsufficientSeatsForMerge") với 4 số liệu cụ thể:
+        //   - targetActiveMembers = số active hiện tại của target lobby TRƯỚC khi merge
+        //   - sourceActiveMembers = số active sẽ transfer (tổng hoặc selected subset)
+        //   - targetSeatCapacity = TotalSeats của cafe trong khung giờ target
+        //   - combinedCount = targetActive + sourceActive (tổng sau khi merge)
+        //
+        // Edge case: walk-in target (ReservationId == null) → seatCapacity giữ int.MaxValue
+        // → skip check (merge walk-in không bị seat-bound; capacity check chỉ áp dụng cho online
+        // lobby có SeatInventory).
+        if (targetLobby.ReservationId.HasValue && seatCapacity < combinedCount)
+        {
+            _logger.LogWarning(
+                "LobbyMerge.CreateRequest: InsufficientSeatsForMerge. " +
+                "Source={SourceLobbyId} (active={SourceActive}) | " +
+                "Target={TargetLobbyId} (active={TargetActive}, capacity={Capacity}) | " +
+                "Combined={Combined} > Capacity={Capacity}",
+                dto.SourceLobbyId, sourceCounts.ActiveCount,
+                dto.TargetLobbyId, targetCounts.ActiveCount, seatCapacity,
+                combinedCount, seatCapacity);
+
+            throw new InsufficientSeatsForMergeException(
+                targetActiveMembers: targetCounts.ActiveCount,
+                sourceActiveMembers: combinedCount - targetCounts.ActiveCount,
+                targetSeatCapacity: seatCapacity,
+                message: LobbyMergeErrors.InsufficientSeatsForMerge(
+                    targetCounts.ActiveCount,
+                    combinedCount - targetCounts.ActiveCount,
+                    seatCapacity));
+        }
+
         var request = new LobbyMergeRequest
         {
             Id = Guid.NewGuid(),
@@ -409,22 +489,65 @@ public class LobbyMergeService : ILobbyMergeService
                 throw new ConflictException(LobbyMergeErrors.MergeRequestAlreadyPending);
             }
 
-            await _db.Entry(request).Reference(r => r.SourceLobby).LoadAsync(cancellationToken);
-            await _db.Entry(request).Reference(r => r.TargetLobby).LoadAsync(cancellationToken);
             await _db.Entry(request).Reference(r => r.RequestedByUser).LoadAsync(cancellationToken);
 
             _logger.LogInformation(
                 "LobbyMergeRequest created: {RequestId} | Source={SourceLobbyId} | Target={TargetLobbyId} | By={UserId}",
                 request.Id, dto.SourceLobbyId, dto.TargetLobbyId, staffUserId);
 
-            resultDto = MapToDto(request);
-            return resultDto;
+            // Build DTO inline từ summaries (không gọi _db.Entry(...).Reference(...).LoadAsync()
+            // cho SourceLobby/TargetLobby vì summaries đã có sẵn HostUserId cần cho DTO).
+            // Trước đây LoadAsync load full Lobby row → thêm 2 SELECT round-trips + 2 predicate
+            // locks cho Lobby rows đã được project ở đầu hàm. Optimization (2026-10-02) giảm
+            // round-trips từ 3 → 1 và predicate locks từ 3 → 1.
+            resultDto = BuildMergeRequestDtoFromSummaries(
+                request, sourceLobby, targetLobby);
+            break; // Success — thoát khỏi retry loop
+        }
+        catch (Exception ex) when (
+            IsSerializationFailure(ex)
+            && ambientTx == null
+            && serializationRetryCount < maxSerializationRetries)
+        {
+            // ===== Postgres 40001 serialization_failure retry =====
+            // 2 transactions đồng thời cùng đọc cùng row ActiveSession/Members (qua
+            // Include chain trong CafePosRepository.GetActiveSessionByIdAsync) rồi cùng
+            // INSERT LobbyMergeRequest → Postgres phát hiện rw-antidependency cycle →
+            // abort transaction này với 40001. Postgres hint: retry.
+            serializationRetryCount++;
+            if (ownedTx != null)
+            {
+                try { await ownedTx.RollbackAsync(cancellationToken); }
+                catch (InvalidOperationException)
+                {
+                    // SaveChangesAsync đã trigger auto-rollback; bỏ qua.
+                }
+                await ownedTx.DisposeAsync();
+            }
+
+            // Detach all tracked entities so iteration kế tiếp đọc fresh state từ DB
+            // thay vì dùng stale ChangeTracker entries (nếu không clear, SaveChangesAsync
+            // sẽ cố re-insert các entities đã được add từ attempt trước).
+            _db.ChangeTracker.Clear();
+
+            // Exponential backoff + jitter: 100ms, 200ms, 400ms (+ random 0-50ms).
+            // Jitter tránh thundering herd khi nhiều request cùng retry đồng thời.
+            var delayMs = (int)(100 * Math.Pow(2, serializationRetryCount - 1))
+                          + Random.Shared.Next(0, 50);
+            _logger.LogWarning(
+                "LobbyMerge.CreateRequest: Postgres serialization failure (40001) on attempt {Attempt}/{Max}. " +
+                "Source={SourceLobbyId} | Target={TargetLobbyId} | By={UserId}. Retrying in {Delay}ms.",
+                serializationRetryCount, maxSerializationRetries,
+                dto.SourceLobbyId, dto.TargetLobbyId, staffUserId, delayMs);
+
+            await Task.Delay(delayMs, cancellationToken);
+            continue; // Retry với fresh transaction + fresh data
         }
         catch
         {
-            // Re-throw đã được xử lý phía trên cho unique violation. Catch này chỉ để
-            // đảm bảo rollback owned transaction cho các exception khác (NotFound,
-            // Forbidden, BadRequest, Conflict v.v.) trước khi bubbles lên middleware.
+            // Re-throw đã được xử lý phía trên cho unique violation + serialization failure.
+            // Catch này chỉ để đảm bảo rollback owned transaction cho các exception khác
+            // (NotFound, Forbidden, BadRequest, Conflict v.v.) trước khi bubbles lên middleware.
             if (ownedTx != null)
             {
                 try { await ownedTx.RollbackAsync(cancellationToken); }
@@ -440,6 +563,8 @@ public class LobbyMergeService : ILobbyMergeService
         {
             if (ownedTx != null) await ownedTx.DisposeAsync();
         }
+        } // end while (true) — Postgres 40001 retry loop
+        return resultDto!;
     }
 
     /// <summary>
@@ -458,6 +583,49 @@ public class LobbyMergeService : ILobbyMergeService
             || name == "\"IX_LMR_SourceTarget_Pending\"";
     }
 
+    /// <summary>
+    /// Detect Postgres serialization_failure (SQLSTATE 40001) — xảy ra khi Serializable
+    /// isolation phát hiện read/write dependency giữa 2 transactions đồng thời.
+    ///
+    /// Stack trace điển hình (xem production logs 2026-10-02):
+    ///   - 2 staff tại cùng cafe gọi CreateMergeRequestAsync đồng thời
+    ///   - Cả 2 transaction BeginTransaction(IsolationLevel.Serializable) theo BR-REQUIRED §17.5
+    ///   - Cả 2 đọc cùng row ActiveSession + Members qua các Include
+    ///     (CafePosRepository.GetActiveSessionByIdAsync, line 109-126)
+    ///   - Cả 2 INSERT LobbyMergeRequest → Postgres phát hiện rw-antidependency cycle
+    ///     (Tx1 read ActiveSession → Tx2 write LobbyMergeRequest with same SourceLobby →
+    ///      Tx1 write LobbyMergeRequest with same TargetLobby → cycle detected)
+    ///   - Postgres abort 1 transaction với 40001.
+    ///
+    /// Postgres hint: "The transaction might succeed if retried."
+    /// Reference: https://www.postgresql.org/docs/current/transaction-iso.html#XACT-SERIALIZABLE
+    ///
+    /// Bug fix (2026-10-02): Hàm trước chỉ check `ex is DbUpdateException` ở outermost.
+    /// Nhưng EF Core's <c>NpgsqlExecutionStrategy</c> wrap <c>DbUpdateException</c> thành
+    /// <c>InvalidOperationException("An exception has been raised that is likely due
+    /// to a transient failure.")</c> TRƯỚC khi ném ra service code. Kết quả: retry catch
+    /// không match (outermost là InvalidOperationException), exception bubble lên middleware
+    /// → HTTP 500. Fix: walk <c>InnerException</c> chain để tìm <c>PostgresException(40001)</c>
+    /// bất kể nó được wrap ở tầng nào.
+    /// </summary>
+    private static bool IsSerializationFailure(Exception ex)
+    {
+        // Walk InnerException chain. EF execution strategy có thể wrap nhiều tầng:
+        //   InvalidOperationException
+        //     → DbUpdateException
+        //       → PostgresException(SqlState="40001")
+        for (Exception? cursor = ex; cursor != null; cursor = cursor.InnerException)
+        {
+            if (cursor is DbUpdateException dbe
+                && dbe.InnerException is PostgresException pg
+                && pg.SqlState == "40001")
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public async Task<LobbyMergeApprovedDto> ApproveMergeAsync(
         Guid cafeId,
         Guid staffUserId,
@@ -465,17 +633,40 @@ public class LobbyMergeService : ILobbyMergeService
         string? reviewNote = null,
         CancellationToken cancellationToken = default)
     {
-        // Ambient transaction pattern — BR-REQUIRED §17.5
+        // ===== Ambient Transaction Pattern — BR-REQUIRED §17.5 =====
         var ambientTx = _db.Database.CurrentTransaction;
-        IDbContextTransaction? ownedTx = null;
-        if (ambientTx == null)
-        {
-            ownedTx = await _db.Database.BeginTransactionAsync(
-                System.Data.IsolationLevel.Serializable, cancellationToken);
-        }
 
-        try
+        // ===== Postgres Serializable retry loop (SQLSTATE 40001) =====
+        // Bug fix (2026-10-02): Trước đây ApproveMergeAsync KHÔNG có retry loop — chỉ
+        // CreateMergeRequestAsync mới có. Production logs cho thấy 40001 cũng xảy ra ở
+        // approve flow khi 2 staff approve/reject/cancel cùng lúc trên cùng merge request,
+        // hoặc khi đọc ActiveSession row bị lock bởi concurrent CafePosService flow
+        // (PaySessionAsync, ForceCloseServiceAsync, Etc.).
+        //
+        // Pattern giống CreateMergeRequestAsync:
+        //   1. Begin fresh transaction (Serializable).
+        //   2. Execute validation + transfers + SaveChanges.
+        //   3. On success → commit + break.
+        //   4. On 40001 → rollback + ChangeTracker.Clear() + delay + retry.
+        //   5. On 23505 (unique violation) / other → rollback + throw.
+        //
+        // Retry chỉ áp dụng khi WE own transaction (ambientTx == null). Nếu caller đã
+        // wrap ambient transaction riêng thì không rollback được → không retry.
+        const int maxSerializationRetries = 3;
+        int serializationRetryCount = 0;
+
+        LobbyMergeApprovedDto? resultDto = null;
+        while (true)
         {
+            IDbContextTransaction? ownedTx = null;
+            if (ambientTx == null)
+            {
+                ownedTx = await _db.Database.BeginTransactionAsync(
+                    System.Data.IsolationLevel.Serializable, cancellationToken);
+            }
+
+            try
+            {
             // ===== Step 1: Staff permission =====
             var isStaff = await _cafeRepository.IsManagerOrStaffAsync(cafeId, staffUserId, cancellationToken);
             if (!isStaff)
@@ -525,12 +716,23 @@ public class LobbyMergeService : ILobbyMergeService
                 DeserializeSelectedMemberIds(mergeRequest.SelectedMemberIdsJson));
             var isSelectiveApprove = selectedIdsAtApprove.Count > 0;
 
-            // ===== Step 4: Load target ActiveSession với FOR UPDATE — BR-REQUIRED §17.4 =====
-            var targetSession = await _db.ActiveSessions
-                .FromSqlRaw(
-                    "SELECT * FROM \"ActiveSessions\" WHERE \"LobbyId\" = {0} AND \"Status\" = {1} FOR UPDATE",
+            // ===== Step 4: Load target ActiveSession metadata với FOR UPDATE — BR-REQUIRED §17.4 =====
+            // Optimization (2026-10-02): Projection .Select(Id, StartedAt, EndedAt) thay vì
+            // Include(s => s.Members). Members KHÔNG được sử dụng trong logic (Step 10a query
+            // ActiveSessionMembers riêng theo UserId / OriginalSessionId). Lợi ích:
+            //   - Predicate lock surface trên Members rows giảm về 0 → giảm xác suất
+            //     40001 khi 2 staff approve concurrent cùng target lobby.
+            //   - Query time giảm từ 95ms (7 Include levels: Members/User/Profile/GameTemplate)
+            //     → <5ms (chỉ load 3 cột + FOR UPDATE row lock).
+            //   - Memory footprint giảm (không materialize Members collection).
+            // EF Core 8 `SqlQueryRaw<T>` — T là record (reference type) non-entity, column names
+            // match property names case-sensitive ("Id", "StartedAt", "EndedAt" trong DB khớp với
+            // TargetSessionProjection property names).
+            var targetSession = await _db.Database
+                .SqlQueryRaw<TargetSessionProjection>(
+                    "SELECT \"Id\", \"StartedAt\", \"EndedAt\" FROM \"ActiveSessions\" " +
+                    "WHERE \"LobbyId\" = {0} AND \"Status\" = {1} FOR UPDATE",
                     targetLobby.Id, (int)GroupSessionStatus.Active)
-                .Include(s => s.Members)
                 .FirstOrDefaultAsync(cancellationToken)
                 ?? throw new NotFoundException(LobbyMergeErrors.TargetSessionNotFound);
 
@@ -650,16 +852,81 @@ public class LobbyMergeService : ILobbyMergeService
                 var seatInventory = await _seatInventoryRepository.GetForUpdateAsync(
                     cafeId, seatPlayDate, seatStartTime, seatEndTime, cancellationToken);
 
-                if (seatInventory != null && seatInventory.AvailableSeats < totalTransferable)
+                if (seatInventory != null)
                 {
-                    _logger.LogWarning(
-                        "Seat not available for merge: RequestId={RequestId} | Available={Available} | Required={Required}",
-                        requestId, seatInventory.AvailableSeats, totalTransferable);
+                    // ===== BR-EXCEPTION-4 fix (2026-10-02): Re-validate seat capacity (targetActive + sourceActive <= targetSeatCapacity) =====
+                    // Re-validate tại Approve vì member có thể đổi giữa Create (validate) và Approve (15 phút sau):
+                    //   - Target lobby có thể có thêm member mới join (targetActiveMembers tăng).
+                    //   - Source lobby có thể có member rời (sourceActiveMembers giảm → vẫn OK).
+                    //   - Cafe có thể đổi TotalSeats (capacity thay đổi).
+                    //
+                    // Trước đây code chỉ check `AvailableSeats < totalTransferable` (chỉ check available
+                    // seats, không tính target active members) → có thể tạo merge vượt capacity
+                    // mà staff không biết. Fix: dùng TotalSeats (capacity), check
+                    // `targetActiveMembers + sourceActiveMembers <= targetSeatCapacity`.
+                    //
+                    // Compute targetActiveMembers FRESH at approve time (không dùng snapshot từ Create):
+                    //   - Online target : LobbyMembers IsActive + Status == Ready
+                    //   - Walk-in target: ActiveSessionMembers Playing trong target session
+                    var targetActiveCounts = await LoadSourceMemberCountsAsync(targetLobby, cancellationToken);
+                    var targetActiveMembersAtApprove = targetActiveCounts.ActiveCount;
+                    var combinedAtApprove = targetActiveMembersAtApprove + totalTransferable;
+                    var targetSeatCapacity = seatInventory.TotalSeats;
 
-                    throw new ConflictException(
-                        LobbyMergeErrors.SeatNotAvailableForMerge);
+                    if (combinedAtApprove > targetSeatCapacity)
+                    {
+                        _logger.LogWarning(
+                            "LobbyMerge.Approve: InsufficientSeatsForMerge (re-validation at approve time). " +
+                            "RequestId={RequestId} | SourceActive={SourceActive} | " +
+                            "TargetActive={TargetActive} | Combined={Combined} > Capacity={Capacity}",
+                            requestId, totalTransferable, targetActiveMembersAtApprove,
+                            combinedAtApprove, targetSeatCapacity);
+
+                        // Bug fix (2026-10-02): Phải reject theo cùng pattern như source lobby
+                        // empty (Step 9) — set request.Rejected + audit + commit + throw.
+                        // Nếu throw trực tiếp không commit → request vẫn ở Pending → staff thấy
+                        // 409 nhưng lần sau GET /pending thấy request vẫn đó → UX kém.
+                        mergeRequest.Status = LobbyMergeRequestStatus.Rejected;
+                        mergeRequest.ReviewedByUserId = staffUserId;
+                        mergeRequest.ReviewedAt = DateTime.UtcNow;
+                        mergeRequest.ReviewNote =
+                            $"InsufficientSeatsForMerge at approve time: " +
+                            $"targetActive={targetActiveMembersAtApprove}, " +
+                            $"sourceTransferable={totalTransferable}, " +
+                            $"capacity={targetSeatCapacity}.";
+                        mergeRequest.UpdatedAt = DateTime.UtcNow;
+
+                        var rejectAudit = CreateAuditLog(
+                            mergeRequest.Id, sourceLobby.Id, targetLobby.Id,
+                            sourceLobby.ReservationId, targetLobby.ReservationId,
+                            staffUserId, "MergeRejected",
+                            new
+                            {
+                                reason = "InsufficientSeatsForMergeAtApprove",
+                                targetActiveMembers = targetActiveMembersAtApprove,
+                                sourceActiveMembers = totalTransferable,
+                                combinedCount = combinedAtApprove,
+                                targetSeatCapacity,
+                                exceedBy = combinedAtApprove - targetSeatCapacity
+                            },
+                            success: false,
+                            errorMessage: $"Combined={combinedAtApprove} > Capacity={targetSeatCapacity}");
+                        _db.LobbyMergeAuditLogs.Add(rejectAudit);
+
+                        await _db.SaveChangesAsync(cancellationToken);
+                        if (ownedTx != null) await ownedTx.CommitAsync(cancellationToken);
+
+                        throw new InsufficientSeatsForMergeException(
+                            targetActiveMembers: targetActiveMembersAtApprove,
+                            sourceActiveMembers: totalTransferable,
+                            targetSeatCapacity: targetSeatCapacity,
+                            message: LobbyMergeErrors.InsufficientSeatsForMerge(
+                                targetActiveMembersAtApprove,
+                                totalTransferable,
+                                targetSeatCapacity));
+                    }
                 }
-                else if (seatInventory == null)
+                else
                 {
                     // Walk-in: không tìm thấy SeatInventory → không block merge
                     // nhưng log warning để staff biết seat check không áp dụng
@@ -1268,7 +1535,7 @@ public class LobbyMergeService : ILobbyMergeService
                 "LobbyMerge approved: RequestId={RequestId} | Source={SourceLobbyId} | Target={TargetLobbyId} | LobbyMembersTransferred={LobbyCount} | WalkInMembersTransferred={WalkInCount} | Total={Count}",
                 requestId, sourceLobby.Id, targetLobby.Id, activeMembers.Count, walkInMembers.Count, totalTransferable);
 
-            return new LobbyMergeApprovedDto
+            resultDto = new LobbyMergeApprovedDto
             {
                 MergeRequestId = mergeRequest.Id,
                 SourceLobbyId = sourceLobby.Id,
@@ -1282,6 +1549,50 @@ public class LobbyMergeService : ILobbyMergeService
                 TargetActiveSessionId = targetSession.Id,
                 IdempotencyKey = mergeRequest.IdempotencyKey
             };
+            break; // Success — thoát khỏi retry loop
+        }
+        catch (Exception ex) when (
+            IsSerializationFailure(ex)
+            && ambientTx == null
+            && serializationRetryCount < maxSerializationRetries)
+        {
+            // ===== Postgres 40001 serialization_failure retry =====
+            // 2 staff approve cùng target lobby hoặc cùng ActiveSession row đang bị lock bởi
+            // CafePosService flow khác → Postgres phát hiện rw-antidependency cycle → abort
+            // transaction này với 40001. Postgres recommendation: retry.
+            //
+            // Bug fix (2026-10-02): Trước đây ApproveMergeAsync không có retry catch → bug
+            // nghiêm trọng vì Step 4 FromSqlRaw + Include(s => s.Members) load full graph
+            // (Members/User/Profile/GameTemplate) → predicate lock surface rất rộng → 40001
+            // xảy ra thường xuyên. Kết hợp với projection ở Step 4 (giảm lock surface) +
+            // retry loop này → staff thấy HTTP 200 thay vì 500 khi cafe đông.
+            serializationRetryCount++;
+            if (ownedTx != null)
+            {
+                try { await ownedTx.RollbackAsync(cancellationToken); }
+                catch (InvalidOperationException)
+                {
+                    // SaveChangesAsync đã trigger auto-rollback; bỏ qua.
+                }
+                await ownedTx.DisposeAsync();
+            }
+
+            // Detach all tracked entities so iteration kế tiếp đọc fresh state từ DB
+            // thay vì dùng stale ChangeTracker entries (nếu không clear, SaveChangesAsync
+            // sẽ cố re-insert các entities đã được add từ attempt trước).
+            _db.ChangeTracker.Clear();
+
+            // Exponential backoff + jitter: 100ms, 200ms, 400ms (+ random 0-50ms).
+            // Jitter tránh thundering herd khi nhiều request cùng retry đồng thời.
+            var delayMs = (int)(100 * Math.Pow(2, serializationRetryCount - 1))
+                          + Random.Shared.Next(0, 50);
+            _logger.LogWarning(
+                "LobbyMerge.Approve: Postgres serialization failure (40001) on attempt {Attempt}/{Max}. " +
+                "RequestId={RequestId}. Retrying in {Delay}ms.",
+                serializationRetryCount, maxSerializationRetries, requestId, delayMs);
+
+            await Task.Delay(delayMs, cancellationToken);
+            continue; // Retry với fresh transaction + fresh data
         }
         catch
         {
@@ -1307,6 +1618,8 @@ public class LobbyMergeService : ILobbyMergeService
         {
             if (ownedTx != null) await ownedTx.DisposeAsync();
         }
+        } // end while (true) — Postgres 40001 retry loop
+        return resultDto!;
     }
 
     public async Task<LobbyMergeRequestDto> RejectMergeAsync(
@@ -1518,8 +1831,18 @@ public class LobbyMergeService : ILobbyMergeService
 
     /// <summary>
     /// Load LobbyMergeRequest với row-level lock (FOR UPDATE).
+    /// <para>
+    /// Optimization (2026-10-02): Bỏ <c>ThenInclude(l =&gt; l.Members)</c> vì
+    /// <c>sourceLobby.Members</c> KHÔNG được sử dụng trong ApproveMergeAsync (code path
+    /// load members qua helper <c>LoadSourceTransferableMembersAsync</c> /
+    /// <c>_lobbyMemberRepository.GetByLobbyAsync</c> thay vì dùng navigation). Giảm:
+    ///   - Predicate lock surface trên LobbyMembers rows của source lobby.
+    ///   - Query time khi source lobby có nhiều members (vd: 30 người).
+    /// </para>
+    /// <para>
     /// Protected virtual để unit test subclass có thể override và trả về test data
     /// mà không cần InMemory DB hỗ trợ FromSqlRaw.
+    /// </para>
     /// </summary>
     protected virtual async Task<LobbyMergeRequest?> LoadMergeRequestWithLockAsync(
         Guid requestId,
@@ -1530,7 +1853,6 @@ public class LobbyMergeService : ILobbyMergeService
                 "SELECT * FROM \"LobbyMergeRequests\" WHERE \"Id\" = {0} FOR UPDATE",
                 requestId)
             .Include(r => r.SourceLobby)
-                .ThenInclude(l => l.Members)
             .Include(r => r.TargetLobby)
             .FirstOrDefaultAsync(cancellationToken);
     }
@@ -1733,6 +2055,68 @@ public class LobbyMergeService : ILobbyMergeService
     private readonly record struct LobbyMemberCounts(int TotalCount, int ActiveCount);
 
     /// <summary>
+    /// Projection record cho ApproveMergeAsync Step 4 — chỉ load metadata fields cần thiết,
+    /// KHÔNG load navigation (Members, User, Profile, GameTemplate chain).
+    /// <para>
+    /// Giảm predicate lock surface → giảm xác suất Postgres 40001 serialization_failure
+    /// khi 2 staff approve concurrent cùng target lobby. Trước đây Include(s =&gt; s.Members)
+    /// load Members + lazy init 60% (User → Profile, GameTemplate chain), trong đó:
+    ///   - targetSession.Id      : dùng ở Step 10a/10b (set OriginalSessionId khi transfer).
+    ///   - targetSession.StartedAt: dùng ở Step 5 (walk-in fallback) + Step 6 (overlap check).
+    ///   - targetSession.EndedAt : dùng ở Step 5 + Step 6.
+    /// Members KHÔNG được sử dụng trong logic — Step 10a query ActiveSessionMembers
+    /// riêng theo UserId / OriginalSessionId.
+    /// </para>
+    /// <para>
+    /// Query time giảm từ 95ms (7 Include levels) → &lt;5ms (chỉ load 3 cột + FOR UPDATE row lock).
+    /// </para>
+    /// <para>
+    /// Dùng <c>private record</c> (class) thay vì <c>record struct</c> để cho phép null check
+    /// với <c>??</c> operator kết hợp <c>FirstOrDefaultAsync</c>. EF Core 8 <c>SqlQueryRaw&lt;T&gt;</c>
+    /// hỗ trợ cả record class lẫn record struct, miễn column names match property names
+    /// (case-sensitive).
+    /// </para>
+    /// </summary>
+    private record TargetSessionProjection(Guid Id, DateTime StartedAt, DateTime? EndedAt);
+
+    /// <summary>
+    /// Projection record cho CreateMergeRequestAsync — chỉ load 7 fields cần thiết cho
+    /// validation + MapToDto (Id, Status, CafeId, GameTemplateId, ReservationId,
+    /// HostUserId, ActiveSessionId).
+    /// <para>
+    /// Optimization (2026-10-02): thay thế <c>_lobbyRepository.GetByIdAsync</c> vốn load
+    /// FULL Lobby graph:
+    ///   - Include Members → ThenInclude User → ThenInclude Profile (3-level chain)
+    ///   - Include GameTemplate
+    ///   - Include Cafe
+    ///   - Include Booking
+    ///   - Include Reservation
+    /// Mỗi Include chain tạo 1 SELECT round-trip + predicate lock riêng. Tổng cộng 6-8 tables
+    /// bị đụng vào predicate locks khi load 1 Lobby qua <c>GetByIdAsync</c>.
+    /// </para>
+    /// <para>
+    /// Projection .Select(...) chỉ load 7 columns từ 1 table (Lobbies) → 1 SELECT round-trip
+    /// + 1 predicate lock. Round-trips giảm từ 6-8 → 1, predicate lock surface giảm tương ứng.
+    /// </para>
+    /// <para>
+    /// EF Core 8 <c>.Select(... =&gt; new LobbyMergeSummary(...))</c> cho phép project vào
+    /// record class non-entity. Record properties KHÔNG cần match column names case-sensitive
+    /// (chỉ cần match thứ tự trong constructor invocation expression).
+    /// </para>
+    /// </summary>
+    /// <summary>
+    /// Local alias type for projection record. Lives in <c>BoardVerse.Core.DTOs.Lobby</c>
+    /// để <c>ILobbyRepository.GetMergeSummaryAsync</c> có thể return. Đặt private tại đây
+    /// không khả thi vì repository interface thuộc Core namespace.
+    /// </summary>
+    /// <remarks>
+    /// Optimization (2026-10-02): Promote từ private nested record lên Core DTO để
+    /// có thể mock trong unit tests + inject từ repository. Trước đây query inline
+    /// trong service qua <c>_db.Lobbies.Select(...)</c> bypass mock → tests fail.
+    /// </remarks>
+    private LobbyMergeSummary LobbyMergeSummaryAlias(LobbyMergeSummary s) => s;
+
+    /// <summary>
     /// Result set cho LoadSourceTransferableMembersAsync.
     /// - ActiveMembers : LobbyMember rows cho online lobby (IsActive + Status = Ready).
     /// - WalkInMembers : ActiveSessionMember rows cho walk-in lobby (Status = Playing).
@@ -1775,6 +2159,56 @@ public class LobbyMergeService : ILobbyMergeService
     }
 
     /// <summary>
+    /// Build LobbyMergeRequestDto từ LobbyMergeRequest + source/target LobbyMergeSummary
+    /// (thay vì load navigation Lobby entity qua Reference.LoadAsync).
+    /// <para>
+    /// Trước đây CreateMergeRequestAsync gọi 3 lần <c>_db.Entry(request).Reference(...).LoadAsync()</c>
+    /// cho SourceLobby/TargetLobby/RequestedByUser để populate DTO. SourceLobby/TargetLobby đã có
+    /// sẵn trong summaries (HostUserId) → chỉ cần LoadAsync cho RequestedByUser (username cho audit).
+    /// </para>
+    /// <para>
+    /// Giảm 2 round-trips SELECT + 2 predicate locks trên Lobby rows (đã được project ở đầu hàm
+    /// — load lại chỉ duplicate).
+    /// </para>
+    /// </summary>
+    private static LobbyMergeRequestDto BuildMergeRequestDtoFromSummaries(
+        LobbyMergeRequest request,
+        LobbyMergeSummary sourceSummary,
+        LobbyMergeSummary targetSummary)
+    {
+        return new LobbyMergeRequestDto
+        {
+            Id = request.Id,
+            SourceLobbyId = request.SourceLobbyId,
+            TargetLobbyId = request.TargetLobbyId,
+            // Tên lobby dùng HostUserId.ToString() (giống MapToDto pattern — HostUserId
+            // hiện không được resolve thành Username trong DTO, chỉ làm identifier).
+            SourceLobbyName = sourceSummary.HostUserId.ToString(),
+            TargetLobbyName = targetSummary.HostUserId.ToString(),
+            RequestedByUserId = request.RequestedByUserId,
+            // RequestedByUser đã được load bằng Reference.LoadAsync trước đó (cho audit log).
+            RequestedByUserName = request.RequestedByUser?.Username
+                ?? request.RequestedByUserId.ToString(),
+            Status = request.Status,
+            StatusText = request.Status.ToString(),
+            SourceMembersCount = request.SourceMembersCount,
+            SourceActiveMembersAtRequest = request.SourceActiveMembersAtRequest,
+            Reason = request.Reason,
+            ReviewedByUserId = request.ReviewedByUserId,
+            ReviewedByUserName = request.ReviewedByUser?.Username,
+            ReviewedAt = request.ReviewedAt,
+            ReviewNote = request.ReviewNote,
+            ExpiresAt = request.ExpiresAt,
+            IdempotencyKey = request.IdempotencyKey,
+            CreatedAt = request.CreatedAt,
+            CombinedCount = request.CombinedCount,
+            SeatCapacity = request.SeatCapacity,
+            FitsCapacity = request.FitsCapacity,
+            SelectedMemberIds = DeserializeSelectedMemberIds(request.SelectedMemberIdsJson)
+        };
+    }
+
+    /// <summary>
     /// Đếm member count của 1 lobby (online hoặc walk-in).
     /// Online  : LobbyMember.Status = Ready là "active", các status khác (Joined/Kicked/Left/LobbyTerminated) là "inactive".
     /// Walk-in : ActiveSessionMember.Status = Playing là "active", các status khác (SuspendedMutation/Finished) là "inactive".
@@ -1814,6 +2248,28 @@ public class LobbyMergeService : ILobbyMergeService
         var sessionMembersList = sessionMembers ?? new List<ActiveSessionMember>();
         var activePlaying = sessionMembersList.Count(m => m.Status == IndividualSessionStatus.Playing);
         return new LobbyMemberCounts(sessionMembersList.Count, activePlaying);
+    }
+
+    /// <summary>
+    /// Overload (2026-10-02) chấp nhận <see cref="LobbyMergeSummary"/> thay vì full
+    /// <see cref="Lobby"/> entity. <see cref="CreateMergeRequestAsync"/> chỉ load summary
+    /// (giảm predicate lock surface) nên cần entry point này. Logic giống hệt overload
+    /// phía trên — chỉ truyền <c>Id</c> + <c>ReservationId</c> + <c>ActiveSessionId</c>
+    /// cho helpers phụ thuộc.
+    /// </summary>
+    private Task<LobbyMemberCounts> LoadSourceMemberCountsAsync(
+        LobbyMergeSummary summary,
+        CancellationToken cancellationToken)
+    {
+        // Stub Lobby chỉ dùng Id + ReservationId + ActiveSessionId → ResolveSourceActiveSessionAsync
+        // chỉ đọc 2 fields này. Không save vào DB, không track EF.
+        var lobbyStub = new Lobby
+        {
+            Id = summary.Id,
+            ReservationId = summary.ReservationId,
+            ActiveSessionId = summary.ActiveSessionId
+        };
+        return LoadSourceMemberCountsAsync(lobbyStub, cancellationToken);
     }
 
     /// <summary>
@@ -1860,6 +2316,23 @@ public class LobbyMergeService : ILobbyMergeService
             Array.Empty<LobbyMember>(),
             walkInMembers,
             sourceSession);
+    }
+
+    /// <summary>
+    /// Overload (2026-10-02) chấp nhận <see cref="LobbyMergeSummary"/>. Lý do + pattern
+    /// giống <see cref="LoadSourceMemberCountsAsync(LobbyMergeSummary, CancellationToken)"/>.
+    /// </summary>
+    private Task<LobbyMergeSourceTransferSet> LoadSourceTransferableMembersAsync(
+        LobbyMergeSummary summary,
+        CancellationToken cancellationToken)
+    {
+        var lobbyStub = new Lobby
+        {
+            Id = summary.Id,
+            ReservationId = summary.ReservationId,
+            ActiveSessionId = summary.ActiveSessionId
+        };
+        return LoadSourceTransferableMembersAsync(lobbyStub, cancellationToken);
     }
 
     /// <summary>

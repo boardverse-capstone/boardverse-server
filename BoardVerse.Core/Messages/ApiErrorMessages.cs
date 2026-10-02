@@ -2640,6 +2640,22 @@ public static class LobbyMerge
     public const string SelectedMemberIdsEmptyAfterFilter =
         "Tất cả ID trong SelectedMemberIds không còn là thành viên active của phòng nguồn (có thể đã rời giữa lúc tạo và duyệt request). " +
         "Yêu cầu ghép nhóm đã được đánh dấu là Từ chối.";
+
+    // ===== BR-EXCEPTION-4 fix (2026-10-02): Validate seat capacity (targetActive + sourceActive <= targetSeatCapacity) =====
+    // Áp dụng cho cả Create + Approve (re-validate tại Approve vì member có thể đổi giữa
+    // 2 thời điểm). Throw InsufficientSeatsForMergeException với error code
+    // "InsufficientSeatsForMerge" (HTTP 409) + kèm 4 số liệu (targetActive, sourceActive,
+    // targetSeatCapacity, combinedCount) để UI/staff biết chính xác bao nhiêu ghế thiếu
+    // và quyết định giảm số member transfer hoặc hủy yêu cầu.
+    //
+    // Lý do KHÔNG dùng `SeatNotAvailableForMerge` cũ: message cũ quá chung chung
+    // ("Nhóm nhận đã gần đạt sức chứa tối đa") không có số liệu cụ thể. Staff không
+    // biết phải giảm bao nhiêu người hoặc nên hủy request.
+    public static string InsufficientSeatsForMerge(int targetActive, int sourceActive, int targetCapacity) =>
+        $"Không thể ghép nhóm: phòng đích đang có {targetActive} thành viên active, " +
+        $"phòng nguồn muốn chuyển {sourceActive} thành viên, tổng cộng {targetActive + sourceActive} người " +
+        $"vượt quá sức chứa của quán trong khung giờ này ({targetCapacity} chỗ). " +
+        $"Vui lòng chọn lại số thành viên cần chuyển (giảm SelectedMemberIds) hoặc tách thành nhiều yêu cầu nhỏ hơn.";
 }
 }
 

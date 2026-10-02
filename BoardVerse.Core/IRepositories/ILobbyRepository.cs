@@ -1,4 +1,5 @@
-﻿using BoardVerse.Core.Entities;
+﻿using BoardVerse.Core.DTOs.Lobby;
+using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 
 using System.Threading;
@@ -15,6 +16,25 @@ public interface ILobbyRepository
     Task<Lobby?> GetByIdAsync(Guid lobbyId, CancellationToken cancellationToken = default);
     Task<Lobby?> GetByIdWithMembersAsync(Guid lobbyId, CancellationToken cancellationToken = default);
     Task<Lobby?> GetByActiveSessionIdAsync(Guid activeSessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Load Lobby projection (7 fields) cho LobbyMergeService.CreateMergeRequestAsync.
+    /// <para>
+    /// Thay thế <c>GetByIdAsync</c> vốn load FULL graph (Members/User/Profile/GameTemplate/
+    /// Cafe/Booking/Reservation — 6-8 Include chains). Mỗi chain tạo predicate lock riêng
+    /// trong Serializable transaction → tăng xác suất 40001 (serialization_failure).
+    /// </para>
+    /// <para>
+    /// Projection này giảm predicate lock surface xuống còn 1 table (Lobbies).
+    /// </para>
+    /// <para>
+    /// Optimization (2026-10-02): thêm method mới (không thay thế GetByIdAsync) để các
+    /// caller khác (LobbyService, ReservationService, v.v.) tiếp tục dùng full entity
+    /// nếu cần navigation. Chỉ LobbyMergeService.CreateMergeRequestAsync dùng method này.
+    /// </para>
+    /// </summary>
+    /// <returns>LobbyMergeSummary hoặc null nếu lobby không tồn tại.</returns>
+    Task<LobbyMergeSummary?> GetMergeSummaryAsync(Guid lobbyId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Tra cứu lobby bằng share code (dùng cho join lobby private qua link).

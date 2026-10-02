@@ -136,6 +136,15 @@ public class LobbyMergeServiceTests : IDisposable
         return lobby;
     }
 
+    private static LobbyMergeSummary BuildLobbyMergeSummary(Lobby lobby) => new(
+        lobby.Id,
+        lobby.Status,
+        lobby.CafeId,
+        lobby.GameTemplateId,
+        lobby.ReservationId,
+        lobby.HostUserId,
+        lobby.ActiveSessionId);
+
     private static LobbyMember BuildMember(
         Guid userId,
         bool isActive = true,
@@ -238,8 +247,12 @@ public class LobbyMergeServiceTests : IDisposable
             .ReturnsAsync(BuildCafe(cafeId));
         _cafeRepo.Setup(r => r.IsManagerOrStaffAsync(cafeId, staffId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
+        _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(sourceId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BuildLobbyMergeSummary(BuildLobby(sourceId, LobbyStatus.Open)));
         _lobbyRepo.Setup(r => r.GetByIdAsync(sourceId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(sourceId, LobbyStatus.Open));
+        _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(targetId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BuildLobbyMergeSummary(BuildLobby(targetId, LobbyStatus.Open)));
         _lobbyRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(targetId, LobbyStatus.Open)); // Not InProgress
 
@@ -273,6 +286,8 @@ public class LobbyMergeServiceTests : IDisposable
         var lobby = BuildLobby(lobbyId, LobbyStatus.InProgress, cafeId);
         _lobbyRepo.Setup(r => r.GetByIdAsync(lobbyId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(lobby);
+            _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(lobbyId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(BuildLobbyMergeSummary(lobby));
 
         var dto = new CreateLobbyMergeRequestDto
         {
@@ -309,8 +324,12 @@ public class LobbyMergeServiceTests : IDisposable
             .ReturnsAsync(BuildCafe(cafeId));
         _cafeRepo.Setup(r => r.IsManagerOrStaffAsync(cafeId, staffId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
+        _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(sourceId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BuildLobbyMergeSummary(BuildLobby(sourceId, invalidStatus, cafeId)));
         _lobbyRepo.Setup(r => r.GetByIdAsync(sourceId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(sourceId, invalidStatus, cafeId));   // Gap #2: invalid source status
+        _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(targetId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BuildLobbyMergeSummary(BuildLobby(targetId, LobbyStatus.InProgress, cafeId)));
         _lobbyRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(targetId, LobbyStatus.InProgress, cafeId));
 
@@ -338,8 +357,12 @@ public class LobbyMergeServiceTests : IDisposable
             .ReturnsAsync(BuildCafe(cafeId));
         _cafeRepo.Setup(r => r.IsManagerOrStaffAsync(cafeId, staffId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
+        _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(sourceId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BuildLobbyMergeSummary(BuildLobby(sourceId, LobbyStatus.InProgress, cafeId)));
         _lobbyRepo.Setup(r => r.GetByIdAsync(sourceId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(sourceId, LobbyStatus.InProgress, cafeId));
+        _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(targetId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BuildLobbyMergeSummary(BuildLobby(targetId, LobbyStatus.InProgress, cafeId)));
         _lobbyRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(targetId, LobbyStatus.InProgress, cafeId));
 
@@ -382,8 +405,12 @@ public class LobbyMergeServiceTests : IDisposable
             .ReturnsAsync(BuildCafe(cafeId));
         _cafeRepo.Setup(r => r.IsManagerOrStaffAsync(cafeId, staffId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
+        _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(sourceId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BuildLobbyMergeSummary(BuildLobby(sourceId, LobbyStatus.InProgress, cafeId)));
         _lobbyRepo.Setup(r => r.GetByIdAsync(sourceId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(sourceId, LobbyStatus.InProgress, cafeId));
+        _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(targetId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BuildLobbyMergeSummary(BuildLobby(targetId, LobbyStatus.InProgress, cafeId)));
         _lobbyRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(targetId, LobbyStatus.InProgress, cafeId));
 
@@ -447,8 +474,12 @@ public class LobbyMergeServiceTests : IDisposable
             .ReturnsAsync(BuildCafe(cafeId));
         _cafeRepo.Setup(r => r.IsManagerOrStaffAsync(cafeId, staffId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
+        _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(sourceId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BuildLobbyMergeSummary(BuildLobby(sourceId, LobbyStatus.InProgress, cafeId)));
         _lobbyRepo.Setup(r => r.GetByIdAsync(sourceId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(sourceId, LobbyStatus.InProgress, cafeId));
+        _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(targetId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BuildLobbyMergeSummary(BuildLobby(targetId, LobbyStatus.InProgress, cafeId)));
         _lobbyRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(targetId, LobbyStatus.InProgress, cafeId));
 
@@ -519,8 +550,12 @@ public class LobbyMergeServiceTests : IDisposable
             .ReturnsAsync(true);
         _lobbyRepo.Setup(r => r.GetByIdAsync(sourceId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sourceLobby);
+            _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(sourceId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(BuildLobbyMergeSummary(sourceLobby));
         _lobbyRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(targetLobby);
+            _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(targetId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(BuildLobbyMergeSummary(targetLobby));
 
         // Seed: source lobby có ActiveSession với 1 game box InUse (chưa trả)
         var sourceSession = new ActiveSession
@@ -595,8 +630,12 @@ public class LobbyMergeServiceTests : IDisposable
             .ReturnsAsync(true);
         _lobbyRepo.Setup(r => r.GetByIdAsync(sourceId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sourceLobby);
+            _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(sourceId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(BuildLobbyMergeSummary(sourceLobby));
         _lobbyRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(targetLobby);
+            _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(targetId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(BuildLobbyMergeSummary(targetLobby));
         _memberRepo.Setup(r => r.GetByLobbyAsync(sourceId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<LobbyMember> { BuildMember(Guid.NewGuid(), lobbyId: sourceId) });
         _memberRepo.Setup(r => r.GetByLobbyAsync(targetId, It.IsAny<CancellationToken>()))
@@ -678,8 +717,12 @@ public class LobbyMergeServiceTests : IDisposable
             .ReturnsAsync(true);
         _lobbyRepo.Setup(r => r.GetByIdAsync(sourceId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sourceLobby);
+            _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(sourceId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(BuildLobbyMergeSummary(sourceLobby));
         _lobbyRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(targetLobby);
+            _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(targetId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(BuildLobbyMergeSummary(targetLobby));
         _memberRepo.Setup(r => r.GetByLobbyAsync(sourceId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<LobbyMember> { BuildMember(Guid.NewGuid(), lobbyId: sourceId) });
         _memberRepo.Setup(r => r.GetByLobbyAsync(targetId, It.IsAny<CancellationToken>()))
@@ -717,8 +760,12 @@ public class LobbyMergeServiceTests : IDisposable
             .ReturnsAsync(true);
         _lobbyRepo.Setup(r => r.GetByIdAsync(sourceId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sourceLobby);
+            _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(sourceId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(BuildLobbyMergeSummary(sourceLobby));
         _lobbyRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(targetLobby);
+            _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(targetId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(BuildLobbyMergeSummary(targetLobby));
         _memberRepo.Setup(r => r.GetByLobbyAsync(sourceId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<LobbyMember> { BuildMember(Guid.NewGuid(), lobbyId: sourceId) });
         _memberRepo.Setup(r => r.GetByLobbyAsync(targetId, It.IsAny<CancellationToken>()))
@@ -832,8 +879,12 @@ public class LobbyMergeServiceTests : IDisposable
             .ReturnsAsync(true);
         _lobbyRepo.Setup(r => r.GetByIdAsync(sourceId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sourceLobby);
+            _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(sourceId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(BuildLobbyMergeSummary(sourceLobby));
         _lobbyRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(targetLobby);
+            _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(targetId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(BuildLobbyMergeSummary(targetLobby));
 
         var dto = new CreateLobbyMergeRequestDto
         {
@@ -907,8 +958,12 @@ public class LobbyMergeServiceTests : IDisposable
             .ReturnsAsync(true);
         _lobbyRepo.Setup(r => r.GetByIdAsync(sourceId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sourceLobby);
+            _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(sourceId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(BuildLobbyMergeSummary(sourceLobby));
         _lobbyRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(targetLobby);
+            _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(targetId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(BuildLobbyMergeSummary(targetLobby));
 
         var dto = new CreateLobbyMergeRequestDto
         {
@@ -1020,8 +1075,12 @@ public class LobbyMergeServiceTests : IDisposable
             .ReturnsAsync(true);
         _lobbyRepo.Setup(r => r.GetByIdAsync(sourceId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sourceLobby);
+            _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(sourceId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(BuildLobbyMergeSummary(sourceLobby));
         _lobbyRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(targetLobby);
+            _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(targetId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(BuildLobbyMergeSummary(targetLobby));
 
         var dto = new CreateLobbyMergeRequestDto
         {
@@ -1092,8 +1151,12 @@ public class LobbyMergeServiceTests : IDisposable
             .ReturnsAsync(true);
         _lobbyRepo.Setup(r => r.GetByIdAsync(sourceId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sourceLobby);
+            _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(sourceId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(BuildLobbyMergeSummary(sourceLobby));
         _lobbyRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(targetLobby);
+            _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(targetId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(BuildLobbyMergeSummary(targetLobby));
         // Source có 2 LobbyMember sẵn sàng (mimic check-in ready)
         _memberRepo.Setup(r => r.GetByLobbyAsync(sourceId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<LobbyMember>
