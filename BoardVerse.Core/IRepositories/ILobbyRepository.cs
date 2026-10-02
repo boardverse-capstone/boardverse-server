@@ -221,5 +221,33 @@ public interface ILobbyRepository
         List<LobbyStatus>? statuses,
         int page,
         int pageSize, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Admin endpoint: lấy toàn bộ lobby trong hệ thống với filter tuỳ ý.
+    /// Filter theo HostUserId/GameTemplateId/CafeId/Statuses/FromDate/ToDate.
+    /// Sắp xếp theo CreatedAt desc, có phân trang.
+    /// </summary>
+    Task<(IReadOnlyList<Lobby> Items, int TotalCount)> GetAllLobbiesAsync(
+        Guid? hostUserId,
+        Guid? gameTemplateId,
+        Guid? cafeId,
+        List<LobbyStatus>? statuses,
+        DateTime? fromDate,
+        DateTime? toDate,
+        int page,
+        int pageSize, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lấy toàn bộ lobby của 1 user (host hoặc member, cả active + terminal).
+    /// Sắp xếp theo CreatedAt desc, có phân trang.
+    /// </summary>
+    Task<(IReadOnlyList<Lobby> Items, int TotalCount)> GetUserLobbyHistoryAsync(
+        Guid userId,
+        List<LobbyStatus>? statuses,
+        bool? asHost,
+        DateTime? fromDate,
+        DateTime? toDate,
+        int page,
+        int pageSize, CancellationToken cancellationToken = default);
 }
 }

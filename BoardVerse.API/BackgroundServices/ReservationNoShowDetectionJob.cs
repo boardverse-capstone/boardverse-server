@@ -332,8 +332,11 @@ public class ReservationNoShowDetectionJob : BackgroundService
         var gameInvRepo = scope.ServiceProvider.GetRequiredService<IGameInventoryRepository>();
 
         // Release seats: use (cafeId, playDate, startTime, endTime)
-        var startTime = reservation.PreferredStartTime ?? TimeOnly.FromDateTime(reservation.ScheduledStartTime);
-        var endTime = reservation.PreferredEndTime ?? TimeOnly.FromDateTime(reservation.ScheduledEndTime);
+        // FIX TZ-DT-UTC-03 (2026-10-02): wrap với CafeSchedule.ToVietnamLocal trước khi extract
+        // TimeOnly, vì ScheduledStartTime/EndTime bây giờ Kind=Utc (UTC ticks), không phải VN
+        // local. Nếu không wrap, lobby 20:45 VN sẽ bị coi như 20:45 UTC → sai inventory slot.
+        var startTime = reservation.PreferredStartTime ?? TimeOnly.FromDateTime(CafeSchedule.ToVietnamLocal(reservation.ScheduledStartTime));
+        var endTime = reservation.PreferredEndTime ?? TimeOnly.FromDateTime(CafeSchedule.ToVietnamLocal(reservation.ScheduledEndTime));
         var seatInv = await seatInvRepo.GetAsync(reservation.CafeId, reservation.PlayDate, startTime, endTime);
         if (seatInv != null)
         {

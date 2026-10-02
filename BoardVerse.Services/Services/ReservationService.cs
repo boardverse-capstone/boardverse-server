@@ -244,10 +244,15 @@ public class ReservationService : IReservationService
             request.PlayDate, request.PreferredStartTime, request.PreferredEndTime);
 
         // G13 fix: defensive assertion — scheduledStartTime phải thuộc playDate.
+        // FIX TZ-DT-UTC-02 (2026-10-02): scheduledStartTime bây giờ Kind=Utc (UTC ticks), không
+        // phải VN local. Convert ngược về VN local trước khi check DateOnly để lấy ngày theo
+        // giờ VN (early morning 06:00 VN = 23:00 UTC hôm trước → DateOnly.FromDateTime trực
+        // tiếp sẽ trả NGÀY TRƯỚC playDate).
         Debug.Assert(
-            DateOnly.FromDateTime(scheduledStartTime) == request.PlayDate,
-            $"[G13] scheduledStartTime {scheduledStartTime:yyyy-MM-dd} không thuộc playDate {request.PlayDate}. " +
-            "CafeSchedule.BuildScheduledStartEndFromPreferred có bug.");
+            DateOnly.FromDateTime(CafeSchedule.ToVietnamLocal(scheduledStartTime)) == request.PlayDate,
+            $"[G13] scheduledStartTime {scheduledStartTime:yyyy-MM-dd HH:mm:ss} (UTC) → " +
+            $"{CafeSchedule.ToVietnamLocal(scheduledStartTime):yyyy-MM-dd HH:mm:ss} (VN) không thuộc " +
+            $"playDate {request.PlayDate}. CafeSchedule.BuildScheduledStartEndFromPreferred có bug.");
 
         // Validate cafe mở cửa.
         var resolvedSchedule = await _scheduleResolver.ResolveAsync(request.CafeId, request.PlayDate);
@@ -538,10 +543,15 @@ public class ReservationService : IReservationService
             quoteRequest.PlayDate, quoteRequest.PreferredStartTime, quoteRequest.PreferredEndTime);
 
         // G13 fix: defensive assertion — scheduledStartTime phải thuộc playDate.
+        // FIX TZ-DT-UTC-02 (2026-10-02): scheduledStartTime bây giờ Kind=Utc (UTC ticks), không
+        // phải VN local. Convert ngược về VN local trước khi check DateOnly để lấy ngày theo
+        // giờ VN (early morning 06:00 VN = 23:00 UTC hôm trước → DateOnly.FromDateTime trực tiếp
+        // sẽ trả NGÀY TRƯỚC playDate).
         Debug.Assert(
-            DateOnly.FromDateTime(scheduledStartTime) == quoteRequest.PlayDate,
-            $"[G13] scheduledStartTime {scheduledStartTime:yyyy-MM-dd} không thuộc playDate {quoteRequest.PlayDate}. " +
-            "CafeSchedule.BuildScheduledStartEndFromPreferred có bug.");
+            DateOnly.FromDateTime(CafeSchedule.ToVietnamLocal(scheduledStartTime)) == quoteRequest.PlayDate,
+            $"[G13] scheduledStartTime {scheduledStartTime:yyyy-MM-dd HH:mm:ss} (UTC) → " +
+            $"{CafeSchedule.ToVietnamLocal(scheduledStartTime):yyyy-MM-dd HH:mm:ss} (VN) không thuộc " +
+            $"playDate {quoteRequest.PlayDate}. CafeSchedule.BuildScheduledStartEndFromPreferred có bug.");
 
         // G3 fix: Validate preferred times với cafe schedule trước khi hold BVC.
         await ValidatePreferredTimesWithCafeScheduleAsync(
@@ -2200,7 +2210,7 @@ public class ReservationService : IReservationService
                 throw new ConflictException(
                     ApiErrorMessages.System.SeatInventoryMissingForReservation(
                         reservation.CafeId, reservation.PlayDate,
-                        $"{reservation.ScheduledStartTime:HH:mm}-{reservation.ScheduledEndTime:HH:mm}"));
+                        $"{CafeSchedule.ToVietnamLocal(reservation.ScheduledStartTime):HH:mm}-{CafeSchedule.ToVietnamLocal(reservation.ScheduledEndTime):HH:mm}"));
             }
 
             if (reservation.GameInventoryId != null)
@@ -2219,7 +2229,7 @@ public class ReservationService : IReservationService
                 throw new ConflictException(
                     ApiErrorMessages.System.GameInventoryMissingForReservation(
                         reservation.CafeId, reservation.PlayDate,
-                        $"{reservation.ScheduledStartTime:HH:mm}-{reservation.ScheduledEndTime:HH:mm}"));
+                        $"{CafeSchedule.ToVietnamLocal(reservation.ScheduledStartTime):HH:mm}-{CafeSchedule.ToVietnamLocal(reservation.ScheduledEndTime):HH:mm}"));
             }
 
             // 6. Validate inventory state — must be Held.
@@ -2938,15 +2948,15 @@ public class ReservationService : IReservationService
             {
                 seatInventory = await _seatInventoryRepository.GetForUpdateAsync(
                     reservation.CafeId, reservation.PlayDate,
-                    TimeOnly.FromDateTime(reservation.ScheduledStartTime),
-                    TimeOnly.FromDateTime(reservation.ScheduledEndTime));
+                    TimeOnly.FromDateTime(CafeSchedule.ToVietnamLocal(reservation.ScheduledStartTime)),
+                    TimeOnly.FromDateTime(CafeSchedule.ToVietnamLocal(reservation.ScheduledEndTime)));
             }
             if (seatInventory == null)
             {
                 throw new ConflictException(
                     ApiErrorMessages.System.SeatInventoryMissingForReservation(
                         reservation.CafeId, reservation.PlayDate,
-                        $"{reservation.ScheduledStartTime:HH:mm}-{reservation.ScheduledEndTime:HH:mm}"));
+                        $"{CafeSchedule.ToVietnamLocal(reservation.ScheduledStartTime):HH:mm}-{CafeSchedule.ToVietnamLocal(reservation.ScheduledEndTime):HH:mm}"));
             }
 
             GameInventory? gameInventory;
@@ -2958,15 +2968,15 @@ public class ReservationService : IReservationService
             {
                 gameInventory = await _gameInventoryRepository.GetForUpdateAsync(
                     reservation.CafeId, reservation.GameId, reservation.PlayDate,
-                    TimeOnly.FromDateTime(reservation.ScheduledStartTime),
-                    TimeOnly.FromDateTime(reservation.ScheduledEndTime));
+                    TimeOnly.FromDateTime(CafeSchedule.ToVietnamLocal(reservation.ScheduledStartTime)),
+                    TimeOnly.FromDateTime(CafeSchedule.ToVietnamLocal(reservation.ScheduledEndTime)));
             }
             if (gameInventory == null)
             {
                 throw new ConflictException(
                     ApiErrorMessages.System.GameInventoryMissingForReservation(
                         reservation.CafeId, reservation.PlayDate,
-                        $"{reservation.ScheduledStartTime:HH:mm}-{reservation.ScheduledEndTime:HH:mm}"));
+                        $"{CafeSchedule.ToVietnamLocal(reservation.ScheduledStartTime):HH:mm}-{CafeSchedule.ToVietnamLocal(reservation.ScheduledEndTime):HH:mm}"));
             }
 
             if (seatInventory.InUseSeats < reservation.MaxPlayers)
@@ -3659,15 +3669,15 @@ public class ReservationService : IReservationService
             {
                 seatInventory = await _seatInventoryRepository.GetForUpdateAsync(
                     reservation.CafeId, reservation.PlayDate,
-                    TimeOnly.FromDateTime(reservation.ScheduledStartTime),
-                    TimeOnly.FromDateTime(reservation.ScheduledEndTime));
+                    TimeOnly.FromDateTime(CafeSchedule.ToVietnamLocal(reservation.ScheduledStartTime)),
+                    TimeOnly.FromDateTime(CafeSchedule.ToVietnamLocal(reservation.ScheduledEndTime)));
             }
             if (seatInventory == null)
             {
                 throw new ConflictException(
                     ApiErrorMessages.System.SeatInventoryMissingForReservation(
                         reservation.CafeId, reservation.PlayDate,
-                        $"{reservation.ScheduledStartTime:HH:mm}-{reservation.ScheduledEndTime:HH:mm}"));
+                        $"{CafeSchedule.ToVietnamLocal(reservation.ScheduledStartTime):HH:mm}-{CafeSchedule.ToVietnamLocal(reservation.ScheduledEndTime):HH:mm}"));
             }
 
             GameInventory? gameInventory;
@@ -3679,15 +3689,15 @@ public class ReservationService : IReservationService
             {
                 gameInventory = await _gameInventoryRepository.GetForUpdateAsync(
                     reservation.CafeId, reservation.GameId, reservation.PlayDate,
-                    TimeOnly.FromDateTime(reservation.ScheduledStartTime),
-                    TimeOnly.FromDateTime(reservation.ScheduledEndTime));
+                    TimeOnly.FromDateTime(CafeSchedule.ToVietnamLocal(reservation.ScheduledStartTime)),
+                    TimeOnly.FromDateTime(CafeSchedule.ToVietnamLocal(reservation.ScheduledEndTime)));
             }
             if (gameInventory == null)
             {
                 throw new ConflictException(
                     ApiErrorMessages.System.GameInventoryMissingForReservation(
                         reservation.CafeId, reservation.PlayDate,
-                        $"{reservation.ScheduledStartTime:HH:mm}-{reservation.ScheduledEndTime:HH:mm}"));
+                        $"{CafeSchedule.ToVietnamLocal(reservation.ScheduledStartTime):HH:mm}-{CafeSchedule.ToVietnamLocal(reservation.ScheduledEndTime):HH:mm}"));
             }
 
             // 2. Validate inventory state — must be InUse (từ CheckInAsync move).

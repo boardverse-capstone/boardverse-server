@@ -47,10 +47,17 @@ public class TimeSlotServiceTests
         var (start, end) = CafeSchedule.BuildScheduledStartEndFromPreferred(
             playDate, new TimeOnly(10, 0), new TimeOnly(14, 0));
 
-        Assert.Equal(playDate, DateOnly.FromDateTime(start));
-        Assert.Equal(playDate, DateOnly.FromDateTime(end));
-        Assert.Equal(10, start.Hour);
-        Assert.Equal(14, end.Hour);
+        // FIX TZ-DT-UTC-TEST-01 (2026-10-02): BuildScheduledStartEndFromPreferred giờ trả về
+        // Kind=Utc. playDate 2026-08-15 + 10:00 VN local → 03:00 UTC cùng ngày.
+        var startVn = CafeSchedule.ToVietnamLocal(start);
+        var endVn = CafeSchedule.ToVietnamLocal(end);
+        Assert.Equal(playDate, DateOnly.FromDateTime(startVn));
+        Assert.Equal(playDate, DateOnly.FromDateTime(endVn));
+        Assert.Equal(10, startVn.Hour);
+        Assert.Equal(14, endVn.Hour);
+        // Kind phải là Utc để JSON serialize ra "...Z" suffix.
+        Assert.Equal(DateTimeKind.Utc, start.Kind);
+        Assert.Equal(DateTimeKind.Utc, end.Kind);
     }
 
     [Fact]
@@ -60,8 +67,15 @@ public class TimeSlotServiceTests
         var (start, end) = CafeSchedule.BuildScheduledStartEndFromPreferred(
             playDate, new TimeOnly(21, 0), new TimeOnly(0, 0));
 
-        Assert.Equal(new DateTime(2026, 8, 18, 21, 0, 0), start);
-        Assert.Equal(new DateTime(2026, 8, 19, 0, 0, 0), end);
+        // FIX TZ-DT-UTC-TEST-01: convert VN local trước khi assert.
+        var startVn = CafeSchedule.ToVietnamLocal(start);
+        var endVn = CafeSchedule.ToVietnamLocal(end);
+        Assert.Equal(playDate, DateOnly.FromDateTime(startVn));
+        Assert.Equal(playDate.AddDays(1), DateOnly.FromDateTime(endVn));
+        Assert.Equal(21, startVn.Hour);
+        Assert.Equal(0, endVn.Hour);
+        Assert.Equal(DateTimeKind.Utc, start.Kind);
+        Assert.Equal(DateTimeKind.Utc, end.Kind);
     }
 
     [Theory]
