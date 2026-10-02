@@ -751,7 +751,7 @@ Chỉ trả các trạng thái **chưa kết thúc** — tức "player đã đ�
 | `byLobbyStatus` (summary) | Luôn trả đủ 7 fixed keys: `Open`, `Viable`, `Full`, `WaitingCheckIn`, `PendingCafeApproval`, `InProgress`, `NoLobby` (GAP-FIX-7). FE render chip filter không bị thiếu key. |
 | `lobby.members` | Danh sách thành viên active (không kể host). Mỗi member có `userId`, `displayName`, `phoneNumber`, `joinedAt` (GAP-FIX-6). Staff dùng để liên hệ ai trong nhóm khi cần. |
 | `lobby.isWaitingCheckIn` | True khi `lobby.status == WaitingCheckIn` (tất cả members Ready, đang chờ check-in) (GAP-FIX-1). |
-| `lobby.isHostCoolingOff` | True khi host lobby đang trong cooling-off period. Staff chuẩn bị tâm lý — cọc ×2 cho lần sau (GAP-FIX-11). |
+| `lobby.isHostCoolingOff` | True khi host lobby đang trong cooling-off period. Staff chuẩn bị tâm lý — host sẽ không được tạo lobby xa (cọc giữ nguyên, không nhân thêm — xem BR-NEW-10 cập nhật 2026-10-02) (GAP-FIX-11). |
 | `host.isCoolingOff` | Tương tự `lobby.isHostCoolingOff` nhưng check từ reservation host. |
 | `reservation.tableName` | Tên bàn thực tế (vd: "Bàn 3", "Tầng 2 - Bàn 5") (GAP-FIX-3). Null nếu chưa check-in hoặc không có CafeTable. |
 | `reservation.depositCurrency` | "BVC" cho flow mới (Reservation.DepositAmount > 0), "VND" cho legacy BookingDeposit flow (GAP-FIX-10). |

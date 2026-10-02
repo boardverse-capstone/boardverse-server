@@ -465,7 +465,7 @@ Theo BR § XVII.1, mọi request quan trọng (top-up / confirm / cancel / refun
 | Phase 3 | `POST /api/v1/reservations/confirm` → atomic transaction gồm `DepositHold` + reservation + lobby. |
 | Phase 5 | Cancel / no-show → `DepositRelease` / `DepositForfeit`. |
 | Phase 6 | POS check-in → `DepositCapture`. |
-| Phase 7 | Admin reset / cooling-off → `Adjustment` + cập nhật `accountStatus`. |
+| Phase 7 | Admin reset / cooling-off → `Adjustment` + cập nhật `accountStatus`. **Cooling-off KHÔNG còn nhân cọc** từ 2026-10-02 (chỉ set `IsCoolingOff=true` + `CoolingOffExpiresAt`). |
 
 ---
 

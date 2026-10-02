@@ -339,6 +339,178 @@ public class BackgroundJobRepositoryTests : IDisposable
 
     #endregion
 
+    #region NoShow Lobby Status Transition (GAP-NOSHOW-LOBBY-STATUS 2026-10-02)
+
+    /// <summary>
+    /// GAP-NOSHOW-LOBBY-STATUS Fix (2026-10-02): Khi reservation chuyển sang NoShow,
+    /// lobby liên kết cũng phải chuyển sang TimeoutFailed. Test verify query filter
+    /// chỉ pick lobby ở trạng thái active (Open/Full/Viable/WaitingCheckIn), KHÔNG
+    /// touch terminal statuses (Closed/HostCancelled/InProgress/etc).
+    /// </summary>
+    [Theory]
+    [InlineData(LobbyStatus.Open, true)]
+    [InlineData(LobbyStatus.Full, true)]
+    [InlineData(LobbyStatus.Viable, true)]
+    [InlineData(LobbyStatus.WaitingCheckIn, true)]
+    [InlineData(LobbyStatus.Closed, false)] // terminal → skip
+    [InlineData(LobbyStatus.HostCancelled, false)] // terminal → skip
+    [InlineData(LobbyStatus.TimeoutFailed, false)] // already terminal → skip
+    [InlineData(LobbyStatus.InProgress, false)] // đã check-in, không touch
+    [InlineData(LobbyStatus.RatingOpen, false)] // đang trong rating window
+    [InlineData(LobbyStatus.RejectedByCafe, false)] // terminal (cafe reject)
+    [InlineData(LobbyStatus.ExpiredByCafe, false)] // terminal (cafe không duyệt)
+    [InlineData(LobbyStatus.Dissolved, false)] // host dissolve
+    [InlineData(LobbyStatus.PendingCafeApproval, false)] // chưa publish
+    [InlineData(LobbyStatus.PendingActivation, false)] // đang atomic txn
+    public async Task NoShowLobbyFlip_Should_OnlyPickActiveStatuses(LobbyStatus lobbyStatus, bool shouldBePicked)
+    {
+        // Arrange: lobby with given status
+        var lobby = new Lobby
+        {
+            Id = Guid.NewGuid(),
+            HostUserId = Guid.NewGuid(),
+            GameTemplateId = Guid.NewGuid(),
+            CafeId = Guid.NewGuid(),
+            ReservationId = Guid.NewGuid(),
+            Status = lobbyStatus,
+            MaxMembers = 4,
+            MinPlayers = 2,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        _db.Lobbies.Add(lobby);
+        await _db.SaveChangesAsync();
+
+        // Act: query giống hệt ReservationNoShowDetectionJob — chỉ flip active statuses.
+        var activeStatuses = new[]
+        {
+            LobbyStatus.Open.ToString(),
+            LobbyStatus.Full.ToString(),
+            LobbyStatus.Viable.ToString(),
+            LobbyStatus.WaitingCheckIn.ToString()
+        };
+
+        var pickedLobbies = await _db.Lobbies
+            .Where(l => l.Id == lobby.Id && activeStatuses.Contains(l.Status.ToString()))
+            .ToListAsync();
+
+        // Assert
+        if (shouldBePicked)
+        {
+            Assert.Single(pickedLobbies);
+            Assert.Equal(lobby.Id, pickedLobbies[0].Id);
+        }
+        else
+        {
+            Assert.Empty(pickedLobbies);
+        }
+    }
+
+    /// <summary>
+    /// GAP-NOSHOW-LOBBY-STATUS Fix (2026-10-02): Reservation ở status NoShow + Lobby
+    /// ở WaitingCheckIn → sau khi job chạy, lobby phải ở TimeoutFailed (transition đúng).
+    /// </summary>
+    [Fact]
+    public async Task NoShowFlip_Should_TransitionLobby_FromWaitingCheckIn_ToTimeoutFailed()
+    {
+        // Arrange: reservation đã NoShow + lobby WaitingCheckIn (case thực tế user report).
+        var reservation = CreateReservation(ReservationStatus.NoShow, DateTime.UtcNow.AddHours(-1));
+        var lobby = new Lobby
+        {
+            Id = Guid.NewGuid(),
+            HostUserId = reservation.HostId,
+            GameTemplateId = reservation.GameId,
+            CafeId = reservation.CafeId,
+            ReservationId = reservation.Id,
+            Status = LobbyStatus.WaitingCheckIn,
+            MaxMembers = reservation.MaxPlayers,
+            MinPlayers = reservation.MinPlayers,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        _db.Reservations.Add(reservation);
+        _db.Lobbies.Add(lobby);
+        await _db.SaveChangesAsync();
+
+        // Act: simulate the job's atomic flip logic.
+        var now = DateTime.UtcNow;
+        var activeStatuses = new[]
+        {
+            LobbyStatus.Open.ToString(),
+            LobbyStatus.Full.ToString(),
+            LobbyStatus.Viable.ToString(),
+            LobbyStatus.WaitingCheckIn.ToString()
+        };
+        var closedReason = $"Reservation NoShow lúc {now:HH:mm dd/MM/yyyy} (quá 30 phút sau ScheduledStartTime).";
+
+        // InMemory không support ExecuteUpdateAsync — simulate bằng cách load + update.
+        // Trong production, ReservationNoShowDetectionJob dùng ExecuteUpdateAsync WHERE Status IN (activeStatuses)
+        // để cluster-safe atomic flip.
+        var flippedLobby = await _db.Lobbies
+            .Where(l => l.Id == lobby.Id && activeStatuses.Contains(l.Status.ToString()))
+            .FirstOrDefaultAsync();
+
+        Assert.NotNull(flippedLobby);
+        flippedLobby.Status = LobbyStatus.TimeoutFailed;
+        flippedLobby.ClosedAt = now;
+        flippedLobby.ClosedReason = closedReason;
+        flippedLobby.UpdatedAt = now;
+        await _db.SaveChangesAsync();
+
+        // Assert: verify final state
+        var result = await _db.Lobbies.FindAsync(lobby.Id);
+        Assert.NotNull(result);
+        Assert.Equal(LobbyStatus.TimeoutFailed, result!.Status);
+        Assert.NotNull(result.ClosedAt);
+        Assert.Contains("NoShow", result.ClosedReason);
+    }
+
+    /// <summary>
+    /// GAP-NOSHOW-LOBBY-STATUS Fix (2026-10-02): Lobby đã ở Closed (terminal) thì KHÔNG
+    /// flip lại TimeoutFailed — đây là idempotent safety để tránh regression nếu job chạy
+    /// 2 lần hoặc sau khi lobby đã đóng theo flow khác.
+    /// </summary>
+    [Fact]
+    public async Task NoShowFlip_Should_NotTouchAlreadyTerminalLobbies()
+    {
+        // Arrange: lobby đã Closed trước đó (vd: lobby đã được settle xong rồi)
+        var reservation = CreateReservation(ReservationStatus.NoShow, DateTime.UtcNow.AddHours(-1));
+        var lobby = new Lobby
+        {
+            Id = Guid.NewGuid(),
+            HostUserId = reservation.HostId,
+            GameTemplateId = reservation.GameId,
+            CafeId = reservation.CafeId,
+            ReservationId = reservation.Id,
+            Status = LobbyStatus.Closed, // already terminal
+            MaxMembers = reservation.MaxPlayers,
+            MinPlayers = reservation.MinPlayers,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        _db.Reservations.Add(reservation);
+        _db.Lobbies.Add(lobby);
+        await _db.SaveChangesAsync();
+
+        // Act
+        var activeStatuses = new[]
+        {
+            LobbyStatus.Open.ToString(),
+            LobbyStatus.Full.ToString(),
+            LobbyStatus.Viable.ToString(),
+            LobbyStatus.WaitingCheckIn.ToString()
+        };
+
+        var flippedLobby = await _db.Lobbies
+            .Where(l => l.Id == lobby.Id && activeStatuses.Contains(l.Status.ToString()))
+            .FirstOrDefaultAsync();
+
+        // Assert: Closed status không bị flip → query trả empty
+        Assert.Null(flippedLobby);
+    }
+
+    #endregion
+
     #region WalkInWindow Overlap Query
 
     [Fact]

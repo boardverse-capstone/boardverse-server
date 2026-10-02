@@ -397,7 +397,7 @@ Các job dưới đây chỉ chạy theo lịch (không có endpoint admin trigg
 | `LobbyAtRiskWarningJob` | `LobbyAtRiskWarningJob.cs` | 30 phút | BR-NEW-14: Cảnh báo lobby có nguy cơ fail. |
 | `ReservationNoShowDetectionJob` | `ReservationNoShowDetectionJob.cs` | 5 phút | BR-CHECKIN-02: Auto NoShow sau 30 phút grace. |
 | `WalkInWindowCleanupJob` | `WalkInWindowCleanupJob.cs` | 5 phút | Auto-close WalkInWindows hết hạn. |
-| `CoolingOffJob` | `CoolingOffJob.cs` | 30 phút | BR-NEW-10: Detect signals + expire cooling-off. |
+| `CoolingOffJob` | `CoolingOffJob.cs` | 30 phút | BR-NEW-10: Detect signals + expire cooling-off. **Cập nhật 2026-10-02**: KHÔNG set `RiskMultiplier = 2.0/3.0` khi activate/escalate — chỉ flip `IsCoolingOff` + extend `CoolingOffExpiresAt`. |
 | `RiskScoreRecomputeJob` | `RiskScoreRecomputeJob.cs` | 1 giờ | BR-RISK-01: Recompute risk score. |
 | `SuspensionExpiryCheckJob` | `SuspensionExpiryCheckJob.cs` | 1 giờ | BR-RISK-06: Auto-unlock expired suspensions. |
 | `AlertExpiryCleanupJob` | `AlertExpiryCleanupJob.cs` | 24 giờ | Dismiss stale `PlayerAlert` > 30 ngày. |
