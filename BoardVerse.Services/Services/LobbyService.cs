@@ -1036,7 +1036,7 @@ namespace BoardVerse.Services.Services
                 }
 
                 // 1. Release SeatInventory + GameInventory (BR-RESERVATION-01/02 + §XVII.4 atomic).
-                await ReleaseDissolveInventoriesAsync(reservation, lobby, now);
+                await ReleaseDissolveInventoriesAsync(reservation, lobby, now, cancellationToken);
 
                 // 2. Tính refund policy + BR-REFUND-02/03.
                 var hasMembers = lobby.Members.Any(m => !m.IsHost && m.IsActive);
@@ -1234,7 +1234,7 @@ namespace BoardVerse.Services.Services
         /// chưa từng được tạo (legacy lobby không gắn reservation flow).
         /// </summary>
         private async Task ReleaseDissolveInventoriesAsync(
-            Reservation? reservation, Lobby lobby, DateTime now)
+            Reservation? reservation, Lobby lobby, DateTime now, CancellationToken ct)
         {
             if (reservation?.CafeId != null
                 && reservation.PlayDate != default
@@ -1246,9 +1246,12 @@ namespace BoardVerse.Services.Services
                         reservation.CafeId, reservation.PlayDate, reservation.PreferredStartTime.Value, reservation.PreferredEndTime.Value);
                     if (seatInv != null && lobby.MaxMembers > 0)
                     {
-                        seatInv.HeldSeats = Math.Max(0, seatInv.HeldSeats - lobby.MaxMembers);
-                        seatInv.UpdatedAt = now;
-                        await _seatInventoryRepository.UpdateAsync(seatInv);
+                        // FIX 2026-10-02: AdjustCountersAsync — bypass EF tracker. Race-free với FOR UPDATE đã acquire.
+                        await _seatInventoryRepository.AdjustCountersAsync(
+                            seatInv.Id,
+                            heldDelta: -lobby.MaxMembers,
+                            inUseDelta: 0,
+                            cancellationToken: ct);
                     }
                 }
 
@@ -1258,9 +1261,11 @@ namespace BoardVerse.Services.Services
                         reservation.CafeId, reservation.GameId, reservation.PlayDate, reservation.PreferredStartTime.Value, reservation.PreferredEndTime.Value);
                     if (gameInv != null)
                     {
-                        gameInv.HeldCopies = Math.Max(0, gameInv.HeldCopies - 1);
-                        gameInv.UpdatedAt = now;
-                        await _gameInventoryRepository.UpdateAsync(gameInv);
+                        await _gameInventoryRepository.AdjustCountersAsync(
+                            gameInv.Id,
+                            heldDelta: -1,
+                            inUseDelta: 0,
+                            cancellationToken: ct);
                     }
                 }
                 return;
@@ -1277,9 +1282,12 @@ namespace BoardVerse.Services.Services
                     lobby.CafeId.Value, lobby.PlayDate.Value, startTime, endTime);
                 if (seatInv != null && lobby.MaxMembers > 0)
                 {
-                    seatInv.HeldSeats = Math.Max(0, seatInv.HeldSeats - lobby.MaxMembers);
-                    seatInv.UpdatedAt = now;
-                    await _seatInventoryRepository.UpdateAsync(seatInv);
+                    // FIX 2026-10-02: AdjustCountersAsync — bypass EF tracker.
+                    await _seatInventoryRepository.AdjustCountersAsync(
+                        seatInv.Id,
+                        heldDelta: -lobby.MaxMembers,
+                        inUseDelta: 0,
+                        cancellationToken: ct);
                 }
             }
         }

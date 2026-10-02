@@ -798,13 +798,23 @@ public class ReservationService : IReservationService
                 $"lobby-bound-{lobby.Id:N}");
 
             // 17. Update inventory counters.
-            seatInventory.HeldSeats += quote.MaxPlayersApplied;
-            seatInventory.UpdatedAt = now;
-            await _seatInventoryRepository.UpdateAsync(seatInventory);
+            // FIX 2026-10-02: dùng AdjustCountersAsync thay cho UpdateAsync để bypass EF tracker.
+            // UpdateAsync(entity) cũ đi qua SaveChangesAsync → UseXminAsConcurrencyToken check.
+            // Vì row load qua AsNoTracking, original xmin không capture → WHERE xmin = 0 → 0 rows
+            // affected → DbUpdateConcurrencyException (đã fail 3/3 retries trên Confirm).
+            // AdjustCountersAsync chạy raw UPDATE SET col = col + delta, race-free với FOR UPDATE
+            // đã acquire ở step trước (GetForUpdateAsync).
+            await _seatInventoryRepository.AdjustCountersAsync(
+                seatInventory.Id,
+                heldDelta: quote.MaxPlayersApplied,
+                inUseDelta: 0,
+                cancellationToken: cancellationToken);
 
-            gameInventory.HeldCopies += 1;
-            gameInventory.UpdatedAt = now;
-            await _gameInventoryRepository.UpdateAsync(gameInventory);
+            await _gameInventoryRepository.AdjustCountersAsync(
+                gameInventory.Id,
+                heldDelta: 1,
+                inUseDelta: 0,
+                cancellationToken: cancellationToken);
 
             // 18. Insert Host as first lobby member (BR-DEPOSIT-01).
             if (lobby.Status != LobbyStatus.PendingCafeApproval)
@@ -1083,7 +1093,7 @@ public class ReservationService : IReservationService
             }
 
             // GAP #12 fix: Lock inventory rows TRƯỚC khi tính refund để tránh race.
-            await ReleaseInventoriesAsync(reservation, now);
+            await ReleaseInventoriesAsync(reservation, now, default);
 
             // Tính refund policy (BR-REFUND-02/03).
             // H7 Fix: hasMembers phải check "có member khác host đã tham gia" chứ không phải tổng số row.
@@ -1525,7 +1535,7 @@ public class ReservationService : IReservationService
             var refundIdempotencyKey = $"cafe-reject-{reservation.Id:N}";
 
             // GAP #12 fix: Lock inventory rows trước khi refund.
-            await ReleaseInventoriesAsync(reservation, now);
+            await ReleaseInventoriesAsync(reservation, now, default);
 
             if (reservation.DepositAmount > 0)
             {
@@ -1685,7 +1695,7 @@ public class ReservationService : IReservationService
                 {
                     // Timeout → refund 100% BVC.
                     // GAP #12 fix: Lock inventory rows trước khi refund.
-                    await ReleaseInventoriesAsync(reservation, now);
+                    await ReleaseInventoriesAsync(reservation, now, default);
 
                     var refundIdempotencyKey = $"timeout-{reservation.Id:N}";
                     if (reservation.DepositAmount > 0)
@@ -1803,7 +1813,7 @@ public class ReservationService : IReservationService
             try
             {
                 // GAP #12 fix: Lock inventory rows trước khi refund.
-                await ReleaseInventoriesAsync(reservation, now);
+                await ReleaseInventoriesAsync(reservation, now, default);
 
                 var refundIdempotencyKey = $"cafe-expired-{reservation.Id:N}";
                 if (reservation.DepositAmount > 0)
@@ -2201,16 +2211,19 @@ public class ReservationService : IReservationService
             }
 
             // 7. Move seat: held → inUse.
-            seatInventory.HeldSeats -= reservation.MaxPlayers;
-            seatInventory.InUseSeats += reservation.MaxPlayers;
-            seatInventory.UpdatedAt = now;
-            await _seatInventoryRepository.UpdateAsync(seatInventory);
+            // FIX 2026-10-02: AdjustCountersAsync — bypass EF tracker, race-free.
+            await _seatInventoryRepository.AdjustCountersAsync(
+                seatInventory.Id,
+                heldDelta: -reservation.MaxPlayers,
+                inUseDelta: reservation.MaxPlayers,
+                cancellationToken: cancellationToken);
 
             // 8. Move game copy: held → inUse.
-            gameInventory.HeldCopies -= 1;
-            gameInventory.InUseCopies += 1;
-            gameInventory.UpdatedAt = now;
-            await _gameInventoryRepository.UpdateAsync(gameInventory);
+            await _gameInventoryRepository.AdjustCountersAsync(
+                gameInventory.Id,
+                heldDelta: -1,
+                inUseDelta: 1,
+                cancellationToken: cancellationToken);
 
             // 9. Update reservation.
             // FIX 2026-08-27: set CheckedInAt để downstream (CompleteAndCaptureAsync,
@@ -2562,16 +2575,20 @@ public class ReservationService : IReservationService
     ///
     /// Caller PHẢI đang trong một transaction (Serializable hoặc RepeatableRead).
     /// </summary>
-    private async Task ReleaseInventoriesAsync(Reservation reservation, DateTime now)
+    private async Task ReleaseInventoriesAsync(Reservation reservation, DateTime now, CancellationToken ct)
     {
         if (reservation.SeatInventoryId != null)
         {
             var seatInv = await _seatInventoryRepository.GetByIdForUpdateAsync(reservation.SeatInventoryId.Value);
             if (seatInv != null)
             {
-                seatInv.HeldSeats = Math.Max(0, seatInv.HeldSeats - reservation.MaxPlayers);
-                seatInv.UpdatedAt = now;
-                await _seatInventoryRepository.UpdateAsync(seatInv);
+                // FIX 2026-10-02: AdjustCountersAsync với GREATEST(0, ...) thay cho
+                // Math.Max(0, ...) ở C#. Race-free vì FOR UPDATE đã acquire ở GetByIdForUpdateAsync.
+                await _seatInventoryRepository.AdjustCountersAsync(
+                    seatInv.Id,
+                    heldDelta: -reservation.MaxPlayers,
+                    inUseDelta: 0,
+                    cancellationToken: ct);
             }
         }
 
@@ -2580,9 +2597,11 @@ public class ReservationService : IReservationService
             var gameInv = await _gameInventoryRepository.GetByIdForUpdateAsync(reservation.GameInventoryId.Value);
             if (gameInv != null)
             {
-                gameInv.HeldCopies = Math.Max(0, gameInv.HeldCopies - 1);
-                gameInv.UpdatedAt = now;
-                await _gameInventoryRepository.UpdateAsync(gameInv);
+                await _gameInventoryRepository.AdjustCountersAsync(
+                    gameInv.Id,
+                    heldDelta: -1,
+                    inUseDelta: 0,
+                    cancellationToken: ct);
             }
         }
     }
@@ -2913,13 +2932,18 @@ public class ReservationService : IReservationService
             }
 
             // 2. Release seat + game inventory.
-            seatInventory.InUseSeats -= reservation.MaxPlayers;
-            seatInventory.UpdatedAt = payTime;
-            await _seatInventoryRepository.UpdateAsync(seatInventory);
+            // FIX 2026-10-02: AdjustCountersAsync — bypass EF tracker.
+            await _seatInventoryRepository.AdjustCountersAsync(
+                seatInventory.Id,
+                heldDelta: 0,
+                inUseDelta: -reservation.MaxPlayers,
+                cancellationToken: ct);
 
-            gameInventory.InUseCopies -= 1;
-            gameInventory.UpdatedAt = payTime;
-            await _gameInventoryRepository.UpdateAsync(gameInventory);
+            await _gameInventoryRepository.AdjustCountersAsync(
+                gameInventory.Id,
+                heldDelta: 0,
+                inUseDelta: -1,
+                cancellationToken: ct);
 
             // 3. Update reservation → Completed + snapshot fields.
             reservation.Status = ReservationStatus.Completed;
@@ -3630,14 +3654,19 @@ public class ReservationService : IReservationService
             }
 
             // 3. Move seat: inUse → Available.
-            seatInventory.InUseSeats -= reservation.MaxPlayers;
-            seatInventory.UpdatedAt = now;
-            await _seatInventoryRepository.UpdateAsync(seatInventory);
+            // FIX 2026-10-02: AdjustCountersAsync — bypass EF tracker.
+            await _seatInventoryRepository.AdjustCountersAsync(
+                seatInventory.Id,
+                heldDelta: 0,
+                inUseDelta: -reservation.MaxPlayers,
+                cancellationToken: ct);
 
             // 4. Move game copy: inUse → Available.
-            gameInventory.InUseCopies -= 1;
-            gameInventory.UpdatedAt = now;
-            await _gameInventoryRepository.UpdateAsync(gameInventory);
+            await _gameInventoryRepository.AdjustCountersAsync(
+                gameInventory.Id,
+                heldDelta: 0,
+                inUseDelta: -1,
+                cancellationToken: ct);
 
             // 5. Update reservation → Completed + compute lifecycle metadata.
             // FIX 2026-08-27: phải set ActualEndAt / CheckedInAt / PlayedRatio / EndReason

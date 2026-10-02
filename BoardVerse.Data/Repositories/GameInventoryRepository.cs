@@ -78,6 +78,22 @@ public class GameInventoryRepository : IGameInventoryRepository
         ", cancellationToken);
     }
 
+    /// <summary>
+    /// FIX 2026-10-02: Atomic counter adjustment bypassing EF tracker. See ISeatInventoryRepository.AdjustCountersAsync.
+    /// </summary>
+    public async Task AdjustCountersAsync(Guid id, int heldDelta, int inUseDelta, CancellationToken cancellationToken = default)
+    {
+        var now = DateTime.UtcNow;
+        await _db.Database.ExecuteSqlInterpolatedAsync($@"
+            UPDATE ""GameInventories""
+            SET ""HeldCopies"" = GREATEST(0, ""HeldCopies"" + {heldDelta}),
+                ""InUseCopies"" = GREATEST(0, ""InUseCopies"" + {inUseDelta}),
+                ""UpdatedAt"" = {now}
+            WHERE ""Id"" = {id};
+        ", cancellationToken);
+    }
+
+    [Obsolete("Use AdjustCountersAsync — UpdateAsync has DbUpdateConcurrencyException bug with UseXminAsConcurrencyToken + AsNoTracking.")]
     public async Task UpdateAsync(GameInventory gameInventory, CancellationToken cancellationToken = default)
     {
         // See SeatInventoryRepository.UpdateAsync for rationale — same xmin + AsNoTracking issue.

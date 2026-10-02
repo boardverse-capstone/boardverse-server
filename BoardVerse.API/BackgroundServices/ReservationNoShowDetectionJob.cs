@@ -257,9 +257,12 @@ public class ReservationNoShowDetectionJob : BackgroundService
         var seatInv = await seatInvRepo.GetAsync(reservation.CafeId, reservation.PlayDate, startTime, endTime);
         if (seatInv != null)
         {
-            seatInv.HeldSeats = Math.Max(0, seatInv.HeldSeats - reservation.MaxPlayers);
-            seatInv.UpdatedAt = now;
-            await seatInvRepo.UpdateAsync(seatInv);
+            // FIX 2026-10-02: AdjustCountersAsync — bypass EF tracker.
+            await seatInvRepo.AdjustCountersAsync(
+                seatInv.Id,
+                heldDelta: -reservation.MaxPlayers,
+                inUseDelta: 0,
+                cancellationToken: ct);
         }
 
         // Release game copy: use (cafeId, gameId, playDate, startTime, endTime)
@@ -267,9 +270,11 @@ public class ReservationNoShowDetectionJob : BackgroundService
             reservation.CafeId, reservation.GameId, reservation.PlayDate, startTime, endTime);
         if (gameInv != null)
         {
-            gameInv.HeldCopies = Math.Max(0, gameInv.HeldCopies - 1);
-            gameInv.UpdatedAt = now;
-            await gameInvRepo.UpdateAsync(gameInv);
+            await gameInvRepo.AdjustCountersAsync(
+                gameInv.Id,
+                heldDelta: -1,
+                inUseDelta: 0,
+                cancellationToken: ct);
         }
     }
 }
