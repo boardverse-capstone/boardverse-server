@@ -131,12 +131,20 @@ public class WalkInWindowRepository : IWalkInWindowRepository
     public async Task<IReadOnlyList<WalkInWindow>> GetExpiredAsync(CancellationToken ct = default)
     {
         var now = DateTime.UtcNow;
-        // FIX TZ-WALKIN-01 (2026-10-02): WalkInWindow.WindowEnd được set từ
-        // Reservation.ScheduledEndTime (Unspecified VN local raw), còn `now` là UTC.
-        // Convert now sang VN local để match với WindowEnd cùng Kind, tránh sai lệch 7 giờ.
-        var nowLocal = CafeSchedule.ToVietnamLocal(now);
+        // TZ-FIX-REVERT (2026-10-03): Revert "FIX TZ-WALKIN-01" cùng ngày 2026-10-02.
+        //
+        // Lý do revert (giống ReservationNoShowDetectionJob.cs#89):
+        // - Cùng ngày 2026-10-02, `BuildScheduledStartEndFromPreferred` được fix (TZ-DT-UTC-02)
+        //   để return `Kind=Utc`. → `WalkInWindow.WindowEnd` (set từ
+        //   `Reservation.ScheduledEndTime`) cũng ở `Kind=Utc`.
+        // - "Fix" cũ `ToVietnamLocal(now)` trả Kind=Unspecified với raw ticks lệch 7h. Khi Npgsql
+        //   gửi raw ticks này vào cột `timestamptz`, nó interpret thành UTC → so sánh SAI 7h.
+        //   Hệ quả: WalkInWindow có WindowEnd trong tương lai gần sẽ bị close nhầm; hoặc
+        //   WalkInWindow đã quá hạn thực sự sẽ KHÔNG bị close (do cutoff lệch).
+        //
+        // Fix đúng: so sánh trực tiếp với `now` (Kind=Utc) vì WindowEnd cũng Kind=Utc.
         return await _db.WalkInWindows
-            .Where(w => w.WindowEnd < nowLocal
+            .Where(w => w.WindowEnd < now
                 && w.Status != WalkInWindowStatus.Closed
                 && w.Status != WalkInWindowStatus.Expired)
             .ToListAsync(ct);

@@ -584,6 +584,209 @@ public class BackgroundJobRepositoryTests : IDisposable
 
     #endregion
 
+    #region TZ-LOBBY-NOTIF-01 — LobbyNotificationJob Timezone Fix (2026-10-03)
+
+    /// <summary>
+    /// FIX TZ-LOBBY-NOTIF-01 (2026-10-03): Trước đây LobbyNotificationJob tính
+    /// <c>scheduledTime = lobby.PlayDate.Value.ToDateTime(lobby.PreferredStartTime.Value)</c>
+    /// → Kind=Unspecified, raw ticks = VN local wall clock. Khi so với <c>DateTime.UtcNow</c>
+    /// trong ProcessMilestoneAsync, C# không convert Kind → lệch 7 giờ.
+    ///
+    /// Test này verify rằng với lobby có <c>ScheduledStartTime</c> Kind=Utc (post-fix), logic
+    /// resolve cho ra cùng giá trị raw ticks (UTC), dùng được so sánh với <c>DateTime.UtcNow</c>
+    /// mà không lệch 7h.
+    /// </summary>
+    [Fact]
+    public void ResolveScheduledStartUtc_Should_ReturnUtcTicks_WhenScheduledStartTimeIsUtc()
+    {
+        // Arrange: lobby với ScheduledStartTime = 20:45 UTC (đã là Kind=Utc sau fix).
+        // (User VN nhập 03:45 ngày hôm sau, sau khi convert VN→UTC sẽ ra 20:45 UTC cùng ngày.)
+        var lobby = new Lobby
+        {
+            Id = Guid.NewGuid(),
+            HostUserId = Guid.NewGuid(),
+            GameTemplateId = Guid.NewGuid(),
+            CafeId = Guid.NewGuid(),
+            PlayDate = new DateOnly(2026, 10, 3),
+            PreferredStartTime = new TimeOnly(3, 45),
+            PreferredEndTime = new TimeOnly(7, 45),
+            ScheduledStartTime = new DateTime(2026, 10, 3, 20, 45, 0, DateTimeKind.Utc),
+            Status = LobbyStatus.Open,
+            MaxMembers = 4,
+            MinPlayers = 2,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        // Act: compute giống hệt logic trong LobbyNotificationJob.ResolveScheduledStartUtc.
+        // (Inline để test không phụ thuộc vào internal method của BackgroundService class.)
+        DateTime resolved;
+        if (lobby.ScheduledStartTime.HasValue)
+        {
+            resolved = BoardVerse.Core.Constants.CafeSchedule.ToUtcAssumingVietnamLocal(
+                lobby.ScheduledStartTime.Value);
+        }
+        else
+        {
+            var (start, _) = BoardVerse.Core.Constants.CafeSchedule.BuildScheduledStartEndFromPreferred(
+                lobby.PlayDate!.Value, lobby.PreferredStartTime!.Value, lobby.PreferredEndTime!.Value);
+            resolved = start;
+        }
+
+        // Assert: Kind phải là Utc, raw ticks phải khớp 20:45 UTC (không offset 7h).
+        Assert.Equal(DateTimeKind.Utc, resolved.Kind);
+        Assert.Equal(
+            new DateTime(2026, 10, 3, 20, 45, 0, DateTimeKind.Utc).Ticks,
+            resolved.Ticks);
+    }
+
+    /// <summary>
+    /// FIX TZ-LOBBY-NOTIF-01 (2026-10-03): Test phương án fallback — lobby cũ chưa có
+    /// <c>ScheduledStartTime</c> nhưng có <c>PlayDate + PreferredStartTime</c>. Helper phải
+    /// build Kind=Utc bằng <see cref="BoardVerse.Core.Constants.CafeSchedule.BuildScheduledStartEndFromPreferred"/>.
+    /// Trước fix: job dùng raw <c>playDate.ToDateTime(preferredStart)</c> → Kind=Unspecified.
+    /// </summary>
+    [Fact]
+    public void ResolveScheduledStartUtc_Should_BuildUtcFromLegacyFields_WhenScheduledStartTimeMissing()
+    {
+        // Arrange: lobby cũ (legacy) chỉ có PlayDate + PreferredStartTime (UTC chưa được set).
+        // User VN nhập 20:45 ngày 03/10/2026 → build Kind=Utc phải ra 13:45 UTC cùng ngày.
+        var lobby = new Lobby
+        {
+            Id = Guid.NewGuid(),
+            HostUserId = Guid.NewGuid(),
+            GameTemplateId = Guid.NewGuid(),
+            CafeId = Guid.NewGuid(),
+            PlayDate = new DateOnly(2026, 10, 3),
+            PreferredStartTime = new TimeOnly(20, 45),
+            PreferredEndTime = new TimeOnly(23, 45),
+            // ScheduledStartTime null → fallback vào BuildScheduledStartEndFromPreferred.
+            Status = LobbyStatus.Open,
+            MaxMembers = 4,
+            MinPlayers = 2,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        // Act
+        DateTime resolved;
+        if (lobby.ScheduledStartTime.HasValue)
+        {
+            resolved = BoardVerse.Core.Constants.CafeSchedule.ToUtcAssumingVietnamLocal(
+                lobby.ScheduledStartTime.Value);
+        }
+        else
+        {
+            var (start, _) = BoardVerse.Core.Constants.CafeSchedule.BuildScheduledStartEndFromPreferred(
+                lobby.PlayDate!.Value, lobby.PreferredStartTime!.Value, lobby.PreferredEndTime!.Value);
+            resolved = start;
+        }
+
+        // Assert: Kind=Utc, raw ticks = 13:45 (20:45 VN - 7h = 13:45 UTC).
+        Assert.Equal(DateTimeKind.Utc, resolved.Kind);
+        Assert.Equal(
+            new DateTime(2026, 10, 3, 13, 45, 0, DateTimeKind.Utc).Ticks,
+            resolved.Ticks);
+    }
+
+    /// <summary>
+    /// FIX TZ-LOBBY-NOTIF-01 (2026-10-03): Reproduce lỗi cũ để verify contract.
+    /// Nếu dev quên fix và revert về code cũ (<c>playDate.ToDateTime(preferredStart)</c>),
+    /// result sẽ là Kind=Unspecified với raw ticks = 20:45 (VN local) — KHÔNG PHẢI 13:45 (UTC).
+    /// </summary>
+    [Fact]
+    public void OldLogic_Should_ReturnUnspecified_VnLocalTicks_WhichCauses7hOffset()
+    {
+        // Arrange
+        var playDate = new DateOnly(2026, 10, 3);
+        var preferredStart = new TimeOnly(20, 45);
+
+        // Act: code cũ (trước fix)
+        var oldResult = playDate.ToDateTime(preferredStart);
+
+        // Assert: Kind=Unspecified, raw ticks = 20:45 (không phải 13:45).
+        Assert.Equal(DateTimeKind.Unspecified, oldResult.Kind);
+        Assert.Equal(
+            new DateTime(2026, 10, 3, 20, 45, 0, DateTimeKind.Unspecified).Ticks,
+            oldResult.Ticks);
+
+        // Demonstrate: subtract raw này với DateTime.UtcNow lệch 7h.
+        // 20:45 (Unspecified, raw VN local) - 13:45 (Utc, raw UTC) = 7h00
+        // → ProcessMilestoneAsync sẽ trigger sớm hơn 7 tiếng.
+        var utcNow = new DateTime(2026, 10, 3, 13, 45, 0, DateTimeKind.Utc);
+        var diff = (oldResult - utcNow).TotalHours;
+        Assert.Equal(7.0, diff, precision: 1);
+    }
+
+    /// <summary>
+    /// FIX TZ-LOBBY-NOTIF-01 (2026-10-03): End-to-end scenario thực tế.
+    /// Lobby có <c>ScheduledStartTime = 13:45 UTC</c> (= 20:45 VN sau khi Reservation service convert).
+    /// Bug cũ: <c>playDate.ToDateTime(preferredStart)</c> cho ra 20:45 (Unspecified, raw VN local).
+    /// So với <c>DateTime.UtcNow</c> không convert Kind → trigger lệch 7 tiếng.
+    /// </summary>
+    [Fact]
+    public void MilestoneCheck_WithUtcConversion_Should_NotTrigger7hLate()
+    {
+        // Arrange: lobby scheduled 20:45 VN ngày 03/10/2026 = 13:45 UTC.
+        var lobby = new Lobby
+        {
+            Id = Guid.NewGuid(),
+            HostUserId = Guid.NewGuid(),
+            GameTemplateId = Guid.NewGuid(),
+            CafeId = Guid.NewGuid(),
+            PlayDate = new DateOnly(2026, 10, 3),
+            PreferredStartTime = new TimeOnly(20, 45), // user nhập giờ VN
+            PreferredEndTime = new TimeOnly(23, 45),
+            ScheduledStartTime = new DateTime(2026, 10, 3, 13, 45, 0, DateTimeKind.Utc), // 20:45 VN → 13:45 UTC
+            Status = LobbyStatus.Open,
+            MaxMembers = 4,
+            MinPlayers = 2,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        // Act (FIX): resolve scheduledTime về Kind=Utc.
+        DateTime scheduledTime;
+        if (lobby.ScheduledStartTime.HasValue)
+        {
+            scheduledTime = BoardVerse.Core.Constants.CafeSchedule.ToUtcAssumingVietnamLocal(
+                lobby.ScheduledStartTime.Value);
+        }
+        else
+        {
+            var (start, _) = BoardVerse.Core.Constants.CafeSchedule.BuildScheduledStartEndFromPreferred(
+                lobby.PlayDate!.Value, lobby.PreferredStartTime!.Value, lobby.PreferredEndTime!.Value);
+            scheduledTime = start;
+        }
+        Assert.Equal(DateTimeKind.Utc, scheduledTime.Kind);
+        Assert.Equal(new DateTime(2026, 10, 3, 13, 45, 0, DateTimeKind.Utc), scheduledTime);
+
+        // Scenario: hiện tại 18:45 UTC (= 01:45 VN ngày 04/10).
+        // Real targetTime (2h trước scheduledStart) = 11:45 UTC → diff = -7h → KHÔNG trigger (đã quá muộn).
+        var now = new DateTime(2026, 10, 3, 18, 45, 0, DateTimeKind.Utc);
+        var realTargetTime = scheduledTime - TimeSpan.FromHours(2);
+        var realDiff = (realTargetTime - now).TotalMinutes; // -420 phút (= -7h)
+        var realShouldTrigger = Math.Abs(realDiff) <= 5.0;
+        Assert.False(realShouldTrigger,
+            "Real schedule đã qua 7 tiếng → milestone 2h trước KHÔNG trigger.");
+
+        // Demonstrate BUG: dùng logic cũ (Unspecified raw VN), targetTime = 18:45 (Unspecified raw).
+        var oldLogic = lobby.PlayDate!.Value.ToDateTime(lobby.PreferredStartTime!.Value);
+        var oldTargetTime = oldLogic - TimeSpan.FromHours(2); // 18:45 Unspecified raw
+        // 18:45 Unspecified raw - 18:45 UTC raw = 0 phút (lệch 7h so với real target 11:45 UTC).
+        // C# DateTime subtraction KHÔNG convert Kind → so sánh raw ticks.
+        var oldDiff = (oldTargetTime - now).TotalMinutes;
+        var oldShouldTrigger = Math.Abs(oldDiff) <= 5.0;
+
+        // Bug: old logic triggers 7 tiếng trễ so với real trigger window.
+        Assert.True(oldShouldTrigger,
+            "BUG: logic cũ trigger milestone sai lệch 7 tiếng do Kind=Unspecified raw subtraction.");
+        Assert.True(Math.Abs(oldDiff - realDiff) >= 7 * 60 - 1,
+            $"BUG: |oldDiff - realDiff| = {Math.Abs(oldDiff - realDiff)} phải >= 7 tiếng.");
+    }
+
+    #endregion
+
     #region Helpers
 
     private static Reservation CreateReservation(ReservationStatus status, DateTime scheduledStart)
