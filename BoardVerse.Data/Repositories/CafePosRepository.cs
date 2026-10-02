@@ -128,9 +128,26 @@ namespace BoardVerse.Data.Repositories
             return session;
         }
 
+        /// <summary>
+        /// Bug fix: Chỉ block reuse box khi session đang thật sự giữ box (status = Active).
+        ///
+        /// Trước đây filter `s.Status != GroupSessionStatus.Paid` block cả 3 trạng thái
+        /// Active / Checking / Unpaid. Tuy nhiên:
+        ///   - Active:    box.Status = InUse      → block đúng.
+        ///   - Checking:  box.Status = Available  (release tại EndGameSessionAsync) → KHÔNG nên block.
+        ///   - Unpaid:    box.Status = Available  (release xảy ra ở EndGame, không thay đổi ở Available.
+        ///                                    PaySessionCoreAsync → ReleaseSession gọi lại idempotent).
+        ///   - Paid:      terminal, box = Available.
+        ///
+        /// Khi staff bấm "Kết thúc phiên" → session chuyển Checking và box được trả về Available.
+        /// Staff tạo phiên mới với cùng barcode hộp đó sẽ fail BoxAlreadyInSession vì
+        /// GetActiveSessionByBoxIdAsync trả về session Checking cũ → oan.
+        ///
+        /// Đổi sang `s.Status == GroupSessionStatus.Active` để khớp với vòng đời thật của box.
+        /// </summary>
         public async Task<ActiveSession?> GetActiveSessionByBoxIdAsync(Guid boxId, CancellationToken cancellationToken = default) =>
             await _context.ActiveSessions
-                .FirstOrDefaultAsync(s => s.CafeInventoryBoxId == boxId && s.Status != GroupSessionStatus.Paid, cancellationToken);
+                .FirstOrDefaultAsync(s => s.CafeInventoryBoxId == boxId && s.Status == GroupSessionStatus.Active, cancellationToken);
 
         // Lightweight check: chỉ trả true/false — session có tồn tại VÀ thuộc cafe này không.
         // Dùng cho cross-cafe guard khi truyền optional sessionId (không load navigation).
