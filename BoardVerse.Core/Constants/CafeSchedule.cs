@@ -1,4 +1,5 @@
-﻿using BoardVerse.Core.Messages;
+using BoardVerse.Core.IRepositories;
+using BoardVerse.Core.Messages;
 
 namespace BoardVerse.Core.Constants;
 
@@ -76,8 +77,57 @@ public static class CafeSchedule
     }
 
     /// <summary>
+    /// FIX TZ-RESPONSE-01 (2026-10-03): Convert DateTime? từ UTC sang local VN để trả về FE.
+    /// Trả về <c>Kind=Unspecified</c> để System.Text.Json serialize KHÔNG kèm hậu tố "Z",
+    /// giúp JSON khớp với <c>playDate</c> (DateOnly) và <c>preferredStartTime</c> (TimeOnly).
+    ///
+    /// <para>Quy tắc:</para>
+    /// <list type="bullet">
+    ///   <item><c>null</c> → trả <c>null</c>.</item>
+    ///   <item><c>Kind=Utc</c> → convert sang VN local, Kind=Unspecified.</item>
+    ///   <item><c>Kind=Local/Unspecified</c> → assume đã là VN local, giữ nguyên + ép Kind=Unspecified.</item>
+    /// </list>
+    ///
+    /// <para>
+    /// Dùng cho TẤT CẢ DateTime field trong response DTO có data gốc từ entity (UTC).
+    /// KHÔNG dùng cho field internal (entity assignments trước khi save DB).
+    /// </para>
+    /// </summary>
+    public static DateTime? ToLocalForResponse(DateTime? utc)
+    {
+        if (!utc.HasValue) return null;
+        return ToLocalForResponse(utc.Value);
+    }
+
+    /// <summary>
+    /// FIX TZ-RESPONSE-01 (2026-10-03): Convert DateTime (UTC) sang local VN, Kind=Unspecified.
+    /// Xem <see cref="ToLocalForResponse(DateTime?)"/> để biết chi tiết.
+    /// </summary>
+    public static DateTime ToLocalForResponse(DateTime utc)
+    {
+        return utc.Kind switch
+        {
+            DateTimeKind.Utc => ToVietnamLocal(utc),
+            // Local/Unspecified: assume đã là VN local, chỉ ép Kind=Unspecified để JSON bỏ "Z".
+            _ => DateTime.SpecifyKind(utc, DateTimeKind.Unspecified)
+        };
+    }
+
+    /// <summary>
     /// Validate preferredStartTime + preferredEndTime hợp lệ.
     /// Nếu end nhỏ hơn start, end thuộc ngày kế tiếp.
+    ///
+    /// <para>
+    /// <b>Lưu ý quan trọng (2026-10-02):</b> Method này dùng <see cref="DefaultOpenTime"/>
+    /// / <see cref="DefaultCloseTime"/> cứng — KHÔNG tôn trọng <c>CafeScheduleOverride</c>.
+    /// Chỉ phù hợp cho smoke test hoặc kiểm tra boundary mặc định 06:00–23:00.
+    /// </para>
+    ///
+    /// <para>
+    /// Production code (CreateQuoteAsync, ConfirmAsync, …) phải dùng
+    /// <see cref="ValidatePreferredTimeRangeAsync"/> thay thế — method đó resolve giờ thực tế
+    /// của cafe (qua IScheduleResolver) để hỗ trợ 24/7, override ngày lễ, giờ riêng từng quán.
+    /// </para>
     /// </summary>
     public static (bool isValid, string? error) ValidatePreferredTimeRange(
         TimeOnly preferredStart,
@@ -97,6 +147,92 @@ public static class CafeSchedule
         if (!isOvernight && preferredEnd > DefaultCloseTime)
         {
             return (false, ApiErrorMessages.Reservation.PreferredEndAfterClose(DefaultCloseTime));
+        }
+
+        return (true, null);
+    }
+
+    /// <summary>
+    /// Validate preferredStartTime + preferredEndTime với giờ mở/đóng thực tế của cafe
+    /// (resolve qua <see cref="IScheduleResolver"/>). Hỗ trợ 24/7: nếu cafe override
+    /// <c>openTime = 00:00</c>, <c>closeTime = 23:59</c> thì mọi preferredStart/End đều pass.
+    ///
+    /// <para>
+    /// FIX 24/7 (2026-10-02): thay thế cho <see cref="ValidatePreferredTimeRange"/> trong
+    /// production code. Sync method vẫn giữ để backwards-compatible với unit test cũ, nhưng
+    /// KHÔNG dùng cho flow reservation/confirm nữa.
+    /// </para>
+    ///
+    /// <para>
+    /// Xử lý overnight: nếu <paramref name="preferredEnd"/> &lt; <paramref name="preferredStart"/>,
+    /// validate <paramref name="preferredEnd"/> với schedule ngày <c>playDate + 1</c>.
+    /// </para>
+    /// </summary>
+    /// <param name="scheduleResolver">Resolver để lấy giờ thực tế của cafe theo ngày.</param>
+    /// <param name="cafeId">Mã cafe.</param>
+    /// <param name="playDate">Ngày chơi.</param>
+    /// <param name="preferredStart">Giờ bắt đầu.</param>
+    /// <param name="preferredEnd">Giờ kết thúc.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>(isValid, errorMessage?).</returns>
+    public static async Task<(bool isValid, string? error)> ValidatePreferredTimeRangeAsync(
+        IScheduleResolver scheduleResolver,
+        Guid cafeId,
+        DateOnly playDate,
+        TimeOnly preferredStart,
+        TimeOnly preferredEnd,
+        CancellationToken cancellationToken = default)
+    {
+        // 1. Zero duration check (giữ nguyên logic method sync).
+        if (preferredEnd == preferredStart)
+        {
+            return (false, ApiErrorMessages.Reservation.PreferredTimesMustDiffer);
+        }
+
+        var isOvernight = preferredEnd < preferredStart;
+
+        // 2. Resolve schedule ngày bắt đầu.
+        var startDaySchedule = await scheduleResolver
+            .ResolveAsync(cafeId, playDate, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (startDaySchedule.IsClosed)
+        {
+            return (false, ApiErrorMessages.Reservation.CafeScheduleClosedForPlayDate);
+        }
+
+        // 3. preferredStart phải nằm trong [OpenTime, CloseTime] của ngày bắt đầu.
+        if (preferredStart < startDaySchedule.OpenTime)
+        {
+            return (false, ApiErrorMessages.Reservation.PreferredStartBeforeOpen(startDaySchedule.OpenTime));
+        }
+
+        if (isOvernight)
+        {
+            // Validate preferredEnd với schedule ngày kế tiếp.
+            var nextDay = playDate.AddDays(1);
+            var nextDaySchedule = await scheduleResolver
+                .ResolveAsync(cafeId, nextDay, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (nextDaySchedule.IsClosed)
+            {
+                return (false,
+                    $"Quán đóng cửa vào ngày {nextDay:dd/MM/yyyy} (ngày kết thúc của phiên qua đêm). Vui lòng chọn ngày khác.");
+            }
+
+            if (preferredEnd > nextDaySchedule.CloseTime)
+            {
+                return (false, ApiErrorMessages.Reservation.PreferredEndAfterClose(nextDaySchedule.CloseTime));
+            }
+        }
+        else
+        {
+            // Same-day: preferredEnd <= CloseTime ngày bắt đầu.
+            if (preferredEnd > startDaySchedule.CloseTime)
+            {
+                return (false, ApiErrorMessages.Reservation.PreferredEndAfterClose(startDaySchedule.CloseTime));
+            }
         }
 
         return (true, null);

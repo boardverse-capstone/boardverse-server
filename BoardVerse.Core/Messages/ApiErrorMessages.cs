@@ -1498,6 +1498,9 @@ public const string SePayBankInfoIncomplete =
  public static string TimeFormatInvalid(string fieldName) =>
  $"{fieldName} phải theo định dạng HH:mm.";
 
+ public static string TimeOutOfRange(string fieldName) =>
+ $"{fieldName} phải nằm trong khoảng 00:00 đến 23:59 (đóng cửa lúc nửa đêm nhập 00:00).";
+
  public const string SubmitterNotFound =
  "Không tìm thấy tài khoản người gửi đơn.";
 

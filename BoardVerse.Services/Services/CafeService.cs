@@ -230,6 +230,42 @@ namespace BoardVerse.Services.Services
             return currentTime >= open && currentTime <= close;
         }
 
+        /// <summary>
+        /// Chuyển <see cref="TimeSpan"/>? (giờ mở/đóng cửa) sang <see cref="TimeOnly"/>? một cách an toàn.
+        /// PostgreSQL `interval` cho phép lưu tới 24h nhưng <see cref="TimeOnly"/> chỉ chứa tối đa 23:59:59.9999999
+        /// (Ticks = 863,999,999,999). Nếu dữ liệu cũ lưu "24:00:00" (đóng cửa lúc nửa đêm) thì <c>TimeOnly.FromTimeSpan</c> ném
+        /// <see cref="ArgumentOutOfRangeException"/>. Hàm này quy "24:00:00" → 00:00:00 và log cảnh báo cho dữ liệu lỗi.
+        /// </summary>
+        internal TimeOnly? SafeTimeOnly(Guid cafeId, string fieldName, TimeSpan? value)
+        {
+            if (!value.HasValue)
+            {
+                return null;
+            }
+
+            var ts = value.Value;
+
+            // Trường hợp đóng cửa lúc nửa đêm (24:00:00) — TimeOnly không biểu diễn được, quy về 00:00:00.
+            if (ts >= TimeSpan.FromHours(24))
+            {
+                _logger.LogWarning(
+                    "Cafe {CafeId} field {FieldName} has TimeSpan={Ticks} ticks (>= 24h). Mapping to 00:00:00 (midnight).",
+                    cafeId, fieldName, ts.Ticks);
+                return new TimeOnly(0, 0);
+            }
+
+            // Trường hợp dữ liệu âm — không hợp lệ, trả null và log.
+            if (ts < TimeSpan.Zero)
+            {
+                _logger.LogWarning(
+                    "Cafe {CafeId} field {FieldName} has negative TimeSpan={Ticks} ticks. Returning null.",
+                    cafeId, fieldName, ts.Ticks);
+                return null;
+            }
+
+            return TimeOnly.FromTimeSpan(ts);
+        }
+
         private static TimeSlot ResolveCurrentTimeSlot(DateTime utcNow)
         {
             var localNow = utcNow.AddHours(7); // VN timezone
@@ -505,18 +541,12 @@ namespace BoardVerse.Services.Services
                 RefundPolicy = cafe.RefundPolicy.ToString(),
 
                 // === Schedule ===
-                WeekdayOpen = cafe.WeekdayOpen.HasValue
-                    ? TimeOnly.FromTimeSpan(cafe.WeekdayOpen.Value)
-                    : null,
-                WeekdayClose = cafe.WeekdayClose.HasValue
-                    ? TimeOnly.FromTimeSpan(cafe.WeekdayClose.Value)
-                    : null,
-                WeekendOpen = cafe.WeekendOpen.HasValue
-                    ? TimeOnly.FromTimeSpan(cafe.WeekendOpen.Value)
-                    : null,
-                WeekendClose = cafe.WeekendClose.HasValue
-                    ? TimeOnly.FromTimeSpan(cafe.WeekendClose.Value)
-                    : null,
+                // SafeTimeOnly xử lý các giá trị PostgreSQL `interval` >= 24h (vd "24:00:00" = đóng cửa lúc nửa đêm)
+                // vốn không thể biểu diễn trực tiếp bằng TimeOnly (max = 23:59:59.9999999). Coi "24:00:00" → 00:00:00.
+                WeekdayOpen = SafeTimeOnly(cafe.Id, "WeekdayOpen", cafe.WeekdayOpen),
+                WeekdayClose = SafeTimeOnly(cafe.Id, "WeekdayClose", cafe.WeekdayClose),
+                WeekendOpen = SafeTimeOnly(cafe.Id, "WeekendOpen", cafe.WeekendOpen),
+                WeekendClose = SafeTimeOnly(cafe.Id, "WeekendClose", cafe.WeekendClose),
 
                 // === Manager-only fields (ẩn nếu isStaff) ===
                 ManagerId = isStaff ? Guid.Empty : cafe.ManagerId,

@@ -1,7 +1,21 @@
 # TimeSlotController (Manager)
 
-**Base route:** `/api/v1/manager/time-slots`
-**Controller:** `TimeSlotController.cs`
+> **⚠️ DEPRECATED (2026-08-18, BR-NEW-15)**
+>
+> Controller này **không còn tồn tại** trong codebase. Chức năng đã được sáp nhập vào [`CafeScheduleController`](./cafe-schedule.md) (`/api/v1/cafes/{cafeId}/schedule-overrides`).
+>
+> Lý do: Hệ thống đã bỏ `TimeSlot` enum — dùng `preferredStartTime` + `preferredEndTime` do user nhập trực tiếp. `CafeScheduleOverride` dùng `ApplyDate` thay vì `TimeSlot` (xem [lobby-booking-deposit-bvc.mdc §7.1](../.cursor/rules/lobby-booking-deposit-bvc.mdc)).
+>
+> File này được giữ lại **chỉ để tham khảo lịch sử** (gap analysis, test cũ, package diagram). KHÔNG dùng để implement API mới.
+>
+> **Thay thế bằng:**
+> - Manager CRUD override: xem `docs/api/cafe-schedule.md` (`POST/PUT/DELETE /api/v1/cafes/{cafeId}/schedule-overrides`).
+> - Hằng số `CafeSchedule.GetStartTime / GetEndTime` (`BoardVerse.Core/Constants/CafeSchedule.cs`) — dùng trong service.
+
+---
+
+**Base route (LEGACY):** `/api/v1/manager/time-slots`
+**Controller (REMOVED):** `TimeSlotController.cs`
 **Role:** Manager (chỉ chủ cafe của `cafeId` tương ứng)
 
 API "hybrid" cho phép manager:

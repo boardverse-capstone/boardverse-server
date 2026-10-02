@@ -47,6 +47,7 @@ namespace BoardVerse.Core.DTOs.Admin
         public int MaxParticipants { get; set; }
         public int CurrentParticipants { get; set; }
         public decimal EntryFee { get; set; }
+        public string? Prize { get; set; }
         public int TotalRounds { get; set; }
         public int PreliminaryRounds { get; set; }
         public int FinalistCount { get; set; }
@@ -152,6 +153,9 @@ namespace BoardVerse.Core.DTOs.Admin
         [Range(0, 10000000, ErrorMessage = "Entry fee phải từ 0 đến 10.000.000 VND.")]
         public decimal EntryFee { get; set; } = 0;
 
+        [StringLength(1000, ErrorMessage = "Mô tả giải thưởng tối đa 1000 ký tự.")]
+        public string? Prize { get; set; }
+
         [Range(1, 480, ErrorMessage = "Thời lượng vòng đấu phải từ 1 đến 480 phút.")]
         public int RoundDurationMinutes { get; set; } = 45;
 
@@ -198,6 +202,9 @@ namespace BoardVerse.Core.DTOs.Admin
 
         [Range(0, 10000000, ErrorMessage = "Entry fee phải từ 0 đến 10.000.000 VND.")]
         public decimal? EntryFee { get; set; }
+
+        [StringLength(1000, ErrorMessage = "Mô tả giải thưởng tối đa 1000 ký tự.")]
+        public string? Prize { get; set; }
 
         [Range(1, 480, ErrorMessage = "Thời lượng vòng đấu phải từ 1 đến 480 phút.")]
         public int? RoundDurationMinutes { get; set; }

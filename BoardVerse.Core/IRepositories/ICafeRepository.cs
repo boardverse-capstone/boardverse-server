@@ -5,6 +5,7 @@ using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
 
+using System.Collections.Generic;
 using System.Threading;
 namespace BoardVerse.Core.IRepositories
 {
@@ -13,6 +14,15 @@ namespace BoardVerse.Core.IRepositories
         Task<Cafe?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
         Task<Cafe?> GetActiveByIdAsync(Guid id, CancellationToken cancellationToken = default);
         Task<Cafe?> GetByIdWithInventoriesAsync(Guid id, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Lookup tên cafe theo batch — chỉ project 2 cột Id + Name để tránh EF generate
+        /// SELECT c.* (gồm các cột đã gỡ khỏi DB như TableLayoutJson) và tránh N+1.
+        /// Trả về dictionary Id → Name; nếu input rỗng trả dictionary rỗng.
+        /// </summary>
+        Task<IReadOnlyDictionary<Guid, string>> GetCafeNamesByIdsAsync(
+            IReadOnlyCollection<Guid> cafeIds,
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Lấy Cafe kèm Manager navigation (FK User) — dùng cho Admin GET /api/admin/cafes/{id}
@@ -78,6 +88,33 @@ namespace BoardVerse.Core.IRepositories
         Task<PaginatedResponse<CafeActiveGameDto>> GetActiveGamesByCafeAsync(
             Guid cafeId,
             CafeActiveGamesQueryDto query,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Lấy danh sách quán cafe đang ACTIVE có <paramref name="boardGameId"/> trong kho và có thể chơi được
+        /// (player muốn biết "chơi game này ở đâu?"). Mirror ngược của <see cref="GetActiveGamesByCafeAsync"/>.
+        /// Filter áp dụng:
+        ///   • Cafe.IsActive = true, Cafe.PartnerOperationalStatus = Active.
+        ///   • CafeGameInventory.IsActive = true, CafeGameInventory.Status ∈ {Available, InUse}.
+        ///   • GameTemplate.IsActive = true (master game vẫn active).
+        /// Trả về shape <see cref="NearbyCafeDto"/> (giống <c>GET /api/cafes/nearby</c>) để player thấy
+        /// <c>DistanceMeters</c>, <c>AvailableGameCount</c>/<c>TotalGameBoxCount</c>, <c>AvailableTableCount</c>/<c>TotalTableCount</c>.
+        /// Hỗ trợ:
+        ///   • <paramref name="latitude"/>/<paramref name="longitude"/>: tính distance + sort theo khoảng cách tăng dần (null → sort theo tên A→Z).
+        ///   • <paramref name="name"/>: case-insensitive partial match trên tên quán (null → không filter).
+        /// </summary>
+        /// <param name="boardGameId">Mã GameTemplate của board game cần tra cứu.</param>
+        /// <param name="latitude">Vĩ độ player (tùy chọn; có thì tính DistanceMeters và sort theo khoảng cách).</param>
+        /// <param name="longitude">Kinh độ player (tùy chọn; cần đi kèm latitude).</param>
+        /// <param name="name">Tên quán filter (tùy chọn; case-insensitive partial match).</param>
+        /// <param name="paginationParams">Phân trang.</param>
+        /// <param name="cancellationToken">Token hủy.</param>
+        Task<PaginatedResponse<NearbyCafeDto>> GetActiveCafesByBoardGameAsync(
+            Guid boardGameId,
+            double? latitude,
+            double? longitude,
+            string? name,
+            PaginationParams paginationParams,
             CancellationToken cancellationToken = default);
         Task<List<Cafe>> GetNearbyCafesAsync(Guid excludeCafeId, double radiusKm, CancellationToken cancellationToken = default);
         Task EnrichNearbyWithGameWaitAsync(IList<NearbyCafeDto> cafes, Guid gameTemplateId, CancellationToken cancellationToken = default);

@@ -57,7 +57,9 @@ Tạo giải đấu Splendor mới ở trạng thái `Draft`.
   "minEloRequirement": 800,
   "maxEloRequirement": 2400,
   "noShowKarmaPenalty": -10,
-  "pairingMode": "Auto"
+  "pairingMode": "Auto",
+  "entryFee": 0,
+  "prize": null
 }
 ```
 
@@ -72,6 +74,8 @@ Tạo giải đấu Splendor mới ở trạng thái `Draft`.
 - `MinEloRequirement` / `MaxEloRequirement`: 0-5000, default 800 / 2400.
 - `NoShowKarmaPenalty`: -100..0, default -10 (theo `TournamentKarmaPolicy.NoShowPenalty`). Manager có thể override qua DTO này.
 - `PairingMode`: `Auto` (mặc định) hoặc `Manual`. Có thể đổi sau qua `/pairing-mode`.
+- `EntryFee`: 0-10,000,000 VND, default 0 (miễn phí).
+- `Prize`: string, optional, max 1000 ký tự. Mô tả giải thưởng cho người thắng (vd: "500.000 VND + 1 board game Splendor"). Để trống/không gửi = không có giải thưởng.
 
 > **Karma bonus (Winner/Finalist) do hệ thống tự tính theo rank** (`TournamentKarmaPolicy`) — không nhập tay. Winner: +5, Finalist rank 2..4: linear giảm (3, 2, 1). Tất cả giá trị Karma clamp về [0, 100].
 
@@ -561,7 +565,8 @@ Chạy mỗi 1 phút, tự động đánh dấu no-show cho participants đã đ
 | `roundDurationMinutes` | int | |
 | `minParticipants` | int | |
 | `maxParticipants` | int | |
-| `entryFee` | decimal | |
+| `entryFee` | decimal | Phí tham dự (VNĐ). |
+| `prize` | string? | Mô tả giải thưởng (vd: "500.000 VND + 1 board game Splendor"). Optional, max 1000 ký tự. |
 | `totalRounds` | int | |
 | `preliminaryRounds` | int | |
 | `finalistCount` | int | |

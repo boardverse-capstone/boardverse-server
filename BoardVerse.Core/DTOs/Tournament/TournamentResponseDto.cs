@@ -21,6 +21,7 @@ public class TournamentResponseDto
     public int MinParticipants { get; set; }
     public int MaxParticipants { get; set; }
     public decimal EntryFee { get; set; }
+    public string? Prize { get; set; }
     public string? ImageUrl { get; set; }
     public int TotalRounds { get; set; }
     public int PreliminaryRounds { get; set; }

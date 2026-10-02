@@ -130,6 +130,7 @@ public class TournamentService : ITournamentService
             MinParticipants = minParticipants,
             MaxParticipants = request.MaxParticipants,
             EntryFee = request.EntryFee,
+            Prize = request.Prize?.Trim(),
             ImageUrl = request.ImageUrl?.Trim(),
             TotalRounds = 4,
             PreliminaryRounds = 3,
@@ -252,6 +253,13 @@ public class TournamentService : ITournamentService
         if (request.NoShowKarmaPenalty.HasValue)
         {
             tournament.NoShowKarmaPenalty = TournamentKarmaPolicy.ClampPenalty(request.NoShowKarmaPenalty.Value);
+        }
+
+        // Prize: null = giữ nguyên, empty string = xoá, string mới = cập nhật.
+        // Cho phép manager tự do sửa mô tả giải thưởng khi giải còn Draft.
+        if (request.Prize != null)
+        {
+            tournament.Prize = string.IsNullOrWhiteSpace(request.Prize) ? null : request.Prize.Trim();
         }
 
         // WinnerKarmaBonus / FinalistKarmaBonus: há»‡ thá»‘ng tá»± tÃ­nh theo rank, khÃ´ng cho manager nháº­p tay.
@@ -2114,6 +2122,14 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         var upcoming = await _tournamentRepository.GetTournamentsStartingSoonAsync(now, ct);
         var sentCount = 0;
 
+        // Lookup CafeName theo batch (tránh N+1) — Cafe entity chứa các cột
+        // đã gỡ khỏi DB (vd TableLayoutJson), nên không Include(t.Cafe).
+        var cafeIds = upcoming
+            .Select(t => t.CafeId)
+            .Distinct()
+            .ToList();
+        var cafeNameById = await _cafeRepository.GetCafeNamesByIdsAsync(cafeIds, ct);
+
         foreach (var tournament in upcoming)
         {
             ct.ThrowIfCancellationRequested();
@@ -2131,6 +2147,8 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
             if (reminderType == null) continue;
 
+            var cafeName = cafeNameById.TryGetValue(tournament.CafeId, out var n) ? n : "";
+
             // Láº¥y participants chÆ°a check-in (chá»‰ gá»­i reminder cho user online)
             var notCheckedIn = tournament.Participants
                 .Where(p => p.UserId.HasValue &&
@@ -2142,11 +2160,11 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
                 var message = reminderType switch
                 {
                     "30min" => ApiErrorMessages.Tournament.Reminder30Minutes(
-                        tournament.Title, tournament.StartTime, tournament.Cafe?.Name ?? ""),
+                        tournament.Title, tournament.StartTime, cafeName),
                     "15min" => ApiErrorMessages.Tournament.Reminder15Minutes(
-                        tournament.Title, tournament.StartTime, tournament.Cafe?.Name ?? ""),
+                        tournament.Title, tournament.StartTime, cafeName),
                     "5min" => ApiErrorMessages.Tournament.Reminder5Minutes(
-                        tournament.Title, tournament.StartTime, tournament.Cafe?.Name ?? ""),
+                        tournament.Title, tournament.StartTime, cafeName),
                     _ => null
                 };
 
@@ -2872,6 +2890,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
             MinParticipants = tournament.MinParticipants,
             MaxParticipants = tournament.MaxParticipants,
             EntryFee = tournament.EntryFee,
+            Prize = tournament.Prize,
             TotalRounds = tournament.TotalRounds,
             PreliminaryRounds = tournament.PreliminaryRounds,
             FinalistCount = tournament.FinalistCount,
@@ -3669,6 +3688,7 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
             MinParticipants = minParticipants,
             MaxParticipants = request.MaxParticipants,
             EntryFee = request.EntryFee,
+            Prize = request.Prize?.Trim(),
             TotalRounds = request.TotalRounds > 0 ? request.TotalRounds : 4,
             PreliminaryRounds = request.PreliminaryRounds > 0 ? request.PreliminaryRounds : 3,
             FinalistCount = request.FinalistCount > 0 ? request.FinalistCount : 4,
@@ -3734,6 +3754,11 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
         if (request.EntryFee.HasValue)
         {
             tournament.EntryFee = request.EntryFee.Value;
+        }
+
+        if (request.Prize != null)
+        {
+            tournament.Prize = string.IsNullOrWhiteSpace(request.Prize) ? null : request.Prize.Trim();
         }
 
         if (request.MinKarmaRequirement.HasValue)

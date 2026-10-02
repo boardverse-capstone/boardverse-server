@@ -217,8 +217,9 @@ public class ReservationExtensionService : IReservationExtensionService
         return new ExtendReservationResponseDto
         {
             ReservationId = reservation.Id,
-            NewScheduledEndTime = proposedEndTime,
-            PreviousEndTime = previousEndTime,
+            // FIX TZ-RESPONSE-01 (2026-10-03): trả local VN.
+            NewScheduledEndTime = CafeSchedule.ToLocalForResponse(proposedEndTime),
+            PreviousEndTime = CafeSchedule.ToLocalForResponse(previousEndTime),
             ExtensionCount = reservation.ExtensionCount,
             ExtensionMinutes = request.ExtensionMinutes,
             RemainingExtensionMinutes = MaxTotalExtensionMinutes - (reservation.ExtensionCount * MaxExtensionMinutesPerExtension)

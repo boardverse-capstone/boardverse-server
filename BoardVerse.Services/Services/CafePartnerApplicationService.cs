@@ -963,6 +963,13 @@ namespace BoardVerse.Services.Services
                 throw new BadRequestException(ApiErrorMessages.CafePartner.TimeFormatInvalid(fieldName));
             }
 
+            // TimeOnly chỉ biểu diễn được [00:00:00, 23:59:59.9999999]. TimeSpan.TryParseExact chấp nhận "24:00" → 24h
+            // mà DTO TimeOnly? không thể chứa, gây crash /api/manager/my-cafes. Chặn ngay tại lớp nhập liệu.
+            if (time >= TimeSpan.FromHours(24) || time < TimeSpan.Zero)
+            {
+                throw new BadRequestException(ApiErrorMessages.CafePartner.TimeOutOfRange(fieldName));
+            }
+
             return time;
         }
 

@@ -1,4 +1,4 @@
-﻿using BoardVerse.Core.Constants;
+using BoardVerse.Core.Constants;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
@@ -149,17 +149,19 @@ public class ReservationNoShowDetectionJob : BackgroundService
         {
             // Các lobby status mà NoShow có thể transition: Open, Full, Viable, WaitingCheckIn.
             // KHÔNG touch terminal statuses (Closed, Cancelled, InProgress, ...).
+            // FIX 2026-10-02: so sánh trực tiếp enum thay vì .ToString() — EF Core/Npgsql
+            // không thể dịch `enum.ToString()` sang SQL (InvalidOperationException khi ExecuteUpdateAsync).
             var activeStatuses = new[]
             {
-                LobbyStatus.Open.ToString(),
-                LobbyStatus.Full.ToString(),
-                LobbyStatus.Viable.ToString(),
-                LobbyStatus.WaitingCheckIn.ToString()
+                LobbyStatus.Open,
+                LobbyStatus.Full,
+                LobbyStatus.Viable,
+                LobbyStatus.WaitingCheckIn
             };
             var closedReasonNoShow = $"Reservation NoShow lúc {now:HH:mm dd/MM/yyyy} (quá 30 phút sau ScheduledStartTime).";
 
             flippedLobbyCount = await db.Lobbies
-                .Where(l => lobbyIds.Contains(l.Id) && activeStatuses.Contains(l.Status.ToString()))
+                .Where(l => lobbyIds.Contains(l.Id) && activeStatuses.Contains(l.Status))
                 .ExecuteUpdateAsync(l => l
                     .SetProperty(x => x.Status, LobbyStatus.TimeoutFailed)
                     .SetProperty(x => x.ClosedAt, (DateTime?)now)

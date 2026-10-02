@@ -1,4 +1,5 @@
 ﻿using BoardVerse.Core.Common;
+using BoardVerse.Core.DTOs.Cafe;
 using BoardVerse.Core.DTOs.Game;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
@@ -19,15 +20,18 @@ namespace BoardVerse.Services.Services
 
         private readonly IGameTemplateRepository _gameTemplateRepository;
         private readonly ICategoryRepository _categoryRepository;
+        private readonly ICafeRepository _cafeRepository;
         private readonly IMemoryCache _memoryCache;
 
         public BoardGameService(
             IGameTemplateRepository gameTemplateRepository,
             ICategoryRepository categoryRepository,
+            ICafeRepository cafeRepository,
             IMemoryCache memoryCache)
         {
             _gameTemplateRepository = gameTemplateRepository;
             _categoryRepository = categoryRepository;
+            _cafeRepository = cafeRepository;
             _memoryCache = memoryCache;
         }
 
@@ -125,6 +129,39 @@ namespace BoardVerse.Services.Services
                     game.MaxPlayers,
                     navigationTarget)
             };
+        }
+
+        public async Task<PaginatedResponse<NearbyCafeDto>> GetActiveCafesByBoardGameAsync(
+            Guid boardGameId,
+            ActiveCafesByBoardGameQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            // Validate board game tồn tại & còn active trước khi query ngược ra cafe.
+            // Tránh trả danh sách rỗng ambiguous cho client (không phân biệt được
+            // "game không tồn tại" vs "game tồn tại nhưng không có cafe nào có").
+            var game = await _gameTemplateRepository.GetActiveByIdWithComponentsAsync(boardGameId, cancellationToken);
+            if (game == null)
+            {
+                throw new BoardGameNotFoundException(ApiErrorMessages.BoardGame.NotFound(boardGameId));
+            }
+
+            var pagination = new PaginationParams
+            {
+                PageNumber = query.PageNumber,
+                PageSize = query.PageSize
+            };
+
+            // Chỉ truyền lat/lng khi cả 2 đều có — nếu chỉ truyền 1 thì coi như không có,
+            // tránh tính khoảng cách sai.
+            bool hasLocation = query.Latitude.HasValue && query.Longitude.HasValue;
+
+            return await _cafeRepository.GetActiveCafesByBoardGameAsync(
+                boardGameId,
+                hasLocation ? query.Latitude : null,
+                hasLocation ? query.Longitude : null,
+                query.Name,
+                pagination,
+                cancellationToken);
         }
 
         private async Task<GameTemplate> RequireActiveGameAsync(Guid gameTemplateId)

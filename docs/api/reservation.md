@@ -78,10 +78,10 @@ Lấy chi tiết một reservation.
     "hostId": "...",
     "hostDisplayName": "Player A",
     "playDate": "2026-08-04",
-    "timeSlot": "evening",
     "preferredStartTime": "19:30:00",
-    "scheduledStartTime": "2026-08-04T18:00:00Z",
-    "scheduledEndTime": "2026-08-04T23:00:00Z",
+    "preferredEndTime": "21:30:00",
+    "scheduledStartTime": "2026-08-04T12:30:00Z",
+    "scheduledEndTime": "2026-08-04T14:30:00Z",
     "recruitmentDeadline": "2026-08-04T17:40:00Z",
     "minPlayers": 4,
     "maxPlayers": 6,
@@ -205,7 +205,8 @@ Lấy danh sách reservation của user (host hoặc member). Có filter + phân
         "gameId": "...",
         "gameName": "Catan",
         "playDate": "2026-08-04",
-        "timeSlot": "evening",
+        "preferredStartTime": "19:30:00",
+        "preferredEndTime": "21:30:00",
         "currentPlayers": 3,
         "maxPlayers": 6,
         "depositAmount": 100000,
@@ -505,14 +506,14 @@ Lấy danh sách lobby đang chờ cafe duyệt (BR-NEW-11). Dùng cho dashboard
         "gameId": "...",
         "gameName": "Catan",
         "playDate": "2026-08-07",
-        "timeSlot": "evening",
-        "timeSlotDisplay": "Tối (18:00 - 23:00)",
+        "preferredStartTime": "18:00:00",
+        "preferredEndTime": "22:00:00",
         "minPlayers": 4,
         "maxPlayers": 6,
         "currentPlayers": 1,
         "depositAmount": 120000,
-        "scheduledStartTime": "2026-08-07T18:00:00Z",
-        "scheduledEndTime": "2026-08-07T23:00:00Z",
+        "scheduledStartTime": "2026-08-07T11:00:00Z",
+        "scheduledEndTime": "2026-08-07T15:00:00Z",
         "cafeApprovalDeadline": "2026-08-05T18:00:00Z",
         "remainingApprovalHours": 24,
         "createdAt": "2026-08-04T10:00:00Z"
@@ -561,14 +562,14 @@ Lấy chi tiết một reservation đang chờ cafe duyệt (BR-NEW-11). Dùng �
     "gameId": "...",
     "gameName": "Catan",
     "playDate": "2026-08-07",
-    "timeSlot": "evening",
-    "timeSlotDisplay": "Tối (18:00 - 23:00)",
+    "preferredStartTime": "18:00:00",
+    "preferredEndTime": "22:00:00",
     "minPlayers": 4,
     "maxPlayers": 6,
     "currentPlayers": 1,
     "depositAmount": 120000,
-    "scheduledStartTime": "2026-08-07T18:00:00Z",
-    "scheduledEndTime": "2026-08-07T23:00:00Z",
+    "scheduledStartTime": "2026-08-07T11:00:00Z",
+    "scheduledEndTime": "2026-08-07T15:00:00Z",
     "cafeApprovalDeadline": "2026-08-05T18:00:00Z",
     "remainingApprovalHours": 24,
     "createdAt": "2026-08-04T10:00:00Z"
@@ -650,10 +651,10 @@ Server validate theo thứ tự (fail sớm nhất):
     "cafeId": "...",
     "gameId": "...",
     "playDate": "2026-08-04",
-    "timeSlot": "evening",
     "preferredStartTime": "19:30:00",
-    "scheduledStartTime": "2026-08-04T18:00:00Z",
-    "scheduledEndTime": "2026-08-04T23:00:00Z",
+    "preferredEndTime": "21:30:00",
+    "scheduledStartTime": "2026-08-04T12:30:00Z",
+    "scheduledEndTime": "2026-08-04T14:30:00Z",
     "recruitmentDeadline": "2026-08-04T17:40:00Z",
     "minPlayers": 4,
     "maxPlayers": 6,
@@ -898,7 +899,7 @@ Confirm endpoint **verify tất cả params** trước khi trả kết quả cũ
 {
   "statusCode": 409,
   "message": "IdempotencyKey 'abc123' đã được dùng cho reservation khác. " +
-             "Các tham số không khớp: TimeSlot (existing=Afternoon, request=Morning), " +
+             "Các tham số không khớp: PreferredStartTime (existing=19:30, request=20:00), " +
              "MaxPlayers (existing=4, request=6). Dùng IdempotencyKey mới."
 }
 ```
@@ -1461,7 +1462,7 @@ Confirm verify **tất cả params** trước khi trả kết quả cũ:
 | `CafeId` | Đảm bảo đúng cafe |
 | `GameId` | Đảm bảo đúng game |
 | `PlayDate` | Đảm bảo đúng ngày |
-| `TimeSlot` | Đảm bảo đúng khung giờ |
+| `PreferredStartTime` / `PreferredEndTime` | Đảm bảo đúng giờ (BR-NEW-15 — không còn TimeSlot) |
 | `MaxPlayers` | Đảm bảo đúng số người |
 | `MinPlayers` | Đảm bảo đúng số người tối thiểu |
 | `ExpectedFinalDeposit` | Đảm bảo đúng số tiền cọc |

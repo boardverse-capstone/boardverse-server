@@ -1,4 +1,4 @@
-﻿using System.Security.Cryptography;
+using System.Security.Cryptography;
 using BoardVerse.Core.DTOs.Lobby;
 using BoardVerse.Core.DTOs.Reservation;
 using BoardVerse.Core.Entities;
@@ -111,13 +111,19 @@ namespace BoardVerse.Services.Services
 
         public async Task<LobbyResponseDto> CreateLobbyAsync(Guid hostUserId, CreateLobbyRequestDto request, CancellationToken cancellationToken = default)
         {
-            // FIX TZ-LOBBY-02 (2026-10-02): request.ScheduledStartTime có thể là UTC hoặc VN local tuỳ
-            // serializer. Convert sang UTC trước khi so sánh với DateTime.UtcNow để tránh sai lệch.
+            // FIX TZ-LOBBY-04 (2026-10-02): request.ScheduledStartTime có thể là Kind=Utc ("...Z")
+            // hoặc Kind=Unspecified (raw VN local). Convert sang UTC bằng helper để đảm bảo giá trị
+            // LƯU VÀO DB LUÔN LÀ UTC TICKS. Nếu gán raw value, Npgsql sẽ write raw ticks vào cột
+            // timestamptz → nếu FE gửi "20:45:00Z" (Kind=Utc) thì DB sẽ có 20:45 UTC (sai lệch 7h
+            // so với giờ VN). Tương tự với ScheduledEndTime.
             var scheduledStartUtc = Core.Constants.CafeSchedule.ToUtcAssumingVietnamLocal(request.ScheduledStartTime);
             if (scheduledStartUtc < DateTime.UtcNow.AddMinutes(5))
             {
                 throw new BadRequestException(ApiErrorMessages.Lobby.ScheduledStartTimeTooEarly);
             }
+            var scheduledEndUtc = request.ScheduledEndTime.HasValue
+                ? (DateTime?)Core.Constants.CafeSchedule.ToUtcAssumingVietnamLocal(request.ScheduledEndTime.Value)
+                : null;
 
             var game = await _gameTemplateRepository.GetByIdWithComponentsAsync(request.GameTemplateId)
                 ?? throw new NotFoundException(ApiErrorMessages.BoardGame.MasterNotFound(request.GameTemplateId));
@@ -175,8 +181,11 @@ namespace BoardVerse.Services.Services
                 GameTemplateId = request.GameTemplateId,
                 CafeId = request.CafeId,
                 BookingId = request.BookingId,
-                ScheduledStartTime = request.ScheduledStartTime,
-                ScheduledEndTime = request.ScheduledEndTime,
+                // FIX TZ-LOBBY-04 (2026-10-02): gán giá trị UTC-converted, KHÔNG gán raw request.
+                // Raw request có thể là "20:45:00Z" (Kind=Utc) — nếu gán thẳng, DB sẽ lưu 20:45 UTC
+                // thay vì 13:45 UTC (đúng cho 20:45 VN).
+                ScheduledStartTime = scheduledStartUtc,
+                ScheduledEndTime = scheduledEndUtc,
                 CancellationLeadTimeMinutes = request.CancellationLeadTimeMinutes,
                 MaxMembers = request.MaxMembers,
                 MinPlayers = minPlayers,
@@ -1944,12 +1953,16 @@ namespace BoardVerse.Services.Services
                 {
                     throw new BadRequestException(ApiErrorMessages.Lobby.ScheduledStartTimeTooEarly);
                 }
-                lobby.ScheduledStartTime = request.ScheduledStartTime.Value;
+                // FIX TZ-LOBBY-04 (2026-10-02): gán giá trị UTC-converted, KHÔNG gán raw request.
+                // Trước đây gán raw value khiến DB lưu 20:45 UTC thay vì 13:45 UTC (user nhập 20:45 VN
+                // nhưng FE gửi kèm "Z" suffix hoặc Kind=Utc khiến giá trị sai lệch 7h).
+                lobby.ScheduledStartTime = scheduledStartUtc;
             }
 
             if (request.ScheduledEndTime.HasValue)
             {
-                lobby.ScheduledEndTime = request.ScheduledEndTime.Value;
+                // FIX TZ-LOBBY-04 (2026-10-02): tương tự start — convert sang UTC trước khi gán.
+                lobby.ScheduledEndTime = Core.Constants.CafeSchedule.ToUtcAssumingVietnamLocal(request.ScheduledEndTime.Value);
             }
 
             if (request.IsPrivate.HasValue) lobby.IsPrivate = request.IsPrivate.Value;
@@ -2148,11 +2161,12 @@ namespace BoardVerse.Services.Services
                 Status = l.Status,
                 IsPrivate = l.IsPrivate,
                 ShareCode = l.ShareCode,
-                ScheduledStartTime = l.ScheduledStartTime ?? DateTime.MinValue,
-                ScheduledEndTime = l.ScheduledEndTime ?? l.Reservation?.ScheduledEndTime ?? DateTime.MinValue,
-                RecruitmentDeadline = l.RecruitmentDeadline ?? DateTime.MinValue,
+                // FIX TZ-RESPONSE-01 (2026-10-03): trả local VN.
+                ScheduledStartTime = CafeSchedule.ToLocalForResponse(l.ScheduledStartTime) ?? DateTime.MinValue,
+                ScheduledEndTime = CafeSchedule.ToLocalForResponse(l.ScheduledEndTime) ?? CafeSchedule.ToLocalForResponse(l.Reservation?.ScheduledEndTime) ?? DateTime.MinValue,
+                RecruitmentDeadline = CafeSchedule.ToLocalForResponse(l.RecruitmentDeadline) ?? DateTime.MinValue,
                 DepositAmount = l.Reservation?.DepositAmount ?? 0,
-                CreatedAt = l.CreatedAt
+                CreatedAt = CafeSchedule.ToLocalForResponse(l.CreatedAt)
             }).ToList();
 
             return new CafeLobbiesResponseDto
@@ -2280,8 +2294,9 @@ namespace BoardVerse.Services.Services
                 CafeId = lobby.CafeId,
                 CafeName = lobby.Cafe?.Name,
                 Status = lobby.Status,
-                ScheduledStartTime = lobby.ScheduledStartTime,
-                ScheduledEndTime = lobby.ScheduledEndTime,
+                // FIX TZ-RESPONSE-01 (2026-10-03): trả local VN.
+                ScheduledStartTime = CafeSchedule.ToLocalForResponse(lobby.ScheduledStartTime),
+                ScheduledEndTime = CafeSchedule.ToLocalForResponse(lobby.ScheduledEndTime),
                 PlayDate = lobby.PlayDate,
                 PreferredStartTime = lobby.PreferredStartTime,
                 PreferredEndTime = lobby.PreferredEndTime,
@@ -2290,10 +2305,10 @@ namespace BoardVerse.Services.Services
                 CurrentMembers = lobby.Members?.Count(m => m.IsActive) ?? 0,
                 IsPrivate = lobby.IsPrivate,
                 ShareCode = lobby.ShareCode,
-                ClosedAt = lobby.ClosedAt,
+                ClosedAt = CafeSchedule.ToLocalForResponse(lobby.ClosedAt),
                 ClosedReason = lobby.ClosedReason,
-                CreatedAt = lobby.CreatedAt,
-                UpdatedAt = lobby.UpdatedAt
+                CreatedAt = CafeSchedule.ToLocalForResponse(lobby.CreatedAt),
+                UpdatedAt = CafeSchedule.ToLocalForResponse(lobby.UpdatedAt)
             };
         }
 
@@ -2343,8 +2358,9 @@ namespace BoardVerse.Services.Services
                 CafeName = lobby.Cafe?.Name,
                 CafeAddress = lobby.Cafe?.Address,
                 BookingId = lobby.BookingId,
-                ScheduledStartTime = lobby.ScheduledStartTime,
-                ScheduledEndTime = lobby.ScheduledEndTime,
+                // FIX TZ-RESPONSE-01 (2026-10-03): trả local VN.
+                ScheduledStartTime = CafeSchedule.ToLocalForResponse(lobby.ScheduledStartTime),
+                ScheduledEndTime = CafeSchedule.ToLocalForResponse(lobby.ScheduledEndTime),
                 MaxMembers = lobby.MaxMembers,
                 MinPlayers = lobby.MinPlayers,
                 SeatCount = lobby.SeatCount,
@@ -2358,9 +2374,9 @@ namespace BoardVerse.Services.Services
                 CoverImageUrl = lobby.CoverImageUrl,
                 CancellationLeadTimeMinutes = lobby.CancellationLeadTimeMinutes,
                 MinKarmaScore = lobby.MinKarmaScore,
-                ClosedAt = lobby.ClosedAt,
+                ClosedAt = CafeSchedule.ToLocalForResponse(lobby.ClosedAt),
                 ClosedReason = lobby.ClosedReason,
-                CreatedAt = lobby.CreatedAt,
+                CreatedAt = CafeSchedule.ToLocalForResponse(lobby.CreatedAt),
                 UpdatedAt = lobby.UpdatedAt,
                 DistanceKm = distanceKm,
                 Members = lobby.Members

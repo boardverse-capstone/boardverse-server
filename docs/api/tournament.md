@@ -97,6 +97,8 @@ curl -X GET 'https://api.boardverse.dev/api/v1/tournaments?status=completed' \
       "finalistKarmaBonus": 20,
       "noShowKarmaPenalty": -10,
       "minKarmaRequirement": 0,
+      "entryFee": 0,
+      "prize": "500.000 VND + 1 board game Splendor",
       "pairingMode": "Auto"
     }
   ]

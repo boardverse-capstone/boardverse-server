@@ -1,4 +1,6 @@
-﻿using BoardVerse.Core.DTOs.Game;
+﻿using BoardVerse.Core.Common;
+using BoardVerse.Core.DTOs.Cafe;
+using BoardVerse.Core.DTOs.Game;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
@@ -94,6 +96,34 @@ namespace BoardVerse.API.Controllers
         {
             var result = await _boardGameService.GetBoardGameByIdAsync(id);
             return NewResponse(200, ApiSuccessMessages.BoardGame.Retrieved, result);
+        }
+
+        /// <summary>
+        /// Lấy danh sách quán cafe đang ACTIVE có board game này trong kho và có thể chơi được.
+        /// Đây là chiều ngược của <c>GET /api/cafes/{cafeId}/active-games</c> — player hỏi "chơi game này ở đâu?"
+        /// Chỉ trả các quán thỏa mãn đồng thời:
+        /// • Quán cafe tồn tại &amp; đang ACTIVE (IsActive=true, PartnerOperationalStatus=Active).
+        /// • CafeGameInventory.IsActive = true (quán chưa xóa mềm khỏi kho).
+        /// • GameTemplate.IsActive = true (master game vẫn active).
+        /// • Status ∈ {Available, InUse} — không bao gồm Damaged/Maintenance/Retired.
+        /// Hỗ trợ filter: name (case-insensitive partial), sort theo khoảng cách khi truyền latitude/longitude,
+        /// sort theo tên A→Z khi không truyền location.
+        /// [Role: Public — không yêu cầu đăng nhập.]
+        /// </summary>
+        /// <param name="boardgameId">Mã định danh board game (GameTemplates.Id).</param>
+        /// <param name="query">Filter tùy chọn: latitude, longitude, name, pageNumber, pageSize.</param>
+        /// <response code="200">Danh sách quán cafe có board game đang hoạt động (phân trang, shape NearbyCafeDto).</response>
+        /// <response code="404">Không tìm thấy board game hoặc game đã bị vô hiệu hóa.</response>
+        /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+        [HttpGet("{boardgameId:guid}/active-cafes")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(PaginatedResponse<NearbyCafeDto>), 200)]
+        public async Task<IActionResult> GetActiveCafesByBoardGame(
+            Guid boardgameId,
+            [FromQuery] ActiveCafesByBoardGameQueryDto query)
+        {
+            var result = await _boardGameService.GetActiveCafesByBoardGameAsync(boardgameId, query);
+            return NewResponse(200, ApiSuccessMessages.BoardGame.ActiveCafesRetrieved, result);
         }
 
         /// <summary>
