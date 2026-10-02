@@ -59,15 +59,16 @@ public class WalkInService : IWalkInService
         {
             Id = w.Id,
             SourceReservationId = w.SourceReservationId,
-            WindowStart = w.WindowStart,
-            WindowEnd = w.WindowEnd,
+            // FIX TZ-RESPONSE-01 (2026-10-03): trả local VN.
+            WindowStart = CafeSchedule.ToLocalForResponse(w.WindowStart),
+            WindowEnd = CafeSchedule.ToLocalForResponse(w.WindowEnd),
             TotalSeats = w.TotalSeats,
             AvailableSeats = w.AvailableSeats,
             HeldSeats = w.HeldSeats,
             InUseSeats = w.InUseSeats,
             Status = w.Status.ToString(),
-            ExpiresAt = w.ExpiresAt,
-            CreatedAt = w.CreatedAt
+            ExpiresAt = CafeSchedule.ToLocalForResponse(w.ExpiresAt),
+            CreatedAt = CafeSchedule.ToLocalForResponse(w.CreatedAt)
         }).ToList();
 
         return new WalkInWindowsResponseDto { Items = dtos };
@@ -335,14 +336,15 @@ public class WalkInService : IWalkInService
             WalkInWindowId = booking.WalkInWindowId,
             GuestName = booking.GuestName,
             GuestPhone = booking.GuestPhone,
-            StartTime = booking.StartTime,
-            EndTime = booking.EndTime,
+            // FIX TZ-RESPONSE-01 (2026-10-03): trả local VN.
+            StartTime = CafeSchedule.ToLocalForResponse(booking.StartTime),
+            EndTime = CafeSchedule.ToLocalForResponse(booking.EndTime),
             Seats = booking.Seats,
             HourlyRate = booking.HourlyRate,
             TotalAmount = booking.TotalAmount,
             PaymentStatus = booking.PaymentStatus.ToString(),
             Status = booking.Status.ToString(),
-            CreatedAt = booking.CreatedAt
+            CreatedAt = CafeSchedule.ToLocalForResponse(booking.CreatedAt)
         };
     }
 }

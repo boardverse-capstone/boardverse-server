@@ -77,6 +77,43 @@ public static class CafeSchedule
     }
 
     /// <summary>
+    /// FIX TZ-RESPONSE-01 (2026-10-03): Convert DateTime? từ UTC sang local VN để trả về FE.
+    /// Trả về <c>Kind=Unspecified</c> để System.Text.Json serialize KHÔNG kèm hậu tố "Z",
+    /// giúp JSON khớp với <c>playDate</c> (DateOnly) và <c>preferredStartTime</c> (TimeOnly).
+    ///
+    /// <para>Quy tắc:</para>
+    /// <list type="bullet">
+    ///   <item><c>null</c> → trả <c>null</c>.</item>
+    ///   <item><c>Kind=Utc</c> → convert sang VN local, Kind=Unspecified.</item>
+    ///   <item><c>Kind=Local/Unspecified</c> → assume đã là VN local, giữ nguyên + ép Kind=Unspecified.</item>
+    /// </list>
+    ///
+    /// <para>
+    /// Dùng cho TẤT CẢ DateTime field trong response DTO có data gốc từ entity (UTC).
+    /// KHÔNG dùng cho field internal (entity assignments trước khi save DB).
+    /// </para>
+    /// </summary>
+    public static DateTime? ToLocalForResponse(DateTime? utc)
+    {
+        if (!utc.HasValue) return null;
+        return ToLocalForResponse(utc.Value);
+    }
+
+    /// <summary>
+    /// FIX TZ-RESPONSE-01 (2026-10-03): Convert DateTime (UTC) sang local VN, Kind=Unspecified.
+    /// Xem <see cref="ToLocalForResponse(DateTime?)"/> để biết chi tiết.
+    /// </summary>
+    public static DateTime ToLocalForResponse(DateTime utc)
+    {
+        return utc.Kind switch
+        {
+            DateTimeKind.Utc => ToVietnamLocal(utc),
+            // Local/Unspecified: assume đã là VN local, chỉ ép Kind=Unspecified để JSON bỏ "Z".
+            _ => DateTime.SpecifyKind(utc, DateTimeKind.Unspecified)
+        };
+    }
+
+    /// <summary>
     /// Validate preferredStartTime + preferredEndTime hợp lệ.
     /// Nếu end nhỏ hơn start, end thuộc ngày kế tiếp.
     ///

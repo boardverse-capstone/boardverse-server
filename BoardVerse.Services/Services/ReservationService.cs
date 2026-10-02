@@ -288,9 +288,11 @@ public class ReservationService : IReservationService
             PlayDate = request.PlayDate,
             PreferredStartTime = request.PreferredStartTime,
             PreferredEndTime = request.PreferredEndTime,
-            ScheduledStartTime = scheduledStartTime,
-            ScheduledEndTime = scheduledEndTime,
-            RecruitmentDeadline = recruitmentDeadline,
+            // FIX TZ-RESPONSE-01 (2026-10-03): trả local VN. Quote build raw UTC ở trên,
+            // convert tại đây để FE đọc trực tiếp khớp với playDate + preferredStartTime.
+            ScheduledStartTime = CafeSchedule.ToLocalForResponse(scheduledStartTime),
+            ScheduledEndTime = CafeSchedule.ToLocalForResponse(scheduledEndTime),
+            RecruitmentDeadline = CafeSchedule.ToLocalForResponse(recruitmentDeadline),
             MinPlayers = request.MinPlayers,
             MaxPlayers = quote.MaxPlayersApplied,
             CafeBasePriceVnd = quote.CafeBasePriceVnd,
@@ -312,7 +314,8 @@ public class ReservationService : IReservationService
             BufferMinutes = quote.BufferMinutes,
             BufferWarning = quote.BufferWarning,
             RequiresCafeApproval = quote.RequiresCafeApproval,
-            ExpiresAt = now.AddMinutes(QuoteExpiryMinutes),
+            // FIX TZ-RESPONSE-01 (2026-10-03): trả local VN.
+            ExpiresAt = CafeSchedule.ToLocalForResponse(now.AddMinutes(QuoteExpiryMinutes)),
             Warnings = warnings
         };
     }
@@ -416,9 +419,10 @@ public class ReservationService : IReservationService
             {
                 ReservationId = existing.Id,
                 LobbyId = existingLobbyId,
-                RecruitmentDeadline = existing.RecruitmentDeadline,
+                // FIX TZ-RESPONSE-01 (2026-10-03): trả local VN cho FE.
+                RecruitmentDeadline = CafeSchedule.ToLocalForResponse(existing.RecruitmentDeadline),
                 RequiresCafeApproval = existing.Lobby?.Status == LobbyStatus.PendingCafeApproval,
-                CafeApprovalDeadline = existing.Lobby?.CafeApprovalDeadline,
+                CafeApprovalDeadline = CafeSchedule.ToLocalForResponse(existing.Lobby?.CafeApprovalDeadline),
                 HeldBvc = existing.DepositAmount
             };
         }
@@ -944,9 +948,11 @@ public class ReservationService : IReservationService
             {
                 ReservationId = reservation.Id,
                 LobbyId = lobby.Id,
-                RecruitmentDeadline = recruitmentDeadline,
+                // FIX TZ-RESPONSE-01 (2026-10-03): trả local VN cho FE.
+                // recruitmentDeadline + lobby.CafeApprovalDeadline ở đây đã là UTC (built từ now = DateTime.UtcNow).
+                RecruitmentDeadline = CafeSchedule.ToLocalForResponse(recruitmentDeadline),
                 RequiresCafeApproval = initialLobbyStatus == LobbyStatus.PendingCafeApproval,
-                CafeApprovalDeadline = lobby.CafeApprovalDeadline,
+                CafeApprovalDeadline = CafeSchedule.ToLocalForResponse(lobby.CafeApprovalDeadline),
                 HeldBvc = quote.FinalDeposit
             };
         }
@@ -1457,7 +1463,8 @@ public class ReservationService : IReservationService
                 RefundBvc = refundAmount,
                 ForfeitBvc = forfeitAmount,
                 RefundPolicyApplied = policyName,
-                CancelledAt = now
+                // FIX TZ-RESPONSE-01 (2026-10-03): trả local VN.
+                CancelledAt = CafeSchedule.ToLocalForResponse(now)
             };
         }
         catch
@@ -2136,7 +2143,8 @@ public class ReservationService : IReservationService
                 ActiveSessionId = request.ActiveSessionId,
                 ReservationStatus = reservation.Status.ToString(),
                 LobbyStatus = existingLobby?.Status.ToString() ?? LobbyStatus.InProgress.ToString(),
-                CheckedInAt = existingLobby?.UpdatedAt ?? now,
+                // FIX TZ-RESPONSE-01 (2026-10-03): trả local VN.
+                CheckedInAt = CafeSchedule.ToLocalForResponse(existingLobby?.UpdatedAt ?? now),
                 HeldBvc = reservation.DepositAmount,
                 TableNumber = reservation.TableNumber
             };
@@ -2340,7 +2348,8 @@ public class ReservationService : IReservationService
                 ActiveSessionId = request.ActiveSessionId,
                 ReservationStatus = reservation.Status.ToString(),
                 LobbyStatus = lobby.Status.ToString(),
-                CheckedInAt = checkedInAt,
+                // FIX TZ-RESPONSE-01 (2026-10-03): trả local VN.
+                CheckedInAt = CafeSchedule.ToLocalForResponse(checkedInAt),
                 HeldBvc = reservation.DepositAmount,
                 TableNumber = request.TableNumber
             };
@@ -3314,9 +3323,11 @@ public class ReservationService : IReservationService
             PlayDate = reservation.PlayDate,
             PreferredStartTime = reservation.PreferredStartTime ?? TimeOnly.MinValue,
             PreferredEndTime = reservation.PreferredEndTime ?? TimeOnly.MinValue,
-            ScheduledStartTime = reservation.ScheduledStartTime,
-            ScheduledEndTime = reservation.ScheduledEndTime,
-            RecruitmentDeadline = reservation.RecruitmentDeadline,
+            // FIX TZ-RESPONSE-01 (2026-10-03): trả local VN (Kind=Unspecified, không "Z")
+            // để JSON khớp với playDate + preferredStartTime.
+            ScheduledStartTime = CafeSchedule.ToLocalForResponse(reservation.ScheduledStartTime),
+            ScheduledEndTime = CafeSchedule.ToLocalForResponse(reservation.ScheduledEndTime),
+            RecruitmentDeadline = CafeSchedule.ToLocalForResponse(reservation.RecruitmentDeadline),
             MinPlayers = reservation.MinPlayers,
             MaxPlayers = reservation.MaxPlayers,
             CurrentPlayers = reservation.CurrentPlayers,
@@ -3329,12 +3340,12 @@ public class ReservationService : IReservationService
             LobbyStatus = reservation.Lobby?.Status.ToString() ?? string.Empty,
             CafeRejectionReason = reservation.Lobby?.CafeRejectionReason,
             ReservationCode = reservation.ReservationCode,
-            CreatedAt = reservation.CreatedAt,
-            UpdatedAt = reservation.UpdatedAt,
+            CreatedAt = CafeSchedule.ToLocalForResponse(reservation.CreatedAt),
+            UpdatedAt = CafeSchedule.ToLocalForResponse(reservation.UpdatedAt),
             IsHost = isHost,
             CanCancel = canCancel,
-            CheckedInAt = reservation.CheckedInAt,
-            ActualEndAt = reservation.ActualEndAt,
+            CheckedInAt = CafeSchedule.ToLocalForResponse(reservation.CheckedInAt),
+            ActualEndAt = CafeSchedule.ToLocalForResponse(reservation.ActualEndAt),
             PlayedRatio = reservation.PlayedRatio,
             EndReason = reservation.EndReason?.ToString(),
             WalkInWindowId = reservation.WalkInWindowId,
@@ -3472,6 +3483,7 @@ public class ReservationService : IReservationService
 
     /// <summary>
     /// Map từ Reservation entity sang ReservationListItemDto, kèm ParticipationType.
+    /// FIX TZ-RESPONSE-01 (2026-10-03): trả DateTime fields về local VN.
     /// </summary>
     private static ReservationListItemDto MapToListItemDto(Reservation r, Guid userId)
     {
@@ -3493,10 +3505,10 @@ public class ReservationService : IReservationService
             LobbyId = r.LobbyId,
             LobbyStatus = r.Lobby?.Status.ToString() ?? null,
             ReservationCode = r.ReservationCode,
-            ScheduledStartTime = r.ScheduledStartTime,
-            ScheduledEndTime = r.ScheduledEndTime,
-            RecruitmentDeadline = r.RecruitmentDeadline,
-            CreatedAt = r.CreatedAt,
+            ScheduledStartTime = CafeSchedule.ToLocalForResponse(r.ScheduledStartTime),
+            ScheduledEndTime = CafeSchedule.ToLocalForResponse(r.ScheduledEndTime),
+            RecruitmentDeadline = CafeSchedule.ToLocalForResponse(r.RecruitmentDeadline),
+            CreatedAt = CafeSchedule.ToLocalForResponse(r.CreatedAt),
             IsHost = isHost,
             ParticipationType = isHost ? ReservationParticipationType.Host : ReservationParticipationType.Member,
             TableNumber = r.TableNumber
@@ -3550,13 +3562,16 @@ public class ReservationService : IReservationService
             MaxPlayers = reservation.MaxPlayers,
             CurrentPlayers = reservation.CurrentPlayers,
             DepositAmount = reservation.DepositAmount,
-            ScheduledStartTime = reservation.ScheduledStartTime,
-            ScheduledEndTime = reservation.ScheduledEndTime,
-            CafeApprovalDeadline = reservation.Lobby?.CafeApprovalDeadline ?? DateTime.MinValue,
+            // FIX TZ-RESPONSE-01 (2026-10-03): trả local VN.
+            // Lưu ý: RemainingApprovalHours dùng duration giữa 2 mốc UTC — duration invariant
+            // dưới timezone conversion, nên giữ nguyên phép trừ UTC.
+            ScheduledStartTime = CafeSchedule.ToLocalForResponse(reservation.ScheduledStartTime),
+            ScheduledEndTime = CafeSchedule.ToLocalForResponse(reservation.ScheduledEndTime),
+            CafeApprovalDeadline = CafeSchedule.ToLocalForResponse(reservation.Lobby?.CafeApprovalDeadline) ?? DateTime.MinValue,
             RemainingApprovalHours = reservation.Lobby?.CafeApprovalDeadline.HasValue == true
                 ? (int)Math.Max(0, (reservation.Lobby.CafeApprovalDeadline.Value - now).TotalHours)
                 : 0,
-            CreatedAt = reservation.CreatedAt
+            CreatedAt = CafeSchedule.ToLocalForResponse(reservation.CreatedAt)
         };
     }
 
@@ -3610,13 +3625,14 @@ public class ReservationService : IReservationService
             MaxPlayers = r.MaxPlayers,
             CurrentPlayers = r.CurrentPlayers,
             DepositAmount = r.DepositAmount,
-            ScheduledStartTime = r.ScheduledStartTime,
-            ScheduledEndTime = r.ScheduledEndTime,
-            CafeApprovalDeadline = r.Lobby?.CafeApprovalDeadline ?? DateTime.MinValue,
+            // FIX TZ-RESPONSE-01 (2026-10-03): trả local VN.
+            ScheduledStartTime = CafeSchedule.ToLocalForResponse(r.ScheduledStartTime),
+            ScheduledEndTime = CafeSchedule.ToLocalForResponse(r.ScheduledEndTime),
+            CafeApprovalDeadline = CafeSchedule.ToLocalForResponse(r.Lobby?.CafeApprovalDeadline) ?? DateTime.MinValue,
             RemainingApprovalHours = r.Lobby?.CafeApprovalDeadline.HasValue == true
                 ? (int)Math.Max(0, (r.Lobby.CafeApprovalDeadline.Value - now).TotalHours)
                 : 0,
-            CreatedAt = r.CreatedAt
+            CreatedAt = CafeSchedule.ToLocalForResponse(r.CreatedAt)
         }).ToList();
 
         return new LobbyPendingApprovalListResponseDto
@@ -4327,10 +4343,11 @@ public class ReservationService : IReservationService
             RefundBvc = refundBvc ?? 0,
             ForfeitBvc = forfeitBvc ?? reservation.DepositAmount,
             RefundReason = reason ?? RefundReason.OnTime,
-            CheckedInAt = reservation.CheckedInAt ?? DateTime.MinValue,
-            ActualEndAt = actualEnd,
-            ScheduledStartTime = reservation.ScheduledStartTime,
-            ScheduledEndTime = reservation.ScheduledEndTime,
+            // FIX TZ-RESPONSE-01 (2026-10-03): trả local VN.
+            CheckedInAt = CafeSchedule.ToLocalForResponse(reservation.CheckedInAt) ?? DateTime.MinValue,
+            ActualEndAt = CafeSchedule.ToLocalForResponse(actualEnd),
+            ScheduledStartTime = CafeSchedule.ToLocalForResponse(reservation.ScheduledStartTime),
+            ScheduledEndTime = CafeSchedule.ToLocalForResponse(reservation.ScheduledEndTime),
             WalkInWindowId = reservation.WalkInWindowId,
             KarmaRecorded = karmaRecorded
         };
@@ -4378,10 +4395,11 @@ public class ReservationService : IReservationService
             LobbyId = r.LobbyId,
             LobbyStatus = r.Lobby?.Status.ToString() ?? null,
             ReservationCode = r.ReservationCode,
-            ScheduledStartTime = r.ScheduledStartTime,
-            ScheduledEndTime = r.ScheduledEndTime,
-            RecruitmentDeadline = r.RecruitmentDeadline,
-            CreatedAt = r.CreatedAt,
+            // FIX TZ-RESPONSE-01 (2026-10-03): trả local VN.
+            ScheduledStartTime = CafeSchedule.ToLocalForResponse(r.ScheduledStartTime),
+            ScheduledEndTime = CafeSchedule.ToLocalForResponse(r.ScheduledEndTime),
+            RecruitmentDeadline = CafeSchedule.ToLocalForResponse(r.RecruitmentDeadline),
+            CreatedAt = CafeSchedule.ToLocalForResponse(r.CreatedAt),
             IsHost = r.HostId == cafeManagerUserId,
             TableNumber = r.TableNumber
         }).ToList();
@@ -4434,10 +4452,11 @@ public class ReservationService : IReservationService
             LobbyId = r.LobbyId,
             LobbyStatus = r.Lobby?.Status.ToString() ?? null,
             ReservationCode = r.ReservationCode,
-            ScheduledStartTime = r.ScheduledStartTime,
-            ScheduledEndTime = r.ScheduledEndTime,
-            RecruitmentDeadline = r.RecruitmentDeadline,
-            CreatedAt = r.CreatedAt,
+            // FIX TZ-RESPONSE-01 (2026-10-03): trả local VN.
+            ScheduledStartTime = CafeSchedule.ToLocalForResponse(r.ScheduledStartTime),
+            ScheduledEndTime = CafeSchedule.ToLocalForResponse(r.ScheduledEndTime),
+            RecruitmentDeadline = CafeSchedule.ToLocalForResponse(r.RecruitmentDeadline),
+            CreatedAt = CafeSchedule.ToLocalForResponse(r.CreatedAt),
             IsHost = r.HostId == userId,
             TableNumber = r.TableNumber
         }).ToList();
