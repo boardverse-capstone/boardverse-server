@@ -165,6 +165,48 @@ public class LobbyMergeServiceTests : IDisposable
         };
     }
 
+    /// <summary>
+    /// Build LobbyMember với Id xác định (cho phép test reference ID này trong DTO.SelectedMemberIds).
+    /// Dùng kèm <see cref="SetupSourceActiveMemberForSelectionAsync"/>.
+    /// </summary>
+    private static LobbyMember BuildMemberWithId(
+        Guid id,
+        Guid lobbyId,
+        Guid? userId = null,
+        bool isActive = true)
+    {
+        return new LobbyMember
+        {
+            Id = id,
+            UserId = userId ?? Guid.NewGuid(),
+            LobbyId = lobbyId,
+            IsActive = isActive,
+            Status = LobbyMemberStatus.Ready,
+            IsHost = false,
+            JoinedAt = DateTime.UtcNow
+        };
+    }
+
+    /// <summary>
+    /// Set up mock <c>_memberRepo.GetByLobbyAsync(sourceLobbyId)</c> để trả về 1 LobbyMember active
+    /// với Id đã biết. Trả về Id để test dùng trong
+    /// <c>CreateLobbyMergeRequestDto.SelectedMemberIds</c>.
+    ///
+    /// Bug fix 2026-10-02 (permanent): SelectedMemberIds giờ là REQUIRED non-empty + phải match
+    /// active member hiện tại của source lobby. Helper này đảm bảo test setup đúng contract mới
+    /// mà không phải manually tạo Id + mock linkage.
+    /// </summary>
+    private Guid SetupSourceActiveMemberForSelectionAsync(Guid sourceLobbyId)
+    {
+        var memberId = Guid.NewGuid();
+        _memberRepo.Setup(r => r.GetByLobbyAsync(sourceLobbyId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<LobbyMember>
+            {
+                BuildMemberWithId(memberId, sourceLobbyId)
+            });
+        return memberId;
+    }
+
     // =====================================================================
     // CreateMergeRequestAsync
     // =====================================================================
@@ -223,11 +265,14 @@ public class LobbyMergeServiceTests : IDisposable
             .ReturnsAsync(true);
         _lobbyRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Lobby?)null);
+        // GetMergeSummaryAsync is the new entry point — leave unmocked to return null
+        // → service sẽ throw ApiErrorMessages.Lobby.NotFound.
 
         var dto = new CreateLobbyMergeRequestDto
         {
             SourceLobbyId = Guid.NewGuid(),
-            TargetLobbyId = Guid.NewGuid()
+            TargetLobbyId = Guid.NewGuid(),
+            SelectedMemberIds = new List<Guid> { Guid.NewGuid() }  // Bug fix 2026-10-02 — REQUIRED
         };
 
         await Assert.ThrowsAsync<NotFoundException>(() =>
@@ -256,10 +301,15 @@ public class LobbyMergeServiceTests : IDisposable
         _lobbyRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(targetId, LobbyStatus.Open)); // Not InProgress
 
+        // Bug fix 2026-10-02 (permanent): SelectedMemberIds REQUIRED — set up member mock
+        // + truyền vào DTO để pass step 9.5 (validate ID match active members).
+        var selectedMemberId = SetupSourceActiveMemberForSelectionAsync(sourceId);
+
         var dto = new CreateLobbyMergeRequestDto
         {
             SourceLobbyId = sourceId,
-            TargetLobbyId = targetId
+            TargetLobbyId = targetId,
+            SelectedMemberIds = new List<Guid> { selectedMemberId }
         };
 
         await Assert.ThrowsAsync<ConflictException>(() =>
@@ -289,15 +339,109 @@ public class LobbyMergeServiceTests : IDisposable
             _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(lobbyId, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(BuildLobbyMergeSummary(lobby));
 
+        // Bug fix 2026-10-02: SelectedMemberIds REQUIRED — set up member mock + truyền vào DTO.
+        var selectedMemberId = SetupSourceActiveMemberForSelectionAsync(lobbyId);
+
         var dto = new CreateLobbyMergeRequestDto
         {
             SourceLobbyId = lobbyId,
-            TargetLobbyId = lobbyId   // Same ID — Gap #1
+            TargetLobbyId = lobbyId,   // Same ID — Gap #1
+            SelectedMemberIds = new List<Guid> { selectedMemberId }
         };
 
         var ex = await Assert.ThrowsAsync<ConflictException>(() =>
             svc.CreateMergeRequestAsync(cafeId, staffId, dto));
         Assert.Contains("chính nó", ex.Message);
+    }
+
+    // =====================================================================
+    // Bug fix 2026-10-02 — PERMANENT ENFORCEMENT: `selectedMemberIds` REQUIRED non-empty
+    // =====================================================================
+
+    [Fact]
+    public async Task CreateMergeRequestAsync_WhenSelectedMemberIdsIsNull_ThrowsBadRequest()
+    {
+        // Bug fix 2026-10-02 (permanent): Trước đây selectedMemberIds null/empty → transfer
+        // TẤT CẢ active members (backward compatible) → staff thấy cả 4 người "biến mất" dù
+        // chỉ tick 2 trên UI. Fix: service REJECT với SelectedMemberIdsRequired (400) —
+        // không còn behavior cũ.
+        _db = CreateDb();
+        var svc = CreateService();
+        var cafeId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BuildCafe(cafeId));
+        _cafeRepo.Setup(r => r.IsManagerOrStaffAsync(cafeId, staffId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var dto = new CreateLobbyMergeRequestDto
+        {
+            SourceLobbyId = Guid.NewGuid(),
+            TargetLobbyId = Guid.NewGuid(),
+            SelectedMemberIds = null  // <-- trigger validation
+        };
+
+        var ex = await Assert.ThrowsAsync<BadRequestException>(() =>
+            svc.CreateMergeRequestAsync(cafeId, staffId, dto));
+        Assert.Contains("selectedMemberIds", ex.Message);
+        Assert.Contains("bắt buộc", ex.Message);
+
+        // Verify no DB write happened (validation runs before transaction begin).
+        _lobbyRepo.Verify(
+            r => r.GetMergeSummaryAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "selectedMemberIds validation should fail BEFORE loading source lobby");
+    }
+
+    [Fact]
+    public async Task CreateMergeRequestAsync_WhenSelectedMemberIdsIsEmpty_ThrowsBadRequest()
+    {
+        // Empty list cũng bị reject — không còn "transfer all" fallback.
+        _db = CreateDb();
+        var svc = CreateService();
+        var cafeId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BuildCafe(cafeId));
+        _cafeRepo.Setup(r => r.IsManagerOrStaffAsync(cafeId, staffId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var dto = new CreateLobbyMergeRequestDto
+        {
+            SourceLobbyId = Guid.NewGuid(),
+            TargetLobbyId = Guid.NewGuid(),
+            SelectedMemberIds = new List<Guid>()  // <-- empty
+        };
+
+        var ex = await Assert.ThrowsAsync<BadRequestException>(() =>
+            svc.CreateMergeRequestAsync(cafeId, staffId, dto));
+        Assert.Contains("selectedMemberIds", ex.Message);
+    }
+
+    [Fact]
+    public async Task CreateMergeRequestAsync_WhenSelectedMemberIdsAllEmptyGuids_ThrowsBadRequest()
+    {
+        // Edge case: FE gửi [Guid.Empty, Guid.Empty] — NormalizeSelectedMemberIds filter hết
+        // về empty → vẫn phải reject. Tránh trường hợp FE gửi payload rỗng "thay vì" null.
+        _db = CreateDb();
+        var svc = CreateService();
+        var cafeId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+        _cafeRepo.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BuildCafe(cafeId));
+        _cafeRepo.Setup(r => r.IsManagerOrStaffAsync(cafeId, staffId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var dto = new CreateLobbyMergeRequestDto
+        {
+            SourceLobbyId = Guid.NewGuid(),
+            TargetLobbyId = Guid.NewGuid(),
+            SelectedMemberIds = new List<Guid> { Guid.Empty, Guid.Empty, Guid.Empty }
+        };
+
+        var ex = await Assert.ThrowsAsync<BadRequestException>(() =>
+            svc.CreateMergeRequestAsync(cafeId, staffId, dto));
+        Assert.Contains("selectedMemberIds", ex.Message);
     }
 
     // =====================================================================
@@ -333,10 +477,14 @@ public class LobbyMergeServiceTests : IDisposable
         _lobbyRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(targetId, LobbyStatus.InProgress, cafeId));
 
+        // Bug fix 2026-10-02: SelectedMemberIds REQUIRED — set up member mock + truyền vào DTO.
+        var selectedMemberId = SetupSourceActiveMemberForSelectionAsync(sourceId);
+
         var dto = new CreateLobbyMergeRequestDto
         {
             SourceLobbyId = sourceId,
-            TargetLobbyId = targetId
+            TargetLobbyId = targetId,
+            SelectedMemberIds = new List<Guid> { selectedMemberId }
         };
 
         var ex = await Assert.ThrowsAsync<ConflictException>(() =>
@@ -366,6 +514,9 @@ public class LobbyMergeServiceTests : IDisposable
         _lobbyRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(targetId, LobbyStatus.InProgress, cafeId));
 
+        // Bug fix 2026-10-02: SelectedMemberIds REQUIRED.
+        var selectedMemberId = SetupSourceActiveMemberForSelectionAsync(sourceId);
+
         // Simulate existing pending request in DB
         _db.LobbyMergeRequests.Add(new LobbyMergeRequest
         {
@@ -383,7 +534,8 @@ public class LobbyMergeServiceTests : IDisposable
         var dto = new CreateLobbyMergeRequestDto
         {
             SourceLobbyId = sourceId,
-            TargetLobbyId = targetId
+            TargetLobbyId = targetId,
+            SelectedMemberIds = new List<Guid> { selectedMemberId }
         };
 
         await Assert.ThrowsAsync<ConflictException>(() =>
@@ -414,6 +566,9 @@ public class LobbyMergeServiceTests : IDisposable
         _lobbyRepo.Setup(r => r.GetByIdAsync(targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(BuildLobby(targetId, LobbyStatus.InProgress, cafeId));
 
+        // Bug fix 2026-10-02: SelectedMemberIds REQUIRED.
+        var selectedMemberId = SetupSourceActiveMemberForSelectionAsync(sourceId);
+
         // Simulate existing request with same idempotency key
         _db.LobbyMergeRequests.Add(new LobbyMergeRequest
         {
@@ -433,7 +588,8 @@ public class LobbyMergeServiceTests : IDisposable
         {
             SourceLobbyId = sourceId,
             TargetLobbyId = targetId,
-            IdempotencyKey = idempotencyKey
+            IdempotencyKey = idempotencyKey,
+            SelectedMemberIds = new List<Guid> { selectedMemberId }
         };
 
         var result = await svc.CreateMergeRequestAsync(cafeId, staffId, dto);
@@ -505,10 +661,14 @@ public class LobbyMergeServiceTests : IDisposable
         await _db.SaveChangesAsync();
         var svc = CreateFreshService();
 
+        // Bug fix 2026-10-02: SelectedMemberIds REQUIRED. Source có 0 member → step 9 sẽ
+        // throw NoActiveMembersToTransfer TRƯỚC khi step 9.5 validate SelectedMemberIds match,
+        // nên không cần setup member active.
         var dto = new CreateLobbyMergeRequestDto
         {
             SourceLobbyId = sourceId,
-            TargetLobbyId = targetId
+            TargetLobbyId = targetId,
+            SelectedMemberIds = new List<Guid> { Guid.NewGuid() }
         };
 
         // Source lobby rỗng → ConflictException NoActiveMembersToTransfer (early reject).
@@ -594,10 +754,13 @@ public class LobbyMergeServiceTests : IDisposable
 
         var svc = CreateService();
 
+        // Bug fix 2026-10-02: SelectedMemberIds REQUIRED. Cross-game check (step 5b) chạy
+        // TRƯỚC step 9 (member count) nên ta chỉ cần pass step 2b — không cần mock member.
         var dto = new CreateLobbyMergeRequestDto
         {
             SourceLobbyId = sourceId,
-            TargetLobbyId = targetId
+            TargetLobbyId = targetId,
+            SelectedMemberIds = new List<Guid> { Guid.NewGuid() }
         };
 
         var ex = await Assert.ThrowsAsync<BadRequestException>(() =>
@@ -678,11 +841,16 @@ public class LobbyMergeServiceTests : IDisposable
 
         var svc = CreateService();
 
+        // Bug fix 2026-10-02: SelectedMemberIds REQUIRED — phải match LobbyMember.Id trong
+        // member mock. SetupSourceActiveMemberForSelectionAsync override mock trên để có Id known.
+        var selectedMemberId = SetupSourceActiveMemberForSelectionAsync(sourceId);
+
         var dto = new CreateLobbyMergeRequestDto
         {
             SourceLobbyId = sourceId,
             TargetLobbyId = targetId,
-            Reason = "A3 đã trả game Catan, muốn nhập nhóm B chơi Splendor"
+            Reason = "A3 đã trả game Catan, muốn nhập nhóm B chơi Splendor",
+            SelectedMemberIds = new List<Guid> { selectedMemberId }
         };
 
         // Không throw — cross-game merge vẫn thành công vì box đã trả.
@@ -730,10 +898,14 @@ public class LobbyMergeServiceTests : IDisposable
 
         var svc = CreateService();
 
+        // Bug fix 2026-10-02: SelectedMemberIds REQUIRED — override member mock để có Id known.
+        var selectedMemberId = SetupSourceActiveMemberForSelectionAsync(sourceId);
+
         var dto = new CreateLobbyMergeRequestDto
         {
             SourceLobbyId = sourceId,
-            TargetLobbyId = targetId
+            TargetLobbyId = targetId,
+            SelectedMemberIds = new List<Guid> { selectedMemberId }
         };
 
         var result = await svc.CreateMergeRequestAsync(cafeId, staffId, dto);
@@ -766,8 +938,10 @@ public class LobbyMergeServiceTests : IDisposable
             .ReturnsAsync(targetLobby);
             _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(targetId, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(BuildLobbyMergeSummary(targetLobby));
-        _memberRepo.Setup(r => r.GetByLobbyAsync(sourceId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<LobbyMember> { BuildMember(Guid.NewGuid(), lobbyId: sourceId) });
+
+        // Bug fix 2026-10-02 (permanent): SelectedMemberIds REQUIRED — set up mock member
+        // với known Id và truyền Id đó vào DTO để pass được validation.
+        var selectedMemberId = SetupSourceActiveMemberForSelectionAsync(sourceId);
         _memberRepo.Setup(r => r.GetByLobbyAsync(targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<LobbyMember>());   // target lobby empty for happy path
 
@@ -775,7 +949,8 @@ public class LobbyMergeServiceTests : IDisposable
         {
             SourceLobbyId = sourceId,
             TargetLobbyId = targetId,
-            Reason = "Player wants to join another group"
+            Reason = "Player wants to join another group",
+            SelectedMemberIds = new List<Guid> { selectedMemberId }
         };
 
         var result = await svc.CreateMergeRequestAsync(cafeId, staffId, dto);
@@ -886,11 +1061,19 @@ public class LobbyMergeServiceTests : IDisposable
             _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(targetId, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(BuildLobbyMergeSummary(targetLobby));
 
+        // Bug fix 2026-10-02: SelectedMemberIds REQUIRED — lấy Id của Playing member trong
+        // source ActiveSession để pass validation step 9.5 (ID phải match ActiveSessionMember.Id).
+        var playingMemberId = _db.ActiveSessionMembers
+            .Where(m => m.ActiveSessionId == sourceSessionId && m.Status == IndividualSessionStatus.Playing)
+            .Select(m => m.Id)
+            .First();
+
         var dto = new CreateLobbyMergeRequestDto
         {
             SourceLobbyId = sourceId,
             TargetLobbyId = targetId,
-            Reason = "walk-in test"
+            Reason = "walk-in test",
+            SelectedMemberIds = new List<Guid> { playingMemberId }
         };
 
         var result = await svc.CreateMergeRequestAsync(cafeId, staffId, dto);
@@ -965,10 +1148,14 @@ public class LobbyMergeServiceTests : IDisposable
             _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(targetId, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(BuildLobbyMergeSummary(targetLobby));
 
+        // Bug fix 2026-10-02: SelectedMemberIds REQUIRED — nhưng step 9 (count source) chạy
+        // TRƯỚC step 9.5 (validate SelectedMemberIds match active), nên test này vẫn throw
+        // NoActiveMembersToTransfer như expected.
         var dto = new CreateLobbyMergeRequestDto
         {
             SourceLobbyId = sourceId,
-            TargetLobbyId = targetId
+            TargetLobbyId = targetId,
+            SelectedMemberIds = new List<Guid> { Guid.NewGuid() }
         };
 
         var ex = await Assert.ThrowsAsync<ConflictException>(() =>
@@ -1082,11 +1269,19 @@ public class LobbyMergeServiceTests : IDisposable
             _lobbyRepo.Setup(r => r.GetMergeSummaryAsync(targetId, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(BuildLobbyMergeSummary(targetLobby));
 
+        // Bug fix 2026-10-02: SelectedMemberIds REQUIRED — lấy Id của 1 Playing member trong
+        // source ActiveSession để pass step 9.5.
+        var playingMemberId = _db.ActiveSessionMembers
+            .Where(m => m.ActiveSessionId == sourceSessionId && m.Status == IndividualSessionStatus.Playing)
+            .Select(m => m.Id)
+            .First();
+
         var dto = new CreateLobbyMergeRequestDto
         {
             SourceLobbyId = sourceId,
             TargetLobbyId = targetId,
-            Reason = "online check-in merge test"
+            Reason = "online check-in merge test",
+            SelectedMemberIds = new List<Guid> { playingMemberId }
         };
 
         var result = await svc.CreateMergeRequestAsync(cafeId, staffId, dto);
@@ -1167,10 +1362,23 @@ public class LobbyMergeServiceTests : IDisposable
         _memberRepo.Setup(r => r.GetByLobbyAsync(targetId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<LobbyMember>());
 
+        // Bug fix 2026-10-02: SelectedMemberIds REQUIRED — lấy Id của 1 member trong source
+        // để pass step 9.5 (ID phải match LobbyMember.Id active trong source lobby).
+        // Cần query member mock vì service gọi _lobbyMemberRepository.GetByLobbyAsync (mock trả
+        // về list 2 members với random ID mỗi lần test chạy).
+        var liveMembers = new List<LobbyMember>
+        {
+            BuildMember(Guid.NewGuid(), status: LobbyMemberStatus.Ready, lobbyId: sourceId),
+            BuildMember(Guid.NewGuid(), status: LobbyMemberStatus.Ready, lobbyId: sourceId)
+        };
+        _memberRepo.Setup(r => r.GetByLobbyAsync(sourceId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(liveMembers);
+
         var dto = new CreateLobbyMergeRequestDto
         {
             SourceLobbyId = sourceId,
-            TargetLobbyId = targetId
+            TargetLobbyId = targetId,
+            SelectedMemberIds = new List<Guid> { liveMembers[0].Id }
         };
 
         var result = await svc.CreateMergeRequestAsync(cafeId, staffId, dto);

@@ -116,6 +116,19 @@ public class LobbyMergeService : ILobbyMergeService
         if (!isStaff)
             throw new ForbiddenException(LobbyMergeErrors.StaffPermissionDenied);
 
+        // 2b. Bug fix 2026-10-02 — PERMANENT ENFORCEMENT: `selectedMemberIds` là REQUIRED
+        // (non-empty). Trước fix, FE bug làm body chỉ chứa {SourceLobbyId, TargetLobbyId} (không
+        // có selectedMemberIds) → BE mặc định "transfer TẤT CẢ active members" → staff thấy cả 4
+        // người "biến mất" khỏi source dù chỉ tick 2 người trên UI. Đây là behavior cũ, giờ bị
+        // cấm vĩnh viễn — nếu FE không truyền field này thì 400 SelectedMemberIdsRequired,
+        // KHÔNG fallback về "transfer all". Xem docs/api/lobby-merge.md §"Bug 2026-10-02".
+        //
+        // Lưu ý: `NormalizeSelectedMemberIds` filter bỏ Guid.Empty và dedupe; ta check sau khi
+        // normalize để bắt cả case `[{Guid.Empty}, {Guid.Empty}]` (toàn Guid.Empty cũng coi là rỗng).
+        var normalizedSelected = NormalizeSelectedMemberIds(dto.SelectedMemberIds);
+        if (normalizedSelected.Count == 0)
+            throw new BadRequestException(LobbyMergeErrors.SelectedMemberIdsRequired);
+
         // 3. Validate source lobby tồn tại
         // Optimization (2026-10-02): Dùng projection GetMergeSummaryAsync thay vì
         // GetByIdAsync để giảm predicate lock surface trong Serializable transaction.
@@ -321,16 +334,11 @@ public class LobbyMergeService : ILobbyMergeService
             throw new ConflictException(LobbyMergeErrors.NoActiveMembersToTransfer);
         }
 
-        // ===== Validate SelectedMemberIds (Option 1 fix 2026-10-01) =====
-        // Staff truyền SelectedMemberIds để chỉ chuyển một số member cụ thể, không phải tất cả.
-        // - null/empty → transfer TẤT CẢ active members (backward compatible, giữ behavior cũ).
-        // - Có giá trị → validate từng ID phải match active member hiện tại của source lobby.
-        //
-        // ID semantics:
-        //   - Online source  : LobbyMember.Id
-        //   - Walk-in source : ActiveSessionMember.Id (bao gồm guest slot)
-        //
-        // Tính lại combinedCount dựa trên số selected (không phải tổng source active).
+        // ===== Validate SelectedMemberIds (Bug fix 2026-10-02 — PERMANENT ENFORCEMENT) =====
+        // selectedMemberIds đã được validate non-empty ở step 2b (đầu method), nên ở đây ta
+        // CHẮC CHẮN đã có ≥ 1 ID hợp lệ. Normalize một lần nữa ở đây là idempotent (cùng
+        // dedupe Guid.Empty, sort). Branch `isSelectiveMerge` từng phụ thuộc vào việc FE có
+        // truyền hay không — giờ luôn true vì null/empty bị reject ở step 2b.
         var selectedMemberIds = NormalizeSelectedMemberIds(dto.SelectedMemberIds);
         var isSelectiveMerge = selectedMemberIds.Count > 0;
         HashSet<Guid>? activeIdLookup = null;

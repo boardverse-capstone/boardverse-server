@@ -1,4 +1,5 @@
-﻿using BoardVerse.Core.Entities;
+﻿using BoardVerse.Core.Constants;
+using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Services.Helpers;
@@ -77,10 +78,18 @@ public class ReservationNoShowDetectionJob : BackgroundService
         }
 
         var now = DateTime.UtcNow;
-        var cutoff = now.AddMinutes(-30); // BR-CHECKIN-02: grace 30 phút
+        // FIX TZ-NOSHOW-01 (2026-10-02): Reservation.ScheduledStartTime là Unspecified VN local raw,
+        // còn `now` là UTC. Trên server UTC, nếu chỉ so sánh trực tiếp, query chỉ match khi
+        // raw ticks của ScheduledStartTime < cutoff UTC. Vì ScheduledStartTime được build từ
+        // playDate + TimeOnly VN (raw ticks đại diện giờ VN local) còn cutoff là UTC → off by 7h.
+        // VD: cutoff = 08:13 UTC (= 15:13 VN). Reservation playDate=02/10, scheduledStart=16:00 VN
+        // raw ticks = 09:00 UTC khi interpret như UTC. 09:00Z < 08:13Z → false → KHÔNG match.
+        // → No-show detection KHÔNG trigger cho user VN.
+        // Fix: convert cutoff sang VN local (Kind=Unspecified) để match với ScheduledStartTime cùng Kind.
+        var cutoff = CafeSchedule.ToVietnamLocal(now).AddMinutes(-30); // BR-CHECKIN-02: grace 30 phút
 
-        // Query: Status = Confirmed AND ScheduledStartTime < (now - 30min)
-        // Sử dụng index IX_Reservations_ScheduledStartTime_Status
+        // Query: Status = Confirmed AND ScheduledStartTime < cutoffLocal
+        // Sử dụng index IX_Reservations_ScheduledStartTime_Status.
         var noShowCandidates = await reservationRepo.GetNoShowCandidatesAsync(cutoff, ct);
 
         if (noShowCandidates.Count == 0)

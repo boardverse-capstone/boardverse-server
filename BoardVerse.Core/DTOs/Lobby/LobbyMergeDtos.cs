@@ -26,14 +26,13 @@ public class CreateLobbyMergeRequestDto
     public string? IdempotencyKey { get; set; }
 
     /// <summary>
-    /// Danh sách member cụ thể sẽ được chuyển sang lobby đích (optional).
+    /// Danh sách member cụ thể sẽ được chuyển sang lobby đích.
     /// <para>
-    /// Semantics:
-    /// <list type="bullet">
-    /// <item><c>null</c> hoặc empty → <b>transfer TẤT CẢ</b> active members của source lobby
-    /// (giữ nguyên behavior cũ, backward compatible).</item>
-    /// <item>Có giá trị → chỉ chuyển những member có ID nằm trong list.</item>
-    /// </list>
+    /// <b>Bắt buộc từ 2026-10-02 — Bug fix permanent.</b> Phải chứa ít nhất 1 ID hợp lệ
+    /// (không phải <c>Guid.Empty</c>, không trùng). Service sẽ throw
+    /// <c>BadRequestException(SelectedMemberIdsRequired)</c> nếu trường này null, rỗng,
+    /// hoặc toàn <c>Guid.Empty</c>. Không còn behavior "transfer tất cả" khi null/empty
+    /// (đã bỏ từ 2026-10-02). Xem <c>docs/api/lobby-merge.md</c> §"Bug 2026-10-02".
     /// </para>
     /// <para>
     /// ID semantics (phụ thuộc vào loại source lobby):
@@ -45,14 +44,14 @@ public class CreateLobbyMergeRequestDto
     /// </list>
     /// </para>
     /// <para>
-    /// Khi <c>SelectedMemberIds</c> được cung cấp, hệ thống sẽ:
+    /// Service sẽ:
     /// <list type="number">
+    /// <item>Reject sớm tại Create nếu list rỗng (SelectedMemberIdsRequired).</item>
     /// <item>Validate tất cả ID đều là member active hiện tại của source lobby.</item>
-    /// <item>Tính lại <c>CombinedCount</c> dựa trên số selected (không phải tổng).</item>
+    /// <item>Tính <c>CombinedCount</c> dựa trên số selected (không phải tổng active).</item>
     /// <item>Re-check seat availability với số selected thay vì tổng.</item>
     /// <item>Filter BR-USER-LIMIT-02/03 chỉ cho các member được chọn.</item>
-    /// <item>Chỉ transfer các member trong list; các member còn lại ở nguyên source lobby
-    /// (không bị dissolve trừ khi source rỗng sau transfer).</item>
+    /// <item>Chỉ transfer các member trong list; các member còn lại ở nguyên source lobby.</item>
     /// </list>
     /// </para>
     /// <para>

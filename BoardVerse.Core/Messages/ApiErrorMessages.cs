@@ -2626,16 +2626,28 @@ public static class LobbyMerge
         $"Sau khi ghép sẽ vượt giới hạn BR-USER-LIMIT-01 (tối đa 2 lobby/user). " +
         $"Vui lòng yêu cầu thành viên rời bớt lobby khác trước khi ghép.";
 
-    // ===== SelectedMemberIds (Option 1 fix 2026-10-01) =====
+    // ===== SelectedMemberIds (Bug fix 2026-10-02 — PERMANENT ENFORCEMENT) =====
     // Staff truyền SelectedMemberIds vào CreateLobbyMergeRequestDto để chỉ chọn 1 vài member
-    // cụ thể transfer (thay vì transfer TẤT CẢ active members). Validate khi tạo request:
-    // tất cả ID phải match active member hiện tại của source lobby (LobbyMember cho online,
-    // ActiveSessionMember cho walk-in). Nếu có ID không match → reject ngay tại Create để staff
-    // biết sai trước khi 15 phút hết hạn (Approve cũng re-validate vì member có thể rời
-    // giữa Create và Approve).
+    // cụ thể transfer. Từ 2026-10-02, field này là REQUIRED (non-empty) — không còn hỗ trợ
+    // null/empty như behavior cũ (transfer TẤT CẢ). Lý do: trước fix, FE bug làm body về
+    // {SourceLobbyId, TargetLobbyId} (không có selectedMemberIds) → BE mặc định transfer toàn bộ
+    // active members → staff thấy cả 4 người "biến mất" khỏi source dù chỉ tick 2.
+    //
+    // Validate khi tạo request:
+    //  - null hoặc empty  → SelectedMemberIdsRequired (400)
+    //  - Có ID không match → InvalidSelectedMemberIds (400)
+    //  - Tất cả ID không còn active tại Approve → SelectedMemberIdsEmptyAfterFilter (409)
+    //
+    // ID semantics:
+    //  - Online source  : LobbyMember.Id
+    //  - Walk-in source : ActiveSessionMember.Id (bao gồm cả guest slot)
     public static string InvalidSelectedMemberIds(string invalidIds) =>
         $"Một hoặc nhiều ID trong SelectedMemberIds không phải là thành viên active hiện tại của phòng nguồn: {invalidIds}. " +
-        $"Vui lòng kiểm tra lại danh sách hoặc bỏ trống SelectedMemberIds để chuyển tất cả.";
+        $"Vui lòng kiểm tra lại danh sách member đã chọn.";
+
+    public const string SelectedMemberIdsRequired =
+        "Trường 'selectedMemberIds' là bắt buộc và phải chứa ít nhất 1 ID thành viên cần chuyển. " +
+        "Vui lòng chọn ít nhất 1 thành viên từ danh sách phòng nguồn trước khi gửi yêu cầu ghép nhóm.";
 
     public const string SelectedMemberIdsEmptyAfterFilter =
         "Tất cả ID trong SelectedMemberIds không còn là thành viên active của phòng nguồn (có thể đã rời giữa lúc tạo và duyệt request). " +

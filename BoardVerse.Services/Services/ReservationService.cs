@@ -122,12 +122,31 @@ public class ReservationService : IReservationService
         _settlementService = settlementService ?? throw new ArgumentNullException(nameof(settlementService));
     }
 
+    // ===== FIX TZ-RESV-01 (2026-10-02): Centralized timezone-aware "now" helpers =====
+    //
+    // Reservation.ScheduledStartTime/EndTime được build từ playDate + TimeOnly → Kind=Unspecified,
+    // raw ticks đại diện giờ VN local (UTC+7).
+    // ActiveSession.StartedAt/EndedAt và Reservation.CreatedAt/UpdatedAt set bằng DateTime.UtcNow → Kind=Utc.
+    // PlayDate là DateOnly — ngày theo giờ VN.
+    //
+    // Dùng helpers này để đảm bảo so sánh đúng khi server chạy ở timezone khác VN (Linux container mặc định UTC).
+    /// <summary>Now (UTC) — so sánh với ActiveSession.StartedAt, CreatedAt, UpdatedAt.</summary>
+    private DateTime GetNowUtc() => _timeProvider.GetUtcNow().UtcDateTime;
+
+    /// <summary>Now (VN local, Kind=Unspecified) — so sánh với ScheduledStartTime/EndTime.</summary>
+    private DateTime GetNowLocal() => Core.Constants.CafeSchedule.ToVietnamLocal(GetNowUtc());
+
+    /// <summary>Today (VN local DateOnly) — so sánh với request.PlayDate.</summary>
+    private DateOnly GetTodayLocal() => DateOnly.FromDateTime(GetNowLocal());
+
     // ===== 21A.2 QUOTE =====
 
     public async Task<ReservationQuoteDto> CreateQuoteAsync(Guid hostId, ReservationQuoteRequestDto request, CancellationToken cancellationToken = default)
     {
-        var now = _timeProvider.GetUtcNow().UtcDateTime;
-        ValidatePlayDate(request.PlayDate, now);
+        // FIX TZ-RESV-03: ValidatePlayDate cần "today" theo giờ VN local.
+        var nowLocal = GetNowLocal();
+        ValidatePlayDate(request.PlayDate, nowLocal);
+        var now = GetNowUtc(); // UTC cho các bước còn lại (tương thích code cũ).
 
         // Validate preferredStartTime + preferredEndTime hợp lệ.
         var (timeValid, timeError) = CafeSchedule.ValidatePreferredTimeRange(
@@ -2324,8 +2343,20 @@ public class ReservationService : IReservationService
         // BR-NEW-15: ResolveAsync takes (cafeId, playDate) without TimeSlot.
         var resolvedSchedule = await _scheduleResolver.ResolveAsync(reservation.CafeId, reservation.PlayDate);
 
-        var windowStart = scheduledStart.AddMinutes(-EarlyGraceMinutes);
-        var windowEnd = scheduledEnd.AddMinutes(LateGraceMinutes);
+        // FIX TZ-CHECKIN-01 (2026-10-02): `now` ở đây là UTC (Kind=Utc) từ
+        // _timeProvider.GetUtcNow().UtcDateTime. Còn scheduledStart/End được build từ
+        // playDate.ToDateTime(preferredStart) có Kind=Unspecified, raw ticks đại diện giờ VN
+        // local. Trên server UTC, C# treat Unspecified như Local (=UTC), làm hệ thống fail
+        // kiểm tra cửa sổ check-in cho user VN. Convert sang UTC trước khi so sánh.
+        var scheduledStartUtc = Core.Constants.CafeSchedule.ToUtcAssumingVietnamLocal(scheduledStart);
+        var scheduledEndUtc = Core.Constants.CafeSchedule.ToUtcAssumingVietnamLocal(scheduledEnd);
+        var windowStart = scheduledStartUtc.AddMinutes(-EarlyGraceMinutes);
+        var windowEnd = scheduledEndUtc.AddMinutes(LateGraceMinutes);
+
+        // Hiển thị window theo giờ VN để error message thân thiện với user.
+        var windowStartLocal = Core.Constants.CafeSchedule.ToVietnamLocal(windowStart);
+        var windowEndLocal = Core.Constants.CafeSchedule.ToVietnamLocal(windowEnd);
+        var scheduledStartDisplay = Core.Constants.CafeSchedule.ToVietnamLocal(scheduledStartUtc);
 
         var bypassCheckInWindow = await TimeWindowGuard.ShouldBypassAsync(
             _httpContextAccessor?.HttpContext, _configProvider, _logger,
@@ -2348,14 +2379,15 @@ public class ReservationService : IReservationService
         {
             throw new ConflictException(
                 ApiErrorMessages.Reservation.CheckInTimeWindowInvalid(
-                    reservation.Id, scheduledStart, windowStart, windowEnd));
+                    reservation.Id, scheduledStartDisplay, windowStartLocal, windowEndLocal));
         }
 
         if (now > windowEnd)
         {
+            var scheduledEndDisplay = Core.Constants.CafeSchedule.ToVietnamLocal(scheduledEndUtc);
             throw new ConflictException(
                 ApiErrorMessages.Reservation.CheckInTimeWindowLate(
-                    reservation.Id, scheduledEnd, windowEnd));
+                    reservation.Id, scheduledEndDisplay, windowEndLocal));
         }
     }
 
@@ -2463,6 +2495,15 @@ public class ReservationService : IReservationService
 
     private static void ValidatePlayDate(DateOnly playDate, DateTime now)
     {
+        // FIX TZ-RESV-02 (2026-10-02): `today` phải theo giờ VN local, không phải UTC.
+        // Trước đây dùng `DateOnly.FromDateTime(now.Date)` trực tiếp từ `DateTime.UtcNow` —
+        // trên server UTC, nếu user tạo reservation lúc 00:30-07:00 giờ VN (= 17:30-24:00 UTC hôm trước),
+        // hệ thống tính `today` theo UTC nên lùi 1 ngày so với user. Ví dụ: user tạo ngày 02/10 16:00 UTC
+        // (= 02/10 23:00 VN) → today UTC = 02/10, today VN = 02/10 — OK. Nhưng user tạo 02/10 17:30 UTC
+        // (= 02/10 00:30 VN ngày 03) → today UTC = 02/10, today VN = 03/10 → user không thể tạo playDate
+        // cho "hôm nay VN" vì today VN > playDate. Ngược lại, nếu `now` được convert VN local trước khi
+        // gọi hàm này (xem callers), `today` luôn đúng.
+        // Caller PHẢI truyền `now` = VN local (Kind=Unspecified) từ GetNowLocal().
         var today = DateOnly.FromDateTime(now.Date);
         var maxDate = today.AddDays(MaxAdvanceBookingDays);
         if (playDate < today || playDate > maxDate)
@@ -2551,7 +2592,10 @@ public class ReservationService : IReservationService
             return ("Grace-15p-NoMember", 1.0m);
         }
 
-        var hoursUntilPlay = (scheduledTime - now).TotalHours;
+        // FIX TZ-RESV-05 (2026-10-02): scheduledTime là Unspecified VN local, now là UTC.
+        // Convert scheduledTime sang UTC trước khi tính hoursUntilPlay để tránh sai lệch 7 giờ.
+        var scheduledUtc = Core.Constants.CafeSchedule.ToUtcAssumingVietnamLocal(scheduledTime);
+        var hoursUntilPlay = (scheduledUtc - now).TotalHours;
 
         // BR-REFUND-02.
         if (hoursUntilPlay >= 24)
@@ -4052,7 +4096,7 @@ public class ReservationService : IReservationService
     /// </summary>
     /// <param name="scheduledStartTime">Thời gian bắt đầu dự kiến.</param>
     /// <param name="scheduledEndTime">Thời gian kết thúc dự kiến.</param>
-    /// <param name="now">Thời điểm hiện tại (UTC) để so sánh.</param>
+    /// <param name="now">Thời điểm hiện tại (UTC) để so sánh với <paramref name="scheduledStartTime"/>.</param>
     /// <param name="maxHours">Thời lượng tối đa cho phép (mặc định 12 giờ).</param>
     /// <param name="minMinutes">Thời lượng tối thiểu cho phép (mặc định 30 phút).</param>
     internal static void ValidateReservationTimeWindow(
@@ -4080,7 +4124,11 @@ public class ReservationService : IReservationService
         }
 
         // G11 fix: scheduledStartTime phải trong tương lai.
-        if (scheduledStartTime <= now)
+        // FIX TZ-RESV-04 (2026-10-02): scheduledStartTime là Unspecified VN local raw, còn `now`
+        // là UTC. Convert scheduledStartTime sang UTC trước khi so sánh để tránh sai lệch 7 giờ
+        // khi server ở timezone không phải VN (container Linux mặc định UTC).
+        var scheduledStartUtc = Core.Constants.CafeSchedule.ToUtcAssumingVietnamLocal(scheduledStartTime);
+        if (scheduledStartUtc <= now)
         {
             throw new BadRequestException(ApiErrorMessages.Reservation.StartTimeInPast);
         }
