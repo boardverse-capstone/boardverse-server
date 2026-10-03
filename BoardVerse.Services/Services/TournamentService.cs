@@ -255,6 +255,13 @@ public class TournamentService : ITournamentService
             tournament.NoShowKarmaPenalty = TournamentKarmaPolicy.ClampPenalty(request.NoShowKarmaPenalty.Value);
         }
 
+        // F: Apply EntryFee update. DTO field có sẵn nhưng method trước đó bỏ qua → PATCH xong
+        // giá trị EntryFee không đổi. Fix: gán khi client gửi field.
+        if (request.EntryFee.HasValue)
+        {
+            tournament.EntryFee = request.EntryFee.Value;
+        }
+
         // Prize: null = giữ nguyên, empty string = xoá, string mới = cập nhật.
         // Cho phép manager tự do sửa mô tả giải thưởng khi giải còn Draft.
         if (request.Prize != null)
