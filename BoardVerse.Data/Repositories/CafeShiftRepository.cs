@@ -27,20 +27,31 @@ public class CafeShiftRepository : ICafeShiftRepository
 
     public async Task<CafeShift?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
+        // Eager load OpenedByUser.Profile + ClosedByUser.Profile để service build tên hiển thị
+        // cho OpenedByUserName / ClosedByUserName mà không cần query phụ.
         return await _db.CafeShifts
+            .Include(s => s.OpenedByUser).ThenInclude(u => u.Profile)
+            .Include(s => s.ClosedByUser).ThenInclude(u => u.Profile)
             .FirstOrDefaultAsync(s => s.Id == id);
     }
 
     public async Task<CafeShift?> GetCurrentOpenShiftAsync(Guid cafeId, CancellationToken cancellationToken = default)
     {
+        // Eager load OpenedByUser.Profile để service trả tên người mở ca trong cùng 1 query
+        // (tránh N+1 khi render UI). ClosedByUser không cần — ca Open chưa có người đóng.
         return await _db.CafeShifts
+            .Include(s => s.OpenedByUser).ThenInclude(u => u.Profile)
             .Where(s => s.CafeId == cafeId && s.Status == ShiftStatus.Open)
             .FirstOrDefaultAsync();
     }
 
     public async Task<IReadOnlyList<CafeShift>> GetHistoryAsync(Guid cafeId, int page, int pageSize, CancellationToken cancellationToken = default)
     {
+        // Eager load cả 2 navigation để history list render tên người mở/đóng ca ngay trong
+        // 1 round-trip. Page nhỏ (default 10) nên chi phí Include không đáng kể.
         return await _db.CafeShifts
+            .Include(s => s.OpenedByUser).ThenInclude(u => u.Profile)
+            .Include(s => s.ClosedByUser).ThenInclude(u => u.Profile)
             .Where(s => s.CafeId == cafeId)
             .OrderByDescending(s => s.OpenedAt)
             .Skip((page - 1) * pageSize)

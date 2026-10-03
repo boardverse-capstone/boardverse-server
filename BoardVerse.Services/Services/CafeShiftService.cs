@@ -139,7 +139,9 @@ public class CafeShiftService : ICafeShiftService
         Id = shift.Id,
         CafeId = shift.CafeId,
         OpenedByUserId = shift.OpenedByUserId,
+        OpenedByUserName = ResolveUserDisplayName(shift.OpenedByUser),
         ClosedByUserId = shift.ClosedByUserId,
+        ClosedByUserName = ResolveUserDisplayName(shift.ClosedByUser),
         OpenedAt = shift.OpenedAt,
         ClosedAt = shift.ClosedAt,
         OpeningCashBalance = shift.OpeningCashBalance,
@@ -148,6 +150,34 @@ public class CafeShiftService : ICafeShiftService
         TotalSessions = shift.TotalSessions,
         Status = shift.Status
     };
+
+    /// <summary>
+    /// Resolve tên hiển thị cho user. Fallback chain theo convention codebase:
+    /// <c>Profile.LastResolvedDisplayName</c> → <c>FirstName + LastName</c> → <c>Username</c>.
+    /// Trả về <c>null</c> khi <paramref name="user"/> là <c>null</c> (user đã bị xóa
+    /// hoặc chưa load được navigation — vd trong test mock). Dùng cho <c>OpenedByUserName</c>
+    /// và <c>ClosedByUserName</c> trong <c>CafeShiftResponseDto</c>.
+    /// </summary>
+    private static string? ResolveUserDisplayName(User? user)
+    {
+        if (user == null) return null;
+
+        var profile = user.Profile;
+        if (!string.IsNullOrWhiteSpace(profile?.LastResolvedDisplayName))
+        {
+            return profile.LastResolvedDisplayName;
+        }
+
+        var firstName = profile?.FirstName?.Trim() ?? string.Empty;
+        var lastName = profile?.LastName?.Trim() ?? string.Empty;
+        var fullName = $"{firstName} {lastName}".Trim();
+        if (!string.IsNullOrWhiteSpace(fullName))
+        {
+            return fullName;
+        }
+
+        return user.Username;
+    }
 
     /// <summary>
     /// Cộng doanh thu + 1 phiên vào ca đang mở của quán. [BR-CAFE-SHIFT-01]
