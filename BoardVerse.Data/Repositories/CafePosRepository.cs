@@ -213,6 +213,15 @@ namespace BoardVerse.Data.Repositories
                 sessionQuery = sessionQuery.Where(s => s.GameTemplateId == gameTemplateId.Value);
             }
 
+            // GAP-EMPTY-SOURCE-01 (2026-10-03): Safety net — loại bỏ session rỗng (không còn
+            // active member nào) khỏi active list. Lý tưởng: AutoCloseEmptySourceSessionAsync trong
+            // ActiveSessionService sẽ close source ngay sau merge/split. NHƯNG nếu edge case
+            // (lỗi best-effort cleanup, race condition, hay lỗi data thủ công) để source
+            // Checking/Active với 0 members thì vẫn phải ẩn khỏi POS UI.
+            // "active member" = status != Finished (theo convention của MergeSessionAsync + SplitSessionAsync).
+            sessionQuery = sessionQuery.Where(s =>
+                s.Members.Any(m => m.Status != BoardVerse.Core.Enum.IndividualSessionStatus.Finished));
+
             // CRITICAL FIX (2026-10-03): Phải Select đầy đủ các field tài chính + trạng thái
             // mà ActiveSessionDto cần. Trước đây chỉ Select một subset (Id/CafeId/.../CreatedAt)
             // → mọi field tài chính (Subtotal/TotalAmount/Penalty/...) default về 0/null

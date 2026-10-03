@@ -152,6 +152,11 @@ namespace BoardVerse.Data.Repositories
                 query = query.Where(s => s.GameTemplateId == gameTemplateId.Value);
             }
 
+            // GAP-EMPTY-SOURCE-01 (2026-10-03): Mirror safety net từ CafePosRepository — loại bỏ
+            // session rỗng (không còn active member) khỏi active list. Best-effort defense.
+            query = query.Where(s =>
+                s.Members.Any(m => m.Status != BoardVerse.Core.Enum.IndividualSessionStatus.Finished));
+
             return await query.ToListAsync(cancellationToken);
         }
 

@@ -833,8 +833,40 @@ public class LobbyMergeService : ILobbyMergeService
                     "SELECT \"Id\", \"StartedAt\", \"EndedAt\" FROM \"ActiveSessions\" " +
                     "WHERE \"LobbyId\" = {0} AND \"Status\" = {1} FOR UPDATE",
                     targetLobby.Id, (int)GroupSessionStatus.Active)
-                .FirstOrDefaultAsync(cancellationToken)
-                ?? throw new NotFoundException(LobbyMergeErrors.TargetSessionNotFound);
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (targetSession == null)
+            {
+                // Diagnostic (2026-10-03): trước đây throw NotFound chung chung khiến staff
+                // không biết lý do thật. Phân biệt 2 case:
+                //   (a) Lobby có session nhưng Status != Active (đã Checking/Unpaid/Paid hoặc
+                //       còn Pending/Closing) → báo status thực tế để staff debug.
+                //   (b) Lobby chưa có session nào → thường do lobby = Viable (đủ người nhưng
+                //       chưa check-in tại quán) → ActiveSession chưa được tạo.
+                var sessionStatusInfo = await _db.Database
+                    .SqlQueryRaw<SessionStatusProjection>(
+                        "SELECT \"Id\" AS \"Id\", \"Status\"::int AS \"Status\" " +
+                        "FROM \"ActiveSessions\" WHERE \"LobbyId\" = {0} LIMIT 1",
+                        targetLobby.Id)
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (sessionStatusInfo != null)
+                {
+                    var actualStatusName = ((GroupSessionStatus)sessionStatusInfo.Status).ToString();
+                    _logger.LogWarning(
+                        "LobbyMerge.Approve: target lobby {TargetLobbyId} có ActiveSession {SessionId} " +
+                        "nhưng Status={ActualStatus}, không phải Active. Staff cần check POS trước.",
+                        targetLobby.Id, sessionStatusInfo.Id, actualStatusName);
+                    throw new ConflictException(
+                        LobbyMergeErrors.TargetSessionInWrongState(actualStatusName));
+                }
+
+                _logger.LogWarning(
+                    "LobbyMerge.Approve: target lobby {TargetLobbyId} (Status={LobbyStatus}) " +
+                    "chưa có ActiveSession. Thường do lobby Viable chưa check-in tại quán.",
+                    targetLobby.Id, targetLobby.Status);
+                throw new NotFoundException(LobbyMergeErrors.TargetSessionNotFound);
+            }
 
             // ===== Step 5: G8 — Seat availability check + Gap #5: Walk-in support =====
             // Kiểm tra AvailableSeats >= số member cần ghép trước khi thực hiện.
@@ -2208,6 +2240,12 @@ public class LobbyMergeService : ILobbyMergeService
     /// </para>
     /// </summary>
     private record TargetSessionProjection(Guid Id, DateTime StartedAt, DateTime? EndedAt);
+
+    /// <summary>
+    /// Projection nhẹ cho diagnostic query khi target session không tìm thấy.
+    /// Dùng để phân biệt 2 case: (a) có session nhưng Status khác Active, (b) chưa có session.
+    /// </summary>
+    private record SessionStatusProjection(Guid Id, int Status);
 
     /// <summary>
     /// Projection record cho CreateMergeRequestAsync — chỉ load 7 fields cần thiết cho

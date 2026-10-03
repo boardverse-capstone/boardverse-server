@@ -682,6 +682,21 @@ namespace BoardVerse.Services.Services
                 throw new NotFoundException(ApiErrorMessages.Pos.SessionNotFound(cafeId, request.TargetSessionId));
             }
 
+            // GAP-EMPTY-SOURCE-01: Nếu source session còn đúng 1 member trước merge
+            // (chính là member vừa chuyển sang target) → source giờ rỗng → auto-close
+            // + release table/box. Best-effort: lỗi KHÔNG fail response.
+            try
+            {
+                await AutoCloseEmptySourceSessionAsync(sourceSessionId, "AfterMerge", ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "AutoCloseEmptySourceSessionAsync failed for source {SourceSessionId} after merge. " +
+                    "Session may still appear in active list until next cleanup.",
+                    sourceSessionId);
+            }
+
             return new MergeSessionResponseDto
             {
                 MemberId = request.MemberId,
@@ -690,6 +705,82 @@ namespace BoardVerse.Services.Services
                 MergedAt = DateTime.UtcNow,
                 TargetSession = MapSessionDto(updatedSession)
             };
+        }
+
+        /// <summary>
+        /// GAP-EMPTY-SOURCE-01 (2026-10-03): Auto-close source ActiveSession khi đã rỗng
+        /// (không còn active member nào) sau khi merge/split. Trước đây source vẫn giữ
+        /// Status = Checking/Active với 0 members → <c>GetActiveSessionsAsync</c> trả về
+        /// session ma, POS UI hiển thị bàn cũ với 0 người chơi.
+        /// <para>
+        /// Side-effects khi close:
+        /// <list type="bullet">
+        ///   <item>Status = Closed (terminal — filter khỏi GetActiveSessionsAsync)</item>
+        ///   <item>EndedAt = UtcNow (nếu chưa set)</item>
+        ///   <item>IsCheckingInventory = false, HasMissingComponents = false (cleanup state)</item>
+        ///   <item>CafeTables.Status = Available, CafeInventoryBoxes.Status = Available (release resources)</item>
+        /// </list>
+        /// </para>
+        /// <para>
+        /// Chạy trong transaction riêng (sau khi transaction chính commit) để tránh conflict
+        /// với parent tx. Idempotent: gọi lại trên session đã Closed sẽ no-op.
+        /// </para>
+        /// </summary>
+        /// <param name="sourceSessionId">ID session nguồn cần check + close nếu rỗng.</param>
+        /// <param name="reason">Mô tả ngắn cho log audit (vd: "AfterMerge", "AfterSplit").</param>
+        /// <param name="ct">Cancellation token.</param>
+        /// <returns>True nếu session đã được close trong call này; false nếu vẫn còn member hoặc đã terminal.</returns>
+        private async Task<bool> AutoCloseEmptySourceSessionAsync(
+            Guid sourceSessionId,
+            string reason,
+            CancellationToken ct)
+        {
+            // Reload source session + members từ DB để có state mới nhất sau khi
+            // merge/split transaction đã commit. AsNoTracking vì ta chỉ check rồi
+            // gọi raw update qua repository helper.
+            var source = await _activeSessionRepository.GetByIdAsync(sourceSessionId, ct);
+            if (source == null)
+            {
+                return false;
+            }
+
+            // Idempotent: skip nếu session đã terminal.
+            if (source.Status == GroupSessionStatus.Closed
+                || source.Status == GroupSessionStatus.Paid
+                || source.Status == GroupSessionStatus.UnpaidForced)
+            {
+                return false;
+            }
+
+            // GAP-EMPTY-SOURCE-01: "active member" = Status != Finished (theo convention
+            // từ MergeSessionAsync + SplitSessionAsync đã có sẵn — Finished = đã checkout xong).
+            var hasActiveMember = (source.Members ?? new List<ActiveSessionMember>())
+                .Any(m => m.Status != IndividualSessionStatus.Finished);
+            if (hasActiveMember)
+            {
+                return false;
+            }
+
+            // Source rỗng + chưa terminal → close + release resources.
+            _logger.LogInformation(
+                "ActiveSession {SessionId} (Cafe={CafeId}, Table={TableId}, Box={BoxId}) " +
+                "is now empty after {Reason}. Auto-closing: Status {OldStatus} → Closed, releasing table/box.",
+                sourceSessionId, source.CafeId, source.CafeTableId, source.CafeInventoryBoxId,
+                reason, source.Status);
+
+            source.Status = GroupSessionStatus.Closed;
+            source.EndedAt ??= DateTime.UtcNow;
+            source.IsCheckingInventory = false;
+            source.HasMissingComponents = false;
+            source.UpdatedAt = DateTime.UtcNow;
+
+            // SaveChanges để flip Status. Release table/box qua helper idempotent
+            // (chỉ flip khi đang InUse → tránh ghi đè trạng thái khác).
+            await _activeSessionRepository.UpdateAsync(source);
+            await _activeSessionRepository.SaveChangesAsync(ct);
+            await _activeSessionRepository.ReleaseSessionTableAndBoxAsync(sourceSessionId, ct);
+
+            return true;
         }
 
         /// <summary>
@@ -968,6 +1059,21 @@ namespace BoardVerse.Services.Services
                 if (ownedTx != null)
                 {
                     await ownedTx.CommitAsync(ct);
+                }
+
+                // GAP-EMPTY-SOURCE-01: Nếu source session rỗng sau split (slow path: hard-deleted members
+                // từ source; fast path: members chuyển ActiveSessionId sang target) → auto-close + release.
+                // Best-effort: lỗi KHÔNG fail response.
+                try
+                {
+                    await AutoCloseEmptySourceSessionAsync(sourceSessionId, "AfterSplit", ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "AutoCloseEmptySourceSessionAsync failed for source {SourceSessionId} after split. " +
+                        "Session may still appear in active list until next cleanup.",
+                        sourceSessionId);
                 }
 
                 // Notify POS clients (best-effort, không block response)
