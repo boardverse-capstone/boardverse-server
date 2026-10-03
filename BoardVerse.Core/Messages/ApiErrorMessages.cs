@@ -2591,11 +2591,14 @@ public static class LobbyMerge
     // kiểm kê linh kiện + trả game về quán trước khi ghép (theo BR Exception 4).
     // Trước đây cả 2 case dùng chung MergeDifferentGames → staff không biết phải làm gì
     // tiếp theo, đặc biệt khi 2 lobby cùng tên game trong UI nhưng khác GameTemplateId.
-    public static string MergeSourceBoxNotCheckedYet(string sourceGameName, string targetGameName) =>
-        $"Bàn nguồn đang chơi '{sourceGameName}' nhưng chưa hoàn tất kiểm kê linh kiện (Component Check). " +
-        $"Game này khác với game '{targetGameName}' của bàn đích. " +
-        $"Vui lòng kiểm kê linh kiện và trả game về quán trước khi ghép nhóm, " +
-        $"hoặc chọn bàn nguồn đang chơi cùng game với bàn đích.";
+    public static string MergeSourceBoxNotCheckedYet(string sourceGameName, string targetGameName, bool isSameGame) =>
+        isSameGame
+            ? $"Bàn nguồn đang chơi '{sourceGameName}' nhưng chưa hoàn tất kiểm kê linh kiện (Component Check). " +
+              $"Vui lòng kiểm kê linh kiện và trả game về quán trước khi ghép nhóm."
+            : $"Bàn nguồn đang chơi '{sourceGameName}' nhưng chưa hoàn tất kiểm kê linh kiện (Component Check). " +
+              $"Game này khác với game '{targetGameName}' của bàn đích. " +
+              $"Vui lòng kiểm kê linh kiện và trả game về quán trước khi ghép nhóm, " +
+              $"hoặc chọn bàn nguồn đang chơi cùng game với bàn đích.";
 
     public const string ReservationAlreadyAbsorbed =
         "Nhóm nguồn đã được ghép vào nhóm khác trước đó. Không thể ghép lại.";

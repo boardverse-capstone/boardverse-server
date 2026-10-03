@@ -227,7 +227,10 @@ public class LobbyMergeService : ILobbyMergeService
                 sourceLobby.Id, sourceLobby.GameTemplateId, targetLobby.GameTemplateId);
 
             throw new BadRequestException(
-                LobbyMergeErrors.MergeSourceBoxNotCheckedYet(sourceGameName, targetGameName));
+                LobbyMergeErrors.MergeSourceBoxNotCheckedYet(
+                    sourceGameName,
+                    targetGameName,
+                    isSameGame: sourceLobby.GameTemplateId == targetLobby.GameTemplateId));
         }
 
         // Bước 5b-2 (Gap 4 fix 2026-09-29): Cross-game merge với box vẫn attach → chặn.
