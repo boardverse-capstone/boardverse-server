@@ -26,7 +26,9 @@ namespace BoardVerse.Services.IServices
             Guid targetUserId,
             AdminAdjustKarmaRequestDto request, CancellationToken cancellationToken = default);
 
-        Task<PaginatedResponse<CoolingOffUserDto>> GetCoolingOffUsersAsync(PaginationParams pagination);
+        Task<PaginatedResponse<CoolingOffUserDto>> GetCoolingOffUsersAsync(
+            PaginationParams pagination,
+            CancellationToken cancellationToken = default);
 
         Task<ReleaseCoolingOffResponseDto> ReleaseCoolingOffAsync(Guid adminUserId, Guid targetUserId, string reason);
 
