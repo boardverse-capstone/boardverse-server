@@ -679,11 +679,15 @@ public class SplitBillService : ISplitBillService
         // Format: BV-MEMBER-{fullGuid}
         var orderId = $"BV-MEMBER-{member.Id:N}";
 
+        // FIX (2026-10-03): Nhúng OrderId vào Description để SePay BankAPINotify webhook
+        // có thể extract qua regex BV-MEMBER-{32-char}. Nếu không nhúng, content webhook
+        // chỉ là "Thanh toan cho {name}" → OrderId empty → webhook handler không match
+        // ActiveSessionMember → POS không cập nhật trạng thái.
         var gatewayRequest = new PaymentGatewayRequest
         {
             OrderId = orderId,
             Amount = member.TotalAmount,
-            Description = $"Thanh toan cho {member.GuestDisplayName ?? member.User?.Username ?? "Khach"}",
+            Description = $"{orderId} Thanh toan cho {member.GuestDisplayName ?? member.User?.Username ?? "Khach"}",
             BankCode = cafe.SePayBankCode ?? throw new InvalidOperationException(
                 $"Cafe '{cafe.Name}' chưa cấu hình SePay bank code."),
             AccountNumber = cafe.SePayAccountNumber ?? throw new InvalidOperationException(

@@ -604,7 +604,7 @@ public class BoardGameServiceTests
             .Verifiable();
 
         var service = BuildService(gameRepo, cafeRepo: cafeRepo);
-        await service.GetActiveCafesByBoardGameAsync(GameId, query);
+        await service.GetActiveCafesByBoardGameAsync(GameId, userId: null, query);
 
         cafeRepo.Verify();
     }

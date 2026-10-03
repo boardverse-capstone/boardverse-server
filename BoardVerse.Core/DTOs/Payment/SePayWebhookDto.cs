@@ -135,21 +135,31 @@ public class SePayWebhookDto
         // Tìm pattern theo thứ tự ưu tiên:
         //   1. BVC-[A-Z0-9]+     — top-up OrderId còn dấu '-'
         //   2. BVC[A-Z0-9]{16,18} — top-up OrderId bị SePay strip '-' (BankAPINotify)
-        //   3. BV-?[A-Z0-9]{8,16} — deposit/session OrderId (legacy + BUGFIX mới)
-        // Bắt BU�C dùng Matches() rồi chọn match dài nhất để tránh greedy-short
-        // khớp nhầm vào BVC{18hex} rồi cắt còn 16.
+        //   3. BV-MEMBER-[0-9a-fA-F]{32} — BR-22 per-member session payment (BV-MEMBER-{32-char-guid})
+        //   4. BV-?[A-Z0-9]{8,24} — deposit/session OrderId (legacy)
         //
-        // BUGFIX (2026-08-15): format OrderId mới cho session/deposit payment
-        // là "BV-XXXXXXXXXXXXXXXX" (BV + 16 hex, có dấu '-' phân tách). Regex cũ
-        // `BV[A-Z0-9]{8,16}` không match dấu '-' → parse fail → webhook "not matched".
-        // Thêm `-?` để chấp nhận cả 2 dạng (có/không dấu '-'), đồng thời fallback
-        // trả về nguyên match (giữ cả dấu '-') để lookup khớp ActiveSession.OrderId.
+        // FIX (2026-10-03): BV-MEMBER-{guid} format có chữ "MEMBER" giữa BV và -,
+        // nên regex cũ BV-?[A-Z0-9]{8,24} không bao giờ match. Thêm pattern riêng
+        // cho BV-MEMBER-{32-char-guid} để webhook BankAPINotify trích xuất đúng OrderId,
+        // cập nhật ActiveSessionMember status trên POS.
         var match = System.Text.RegularExpressions.Regex.Match(
             content,
             @"BVC-?[A-Z0-9]{6,18}",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         if (!match.Success)
         {
+            // FIX (2026-10-03): Thêm BV-MEMBER-{32-hex} trước fallback BV-?[A-Z0-9].
+            // Đặt TRƯỚC fallback để tránh regex BV-?[A-Z0-9] khớp nhầm transaction ID
+            // (số 149858317722 có 12 chữ số > 8).
+            var memberMatch = System.Text.RegularExpressions.Regex.Match(
+                content,
+                @"BV-MEMBER-[0-9a-fA-F]{32}",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (memberMatch.Success)
+            {
+                return memberMatch.Value.ToUpperInvariant();
+            }
+
             // Fallback cho legacy + mới deposit/session OrderId. Match cả BV- và BV.
             var fallback = System.Text.RegularExpressions.Regex.Match(
                 content,
