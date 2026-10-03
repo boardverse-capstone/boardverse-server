@@ -53,17 +53,18 @@ Mở ca làm việc mới cho quán.
   "data": {
     "id": "guid",
     "cafeId": "guid",
-    "cafeName": "BoardGame Cafe A",
     "openedByUserId": "guid",
-    "openedByUsername": "manager1",
+    "openedByUserName": "Nguyễn Văn A",
     "openedAt": "2026-08-07T08:00:00Z",
-    "closingCashBalance": null,
+    "closingCashBalance": 0,
     "totalRevenue": 0,
     "totalSessions": 0,
     "status": "Open"
   }
 }
 ```
+
+> `openedByUserName` resolve theo fallback chain: `Profile.LastResolvedDisplayName` → `FirstName + LastName` → `Username`. Null nếu user đã bị xóa.
 
 ### Error Codes
 
@@ -109,11 +110,10 @@ Mở ca làm việc mới cho quán.
   "data": {
     "id": "guid",
     "cafeId": "guid",
-    "cafeName": "BoardGame Cafe A",
     "openedByUserId": "guid",
-    "openedByUsername": "manager1",
+    "openedByUserName": "Nguyễn Văn A",
     "closedByUserId": "guid",
-    "closedByUsername": "staff1",
+    "closedByUserName": "Trần Thị B",
     "openedAt": "2026-08-07T08:00:00Z",
     "closedAt": "2026-08-07T23:00:00Z",
     "openingCashBalance": 500000,
@@ -223,9 +223,8 @@ Lấy ca đang mở của quán.
   "data": {
     "id": "guid",
     "cafeId": "guid",
-    "cafeName": "BoardGame Cafe A",
     "openedByUserId": "guid",
-    "openedByUsername": "manager1",
+    "openedByUserName": "Nguyễn Văn A",
     "openedAt": "2026-08-07T08:00:00Z",
     "closingCashBalance": null,
     "totalRevenue": 125000,
@@ -234,6 +233,8 @@ Lấy ca đang mở của quán.
   }
 }
 ```
+
+> `openedByUserName` resolve theo fallback chain: `Profile.LastResolvedDisplayName` → `FirstName + LastName` → `Username`. Null nếu user đã bị xóa.
 
 Nếu không có ca nào đang mở:
 
@@ -280,9 +281,9 @@ Lấy lịch sử các ca làm việc của quán (phân trang).
         "id": "guid",
         "cafeId": "guid",
         "openedByUserId": "guid",
-        "openedByUsername": "manager1",
+        "openedByUserName": "Nguyễn Văn A",
         "closedByUserId": "guid",
-        "closedByUsername": "staff1",
+        "closedByUserName": "Trần Thị B",
         "openedAt": "2026-08-06T08:00:00Z",
         "closedAt": "2026-08-06T23:00:00Z",
         "openingCashBalance": 400000,
@@ -295,7 +296,7 @@ Lấy lịch sử các ca làm việc của quán (phân trang).
         "id": "guid",
         "cafeId": "guid",
         "openedByUserId": "guid",
-        "openedByUsername": "manager1",
+        "openedByUserName": "Nguyễn Văn A",
         "openedAt": "2026-08-07T08:00:00Z",
         "closingCashBalance": null,
         "totalRevenue": 125000,
