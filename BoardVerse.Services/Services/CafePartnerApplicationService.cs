@@ -394,6 +394,17 @@ namespace BoardVerse.Services.Services
                 await _cafeRepository.SyncCafeTablesAsync(cafe.Id, seedItems, cancellationToken);
             }
 
+            // FIX (2026-10-03): Đồng bộ denormalized fields trên Cafe entity sau khi seed bàn.
+            // Trước đây, Cafe.NumberOfTables / TotalSeats = 0 sau activation dù CafeTables đã có data.
+            // → Các endpoint đọc trực tiếp entity field (GetAdminCafeDetailAsync, nearby, admin list,
+            //   MapToManagerDtoAsync...) đều trả về 0 sai.
+            // Lưu tổng số bàn active + tổng ghế từ bàn active để các field luôn khớp với DB.
+            // CafeTables navigation có thể null (EF không auto-refresh sau SyncCafeTablesAsync),
+            // nên re-query qua repository để chắc chắn.
+            var persistedTables = await _cafeRepository.GetActiveCafeTablesForCafeAsync(cafe.Id, cancellationToken);
+            cafe.NumberOfTables = persistedTables.Count;
+            cafe.TotalSeats = persistedTables.Sum(t => t.SeatCount);
+
             var utcNow = DateTime.UtcNow;
             cafe.IsActive = true;
             cafe.PartnerOperationalStatus = CafePartnerOperationalStatus.Active;

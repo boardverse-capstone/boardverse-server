@@ -242,6 +242,20 @@ namespace BoardVerse.Services.Services
                 throw new BadRequestException(
                     ApiErrorMessages.Pos.DuplicateSortOrderInPayload(duplicates));
             }
+
+            // FIX (2026-10-03): Đồng bộ denormalized fields trên Cafe entity (NumberOfTables, TotalSeats)
+            // sau khi POS sync table layout. Nếu không, các endpoint đọc trực tiếp entity field
+            // (admin GET /cafes/{id}, MapToManagerDtoAsync...) sẽ trả về giá trị cũ sai lệch.
+            // Lưu ý: cần load cafe để EF tracking update (không thể gán field trên tracked-null).
+            var cafe = await _cafeRepository.GetByIdAsync(cafeId, cancellationToken);
+            if (cafe != null)
+            {
+                var persistedTables = await _cafeRepository.GetActiveCafeTablesForCafeAsync(cafeId, cancellationToken);
+                cafe.NumberOfTables = persistedTables.Count;
+                cafe.TotalSeats = persistedTables.Sum(t => t.SeatCount);
+                cafe.UpdatedAt = DateTime.UtcNow;
+                await _cafeRepository.SaveChangesAsync(cancellationToken);
+            }
         }
 
         /// <summary>

@@ -208,13 +208,18 @@ public class CafeShiftService : ICafeShiftService
     ///      với SUM(ActiveSession.TotalAmount) → nếu khác → auto-reconcile bằng method này.
     ///   3. Idempotency: gọi nhiều lần vẫn cho cùng kết quả (SUM là deterministic).
     /// </summary>
-    public async Task<CafeShiftResponseDto> RecalculateShiftTotalsAsync(Guid shiftId, CancellationToken cancellationToken = default)
+    public async Task<CafeShiftResponseDto> RecalculateShiftTotalsAsync(Guid shiftId, Guid callerUserId, bool isAdmin, CancellationToken cancellationToken = default)
     {
         var shift = await _shiftRepository.GetByIdAsync(shiftId, cancellationToken);
         if (shift == null)
         {
             throw new NotFoundException(ApiErrorMessages.CafeShift.ShiftNotFound(shiftId));
         }
+
+        // P0-Fix-#6 (Recalculate): validate ownership — Manager/CafeStaff chỉ recalc shift của cafe mình.
+        // Admin bypass. Tương tự EnsureCallerCanReadCafeShiftsAsync (private) nhưng áp dụng được vì
+        // ta đã load được shift → biết cafeId. Load cafe theo cafeId (cần cho check ManagerId).
+        await EnsureCallerCanMutateCafeShiftsAsync(shift.CafeId, callerUserId, isAdmin, cancellationToken);
 
         // Window: [OpenedAt, ClosedAt ?? UtcNow]. Inclusive ở cả 2 đầu.
         // Lý do inclusive: PaidAt == OpenedAt thì vẫn tính (edge case session vừa mở ca đã paid ngay).
@@ -236,9 +241,39 @@ public class CafeShiftService : ICafeShiftService
         await _shiftRepository.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation(
-            "RecalculateShiftTotals: shift {ShiftId} totals recomputed from {PrevRevenue} → {NewRevenue} (count {PrevCount} → {NewCount}) for cafe {CafeId} window [{WindowStart}, {WindowEnd}]",
-            shift.Id, prevRevenue, shift.TotalRevenue, prevSessions, shift.TotalSessions, shift.CafeId, windowStart, windowEnd);
+            "RecalculateShiftTotals: shift {ShiftId} totals recomputed from {PrevRevenue} → {NewRevenue} (count {PrevCount} → {NewCount}) for cafe {CafeId} window [{WindowStart}, {WindowEnd}] (caller {CallerId}, admin {IsAdmin})",
+            shift.Id, prevRevenue, shift.TotalRevenue, prevSessions, shift.TotalSessions, shift.CafeId, windowStart, windowEnd, callerUserId, isAdmin);
 
         return MapToDto(shift);
+    }
+
+    /// <summary>
+    /// P0-Fix-#6 (Recalculate): validate caller có quyền mutate shift (recalculate) của cafe hay không.
+    /// Admin bypass. Manager: cafe.ManagerId == callerUserId. CafeStaff: có dòng trong CafeStaff.
+    /// Tách riêng với <c>EnsureCallerCanReadCafeShiftsAsync</c> để trong tương lai có thể nới 'read' ra rộng hơn
+    /// 'recalculate' (vd: Admin/Support có thể đọc nhưng không được recalc).
+    /// </summary>
+    private async Task EnsureCallerCanMutateCafeShiftsAsync(Guid cafeId, Guid callerUserId, bool isAdmin, CancellationToken cancellationToken)
+    {
+        if (isAdmin) return;
+
+        var cafe = await _cafeRepository.GetByIdAsync(cafeId, cancellationToken);
+        if (cafe == null)
+        {
+            throw new NotFoundException(ApiErrorMessages.Cafe.NotFound(cafeId));
+        }
+
+        if (cafe.ManagerId == callerUserId)
+        {
+            return;
+        }
+
+        var isStaff = await _cafeRepository.IsStaffMemberExistsAsync(cafeId, callerUserId);
+        if (isStaff)
+        {
+            return;
+        }
+
+        throw new ForbiddenException(ApiErrorMessages.Cafe.ManagerForbidden(cafeId));
     }
 }

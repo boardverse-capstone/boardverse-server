@@ -35,8 +35,11 @@ public interface ICafeShiftService
     /// ClosingCashBalance, ClosedAt, ClosedByUserId.
     /// </summary>
     /// <param name="shiftId">Mã ca cần recalculate.</param>
+    /// <param name="callerUserId">User gọi endpoint — service validate ownership (Manager phải thuộc cafe; Admin bypass).</param>
+    /// <param name="isAdmin">Caller có role Admin hay không (bypass ownership check).</param>
     /// <param name="cancellationToken">Token huỷ.</param>
     /// <returns>DTO của ca sau khi đã update totals.</returns>
     /// <exception cref="NotFoundException">Khi không tìm thấy ca.</exception>
-    Task<CafeShiftResponseDto> RecalculateShiftTotalsAsync(Guid shiftId, CancellationToken cancellationToken = default);
+    /// <exception cref="ForbiddenException">Khi caller không phải Admin/Manager/CafeStaff của cafe.</exception>
+    Task<CafeShiftResponseDto> RecalculateShiftTotalsAsync(Guid shiftId, Guid callerUserId, bool isAdmin, CancellationToken cancellationToken = default);
 }

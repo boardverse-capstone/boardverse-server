@@ -1007,6 +1007,23 @@ namespace BoardVerse.Data.Repositories
             await _context.SaveChangesAsync(cancellationToken);
         }
 
+        /// <summary>
+        /// FIX (2026-10-03): Re-query active tables sau SyncCafeTablesAsync để đồng bộ
+        /// denormalized fields (Cafe.NumberOfTables / Cafe.TotalSeats) trên entity.
+        /// Dùng AsNoTracking để không pollute ChangeTracker với các entity đã được
+        /// SyncCafeTablesAsync add/update.
+        /// </summary>
+        public async Task<IReadOnlyList<CafeTable>> GetActiveCafeTablesForCafeAsync(
+            Guid cafeId,
+            CancellationToken cancellationToken = default)
+        {
+            return await _context.CafeTables
+                .AsNoTracking()
+                .Where(t => t.CafeId == cafeId && t.IsActive)
+                .OrderBy(t => t.SortOrder)
+                .ToListAsync(cancellationToken);
+        }
+
         public async Task SaveChangesAsync(CancellationToken cancellationToken = default)
         {
             await _context.SaveChangesAsync(cancellationToken);
@@ -1099,11 +1116,15 @@ namespace BoardVerse.Data.Repositories
             // Tạm thời trả về total seats - held - inUse (không phân biệt slot).
             // TODO Phase 2: Cập nhật trả về Dictionary<TimeOnly, int> dựa trên ScheduledStartTime ranges.
             var result = new Dictionary<TimeSlot, int>();
-            var totalSeats = await _context.Cafes
+
+            // FIX (2026-10-03): Đọc tổng ghế từ SUM(CafeTables.SeatCount) thay vì Cafe.TotalSeats.
+            // Lý do: Cafe.TotalSeats là denormalized cache, đôi khi chưa được sync kịp khi
+            //   POS thêm bàn qua endpoint không trigger update (hoặc migration chưa backfill).
+            //   Query trực tiếp CafeTables luôn khớp với dữ liệu thật → fallback trả đúng tổng ghế.
+            var totalSeats = await _context.CafeTables
                 .AsNoTracking()
-                .Where(c => c.Id == cafeId)
-                .Select(c => c.TotalSeats)
-                .FirstOrDefaultAsync(cancellationToken);
+                .Where(t => t.CafeId == cafeId && t.IsActive)
+                .SumAsync(t => (int?)t.SeatCount, cancellationToken) ?? 0;
 
             foreach (TimeSlot slot in Enum.GetValues<TimeSlot>())
             {

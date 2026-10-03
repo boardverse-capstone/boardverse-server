@@ -2556,7 +2556,14 @@ public static class LobbyMerge
         "Phòng nhận (Nhóm B) phải đang ở trạng thái đang chơi (InProgress) hoặc đã đủ người (Viable) để ghép thành viên.";
 
     public const string TargetSessionNotFound =
-        "Không tìm thấy phiên chơi của phòng nhận. Vui lòng báo đội kỹ thuật.";
+        "Không tìm thấy phiên chơi đang chạy (Active) của phòng nhận. " +
+        "Phòng nhận cần ở trạng thái lobby = InProgress và đã có ActiveSession với Status = Active. " +
+        "Vui lòng kiểm tra: (1) phòng nhận đã check-in tại quán và đang chơi chưa, " +
+        "(2) phiên chơi có còn đang chạy hay đã đóng (Checking/Unpaid/Paid) hay chưa bắt đầu.";
+
+    public static string TargetSessionInWrongState(string actualStatus) =>
+        $"Phòng nhận có phiên chơi nhưng đang ở trạng thái '{actualStatus}', không phải Active. " +
+        "Chỉ ghép được khi phiên chơi đang chạy (Active). Vui lòng kiểm tra trạng thái phiên trên POS trước khi duyệt.";
 
     public const string MergeCannotCrossCafes =
         "Không thể ghép thành viên sang phòng của quán khác. Hai nhóm phải cùng một quán.";
@@ -2591,11 +2598,14 @@ public static class LobbyMerge
     // kiểm kê linh kiện + trả game về quán trước khi ghép (theo BR Exception 4).
     // Trước đây cả 2 case dùng chung MergeDifferentGames → staff không biết phải làm gì
     // tiếp theo, đặc biệt khi 2 lobby cùng tên game trong UI nhưng khác GameTemplateId.
-    public static string MergeSourceBoxNotCheckedYet(string sourceGameName, string targetGameName) =>
-        $"Bàn nguồn đang chơi '{sourceGameName}' nhưng chưa hoàn tất kiểm kê linh kiện (Component Check). " +
-        $"Game này khác với game '{targetGameName}' của bàn đích. " +
-        $"Vui lòng kiểm kê linh kiện và trả game về quán trước khi ghép nhóm, " +
-        $"hoặc chọn bàn nguồn đang chơi cùng game với bàn đích.";
+    public static string MergeSourceBoxNotCheckedYet(string sourceGameName, string targetGameName, bool isSameGame) =>
+        isSameGame
+            ? $"Bàn nguồn đang chơi '{sourceGameName}' nhưng chưa hoàn tất kiểm kê linh kiện (Component Check). " +
+              $"Vui lòng kiểm kê linh kiện và trả game về quán trước khi ghép nhóm."
+            : $"Bàn nguồn đang chơi '{sourceGameName}' nhưng chưa hoàn tất kiểm kê linh kiện (Component Check). " +
+              $"Game này khác với game '{targetGameName}' của bàn đích. " +
+              $"Vui lòng kiểm kê linh kiện và trả game về quán trước khi ghép nhóm, " +
+              $"hoặc chọn bàn nguồn đang chơi cùng game với bàn đích.";
 
     public const string ReservationAlreadyAbsorbed =
         "Nhóm nguồn đã được ghép vào nhóm khác trước đó. Không thể ghép lại.";

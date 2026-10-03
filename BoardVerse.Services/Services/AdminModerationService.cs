@@ -9,6 +9,7 @@ using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
 using BoardVerse.Data;
 using BoardVerse.Services.IServices;
+using Microsoft.Extensions.Logging;
 using System.Text.Json;
 
 namespace BoardVerse.Services.Services
@@ -16,12 +17,20 @@ namespace BoardVerse.Services.Services
     public class AdminModerationService : IAdminModerationService
     {
         private readonly IAdminModerationRepository _repository;
+        private readonly ICoolingOffService _coolingOffService;
         private readonly BoardVerseDbContext _db;
+        private readonly ILogger<AdminModerationService> _logger;
 
-        public AdminModerationService(IAdminModerationRepository repository, BoardVerseDbContext db)
+        public AdminModerationService(
+            IAdminModerationRepository repository,
+            ICoolingOffService coolingOffService,
+            BoardVerseDbContext db,
+            ILogger<AdminModerationService> logger)
         {
             _repository = repository;
+            _coolingOffService = coolingOffService;
             _db = db;
+            _logger = logger;
         }
 
         public Task<PaginatedResponse<KarmaLogDto>> GetKarmaLogsAsync(
@@ -244,9 +253,45 @@ namespace BoardVerse.Services.Services
             };
         }
 
-        public async Task<PaginatedResponse<CoolingOffUserDto>> GetCoolingOffUsersAsync(PaginationParams pagination)
+        public async Task<PaginatedResponse<CoolingOffUserDto>> GetCoolingOffUsersAsync(
+            PaginationParams pagination,
+            CancellationToken cancellationToken = default)
         {
-            return await _repository.GetCoolingOffUsersAsync(pagination);
+            var page = await _repository.GetCoolingOffUsersAsync(pagination, cancellationToken);
+
+            // BR-NEW-10 §XI.1: mỗi user trong cooling-off phải kèm signals dùng cho admin review.
+            // Repo chỉ map wallet → DTO (basic fields). Service enrich bằng cách gọi
+            // ICoolingOffService.DetectSignalsAsync song song để tránh block UI khi page lớn.
+            if (page.Data.Any())
+            {
+                var now = DateTime.UtcNow;
+                var enrichmentTasks = page.Data.Select(async dto =>
+                {
+                    try
+                    {
+                        var (timeoutCount, cancelCount, forfeitAmount) =
+                            await _coolingOffService.DetectSignalsAsync(dto.UserId, now, cancellationToken);
+                        dto.FailedLobbiesInWeek = timeoutCount;
+                        dto.CancelledLobbiesInWeek = cancelCount;
+                        dto.TotalForfeitedBvc = forfeitAmount;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        // Nếu 1 user fail, vẫn trả các user khác — log warning + giữ 0.
+                        _logger.LogWarning(ex,
+                            "[BR-NEW-10] Failed to enrich cooling-off signals for userId={UserId}",
+                            dto.UserId);
+                    }
+                });
+
+                await Task.WhenAll(enrichmentTasks);
+            }
+
+            return page;
         }
 
         public async Task<ReleaseCoolingOffResponseDto> ReleaseCoolingOffAsync(Guid adminUserId, Guid targetUserId, string reason)

@@ -66,6 +66,7 @@
             public const string ShiftOpened = "Mở ca làm việc thành công.";
             public const string ShiftClosed = "Đóng ca làm việc thành công.";
             public const string ShiftHistoryRetrieved = "Lấy lịch sử ca làm việc thành công.";
+            public const string ShiftRecalculated = "Tính lại doanh thu ca làm việc thành công. Vui lòng kiểm tra tổng mới trên dashboard.";
         }
 
         public static class Payment

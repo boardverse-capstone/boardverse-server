@@ -130,7 +130,7 @@ namespace BoardVerse.Data.Repositories
                 .Where(w => w.IsCoolingOff && w.CoolingOffExpiresAt > DateTime.UtcNow)
                 .AsQueryable();
 
-            var total = await query.CountAsync();
+            var total = await query.CountAsync(cancellationToken);
             var items = await query
                 .OrderBy(w => w.CoolingOffExpiresAt)
                 .Skip((pagination.PageNumber - 1) * pagination.PageSize)
@@ -145,12 +145,12 @@ namespace BoardVerse.Data.Repositories
                     CoolingOffDaysRemaining = w.CoolingOffExpiresAt.HasValue
                         ? (int)Math.Max(0, (w.CoolingOffExpiresAt.Value - DateTime.UtcNow).TotalDays)
                         : 0,
-                    FailedLobbiesInWeek = 0,
-                    CancelledLobbiesInWeek = 0,
-                    TotalForfeitedBvc = 0,
+                    // FailedLobbiesInWeek / CancelledLobbiesInWeek / TotalForfeitedBvc
+                    // được populate bởi AdminModerationService thông qua ICoolingOffService.DetectSignalsAsync
+                    // (BR-NEW-10 §XI.1 — signals phải được tính động cho mỗi user).
                     CoolingOffStartedAt = w.UpdatedAt
                 })
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             return new PaginatedResponse<CoolingOffUserDto>
             {

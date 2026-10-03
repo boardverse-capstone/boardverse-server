@@ -130,6 +130,16 @@ namespace BoardVerse.Core.IRepositories
         /// SeatCount nâng cấp null → giữ nguyên DB; SortOrder null → auto-append sau max.
         /// </summary>
         Task SyncCafeTablesAsync(Guid cafeId, IReadOnlyList<CafeTableSyncItem> tables, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Lấy danh sách bàn ACTIVE (IsActive=true) của cafe — dùng cho flow đồng bộ
+        /// denormalized fields (NumberOfTables, TotalSeats) trên Cafe entity sau khi seed/sync tables.
+        /// Trả về projection AsNoTracking để tránh track duplicate nếu caller đang giữ Cafe tracked.
+        /// </summary>
+        Task<IReadOnlyList<CafeTable>> GetActiveCafeTablesForCafeAsync(
+            Guid cafeId,
+            CancellationToken cancellationToken = default);
+
         Task SaveChangesAsync(CancellationToken cancellationToken = default);
 
         // === Admin: Full CRUD ===
