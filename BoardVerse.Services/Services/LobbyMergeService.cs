@@ -172,59 +172,92 @@ public class LobbyMergeService : ILobbyMergeService
         if (sourceLobby.CafeId != targetLobby.CafeId)
             throw new BadRequestException(LobbyMergeErrors.MergeCannotCrossCafes);
 
-        // 5b. BR Exception 4 (boardverse-business-context.mdc) — cross-game merge:
-        // A3 rời Nhóm A (game đã trả về quán qua ComponentCheck) → đứng độc lập → merge Nhóm B (game khác).
-        // Logic giống Gap 4 fix trong ActiveSessionService.MergeSessionAsync:
-        // chỉ chặn khi Nguồn còn box InUse (game đang chơi trên bàn) khác game với Đích.
-        // Nếu Nguồn không còn box InUse (game đã trả / lobby chưa attach box) → cho phép cross-game.
+        // 5b. BR-12 (Kiểm kê linh kiện BẮT BUỘC trước partial checkout):
+        // Lobby merge = partial checkout (member rời source lobby). Theo BR-12, hệ thống
+        // PHẢI chặn merge cho đến khi nhân viên hoàn tất kiểm kê linh kiện game đang mượn.
         //
-        // Gap-fix 2026-10-01: Phân biệt 2 trường hợp block cross-game merge:
-        //   (a) Source còn box InUse + CheckStatus = NotChecked → throw "MergeSourceBoxNotCheckedYet"
-        //       hướng dẫn staff kiểm kê linh kiện trước khi ghép (theo BR-12).
-        //   (b) Source còn box InUse + CheckStatus = Verified/MissingComponents nhưng game khác
-        //       → throw "MergeDifferentGames" (lobby vẫn đang attach box khác game với target).
-        // Trước đây cả 2 case dùng chung MergeDifferentGames → staff không biết phải làm gì
-        // tiếp theo (đặc biệt khi 2 lobby cùng tên game trong UI nhưng khác GameTemplateId
-        // do duplicate seed data).
+        // Bug fix (2026-10-03): Trước đây logic chỉ chạy khi `sourceLobby.GameTemplateId !=
+        // targetLobby.GameTemplateId` (cross-game), nên khi 2 lobby cùng game + source còn
+        // InUse box chưa kiểm kê → check bị SKIP → request được tạo 201 (vi phạm BR-12).
+        // Repro: POST /merge-requests với source & target cùng game → 201 Created.
+        //
+        // Fix: tách thành 2 bước độc lập, không phụ thuộc GameTemplateId:
+        //   Bước 5b-1 (BR-12 — BẮT BUỘC): nếu source còn InUse box + CheckStatus = NotChecked
+        //     → throw `MergeSourceBoxNotCheckedYet` cho cả same-game và cross-game.
+        //   Bước 5b-2 (Gap 4 fix 2026-09-29): nếu games khác nhau + source còn InUse box
+        //     (CheckStatus != NotChecked) → throw `MergeDifferentGames` (box vẫn attach
+        //     vào source, không thể merge sang target game khác).
+        //
+        // Nếu source không còn InUse box (game đã trả về quán qua ComponentCheck, hoặc
+        // lobby chưa attach box nào) → cho phép merge cả same-game lẫn cross-game.
+        //
+        // Lưu ý: `ActiveSessionGames` filter theo `CafeInventoryBox.Status == InUse` → chỉ
+        // tính box đang thực sự gắn vào phiên chơi. Box `Available` (đã trả về quán) hoặc
+        // `Maintenance` không nằm trong InUse set → merge được phép.
+        var sourceInUseBoxInfo = await _db.ActiveSessionGames
+            .AsNoTracking()
+            .Where(g =>
+                g.ActiveSession!.LobbyId == sourceLobby.Id &&
+                g.CafeInventoryBox!.Status == CafeGameInventoryStatus.InUse)
+            .Select(g => new { g.CheckStatus, g.GameTemplateId })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (sourceInUseBoxInfo != null
+            && sourceInUseBoxInfo.CheckStatus == ComponentCheckStatus.NotChecked)
+        {
+            // Bước 5b-1 (BR-12): Source còn box đang chơi trên bàn nhưng chưa kiểm kê.
+            // Áp dụng cho MỌI trường hợp (same-game + cross-game). Staff phải EndGame +
+            // ComponentCheck trước khi tạo merge request để tránh "bùng" mất linh kiện
+            // khi transfer member sang lobby khác mà chưa đếm đủ linh kiện.
+            var sourceGameName = await _db.GameTemplates
+                .AsNoTracking()
+                .Where(g => g.Id == sourceLobby.GameTemplateId)
+                .Select(g => g.Name)
+                .FirstOrDefaultAsync(cancellationToken) ?? sourceLobby.GameTemplateId.ToString();
+
+            var targetGameName = await _db.GameTemplates
+                .AsNoTracking()
+                .Where(g => g.Id == targetLobby.GameTemplateId)
+                .Select(g => g.Name)
+                .FirstOrDefaultAsync(cancellationToken) ?? targetLobby.GameTemplateId.ToString();
+
+            _logger.LogWarning(
+                "LobbyMerge.CreateRequest: source lobby {SourceLobbyId} có InUse box chưa " +
+                "kiểm kê. Game source={SourceGame}, target={TargetGame}. Từ chối merge theo BR-12.",
+                sourceLobby.Id, sourceLobby.GameTemplateId, targetLobby.GameTemplateId);
+
+            throw new BadRequestException(
+                LobbyMergeErrors.MergeSourceBoxNotCheckedYet(sourceGameName, targetGameName));
+        }
+
+        // Bước 5b-2 (Gap 4 fix 2026-09-29): Cross-game merge với box vẫn attach → chặn.
+        // Chỉ trigger khi source còn box InUse (đã kiểm kê nhưng chưa trả về quán) VÀ game khác.
+        // Nếu source đã trả box (CheckStatus != NotChecked nhưng box không còn trong ActiveSessionGames
+        // vì Status đã đổi sang Available khi CompleteCheckout) → sourceInUseBoxInfo == null → skip.
+        if (sourceInUseBoxInfo != null
+            && sourceLobby.GameTemplateId != targetLobby.GameTemplateId)
+        {
+            _logger.LogWarning(
+                "LobbyMerge.CreateRequest: cross-game merge bị chặn. Source={SourceLobbyId} " +
+                "(game={SourceGame}) còn box InUse với game khác target={TargetLobbyId} " +
+                "(game={TargetGame}). Staff phải trả box về quán trước khi merge khác game.",
+                sourceLobby.Id, sourceLobby.GameTemplateId,
+                targetLobby.Id, targetLobby.GameTemplateId);
+
+            throw new BadRequestException(LobbyMergeErrors.MergeDifferentGames);
+        }
+
+        // Else: source không còn box InUse (game đã trả về quán hoặc lobby chưa attach box)
+        // → cho phép merge cả same-game lẫn cross-game (BR Exception 4 — A3 rời nhóm cũ
+        // sau khi trả game, đứng độc lập, merge nhóm mới đang chơi game khác).
         if (sourceLobby.GameTemplateId != targetLobby.GameTemplateId)
         {
-            var sourceInUseBoxInfo = await _db.ActiveSessionGames
-                .AsNoTracking()
-                .Where(g =>
-                    g.ActiveSession!.LobbyId == sourceLobby.Id &&
-                    g.CafeInventoryBox!.Status == CafeGameInventoryStatus.InUse)
-                .Select(g => new { g.CheckStatus, g.GameTemplateId })
-                .FirstOrDefaultAsync(cancellationToken);
-
-            if (sourceInUseBoxInfo != null)
-            {
-                if (sourceInUseBoxInfo.CheckStatus == ComponentCheckStatus.NotChecked)
-                {
-                    // (a) Chưa kiểm kê — staff phải làm ComponentCheck trước.
-                    var sourceGameName = await _db.GameTemplates
-                        .AsNoTracking()
-                        .Where(g => g.Id == sourceLobby.GameTemplateId)
-                        .Select(g => g.Name)
-                        .FirstOrDefaultAsync(cancellationToken) ?? sourceLobby.GameTemplateId.ToString();
-
-                    var targetGameName = await _db.GameTemplates
-                        .AsNoTracking()
-                        .Where(g => g.Id == targetLobby.GameTemplateId)
-                        .Select(g => g.Name)
-                        .FirstOrDefaultAsync(cancellationToken) ?? targetLobby.GameTemplateId.ToString();
-
-                    throw new BadRequestException(
-                        LobbyMergeErrors.MergeSourceBoxNotCheckedYet(sourceGameName, targetGameName));
-                }
-
-                // (b) Đã kiểm kê nhưng game khác — box vẫn attach vào source.
-                throw new BadRequestException(LobbyMergeErrors.MergeDifferentGames);
-            }
-
-            // else: source không còn game đang chơi trên bàn → cho phép merge khác game
             _logger.LogInformation(
-                "LobbyMerge: cho phép cross-game merge Source={SourceLobbyId} (game={SourceGameId}) → Target={TargetLobbyId} (game={TargetGameId}) do source không còn box InUse.",
-                sourceLobby.Id, sourceLobby.GameTemplateId, targetLobby.Id, targetLobby.GameTemplateId);
+                "LobbyMerge.CreateRequest: cho phép cross-game merge Source={SourceLobbyId} " +
+                "(game={SourceGameId}) → Target={TargetLobbyId} (game={TargetGameId}) do " +
+                "source không còn box InUse.",
+                sourceLobby.Id, sourceLobby.GameTemplateId,
+                targetLobby.Id, targetLobby.GameTemplateId);
         }
 
         // ===== Ambient Transaction Pattern — BR-REQUIRED §17.5 =====
