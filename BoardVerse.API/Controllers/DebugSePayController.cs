@@ -1,6 +1,7 @@
 ﻿using BoardVerse.API.Infrastructure;
 using BoardVerse.Core.Data;
 using BoardVerse.Core.DTOs.Payment;
+using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.Messages;
@@ -126,8 +127,12 @@ public class DebugSePayController : ControllerBase
     /// Tạo đơn cọc test + immediately generate VietQR.
     /// Dùng cho debug/testing end-to-end payment flow.
     /// </summary>
+    /// <param name="amount">Số tiền cọc (VND). Mặc định 100000.</param>
+    /// <param name="cafeId">Optional: chỉ định cafe GUID. Nếu bỏ trống sẽ lấy cafe đầu tiên trong DB.</param>
     [HttpPost("test-deposit")]
-    public async Task<IActionResult> CreateTestDeposit([FromQuery] decimal? amount = null)
+    public async Task<IActionResult> CreateTestDeposit(
+        [FromQuery] decimal? amount = null,
+        [FromQuery] Guid? cafeId = null)
     {
         if (!IsDebugEnabled()) return NotFound();
 
@@ -135,70 +140,32 @@ public class DebugSePayController : ControllerBase
         var db = scope.ServiceProvider.GetRequiredService<BoardVerse.Data.BoardVerseDbContext>();
         var masterAccount = await _sepayAccountService.GetRawMasterAccountAsync();
 
-        var cafe = await db.Cafes.FirstOrDefaultAsync(c => c.Id == DevSeedConstants.DemoCafeId);
+        var cafe = await PickCafeAsync(db, cafeId);
         if (cafe == null)
-            return BadRequest(new { error = ApiErrorMessages.Payment.DebugSePayCafeNotFound(DevSeedConstants.DemoCafeId) });
+            return BadRequest(new { error = ApiErrorMessages.Payment.DebugSePayNoCafeAvailable(cafeId) });
 
         if (cafe.BasePrice == 0)
         {
             cafe.BasePrice = 100000m;
             await db.SaveChangesAsync();
-            _logger.LogInformation("Auto-set DemoCafe BasePrice to 100000");
+            _logger.LogInformation("Auto-set Cafe {CafeId} BasePrice to 100000", cafe.Id);
         }
 
-        var depositId = Guid.Parse("11111111-1111-1111-1111-111111111111");
-        var orderId = $"BV-D-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}";
-        var depositAmount = amount ?? 100m;
-
-        // Ensure QrUrl column is wide enough for VietQR URLs
-        await db.Database.ExecuteSqlRawAsync($@"
-            ALTER TABLE ""BookingDeposits"" ALTER COLUMN ""QrUrl"" TYPE varchar(2000)");
-
-        await db.Database.ExecuteSqlRawAsync($@"
-            DELETE FROM ""BookingDeposits""
-            WHERE ""Id"" = '{depositId}' OR ""OrderId"" = '{orderId}'");
-
-        var now = DateTime.UtcNow;
-        var transferContent = $"BV-{depositId:N}";
-
-        await db.Database.ExecuteSqlRawAsync($@"
-            INSERT INTO ""BookingDeposits""
-            (""Id"", ""ActiveSessionId"", ""Amount"", ""CafeId"", ""CafeManagerId"", ""UserId"",
-             ""CreatedAt"", ""ForfeitedAt"", ""OrderId"", ""PaidAt"",
-             ""RefundPolicy"", ""RefundedAt"", ""ReleasedAt"", ""ScheduledAt"",
-             ""SePayTransactionId"", ""SePayTransferId"", ""Status"", ""TransferContent"", ""UpdatedAt"")
-            VALUES
-            ('{depositId}', NULL, {depositAmount},
-             '{DevSeedConstants.DemoCafeId}', '{DevSeedConstants.ManagerUserId}', '{DevSeedConstants.ManagerUserId}',
-             '{now:O}', NULL, NULL, '{orderId}', NULL,
-             {(int)DepositRefundPolicy.Full}, NULL, NULL, NULL,
-             NULL, NULL, {(int)BookingDepositStatus.Pending}, '{transferContent}', '{now:O}')");
-
-        var qrUrl = _vietQrClient.GenerateQrUrl(
-            masterAccount!.BankCode ?? string.Empty,
-            masterAccount.AccountNumber ?? string.Empty,  // raw cho QR URL
-            depositAmount,
-            description: transferContent,
-            accountHolder: masterAccount.AccountHolder);
-
-        await db.Database.ExecuteSqlRawAsync($@"
-            UPDATE ""BookingDeposits""
-            SET ""QrUrl"" = '{qrUrl.Replace("'", "''")}',
-                ""QrExpiresAt"" = NULL::timestamp
-            WHERE ""Id"" = '{depositId}'");
-
-        _logger.LogInformation("Test deposit created: {DepositId}, QR={QrUrl}", depositId, qrUrl);
+        var (deposit, qrUrl, transferContent) = await CreateOrResetDepositWithQrAsync(
+            db, masterAccount, cafe,
+            fixedDepositId: Guid.Parse("11111111-1111-1111-1111-111111111111"),
+            amount: amount ?? 100m);
 
         return Ok(new
         {
-            depositId,
-            orderId,
-            amount = depositAmount,
-            cafeId = DevSeedConstants.DemoCafeId,
+            depositId = deposit.Id,
+            orderId = deposit.OrderId,
+            amount = deposit.Amount,
+            cafeId = cafe.Id,
             cafeName = cafe.Name,
             basePrice = cafe.BasePrice,
             transferContent,
-            status = BookingDepositStatus.Pending.ToString(),
+            status = deposit.Status.ToString(),
             gateway = "VietQr",
             isSuccess = true,
             paymentUrl = qrUrl,
@@ -262,8 +229,12 @@ public class DebugSePayController : ControllerBase
     /// <summary>
     /// Debug HTML page để test: hiển thị QR, mock thanh toán, confirm webhook.
     /// </summary>
+    /// <param name="amount">Số tiền cọc (VND). Mặc định 100000.</param>
+    /// <param name="cafeId">Optional: chỉ định cafe GUID. Nếu bỏ trống sẽ lấy cafe đầu tiên trong DB.</param>
     [HttpGet("test-page")]
-    public async Task<IActionResult> GetTestPage([FromQuery] decimal? amount = null)
+    public async Task<IActionResult> GetTestPage(
+        [FromQuery] decimal? amount = null,
+        [FromQuery] Guid? cafeId = null)
     {
         if (!IsDebugEnabled()) return NotFound();
 
@@ -271,9 +242,9 @@ public class DebugSePayController : ControllerBase
         var db = scope.ServiceProvider.GetRequiredService<BoardVerse.Data.BoardVerseDbContext>();
         var masterAccount = await _sepayAccountService.GetRawMasterAccountAsync();
 
-        var cafe = await db.Cafes.FirstOrDefaultAsync(c => c.Id == DevSeedConstants.DemoCafeId);
+        var cafe = await PickCafeAsync(db, cafeId);
         if (cafe == null)
-            return BadRequest(new { error = ApiErrorMessages.Payment.DebugSePayCafeNotFoundShort(DevSeedConstants.DemoCafeId) });
+            return BadRequest(new { error = ApiErrorMessages.Payment.DebugSePayNoCafeAvailableShort(cafeId) });
 
         if (cafe.BasePrice == 0)
         {
@@ -281,47 +252,14 @@ public class DebugSePayController : ControllerBase
             await db.SaveChangesAsync();
         }
 
-        var depositId = Guid.Parse("22222222-2222-2222-2222-222222222222");
-        var orderId = $"BV-D-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}";
-        var depositAmount = amount ?? 100m;
+        var (deposit, qrUrl, transferContent) = await CreateOrResetDepositWithQrAsync(
+            db, masterAccount, cafe,
+            fixedDepositId: Guid.Parse("22222222-2222-2222-2222-222222222222"),
+            amount: amount ?? 100m);
 
-        await db.Database.ExecuteSqlRawAsync($@"
-            ALTER TABLE ""BookingDeposits"" ALTER COLUMN ""QrUrl"" TYPE varchar(2000)");
-
-        await db.Database.ExecuteSqlRawAsync($@"
-            DELETE FROM ""BookingDeposits""
-            WHERE ""Id"" = '{depositId}' OR ""OrderId"" = '{orderId}'");
-
-        var now = DateTime.UtcNow;
-        var transferContent = $"BV-{depositId:N}";
-
-        await db.Database.ExecuteSqlRawAsync($@"
-            INSERT INTO ""BookingDeposits""
-            (""Id"", ""ActiveSessionId"", ""Amount"", ""CafeId"", ""CafeManagerId"", ""UserId"",
-             ""CreatedAt"", ""ForfeitedAt"", ""OrderId"", ""PaidAt"",
-             ""RefundPolicy"", ""RefundedAt"", ""ReleasedAt"", ""ScheduledAt"",
-             ""SePayTransactionId"", ""SePayTransferId"", ""Status"", ""TransferContent"", ""UpdatedAt"")
-            VALUES
-            ('{depositId}', NULL, {depositAmount},
-             '{DevSeedConstants.DemoCafeId}', '{DevSeedConstants.ManagerUserId}', '{DevSeedConstants.ManagerUserId}',
-             '{now:O}', NULL, NULL, '{orderId}', NULL,
-             {(int)DepositRefundPolicy.Full}, NULL, NULL, NULL,
-             NULL, NULL, {(int)BookingDepositStatus.Pending}, '{transferContent}', '{now:O}')");
-
-        var qrUrl = _vietQrClient.GenerateQrUrl(
-            masterAccount!.BankCode ?? string.Empty,
-            masterAccount.AccountNumber ?? string.Empty,  // raw cho QR URL
-            depositAmount,
-            description: transferContent,
-            accountHolder: masterAccount.AccountHolder);
-
-        await db.Database.ExecuteSqlRawAsync($@"
-            UPDATE ""BookingDeposits""
-            SET ""QrUrl"" = '{qrUrl.Replace("'", "''")}',
-                ""QrExpiresAt"" = NULL::timestamp
-            WHERE ""Id"" = '{depositId}'");
-
-        var bankCode = masterAccount.BankCode ?? string.Empty;
+        var orderId = deposit.OrderId;
+        var depositAmount = deposit.Amount;
+        var bankCode = masterAccount!.BankCode ?? string.Empty;
         var accountNumber = masterAccount.AccountNumber ?? string.Empty;  // raw cho QR
         var maskedAccount = MaskAccountNumber(accountNumber);
 
@@ -560,6 +498,106 @@ public class DebugSePayController : ControllerBase
         // C9: gate debug endpoint chỉ theo env Development, KHÔNG dùng env var override.
         // ENABLE_DEBUG=true có thể bị bật nhầm trong production qua runtime config.
         return _env.IsDevelopment();
+    }
+
+    /// <summary>
+    /// Tạo (hoặc reset) một BookingDeposit ở trạng thái Pending + sinh VietQR URL.
+    /// Dùng EF Core để build/save entity — tránh hardcode column list dễ lệch khi schema thay đổi.
+    /// Idempotent theo <paramref name="fixedDepositId"/>: nếu đã có deposit trùng GUID thì xóa trước
+    /// khi tạo mới, đảm bảo mỗi lần gọi cho ra deposit mới với OrderId/QR mới.
+    /// </summary>
+    private async Task<(BookingDeposit Deposit, string QrUrl, string TransferContent)> CreateOrResetDepositWithQrAsync(
+        BoardVerse.Data.BoardVerseDbContext db,
+        BoardVerse.Core.Entities.SePayAccount? masterAccount,
+        BoardVerse.Core.Entities.Cafe cafe,
+        Guid fixedDepositId,
+        decimal amount)
+    {
+        if (masterAccount == null)
+        {
+            throw new InvalidOperationException("Master SePay account not configured.");
+        }
+
+        var now = DateTime.UtcNow;
+        var orderId = $"BV-D-{now:yyyyMMddHHmmss}";
+        var transferContent = $"BV-{fixedDepositId:N}";
+
+        // Xóa deposit cũ (nếu có) theo Id cố định hoặc OrderId mới — tránh unique violation khi gọi lại.
+        var existing = await db.BookingDeposits
+            .FirstOrDefaultAsync(d => d.Id == fixedDepositId || d.OrderId == orderId);
+        if (existing != null)
+        {
+            db.BookingDeposits.Remove(existing);
+            await db.SaveChangesAsync();
+        }
+
+        // Build entity — EF sẽ tự generate column list theo schema hiện tại.
+        var deposit = new BookingDeposit
+        {
+            Id = fixedDepositId,
+            OrderId = orderId,
+            ActiveSessionId = null,
+            BookingId = null,
+            BookingGroupCode = null,
+            UserId = cafe.ManagerId,
+            CafeId = cafe.Id,
+            CafeManagerId = cafe.ManagerId,
+            Amount = amount,
+            RefundPolicy = DepositRefundPolicy.Full,
+            Status = BookingDepositStatus.Pending,
+            TransferContent = transferContent,
+            SePayTransactionId = null,
+            SePayTransferId = null,
+            PaidAt = null,
+            ReleasedAt = null,
+            RefundedAt = null,
+            ForfeitedAt = null,
+            QrUrl = null,
+            QrExpiresAt = null,
+            LastQrRegeneratedAt = null,
+            ScheduledAt = null,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        db.BookingDeposits.Add(deposit);
+        await db.SaveChangesAsync();
+
+        // Sinh QR rồi update QrUrl + QrExpiresAt (giữ entity thay vì raw SQL).
+        var qrUrl = _vietQrClient.GenerateQrUrl(
+            masterAccount.BankCode ?? string.Empty,
+            masterAccount.AccountNumber ?? string.Empty,
+            amount,
+            description: transferContent,
+            accountHolder: masterAccount.AccountHolder);
+
+        deposit.QrUrl = qrUrl;
+        deposit.QrExpiresAt = null;
+        deposit.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        _logger.LogInformation("Test deposit created: {DepositId}, OrderId={OrderId}, QR={QrUrl}",
+            deposit.Id, deposit.OrderId, qrUrl);
+
+        return (deposit, qrUrl, transferContent);
+    }
+
+    /// <summary>
+    /// Pick cafe để debug: nếu <paramref name="cafeIdOverride"/> có giá trị thì lookup theo GUID,
+    /// nếu không thì lấy cafe sớm nhất trong DB (deterministic theo CreatedAt).
+    /// Trả về null nếu DB rỗng hoặc GUID không tồn tại.
+    /// </summary>
+    private static async Task<BoardVerse.Core.Entities.Cafe?> PickCafeAsync(
+        BoardVerse.Data.BoardVerseDbContext db,
+        Guid? cafeIdOverride)
+    {
+        if (cafeIdOverride.HasValue && cafeIdOverride.Value != Guid.Empty)
+        {
+            return await db.Cafes.FirstOrDefaultAsync(c => c.Id == cafeIdOverride.Value);
+        }
+
+        return await db.Cafes
+            .OrderBy(c => c.CreatedAt)
+            .FirstOrDefaultAsync();
     }
 
     private static string? MaskAccountNumber(string? accountNumber)

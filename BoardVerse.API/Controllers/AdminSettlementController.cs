@@ -133,6 +133,52 @@ public class AdminSettlementController : BaseApiController
     }
 
     /// <summary>
+    /// W-07: Tổng hợp giải ngân theo NGÀY (mặc định hôm nay theo giờ VN UTC+7).
+    /// Dùng cho màn hình admin: "Hôm nay chuyển bao nhiêu tiền cho quán nào".
+    /// Trả về:
+    /// <list type="bullet">
+    ///   <item>Tổng quan: số quán, tổng settlement, tổng tiền cần chuyển / đã chuyển / failed.</item>
+    ///   <item>Chi tiết từng quán: TotalToTransfer + ByStatus (Pending/Succeeded/Failed/Retrying/Overridden) + SePay bank info + SettlementIds.</item>
+    /// </list>
+    /// Settlement thuộc ngày X nếu:
+    /// <list type="bullet">
+    ///   <item>Status = Succeeded/Overridden: TransferredAt thuộc ngày X (fallback CreatedAt).</item>
+    ///   <item>Status = Pending/Retrying/Failed: CreatedAt thuộc ngày X.</item>
+    /// </list>
+    /// [Role: Admin]
+    /// </summary>
+    /// <param name="date">Ngày cần xem (định dạng yyyy-MM-dd, theo giờ VN). Mặc định = hôm nay.</param>
+    /// <response code="200">Bảng tổng hợp giải ngân theo ngày.</response>
+    /// <response code="400">Định dạng date không hợp lệ.</response>
+    /// <response code="401">Thiếu token.</response>
+    /// <response code="403">Không có quyền Admin.</response>
+    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+    [HttpGet("daily-summary")]
+    [ProducesResponseType(typeof(SettlementDailySummaryDto), 200)]
+    [ProducesResponseType(400)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(403)]
+    [ProducesResponseType(500)]
+    public async Task<IActionResult> GetDailySummary([FromQuery] string? date = null)
+    {
+        DateOnly? parsedDate = null;
+        if (!string.IsNullOrWhiteSpace(date))
+        {
+            if (!DateOnly.TryParseExact(date, "yyyy-MM-dd", out var d))
+            {
+                throw new BadRequestException(
+                    ApiErrorMessages.Controller.InvalidQueryParameter(
+                        "date",
+                        "định dạng yyyy-MM-dd (vd: 2026-10-03)"));
+            }
+            parsedDate = d;
+        }
+
+        var result = await _settlementService.GetDailySummaryAsync(parsedDate);
+        return NewResponse(200, ApiSuccessMessages.Settlement.DailySummaryRetrieved, result);
+    }
+
+    /// <summary>
     /// W-06: Admin manually override a failed settlement after retry exhaustion.
     /// Sets Status = Overridden, OverrideBy = adminId, OverrideAt = now.
     /// [Role: Admin]

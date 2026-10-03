@@ -78,17 +78,25 @@ public class ReservationNoShowDetectionJob : BackgroundService
         }
 
         var now = DateTime.UtcNow;
-        // FIX TZ-NOSHOW-01 (2026-10-02): Reservation.ScheduledStartTime là Unspecified VN local raw,
-        // còn `now` là UTC. Trên server UTC, nếu chỉ so sánh trực tiếp, query chỉ match khi
-        // raw ticks của ScheduledStartTime < cutoff UTC. Vì ScheduledStartTime được build từ
-        // playDate + TimeOnly VN (raw ticks đại diện giờ VN local) còn cutoff là UTC → off by 7h.
-        // VD: cutoff = 08:13 UTC (= 15:13 VN). Reservation playDate=02/10, scheduledStart=16:00 VN
-        // raw ticks = 09:00 UTC khi interpret như UTC. 09:00Z < 08:13Z → false → KHÔNG match.
-        // → No-show detection KHÔNG trigger cho user VN.
-        // Fix: convert cutoff sang VN local (Kind=Unspecified) để match với ScheduledStartTime cùng Kind.
-        var cutoff = CafeSchedule.ToVietnamLocal(now).AddMinutes(-30); // BR-CHECKIN-02: grace 30 phút
+        // TZ-FIX-REVERT (2026-10-03): Revert "FIX TZ-NOSHOW-01" cùng ngày.
+        //
+        // Lý do revert:
+        // - Cùng ngày 2026-10-02, `BuildScheduledStartEndFromPreferred` được fix (TZ-DT-UTC-02)
+        //   để return `Kind=Utc` thay vì raw VN local. → `Reservation.ScheduledStartTime` lưu DB
+        //   dưới dạng UTC ticks.
+        // - Fix "TZ-NOSHOW-01" trước đó assume ScheduledStartTime là "Unspecified VN local raw" —
+        //   assumption này không còn đúng sau TZ-DT-UTC-02.
+        // - Hệ quả khi giữ "fix" cũ: `ToVietnamLocal(now)` trả Kind=Unspecified với raw ticks =
+        //   (UTC + 7h) - 30min. Khi Npgsql gửi raw ticks này vào cột `timestamptz`, nó interpret
+        //   thành UTC. → cutoff lệch ~7h so với "now - 30min" thực sự → match cả reservation
+        //   trong tương lai gần (đã reproduce 2026-10-03 03:05:34Z, reservation có scheduledStart
+        //   03:40:00Z — chỉ 35 phút trong tương lai nhưng bị flip NoShow).
+        //
+        // Fix đúng: giữ cả 2 vế ở UTC. Cả `now` và `ScheduledStartTime` đều Kind=Utc → so sánh
+        // trực tiếp chính xác.
+        var cutoff = now.AddMinutes(-30); // BR-CHECKIN-02: grace 30 phút
 
-        // Query: Status = Confirmed AND ScheduledStartTime < cutoffLocal
+        // Query: Status = Confirmed AND ScheduledStartTime < cutoff
         // Sử dụng index IX_Reservations_ScheduledStartTime_Status.
         var noShowCandidates = await reservationRepo.GetNoShowCandidatesAsync(cutoff, ct);
 

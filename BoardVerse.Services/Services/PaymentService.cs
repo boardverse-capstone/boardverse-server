@@ -23,6 +23,7 @@ public class PaymentService : IPaymentService
     private readonly ISePayAccountService _sePayAccountService;
     private readonly IWalletService _walletService; // BVC top-up webhook
     private readonly IActiveSessionService _activeSessionService; // Webhook delegate PaySessionCore
+    private readonly ISplitBillService _splitBillService; // FIX (2026-10-03): Route BV-MEMBER-* webhooks tới SplitBillService
     private readonly IPaymentWebhookAuditRepository _webhookAuditRepository; // GAP-10
     private readonly ILogger<PaymentService> _logger;
 
@@ -36,6 +37,7 @@ public class PaymentService : IPaymentService
         ISePayAccountService sePayAccountService,
         IWalletService walletService,
         IActiveSessionService activeSessionService,
+        ISplitBillService splitBillService,
         IPaymentWebhookAuditRepository webhookAuditRepository,
         ILogger<PaymentService> logger)
     {
@@ -48,6 +50,7 @@ public class PaymentService : IPaymentService
         _sePayAccountService = sePayAccountService;
         _walletService = walletService;
         _activeSessionService = activeSessionService;
+        _splitBillService = splitBillService;
         _webhookAuditRepository = webhookAuditRepository;
         _logger = logger;
     }
@@ -548,6 +551,28 @@ public class PaymentService : IPaymentService
         return (true, null);
     }
 
+    public async Task<(bool IsValid, string? ErrorMessage)> VerifyWebhookRequestAsync(
+        SePayWebhookVerificationRequest request,
+        string? gateway,
+        string? accountNumber,
+        CancellationToken cancellationToken = default)
+    {
+        if (request == null)
+        {
+            return (false, "Webhook verification request missing.");
+        }
+
+        // SePay Personal per-cafe: truyền bank info để SePayClient route đúng cafe credentials.
+        var isValid = await _sePayClient.VerifyWebhookAsync(
+            request, gateway, accountNumber, cancellationToken);
+        if (!isValid)
+        {
+            return (false, "SePay webhook signature invalid.");
+        }
+
+        return (true, null);
+    }
+
     public async Task HandleSePayWebhookAsync(SePayWebhookDto webhook, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(webhook);
@@ -677,6 +702,39 @@ public class PaymentService : IPaymentService
 
         if (session == null)
         {
+            // FIX (2026-10-03): Route member-level webhooks tới SplitBillService.
+            // SePay chỉ gửi tới 1 URL duy nhất /api/payments/sepay/webhook (xem
+            // SePayWebhookController.ReceiveWebhook). Trước đây nếu OrderId có format
+            // BV-MEMBER-{guid} thì GetByOrderIdAsync tìm ở bảng ActiveSessions không ra
+            // (OrderId này nằm ở ActiveSessionMembers.QrOrderId) → handler return
+            // "session_not_found" → member status KHÔNG cập nhật → POS không thấy trạng
+            // thái thanh toán.
+            //
+            // Sau fix: nếu OrderId match BV-MEMBER-{guid32} → convert sang
+            // MemberPaymentWebhookDto + forward SplitBillService.ProcessMemberQrWebhookAsync.
+            // SplitBillService đã có sẵn ParseMemberIdFromOrderId để lookup member +
+            // UpdateMemberPaymentStatusAsync để mark member paid (có sẵn amount check,
+            // idempotency qua gateway transaction, terminal session guard).
+            if (IsMemberLevelOrderId(webhook.OrderId))
+            {
+                _logger.LogInformation(
+                    "SePay webhook matches BV-MEMBER-* pattern → routing to SplitBillService. OrderId={OrderId}",
+                    webhook.OrderId);
+
+                var memberWebhook = new MemberPaymentWebhookDto
+                {
+                    OrderId = webhook.OrderId,
+                    Amount = webhook.Amount,
+                    Status = webhook.Status ?? string.Empty,
+                    GatewayTransactionId = webhook.GatewayTransactionId,
+                    ReferenceCode = webhook.ReferenceCode,
+                    Gateway = webhook.Gateway,
+                    PaidAt = webhook.PaidAt
+                };
+                await _splitBillService.ProcessMemberQrWebhookAsync(memberWebhook, cancellationToken);
+                return;
+            }
+
             _logger.LogWarning("SePay webhook session payment not matched. OrderId={OrderId}", webhook.OrderId);
             await RecordAuditAsync(webhook, null, "session_not_found", $"OrderId={webhook.OrderId} không match session nào", cancellationToken);
             return;
@@ -971,5 +1029,27 @@ public class PaymentService : IPaymentService
     private static decimal CalculateRealtimeBilling(Core.Entities.Cafe cafe, int elapsedMinutes)
     {
         return ActiveSessionBillingCalculator.CalculateRealtimeBilling(cafe, elapsedMinutes);
+    }
+
+    /// <summary>
+    /// FIX (2026-10-03): Detect member-level OrderId (format BV-MEMBER-{32-char-guid}
+    /// hoặc BVMEMBER{32-char-guid} khi ngân hàng strip dấu '-').
+    /// SePay chỉ gửi 1 webhook URL duy nhất cho cả session-level và member-level payment.
+    /// Session-level OrderId (BV-S-..., BV-...) → lookup bảng ActiveSessions.
+    /// Member-level OrderId (BV-MEMBER-... hoặc BVMEMBER...) → lookup bảng ActiveSessionMembers.
+    ///
+    /// Lưu ý: Sau khi đi qua SePayWebhookDto.ExtractOrderId, OrderId đã được normalize về
+    /// canonical "BV-MEMBER-{32hex-uppercase}". Hàm này chấp nhận cả 2 format để defensive
+    /// trong trường hợp webhook payload mang OrderId raw từ caller khác (mock, test, etc.).
+    /// </summary>
+    /// <param name="orderId">OrderId đã được extract từ webhook content.</param>
+    /// <returns>true nếu match BV-?MEMBER-?{guid32} pattern; false nếu không (bao gồm null/empty).</returns>
+    private static bool IsMemberLevelOrderId(string? orderId)
+    {
+        if (string.IsNullOrWhiteSpace(orderId)) return false;
+        return System.Text.RegularExpressions.Regex.IsMatch(
+            orderId,
+            @"^BV-?MEMBER-?[0-9a-fA-F]{32}$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     }
 }

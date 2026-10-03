@@ -559,7 +559,7 @@ public class TournamentPosController : BaseApiController
     /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
     /// <response code="403">Không phải chủ quán tạo tournament.</response>
     /// <response code="404">Không tìm thấy giải đấu.</response>
-    /// <response code="409">Round đã có matches — không thể set manual pairings.</response>
+    /// <response code="409">Round đã có matches OnGoing/Completed — không thể set manual pairings. Matches Scheduled (chưa bắt đầu) sẽ tự động bị xóa và thay bằng manual pairings.</response>
     /// <response code="500">Lỗi hệ thống không mong đợi.</response>
     [HttpPost("{tournamentId:guid}/pairings")]
     public async Task<IActionResult> SetRoundPairings(Guid tournamentId, [FromBody] SetRoundPairingsRequestDto request)

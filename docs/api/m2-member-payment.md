@@ -2,23 +2,210 @@
 
 > **Phần bổ sung 2026-10-01** — `docs/design/host-deposit-discount-and-bvc-payment-design.md` §C2.
 
-Tổng cộng **6 endpoints mới** phục vụ M2 + M1 member-merge:
+Tổng cộng **9 endpoints** phục vụ M2 + M1 member-merge + Wallet Session Payment:
 
 | # | Endpoint | Mô tả | Doc |
 |---|---|---|---|
-| 1 | `GET /sessions/{sessionId}/members/{memberId}/bill-preview` | Preview bill cá nhân của 1 member (trước khi trả) | [`wallet.md` §M2](./wallet.md#m2-member-bvc-bill-payment-case-2) |
-| 2 | `POST /sessions/{sessionId}/members/{memberId}/pay-bill` | Member thanh toán bill bằng BVC (Case 2) | [`wallet.md` §M2](./wallet.md#m2-member-bvc-bill-payment-case-2) |
-| 3 | `POST /sessions/{sessionId}/refund-bill/{memberPaymentAuditLogId}` | Staff refund BVC bill đã thanh toán (Gap #11) | [`wallet.md` §M2](./wallet.md#m2-member-bvc-bill-payment-case-2) |
+| 1 | `GET /sessions/{sessionId}/members/{memberId}/bill-preview` | Preview bill cá nhân của 1 member (trước khi trả) | §[Bill preview](#get-apiv1sessionssessionidmembersmemberidbill-preview) dưới đây — xem thêm [`wallet.md`](./wallet.md#m2-member-bvc-bill-payment-case-2) |
+| 2 | `POST /sessions/{sessionId}/members/{memberId}/pay-bill` | Member thanh toán bill bằng BVC (Case 2) | §[Pay bill](#post-apiv1sessionssessionidmembersmemberidpay-bill) dưới đây — xem thêm [`wallet.md`](./wallet.md#m2-member-bvc-bill-payment-case-2) |
+| 3 | `POST /sessions/{sessionId}/refund-bill/{memberPaymentAuditLogId}` | Staff refund BVC bill đã thanh toán (Gap #11) | §[Refund bill](#post-apiv1sessionssessionidrefund-billmemberpaymentauditlogid) dưới đây — xem thêm [`wallet.md`](./wallet.md#m2-member-bvc-bill-payment-case-2) |
 | 4 | `GET /sessions/{sessionId}/members/{memberId}/receipt` | Receipt riêng cho 1 member (Gap #32) | §[Member receipt](#get-apiv1sessionssessionidmembersmemberidreceipt) dưới đây — xem thêm [`receipt.md`](./receipt.md) |
 | 5 | `POST /sessions/{sessionId}/force-close` | Manager force-close phiên có unpaid members (Gap #33) | §[Force-close](#post-apiv1sessionssessionidforce-close) dưới đây |
 | 6 | `POST /cafes/{cafeId}/member-merge/handle` | Staff xử lý merge member giữa lobby (M1 Option A, refund per-member deposit) | §[Member merge](#post-apiv1cafescafeidmember-mergehandle) dưới đây |
 
 **Phân bố doc:**
 
-- **Bill payment flow (1, 2, 3)** — document trong [`wallet.md`](./wallet.md) §M2 (vì liên quan trực tiếp đến `BvcLedgerEntry`).
+- **Bill payment flow (1, 2, 3)** — file này có bản tóm tắt; [`wallet.md`](./wallet.md) §M2 có response examples đầy đủ (vì liên quan trực tiếp đến `BvcLedgerEntry`).
 - **Member receipt (4)** — document trong cả file này và [`receipt.md`](./receipt.md) (file này tóm tắt, `receipt.md` có đầy đủ response examples).
 - **Force-close (5)** — document trong file này (endpoint duy nhất của `ForceCloseController`).
 - **Member merge (6)** — document trong file này (endpoint duy nhất của `MergeController`).
+
+---
+
+## GET `/api/v1/sessions/{sessionId}/members/{memberId}/bill-preview`
+
+**Controller:** `WalletSessionPaymentController` (route `/api/v1/sessions/{sessionId:guid}`) — endpoint `members/{memberId:guid}/bill-preview`.
+
+Preview hóa đơn cá nhân của 1 member trong group session — UI trước khi member/staff bấm "Trả bằng BVC". Trả về breakdown chi tiết `Subtotal` + `PenaltyAmount` + `DepositAppliedAmount` = `TotalDue`.
+
+> **Feature flag:** Endpoint gated bởi `IFeatureFlagService.IsMemberBvcPaymentEnabled()`. Nếu flag tắt → trả `403` với message "Feature thanh toán BVC đang tắt. Vui lòng liên hệ admin.".
+
+### Authorization
+
+| Role | Quyền |
+|---|---|
+| `Player` | ✅ nếu là member đó (`member.UserId == currentUser.Id`) |
+| `Player` | ✅ nếu là host của session |
+| `Manager`, `CafeStaff`, `Admin` | ✅ nếu thuộc cafe của session |
+
+### Path
+
+| Param | Type | Description |
+|---|---|---|
+| `sessionId` | Guid | ID phiên chơi. |
+| `memberId` | Guid | ID thành viên. |
+
+### Response `200` — `MemberBillPreviewDto`
+
+```json
+{
+  "sessionId": "<guid>",
+  "memberId": "<guid>",
+  "userId": "<guid>",
+  "displayName": "player1",
+  "isGuestSlot": false,
+  "subtotal": 60000,
+  "penaltyAmount": 0,
+  "depositAppliedAmount": 0,
+  "totalDue": 60000,
+  "allowBvcPenalty": true,
+  "paymentStatus": "NotPaid"
+}
+```
+
+| Field | Công thức / Ý nghĩa |
+|---|---|
+| `subtotal` | Tiền giờ chơi cá nhân. |
+| `penaltyAmount` | Phí phạt linh kiện (đã set `0` cho Guest_Slot — BR-14). |
+| `depositAppliedAmount` | Deposit đã áp dụng cho member này (BR-15). |
+| `totalDue` | `subtotal + penaltyAmount - depositAppliedAmount`. |
+| `allowBvcPenalty` | `false` cho Guest_Slot, `true` cho member có `UserId`. |
+| `paymentStatus` | `NotPaid` \| `PaidCash` \| `PaidQr` \| `PaidBvc` \| `PartialBvc` \| `PaidByHost`. |
+
+### Error responses
+
+| Code | Message |
+|---|---|
+| `403` | Feature flag tắt; Player không phải member và không phải host; Manager/CafeStaff không thuộc cafe. |
+| `404` | Session hoặc member không tồn tại. |
+
+---
+
+## POST `/api/v1/sessions/{sessionId}/members/{memberId}/pay-bill`
+
+**Controller:** `WalletSessionPaymentController` — endpoint `members/{memberId:guid}/pay-bill`.
+
+Member (hoặc staff) thanh toán bill cá nhân bằng BVC. Hỗ trợ **full BVC** (`PaidBvc`) hoặc **BVC + cash remainder** (`PartialBvc`).
+
+> **Feature flag:** Giống `/bill-preview` — gated bởi `IsMemberBvcPaymentEnabled()`.
+
+### Authorization
+
+| Role | Quyền |
+|---|---|
+| `Player` | ✅ nếu là member đó |
+| `Manager`, `CafeStaff` | ✅ nếu thuộc cafe của session |
+| `Admin` | ✅ bypass ownership |
+
+### Request body — `MemberBillPaymentRequestDto`
+
+```json
+{
+  "bvcAmount": 60000,
+  "idempotencyKey": "bvc-pay-<session-guid>-<member-guid>-2026-10-03T10:00:00Z"
+}
+```
+
+| Field | Required | Ràng buộc |
+|---|---|---|
+| `bvcAmount` | ✅ | `0 ≤ bvcAmount ≤ totalDue`. `0` = cash-only (staff thu tiền mặt 100%, vẫn ghi audit log). `bvcAmount > totalDue` → `400 BadRequest` (Gap #6 overpayment). |
+| `idempotencyKey` | ✅ | ≤ 100 chars, format gợi ý `bvc-pay-{SessionId}-{MemberId}-{Timestamp:o}`. Trùng key + amount khớp → replay result cũ. Trùng key + amount khác → `409 Conflict`. |
+
+### Behavior matrix
+
+| `bvcAmount` | Kết quả | `paymentStatus` | `paymentMethod` |
+|---|---|---|---|
+| `0` | Cash-only — staff thu tiền mặt, không trừ BVC. | `PaidCash` | `Cash` |
+| `0 < bvcAmount < totalDue` | Partial: trừ `bvcAmount` BVC + staff collect `cashRemainder` sau. | `PartialBvc` | `BVC_PARTIAL` |
+| `bvcAmount == totalDue` | Full BVC. | `PaidBvc` | `BVC` |
+| `bvcAmount > totalDue` | `400 BadRequest` — Gap #6 overpayment. | — | — |
+
+### Response `200` — `MemberBillPaymentResponseDto`
+
+```json
+{
+  "memberId": "<guid>",
+  "bvcAmount": 60000,
+  "cashRemainder": 0,
+  "status": "PaidBvc",
+  "paymentMethod": "BVC",
+  "paidAt": "2026-10-03T10:05:00Z",
+  "ledgerEntryId": "<guid>",
+  "auditLogId": "<guid>"
+}
+```
+
+| Field | Ý nghĩa |
+|---|---|
+| `bvcAmount` | Số BVC đã trừ từ wallet. |
+| `cashRemainder` | Số VND cash còn lại (chỉ > 0 khi `PartialBvc`). |
+| `status` | Trạng thái mới: `PaidBvc` \| `PartialBvc` \| `PaidCash`. |
+| `paymentMethod` | `"BVC"` (full) \| `"BVC_PARTIAL"` \| `"Cash"`. |
+| `ledgerEntryId` | FK → `BvcLedgerEntry` (audit trail với wallet). |
+| `auditLogId` | FK → `MemberPaymentAuditLog`. **Lưu lại để refund sau** (Pass §C2.8). |
+
+### Error responses
+
+| Code | Khi nào |
+|---|---|
+| `400` | `BvcAmount > totalDue`; `IdempotencyKey` rỗng; request null. |
+| `403` | Feature flag tắt; không có quyền. |
+| `404` | Session hoặc member không tồn tại. |
+| `409` | Session không ở `Unpaid`; member đã paid (`PaidCash`/`PaidQr`/`PaidBvc`/`PartialBvc`/`PaidByHost`); duplicate UserId; idempotency conflict (amount khác cùng key). |
+
+### Side effects
+
+1. Trừ `bvcAmount` BVC từ member wallet → `BvcLedgerEntry` (`Type = BillPayment`).
+2. Cập nhật `member.PaymentStatus` + `member.PaymentMethod` + `member.PaidAt`.
+3. Tạo `MemberPaymentAuditLog` row (audit trail — userId, staffId, idempotencyKey, …).
+4. Nếu tất cả members đã paid → auto-finalize session (`GroupSessionStatus.Paid`).
+
+---
+
+## POST `/api/v1/sessions/{sessionId}/refund-bill/{memberPaymentAuditLogId}`
+
+**Controller:** `WalletSessionPaymentController` — endpoint `refund-bill/{memberPaymentAuditLogId:guid}`.
+
+Refund BVC bill đã thanh toán — dùng khi bill sai (staff nhập sai amount) hoặc có dispute. Hoàn trả `bvcAmount` (hoặc phần partial) về ví của member + ghi audit log với `RefundedAt` + `RefundReason`.
+
+### Authorization
+
+`[Authorize(Roles = "Admin,Manager,CafeStaff")]` — staff/manager phải thuộc cafe của session.
+
+> **Note:** `sessionId` trên route chỉ để routing — logic KHÔNG dùng `sessionId` (lookup qua `auditLogId`). Nếu muốn enforce ownership check session ↔ cafe, cần truyền `sessionId` vào service — hiện tại chỉ check role.
+
+### Request body — `MemberBillRefundRequestDto`
+
+```json
+{
+  "reason": "Bill nhập sai amount — đã sửa và cho khách trả lại",
+  "idempotencyKey": "refund-bvc-<audit-log-guid>-2026-10-03T10:30:00Z"
+}
+```
+
+| Field | Required | Ràng buộc |
+|---|---|---|
+| `reason` | ✅ | ≤ 500 chars, lý do refund (lưu audit log). |
+| `idempotencyKey` | ✅ | ≤ 100 chars. Trùng key → replay result cũ. |
+
+### Response `200`
+
+`MemberBillPaymentResponseDto` (giống `/pay-bill` response) — `bvcAmount` là số BVC đã hoàn về ví, `status` không đổi (vẫn audit log ban đầu).
+
+### Error responses
+
+| Code | Khi nào |
+|---|---|
+| `400` | Request null; `reason` rỗng. |
+| `403` | Không thuộc role Admin/Manager/CafeStaff. |
+| `404` | `MemberPaymentAuditLog` không tồn tại. |
+| `409` | Audit log đã refund rồi (`RefundedAt != null`). |
+
+### Side effects
+
+1. Hoàn `bvcAmount` về ví member → `BvcLedgerEntry` (`Type = BillPaymentRefund`).
+2. Cập nhật `MemberPaymentAuditLog.RefundedAt` + `RefundReason` + `RefundLedgerEntryId`.
+3. Cập nhật `member.PaymentStatus` về `NotPaid` (member có thể trả lại).
 
 ---
 

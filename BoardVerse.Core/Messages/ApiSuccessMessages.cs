@@ -66,6 +66,7 @@
             public const string ShiftOpened = "Mở ca làm việc thành công.";
             public const string ShiftClosed = "Đóng ca làm việc thành công.";
             public const string ShiftHistoryRetrieved = "Lấy lịch sử ca làm việc thành công.";
+            public const string ShiftRecalculated = "Tính lại doanh thu ca làm việc thành công. Vui lòng kiểm tra tổng mới trên dashboard.";
         }
 
         public static class Payment
@@ -140,6 +141,7 @@ public const string SePayQrPreviewGenerated = "Đã tạo QR test cho payment ac
             public const string Released = "Tạo yêu cầu giải ngân deposit thành công.";
             public const string ListRetrieved = "Lấy danh sách settlement thành công."; // W-06 list endpoints
             public const string FailedRetrieved = "Lấy danh sách settlement bị lỗi thành công."; // W-06 list endpoints
+            public const string DailySummaryRetrieved = "Lấy bảng tổng hợp giải ngân theo ngày thành công."; // W-07 daily summary
         }
 
         public static class MasterAccount

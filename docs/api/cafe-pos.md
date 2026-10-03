@@ -2543,6 +2543,25 @@ Lấy trạng thái thanh toán per-member của session — staff xem ngay ai �
 - **Session terminal auto-detection:** Sau khi save, nếu **tất cả member** đều `PaymentStatus != NotPaid` → auto chuyển `ActiveSession.Status = Paid`, release table/box/inventory (giống `/pay` happy path).
 - Nếu 1 member QR fail webhook → `MemberPayments` vẫn ghi audit `Failed`; member `PaymentStatus` revert `NotPaid`. Session không bao giờ bế `Paid` nếu còn member `NotPaid`.
 
+> **🐛 Bug fix (GAP-16 / 2026-10-03) — Multi-member `pay-member` không flip session sang `Paid`:**
+> Trước fix, khi `pay-member` được gọi với **NHIỀU member cùng lúc** (vd: 3 guest slot trả CASH
+> cùng lúc), tất cả member được set `PaymentStatus = PaidCash` thành công, NHƯNG `ActiveSession.Status`
+> vẫn giữ `Unpaid`, `Members.IsCheckedOut = false`, lobby vẫn `InProgress`. Nguyên nhân:
+> `CheckAndFinalizeSessionAsync` dùng `AsNoTracking().Include(s => s.Members)` để re-fetch — vẫn bị
+> EF Core identity map trả về tracked `ActiveSessionMember` instances cũ (stale `PaymentStatus`)
+> ở iter 2+ trong vòng lặp → `allPaid` luôn `false` → session KHÔNG flip.
+> **Fix:** tách thành 2 query `AsNoTracking` riêng biệt (1 cho `session.Status`, 1 cho members)
+> — không qua `Include` nên identity map không thể trả instance cũ. Regression test
+> `PayMembersAsync_WhenMultipleMembersPaidInOneCall_SessionBecomesPaidAndMembersCheckedOut`.
+
+> **🐛 Bug fix (GAP-17 / 2026-10-03) — `GET /sessions/active` trả financial fields = 0:**
+> Trước fix, response trả `subtotal: 0, totalAmount: 0, paidAt: null` dù DB persist đúng giá trị
+> (180.000đ cho 3 member × 60k). Nguyên nhân: `CafePosRepository.GetActiveSessionsAsync` chỉ
+> `Select` subset fields (`Id/CafeId/.../CreatedAt`) — bỏ sót `Subtotal/PenaltyAmount/TotalAmount/
+> DepositAppliedAmount/SurchargeFine/IsCheckingInventory/HasMissingComponents/IsPaused/PausedAt/PaidAt`.
+> Materialize lại thành `ActiveSession` entity → các field tài chính default về `0` / `null`.
+> **Fix:** thêm đầy đủ fields vào `Select` projection + map tương ứng khi construct entity.
+
 **Lỗi:**
 
 | Code | Khi nào |

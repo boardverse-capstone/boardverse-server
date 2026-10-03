@@ -118,6 +118,19 @@ namespace BoardVerse.Services.Services
             var totalHeld = await _cafeRepository.CountHeldSeatsAsync(cafeId, today);
             var totalInUse = await _cafeRepository.CountInUseSeatsAsync(cafeId, today);
 
+            // === FIX (2026-10-03): Derive số liệu từ navigation collections thay vì đọc trực tiếp
+            //     từ entity field. Lý do: Cafe.NumberOfTables / NumberOfGamesOwned / TotalSeats là
+            //     denormalized cache, không được cập nhật tự động khi:
+            //       - SetCafeActiveAsync seed bàn mặc định (chỉ INSERT vào CafeTables, không UPDATE entity)
+            //       - POS thêm/xóa game trong CafeGameInventory
+            //     → Query trực tiếp entity trả về 0 cho cafe mới dù bảng quan hệ đã có dữ liệu.
+            //     Tính từ navigation (đã Include sẵn trong GetCafeDetailAsync) để luôn khớp với DB.
+            var activeTables = cafe.Tables?.Where(t => t.IsActive).ToList() ?? new List<CafeTable>();
+            var computedTotalSeats = activeTables.Sum(t => t.SeatCount);
+            var effectiveTotalSeats = cafe.TotalSeats > 0 ? cafe.TotalSeats : computedTotalSeats;
+            var numberOfTables = activeTables.Count;
+            var numberOfGamesOwned = cafe.Inventories?.Where(i => i.IsActive).Sum(i => i.BoxQuantity) ?? 0;
+
             return new CafeDetailDto
             {
                 Id = cafe.Id,
@@ -128,7 +141,7 @@ namespace BoardVerse.Services.Services
                 PhoneNumber = cafe.PhoneNumber,
                 Description = cafe.Description,
                 CreatedAt = cafe.CreatedAt,
-                TotalSeats = cafe.TotalSeats,
+                TotalSeats = effectiveTotalSeats,
                 BillingModel = CafePartnerStatusMapper.ToApiBillingModel(cafe.BillingModel),
                 BasePrice = cafe.BasePrice,
                 TieredBlockRate = cafe.TieredBlockRate,
@@ -162,7 +175,9 @@ namespace BoardVerse.Services.Services
                 // BR-NEW-12: CafeConfig defaults
                 CafeConfig = new CafeConfigDto
                 {
-                    Capacity = cafe.TotalSeats,
+                    // FIX (2026-10-03): Capacity dùng effectiveTotalSeats (derive từ tables hoặc từ entity field).
+                    // Cũ: Capacity = cafe.TotalSeats → luôn 0 cho cafe mới tạo qua partner flow.
+                    Capacity = effectiveTotalSeats,
                     MaxLobbiesPerUserPerDay = 1,
                     MaxPlayersPerLobbySameDay = 30,
                     MaxPlayersPerLobby1Day = 20,
@@ -195,9 +210,12 @@ namespace BoardVerse.Services.Services
                 }).ToList(),
 
                 // Additional Info
-                NumberOfTables = cafe.NumberOfTables,
+                // FIX (2026-10-03): Derive từ navigation collections (đã Include) để luôn khớp DB.
+                // Cũ: NumberOfTables = cafe.NumberOfTables, NumberOfGamesOwned = cafe.NumberOfGamesOwned
+                //      → trả về 0 cho cafe mới tạo qua partner flow dù đã seed bàn + game.
+                NumberOfTables = numberOfTables,
                 NumberOfPrivateRooms = cafe.NumberOfPrivateRooms,
-                NumberOfGamesOwned = cafe.NumberOfGamesOwned,
+                NumberOfGamesOwned = numberOfGamesOwned,
                 HasGameMaster = cafe.HasGameMaster,
                 DistanceKm = distanceKm
             };

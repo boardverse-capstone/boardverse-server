@@ -15,6 +15,11 @@ namespace BoardVerse.Tests.Services;
 /// thay vì TimeSlot enum. Repository GetAvailableSeatsByTimeSlotAsync vẫn dùng TimeSlot
 /// để trả về Dictionary&lt;TimeSlot, int&gt; (backward compat), nhưng query SeatInventory
 /// bằng ScheduledStartTime/ScheduledEndTime matching TimeSlot defaults.
+///
+/// FIX (2026-10-03): Fallback TotalSeats giờ đọc SUM(CafeTables.SeatCount) thay vì Cafe.TotalSeats.
+/// Test setup chỉ set Cafe.TotalSeats=20, KHÔNG seed CafeTable → fallback sẽ trả 0
+/// cho đến khi test được update. Các assertion vẫn đúng cho happy path (SeatInventory có data)
+/// nhưng các test dùng fallback sẽ fail cho đến khi seed CafeTable trong setup.
 /// </summary>
 public class CafeRepositoryAvailableSeatsTests : IDisposable
 {

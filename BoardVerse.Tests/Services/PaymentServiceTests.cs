@@ -24,6 +24,7 @@ public class PaymentServiceTests
     private readonly Mock<ISePayAccountService> _mockSePayAccountService;
     private readonly Mock<IWalletService> _mockWalletService;
     private readonly Mock<IActiveSessionService> _mockActiveSessionService;
+    private readonly Mock<ISplitBillService> _mockSplitBillService; // FIX (2026-10-03): member-level webhook routing
     private readonly Mock<IPaymentWebhookAuditRepository> _mockWebhookAuditRepository;
     private readonly Mock<ILogger<PaymentService>> _mockLogger;
     private readonly PaymentService _service;
@@ -40,6 +41,7 @@ public class PaymentServiceTests
         _mockSePayAccountService = new Mock<ISePayAccountService>();
         _mockWalletService = new Mock<IWalletService>();
         _mockActiveSessionService = new Mock<IActiveSessionService>();
+        _mockSplitBillService = new Mock<ISplitBillService>(); // FIX (2026-10-03): member-level webhook routing
         _mockWebhookAuditRepository = new Mock<IPaymentWebhookAuditRepository>();
         _mockLogger = new Mock<ILogger<PaymentService>>();
 
@@ -75,6 +77,7 @@ public class PaymentServiceTests
             _mockSePayAccountService.Object,
             _mockWalletService.Object,
             _mockActiveSessionService.Object,
+            _mockSplitBillService.Object, // FIX (2026-10-03)
             _mockWebhookAuditRepository.Object,
             _mockLogger.Object);
     }

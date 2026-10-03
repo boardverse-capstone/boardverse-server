@@ -489,4 +489,266 @@ public class SettlementServiceTests
     }
 
     #endregion
+
+    #region GetDailySummaryAsync (W-07 daily summary)
+
+    /// <summary>
+    /// Helper: tạo cafe entity trong DbContext (in-memory) để service join được.
+    /// </summary>
+    private static Cafe BuildCafeDbEntity(Guid cafeId, string name, string? bankCode, string? accountNumber) => new()
+    {
+        Id = cafeId,
+        Name = name,
+        Address = "123 St",
+        ManagerId = Guid.NewGuid(),
+        SePayBankCode = bankCode,
+        SePayAccountNumber = accountNumber
+    };
+
+    /// <summary>
+    /// W-07: Không truyền date → mặc định lấy "hôm nay" theo giờ VN (UTC+7).
+    /// Service gọi repo với UTC range = [today 00:00 VN, tomorrow 00:00 VN).
+    /// </summary>
+    [Fact]
+    public async Task GetDailySummaryAsync_NoDate_DefaultsToTodayVietnam()
+    {
+        var cafeId = Guid.NewGuid();
+        var settlement = new CafeSettlement
+        {
+            Id = Guid.NewGuid(),
+            CafeId = cafeId,
+            Status = CafeSettlementStatus.Succeeded,
+            DepositAmount = 50_000m,
+            NetTransferAmount = 50_000m,
+            CreatedAt = DateTime.UtcNow,
+            TransferredAt = DateTime.UtcNow
+        };
+
+        _db.Cafes.Add(BuildCafeDbEntity(cafeId, "Cafe Test", "MBBank", "0855199924"));
+        await _db.SaveChangesAsync();
+
+        DateTime? capturedStart = null;
+        DateTime? capturedEnd = null;
+        _mockSettlementRepo
+            .Setup(r => r.GetForDailySummaryAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .Callback<DateTime, DateTime, CancellationToken>((s, e, _) =>
+            {
+                capturedStart = s;
+                capturedEnd = e;
+            })
+            .ReturnsAsync(new List<CafeSettlement> { settlement });
+
+        var result = await _service.GetDailySummaryAsync();
+
+        Assert.NotNull(capturedStart);
+        Assert.NotNull(capturedEnd);
+        // Khoảng cách giữa start và end = đúng 24 giờ.
+        Assert.Equal(TimeSpan.FromHours(24), capturedEnd!.Value - capturedStart!.Value);
+        Assert.Equal(cafeId, result.Cafes[0].CafeId);
+        Assert.Equal("Cafe Test", result.Cafes[0].CafeName);
+        Assert.Equal(50_000m, result.Cafes[0].TotalTransferred);
+        Assert.Equal(50_000m, result.Cafes[0].TotalToTransfer);
+        Assert.Equal(1, result.TotalSettlementCount);
+    }
+
+    /// <summary>
+    /// W-07: Có 1 cafe với nhiều settlement (Succeeded + Pending + Failed) → breakdown đúng từng status.
+    /// </summary>
+    [Fact]
+    public async Task GetDailySummaryAsync_GroupsByCafeAndBreaksDownByStatus()
+    {
+        var cafeId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+
+        var settlements = new List<CafeSettlement>
+        {
+            new() { Id = Guid.NewGuid(), CafeId = cafeId, Status = CafeSettlementStatus.Succeeded, DepositAmount = 50_000m, NetTransferAmount = 50_000m, CreatedAt = now, TransferredAt = now },
+            new() { Id = Guid.NewGuid(), CafeId = cafeId, Status = CafeSettlementStatus.Succeeded, DepositAmount = 50_000m, NetTransferAmount = 50_000m, CreatedAt = now, TransferredAt = now },
+            new() { Id = Guid.NewGuid(), CafeId = cafeId, Status = CafeSettlementStatus.Pending, DepositAmount = 30_000m, NetTransferAmount = 30_000m, CreatedAt = now },
+            new() { Id = Guid.NewGuid(), CafeId = cafeId, Status = CafeSettlementStatus.Failed, DepositAmount = 20_000m, NetTransferAmount = 20_000m, CreatedAt = now, FailureReason = "SePay timeout" }
+        };
+
+        _db.Cafes.Add(BuildCafeDbEntity(cafeId, "Cafe XYZ", "VCB", "1234567890"));
+        await _db.SaveChangesAsync();
+
+        _mockSettlementRepo
+            .Setup(r => r.GetForDailySummaryAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(settlements);
+
+        var result = await _service.GetDailySummaryAsync(new DateOnly(2026, 10, 3));
+
+        var cafeSummary = result.Cafes.Single(c => c.CafeId == cafeId);
+        Assert.Equal("Cafe XYZ", cafeSummary.CafeName);
+        Assert.Equal(4, cafeSummary.TotalCount);
+        Assert.Equal(150_000m, cafeSummary.TotalDepositAmount); // 50+50+30+20
+        Assert.Equal(100_000m, cafeSummary.TotalTransferred); // 50+50 (Succeeded)
+        Assert.Equal(30_000m, cafeSummary.TotalPending); // Pending 30
+        Assert.Equal(20_000m, cafeSummary.TotalFailed); // Failed 20
+        Assert.Equal(130_000m, cafeSummary.TotalToTransfer); // 100+30 (Succeeded+Pending)
+
+        // ByStatus: đủ 5 status (Pending/Succeeded/Failed/Retrying/Overridden) với count khớp.
+        Assert.Equal(5, cafeSummary.ByStatus.Count);
+        Assert.Equal(2, cafeSummary.ByStatus.Single(b => b.Status == CafeSettlementStatus.Succeeded).Count);
+        Assert.Equal(1, cafeSummary.ByStatus.Single(b => b.Status == CafeSettlementStatus.Pending).Count);
+        Assert.Equal(1, cafeSummary.ByStatus.Single(b => b.Status == CafeSettlementStatus.Failed).Count);
+        Assert.Equal(0, cafeSummary.ByStatus.Single(b => b.Status == CafeSettlementStatus.Retrying).Count);
+        Assert.Equal(0, cafeSummary.ByStatus.Single(b => b.Status == CafeSettlementStatus.Overridden).Count);
+        Assert.Equal(4, cafeSummary.SettlementIds.Count);
+    }
+
+    /// <summary>
+    /// W-07: Grand totals cộng đúng từ nhiều cafe, sort theo TotalToTransfer DESC.
+    /// </summary>
+    [Fact]
+    public async Task GetDailySummaryAsync_AggregatesGrandTotalsAndSortsByTotalDesc()
+    {
+        var cafeA = Guid.NewGuid();
+        var cafeB = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+
+        // Cafe B có số tiền nhỏ hơn A → sắp xếp A lên đầu.
+        var settlements = new List<CafeSettlement>
+        {
+            new() { Id = Guid.NewGuid(), CafeId = cafeA, Status = CafeSettlementStatus.Succeeded, DepositAmount = 100_000m, NetTransferAmount = 100_000m, CreatedAt = now, TransferredAt = now },
+            new() { Id = Guid.NewGuid(), CafeId = cafeB, Status = CafeSettlementStatus.Succeeded, DepositAmount = 20_000m, NetTransferAmount = 20_000m, CreatedAt = now, TransferredAt = now }
+        };
+
+        _db.Cafes.AddRange(
+            BuildCafeDbEntity(cafeA, "Cafe A", "VCB", "111"),
+            BuildCafeDbEntity(cafeB, "Cafe B", "MB", "222"));
+        await _db.SaveChangesAsync();
+
+        _mockSettlementRepo
+            .Setup(r => r.GetForDailySummaryAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(settlements);
+
+        var result = await _service.GetDailySummaryAsync(new DateOnly(2026, 10, 3));
+
+        Assert.Equal(2, result.CafeCount);
+        Assert.Equal(2, result.TotalSettlementCount);
+        Assert.Equal(120_000m, result.GrandTotalDeposit);
+        Assert.Equal(120_000m, result.GrandTotalTransferred);
+        Assert.Equal(120_000m, result.GrandTotalToTransfer);
+
+        // Sort: TotalToTransfer DESC → Cafe A (100k) trước Cafe B (20k).
+        Assert.Equal(cafeA, result.Cafes[0].CafeId);
+        Assert.Equal(cafeB, result.Cafes[1].CafeId);
+    }
+
+    /// <summary>
+    /// W-07: Trả về rỗng khi không có settlement nào trong ngày.
+    /// </summary>
+    [Fact]
+    public async Task GetDailySummaryAsync_NoSettlements_ReturnsEmptySummary()
+    {
+        _mockSettlementRepo
+            .Setup(r => r.GetForDailySummaryAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<CafeSettlement>());
+
+        var result = await _service.GetDailySummaryAsync(new DateOnly(2026, 10, 3));
+
+        Assert.Equal("2026-10-03", result.Date);
+        Assert.Equal(0, result.CafeCount);
+        Assert.Empty(result.Cafes);
+        Assert.Equal(0m, result.GrandTotalToTransfer);
+        Assert.Equal(0m, result.GrandTotalFailed);
+    }
+
+    /// <summary>
+    /// W-07: Truyền date cụ thể → repo nhận UTC range đúng cho ngày đó ở giờ VN.
+    /// Ví dụ: 2026-10-03 ở VN (UTC+7) = [2026-10-02 17:00:00Z, 2026-10-03 17:00:00Z).
+    /// </summary>
+    [Fact]
+    public async Task GetDailySummaryAsync_ExplicitDate_BuildsCorrectUtcRange()
+    {
+        DateTime? capturedStart = null;
+        DateTime? capturedEnd = null;
+        _mockSettlementRepo
+            .Setup(r => r.GetForDailySummaryAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .Callback<DateTime, DateTime, CancellationToken>((s, e, _) =>
+            {
+                capturedStart = s;
+                capturedEnd = e;
+            })
+            .ReturnsAsync(Array.Empty<CafeSettlement>());
+
+        await _service.GetDailySummaryAsync(new DateOnly(2026, 10, 3));
+
+        Assert.NotNull(capturedStart);
+        Assert.NotNull(capturedEnd);
+        // VN 2026-10-03 00:00 = UTC 2026-10-02 17:00.
+        Assert.Equal(new DateTime(2026, 10, 2, 17, 0, 0, DateTimeKind.Utc), capturedStart!.Value.ToUniversalTime());
+        // VN 2026-10-04 00:00 = UTC 2026-10-03 17:00.
+        Assert.Equal(new DateTime(2026, 10, 3, 17, 0, 0, DateTimeKind.Utc), capturedEnd!.Value.ToUniversalTime());
+    }
+
+    /// <summary>
+    /// W-07: Cafe entity không tồn tại trong DB (orphan settlement) → vẫn group được,
+    /// CafeName = null, SePay info = null.
+    /// </summary>
+    [Fact]
+    public async Task GetDailySummaryAsync_OrphanSettlement_GroupsWithNullCafeName()
+    {
+        var orphanCafeId = Guid.NewGuid();
+        var settlement = new CafeSettlement
+        {
+            Id = Guid.NewGuid(),
+            CafeId = orphanCafeId,
+            Status = CafeSettlementStatus.Failed,
+            DepositAmount = 10_000m,
+            NetTransferAmount = 10_000m,
+            CreatedAt = DateTime.UtcNow,
+            FailureReason = "Test"
+        };
+
+        // Không add cafe vào DbContext → join sẽ trả null.
+        _mockSettlementRepo
+            .Setup(r => r.GetForDailySummaryAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<CafeSettlement> { settlement });
+
+        var result = await _service.GetDailySummaryAsync(new DateOnly(2026, 10, 3));
+
+        var cafeSummary = result.Cafes.Single(c => c.CafeId == orphanCafeId);
+        Assert.Null(cafeSummary.CafeName);
+        Assert.Null(cafeSummary.SePayBankCode);
+        Assert.Null(cafeSummary.SePayAccountNumber);
+        Assert.Equal(10_000m, cafeSummary.TotalFailed);
+    }
+
+    /// <summary>
+    /// W-07: Overridden settlement vẫn được tính vào TotalToTransfer (admin đã xử lý thủ công).
+    /// </summary>
+    [Fact]
+    public async Task GetDailySummaryAsync_OverriddenSettlement_CountedInTotalToTransfer()
+    {
+        var cafeId = Guid.NewGuid();
+        var settlement = new CafeSettlement
+        {
+            Id = Guid.NewGuid(),
+            CafeId = cafeId,
+            Status = CafeSettlementStatus.Overridden,
+            DepositAmount = 80_000m,
+            NetTransferAmount = 80_000m,
+            CreatedAt = DateTime.UtcNow,
+            TransferredAt = DateTime.UtcNow,
+            OverrideBy = Guid.NewGuid(),
+            OverrideAt = DateTime.UtcNow
+        };
+
+        _db.Cafes.Add(BuildCafeDbEntity(cafeId, "Cafe Override", "VCB", "999"));
+        await _db.SaveChangesAsync();
+
+        _mockSettlementRepo
+            .Setup(r => r.GetForDailySummaryAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<CafeSettlement> { settlement });
+
+        var result = await _service.GetDailySummaryAsync(new DateOnly(2026, 10, 3));
+
+        var cafeSummary = result.Cafes.Single(c => c.CafeId == cafeId);
+        Assert.Equal(80_000m, cafeSummary.TotalOverridden);
+        Assert.Equal(80_000m, cafeSummary.TotalToTransfer); // Overridden vẫn tính
+        Assert.Equal(0m, cafeSummary.TotalTransferred); // Overridden KHÔNG tính vào Succeeded
+    }
+
+    #endregion
 }

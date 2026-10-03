@@ -1,3 +1,4 @@
+using BoardVerse.Core.DTOs.Pos;
 using BoardVerse.Core.DTOs.Session;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
@@ -778,6 +779,269 @@ public class ActiveSessionServiceTests
             () => service.MergeSessionAsync(cafeId, sourceSessionId, request));
 
         Assert.Contains("tựa game", ex.Message);
+    }
+
+    #endregion
+
+    #region GAP-EMPTY-SOURCE-01 (2026-10-03) — Auto-close empty source session after merge/split
+
+    [Fact]
+    public async Task MergeSessionAsync_LastMemberMerges_AutoClosesSourceSession()
+    {
+        // Arrange: Source có đúng 1 member (chính là member sẽ merge), target active.
+        // Sau khi merge, source rỗng → auto-close Status=Closed + release table/box.
+        var cafeId = Guid.NewGuid();
+        var sourceSessionId = Guid.NewGuid();
+        var targetSessionId = Guid.NewGuid();
+        var memberId = Guid.NewGuid();
+        var boxId = Guid.NewGuid();
+        var tableId = Guid.NewGuid();
+
+        var member = new ActiveSessionMember
+        {
+            Id = memberId,
+            ActiveSessionId = sourceSessionId,
+            UserId = Guid.NewGuid(),
+            Status = IndividualSessionStatus.Playing
+        };
+
+        var sourceSession = new ActiveSession
+        {
+            Id = sourceSessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Checking,
+            CafeTableId = tableId,
+            CafeInventoryBoxId = boxId,
+            IsCheckingInventory = true,
+            HasMissingComponents = false,
+            EndedAt = DateTime.UtcNow.AddMinutes(-2),
+            Members = new List<ActiveSessionMember> { member },
+            Games = new List<ActiveSessionGame>()
+        };
+
+        var targetSession = new ActiveSession
+        {
+            Id = targetSessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Active,
+            GameTemplateId = Guid.NewGuid(),
+            Members = new List<ActiveSessionMember>(),
+            Games = new List<ActiveSessionGame>(),
+            GameTemplate = new GameTemplate { Id = Guid.NewGuid(), Name = "Catan" },
+            CafeTable = new CafeTable { Id = Guid.NewGuid(), Name = "Table B" },
+            CafeInventoryBox = new CafeInventoryBox { Id = Guid.NewGuid(), Barcode = "BV-B" }
+        };
+
+        var repo = new Mock<IActiveSessionRepository>();
+        // MergeSessionAsync: GetByIdAsync(source), GetByIdAsync(target x2), GetByIdAsync(source - reload after close)
+        repo.Setup(r => r.GetByIdAsync(sourceSessionId, It.IsAny<CancellationToken>())).ReturnsAsync(sourceSession);
+        repo.SetupSequence(r => r.GetByIdAsync(targetSessionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(targetSession)
+            .ReturnsAsync(targetSession)
+            .ReturnsAsync(targetSession);
+        repo.Setup(r => r.GetMemberByIdAsync(memberId, It.IsAny<CancellationToken>())).ReturnsAsync(member);
+
+        // AutoCloseEmptySourceSessionAsync sẽ gọi: GetByIdAsync(source) - sequence trả source ban đầu
+        // rồi UpdateAsync + SaveChangesAsync + ReleaseSessionTableAndBoxAsync.
+        // Sau merge commit, member.ActiveSessionId đã chuyển sang target → reload trả về source rỗng.
+
+        var service = BuildServiceWithDb(repo);
+
+        var request = new MergeSessionRequestDto { MemberId = memberId, TargetSessionId = targetSessionId };
+
+        // Act
+        var result = await service.MergeSessionAsync(cafeId, sourceSessionId, request);
+
+        // Assert
+        Assert.NotNull(result);
+        // Source session phải được update Status=Closed
+        repo.Verify(r => r.UpdateAsync(It.Is<ActiveSession>(s =>
+            s.Id == sourceSessionId && s.Status == GroupSessionStatus.Closed)), Times.AtLeastOnce);
+        // Table/box phải được release
+        repo.Verify(r => r.ReleaseSessionTableAndBoxAsync(sourceSessionId, It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public async Task MergeSessionAsync_SourceStillHasOtherMembers_DoesNotCloseSource()
+    {
+        // Arrange: Source có 2 members, chỉ 1 merge sang target. Source còn 1 member Playing → KHÔNG close.
+        var cafeId = Guid.NewGuid();
+        var sourceSessionId = Guid.NewGuid();
+        var targetSessionId = Guid.NewGuid();
+        var mergeMemberId = Guid.NewGuid();
+        var stayBehindId = Guid.NewGuid();
+
+        var mergeMember = new ActiveSessionMember
+        {
+            Id = mergeMemberId,
+            ActiveSessionId = sourceSessionId,
+            UserId = Guid.NewGuid(),
+            Status = IndividualSessionStatus.Playing
+        };
+        var stayBehind = new ActiveSessionMember
+        {
+            Id = stayBehindId,
+            ActiveSessionId = sourceSessionId,
+            UserId = Guid.NewGuid(),
+            Status = IndividualSessionStatus.Playing
+        };
+
+        var sourceSession = new ActiveSession
+        {
+            Id = sourceSessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Checking,
+            Members = new List<ActiveSessionMember> { mergeMember, stayBehind },
+            Games = new List<ActiveSessionGame>()
+        };
+
+        var targetSession = new ActiveSession
+        {
+            Id = targetSessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Active,
+            GameTemplateId = Guid.NewGuid(),
+            Members = new List<ActiveSessionMember>(),
+            Games = new List<ActiveSessionGame>(),
+            GameTemplate = new GameTemplate { Id = Guid.NewGuid() },
+            CafeTable = new CafeTable { Id = Guid.NewGuid() },
+            CafeInventoryBox = new CafeInventoryBox { Id = Guid.NewGuid() }
+        };
+
+        var repo = new Mock<IActiveSessionRepository>();
+        repo.Setup(r => r.GetByIdAsync(sourceSessionId, It.IsAny<CancellationToken>())).ReturnsAsync(sourceSession);
+        repo.SetupSequence(r => r.GetByIdAsync(targetSessionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(targetSession)
+            .ReturnsAsync(targetSession);
+        repo.Setup(r => r.GetMemberByIdAsync(mergeMemberId, It.IsAny<CancellationToken>())).ReturnsAsync(mergeMember);
+
+        var service = BuildServiceWithDb(repo);
+        var request = new MergeSessionRequestDto { MemberId = mergeMemberId, TargetSessionId = targetSessionId };
+
+        // Act
+        await service.MergeSessionAsync(cafeId, sourceSessionId, request);
+
+        // Assert: KHÔNG có call UpdateAsync để set Status=Closed cho source
+        repo.Verify(r => r.UpdateAsync(It.Is<ActiveSession>(s =>
+            s.Id == sourceSessionId && s.Status == GroupSessionStatus.Closed)), Times.Never);
+        repo.Verify(r => r.ReleaseSessionTableAndBoxAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SplitSessionAsync_AllRemainingMembersMoved_AutoClosesSource()
+    {
+        // Arrange: Source Checking có 3 members, split 2 sang target. Còn 1 Playing → KHÔNG close.
+        // (Đây là test "không close" vì vẫn còn member — cover path ngược với test merge trên.)
+        var cafeId = Guid.NewGuid();
+        var sourceSessionId = Guid.NewGuid();
+        var targetSessionId = Guid.NewGuid();
+        var gameTemplateId = Guid.NewGuid();
+
+        var m1 = new ActiveSessionMember { Id = Guid.NewGuid(), ActiveSessionId = sourceSessionId, Status = IndividualSessionStatus.Playing };
+        var m2 = new ActiveSessionMember { Id = Guid.NewGuid(), ActiveSessionId = sourceSessionId, Status = IndividualSessionStatus.Playing };
+        var m3 = new ActiveSessionMember { Id = Guid.NewGuid(), ActiveSessionId = sourceSessionId, Status = IndividualSessionStatus.Playing };
+
+        var sourceSession = new ActiveSession
+        {
+            Id = sourceSessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Checking,
+            GameTemplateId = gameTemplateId,
+            Members = new List<ActiveSessionMember> { m1, m2, m3 },
+            Games = new List<ActiveSessionGame>()
+        };
+
+        var targetSession = new ActiveSession
+        {
+            Id = targetSessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Active,
+            GameTemplateId = gameTemplateId,
+            Members = new List<ActiveSessionMember>(),
+            Games = new List<ActiveSessionGame>(),
+            GameTemplate = new GameTemplate { Id = gameTemplateId, Name = "Catan" },
+            CafeTable = new CafeTable { Id = Guid.NewGuid(), Name = "Target Table" }
+        };
+
+        var repo = new Mock<IActiveSessionRepository>();
+        repo.Setup(r => r.GetByIdAsync(sourceSessionId, It.IsAny<CancellationToken>())).ReturnsAsync(sourceSession);
+        repo.SetupSequence(r => r.GetByIdAsync(targetSessionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(targetSession)
+            .ReturnsAsync(targetSession);
+        repo.Setup(r => r.UpdateMemberAsync(It.IsAny<ActiveSessionMember>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var service = BuildServiceWithDb(repo);
+        var request = new SplitSessionRequestDto
+        {
+            MemberIds = new List<Guid> { m1.Id, m2.Id }, // chỉ move 2, còn 1 ở lại
+            TargetSessionId = targetSessionId
+        };
+
+        // Act
+        await service.SplitSessionAsync(cafeId, sourceSessionId, request);
+
+        // Assert: source vẫn còn 1 Playing member → KHÔNG close
+        repo.Verify(r => r.UpdateAsync(It.Is<ActiveSession>(s =>
+            s.Id == sourceSessionId && s.Status == GroupSessionStatus.Closed)), Times.Never);
+    }
+
+    [Fact]
+    public async Task SplitSessionAsync_LastMembersMovedToTarget_AutoClosesSource()
+    {
+        // Arrange: Source Checking có 2 members, split cả 2 sang target. Source rỗng → auto-close.
+        var cafeId = Guid.NewGuid();
+        var sourceSessionId = Guid.NewGuid();
+        var targetSessionId = Guid.NewGuid();
+        var gameTemplateId = Guid.NewGuid();
+
+        var m1 = new ActiveSessionMember { Id = Guid.NewGuid(), ActiveSessionId = sourceSessionId, Status = IndividualSessionStatus.Playing };
+        var m2 = new ActiveSessionMember { Id = Guid.NewGuid(), ActiveSessionId = sourceSessionId, Status = IndividualSessionStatus.Playing };
+
+        var sourceSession = new ActiveSession
+        {
+            Id = sourceSessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Checking,
+            GameTemplateId = gameTemplateId,
+            IsCheckingInventory = true,
+            EndedAt = DateTime.UtcNow.AddMinutes(-1),
+            Members = new List<ActiveSessionMember> { m1, m2 },
+            Games = new List<ActiveSessionGame>()
+        };
+
+        var targetSession = new ActiveSession
+        {
+            Id = targetSessionId,
+            CafeId = cafeId,
+            Status = GroupSessionStatus.Active,
+            GameTemplateId = gameTemplateId,
+            Members = new List<ActiveSessionMember>(),
+            Games = new List<ActiveSessionGame>(),
+            GameTemplate = new GameTemplate { Id = gameTemplateId, Name = "Catan" },
+            CafeTable = new CafeTable { Id = Guid.NewGuid(), Name = "Target Table" }
+        };
+
+        var repo = new Mock<IActiveSessionRepository>();
+        repo.Setup(r => r.GetByIdAsync(sourceSessionId, It.IsAny<CancellationToken>())).ReturnsAsync(sourceSession);
+        repo.SetupSequence(r => r.GetByIdAsync(targetSessionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(targetSession)
+            .ReturnsAsync(targetSession);
+        repo.Setup(r => r.UpdateMemberAsync(It.IsAny<ActiveSessionMember>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var service = BuildServiceWithDb(repo);
+        var request = new SplitSessionRequestDto
+        {
+            MemberIds = new List<Guid> { m1.Id, m2.Id }, // move hết
+            TargetSessionId = targetSessionId
+        };
+
+        // Act
+        await service.SplitSessionAsync(cafeId, sourceSessionId, request);
+
+        // Assert: source rỗng → auto-close
+        repo.Verify(r => r.UpdateAsync(It.Is<ActiveSession>(s =>
+            s.Id == sourceSessionId && s.Status == GroupSessionStatus.Closed)), Times.AtLeastOnce);
+        repo.Verify(r => r.ReleaseSessionTableAndBoxAsync(sourceSessionId, It.IsAny<CancellationToken>()), Times.AtLeastOnce);
     }
 
     #endregion
@@ -2380,6 +2644,7 @@ public class ActiveSessionServiceTests
         var posHubService = new Mock<IPosHubService>();
         var extRequestRepo = new Mock<ISessionExtensionRequestRepository>();
         var pushService = new Mock<IPushNotificationService>();
+        var shiftService = new Mock<ICafeShiftService>();
         var db = new FakeDbContext();
         var logger = new Mock<ILogger<ActiveSessionService>>();
 
@@ -2393,7 +2658,7 @@ public class ActiveSessionServiceTests
             settlementService.Object, reservationService.Object, lobbyRepo.Object,
             reservationRepo.Object, walkInService.Object, outboxRepo.Object,
             walletService.Object, posHubService.Object, extRequestRepo.Object,
-            pushService.Object, db, logger.Object);
+            pushService.Object, shiftService.Object, db, logger.Object);
     }
 
     #endregion

@@ -50,9 +50,20 @@ public class CreateSePayAccountRequestDto
 
 /// <summary>
 /// [MANAGER] Tạo payment account cho cafe của mình.
-/// CHỈ 4 field bắt buộc — KHÔNG cần MerchantId/ApiKey/SecretKey/WebhookToken.
-/// Manager không cần đăng ký SePay merchant. BoardVerse sẽ tự detect giao dịch
-/// vào TK ngân hàng thật của cafe qua SePay webhook (bank_mode=all).
+///
+/// **2 chế độ:**
+/// - **Cơ bản** (Cách A): chỉ cần BankCode + AccountNumber + AccountHolder. SePay Master
+///   của BoardVerse sẽ tự detect giao dịch qua webhook (bank_mode=all) — KHÔNG cần đăng ký
+///   SePay merchant cho cafe.
+/// - **Cá nhân (SePay Personal)** (Cách B): Manager đăng ký merchant trên my.sepay.vn, lấy
+///   SecretKey rồi nhập vào DTO này. Mỗi cafe tự quản lý SePay riêng, webhook verify bằng
+///   SecretKey riêng của cafe đó. Phù hợp khi muốn tiền vào TK cafe trực tiếp, không qua
+///   BoardVerse master.
+///
+/// Field SePay (SecretKey/WebhookToken/WebhookAuthType/MerchantId/ApiBaseUrl) là OPTIONAL.
+/// Nếu KHÔNG nhập → dùng chế độ Cơ bản. Nếu nhập SecretKey → BoardVerse tự set
+/// WebhookAuthType=HmacSha256 (khuyến nghị). Nếu nhập WebhookToken (không có SecretKey) →
+/// BoardVerse tự set WebhookAuthType=ApiKey.
 /// </summary>
 public class CreateCafePaymentAccountRequestDto
 {
@@ -70,6 +81,37 @@ public class CreateCafePaymentAccountRequestDto
     /// Hầu hết cafe KHÔNG cần đụng field này.
     /// </summary>
     public string? Environment { get; set; }
+
+    // === SePay Personal per-cafe fields (OPTIONAL — chỉ cần khi cafe muốn SePay riêng) ===
+
+    /// <summary>
+    /// Secret Key từ my.sepay.vn → Merchant settings → Secret Key.
+    /// Nếu nhập field này, BoardVerse tự set <see cref="WebhookAuthType"/> = HmacSha256.
+    /// </summary>
+    public string? SecretKey { get; set; }
+
+    /// <summary>
+    /// Webhook Token từ my.sepay.vn → Webhook settings → API Key.
+    /// Chỉ dùng khi <see cref="WebhookAuthType"/> = ApiKey (không dùng HMAC).
+    /// </summary>
+    public string? WebhookToken { get; set; }
+
+    /// <summary>
+    /// Loại xác thực webhook cho cafe này. Mặc định None (dùng SePay Master company).
+    /// Khuyến nghị production nên set HmacSha256 (kèm SecretKey) hoặc ApiKey (kèm WebhookToken).
+    /// </summary>
+    public SePayWebhookAuthType? WebhookAuthType { get; set; }
+
+    /// <summary>
+    /// Merchant ID từ my.sepay.vn. Optional — chỉ cần khi cafe muốn gọi SePay API
+    /// (transfer/checkout) chứ không chỉ nhận webhook.
+    /// </summary>
+    public string? MerchantId { get; set; }
+
+    /// <summary>
+    /// Base URL của SePay API cho cafe. Mặc định https://pgapi.sepay.vn khi dùng SePay Personal.
+    /// </summary>
+    public string? ApiBaseUrl { get; set; }
 }
 
 /// <summary>

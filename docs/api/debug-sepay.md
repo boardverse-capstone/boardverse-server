@@ -25,6 +25,8 @@ Debug/test endpoints cho payment flow SePay. Dùng để:
 | `/test-deposit` | POST | Tạo đơn cọc test + generate VietQR |
 | `/mock-webhook` | POST | Simulate webhook nhận thanh toán |
 | `/test-page` | GET | HTML page tương tác để test end-to-end |
+| `/generate-signature` | POST | Sinh HMAC-SHA256 signature cho SePay checkout request |
+| `/preview-checkout` | POST | Preview VietQR checkout (QR URL + bank info echo) |
 
 ---
 
@@ -139,7 +141,9 @@ Simulate webhook nhận thanh toán từ SePay. Lookup `BookingDeposit` theo `or
 { "status": "deposit_marked_paid", "orderId": "BV-D-20260719120000" }
 ```
 
-> Khác với `/api/payments/sepay/webhook/mock`: endpoint này **trực tiếp update DB** thay vì qua `HandleSePayWebhookAsync`. Dùng cho dev test nhanh.
+> Khác với `/api/payments/sepay/webhook/mock`: endpoint này **route qua service layer** (`IBookingDepositService.MarkAsPaidAsync` / `MarkAsRefundedAsync`) để đảm bảo state validation + idempotency + transaction wrapping. Trước đây gán trực tiếp `deposit.Status = ...` → bypass service logic; đã refactor 2026-08.
+
+**Trả `200` (không `409`) cho idempotent replay:** Nếu service throw `ConflictException` (vd: deposit đã Paid), controller log warning + trả `200` với `status: "already_processed"` — tránh retry vĩnh viễn từ caller.
 
 ---
 
@@ -158,17 +162,96 @@ Simulate webhook nhận thanh toán từ SePay. Lookup `BookingDeposit` theo `or
 
 ---
 
+## POST /api/debug/sepay/generate-signature
+
+Sinh HMAC-SHA256 signature cho SePay checkout request. Dùng để debug/test — preview signature trước khi gọi SePay API thật, hoặc so sánh với signature SePay tự sinh ra để verify logic signing.
+
+**Spec §VI.1 (sepay-payment-flow.mdc):** dùng **CÙNG field order + skip-empty logic** với `SePayClient.GenerateSignature`. Nếu 2 bên lệch nhau → BoardVerse reject checkout + SePay mismatch → 401.
+
+**Body — `DebugSePayGenerateSignatureRequestDto`:**
+
+| Field | Required | Mô tả |
+|---|---|---|
+| `orderInvoiceNumber` | ✅ | Mã đơn (vd `BV12345678`). |
+| `orderAmount` | ✅ | Số tiền VND. |
+| `orderDescription` | No | Mô tả đơn. |
+| `customerId` | No | UserId khác hàng (boardverse internal). |
+
+**Response 200:**
+```json
+{
+  "orderInvoiceNumber": "BV12345678",
+  "signingString": "order_amount=20000&merchant=SP-XXXX&...",
+  "signature": "abc123base64==",
+  "orderAmount": 20000,
+  "currency": "VND",
+  "paymentMethod": "qr_vietqr",
+  "operation": "payment"
+}
+```
+
+| Field | Mô tả |
+|---|---|
+| `signingString` | Chuỗi canonical đã build (in ra để debug). |
+| `signature` | Base64 của HMAC-SHA256(SecretKey, signingString). |
+
+**Response codes:**
+- `200` — Signature hợp lệ
+- `400` — Thiếu `orderInvoiceNumber` hoặc amount ≤ 0
+- `404` — Debug endpoint không khả dụng (non-Development env)
+
+> **Tip debug:** Khi SePay báo "Invalid signature" → copy `signingString` ở response này, paste vào SePay debug tool để so sánh với chuỗi SePay tự build. Sai 1 field (order, encoding, separator) là fail.
+
+---
+
+## POST /api/debug/sepay/preview-checkout
+
+Preview VietQR checkout: sinh QR URL từ bank info của master account, KHÔNG tạo `BookingDeposit` / không gọi SePay. Dùng để kiểm tra bank info config đúng (bank code, account number, account holder) trước khi chạy payment flow thật.
+
+**Body — `DebugSePayPreviewCheckoutRequestDto`:**
+
+| Field | Required | Mô tả |
+|---|---|---|
+| `amount` | ✅ | Số tiền VND preview (> 0). |
+| `description` | No | Mô tả hiển thị trên QR (mặc định `BoardVerse preview`). |
+
+**Response 200:**
+```json
+{
+  "amount": 20000,
+  "currency": "VND",
+  "description": "BoardVerse preview",
+  "gateway": "VietQr",
+  "qrImageUrl": "https://vietqr.app/img?bank=MBBank&acc=...",
+  "paymentUrl": "https://vietqr.app/img?bank=MBBank&acc=...",
+  "bankCode": "MBBank",
+  "accountNumber": "****7890",
+  "accountHolder": "NGUYEN VAN A"
+}
+```
+
+> `accountNumber` trong response bị **mask** (chỉ 4 số cuối).
+
+**Response codes:**
+- `200` — Preview thành công
+- `400` — `amount <= 0` hoặc master account chưa config
+- `404` — Debug endpoint không khả dụng (non-Development env)
+
+---
+
 ## Debug guard
 
 ```csharp
 private bool IsDebugEnabled()
 {
-    return _env.IsDevelopment()
-        || string.Equals(Environment.GetEnvironmentVariable("ENABLE_DEBUG"), "true", StringComparison.OrdinalIgnoreCase);
+    // C9 (đã fix): gate CHỈ theo env Development.
+    // KHÔNG dùng env var ENABLE_DEBUG — vì có thể bị bật nhầm trong production
+    // qua runtime config hoặc secret injection.
+    return _env.IsDevelopment();
 }
 ```
 
-Mọi endpoint đều check `IsDebugEnabled()` ở đầu. Production tuyệt đối không bật `ENABLE_DEBUG=true`.
+Mọi endpoint đều check `IsDebugEnabled()` ở đầu method và trả `NotFound()` (404) nếu không ở Development. Production tuyệt đối không thể bật các endpoint này qua env var.
 
 ---
 

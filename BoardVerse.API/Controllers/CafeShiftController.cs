@@ -102,4 +102,26 @@ public class CafeShiftController : BaseApiController
         var result = await _shiftService.GetShiftHistoryAsync(cafeId, page, pageSize, userId, isAdmin);
         return this.NewResponse(200, ApiSuccessMessages.CafeShift.ShiftHistoryRetrieved, result);
     }
+
+    /// <summary>
+    /// Tính lại <c>TotalRevenue</c> + <c>TotalSessions</c> cho ca đã cho bằng cách SUM từ các
+    /// ActiveSession đã Paid thuộc quán trong cửa sổ thời gian của ca. [Role: Admin, Manager, CafeStaff]
+    /// Dùng để đối soát khi phát hiện doanh thu ca lệch so với thực tế (do deploy trước khi áp dụng
+    /// fix <c>RecordSessionPaymentAsync</c>, hoặc webhook SePay bị silent skip). Endpoint idempotent —
+    /// gọi nhiều lần vẫn cho cùng kết quả.
+    /// </summary>
+    /// <param name="shiftId">Mã định danh ca cần recalculate.</param>
+    /// <response code="200">Tính lại thành công, trả về thông tin ca sau khi update totals.</response>
+    /// <response code="401">Thiếu token, token hết hạn hoặc token không hợp lệ.</response>
+    /// <response code="403">Không có quyền vận hành quán của ca này.</response>
+    /// <response code="404">Không tìm thấy ca làm việc.</response>
+    /// <response code="500">Lỗi hệ thống không mong đợi.</response>
+    [HttpPost("{shiftId:guid}/recalculate")]
+    public async Task<IActionResult> RecalculateShift(Guid shiftId)
+    {
+        var userId = GetUserIdFromClaims();
+        var isAdmin = User.IsInRole("Admin");
+        var result = await _shiftService.RecalculateShiftTotalsAsync(shiftId, userId, isAdmin);
+        return this.NewResponse(200, ApiSuccessMessages.CafeShift.ShiftRecalculated, result);
+    }
 }

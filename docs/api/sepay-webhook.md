@@ -32,6 +32,11 @@ Nhận webhook từ SePay. Hệ thống xác thực signature **3 mode** theo `S
 > - HMAC-SHA256 dùng format chuẩn `sha256=HMAC(secret, "{timestamp}.{rawBody}")` với anti-replay ±300s
 
 **Request body (JSON, parse từ raw stream):**
+
+SePay gửi 1 trong 2 format tùy ngữ cảnh:
+
+**Format 1 — SePay Checkout/Payment (cũ):**
+
 ```json
 {
   "id": "webhook-event-id",
@@ -46,6 +51,27 @@ Nhận webhook từ SePay. Hệ thống xác thực signature **3 mode** theo `S
   "paid_at": "2026-07-14T10:00:00Z"
 }
 ```
+
+**Format 2 — SePay BankAPINotify (mới, SePay Personal):**
+
+```json
+{
+  "id": "<webhook-event-id>",
+  "gateway": "SePay",
+  "accountNumber": "1234567890",
+  "transferAmount": 20000,
+  "transferType": "in",
+  "transactionDate": "2026-10-03T10:00:00Z",
+  "content": "BV12345678",
+  "referenceCode": "REF-...",
+  "accumulated": 0,
+  "subAccount": null,
+  "bankCode": "MBBank",
+  "bankSubAccountId": null
+}
+```
+
+Controller sẽ tự `Normalize()` BankAPINotify → derive `OrderId` (từ `content`), `Status = "success"` (khi `transferType = "in"`), `Amount = transferAmount`, `GatewayTransactionId = id`, `PaidAt = transactionDate`. Handler downstream không phân biệt 2 format.
 
 **Lưu ý quan trọng:** Webhook controller đọc **raw body TR�ỚC** khi ASP.NET parse JSON, sau đó mới parse JSON từ raw string. Điều này đảm bảo signature HMAC được tính trên chính xác byte sequence SePay gửi, không bị parser reformat (escape, reorder key) làm vỡ hash.
 
@@ -150,7 +176,14 @@ URL SePay redirect user về sau khi thanh toán (success/cancel). Hiển thị 
 
 **Mock webhook cho dev/test** — tạo fake `SePayWebhookDto` rồi gọi `HandleSePayWebhookAsync` giống webhook thật.
 
-**⚠️ Chỉ dev/test — production phải disable** (gate bằng `Development` env hoặc feature flag `EnableMockPayments`).
+**⚠️ Chỉ dev/test — production phải disable.** Endpoint bị gate bởi **đồng thời 2 điều kiện**:
+
+| Điều kiện | Giá trị yêu cầu | Nguồn |
+|---|---|---|
+| `IHostEnvironment.IsDevelopment()` | `true` | `ASPNETCORE_ENVIRONMENT=Development` |
+| `PaymentGatewaySettings.EnableMockPayments` | `true` | `appsettings.{env}.json` |
+
+Mặc định `EnableMockPayments=false` trên mọi môi trường. Staging/prod fail cả 2 gate → trả `403 Forbidden`. Log warning ghi rõ env + flag state để debug.
 
 **Body:**
 ```json
@@ -163,7 +196,20 @@ URL SePay redirect user về sau khi thanh toán (success/cancel). Hiển thị 
 }
 ```
 
-**Response 200:** `{ "status": "ok", "webhook": {...} }`
+| Field | Required | Default |
+|---|---|---|
+| `orderId` | ✅ | — |
+| `status` | No | `success` |
+| `amount` | ✅ | — |
+| `referenceCode` | No | — |
+| `currency` | No | `VND` |
+
+**Response 200:** `{ "status": "ok" }`
+
+**Response codes:**
+- `200` — Mock webhook xử lý thành công
+- `403` — Endpoint bị block (không phải Development HOẶC `EnableMockPayments=false`). Trả `ApiErrorMessages.Payment.SePayMockEndpointBlocked`.
+- `500` — Lỗi xử lý nội bộ (DB / gateway). Trả `ApiErrorMessages.Payment.SePayMockWebhookProcessingFailed`.
 
 **Use case test:**
 
@@ -190,9 +236,19 @@ curl.exe -X POST http://localhost:5022/api/payments/sepay/webhook/mock \
 
 Webhook handler tìm kiếm theo thứ tự ưu tiên:
 
-1. `SePayTransactionId`
-2. `OrderId`
-3. `SessionId` / `OrderId` prefix (cho session payment)
+1. `SePayTransactionId` (lookup `BookingDeposit` hoặc `ActiveSession` theo mã GD bank)
+2. `OrderId` (lookup theo `BV-prefix` code)
+3. `SessionId` / `OrderId` prefix (cho session payment — `BV-MEMBER-*` route về `SplitBillService`)
+
+**Routing theo accountNumber (per-cafe SePay Personal):**
+
+Controller resolve `SePayAccount` phù hợp theo `(webhook.Gateway, webhook.AccountNumber)`:
+
+1. Lookup `SePayAccount` match cả `BankCode` + `AccountNumber` → dùng cafe account đó.
+2. Không match → dùng **Master Account** (BoardVerse central).
+3. Nếu cả 2 đều không có → trả `200 OK` + log warning (không fail webhook — tránh SePay retry vĩnh viễn).
+
+`WebhookAuthType` của account được resolve dùng để verify signature.
 
 ---
 

@@ -35,6 +35,48 @@ namespace BoardVerse.Data.Repositories
                 .FirstOrDefaultAsync(x => x.AccountType == SePayAccountType.Master && x.IsActive);
         }
 
+        /// <summary>
+        /// SePay Personal per-cafe routing: match BankCode + AccountNumber từ webhook payload.
+        /// - BankCode so khớp case-insensitive, chấp nhận alias phổ biến
+        ///   (SePay gửi "MBBank" / "Vietcombank" / "ACB" v.v.; BoardVerse store "MB" / "VCB" / "ACB").
+        /// - AccountNumber so khớp exact (sau khi trim + bỏ khoảng trắng).
+        /// </summary>
+        public async Task<SePayAccount?> GetCafeAccountByBankInfoAsync(
+            string bankCode,
+            string accountNumber,
+            CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(bankCode) || string.IsNullOrWhiteSpace(accountNumber))
+            {
+                return null;
+            }
+
+            var normalizedBank = NormalizeBankCode(bankCode);
+            var normalizedAccount = accountNumber.Trim().Replace(" ", string.Empty);
+
+            // Lấy tất cả cafe account active (số lượng nhỏ — mỗi cafe 1 account).
+            var candidates = await _db.SePayAccounts
+                .Where(x => x.AccountType == SePayAccountType.Cafe && x.IsActive)
+                .ToListAsync(cancellationToken);
+
+            return candidates.FirstOrDefault(x =>
+                x.AccountNumber != null
+                && x.AccountNumber.Trim().Replace(" ", string.Empty) == normalizedAccount
+                && NormalizeBankCode(x.BankCode) == normalizedBank);
+        }
+
+        private static string NormalizeBankCode(string? bankCode)
+        {
+            if (string.IsNullOrWhiteSpace(bankCode)) return string.Empty;
+            var normalized = bankCode.Trim().ToUpperInvariant();
+            // Strip "BANK" suffix: "MBBank" → "MB", "Vietcombank" → "VIETCOM".
+            if (normalized.EndsWith("BANK", StringComparison.Ordinal))
+            {
+                normalized = normalized.Substring(0, normalized.Length - 4);
+            }
+            return normalized;
+        }
+
         public async Task<IReadOnlyList<SePayAccount>> GetAllAsync(SePayAccountQuery? query = null, CancellationToken cancellationToken = default)
         {
             var queryable = _db.SePayAccounts

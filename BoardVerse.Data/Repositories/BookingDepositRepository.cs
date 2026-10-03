@@ -59,6 +59,26 @@ namespace BoardVerse.Data.Repositories
                 .FirstOrDefaultAsync(d => d.ActiveSessionId == activeSessionId);
         }
 
+        /// <summary>
+        /// BR-22 (override BR-09): Lấy TẤT CẢ BookingDeposit đã thanh toán (Status = Paid)
+        /// của 1 phiên chơi. Trả empty list nếu không có (walk-in session, hoặc group chưa đặt cọc).
+        /// </summary>
+        /// <remarks>
+        /// Per-member flow (BR-22): mỗi member trong group có thể có 1 BookingDeposit riêng,
+        /// gắn với cùng <c>ActiveSessionId</c> và <c>BookingGroupCode</c>. Trả về TẤT CẢ để
+        /// <c>PaySessionCoreAsync</c> phân bổ per-member (split mode) hoặc gộp vào tổng bill
+        /// (whole-table mode).
+        /// </remarks>
+        public async Task<IReadOnlyList<BookingDeposit>> GetPaidDepositsByActiveSessionIdAsync(
+            Guid activeSessionId,
+            CancellationToken cancellationToken = default)
+        {
+            return await _db.BookingDeposits
+                .Where(d => d.ActiveSessionId == activeSessionId
+                            && d.Status == BookingDepositStatus.Paid)
+                .ToListAsync(cancellationToken);
+        }
+
         public async Task<BookingDeposit?> GetBySePayTransactionIdAsync(string sePayTransactionId, CancellationToken cancellationToken = default)
         {
             return await _db.BookingDeposits

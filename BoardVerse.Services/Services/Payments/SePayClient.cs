@@ -33,8 +33,22 @@ public interface ISePayClient
     /// <summary>Chuyển tiền từ tài khoản trung tâm BoardVerse sang cafe (settlement).</summary>
     Task<SePayTransferResponse> CreateTransferAsync(CreateTransferRequest request, CancellationToken cancellationToken = default);
 
-    /// <summary>Xác minh webhook signature từ SePay (3 mode: None / ApiKey / HmacSha256).</summary>
+    /// <summary>
+    /// Xác minh webhook signature từ SePay. Backward-compat: luôn dùng Master account.
+    /// </summary>
     Task<bool> VerifyWebhookAsync(SePayWebhookVerificationRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Xác minh webhook với routing per-cafe (SePay Personal):
+    /// - Nếu gateway+accountNumber khớp 1 cafe SePay account đang cấu hình auth
+    ///   (WebhookAuthType != None) → verify bằng credentials của cafe đó.
+    /// - Ngược lại (không match hoặc cafe dùng None) → fallback về Master company.
+    /// </summary>
+    Task<bool> VerifyWebhookAsync(
+        SePayWebhookVerificationRequest request,
+        string? gateway,
+        string? accountNumber,
+        CancellationToken cancellationToken = default);
 }
 
 public class SePayClient : ISePayClient
@@ -123,27 +137,74 @@ public class SePayClient : ISePayClient
 
     public async Task<bool> VerifyWebhookAsync(SePayWebhookVerificationRequest request, CancellationToken cancellationToken = default)
     {
+        // Backward-compat: legacy callers (chỉ truyền request) luôn dùng Master account.
         var masterAccount = await GetMasterAccountAsync(cancellationToken);
+        return await VerifyInternalAsync(masterAccount, request, accountLabel: "Master");
+    }
 
-        // Mode None: dev/test only — luôn pass.
-        if (masterAccount.WebhookAuthType == SePayWebhookAuthType.None)
+    public async Task<bool> VerifyWebhookAsync(
+        SePayWebhookVerificationRequest request,
+        string? gateway,
+        string? accountNumber,
+        CancellationToken cancellationToken = default)
+    {
+        // 1. Nếu có gateway + accountNumber, tìm cafe account match
+        if (!string.IsNullOrWhiteSpace(gateway) && !string.IsNullOrWhiteSpace(accountNumber))
+        {
+            var cafeAccount = await _sepayAccountRepository.GetCafeAccountByBankInfoAsync(
+                gateway, accountNumber, cancellationToken);
+
+            if (cafeAccount != null
+                && cafeAccount.WebhookAuthType != SePayWebhookAuthType.None
+                && !string.IsNullOrEmpty(cafeAccount.SecretKey ?? cafeAccount.WebhookToken))
+            {
+                _logger.LogDebug(
+                    "SePay webhook routed to cafe account. CafeId={CafeId}, AccountId={AccountId}, AuthType={AuthType}",
+                    cafeAccount.CafeId, cafeAccount.Id, cafeAccount.WebhookAuthType);
+
+                return await VerifyInternalAsync(
+                    cafeAccount, request, accountLabel: $"Cafe:{cafeAccount.CafeId}");
+            }
+
+            if (cafeAccount != null)
+            {
+                _logger.LogDebug(
+                    "SePay webhook: cafe {CafeId} matched bank info but WebhookAuthType=None — falling back to Master.",
+                    cafeAccount.CafeId);
+            }
+        }
+
+        // 2. Fallback về Master account (SePay Company mode cũ)
+        var masterAccount = await GetMasterAccountAsync(cancellationToken);
+        return await VerifyInternalAsync(masterAccount, request, accountLabel: "Master");
+    }
+
+    private async Task<bool> VerifyInternalAsync(
+        SePayAccount account,
+        SePayWebhookVerificationRequest request,
+        string accountLabel)
+    {
+        // Mode None: dev/test only — luôn pass (trừ production).
+        if (account.WebhookAuthType == SePayWebhookAuthType.None)
         {
             if (!IsProductionLikeEnvironment())
             {
                 _logger.LogWarning(
-                    "SePay webhook verification SKIPPED (WebhookAuthType=None). Chỉ dùng cho dev/test. Production BẮT BUỘC set ApiKey hoặc HmacSha256.");
+                    "SePay webhook verification SKIPPED ({Label}, WebhookAuthType=None). Chỉ dùng cho dev/test. Production BẮT BUỘC set ApiKey hoặc HmacSha256.",
+                    accountLabel);
                 return true;
             }
 
             _logger.LogError(
-                "SePay webhook rejected in production: WebhookAuthType=None không được phép. Set WebhookAuthType=ApiKey hoặc HmacSha256.");
+                "SePay webhook rejected in production ({Label}, WebhookAuthType=None). Set WebhookAuthType=ApiKey hoặc HmacSha256.",
+                accountLabel);
             return false;
         }
 
-        return masterAccount.WebhookAuthType switch
+        return account.WebhookAuthType switch
         {
-            SePayWebhookAuthType.ApiKey => VerifyApiKey(masterAccount, request),
-            SePayWebhookAuthType.HmacSha256 => VerifyHmacSha256(masterAccount, request),
+            SePayWebhookAuthType.ApiKey => VerifyApiKey(account, request, accountLabel),
+            SePayWebhookAuthType.HmacSha256 => VerifyHmacSha256(account, request, accountLabel),
             _ => false
         };
     }
@@ -153,17 +214,17 @@ public class SePayClient : ISePayClient
     /// (SePay gửi nguyên WebhookToken, KHÔNG qua Base64).
     /// Caller truyền <c>request.Signature</c> = phần sau "Apikey ".
     /// </summary>
-    private bool VerifyApiKey(SePayAccount account, SePayWebhookVerificationRequest request)
+    private bool VerifyApiKey(SePayAccount account, SePayWebhookVerificationRequest request, string accountLabel = "Master")
     {
         if (string.IsNullOrWhiteSpace(account.WebhookToken))
         {
-            _logger.LogWarning("SePay webhook (ApiKey mode) rejected: WebhookToken is empty.");
+            _logger.LogWarning("SePay webhook (ApiKey mode, {Label}) rejected: WebhookToken is empty.", accountLabel);
             return false;
         }
 
         if (string.IsNullOrWhiteSpace(request.Signature))
         {
-            _logger.LogWarning("SePay webhook (ApiKey mode) rejected: signature header missing.");
+            _logger.LogWarning("SePay webhook (ApiKey mode, {Label}) rejected: signature header missing.", accountLabel);
             return false;
         }
 
@@ -177,7 +238,7 @@ public class SePayClient : ISePayClient
 
         if (!isValid)
         {
-            _logger.LogWarning("SePay webhook (ApiKey mode) signature mismatch.");
+            _logger.LogWarning("SePay webhook (ApiKey mode, {Label}) signature mismatch.", accountLabel);
         }
 
         return isValid;
@@ -186,20 +247,29 @@ public class SePayClient : ISePayClient
     /// <summary>
     /// HMAC-SHA256 mode (SePay khuyến nghị):
     ///   1. Header <c>X-SePay-Timestamp</c> phải có và trong khoảng ±300s của server time.
-    ///   2. Reconstruct <c>expected = "sha256=" + HMAC-SHA256(SecretKey, "{timestamp}.{rawBody}")</c>.
+    ///   2. Reconstruct <c>expected = "sha256=" + HMAC-SHA256(WebhookToken, "{timestamp}.{rawBody}")</c>.
+    ///      Lưu ý: SePay dùng <b>Webhook Secret Key</b> (prefix <c>whsec_</c>) để ký HMAC,
+    ///      KHÔNG phải API Secret Key (prefix <c>spsk_</c>) dùng cho Basic auth REST API.
+    ///      Field <c>SecretKey</c> chỉ dùng trong <c>CreateTransferAsync</c>.
     ///   3. So sánh với header <c>X-SePay-Signature</c> qua constant-time.
     /// </summary>
-    private bool VerifyHmacSha256(SePayAccount account, SePayWebhookVerificationRequest request)
+    private bool VerifyHmacSha256(SePayAccount account, SePayWebhookVerificationRequest request, string accountLabel = "Master")
     {
-        if (string.IsNullOrWhiteSpace(account.SecretKey))
+        // Đúng field cho webhook HMAC: WebhookToken (whsec_...).
+        // Fallback SecretKey để tương thích ngược với data cũ nhập nhầm.
+        var webhookSecret = !string.IsNullOrWhiteSpace(account.WebhookToken)
+            ? account.WebhookToken
+            : account.SecretKey;
+
+        if (string.IsNullOrWhiteSpace(webhookSecret))
         {
-            _logger.LogWarning("SePay webhook (HMAC-SHA256 mode) rejected: SecretKey is empty.");
+            _logger.LogWarning("SePay webhook (HMAC-SHA256 mode, {Label}) rejected: WebhookToken/SecretKey is empty.", accountLabel);
             return false;
         }
 
         if (string.IsNullOrWhiteSpace(request.Signature))
         {
-            _logger.LogWarning("SePay webhook (HMAC-SHA256 mode) rejected: X-SePay-Signature header missing.");
+            _logger.LogWarning("SePay webhook (HMAC-SHA256 mode, {Label}) rejected: X-SePay-Signature header missing.", accountLabel);
             return false;
         }
 
@@ -209,7 +279,7 @@ public class SePayClient : ISePayClient
 
         if (string.IsNullOrWhiteSpace(timestampValue) || !long.TryParse(timestampValue, out var unixSeconds))
         {
-            _logger.LogWarning("SePay webhook (HMAC-SHA256 mode) rejected: X-SePay-Timestamp header missing or invalid.");
+            _logger.LogWarning("SePay webhook (HMAC-SHA256 mode, {Label}) rejected: X-SePay-Timestamp header missing or invalid.", accountLabel);
             return false;
         }
 
@@ -218,14 +288,14 @@ public class SePayClient : ISePayClient
         if (Math.Abs(nowUnix - unixSeconds) > 300)
         {
             _logger.LogWarning(
-                "SePay webhook (HMAC-SHA256 mode) rejected: timestamp skew too large. Now={Now}, Provided={Provided}",
-                nowUnix, unixSeconds);
+                "SePay webhook (HMAC-SHA256 mode, {Label}) rejected: timestamp skew too large. Now={Now}, Provided={Provided}",
+                accountLabel, nowUnix, unixSeconds);
             return false;
         }
 
         // Reconstruct signature.
         var messageBytes = Encoding.UTF8.GetBytes($"{unixSeconds}.{request.RawBody}");
-        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(account.SecretKey));
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(webhookSecret));
         var computedHash = hmac.ComputeHash(messageBytes);
         var expectedSignature = "sha256=" + Convert.ToHexString(computedHash).ToLowerInvariant();
 
@@ -239,7 +309,7 @@ public class SePayClient : ISePayClient
 
         if (!isValid)
         {
-            _logger.LogWarning("SePay webhook (HMAC-SHA256 mode) signature mismatch.");
+            _logger.LogWarning("SePay webhook (HMAC-SHA256 mode, {Label}) signature mismatch.", accountLabel);
         }
 
         return isValid;

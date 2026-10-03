@@ -264,6 +264,10 @@ curl.exe "http://localhost:5022/api/v1/board-games/top5" | ConvertFrom-Json | Co
 
 Lấy toàn bộ thông tin chi tiết và danh sách linh kiện (AC 1.3).
 
+Trả về object `BoardGameDetailDto` (12 trường) — xem bảng **Trường response** bên dưới.
+
+**Optional auth:** Endpoint public (không bắt buộc đăng nhập). Nếu request có kèm JWT hợp lệ, response trả thêm field `isSaved` để client biết board game này có nằm trong danh sách yêu thích của player hiện tại hay không (giống `isSaved` trong survey endpoint và `active-cafes` endpoint).
+
 ### Path
 
 | Param | Mô tả |
@@ -299,10 +303,40 @@ GET /api/v1/board-games/66666666-6666-6666-6666-666666666666
       { "id": "a6666666-6666-6666-6666-666666666661", "componentName": "Thẻ nhân vật", "defaultQuantity": 10 },
       { "id": "a6666666-6666-6666-6666-666666666662", "componentName": "Token phiếu bầu (Approve/Reject)", "defaultQuantity": 20 },
       { "id": "a6666666-6666-6666-6666-666666666663", "componentName": "Token thực hiện nhiệm vụ (Success/Fail)", "defaultQuantity": 5 }
-    ]
+    ],
+    "isSaved": false
   }
 }
 ```
+
+### Trường response — `BoardGameDetailDto`
+
+| Field | Type | Nullable | Mô tả |
+|-------|------|----------|-------|
+| `id` | Guid | No | GUID board game (= `GameTemplates.Id`). |
+| `name` | string | No | Tên board game. Mặc định `string.Empty` nếu DB trả null. |
+| `thumbnailUrl` | string | Yes | URL ảnh thumbnail. `null` nếu game chưa có ảnh. |
+| `description` | string | Yes | Mô tả ngắn về game. `null` nếu chưa nhập. |
+| `minPlayers` | int | No | Số người chơi tối thiểu (theo `GameTemplates.MinPlayers`). |
+| `maxPlayers` | int | No | Số người chơi tối đa (theo `GameTemplates.MaxPlayers`). |
+| `playTime` | int | No | Thời gian chơi trung bình (phút). |
+| `createdAt` | DateTime (ISO 8601) | No | Thời điểm tạo board game (UTC). |
+| `updatedAt` | DateTime (ISO 8601) | No | Thời điểm cập nhật gần nhất (UTC). |
+| `categories` | `CategoryDto[]` | No | Thể loại đã gắn — map qua `GameCatalogMapper.MapCategories(game)`. Mặc định `[]` nếu game chưa gắn thể loại. |
+| `components` | `BoardGameComponentDto[]` | No | Linh kiện trong hộp — map qua `GameCatalogMapper.MapComponents(game.Components)`. Mặc định `[]` nếu chưa nhập. |
+| `isSaved` | bool | No | `true` nếu board game này đang nằm trong danh sách yêu thích (favorites) của player hiện tại. `false` nếu player chưa đăng nhập, chưa lưu game này, hoặc token không hợp lệ. Cùng luật resolve với field `isSaved` trong `DiscoveryBoardGameDto` (`POST /api/v1/discovery/survey`) và `ActiveCafesByBoardGameResponseDto` (`GET /api/v1/board-games/{id}/active-cafes`). Dùng để hiển thị icon "đã lưu / chưa lưu" trên UI detail. |
+
+> **Lưu ý JSON contract:** Response C# property `Name` (PascalCase) serialize thành `name` (camelCase) theo cấu hình JSON của API. Tương tự cho `ThumbnailUrl` → `thumbnailUrl`, `IsSaved` → `isSaved`, … Client (Flutter) parse theo camelCase.
+
+### Field `isSaved` — luật resolve
+
+| Tình huống | Giá trị `isSaved` |
+|-----------|-------------------|
+| Request không có token / token không hợp lệ (anonymous) | `false` (mặc định) |
+| Có token hợp lệ + user đã lưu game này vào `PlayerBoardGameSaves` | `true` |
+| Có token hợp lệ + user chưa lưu game này | `false` |
+
+Service **chỉ gọi** `IPlayerBoardGameSaveRepository.ExistsAsync` khi `userId` khác `null` — anonymous request **không** tốn query DB.
 
 **Lỗi:** `404` không tìm thấy hoặc game `IsActive = false`, `500` lỗi hệ thống.
 
@@ -367,7 +401,16 @@ GET /api/v1/board-games/11111111-1111-1111-1111-111111111111/active-cafes?name=c
 
 ### Response 200
 
-Trả về `PaginatedResponse<NearbyCafeDto>` (giống `GET /api/cafes/nearby`) — mỗi phần tử gồm:
+Trả về `ActiveCafesByBoardGameResponseDto` — wrap `PaginatedResponse<NearbyCafeDto>` kèm field top-level `isSaved` cho biết board game này có nằm trong danh sách yêu thích của player hiện tại hay không (giống field `isSaved` trong `DiscoveryBoardGameDto` của endpoint `POST /api/v1/discovery/survey`).
+
+**Cấu trúc top-level:**
+
+| Field | Type | Mô tả |
+|-------|------|-------|
+| `isSaved` | bool | `true` nếu board game trong URL đang nằm trong danh sách yêu thích của player hiện tại. `false` nếu player chưa đăng nhập, chưa lưu game này, hoặc token không hợp lệ. Đặt ở top-level (không nằm trong từng `cafes` item) vì là thuộc tính của *board game được truy vấn*, không phải của từng quán. Khi danh sách cafe rỗng, client vẫn cần `isSaved` để hiển thị icon save/unsave ở header trang detail game. |
+| `cafes` | `PaginatedResponse<NearbyCafeDto>` | Danh sách quán cafe đang ACTIVE có board game này trong kho. |
+
+**Cấu trúc `cafes.data[]` (mỗi `NearbyCafeDto`):**
 
 | Field | Mô tả |
 |-------|-------|
@@ -382,43 +425,51 @@ Trả về `PaginatedResponse<NearbyCafeDto>` (giống `GET /api/cafes/nearby`) 
 | `availableTableCount` / `totalTableCount` | Bàn còn trống / tổng bàn |
 | `meta` | Phân trang (currentPage, pageSize, totalItems, totalPages) |
 
+**Luật resolve `isSaved`:**
+- Request **không có token** (anonymous) → `isSaved = false` (player chưa có danh sách yêu thích).
+- Request **có token hợp lệ** → service query `PlayerBoardGameSaves` theo `(userId, gameTemplateId)`. Có row → `true`, không có row → `false`.
+- Service dùng `GetOptionalViewerContext()` ở controller để unwrap `userId` mà không throw 401 nếu request anonymous.
+
 ```json
 {
   "statusCode": 200,
   "message": "Lấy danh sách quán cafe có board game đang hoạt động thành công.",
   "data": {
-    "data": [
-      {
-        "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-        "name": "BoardVerse Cafe Thủ Đức",
-        "address": "12 Võ Văn Ngân",
-        "latitude": 10.85,
-        "longitude": 106.77,
-        "phoneNumber": "0901234567",
-        "description": "Quán board game chuyên Catan, Avalon.",
-        "createdAt": "2025-09-01T00:00:00Z",
-        "distanceMeters": 1250.5,
-        "totalSeats": 30,
-        "billingModel": "TimeBased",
-        "basePrice": 50000,
-        "tieredBlockRate": 10000,
-        "tieredBlockMinutes": 15,
-        "depositPercentage": 0.5,
-        "isPricingLocked": false,
-        "hasSePayConfigured": true,
-        "availableGameCount": 2,
-        "totalGameBoxCount": 3,
-        "availableTableCount": 4,
-        "totalTableCount": 6
+    "isSaved": false,
+    "cafes": {
+      "data": [
+        {
+          "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+          "name": "BoardVerse Cafe Thủ Đức",
+          "address": "12 Võ Văn Ngân",
+          "latitude": 10.85,
+          "longitude": 106.77,
+          "phoneNumber": "0901234567",
+          "description": "Quán board game chuyên Catan, Avalon.",
+          "createdAt": "2025-09-01T00:00:00Z",
+          "distanceMeters": 1250.5,
+          "totalSeats": 30,
+          "billingModel": "TimeBased",
+          "basePrice": 50000,
+          "tieredBlockRate": 10000,
+          "tieredBlockMinutes": 15,
+          "depositPercentage": 0.5,
+          "isPricingLocked": false,
+          "hasSePayConfigured": true,
+          "availableGameCount": 2,
+          "totalGameBoxCount": 3,
+          "availableTableCount": 4,
+          "totalTableCount": 6
+        }
+      ],
+      "meta": {
+        "currentPage": 1,
+        "pageSize": 20,
+        "totalItems": 1,
+        "totalPages": 1,
+        "hasPrevious": false,
+        "hasNext": false
       }
-    ],
-    "meta": {
-      "currentPage": 1,
-      "pageSize": 20,
-      "totalItems": 1,
-      "totalPages": 1,
-      "hasPrevious": false,
-      "hasNext": false
     }
   }
 }
@@ -698,7 +749,10 @@ curl.exe -I "http://localhost:5022/api/v1/board-games/thumbnail-proxy?url=https%
 |----|------|---------|
 | 1.1 Fuzzy search | `?search=avalon`, `?search=CATAN` | Trả đúng game, không phân biệt hoa/thường |
 | 1.2 Multi-filter | `category_ids` + `player_count` + `duration_range` | Kết quả thỏa tất cả tiêu chí |
-| 1.3 Chi tiết | `GET /api/v1/board-games/{id}` | Đủ ảnh, tên, mô tả, min/max người, `components[]` |
+| 1.3 Chi tiết | `GET /api/v1/board-games/{id}` | Đủ ảnh, tên, mô tả, min/max người, `components[]`, `isSaved` |
+| 1.3a Chi tiết — `isSaved` (anonymous) | `GET /{id}` không có token | 200 + `data.isSaved = false`; service KHÔNG gọi `PlayerBoardGameSaveRepository.ExistsAsync` |
+| 1.3b Chi tiết — `isSaved` (logged in, đã lưu) | `GET /{id}` có token + user đã lưu game này | 200 + `data.isSaved = true` |
+| 1.3c Chi tiết — `isSaved` (logged in, chưa lưu) | `GET /{id}` có token + user chưa lưu game này | 200 + `data.isSaved = false` |
 | 1.4 Thumbnail proxy (URL hợp lệ) | `GET /thumbnail-proxy?url=https://cf.geekdo-images.com/.../pic.png` | 200 + binary `image/png` + header `Cache-Control: public, max-age=86400` |
 | 1.5 Thumbnail proxy (host ngoài whitelist) | `?url=https://example.com/image.png` | 502 + `ThumbnailProxyFailed` |
 | 1.6 Thumbnail proxy (URL rỗng) | `?url=` | 400 + `ThumbnailUrlInvalid` |
@@ -721,6 +775,10 @@ curl.exe -I "http://localhost:5022/api/v1/board-games/thumbnail-proxy?url=https%
 | AC-8 Phân trang | `?pageNumber=2&pageSize=5` | 200 + `meta.currentPage=2`, `pageSize=5` |
 | AC-9 Board game thiếu 1 trong các filter kho | game có `CafeGameInventory.Status=Damaged` | Quán đó KHÔNG xuất hiện trong response |
 | AC-10 Quán bị `IsActive=false` | quán đã soft-delete | Quán đó KHÔNG xuất hiện trong response |
+| AC-11 `isSaved` (anonymous) | `GET /active-cafes` không có token | 200 + `data.isSaved = false`; service KHÔNG gọi `PlayerBoardGameSaveRepository.ExistsAsync` |
+| AC-12 `isSaved` (logged in, game đã lưu) | `GET /active-cafes` có token + user đã lưu game này | 200 + `data.isSaved = true` |
+| AC-13 `isSaved` (logged in, game chưa lưu) | `GET /active-cafes` có token + user chưa lưu game này | 200 + `data.isSaved = false` |
+| AC-14 `isSaved` resolve dù cafe rỗng | game tồn tại + 0 quán match + có token + user đã lưu | 200 + `data.cafes.data = []`, `data.isSaved = true` (resolve dù không có cafe) |
 
 ---
 
@@ -1150,6 +1208,23 @@ Thêm endpoint **mirror ngược** của `GET /api/cafes/{cafeId}/active-games`.
 | `BoardVerse.Core/IRepositories/ICafeRepository.cs` | Sửa | Thêm method `GetActiveCafesByBoardGameAsync` mirror ngược của `GetActiveGamesByCafeAsync`. |
 | `BoardVerse.Data/Repositories/CafeRepository.cs` | Sửa | Implement query: filter theo `Cafe.IsActive + PartnerOperationalStatus=Active + CafeGameInventory.{IsActive, Status ∈ {Available,InUse}} + GameTemplate.IsActive`; sort theo `DistanceMeters` khi có lat/lng, ngược lại sort theo tên. Đếm `AvailableGameCount`/`TotalGameBoxCount` từ `CafeInventoryBox` (vật lý). |
 | `BoardVerse.Core/DTOs/Game/ActiveCafesByBoardGameQueryDto.cs` | **Mới** | Query DTO: `Latitude`, `Longitude`, `Name`, `PageNumber`, `PageSize`. |
+| `BoardVerse.Core/DTOs/Game/ActiveCafesByBoardGameResponseDto.cs` | **Mới** | Response DTO: `IsSaved` (top-level) + `Cafes` (wrap `PaginatedResponse<NearbyCafeDto>`). Wrap (không trả thẳng `PaginatedResponse`) để đặt `isSaved` ở top-level — tránh trùng dữ liệu trên từng item cafe, và vẫn resolve được `isSaved` khi danh sách cafe rỗng. |
+| `BoardVerse.Core/IRepositories/IPlayerBoardGameSaveRepository.cs` | Sửa | Có sẵn `ExistsAsync(userId, gameTemplateId, ct)` — service dùng để resolve `isSaved`. |
 | `BoardVerse.Core/Messages/ApiSuccessMessages.cs` | Sửa | Thêm `BoardGame.ActiveCafesRetrieved`. |
-| `BoardVerse.Tests/Services/BoardGameServiceTests.cs` | Sửa | 6 unit test mới (404 khi game không tồn tại, fail-fast không gọi CafeRepository, có/không location, partial location, empty result). Cập nhật `BuildService` helper để inject `Mock<ICafeRepository>`. |
-| `docs/api/board-games.md` | Cập nhật | Tài liệu này — bổ sung section `GET /api/v1/board-games/{boardgameId}/active-cafes` (điều kiện filter, query params, response shape, error 404, AC checklist). |
+| `BoardVerse.Tests/Services/BoardGameServiceTests.cs` | Sửa | 4 unit test mới cho `isSaved` resolve (anonymous → false, logged-in saved → true, logged-in not-saved → false, empty cafes vẫn resolve isSaved). Cập nhật `BuildService` helper để inject `Mock<ICafeRepository>` + `Mock<IPlayerBoardGameSaveRepository>`. |
+| `docs/api/board-games.md` | Cập nhật | Tài liệu này — bổ sung section `GET /api/v1/board-games/{boardgameId}/active-cafes` (điều kiện filter, query params, response shape với `isSaved`, luật resolve `isSaved`, error 404, AC checklist 11–14 cho `isSaved`). |
+
+---
+
+## Tổng kết file đã thay đổi (build pass 2026-10-03) — `/{id}` thêm `isSaved`
+
+Bổ sung field `isSaved` vào `GET /api/v1/board-games/{id}` để client hiển thị icon save/unsave trên UI detail (giống pattern `isSaved` đã có ở `DiscoveryBoardGameDto` và `ActiveCafesByBoardGameResponseDto`). Endpoint vẫn public — `userId` optional; nếu có token hợp lệ thì service tra `PlayerBoardGameSaves` để set `IsSaved`, nếu không thì mặc định `false`.
+
+| File | Loại thay đổi | Ghi chú |
+|---|---|---|
+| `BoardVerse.Core/DTOs/Game/BoardGameDetailDto.cs` | Sửa | Thêm property `bool IsSaved` (default `false`). |
+| `BoardVerse.Services/IServices/IBoardGameService.cs` | Sửa | `GetBoardGameByIdAsync` thêm tham số `Guid? userId = null` (default `null` để không break caller cũ). |
+| `BoardVerse.Services/Services/BoardGameService.cs` | Sửa | Implementation: nếu `userId.HasValue` thì gọi `IPlayerBoardGameSaveRepository.ExistsAsync(userId, id, ct)` để set `IsSaved`; ngược lại `IsSaved = false`. Service **không** gọi repo khi `userId` null (tránh query DB thừa cho anonymous). `MapDetail` thêm parameter `bool isSaved = false`. |
+| `BoardVerse.API/Controllers/BoardGameController.cs` | Sửa | Action `GetBoardGameById` gọi `GetOptionalViewerContext()` để lấy `userId` từ JWT (nếu có), truyền xuống service. XML doc bổ sung mô tả `isSaved` + luật resolve. |
+| `BoardVerse.Tests/Services/BoardGameServiceTests.cs` | Sửa | 3 unit test mới cho `IsSaved` resolve: anonymous → false (verify repo KHÔNG được gọi), logged-in saved → true, logged-in not-saved → false. |
+| `docs/api/board-games.md` | Cập nhật | Tài liệu này — section `GET /api/v1/board-games/{id}` bổ sung bảng luật resolve `isSaved` (anonymous / saved / not-saved) + AC checklist 1.3a/1.3b/1.3c. |

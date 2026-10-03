@@ -23,8 +23,14 @@ public class SplitBillService : ISplitBillService
     private readonly ITransactionRepository _transactionRepository;
     private readonly ICafeRepository _cafeRepository;
     private readonly IPaymentGatewayService _paymentGateway;
+    private readonly ISePayAccountService _sePayAccountService;
     private readonly BoardVerseDbContext _dbContext;
     private readonly ILogger<SplitBillService> _logger;
+
+    // BR-CAFE-SHIFT-01 (SplitBill): inject để cộng TotalRevenue/TotalSessions real-time mỗi khi
+    // một member được paid (per-member QR webhook, staff xác nhận cash, staff xác nhận QR).
+    // Best-effort: nếu cafe chưa mở ca → skip + log warning, không fail payment.
+    private readonly ICafeShiftService? _shiftService;
 
     // Fix #2: Idempotency key repository
     private readonly IPaymentWebhookAuditRepository _webhookAuditRepository;
@@ -34,17 +40,21 @@ public class SplitBillService : ISplitBillService
         ITransactionRepository transactionRepository,
         ICafeRepository cafeRepository,
         IPaymentGatewayService paymentGateway,
+        ISePayAccountService sePayAccountService,
         BoardVerseDbContext dbContext,
         ILogger<SplitBillService> logger,
-        IPaymentWebhookAuditRepository webhookAuditRepository)
+        IPaymentWebhookAuditRepository webhookAuditRepository,
+        ICafeShiftService? shiftService = null)
     {
         _sessionRepository = sessionRepository;
         _transactionRepository = transactionRepository;
         _cafeRepository = cafeRepository;
         _paymentGateway = paymentGateway;
+        _sePayAccountService = sePayAccountService;
         _dbContext = dbContext;
         _logger = logger;
         _webhookAuditRepository = webhookAuditRepository;
+        _shiftService = shiftService;
     }
 
     public async Task<SessionPaymentStatusDto> GetSessionPaymentStatusAsync(
@@ -380,6 +390,12 @@ public class SplitBillService : ISplitBillService
                 session, member, MemberPaymentStatus.PaidQr, "QR_CODE",
                 txId, paidAt, webhook.OrderId, staffIdForWebhook: Guid.Empty, cancellationToken);
 
+            // BR-CAFE-SHIFT-01 (SplitBill): cộng doanh thu member vừa paid vào ca đang mở của quán.
+            // Best-effort: nếu cafe chưa mở ca hoặc _shiftService null → log + skip, không fail payment.
+            await TryRecordShiftPaymentAsync(
+                session.CafeId, session.Id, member.Id, member.TotalAmount,
+                paymentSource: "ProcessMemberQrWebhookAsync", cancellationToken);
+
             _logger.LogInformation(
                 "[Webhook Audit] Payment processed successfully. WebhookId={WebhookId}, MemberId={MemberId}, Amount={Amount}",
                 webhookId, memberId, webhook.Amount);
@@ -531,10 +547,18 @@ public class SplitBillService : ISplitBillService
 
         await ValidateStaffPermissionAsync(session.CafeId, staffId, actorRole, cancellationToken);
 
-        return await UpdateMemberPaymentStatusAsync(
+        var result = await UpdateMemberPaymentStatusAsync(
             session, member, MemberPaymentStatus.PaidQr, "QR_CODE",
             transactionId: null, paidAt: DateTime.UtcNow,
             orderId: null, staffIdForWebhook: staffId, cancellationToken);
+
+        // BR-CAFE-SHIFT-01 (SplitBill): cộng doanh thu member vừa paid (staff xác nhận QR) vào ca đang mở.
+        // Best-effort: nếu cafe chưa mở ca hoặc _shiftService null → log + skip, không fail payment.
+        await TryRecordShiftPaymentAsync(
+            session.CafeId, session.Id, member.Id, member.TotalAmount,
+            paymentSource: "ConfirmMemberQrAsync", cancellationToken);
+
+        return result;
     }
 
     /// <summary>
@@ -679,15 +703,41 @@ public class SplitBillService : ISplitBillService
         // Format: BV-MEMBER-{fullGuid}
         var orderId = $"BV-MEMBER-{member.Id:N}";
 
+        // FIX (2026-10-03): Nhúng OrderId vào Description để SePay BankAPINotify webhook
+        // có thể extract qua regex BV-MEMBER-{32-char}. Nếu không nhúng, content webhook
+        // chỉ là "Thanh toan cho {name}" → OrderId empty → webhook handler không match
+        // ActiveSessionMember → POS không cập nhật trạng thái.
+        //
+        // FIX (2026-10-03): Ưu tiên đọc từ SePayAccount entity (giống PaymentService.CreateSessionPaymentAsync).
+        // KHÔNG fallback về local fields Cafe.SePayBankCode/SePayAccountNumber — nếu cafe chưa
+        // tạo SePayAccount qua endpoint manager thì throw "PaymentCafeNotConfiguredSePay" để
+        // hành vi split bill đồng nhất với session payment.
+        var bankCode = string.Empty;
+        var accountNumber = string.Empty;
+
+        if (cafe.SePayAccountId.HasValue)
+        {
+            var sepayAccount = await _sePayAccountService.GetRawByCafeIdAsync(cafe.Id);
+            if (sepayAccount != null)
+            {
+                bankCode = sepayAccount.BankCode ?? string.Empty;
+                // Dùng raw AccountNumber cho VietQR
+                accountNumber = sepayAccount.AccountNumber ?? string.Empty;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(bankCode) || string.IsNullOrWhiteSpace(accountNumber))
+        {
+            throw new PaymentException(ApiErrorMessages.Payment.PaymentCafeNotConfiguredSePay(cafe.Name));
+        }
+
         var gatewayRequest = new PaymentGatewayRequest
         {
             OrderId = orderId,
             Amount = member.TotalAmount,
-            Description = $"Thanh toan cho {member.GuestDisplayName ?? member.User?.Username ?? "Khach"}",
-            BankCode = cafe.SePayBankCode ?? throw new InvalidOperationException(
-                $"Cafe '{cafe.Name}' chưa cấu hình SePay bank code."),
-            AccountNumber = cafe.SePayAccountNumber ?? throw new InvalidOperationException(
-                $"Cafe '{cafe.Name}' chưa cấu hình SePay account number."),
+            Description = $"{orderId} Thanh toan cho {member.GuestDisplayName ?? member.User?.Username ?? "Khach"}",
+            BankCode = bankCode,
+            AccountNumber = accountNumber,
             AccountName = cafe.Name,
             Metadata = new Dictionary<string, string?>
             {
@@ -769,6 +819,12 @@ public class SplitBillService : ISplitBillService
             transaction.Id, now, orderId: null, staffIdForWebhook: staffId, cancellationToken);
 
         response.AmountPaid = member.TotalAmount;
+
+        // BR-CAFE-SHIFT-01 (SplitBill): cộng doanh thu cash member vào ca đang mở của quán.
+        // Best-effort: nếu cafe chưa mở ca hoặc _shiftService null → log + skip, không fail payment.
+        await TryRecordShiftPaymentAsync(
+            cafeId, session.Id, member.Id, member.TotalAmount,
+            paymentSource: "ConfirmMemberCashInternalAsync", cancellationToken);
 
         return response;
     }
@@ -915,16 +971,46 @@ public class SplitBillService : ISplitBillService
         ActiveSession session,
         CancellationToken cancellationToken)
     {
-        var updatedSession = await _sessionRepository.GetByIdWithMembersAsync(session.Id);
-        if (updatedSession == null) return;
+        // CRITICAL FIX (2026-10-03): Phải dùng AsNoTracking() khi re-fetch sau atomic flip.
+        //
+        // TryAtomicFlipMemberPaymentStatusAsync dùng ExecuteUpdateAsync (Postgres path)
+        // bypass change tracker. Nhưng trong loop PayMembersAsync (multi-member):
+        //   - Iter 1: re-fetch load M1_1, M1_2, M1_3 (tracked)
+        //   - Iter 2: re-fetch → EF identity resolution trả về CÙNG M1_1/2/3
+        //             (với PaymentStatus stale từ DB snapshot của iter 1)
+        //   - Iter 3: tương tự, các tracked members đều stale → allPaid = false
+        //             → session KHÔNG flip sang Paid, member KHÔNG IsCheckedOut.
+        //
+        // Detach trong UpdateMemberPaymentStatusAsync chỉ detach ORIGINAL session.Members
+        // (từ fetch đầu ở PayMembersAsync), KHÔNG detach các members được load bởi
+        // CheckAndFinalizeSessionAsync ở iter trước. AsNoTracking trên root không
+        // đủ — Include(s => s.Members) có thể vẫn trả tracked instances cho
+        // collection navigation đã được load trước đó (identity map cache).
+        //
+        // Giải pháp chắc chắn: tách thành 2 query riêng biệt, cả hai đều AsNoTracking.
+        // - Query 1: chỉ load session fields cần check (Status).
+        // - Query 2: load members với AsNoTracking — KHÔNG qua Include nên identity
+        //   map không thể trả instance cũ.
+        var sessionStatus = await _dbContext.ActiveSessions
+            .AsNoTracking()
+            .Where(s => s.Id == session.Id)
+            .Select(s => (GroupSessionStatus?)s.Status)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (sessionStatus == null) return;
 
         // Fix #3: Kiểm tra idempotency — nếu session đã Paid thì không cần finalize lại
-        if (updatedSession.Status == GroupSessionStatus.Paid)
+        if (sessionStatus == GroupSessionStatus.Paid)
         {
             return;
         }
 
-        var allPaid = updatedSession.Members
+        var members = await _dbContext.ActiveSessionMembers
+            .AsNoTracking()
+            .Where(m => m.ActiveSessionId == session.Id)
+            .Select(m => new { m.PaymentStatus, m.Status })
+            .ToListAsync(cancellationToken);
+
+        var allPaid = members.Count > 0 && members
             .All(m => m.PaymentStatus != MemberPaymentStatus.NotPaid ||
                       m.Status == IndividualSessionStatus.Finished);
 
@@ -1041,6 +1127,47 @@ public class SplitBillService : ISplitBillService
     // Fix #8: Decimal comparison với tolerance 1 VND
     private static bool AmountEquals(decimal a, decimal b, decimal tolerance = 1m)
         => Math.Abs(a - b) <= tolerance;
+
+    /// <summary>
+    /// BR-CAFE-SHIFT-01 (SplitBill): cộng doanh thu + 1 phiên vào ca đang mở của quán khi 1 member paid.
+    /// Best-effort: nếu <c>_shiftService</c> == null (DI misconfig / test cũ) → log CRITICAL và skip;
+    /// nếu cafe chưa mở ca → <c>RecordSessionPaymentAsync</c> skip + log warning nội bộ.
+    /// Không bao giờ throw để tránh fail payment của khách.
+    /// </summary>
+    private async Task TryRecordShiftPaymentAsync(
+        Guid cafeId,
+        Guid sessionId,
+        Guid memberId,
+        decimal memberAmount,
+        string paymentSource,
+        CancellationToken cancellationToken)
+    {
+        if (_shiftService == null)
+        {
+            // DI misconfiguration: production 9-param constructor inject ICafeShiftService.
+            // Nếu tới đây _shiftService == null → fallback sang test cũ không inject
+            // → shift totals sẽ KHÔNG update → drift giữa cash vs reported revenue.
+            // Log CRITICAL để alert ops team fix DI ngay.
+            _logger.LogCritical(
+                "BR-CAFE-SHIFT-01 DI GAP (SplitBill): _shiftService is null in SplitBillService. " +
+                "Shift totals will NOT be updated for cafe {CafeId} session {SessionId} member {MemberId} amount {Amount} from {Source}. " +
+                "Investigate DI registration — production must inject ICafeShiftService.",
+                cafeId, sessionId, memberId, memberAmount, paymentSource);
+            return;
+        }
+
+        try
+        {
+            await _shiftService.RecordSessionPaymentAsync(cafeId, memberAmount, cancellationToken);
+        }
+        catch (Exception shiftEx)
+        {
+            _logger.LogWarning(shiftEx,
+                "BR-CAFE-SHIFT-01: Failed to update shift totals for cafe {CafeId} after split-bill member payment (session {SessionId}, member {MemberId}, amount {Amount}, source {Source}). " +
+                "Payment already committed; admin can reconcile via the recalculate endpoint.",
+                cafeId, sessionId, memberId, memberAmount, paymentSource);
+        }
+    }
 
     #endregion
 }

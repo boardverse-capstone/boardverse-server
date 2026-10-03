@@ -1,4 +1,5 @@
-﻿using BoardVerse.Core.Entities;
+﻿using BoardVerse.Core.Constants;
+using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
 using BoardVerse.Data;
 using BoardVerse.Services.IServices;
@@ -122,6 +123,40 @@ public class LobbyNotificationJob : BackgroundService
         string GetCafeName(Lobby l) =>
             l.CafeId.HasValue && cafeNameById.TryGetValue(l.CafeId.Value, out var n) ? n : "";
 
+        // FIX TZ-LOBBY-NOTIF-01 (2026-10-03): trả về DateTime Kind=Utc đại diện cho
+        // scheduledStart của lobby, dùng được trong phép so sánh với `DateTime.UtcNow`.
+        //
+        // Thứ tự ưu tiên:
+        //  1. `lobby.ScheduledStartTime` (MIRROR từ Reservation.ScheduledStartTime, đã là Kind=Utc
+        //     sau TZ-DT-UTC-02 2026-10-02). Áp dụng cho lobby tạo sau fix.
+        //  2. `BuildScheduledStartEndFromPreferred(playDate, preferredStart, preferredEnd)` —
+        //     build lại Kind=Utc từ raw VN local inputs. Áp dụng cho lobby cũ chưa có
+        //     ScheduledStartTime (lobby legacy hoặc pre-fix data).
+        //
+        // Sau khi có Kind=Utc, mọi phép so sánh với `DateTime.UtcNow` (Kind=Utc) trong
+        // ProcessMilestoneAsync đều cho kết quả chính xác — không còn lệch 7 giờ.
+        DateTime ResolveScheduledStartUtc(Lobby l)
+        {
+            if (l.ScheduledStartTime.HasValue)
+            {
+                // Nếu data cũ vẫn còn Kind=Unspecified (raw VN local), ToUtcAssumingVietnamLocal sẽ
+                // convert đúng theo convention của project. Nếu Kind=Utc thì trả nguyên giá trị.
+                return CafeSchedule.ToUtcAssumingVietnamLocal(l.ScheduledStartTime.Value);
+            }
+
+            if (l.PlayDate.HasValue && l.PreferredStartTime.HasValue)
+            {
+                var endTime = l.PreferredEndTime ?? l.PreferredStartTime.Value;
+                var (start, _) = CafeSchedule.BuildScheduledStartEndFromPreferred(
+                    l.PlayDate.Value, l.PreferredStartTime.Value, endTime);
+                return start;
+            }
+
+            // Fallback: trả DateTime.MinValue (Kind=Utc) để ProcessMilestoneAsync check `referenceTime.HasValue`
+            // và skip — an toàn hơn throw exception trong hot path.
+            return DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc);
+        }
+
         foreach (var lobby in lobbies)
         {
             var currentPlayers = lobby.Members.Count(m => m.IsActive);
@@ -148,9 +183,18 @@ public class LobbyNotificationJob : BackgroundService
                 ct);
 
             // ── Milestone 3: 2h trước preferredStartTime → host + members ──
+            // FIX TZ-LOBBY-NOTIF-01 (2026-10-03): trước đây dùng
+            // `lobby.PlayDate.Value.ToDateTime(lobby.PreferredStartTime.Value)` trả DateTime
+            // Kind=Unspecified, raw ticks = VN local wall clock. Khi so sánh với `DateTime.UtcNow`
+            // (Kind=Utc) trong ProcessMilestoneAsync, C# KHÔNG tự convert Kind → raw tick subtraction
+            // cho kết quả sai lệch 7 giờ (lobby tối 20:45 VN sẽ trigger sớm 7 tiếng).
+            //
+            // Sau fix: ưu tiên dùng `lobby.ScheduledStartTime` (MIRROR từ Reservation.ScheduledStartTime,
+            // đã là Kind=Utc sau TZ-DT-UTC-02 2026-10-02). Nếu lobby cũ chưa có, fallback về
+            // `BuildScheduledStartEndFromPreferred` để build Kind=Utc đúng quy ước.
             if (lobby.PreferredStartTime.HasValue && lobby.PlayDate.HasValue)
             {
-                var scheduledTime = lobby.PlayDate.Value.ToDateTime(lobby.PreferredStartTime.Value);
+                var scheduledTime = ResolveScheduledStartUtc(lobby);
                 await ProcessMilestoneAsync(
                     lobby, hostUserId, currentPlayers,
                     LobbyNotificationMilestone.At2hPreferredStart,
@@ -164,7 +208,7 @@ public class LobbyNotificationJob : BackgroundService
             // ── Milestone 4: 30p trước preferredStartTime → host + members ──
             if (lobby.PreferredStartTime.HasValue && lobby.PlayDate.HasValue)
             {
-                var scheduledTime = lobby.PlayDate.Value.ToDateTime(lobby.PreferredStartTime.Value);
+                var scheduledTime = ResolveScheduledStartUtc(lobby);
                 await ProcessMilestoneAsync(
                     lobby, hostUserId, currentPlayers,
                     LobbyNotificationMilestone.At30mPreferredStart,

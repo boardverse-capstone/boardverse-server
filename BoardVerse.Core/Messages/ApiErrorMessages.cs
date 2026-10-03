@@ -1059,6 +1059,16 @@ $"Quán này chưa có trong hệ thống. Bạn kiểm tra lại nhé!";
 public static string DebugSePayCafeNotFoundShort(Guid cafeId) =>
 $"Không tìm thấy quán này.";
 
+public static string DebugSePayNoCafeAvailable(Guid? cafeId) =>
+    cafeId.HasValue
+        ? $"Không tìm thấy quán với GUID '{cafeId}'. Kiểm tra lại hoặc bỏ query ?cafeId=... để auto-pick cafe đầu tiên trong DB."
+        : "DB chưa có quán nào. Hãy tạo 1 cafe qua POST /api/cafes trước, hoặc truyền ?cafeId=<guid> để chỉ định quán cụ thể.";
+
+public static string DebugSePayNoCafeAvailableShort(Guid? cafeId) =>
+    cafeId.HasValue
+        ? $"Không tìm thấy quán '{cafeId}'."
+        : "DB chưa có quán nào. Hãy tạo 1 cafe trước.";
+
 public const string SePayResponseInvalid =
 "Phản hồi từ cổng thanh toán không hợp lệ. Bạn thử lại nhé!";
 
@@ -1181,6 +1191,15 @@ $"Quán đã có cấu hình thanh toán. Dùng chức năng cập nhật để 
 
 public const string SePayBankInfoIncomplete =
 "Cấu hình thanh toán của quán chưa đầy đủ (thiếu thông tin ngân hàng). Bạn cập nhật lại nhé!";
+
+public const string SePaySecretKeyRequired =
+"Chế độ xác thực HMAC-SHA256 yêu cầu SecretKey. Vui lòng nhập SecretKey lấy từ my.sepay.vn → Merchant settings.";
+
+public const string SePayWebhookTokenRequired =
+"Chế độ xác thực ApiKey yêu cầu WebhookToken. Vui lòng nhập API Key lấy từ my.sepay.vn → Webhook settings.";
+
+public static string SePayPersonalSetupGuide(Uri dashboardUrl) =>
+$"Để kích hoạt SePay Personal cho quán: (1) Đăng ký merchant tại {dashboardUrl}; (2) Lấy Secret Key từ Merchant settings; (3) Nhập Secret Key vào ô SecretKey khi cập nhật cấu hình thanh toán. Sau đó BoardVerse sẽ tự động verify webhook bằng SecretKey riêng của quán.";
  }
 
  public static class BoardGame
@@ -2537,7 +2556,14 @@ public static class LobbyMerge
         "Phòng nhận (Nhóm B) phải đang ở trạng thái đang chơi (InProgress) hoặc đã đủ người (Viable) để ghép thành viên.";
 
     public const string TargetSessionNotFound =
-        "Không tìm thấy phiên chơi của phòng nhận. Vui lòng báo đội kỹ thuật.";
+        "Không tìm thấy phiên chơi đang chạy (Active) của phòng nhận. " +
+        "Phòng nhận cần ở trạng thái lobby = InProgress và đã có ActiveSession với Status = Active. " +
+        "Vui lòng kiểm tra: (1) phòng nhận đã check-in tại quán và đang chơi chưa, " +
+        "(2) phiên chơi có còn đang chạy hay đã đóng (Checking/Unpaid/Paid) hay chưa bắt đầu.";
+
+    public static string TargetSessionInWrongState(string actualStatus) =>
+        $"Phòng nhận có phiên chơi nhưng đang ở trạng thái '{actualStatus}', không phải Active. " +
+        "Chỉ ghép được khi phiên chơi đang chạy (Active). Vui lòng kiểm tra trạng thái phiên trên POS trước khi duyệt.";
 
     public const string MergeCannotCrossCafes =
         "Không thể ghép thành viên sang phòng của quán khác. Hai nhóm phải cùng một quán.";
@@ -2572,11 +2598,14 @@ public static class LobbyMerge
     // kiểm kê linh kiện + trả game về quán trước khi ghép (theo BR Exception 4).
     // Trước đây cả 2 case dùng chung MergeDifferentGames → staff không biết phải làm gì
     // tiếp theo, đặc biệt khi 2 lobby cùng tên game trong UI nhưng khác GameTemplateId.
-    public static string MergeSourceBoxNotCheckedYet(string sourceGameName, string targetGameName) =>
-        $"Bàn nguồn đang chơi '{sourceGameName}' nhưng chưa hoàn tất kiểm kê linh kiện (Component Check). " +
-        $"Game này khác với game '{targetGameName}' của bàn đích. " +
-        $"Vui lòng kiểm kê linh kiện và trả game về quán trước khi ghép nhóm, " +
-        $"hoặc chọn bàn nguồn đang chơi cùng game với bàn đích.";
+    public static string MergeSourceBoxNotCheckedYet(string sourceGameName, string targetGameName, bool isSameGame) =>
+        isSameGame
+            ? $"Bàn nguồn đang chơi '{sourceGameName}' nhưng chưa hoàn tất kiểm kê linh kiện (Component Check). " +
+              $"Vui lòng kiểm kê linh kiện và trả game về quán trước khi ghép nhóm."
+            : $"Bàn nguồn đang chơi '{sourceGameName}' nhưng chưa hoàn tất kiểm kê linh kiện (Component Check). " +
+              $"Game này khác với game '{targetGameName}' của bàn đích. " +
+              $"Vui lòng kiểm kê linh kiện và trả game về quán trước khi ghép nhóm, " +
+              $"hoặc chọn bàn nguồn đang chơi cùng game với bàn đích.";
 
     public const string ReservationAlreadyAbsorbed =
         "Nhóm nguồn đã được ghép vào nhóm khác trước đó. Không thể ghép lại.";
@@ -3377,7 +3406,7 @@ public static string CannotAdvanceRoundFinalAlreadyBuilt(Guid tournamentId) =>
         "Vui lòng hoàn thành hoặc hủy các bàn đấu hiện tại trước khi thay đổi chế độ ghép đôi.";
 
  public static string RoundHasMatches(int roundNumber) =>
- "VÃ²ng {roundNumber} Ä‘Ã£ cÃ³ tráº­n Ä‘áº¥u tá»“n táº¡i. KhÃ´ng thá»ƒ thá»±c hiá»‡n thao tÃ¡c nÃ y.";
+        $"Vòng {roundNumber} đã có trận đấu tồn tại và đã bắt đầu (hoặc hoàn thành). Không thể set manual pairings. Nếu muốn override Auto pairings trước khi vòng bắt đầu, hãy đảm bảo các bàn của round này chưa được start (status = Scheduled).";
 
  public static string RoundCannotResetPairings(int roundNumber) =>
  "KhÃ´ng thá»ƒ táº¡o láº¡i cáº·p Ä‘áº¥u cho vÃ²ng {roundNumber} khi Ä‘Ã£ cÃ³ káº¿t quáº£.";

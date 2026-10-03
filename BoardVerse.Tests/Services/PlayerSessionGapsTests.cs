@@ -93,6 +93,7 @@ public class PlayerSessionGapsTests
         var posHubService = new Mock<IPosHubService>();
         var extRepo = new Mock<ISessionExtensionRequestRepository>();
         var pushService = new Mock<IPushNotificationService>();
+        var shiftService = new Mock<ICafeShiftService>();
         var dbOptions = new DbContextOptionsBuilder<BoardVerseDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
@@ -104,7 +105,7 @@ public class PlayerSessionGapsTests
             settlementService.Object, reservationService.Object, lobbyRepo.Object,
             reservationRepo.Object, walkInService.Object, outboxRepo.Object,
             walletService.Object, posHubService.Object, extRepo.Object,
-            pushService.Object, db, logger.Object);
+            pushService.Object, shiftService.Object, db, logger.Object);
 
         return (svc, extRepo);
     }
