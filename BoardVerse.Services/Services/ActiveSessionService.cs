@@ -37,6 +37,9 @@ namespace BoardVerse.Services.Services
         private readonly ISessionExtensionRequestRepository _extensionRequestRepository;
         // Player-facing: inject để push notification tới staff khi player yêu cầu gia hạn.
         private readonly IPushNotificationService _pushNotificationService;
+        // BR-CAFE-SHIFT-01: inject để cộng TotalRevenue/TotalSessions real-time khi session Paid.
+        // Best-effort: nếu cafe chưa mở ca → skip + log, không fail payment.
+        private readonly ICafeShiftService _shiftService;
         // GAP-3 Fix: inject để ambient transaction cho BVC capture + member update.
         private readonly BoardVerseDbContext _db;
         private readonly ILogger<ActiveSessionService> _logger;
@@ -56,6 +59,7 @@ namespace BoardVerse.Services.Services
             IPosHubService posHubService,
             ISessionExtensionRequestRepository extensionRequestRepository,
             IPushNotificationService pushNotificationService,
+            ICafeShiftService shiftService,
             BoardVerseDbContext db,
             ILogger<ActiveSessionService> logger)
         {
@@ -73,13 +77,14 @@ namespace BoardVerse.Services.Services
             _posHubService = posHubService;
             _extensionRequestRepository = extensionRequestRepository;
             _pushNotificationService = pushNotificationService;
+            _shiftService = shiftService;
             _db = db;
             _logger = logger;
         }
 
         /// <summary>
-        /// Backward-compatible constructor dùng cho unit tests cũ không pass đầy đủ 16 params.
-        /// Production code path sử dụng constructor 16 params phía trên.
+        /// Backward-compatible constructor dùng cho unit tests cũ không pass đầy đủ 17 params.
+        /// Production code path sử dụng constructor 17 params phía trên.
         /// </summary>
         public ActiveSessionService(
             ICafeRepository cafeRepository,
@@ -108,6 +113,7 @@ namespace BoardVerse.Services.Services
                 posHubService: null!,
                 extensionRequestRepository: null!,
                 pushNotificationService: null!,
+                shiftService: null!,
                 db: null!,
                 logger: logger)
         {
@@ -1336,6 +1342,28 @@ namespace BoardVerse.Services.Services
                     await dbTx.CommitAsync();
                 }
 
+                // BR-CAFE-SHIFT-01 Fix: Cộng doanh thu + 1 phiên vào ca đang mở real-time,
+                // SAU khi commit transaction. Best-effort: nếu shift update fail thì
+                // chỉ log warning, KHÔNG throw — payment đã thành công, customer không
+                // được phép fail vì metric hiển thị.
+                // Idempotency: chỉ chạy khi re-check Status == Unpaid pass + status set Paid
+                // ở trên → webhook retry sẽ throw 409 ở guard trên, không tới đây.
+                try
+                {
+                    if (_shiftService != null)
+                    {
+                        await _shiftService.RecordSessionPaymentAsync(cafeId, session.TotalAmount, ct);
+                    }
+                }
+                catch (Exception shiftEx)
+                {
+                    _logger.LogWarning(shiftEx,
+                        "BR-CAFE-SHIFT-01: Failed to update shift totals for cafe {CafeId} after session {SessionId} paid. " +
+                        "Payment already committed; admin can reconcile via /api/shifts endpoint.",
+                        cafeId, sessionId);
+                    // KHÔNG throw — payment đã commit, không rollback được.
+                }
+
                 // GAP-06 Fix: Wrap ReleaseSessionTableAndBoxAsync trong try/catch + log metric.
                 // Trước đây chạy NGOÀI transaction (sau commit) — fail thì ghế vẫn InUse vĩnh viễn.
                 // Giờ: log error + đẩy vào retry queue để background job xử lý.
@@ -1702,6 +1730,33 @@ namespace BoardVerse.Services.Services
             // deposit.UserId (phổ biến nhất khi mỗi player tự đặt cọc), hoặc (c) parse memberId
             // từ OrderId format "BV-MEMBER-{N}".
             // Guest_Slot KHÔNG có deposit (BR-13) → bỏ qua.
+            // BVC-DEP-FIX (2026-10-03): Synthesize virtual BookingDeposit từ Reservation.DepositAmount
+            // khi session thuộc BVC flow mới (có LobbyId) nhưng KHÔNG có BookingDeposit row trong DB.
+            // Fix bug "36 BVC không trừ vào bill" — repository GetPaidDepositsByActiveSessionIdAsync chỉ
+            // query BookingDeposits (VND), trả empty cho session BVC → bill 180k thay vì 144k.
+            // Tạo BookingDeposit IN-MEMORY (không persist DB) để BuildMemberInvoices match qua path (b)
+            // dep.UserId == hostMember.UserId → host nhận DepositAppliedAmount = 36,000đ.
+            // Gating: chỉ khi IsReservationEligibleForDiscount (Holding/Confirmed/CheckedIn/InProgress +
+            // !SourceDissolved + DepositAmount > 0). Skip nếu DeductDepositFromBill=false (giữ BR-09 cũ).
+            if (deductDepositFromBill
+                && paidDeposits != null
+                && paidDeposits.Count == 0
+                && reservation != null
+                && IsReservationEligibleForDiscount(reservation)
+                && reservation.DepositAmount > 0)
+            {
+                var virtualDeposit = SynthesizeVirtualDepositFromBvcReservation(
+                    reservation, session.Id, session.CafeId);
+                paidDeposits = new[] { virtualDeposit };
+                _logger.LogInformation(
+                    "BVC-DEP-FIX: Synthesized virtual BookingDeposit từ Reservation {ReservationId} " +
+                    "(HostId={HostId}, DepositAmount={DepositBvc} BVC = {DepositVnd} VND) " +
+                    "cho session {SessionId}. Lý do: BVC flow mới, không có BookingDeposit row trong DB. " +
+                    "Sẽ match qua path (b) UserId → host member nhận DepositAppliedAmount.",
+                    reservation.Id, reservation.HostId, reservation.DepositAmount,
+                    reservation.DepositAmount * 1000m, session.Id);
+            }
+
             var memberDepositMap = new Dictionary<Guid, BookingDeposit>();
             var appliedDeposits = new List<AppliedDepositInfo>();
             if (deductDepositFromBill && paidDeposits != null && paidDeposits.Count > 0)
@@ -1879,6 +1934,47 @@ namespace BoardVerse.Services.Services
             }
 
             return (invoices, appliedDeposits);
+        }
+
+        /// <summary>
+        /// BVC-DEP-FIX (2026-10-03): Tạo BookingDeposit IN-MEMORY (không persist DB) từ
+        /// Reservation.DepositAmount (BVC). Dùng để <c>BuildMemberInvoices</c> match và trừ
+        /// vào bill khi session thuộc BVC flow mới nhưng KHÔNG có BookingDeposit row trong DB.
+        /// <para>
+        /// Convert BVC → VND (1 BVC = 1000 VND). Match qua path (b) <c>dep.UserId == member.UserId</c>.
+        /// UserId gán = reservation.HostId → host member nhận DepositAppliedAmount trên bill.
+        /// </para>
+        /// <para>
+        /// <b>KHÔNG</b> persist xuống DB — chỉ làm input cho invoice calculation. BVC capture flow
+        /// (<c>CompleteAndCaptureAsync</c>) chạy độc lập phía sau — cafe vẫn nhận 36 BVC qua ledger.
+        /// </para>
+        /// </summary>
+        /// <param name="reservation">Reservation chứa DepositAmount (BVC) + HostId.</param>
+        /// <param name="activeSessionId">ActiveSessionId để gắn vào OrderId/ActiveSessionId.</param>
+        /// <param name="cafeId">CafeId (chỉ để consistent với schema, không dùng cho matching).</param>
+        /// <returns>BookingDeposit in-memory với Status=Paid, Amount VND = DepositAmount × 1000.</returns>
+        private static BookingDeposit SynthesizeVirtualDepositFromBvcReservation(
+            BoardVerse.Core.Entities.Reservation reservation,
+            Guid activeSessionId,
+            Guid cafeId)
+        {
+            // 1 BVC = 1.000 VND (boardverse.mdc §II.1).
+            var amountVnd = reservation.DepositAmount * 1000m;
+            return new BookingDeposit
+            {
+                Id = Guid.Empty, // Synthetic ID — không match path (a), chỉ path (b) UserId.
+                OrderId = $"BV-RES-DEPOSIT-{reservation.Id}",
+                ActiveSessionId = activeSessionId,
+                UserId = reservation.HostId,
+                CafeId = cafeId,
+                Amount = amountVnd,
+                Status = BookingDepositStatus.Paid,
+                PaidAt = reservation.CreatedAt,
+                CreatedAt = reservation.CreatedAt,
+                RefundPolicy = DepositRefundPolicy.None
+                // CafeManagerId: không cần cho invoice calculation; BuildMemberInvoices
+                // chỉ đọc Status + Amount + UserId + Id + OrderId.
+            };
         }
 
         /// <summary>
@@ -3235,6 +3331,25 @@ namespace BoardVerse.Services.Services
                 var totalAmount = session.Members
                     .Where(m => !m.IsGuestSlot)
                     .Sum(m => m.Subtotal + m.PenaltyAmount - m.DepositAppliedAmount);
+
+                // BR-CAFE-SHIFT-01 Fix: Cộng doanh thu + 1 phiên vào ca đang mở real-time.
+                // Player pay path chỉ update shift khi TẤT CẢ members finished (session về Paid)
+                // — tránh double-count khi member thứ nhất pay trước, members còn lại pay sau.
+                // Best-effort: payment đã commit, fail shift update chỉ log warning.
+                try
+                {
+                    if (_shiftService != null)
+                    {
+                        await _shiftService.RecordSessionPaymentAsync(session.CafeId, totalAmount, ct);
+                    }
+                }
+                catch (Exception shiftEx)
+                {
+                    _logger.LogWarning(shiftEx,
+                        "BR-CAFE-SHIFT-01: Failed to update shift totals for cafe {CafeId} after player pay session {SessionId} (allFinished). " +
+                        "Payment already committed; admin can reconcile via /api/shifts endpoint.",
+                        session.CafeId, session.Id);
+                }
 
                 // GAP-R2-19 Fix: Await trực tiếp thay vì Task.Run fire-and-forget (inconsistent với ExtendSessionAsync đã fix ở GAP-8 round 1).
                 // FE phải nhận notification trước khi render UI payment success.

@@ -5,6 +5,7 @@ using BoardVerse.Core.Exceptions;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Core.Messages;
 using BoardVerse.Services.IServices;
+using Microsoft.Extensions.Logging;
 
 namespace BoardVerse.Services.Services;
 
@@ -12,11 +13,25 @@ public class CafeShiftService : ICafeShiftService
 {
     private readonly ICafeShiftRepository _shiftRepository;
     private readonly ICafeRepository _cafeRepository;
+    private readonly ILogger<CafeShiftService> _logger;
 
-    public CafeShiftService(ICafeShiftRepository shiftRepository, ICafeRepository cafeRepository)
+    public CafeShiftService(
+        ICafeShiftRepository shiftRepository,
+        ICafeRepository cafeRepository,
+        ILogger<CafeShiftService> logger)
     {
         _shiftRepository = shiftRepository;
         _cafeRepository = cafeRepository;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Backward-compatible constructor dùng cho unit tests cũ không pass <c>ILogger</c>.
+    /// Production code path sử dụng constructor 3 params phía trên.
+    /// </summary>
+    public CafeShiftService(ICafeShiftRepository shiftRepository, ICafeRepository cafeRepository)
+        : this(shiftRepository, cafeRepository, logger: null!)
+    {
     }
 
     public async Task<CafeShiftResponseDto> OpenShiftAsync(Guid cafeId, Guid userId, decimal openingCashBalance, CancellationToken cancellationToken = default)
@@ -133,4 +148,49 @@ public class CafeShiftService : ICafeShiftService
         TotalSessions = shift.TotalSessions,
         Status = shift.Status
     };
+
+    /// <summary>
+    /// Cộng doanh thu + 1 phiên vào ca đang mở của quán. [BR-CAFE-SHIFT-01]
+    /// Được gọi từ <c>ActiveSessionService.PaySessionCoreAsync</c> (POS pay) và
+    /// <c>ActiveSessionService.PlayerPaySessionAsync</c> (player pay BVC) ngay
+    /// sau khi <c>ActiveSession.Status = GroupSessionStatus.Paid</c> đã commit.
+    ///
+    /// Best-effort: nếu quán chưa mở ca (chưa có open shift) thì skip + log warning,
+    /// KHÔNG throw — payment vẫn commit thành công. Lý do: doanh thu chỉ là metric
+    /// hiển thị cho staff calendar, không được phép fail payment.
+    ///
+    /// Idempotency: caller (PaySessionCoreAsync) đã có re-check
+    /// <c>Status != Unpaid</c> bên trong transaction, nên chỉ session pay đầu tiên
+    /// mới đi tới method này. Webhook retry / double-click sẽ fail guard trước đó.
+    /// </summary>
+    public async Task RecordSessionPaymentAsync(
+        Guid cafeId,
+        decimal sessionTotalAmount,
+        CancellationToken cancellationToken = default)
+    {
+        var openShift = await _shiftRepository.GetCurrentOpenShiftAsync(cafeId, cancellationToken);
+        if (openShift == null)
+        {
+            // Không có ca đang mở → staff chưa mở ca hoặc đã đóng. Không throw để
+            // tránh fail payment của khách; chỉ log để admin biết reconcile.
+            _logger.LogWarning(
+                "RecordSessionPayment: cafe {CafeId} has no open shift, skipping revenue update for amount {Amount}",
+                cafeId, sessionTotalAmount);
+            return;
+        }
+
+        // Capture snapshot trước khi mutate để log diff.
+        var prevRevenue = openShift.TotalRevenue;
+        var prevSessions = openShift.TotalSessions;
+
+        openShift.TotalRevenue += sessionTotalAmount;
+        openShift.TotalSessions += 1;
+
+        await _shiftRepository.UpdateAsync(openShift, cancellationToken);
+        await _shiftRepository.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "RecordSessionPayment: shift {ShiftId} totals updated. Revenue {Prev} → {Next} (+{Delta}); Sessions {PrevSessions} → {NextSessions} (+1)",
+            openShift.Id, prevRevenue, openShift.TotalRevenue, sessionTotalAmount, prevSessions, openShift.TotalSessions);
+    }
 }

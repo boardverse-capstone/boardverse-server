@@ -1032,19 +1032,24 @@ public class PaymentService : IPaymentService
     }
 
     /// <summary>
-    /// FIX (2026-10-03): Detect member-level OrderId (format BV-MEMBER-{32-char-guid}).
+    /// FIX (2026-10-03): Detect member-level OrderId (format BV-MEMBER-{32-char-guid}
+    /// hoặc BVMEMBER{32-char-guid} khi ngân hàng strip dấu '-').
     /// SePay chỉ gửi 1 webhook URL duy nhất cho cả session-level và member-level payment.
     /// Session-level OrderId (BV-S-..., BV-...) → lookup bảng ActiveSessions.
-    /// Member-level OrderId (BV-MEMBER-...) → lookup bảng ActiveSessionMembers.
+    /// Member-level OrderId (BV-MEMBER-... hoặc BVMEMBER...) → lookup bảng ActiveSessionMembers.
+    ///
+    /// Lưu ý: Sau khi đi qua SePayWebhookDto.ExtractOrderId, OrderId đã được normalize về
+    /// canonical "BV-MEMBER-{32hex-uppercase}". Hàm này chấp nhận cả 2 format để defensive
+    /// trong trường hợp webhook payload mang OrderId raw từ caller khác (mock, test, etc.).
     /// </summary>
     /// <param name="orderId">OrderId đã được extract từ webhook content.</param>
-    /// <returns>true nếu match BV-MEMBER-{guid32} pattern; false nếu không (bao gồm null/empty).</returns>
+    /// <returns>true nếu match BV-?MEMBER-?{guid32} pattern; false nếu không (bao gồm null/empty).</returns>
     private static bool IsMemberLevelOrderId(string? orderId)
     {
         if (string.IsNullOrWhiteSpace(orderId)) return false;
         return System.Text.RegularExpressions.Regex.IsMatch(
             orderId,
-            @"^BV-MEMBER-[0-9a-fA-F]{32}$",
+            @"^BV-?MEMBER-?[0-9a-fA-F]{32}$",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     }
 }

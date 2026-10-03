@@ -2380,6 +2380,7 @@ public class ActiveSessionServiceTests
         var posHubService = new Mock<IPosHubService>();
         var extRequestRepo = new Mock<ISessionExtensionRequestRepository>();
         var pushService = new Mock<IPushNotificationService>();
+        var shiftService = new Mock<ICafeShiftService>();
         var db = new FakeDbContext();
         var logger = new Mock<ILogger<ActiveSessionService>>();
 
@@ -2393,7 +2394,7 @@ public class ActiveSessionServiceTests
             settlementService.Object, reservationService.Object, lobbyRepo.Object,
             reservationRepo.Object, walkInService.Object, outboxRepo.Object,
             walletService.Object, posHubService.Object, extRequestRepo.Object,
-            pushService.Object, db, logger.Object);
+            pushService.Object, shiftService.Object, db, logger.Object);
     }
 
     #endregion
