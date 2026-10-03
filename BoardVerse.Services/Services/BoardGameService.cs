@@ -51,13 +51,26 @@ namespace BoardVerse.Services.Services
             };
         }
 
-        public async Task<BoardGameDetailDto> GetBoardGameByIdAsync(Guid id, CancellationToken cancellationToken = default)
+        public async Task<BoardGameDetailDto> GetBoardGameByIdAsync(Guid id, Guid? userId = null, CancellationToken cancellationToken = default)
         {
             var game = await _gameTemplateRepository.GetActiveByIdWithComponentsAsync(id);
             if (game == null)
                 throw new BoardGameNotFoundException(ApiErrorMessages.BoardGame.NotFound(id));
 
-            return MapDetail(game);
+            // ── IsSaved: xác định board game này có nằm trong danh sách yêu thích của player ──
+            // Tương tự pattern trong `GetActiveCafesByBoardGameAsync` và `DiscoveryBoardGameDto.isSaved`.
+            // - userId = null (anonymous): mặc định false (player chưa đăng nhập nên chưa có favorites).
+            // - userId có giá trị: tra PlayerBoardGameSave; nếu không có row thì false.
+            bool isSaved = false;
+            if (userId.HasValue)
+            {
+                isSaved = await _playerBoardGameSaveRepository.ExistsAsync(
+                    userId.Value,
+                    id,
+                    cancellationToken);
+            }
+
+            return MapDetail(game, isSaved);
         }
 
         public async Task<List<CategoryDto>> GetCategoriesAsync(CancellationToken cancellationToken = default)
@@ -224,7 +237,7 @@ namespace BoardVerse.Services.Services
                 Categories = GameCatalogMapper.MapCategories(game)
             };
 
-        private static BoardGameDetailDto MapDetail(GameTemplate game) =>
+        private static BoardGameDetailDto MapDetail(GameTemplate game, bool isSaved = false) =>
             new()
             {
                 Id = game.Id,
@@ -237,7 +250,8 @@ namespace BoardVerse.Services.Services
                 CreatedAt = game.CreatedAt,
                 UpdatedAt = game.UpdatedAt,
                 Categories = GameCatalogMapper.MapCategories(game),
-                Components = GameCatalogMapper.MapComponents(game.Components)
+                Components = GameCatalogMapper.MapComponents(game.Components),
+                IsSaved = isSaved
             };
     }
 }

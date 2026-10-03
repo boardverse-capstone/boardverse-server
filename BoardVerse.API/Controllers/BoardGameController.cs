@@ -86,15 +86,22 @@ namespace BoardVerse.API.Controllers
 
         /// <summary>
         /// Lấy chi tiết board game kèm danh sách linh kiện và thể loại. [Role: Public — không cần đăng nhập.]
+        /// Response bao gồm field <c>isSaved</c> để client biết board game này có nằm trong
+        /// danh sách yêu thích của player hiện tại hay không (giống <c>isSaved</c> trong survey endpoint
+        /// và <c>active-cafes</c> endpoint). Khi không có token / token không hợp lệ → <c>isSaved = false</c>.
         /// </summary>
         /// <param name="id">Mã định danh board game (GameTemplates.Id).</param>
-        /// <response code="200">Trả về thông tin đầy đủ: ảnh, tên, mô tả, số người, thể loại, components.</response>
+        /// <response code="200">Trả về thông tin đầy đủ: ảnh, tên, mô tả, số người, thể loại, components, isSaved.</response>
         /// <response code="404">Không tìm thấy board game hoặc game đã bị vô hiệu hóa.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpGet("{id:guid}")]
         public async Task<IActionResult> GetBoardGameById(Guid id)
         {
-            var result = await _boardGameService.GetBoardGameByIdAsync(id);
+            // Optional viewer context: nếu request có token hợp lệ → userId có giá trị → populate IsSaved.
+            // Anonymous request → userId = null → IsSaved = false (giá trị mặc định cho khách vãng lai).
+            var (userId, _) = GetOptionalViewerContext();
+
+            var result = await _boardGameService.GetBoardGameByIdAsync(id, userId);
             return NewResponse(200, ApiSuccessMessages.BoardGame.Retrieved, result);
         }
 

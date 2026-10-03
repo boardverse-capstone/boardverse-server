@@ -1350,7 +1350,19 @@ namespace BoardVerse.Services.Services
                 // ở trên → webhook retry sẽ throw 409 ở guard trên, không tới đây.
                 try
                 {
-                    if (_shiftService != null)
+                    if (_shiftService == null)
+                    {
+                        // DI misconfiguration: production 17-param constructor inject ICafeShiftService.
+                        // Nếu tới đây _shiftService == null → fallback sang 12-param constructor (unit-test cũ)
+                        // → shift totals sẽ KHÔNG update → drift giữa cash vs reported revenue.
+                        // Log CRITICAL (không chỉ Warning) để alert ops team fix DI ngay.
+                        _logger.LogCritical(
+                            "BR-CAFE-SHIFT-01 DI GAP: _shiftService is null in ActiveSessionService. " +
+                            "Shift totals will NOT be updated for cafe {CafeId} session {SessionId} amount {Amount}. " +
+                            "Investigate DI registration — production must use 17-param constructor.",
+                            cafeId, sessionId, session.TotalAmount);
+                    }
+                    else
                     {
                         await _shiftService.RecordSessionPaymentAsync(cafeId, session.TotalAmount, ct);
                     }
@@ -3338,7 +3350,17 @@ namespace BoardVerse.Services.Services
                 // Best-effort: payment đã commit, fail shift update chỉ log warning.
                 try
                 {
-                    if (_shiftService != null)
+                    if (_shiftService == null)
+                    {
+                        // DI misconfiguration: production 17-param constructor inject ICafeShiftService.
+                        // Log CRITICAL (không chỉ Warning) để alert ops team fix DI ngay.
+                        _logger.LogCritical(
+                            "BR-CAFE-SHIFT-01 DI GAP (PlayerPay): _shiftService is null in ActiveSessionService. " +
+                            "Shift totals will NOT be updated for cafe {CafeId} session {SessionId} amount {Amount}. " +
+                            "Investigate DI registration — production must use 17-param constructor.",
+                            session.CafeId, session.Id, totalAmount);
+                    }
+                    else
                     {
                         await _shiftService.RecordSessionPaymentAsync(session.CafeId, totalAmount, ct);
                     }

@@ -264,6 +264,8 @@ curl.exe "http://localhost:5022/api/v1/board-games/top5" | ConvertFrom-Json | Co
 
 Lấy toàn bộ thông tin chi tiết và danh sách linh kiện (AC 1.3).
 
+**Optional auth:** Endpoint public (không bắt buộc đăng nhập). Nếu request có kèm JWT hợp lệ, response trả thêm field `isSaved` để client biết board game này có nằm trong danh sách yêu thích của player hiện tại hay không (giống `isSaved` trong survey endpoint và `active-cafes` endpoint).
+
 ### Path
 
 | Param | Mô tả |
@@ -299,10 +301,21 @@ GET /api/v1/board-games/66666666-6666-6666-6666-666666666666
       { "id": "a6666666-6666-6666-6666-666666666661", "componentName": "Thẻ nhân vật", "defaultQuantity": 10 },
       { "id": "a6666666-6666-6666-6666-666666666662", "componentName": "Token phiếu bầu (Approve/Reject)", "defaultQuantity": 20 },
       { "id": "a6666666-6666-6666-6666-666666666663", "componentName": "Token thực hiện nhiệm vụ (Success/Fail)", "defaultQuantity": 5 }
-    ]
+    ],
+    "isSaved": false
   }
 }
 ```
+
+### Field `isSaved` — luật resolve
+
+| Tình huống | Giá trị `isSaved` |
+|-----------|-------------------|
+| Request không có token / token không hợp lệ (anonymous) | `false` (mặc định) |
+| Có token hợp lệ + user đã lưu game này vào `PlayerBoardGameSaves` | `true` |
+| Có token hợp lệ + user chưa lưu game này | `false` |
+
+Service **chỉ gọi** `IPlayerBoardGameSaveRepository.ExistsAsync` khi `userId` khác `null` — anonymous request **không** tốn query DB.
 
 **Lỗi:** `404` không tìm thấy hoặc game `IsActive = false`, `500` lỗi hệ thống.
 
@@ -715,7 +728,10 @@ curl.exe -I "http://localhost:5022/api/v1/board-games/thumbnail-proxy?url=https%
 |----|------|---------|
 | 1.1 Fuzzy search | `?search=avalon`, `?search=CATAN` | Trả đúng game, không phân biệt hoa/thường |
 | 1.2 Multi-filter | `category_ids` + `player_count` + `duration_range` | Kết quả thỏa tất cả tiêu chí |
-| 1.3 Chi tiết | `GET /api/v1/board-games/{id}` | Đủ ảnh, tên, mô tả, min/max người, `components[]` |
+| 1.3 Chi tiết | `GET /api/v1/board-games/{id}` | Đủ ảnh, tên, mô tả, min/max người, `components[]`, `isSaved` |
+| 1.3a Chi tiết — `isSaved` (anonymous) | `GET /{id}` không có token | 200 + `data.isSaved = false`; service KHÔNG gọi `PlayerBoardGameSaveRepository.ExistsAsync` |
+| 1.3b Chi tiết — `isSaved` (logged in, đã lưu) | `GET /{id}` có token + user đã lưu game này | 200 + `data.isSaved = true` |
+| 1.3c Chi tiết — `isSaved` (logged in, chưa lưu) | `GET /{id}` có token + user chưa lưu game này | 200 + `data.isSaved = false` |
 | 1.4 Thumbnail proxy (URL hợp lệ) | `GET /thumbnail-proxy?url=https://cf.geekdo-images.com/.../pic.png` | 200 + binary `image/png` + header `Cache-Control: public, max-age=86400` |
 | 1.5 Thumbnail proxy (host ngoài whitelist) | `?url=https://example.com/image.png` | 502 + `ThumbnailProxyFailed` |
 | 1.6 Thumbnail proxy (URL rỗng) | `?url=` | 400 + `ThumbnailUrlInvalid` |
@@ -1176,3 +1192,18 @@ Thêm endpoint **mirror ngược** của `GET /api/cafes/{cafeId}/active-games`.
 | `BoardVerse.Core/Messages/ApiSuccessMessages.cs` | Sửa | Thêm `BoardGame.ActiveCafesRetrieved`. |
 | `BoardVerse.Tests/Services/BoardGameServiceTests.cs` | Sửa | 4 unit test mới cho `isSaved` resolve (anonymous → false, logged-in saved → true, logged-in not-saved → false, empty cafes vẫn resolve isSaved). Cập nhật `BuildService` helper để inject `Mock<ICafeRepository>` + `Mock<IPlayerBoardGameSaveRepository>`. |
 | `docs/api/board-games.md` | Cập nhật | Tài liệu này — bổ sung section `GET /api/v1/board-games/{boardgameId}/active-cafes` (điều kiện filter, query params, response shape với `isSaved`, luật resolve `isSaved`, error 404, AC checklist 11–14 cho `isSaved`). |
+
+---
+
+## Tổng kết file đã thay đổi (build pass 2026-10-03) — `/{id}` thêm `isSaved`
+
+Bổ sung field `isSaved` vào `GET /api/v1/board-games/{id}` để client hiển thị icon save/unsave trên UI detail (giống pattern `isSaved` đã có ở `DiscoveryBoardGameDto` và `ActiveCafesByBoardGameResponseDto`). Endpoint vẫn public — `userId` optional; nếu có token hợp lệ thì service tra `PlayerBoardGameSaves` để set `IsSaved`, nếu không thì mặc định `false`.
+
+| File | Loại thay đổi | Ghi chú |
+|---|---|---|
+| `BoardVerse.Core/DTOs/Game/BoardGameDetailDto.cs` | Sửa | Thêm property `bool IsSaved` (default `false`). |
+| `BoardVerse.Services/IServices/IBoardGameService.cs` | Sửa | `GetBoardGameByIdAsync` thêm tham số `Guid? userId = null` (default `null` để không break caller cũ). |
+| `BoardVerse.Services/Services/BoardGameService.cs` | Sửa | Implementation: nếu `userId.HasValue` thì gọi `IPlayerBoardGameSaveRepository.ExistsAsync(userId, id, ct)` để set `IsSaved`; ngược lại `IsSaved = false`. Service **không** gọi repo khi `userId` null (tránh query DB thừa cho anonymous). `MapDetail` thêm parameter `bool isSaved = false`. |
+| `BoardVerse.API/Controllers/BoardGameController.cs` | Sửa | Action `GetBoardGameById` gọi `GetOptionalViewerContext()` để lấy `userId` từ JWT (nếu có), truyền xuống service. XML doc bổ sung mô tả `isSaved` + luật resolve. |
+| `BoardVerse.Tests/Services/BoardGameServiceTests.cs` | Sửa | 3 unit test mới cho `IsSaved` resolve: anonymous → false (verify repo KHÔNG được gọi), logged-in saved → true, logged-in not-saved → false. |
+| `docs/api/board-games.md` | Cập nhật | Tài liệu này — section `GET /api/v1/board-games/{id}` bổ sung bảng luật resolve `isSaved` (anonymous / saved / not-saved) + AC checklist 1.3a/1.3b/1.3c. |

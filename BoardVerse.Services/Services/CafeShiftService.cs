@@ -193,4 +193,52 @@ public class CafeShiftService : ICafeShiftService
             "RecordSessionPayment: shift {ShiftId} totals updated. Revenue {Prev} → {Next} (+{Delta}); Sessions {PrevSessions} → {NextSessions} (+1)",
             openShift.Id, prevRevenue, openShift.TotalRevenue, sessionTotalAmount, prevSessions, openShift.TotalSessions);
     }
+
+    /// <summary>
+    /// BR-CAFE-SHIFT-01 reconciliation: tính lại <c>TotalRevenue</c> + <c>TotalSessions</c>
+    /// cho ca đã cho bằng cách SUM TotalAmount + COUNT các ActiveSession đã Paid (Status=3)
+    /// thuộc quán trong cửa sổ [shift.OpenedAt, shift.ClosedAt ?? now]. Ghi đè totals
+    /// hiện tại với giá trị tính lại — KHÔNG đụng OpeningCashBalance, ClosingCashBalance,
+    /// ClosedAt, ClosedByUserId.
+    ///
+    /// Use cases:
+    ///   1. Backfill: ca đã Open trước khi áp dụng fix <c>RecordSessionPaymentAsync</c> → totals
+    ///      bị lệch. Admin gọi endpoint này để tính lại.
+    ///   2. Drift detection: <c>ShiftDriftDetectionJob</c> chạy hàng giờ so sánh shift totals
+    ///      với SUM(ActiveSession.TotalAmount) → nếu khác → auto-reconcile bằng method này.
+    ///   3. Idempotency: gọi nhiều lần vẫn cho cùng kết quả (SUM là deterministic).
+    /// </summary>
+    public async Task<CafeShiftResponseDto> RecalculateShiftTotalsAsync(Guid shiftId, CancellationToken cancellationToken = default)
+    {
+        var shift = await _shiftRepository.GetByIdAsync(shiftId, cancellationToken);
+        if (shift == null)
+        {
+            throw new NotFoundException(ApiErrorMessages.CafeShift.ShiftNotFound(shiftId));
+        }
+
+        // Window: [OpenedAt, ClosedAt ?? UtcNow]. Inclusive ở cả 2 đầu.
+        // Lý do inclusive: PaidAt == OpenedAt thì vẫn tính (edge case session vừa mở ca đã paid ngay).
+        // Lý do inclusive end: shift đã đóng, session paid trước khi đóng vẫn tính.
+        var windowStart = shift.OpenedAt;
+        var windowEnd = shift.ClosedAt ?? DateTime.UtcNow;
+
+        var (paidCount, paidRevenue) = await _shiftRepository.SumPaidSessionsByCafeInRangeAsync(
+            shift.CafeId, windowStart, windowEnd, cancellationToken);
+
+        var prevRevenue = shift.TotalRevenue;
+        var prevSessions = shift.TotalSessions;
+
+        // Chỉ ghi đè 2 field totals; các field khác (cash balance, status, time) giữ nguyên.
+        shift.TotalRevenue = paidRevenue;
+        shift.TotalSessions = paidCount;
+
+        await _shiftRepository.UpdateAsync(shift, cancellationToken);
+        await _shiftRepository.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "RecalculateShiftTotals: shift {ShiftId} totals recomputed from {PrevRevenue} → {NewRevenue} (count {PrevCount} → {NewCount}) for cafe {CafeId} window [{WindowStart}, {WindowEnd}]",
+            shift.Id, prevRevenue, shift.TotalRevenue, prevSessions, shift.TotalSessions, shift.CafeId, windowStart, windowEnd);
+
+        return MapToDto(shift);
+    }
 }

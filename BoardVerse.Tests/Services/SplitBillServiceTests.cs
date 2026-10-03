@@ -20,6 +20,7 @@ public class SplitBillServiceTests : IDisposable
     private readonly Mock<ITransactionRepository> _transactionRepoMock;
     private readonly Mock<ICafeRepository> _cafeRepoMock;
     private readonly Mock<IPaymentGatewayService> _gatewayMock;
+    private readonly Mock<ISePayAccountService> _sePayAccountServiceMock;
     private readonly Mock<ILogger<SplitBillService>> _loggerMock;
     private readonly Mock<IPaymentWebhookAuditRepository> _webhookAuditRepoMock;
     private readonly SplitBillService _service;
@@ -35,6 +36,7 @@ public class SplitBillServiceTests : IDisposable
         _transactionRepoMock = new Mock<ITransactionRepository>();
         _cafeRepoMock = new Mock<ICafeRepository>();
         _gatewayMock = new Mock<IPaymentGatewayService>();
+        _sePayAccountServiceMock = new Mock<ISePayAccountService>();
         _loggerMock = new Mock<ILogger<SplitBillService>>();
         _webhookAuditRepoMock = new Mock<IPaymentWebhookAuditRepository>();
 
@@ -43,6 +45,7 @@ public class SplitBillServiceTests : IDisposable
             _transactionRepoMock.Object,
             _cafeRepoMock.Object,
             _gatewayMock.Object,
+            _sePayAccountServiceMock.Object,
             _dbContext,
             _loggerMock.Object,
             _webhookAuditRepoMock.Object);
@@ -297,9 +300,20 @@ public class SplitBillServiceTests : IDisposable
             Id = cafeId,
             Name = "Test Cafe",
             Address = "123 Test Street",
-            SePayBankCode = "MB",
-            SePayAccountNumber = "123456789",
+            // FIX (2026-10-03): Ưu tiên SePayAccount entity — set SePayAccountId + mock SePayAccountService
+            // KHÔNG set SePayBankCode/SePayAccountNumber local fields — sẽ bị ignore.
+            SePayAccountId = Guid.NewGuid(),
             ManagerId = Guid.NewGuid()
+        };
+
+        var sepayAccount = new SePayAccount
+        {
+            Id = cafe.SePayAccountId.Value,
+            AccountType = SePayAccountType.Cafe,
+            CafeId = cafeId,
+            BankCode = "MB",
+            AccountNumber = "123456789",
+            IsActive = true
         };
 
         // InMemory: add entities so DbContext tracks them for ExecuteUpdate fallback
@@ -313,6 +327,8 @@ public class SplitBillServiceTests : IDisposable
             .ReturnsAsync(cafe);
         _cafeRepoMock.Setup(r => r.IsStaffMemberExistsAsync(cafeId, staffId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
+        _sePayAccountServiceMock.Setup(s => s.GetRawByCafeIdAsync(cafeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(sepayAccount);
         _gatewayMock.Setup(g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PaymentGatewayResult
             {
@@ -349,8 +365,10 @@ public class SplitBillServiceTests : IDisposable
     #region CreateMemberQrAsync Tests
 
     [Fact]
-    public async Task CreateMemberQrAsync_WhenCafeMissingSePayConfig_ThrowsException()
+    public async Task CreateMemberQrAsync_WhenCafeHasNoSePayAccountId_ThrowsPaymentException()
     {
+        // FIX (2026-10-03): Split bill giờ ưu tiên SePayAccount entity (giống Session payment).
+        // Nếu cafe.SePayAccountId = null → KHÔNG fallback về local fields SePayBankCode/SePayAccountNumber.
         var sessionId = Guid.NewGuid();
         var memberId = Guid.NewGuid();
         var staffId = Guid.NewGuid();
@@ -372,7 +390,10 @@ public class SplitBillServiceTests : IDisposable
             Id = cafeId,
             Name = "Test Cafe",
             Address = "123 Test Street",
-            SePayBankCode = null,
+            // Local fields có data nhưng SePayAccountId = null → KHÔNG dùng local fields
+            SePayBankCode = "MB",
+            SePayAccountNumber = "999999999",
+            SePayAccountId = null,
             ManagerId = Guid.NewGuid()
         };
 
@@ -382,9 +403,192 @@ public class SplitBillServiceTests : IDisposable
             .ReturnsAsync(cafe);
         _cafeRepoMock.Setup(r => r.IsStaffMemberExistsAsync(cafeId, staffId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
+        // GetRawByCafeIdAsync KHÔNG được gọi vì SePayAccountId = null
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        var ex = await Assert.ThrowsAsync<PaymentException>(
             () => _service.CreateMemberQrAsync(sessionId, memberId, staffId, "Manager"));
+
+        // Message phải chứa tên cafe
+        Assert.Contains("Test Cafe", ex.Message);
+        // Verify gateway KHÔNG bị gọi
+        _gatewayMock.Verify(
+            g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateMemberQrAsync_WhenSePayAccountIdSet_ButSePayAccountNotFound_ThrowsPaymentException()
+    {
+        // SePayAccountId có giá trị nhưng GetRawByCafeIdAsync trả về null (FK bị broken)
+        // → throw PaymentCafeNotConfiguredSePay
+        var sessionId = Guid.NewGuid();
+        var memberId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+        var cafeId = Guid.NewGuid();
+
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            Status = GroupSessionStatus.Unpaid,
+            CafeId = cafeId,
+            Members = new List<ActiveSessionMember>
+            {
+                new() { Id = memberId, TotalAmount = 100000m }
+            }
+        };
+
+        var cafe = new Cafe
+        {
+            Id = cafeId,
+            Name = "Test Cafe",
+            Address = "123 Test Street",
+            SePayAccountId = Guid.NewGuid(),
+            ManagerId = Guid.NewGuid()
+        };
+
+        _sessionRepoMock.Setup(r => r.GetByIdWithMembersAsync(sessionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(session);
+        _cafeRepoMock.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(cafe);
+        _cafeRepoMock.Setup(r => r.IsStaffMemberExistsAsync(cafeId, staffId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        // GetRawByCafeIdAsync trả về null (cafe FK bị broken)
+        _sePayAccountServiceMock.Setup(s => s.GetRawByCafeIdAsync(cafeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SePayAccount?)null);
+
+        var ex = await Assert.ThrowsAsync<PaymentException>(
+            () => _service.CreateMemberQrAsync(sessionId, memberId, staffId, "Manager"));
+
+        Assert.Contains("Test Cafe", ex.Message);
+    }
+
+    [Fact]
+    public async Task CreateMemberQrAsync_WhenSePayAccountMissingBankCode_ThrowsPaymentException()
+    {
+        // SePayAccount tồn tại nhưng BankCode hoặc AccountNumber rỗng → throw
+        var sessionId = Guid.NewGuid();
+        var memberId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+        var cafeId = Guid.NewGuid();
+
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            Status = GroupSessionStatus.Unpaid,
+            CafeId = cafeId,
+            Members = new List<ActiveSessionMember>
+            {
+                new() { Id = memberId, TotalAmount = 100000m }
+            }
+        };
+
+        var cafe = new Cafe
+        {
+            Id = cafeId,
+            Name = "Test Cafe",
+            Address = "123 Test Street",
+            SePayAccountId = Guid.NewGuid(),
+            ManagerId = Guid.NewGuid()
+        };
+
+        // SePayAccount có nhưng BankCode rỗng
+        var sepayAccount = new SePayAccount
+        {
+            Id = cafe.SePayAccountId!.Value,
+            CafeId = cafeId,
+            BankCode = null,
+            AccountNumber = "123",
+            IsActive = true
+        };
+
+        _sessionRepoMock.Setup(r => r.GetByIdWithMembersAsync(sessionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(session);
+        _cafeRepoMock.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(cafe);
+        _cafeRepoMock.Setup(r => r.IsStaffMemberExistsAsync(cafeId, staffId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _sePayAccountServiceMock.Setup(s => s.GetRawByCafeIdAsync(cafeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(sepayAccount);
+
+        await Assert.ThrowsAsync<PaymentException>(
+            () => _service.CreateMemberQrAsync(sessionId, memberId, staffId, "Manager"));
+    }
+
+    [Fact]
+    public async Task CreateMemberQrAsync_UsesSePayAccountBankInfo_IgnoresLocalFields()
+    {
+        // SePayAccount có data riêng, local fields có data khác → phải dùng SePayAccount
+        var sessionId = Guid.NewGuid();
+        var memberId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+        var cafeId = Guid.NewGuid();
+
+        var member = new ActiveSessionMember
+        {
+            Id = memberId,
+            TotalAmount = 100000m,
+            PaymentStatus = MemberPaymentStatus.NotPaid,
+            Status = IndividualSessionStatus.Playing
+        };
+
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            Status = GroupSessionStatus.Unpaid,
+            CafeId = cafeId,
+            Members = new List<ActiveSessionMember> { member }
+        };
+
+        var cafe = new Cafe
+        {
+            Id = cafeId,
+            Name = "Test Cafe",
+            Address = "123 Test Street",
+            SePayAccountId = Guid.NewGuid(),
+            // Local fields có data "cũ" — phải bị ignore
+            SePayBankCode = "OLD_BANK",
+            SePayAccountNumber = "0000000000",
+            ManagerId = staffId
+        };
+
+        var sepayAccount = new SePayAccount
+        {
+            Id = cafe.SePayAccountId!.Value,
+            CafeId = cafeId,
+            BankCode = "MB",
+            AccountNumber = "999999999",
+            IsActive = true
+        };
+
+        // InMemory: track entity for ExecuteUpdate fallback
+        await _dbContext.ActiveSessions.AddAsync(session);
+        await _dbContext.ActiveSessionMembers.AddAsync(member);
+        await _dbContext.SaveChangesAsync();
+
+        PaymentGatewayRequest? capturedRequest = null;
+        _sessionRepoMock.Setup(r => r.GetByIdWithMembersAsync(sessionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(session);
+        _cafeRepoMock.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(cafe);
+        _cafeRepoMock.Setup(r => r.IsStaffMemberExistsAsync(cafeId, staffId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _sePayAccountServiceMock.Setup(s => s.GetRawByCafeIdAsync(cafeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(sepayAccount);
+        _gatewayMock.Setup(g => g.CreatePaymentAsync(It.IsAny<PaymentGatewayRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<PaymentGatewayRequest, CancellationToken>((req, _) => capturedRequest = req)
+            .ReturnsAsync(new PaymentGatewayResult
+            {
+                IsSuccess = true,
+                QrImageUrl = "https://qr.vietqr.io/test",
+                OrderId = "BV-MEMBER-TEST"
+            });
+
+        await _service.CreateMemberQrAsync(sessionId, memberId, staffId, "Manager");
+
+        // Phải dùng BankCode + AccountNumber từ SePayAccount, KHÔNG phải local fields
+        Assert.NotNull(capturedRequest);
+        Assert.Equal("MB", capturedRequest!.BankCode);
+        Assert.Equal("999999999", capturedRequest.AccountNumber);
     }
 
     #endregion

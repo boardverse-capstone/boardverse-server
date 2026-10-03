@@ -3,7 +3,6 @@ using BoardVerse.Core.Enum;
 using BoardVerse.Core.IRepositories;
 using BoardVerse.Data;
 using Microsoft.EntityFrameworkCore;
-
 namespace BoardVerse.Data.Repositories;
 
 public class CafeShiftRepository : ICafeShiftRepository
@@ -53,7 +52,31 @@ public class CafeShiftRepository : ICafeShiftRepository
     {
         return await _db.CafeShifts
             .Where(s => s.CafeId == cafeId)
-            .CountAsync();
+            .CountAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// BR-CAFE-SHIFT-01 reconciliation: SUM TotalAmount + COUNT(*) của các phiên chơi đã
+    /// Paid (Status = 3) thuộc quán, với PaidAt nằm trong cửa sổ [fromUtc, toUtc].
+    /// Dùng cho <c>CafeShiftService.RecalculateShiftTotalsAsync</c>.
+    /// Chỉ load 2 scalar (Count, Sum) — không hydrate full entities, không navigation.
+    /// </summary>
+    public async Task<(int PaidSessionCount, decimal PaidRevenueTotal)> SumPaidSessionsByCafeInRangeAsync(
+        Guid cafeId, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default)
+    {
+        // Filter theo PaidAt (DateTime UTC) để align với shift.OpenedAt / shift.ClosedAt.
+        // PaidAt nullable: cần check HasValue để khớp "paid" trong cùng window.
+        // fromUtc/toUtc inclusive ở cả 2 đầu.
+        var query = _db.ActiveSessions
+            .Where(s => s.CafeId == cafeId
+                && s.Status == GroupSessionStatus.Paid
+                && s.PaidAt.HasValue
+                && s.PaidAt.Value >= fromUtc
+                && s.PaidAt.Value <= toUtc);
+
+        var count = await query.CountAsync(cancellationToken);
+        var sum = await query.SumAsync(s => (decimal?)s.TotalAmount, cancellationToken) ?? 0m;
+        return (count, sum);
     }
 
     public Task SaveChangesAsync(CancellationToken cancellationToken = default)

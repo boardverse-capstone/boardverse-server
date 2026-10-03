@@ -23,6 +23,7 @@ public class SplitBillService : ISplitBillService
     private readonly ITransactionRepository _transactionRepository;
     private readonly ICafeRepository _cafeRepository;
     private readonly IPaymentGatewayService _paymentGateway;
+    private readonly ISePayAccountService _sePayAccountService;
     private readonly BoardVerseDbContext _dbContext;
     private readonly ILogger<SplitBillService> _logger;
 
@@ -34,6 +35,7 @@ public class SplitBillService : ISplitBillService
         ITransactionRepository transactionRepository,
         ICafeRepository cafeRepository,
         IPaymentGatewayService paymentGateway,
+        ISePayAccountService sePayAccountService,
         BoardVerseDbContext dbContext,
         ILogger<SplitBillService> logger,
         IPaymentWebhookAuditRepository webhookAuditRepository)
@@ -42,6 +44,7 @@ public class SplitBillService : ISplitBillService
         _transactionRepository = transactionRepository;
         _cafeRepository = cafeRepository;
         _paymentGateway = paymentGateway;
+        _sePayAccountService = sePayAccountService;
         _dbContext = dbContext;
         _logger = logger;
         _webhookAuditRepository = webhookAuditRepository;
@@ -683,15 +686,37 @@ public class SplitBillService : ISplitBillService
         // có thể extract qua regex BV-MEMBER-{32-char}. Nếu không nhúng, content webhook
         // chỉ là "Thanh toan cho {name}" → OrderId empty → webhook handler không match
         // ActiveSessionMember → POS không cập nhật trạng thái.
+        //
+        // FIX (2026-10-03): Ưu tiên đọc từ SePayAccount entity (giống PaymentService.CreateSessionPaymentAsync).
+        // KHÔNG fallback về local fields Cafe.SePayBankCode/SePayAccountNumber — nếu cafe chưa
+        // tạo SePayAccount qua endpoint manager thì throw "PaymentCafeNotConfiguredSePay" để
+        // hành vi split bill đồng nhất với session payment.
+        var bankCode = string.Empty;
+        var accountNumber = string.Empty;
+
+        if (cafe.SePayAccountId.HasValue)
+        {
+            var sepayAccount = await _sePayAccountService.GetRawByCafeIdAsync(cafe.Id);
+            if (sepayAccount != null)
+            {
+                bankCode = sepayAccount.BankCode ?? string.Empty;
+                // Dùng raw AccountNumber cho VietQR
+                accountNumber = sepayAccount.AccountNumber ?? string.Empty;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(bankCode) || string.IsNullOrWhiteSpace(accountNumber))
+        {
+            throw new PaymentException(ApiErrorMessages.Payment.PaymentCafeNotConfiguredSePay(cafe.Name));
+        }
+
         var gatewayRequest = new PaymentGatewayRequest
         {
             OrderId = orderId,
             Amount = member.TotalAmount,
             Description = $"{orderId} Thanh toan cho {member.GuestDisplayName ?? member.User?.Username ?? "Khach"}",
-            BankCode = cafe.SePayBankCode ?? throw new InvalidOperationException(
-                $"Cafe '{cafe.Name}' chưa cấu hình SePay bank code."),
-            AccountNumber = cafe.SePayAccountNumber ?? throw new InvalidOperationException(
-                $"Cafe '{cafe.Name}' chưa cấu hình SePay account number."),
+            BankCode = bankCode,
+            AccountNumber = accountNumber,
             AccountName = cafe.Name,
             Metadata = new Dictionary<string, string?>
             {

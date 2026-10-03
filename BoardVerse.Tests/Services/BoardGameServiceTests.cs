@@ -165,6 +165,67 @@ public class BoardGameServiceTests
             service.GetBoardGameByIdAsync(GameId));
     }
 
+    // =============== GetBoardGameByIdAsync — IsSaved (player favorites) ===============
+
+    [Fact]
+    public async Task GetBoardGameByIdAsync_AnonymousUser_IsSavedIsFalse_NoRepositoryCall()
+    {
+        var gameRepo = new Mock<IGameTemplateRepository>();
+        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(MultiplayerGame());
+
+        var saveRepo = new Mock<IPlayerBoardGameSaveRepository>(MockBehavior.Strict);
+        // userId = null → KHÔNG được phép gọi ExistsAsync (sẽ fail test nếu service cố truy vấn).
+        saveRepo.Setup(r => r.ExistsAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Throws(new Exception("Should not be called for anonymous viewer"));
+
+        var service = BuildService(gameRepo, saveRepo: saveRepo);
+        var dto = await service.GetBoardGameByIdAsync(GameId, userId: null);
+
+        Assert.False(dto.IsSaved);
+        saveRepo.Verify(
+            r => r.ExistsAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task GetBoardGameByIdAsync_PlayerHasSaved_IsSavedIsTrue()
+    {
+        var playerId = Guid.NewGuid();
+        var gameRepo = new Mock<IGameTemplateRepository>();
+        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(MultiplayerGame());
+
+        var saveRepo = new Mock<IPlayerBoardGameSaveRepository>();
+        saveRepo.Setup(r => r.ExistsAsync(playerId, GameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var service = BuildService(gameRepo, saveRepo: saveRepo);
+        var dto = await service.GetBoardGameByIdAsync(GameId, playerId);
+
+        Assert.True(dto.IsSaved);
+        saveRepo.Verify(r => r.ExistsAsync(playerId, GameId, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetBoardGameByIdAsync_PlayerHasNotSaved_IsSavedIsFalse()
+    {
+        var playerId = Guid.NewGuid();
+        var gameRepo = new Mock<IGameTemplateRepository>();
+        gameRepo.Setup(r => r.GetActiveByIdWithComponentsAsync(GameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(MultiplayerGame());
+
+        var saveRepo = new Mock<IPlayerBoardGameSaveRepository>();
+        saveRepo.Setup(r => r.ExistsAsync(playerId, GameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var service = BuildService(gameRepo, saveRepo: saveRepo);
+        var dto = await service.GetBoardGameByIdAsync(GameId, playerId);
+
+        Assert.False(dto.IsSaved);
+        saveRepo.Verify(r => r.ExistsAsync(playerId, GameId, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     // =============== GetCategoriesAsync ===============
 
     [Fact]

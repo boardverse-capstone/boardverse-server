@@ -23,4 +23,20 @@ public interface ICafeShiftService
     /// <param name="sessionTotalAmount">Số tiền phiên chơi (VND) cần cộng vào <c>TotalRevenue</c>.</param>
     /// <param name="cancellationToken">Token huỷ.</param>
     Task RecordSessionPaymentAsync(Guid cafeId, decimal sessionTotalAmount, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// BR-CAFE-SHIFT-01 reconciliation: tính lại <c>TotalRevenue</c> + <c>TotalSessions</c> cho ca
+    /// đã cho bằng cách SUM TotalAmount + COUNT các ActiveSession đã Paid (Status=3) của quán
+    /// trong cửa sổ [shift.OpenedAt, shift.ClosedAt ?? now]. Dùng cho:
+    ///   1. Backfill khi phát hiện shift totals bị lệch (do deploy trước khi áp dụng fix
+    ///      <c>RecordSessionPaymentAsync</c>, hoặc exception silent skip).
+    ///   2. Admin endpoint <c>POST /api/shifts/{id}/recalculate</c> chạy tay.
+    /// Idempotent: chỉ ghi đè TotalRevenue/TotalSessions — không touch OpeningCashBalance,
+    /// ClosingCashBalance, ClosedAt, ClosedByUserId.
+    /// </summary>
+    /// <param name="shiftId">Mã ca cần recalculate.</param>
+    /// <param name="cancellationToken">Token huỷ.</param>
+    /// <returns>DTO của ca sau khi đã update totals.</returns>
+    /// <exception cref="NotFoundException">Khi không tìm thấy ca.</exception>
+    Task<CafeShiftResponseDto> RecalculateShiftTotalsAsync(Guid shiftId, CancellationToken cancellationToken = default);
 }

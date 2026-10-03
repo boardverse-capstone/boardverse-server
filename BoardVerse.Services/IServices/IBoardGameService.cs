@@ -8,7 +8,19 @@ namespace BoardVerse.Services.IServices
     public interface IBoardGameService
     {
         Task<PaginatedResponse<BoardGameListItemDto>> SearchBoardGamesAsync(GetBoardGamesQuery query, CancellationToken cancellationToken = default);
-        Task<BoardGameDetailDto> GetBoardGameByIdAsync(Guid id, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Lấy chi tiết 1 board game kèm categories + components.
+        /// </summary>
+        /// <param name="id">Mã GameTemplate.</param>
+        /// <param name="userId">
+        /// Mã player hiện tại (optional — <c>null</c> nếu gọi public/anonymous).
+        /// Khi có giá trị, service sẽ kiểm tra <c>PlayerBoardGameSave</c> để set <c>IsSaved</c>
+        /// trong response (dùng cho icon save/unsave trên UI).
+        /// </param>
+        /// <param name="cancellationToken">Token hủy.</param>
+        Task<BoardGameDetailDto> GetBoardGameByIdAsync(Guid id, Guid? userId = null, CancellationToken cancellationToken = default);
+
         Task<List<CategoryDto>> GetCategoriesAsync(CancellationToken cancellationToken = default);
 
         /// <summary>
