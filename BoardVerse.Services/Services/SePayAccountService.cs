@@ -216,7 +216,7 @@ throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountE
         var cafeId = await GetCurrentUserCafeIdAsync()
             ?? throw new NotFoundException(ApiErrorMessages.Payment.ManagerHasNoCafe);
 
-        // 2. Validate 4 field bắt buộc — fail-fast với message rõ ràng
+        // 2. Validate 3 field bắt buộc — fail-fast với message rõ ràng
         if (string.IsNullOrWhiteSpace(request.BankCode))
             throw new ArgumentException(ApiErrorMessages.Payment.CafePaymentAccountBankCodeRequired);
         if (string.IsNullOrWhiteSpace(request.AccountNumber))
@@ -229,17 +229,40 @@ throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountE
         if (existing != null)
             throw new InvalidOperationException(ApiErrorMessages.Payment.CafePaymentAccountAlreadyExists(cafeId));
 
-        // 4. Tạo SePayAccount với AccountType = Cafe, KHÔNG đụng SePay credentials
+        // 4. Auto-resolve WebhookAuthType + validate consistency
+        //    (Bảng mapping: có SecretKey → HmacSha256; có WebhookToken only → ApiKey; không có gì → None).
+        var secretKey = string.IsNullOrWhiteSpace(request.SecretKey) ? null : request.SecretKey.Trim();
+        var webhookToken = string.IsNullOrWhiteSpace(request.WebhookToken) ? null : request.WebhookToken.Trim();
+        var authType = request.WebhookAuthType;
+
+        if (authType is null)
+        {
+            authType = !string.IsNullOrEmpty(secretKey) ? SePayWebhookAuthType.HmacSha256
+                     : !string.IsNullOrEmpty(webhookToken) ? SePayWebhookAuthType.ApiKey
+                     : SePayWebhookAuthType.None;
+        }
+
+        // 5. Validate: HMAC mode cần SecretKey; ApiKey mode cần WebhookToken
+        if (authType == SePayWebhookAuthType.HmacSha256 && string.IsNullOrWhiteSpace(secretKey))
+            throw new ArgumentException(ApiErrorMessages.Payment.SePaySecretKeyRequired);
+        if (authType == SePayWebhookAuthType.ApiKey && string.IsNullOrWhiteSpace(webhookToken))
+            throw new ArgumentException(ApiErrorMessages.Payment.SePayWebhookTokenRequired);
+
+        // 6. Tạo SePayAccount — 3 field bắt buộc + optional SePay Personal fields
         var account = new SePayAccount
         {
             AccountType = SePayAccountType.Cafe,
             CafeId = cafeId,
-            // KHÔNG set MerchantId/ApiKey/SecretKey/WebhookToken — Manager không cần đăng ký SePay.
-            // Bank info là đủ để VietQR sinh QR và SePay detect giao dịch (bank_mode=all).
             BankCode = request.BankCode.Trim(),
             AccountNumber = request.AccountNumber.Trim(),
             AccountHolder = request.AccountHolder.Trim(),
             Environment = string.IsNullOrWhiteSpace(request.Environment) ? "Production" : NormalizeEnvironment(request.Environment!),
+            // SePay Personal per-cafe (optional)
+            MerchantId = string.IsNullOrWhiteSpace(request.MerchantId) ? null : request.MerchantId.Trim(),
+            SecretKey = secretKey,
+            WebhookToken = webhookToken,
+            WebhookAuthType = authType!.Value,
+            ApiBaseUrl = string.IsNullOrWhiteSpace(request.ApiBaseUrl) ? null : request.ApiBaseUrl.Trim(),
             IsActive = true,
             CreatedByUserId = GetCurrentUserId()
         };
@@ -247,10 +270,7 @@ throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountE
         await _repository.AddAsync(account);
         await _repository.SaveChangesAsync();
 
-        // 5. BUGFIX: Link Cafe.SePayAccountId → SePayAccount vừa tạo.
-        // Trước đây thiếu bước này khiến CreateSessionPaymentAsync ở PaymentService
-        // luôn check cafe.SePayAccountId.HasValue() == false → throw
-        // PaymentCafeNotConfiguredSePay ngay cả khi SePayAccount đã tồn tại.
+        // 7. Link Cafe.SePayAccountId → SePayAccount vừa tạo (BUGFIX trước đó).
         var cafe = await _cafeRepository.GetByIdAsync(cafeId)
             ?? throw new NotFoundException(ApiErrorMessages.Cafe.CafeRecordNotFound(cafeId));
         cafe.SePayAccountId = account.Id;
@@ -258,8 +278,9 @@ throw new InvalidOperationException(ApiErrorMessages.Payment.SePayMasterAccountE
         await _cafeRepository.SaveChangesAsync();
 
         _logger.LogInformation(
-            "SePayAccount for cafe {CafeId} created by manager. Id={Id}, BankCode={BankCode}, ByUser={UserId}; Cafe.SePayAccountId linked.",
-            cafeId, account.Id, account.BankCode, account.CreatedByUserId);
+            "SePayAccount for cafe {CafeId} created by manager. Id={Id}, BankCode={BankCode}, AuthType={AuthType}, HasSecretKey={HasSecret}, HasMerchantId={HasMerchant}, ByUser={UserId}",
+            cafeId, account.Id, account.BankCode, account.WebhookAuthType,
+            !string.IsNullOrEmpty(secretKey), !string.IsNullOrEmpty(account.MerchantId), account.CreatedByUserId);
 
         return ToDto(account);
     }

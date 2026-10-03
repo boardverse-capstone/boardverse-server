@@ -915,16 +915,46 @@ public class SplitBillService : ISplitBillService
         ActiveSession session,
         CancellationToken cancellationToken)
     {
-        var updatedSession = await _sessionRepository.GetByIdWithMembersAsync(session.Id);
-        if (updatedSession == null) return;
+        // CRITICAL FIX (2026-10-03): Phải dùng AsNoTracking() khi re-fetch sau atomic flip.
+        //
+        // TryAtomicFlipMemberPaymentStatusAsync dùng ExecuteUpdateAsync (Postgres path)
+        // bypass change tracker. Nhưng trong loop PayMembersAsync (multi-member):
+        //   - Iter 1: re-fetch load M1_1, M1_2, M1_3 (tracked)
+        //   - Iter 2: re-fetch → EF identity resolution trả về CÙNG M1_1/2/3
+        //             (với PaymentStatus stale từ DB snapshot của iter 1)
+        //   - Iter 3: tương tự, các tracked members đều stale → allPaid = false
+        //             → session KHÔNG flip sang Paid, member KHÔNG IsCheckedOut.
+        //
+        // Detach trong UpdateMemberPaymentStatusAsync chỉ detach ORIGINAL session.Members
+        // (từ fetch đầu ở PayMembersAsync), KHÔNG detach các members được load bởi
+        // CheckAndFinalizeSessionAsync ở iter trước. AsNoTracking trên root không
+        // đủ — Include(s => s.Members) có thể vẫn trả tracked instances cho
+        // collection navigation đã được load trước đó (identity map cache).
+        //
+        // Giải pháp chắc chắn: tách thành 2 query riêng biệt, cả hai đều AsNoTracking.
+        // - Query 1: chỉ load session fields cần check (Status).
+        // - Query 2: load members với AsNoTracking — KHÔNG qua Include nên identity
+        //   map không thể trả instance cũ.
+        var sessionStatus = await _dbContext.ActiveSessions
+            .AsNoTracking()
+            .Where(s => s.Id == session.Id)
+            .Select(s => (GroupSessionStatus?)s.Status)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (sessionStatus == null) return;
 
         // Fix #3: Kiểm tra idempotency — nếu session đã Paid thì không cần finalize lại
-        if (updatedSession.Status == GroupSessionStatus.Paid)
+        if (sessionStatus == GroupSessionStatus.Paid)
         {
             return;
         }
 
-        var allPaid = updatedSession.Members
+        var members = await _dbContext.ActiveSessionMembers
+            .AsNoTracking()
+            .Where(m => m.ActiveSessionId == session.Id)
+            .Select(m => new { m.PaymentStatus, m.Status })
+            .ToListAsync(cancellationToken);
+
+        var allPaid = members.Count > 0 && members
             .All(m => m.PaymentStatus != MemberPaymentStatus.NotPaid ||
                       m.Status == IndividualSessionStatus.Finished);
 

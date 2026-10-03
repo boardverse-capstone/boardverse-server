@@ -65,6 +65,7 @@ public class M1HostDepositDiscountTests : IDisposable
 
     /// <summary>
     /// Invoke private BuildMemberInvoices qua reflection (match project pattern).
+    /// Tuple return: (invoices, appliedDeposits). Test chỉ quan tâm invoices, ignore appliedDeposits.
     /// </summary>
     private static List<MemberInvoiceDto> InvokeBuildMemberInvoices(
         ActiveSessionService service,
@@ -81,13 +82,34 @@ public class M1HostDepositDiscountTests : IDisposable
             BindingFlags.NonPublic | BindingFlags.Instance)
             ?? throw new InvalidOperationException("BuildMemberInvoices method not found.");
 
+        // BR-22 default params (paidDeposits=null, deductDepositFromBill=false, splitByMember=false)
+        // → M1 test scenario không bị ảnh hưởng (BR-22 deduction chỉ áp dụng khi deduct=true).
         var result = method.Invoke(service, new object?[]
         {
             session, cafe, componentCheckResults, legacyPenaltyItems,
-            hostDepositUsage, reservation, payTime
-        }) as List<MemberInvoiceDto>;
+            hostDepositUsage, reservation, payTime,
+            null,    // paidDeposits (BR-22)
+            false,   // deductDepositFromBill (BR-22)
+            false    // splitByMember (BR-22)
+        });
 
-        return result ?? new List<MemberInvoiceDto>();
+        // Unwrap tuple (List<MemberInvoiceDto> invoices, List<AppliedDepositInfo> appliedDeposits).
+        // C# named tuples expose Item1/Item2 as actual fields; named aliases are only metadata.
+        if (result == null)
+        {
+            return new List<MemberInvoiceDto>();
+        }
+        var resultType = result.GetType();
+        // Try named field first (Item1 for invoices), fallback to property if .NET hides fields.
+        var invoicesItem = resultType.GetField("Item1",
+            BindingFlags.Public | BindingFlags.Instance);
+        if (invoicesItem != null)
+        {
+            return invoicesItem.GetValue(result) as List<MemberInvoiceDto> ?? new List<MemberInvoiceDto>();
+        }
+        // Last resort: iterate fields and take first.
+        var firstField = resultType.GetFields(BindingFlags.Public | BindingFlags.Instance).FirstOrDefault();
+        return firstField?.GetValue(result) as List<MemberInvoiceDto> ?? new List<MemberInvoiceDto>();
     }
 
     /// <summary>

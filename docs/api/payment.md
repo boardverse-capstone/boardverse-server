@@ -32,57 +32,75 @@ API thanh toán cho deposit đặt chỗ (Player) và thanh toán hóa đơn phi
 Tạo đơn cọc đặt chỗ và generate QR thanh toán. Áp dụng cho flow Player đặt cọc online (BR-05).
 
 **Flow:**
-1. Service tạo `OrderId` (BV-prefix).
-2. Gọi `IPaymentGatewayService.CreatePaymentAsync`.
-3. Gateway thử SePay → success: trả `PaymentUrl`, `QrUrl`, `QrExpiresAt = Now + 5 phút`.
-4. SePay fail transient → retry exponential backoff đến `SePayMaxRetries`.
-5. SePay hết → fallback VietQR static QR, `RequiresManualConfirmation = true`.
+1. Client đã tạo `BookingDeposit` (qua flow booking riêng) và có `DepositId` + `Amount` → truyền vào body.
+2. Service tạo `OrderId` (BV-prefix, unique theo DB constraint).
+3. Gọi `IPaymentGatewayService.CreatePaymentAsync`.
+4. Gateway thử SePay → success: trả `PaymentUrl` + `QrImageUrl` + `TransferContent`.
+5. SePay fail transient → retry exponential backoff đến `SePayMaxRetries`.
+6. SePay hết → fallback VietQR static QR, `RequiresManualConfirmation = true`.
+7. Metadata lưu `depositId`, `activeSessionId`, `userId`, `regenerated`.
 
-**Body mẫu:**
+**Body mẫu — `CreatePaymentRequestDto`:**
 
 ```json
 {
-  "cafeId": "<guid>",
-  "lobbyId": "<guid, optional>",
-  "scheduledStartTime": "2026-08-01T19:00:00Z",
-  "seatCount": 4,
-  "amount": 20000
+  "bookingId": "<guid or null>",
+  "depositId": "<guid>",
+  "amount": 20000,
+  "customerEmail": "player@example.com",
+  "description": "Đặt cọc giữ chỗ board game",
+  "returnUrl": "https://boardverse.app/payment/success",
+  "cancelUrl": "https://boardverse.app/payment/cancel"
 }
 ```
 
 | Field | Required | Mô tả |
 |-------|----------|--------|
-| `cafeId` | ✅ | Mã quán cafe. |
-| `lobbyId` | ❌ | Lobby liên kết (nếu có). |
-| `scheduledStartTime` | ✅ | Giờ hẹn chơi. |
-| `seatCount` | ✅ | Số ghế đặt (≤ `Available` của cafe trong khung giờ). |
-| `amount` | ✅ | Số tiền cọc (≤ 50% giờ đầu theo BR-03). |
+| `bookingId` | ❌ | `Booking.Id` liên kết (null nếu walk-in deposit). |
+| `depositId` | ✅ | `BookingDeposit.Id` đã tạo trước. |
+| `amount` | ✅ | Số tiền cọc VND (≤ 50% giờ đầu theo BR-03). |
+| `customerEmail` | ❌ | Email khách (audit trail). |
+| `description` | ❌ | Mô tả đơn (in trên QR description nếu VietQR). |
+| `returnUrl` | ❌ | URL SePay redirect sau khi success. |
+| `cancelUrl` | ❌ | URL SePay redirect khi hủy. |
 
-**Response 200:**
+**Response 200 — `CreatePaymentResponseDto`:**
 
 ```json
 {
   "data": {
-    "depositId": "<guid>",
-    "orderId": "BV12345678",
-    "qrUrl": "https://pay.sepay.vn/...",
     "paymentUrl": "https://pay.sepay.vn/v1/checkout/init?...",
-    "qrExpiresAt": "2026-07-21T10:05:00Z",
-    "amount": 20000,
-    "requiresManualConfirmation": false
+    "orderId": "BV12345678",
+    "transferContent": "BV12345678",
+    "qrImageUrl": "https://qr.sepay.vn/...",
+    "gateway": "SePay",
+    "requiresManualConfirmation": false,
+    "message": "Vui lòng quét QR hoặc mở paymentUrl để thanh toán."
   }
 }
 ```
 
+| Field | Mô tả |
+|-------|-------|
+| `paymentUrl` | URL checkout SePay (dẫn tới trang thanh toán SePay). |
+| `orderId` | Mã đơn BV-prefix (unique DB constraint). |
+| `transferContent` | Nội dung CK (SePay match via content khi khách CK VietQR). |
+| `qrImageUrl` | URL ảnh QR (VietQR hoặc SePay QR). |
+| `gateway` | `SePay` \| `VietQr`. |
+| `requiresManualConfirmation` | `true` khi fallback VietQR (staff phải xác nhận). |
+| `message` | Hướng dẫn user (tiếng Việt). |
+
 **Side effects:**
 - `BookingDeposit.Status = Pending`.
-- `SeatSlot.Available → Holding` (giữ 5 phút).
+- `SeatSlot.Available → Holding` (giữ 5 phút nếu có lobby link).
 - Metadata lưu `depositId`, `activeSessionId`, `userId`, `regenerated`.
 
 **Lỗi:**
-- `400` dữ liệu không hợp lệ / vượt BR-03 (50% giờ đầu) / quán hết chỗ.
+- `400` dữ liệu không hợp lệ / vượt BR-03 (50% giờ đầu) / quán hết chỗ / OrderId collision sau 3 retry.
 - `401` thiếu token.
-- `409` đã có deposit `PENDING` cho cùng lobby/cafe.
+- `403` không phải chủ đơn cọc.
+- `404` không tìm thấy đơn cọc.
+- `409` đã có deposit `PENDING` cho cùng `DepositId`.
 - `500` gateway lỗi không recover được.
 
 ---
@@ -126,13 +144,16 @@ Lấy chi tiết đơn cọc theo `Id`. Dùng để mobile polling trạng thái
     "id": "<guid>",
     "orderId": "BV12345678",
     "activeSessionId": "<guid or null>",
+    "bookingId": "<guid or null>",
     "userId": "<guid>",
     "cafeId": "<guid>",
+    "cafeName": "BoardGame Cafe A",
     "cafeManagerId": "<guid>",
     "amount": 20000,
     "refundedAmount": null,
     "refundPolicy": "Full",
     "status": "Paid",
+    "statusText": "Paid",
     "transferContent": "BV12345678",
     "sePayTransactionId": "TXN-...",
     "paidAt": "2026-07-21T10:02:00Z",
@@ -143,10 +164,18 @@ Lấy chi tiết đơn cọc theo `Id`. Dùng để mobile polling trạng thái
     "qrExpiresAt": "2026-07-21T10:07:00Z",
     "scheduledAt": "2026-07-22T19:00:00Z",
     "createdAt": "2026-07-21T10:00:00Z",
-    "updatedAt": "2026-07-21T10:02:00Z"
+    "updatedAt": "2026-07-21T10:02:00Z",
+    "currency": "VND"
   }
 }
 ```
+
+| Field (mới so với v1) | Mô tả |
+|---|---|
+| `bookingId` | `Booking.Id` liên kết (null nếu walk-in deposit). Mobile dùng để navigate về booking detail. |
+| `cafeName` | Tên quán (mobile gap #11 — hiển thị trên PaymentPage). |
+| `statusText` | Status dạng string (`Pending`/`Paid`/`Expired`/`Refunded`/`Forfeited`/`Released`) cho mobile parse dễ. |
+| `currency` | Mã tiền tệ, mặc định `"VND"`. |
 
 **Side effects:** không có (read-only).
 
@@ -249,37 +278,59 @@ POS tạo QR thanh toán hóa đơn phiên chơi sau khi kiểm kê linh kiện 
 
 **Validation:**
 - `ActiveSession.Status == UNPAID`.
-- `TotalAmount > 0`.
-- Cafe đã cấu hình SePay (`Cafe.SePayMerchantId` + `SecretKey`).
+- Cafe đã cấu hình SePay (`Cafe.SePayAccountId` — resolve sang `SePayAccount` với bank info).
+- Dùng VietQR static + SePay checkout của cafe (không qua master).
 
-**Body mẫu:**
+**Body mẫu — `CreateSessionPaymentRequestDto`:**
 
 ```json
 {
   "sessionId": "<guid>",
-  "totalAmount": 85000,
-  "depositAppliedAmount": 20000,
+  "customerEmail": "player@example.com",
   "notes": "Khách trả tiền mặt QR scan"
 }
 ```
 
 | Field | Required | Mô tả |
 |-------|----------|--------|
-| `sessionId` | ✅ | Mã phiên chơi. |
-| `totalAmount` | ✅ | Tổng tiền hóa đơn (BR-15: Subtotal + Penalty - DepositApplied). |
-| `depositAppliedAmount` | ❌ | Số cọc đã cấn trừ (BR-09, default 0). |
-| `notes` | ❌ | Ghi chú POS. |
+| `sessionId` | ✅ | `ActiveSession.Id`. |
+| `customerEmail` | ❌ | Email khách (audit trail). |
+| `notes` | ❌ | Ghi chú POS (lưu `ActiveSession.Notes`). |
 
-**Response 200:** QR thanh toán session (giống format deposit, không set `QrExpiresAt`).
+> **Note (2026-10):** Field `totalAmount` / `depositAppliedAmount` KHÔNG còn ở DTO — `TotalAmount` đã có sẵn trên `ActiveSession` (tính bằng `Subtotal + Penalty - DepositAppliedAmount` ngay khi kiểm kê xong), service dùng giá trị này từ DB. `depositAppliedAmount` được derive từ `BookingDeposit.DeductDepositFromBill` flow (xem `PaySessionRequestDto` §3 tại [`payment.md`](./payment.md)).
+
+**Response 200 — `CreateSessionPaymentResponseDto`:**
+
+```json
+{
+  "data": {
+    "sessionId": "<guid>",
+    "paymentUrl": "https://pay.sepay.vn/...",
+    "orderId": "BV-S-12345678",
+    "transferContent": "BV-S-12345678",
+    "amount": 85000,
+    "status": "Pending",
+    "qrImageUrl": "https://vietqr.app/img?bank=MBBank&acc=...&amount=85000",
+    "gateway": "VietQr",
+    "requiresManualConfirmation": true
+  }
+}
+```
+
+| Field | Mô tả |
+|-------|-------|
+| `status` | `"Pending"` (chờ SePay webhook flip sang Paid). |
+| `requiresManualConfirmation` | `true` cho VietQR fallback. |
+| `qrImageUrl` | URL QR hiển thị trên POS cho khách quét. |
 
 **Side effects:**
-- `ActiveSession` đánh dấu chờ thanh toán (status vẫn `UNPAID`).
-- QR redirect về `ReturnUrl` của cafe.
+- `ActiveSession` đánh dấu chờ thanh toán (`status` vẫn `UNPAID` cho đến khi webhook success).
+- QR redirect về `SePayAccount.ReturnUrl` của cafe.
 
 **Lỗi:**
-- `400` session không ở `UNPAID` / amount ≤ 0 / cafe chưa cấu hình SePay.
+- `400` session không ở `UNPAID` / cafe chưa cấu hình SePay.
 - `401` thiếu token.
-- `403` không phải Manager/CafeStaff của cafe.
+- `403` không phải Manager/CafeStaff của cafe (Admin bypass).
 - `404` không tìm thấy session hoặc cafe.
 - `500` gateway lỗi.
 

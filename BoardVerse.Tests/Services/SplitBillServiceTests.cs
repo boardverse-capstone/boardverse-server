@@ -715,5 +715,110 @@ public class SplitBillServiceTests : IDisposable
         Assert.Equal(GroupSessionStatus.Paid, updatedSession.Status);
     }
 
+    /// <summary>
+    /// Regression test (2026-10-03): Bug #2 — khi PayMembersAsync được gọi với NHIỀU
+    /// member cùng lúc, session phải flip sang Paid SAU khi member cuối cùng thanh toán.
+    /// Trước đây CheckAndFinalizeSessionAsync dùng AsNoTracking + Include(s => s.Members)
+    /// trong vòng lặp — bị EF identity map trả về tracked Member instances cũ (stale
+    /// PaymentStatus) ở iter 2+ → allPaid luôn = false → session KHÔNG flip.
+    /// Fix: tách thành 2 query AsNoTracking riêng biệt (1 cho session status,
+    /// 1 cho member states) — không qua Include nên identity map không thể trả instance cũ.
+    /// </summary>
+    [Fact]
+    public async Task PayMembersAsync_WhenMultipleMembersPaidInOneCall_SessionBecomesPaidAndMembersCheckedOut()
+    {
+        var sessionId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+        var cafeId = Guid.NewGuid();
+
+        var member1 = new ActiveSessionMember
+        {
+            Id = Guid.NewGuid(),
+            TotalAmount = 60000m,
+            PaymentStatus = MemberPaymentStatus.NotPaid,
+            Status = IndividualSessionStatus.Playing
+        };
+        var member2 = new ActiveSessionMember
+        {
+            Id = Guid.NewGuid(),
+            TotalAmount = 60000m,
+            PaymentStatus = MemberPaymentStatus.NotPaid,
+            Status = IndividualSessionStatus.Playing
+        };
+        var member3 = new ActiveSessionMember
+        {
+            Id = Guid.NewGuid(),
+            TotalAmount = 60000m,
+            PaymentStatus = MemberPaymentStatus.NotPaid,
+            Status = IndividualSessionStatus.Playing
+        };
+
+        var session = new ActiveSession
+        {
+            Id = sessionId,
+            Status = GroupSessionStatus.Unpaid,
+            CafeId = cafeId,
+            Members = new List<ActiveSessionMember> { member1, member2, member3 }
+        };
+
+        // InMemory: track entities for the InMemory fallback path inside TryAtomicFlip
+        await _dbContext.ActiveSessions.AddAsync(session);
+        await _dbContext.ActiveSessionMembers.AddRangeAsync(member1, member2, member3);
+        await _dbContext.SaveChangesAsync();
+
+        _sessionRepoMock.Setup(r => r.GetByIdWithMembersAsync(sessionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(session);
+        _sessionRepoMock.Setup(r => r.UpdateAsync(It.IsAny<ActiveSession>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        _sessionRepoMock.Setup(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        _sessionRepoMock.Setup(r => r.ReleaseMembersAndCloseLobbyAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        _sessionRepoMock.Setup(r => r.ReleaseSessionTableAndBoxAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        _cafeRepoMock.Setup(r => r.GetActiveByIdAsync(cafeId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Cafe { Id = cafeId, Name = "Test", Address = "addr", ManagerId = staffId });
+        _cafeRepoMock.Setup(r => r.IsStaffMemberExistsAsync(cafeId, staffId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _transactionRepoMock.Setup(r => r.AddAsync(It.IsAny<Transaction>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Transaction t, CancellationToken _) => t);
+
+        var request = new PayMemberRequestDto
+        {
+            MemberIds = new List<Guid> { member1.Id, member2.Id, member3.Id },
+            PaymentMethod = "CASH"
+        };
+
+        // Act
+        var results = await _service.PayMembersAsync(sessionId, request, staffId, "Manager");
+
+        // Assert — response
+        Assert.Equal(3, results.Count);
+        Assert.All(results, r => Assert.Equal(MemberPaymentStatus.PaidCash, r.Status));
+
+        // Assert — DB state
+        // (a) Session đã flip sang Paid (Bug #2 regression)
+        var updatedSession = await _dbContext.ActiveSessions.FirstOrDefaultAsync(s => s.Id == sessionId);
+        Assert.NotNull(updatedSession);
+        Assert.Equal(GroupSessionStatus.Paid, updatedSession.Status);
+        Assert.NotNull(updatedSession!.PaidAt);
+
+        // (b) Tất cả members đã PaidCash
+        var updatedMembers = await _dbContext.ActiveSessionMembers
+            .Where(m => m.ActiveSessionId == sessionId)
+            .ToListAsync();
+        Assert.Equal(3, updatedMembers.Count);
+        Assert.All(updatedMembers, m => Assert.Equal(MemberPaymentStatus.PaidCash, m.PaymentStatus));
+        Assert.All(updatedMembers, m => Assert.Equal("CASH", m.PaymentMethod));
+
+        // (c) ReleaseMembersAndCloseLobbyAsync + ReleaseSessionTableAndBoxAsync phải được gọi
+        _sessionRepoMock.Verify(
+            r => r.ReleaseMembersAndCloseLobbyAsync(sessionId, It.IsAny<CancellationToken>()),
+            Times.Once);
+        _sessionRepoMock.Verify(
+            r => r.ReleaseSessionTableAndBoxAsync(sessionId, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
     #endregion
 }

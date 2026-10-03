@@ -213,6 +213,13 @@ namespace BoardVerse.Data.Repositories
                 sessionQuery = sessionQuery.Where(s => s.GameTemplateId == gameTemplateId.Value);
             }
 
+            // CRITICAL FIX (2026-10-03): Phải Select đầy đủ các field tài chính + trạng thái
+            // mà ActiveSessionDto cần. Trước đây chỉ Select một subset (Id/CafeId/.../CreatedAt)
+            // → mọi field tài chính (Subtotal/TotalAmount/Penalty/...) default về 0/null
+            // khi materialize lại thành ActiveSession → response trả 0 dù DB có data thật.
+            //
+            // So sánh với GetUnpaidSessionsAsync phía dưới — có Subtotal/PenaltyAmount/TotalAmount
+            // → response trả đúng. Hai method phải đồng bộ.
             var sessions = await sessionQuery
                 .Select(s => new
                 {
@@ -226,7 +233,19 @@ namespace BoardVerse.Data.Repositories
                     s.Status,
                     s.StartedAt,
                     s.EndedAt,
-                    s.CreatedAt
+                    s.CreatedAt,
+                    // Financial fields
+                    s.Subtotal,
+                    s.PenaltyAmount,
+                    s.DepositAppliedAmount,
+                    s.TotalAmount,
+                    s.SurchargeFine,
+                    // Inventory / pause state
+                    s.IsCheckingInventory,
+                    s.HasMissingComponents,
+                    s.IsPaused,
+                    s.PausedAt,
+                    s.PaidAt
                 })
                 .AsNoTracking()
                 .ToListAsync(cancellationToken);
@@ -295,6 +314,17 @@ namespace BoardVerse.Data.Repositories
                 StartedAt = s.StartedAt,
                 EndedAt = s.EndedAt,
                 CreatedAt = s.CreatedAt,
+                // Financial fields — phải copy từ projection về entity
+                Subtotal = s.Subtotal,
+                PenaltyAmount = s.PenaltyAmount,
+                DepositAppliedAmount = s.DepositAppliedAmount,
+                TotalAmount = s.TotalAmount,
+                SurchargeFine = s.SurchargeFine,
+                IsCheckingInventory = s.IsCheckingInventory,
+                HasMissingComponents = s.HasMissingComponents,
+                IsPaused = s.IsPaused,
+                PausedAt = s.PausedAt,
+                PaidAt = s.PaidAt,
                 CafeTable = s.CafeTableId.HasValue ? tables.GetValueOrDefault(s.CafeTableId.Value) : null,
                 CafeInventoryBox = s.CafeInventoryBoxId.HasValue ? boxes.GetValueOrDefault(s.CafeInventoryBoxId.Value) : null,
                 GameTemplate = gameTemplates.GetValueOrDefault(s.GameTemplateId) ?? null!,

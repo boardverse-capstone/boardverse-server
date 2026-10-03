@@ -39,6 +39,7 @@ Chi tiết 3 cách tích hợp xem [sepay-payment-flow.mdc §I.4](../../.cursor/
 | `/{id}` | PUT | Cập nhật account |
 | `/{id}` | DELETE | Xóa account |
 | `/{id}/environment` | PUT | Chuyển đổi môi trường (Test ↔ Production) |
+| `/lookup/transaction/{sePayTransactionId}` | GET | Tra cứu BookingDeposit theo mã giao dịch ngân hàng (debug webhook mismatch) |
 
 ## Endpoints — Manager
 
@@ -147,6 +148,47 @@ Chuyển đổi `Test ↔ Production`.
 - `200` — Cập nhật thành công
 - `400` — Môi trường không hợp lệ
 - `404` — Không tìm thấy
+
+### GET /api/sepay-accounts/lookup/transaction/{sePayTransactionId}
+
+Tra cứu `BookingDeposit` theo **mã giao dịch ngân hàng** mà SePay gửi về trong webhook. Dùng khi support khách hàng hoặc debug trường hợp webhook không match (amount sai, OrderId sai, status không flip, …).
+
+**Path param:** `sePayTransactionId` (string, bắt buộc) — mã `gateway_transaction_id` SePay gửi trong payload webhook.
+
+**Response 200 — `SePayTransactionLookupDto`:**
+
+```json
+{
+  "statusCode": 200,
+  "message": "Tra cứu SePay transaction thành công.",
+  "data": {
+    "depositId": "<guid>",
+    "orderId": "BV12345678",
+    "bookingId": "<guid>",
+    "activeSessionId": "<guid>",
+    "cafeId": "<guid>",
+    "cafeName": "BoardGame Cafe A",
+    "userId": "<guid>",
+    "amount": 50000,
+    "status": "Paid",
+    "sePayTransactionId": "TXN-...",
+    "sePayTransferId": null,
+    "paidAt": "2026-10-03T10:02:00Z",
+    "refundedAt": null,
+    "forfeitedAt": null,
+    "createdAt": "2026-10-03T10:00:00Z"
+  }
+}
+```
+
+**Response codes:**
+- `200` — Tìm thấy deposit khớp
+- `400` — `sePayTransactionId` rỗng
+- `401` — Thiếu token
+- `403` — Không có quyền Admin
+- `404` — Không tìm thấy `BookingDeposit` với transactionId này
+
+> **Tip debug:** Khi khách báo "đã chuyển khoản thành công nhưng app vẫn Pending" → lấy `reference_code` / `transaction_id` trên app ngân hàng của khách → tra cứu endpoint này. Nếu 404 → SePay chưa gửi webhook hoặc sai accountNumber. Nếu trả về `status = Pending` → webhook đã về nhưng amount/OrderId sai → check lại log webhook.
 
 ---
 

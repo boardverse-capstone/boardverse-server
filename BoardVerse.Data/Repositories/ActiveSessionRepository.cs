@@ -304,37 +304,64 @@ namespace BoardVerse.Data.Repositories
         {
             var now = DateTime.UtcNow;
 
-            var session = await _db.ActiveSessions
-                .Include(s => s.Members)
-                .FirstOrDefaultAsync(s => s.Id == sessionId, cancellationToken);
-
-            if (session == null)
+            // CRITICAL FIX (2026-10-03): Dùng ExecuteUpdateAsync để bypass change tracker
+            // và concurrency token.
+            //
+            // Lý do: TryAtomicFlipMemberPaymentStatusAsync (SplitBillService) dùng
+            // ExecuteUpdateAsync để flip member PaymentStatus, đồng thời set UpdatedAt = now.
+            // Change tracker vẫn giữ UpdatedAt CŨ. Nếu dùng tracked entity + SaveChangesAsync,
+            // EF include WHERE UpdatedAt = @old_value → DB đã có UpdatedAt MỚI → match 0 rows.
+            // Hậu quả: IsCheckedOut = false, lobby không close.
+            //
+            // InMemory provider không support ExecuteUpdateAsync → fallback direct update.
+            if (_db.Database.ProviderName?.Contains("InMemory") == true)
             {
-                return;
-            }
+                var session = await _db.ActiveSessions
+                    .Include(s => s.Members)
+                    .FirstOrDefaultAsync(s => s.Id == sessionId, cancellationToken);
 
-            // 1. Mark all members as checked out
-            foreach (var member in session.Members)
-            {
-                if (!member.IsCheckedOut)
+                if (session == null) return;
+
+                foreach (var member in session.Members)
                 {
-                    member.IsCheckedOut = true;
-                    member.CheckedOutAt ??= now;
+                    if (!member.IsCheckedOut)
+                    {
+                        member.IsCheckedOut = true;
+                        member.CheckedOutAt ??= now;
+                    }
                 }
-            }
 
-            // 2. Close any linked lobby
-            var lobby = await _db.Lobbies
-                .FirstOrDefaultAsync(l => l.ActiveSessionId == sessionId, cancellationToken);
-            if (lobby != null && lobby.Status != LobbyStatus.Closed)
+                var lobby = await _db.Lobbies
+                    .FirstOrDefaultAsync(l => l.ActiveSessionId == sessionId, cancellationToken);
+                if (lobby != null && lobby.Status != LobbyStatus.Closed)
+                {
+                    lobby.Status = LobbyStatus.Closed;
+                    lobby.ClosedAt = now;
+                    lobby.UpdatedAt = now;
+                }
+
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+            else
             {
-                lobby.Status = LobbyStatus.Closed;
-                lobby.ClosedAt = now;
-                lobby.UpdatedAt = now;
-            }
+                // 1. Mark all non-checked-out members as checked out (idempotent)
+                await _db.ActiveSessionMembers
+                    .Where(m => m.ActiveSessionId == sessionId && !m.IsCheckedOut)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(m => m.IsCheckedOut, true)
+                        .SetProperty(m => m.CheckedOutAt, m => m.CheckedOutAt ?? now)
+                        .SetProperty(m => m.UpdatedAt, (DateTime?)now),
+                        cancellationToken);
 
-            // Persist all changes in a single transaction.
-            await _db.SaveChangesAsync(cancellationToken);
+                // 2. Close any linked lobby (idempotent)
+                await _db.Lobbies
+                    .Where(l => l.ActiveSessionId == sessionId && l.Status != LobbyStatus.Closed)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(l => l.Status, LobbyStatus.Closed)
+                        .SetProperty(l => l.ClosedAt, (DateTime?)now)
+                        .SetProperty(l => l.UpdatedAt, now),
+                        cancellationToken);
+            }
         }
 
         /// <summary>
@@ -346,42 +373,69 @@ namespace BoardVerse.Data.Repositories
         {
             var now = DateTime.UtcNow;
 
+            // CRITICAL FIX (2026-10-03): Dùng AsNoTracking cho session + ExecuteUpdateAsync
+            // cho box/table. Lý do tương tự ReleaseMembersAndCloseLobbyAsync — concurrency
+            // token stale sẽ làm SaveChangesAsync fail nếu dùng tracked entity.
             var session = await _db.ActiveSessions
+                .AsNoTracking()
                 .FirstOrDefaultAsync(s => s.Id == sessionId, cancellationToken);
 
-            if (session == null)
-            {
-                return;
-            }
+            if (session == null) return;
 
-            // Release the board game box (if attached and still in use).
-            // Only flip status when box is currently InUse for this session.
-            // Preserve Lost/Maintenance/Retired/etc. — those are operational
-            // signals, not session lifecycle states.
-            if (session.CafeInventoryBoxId.HasValue)
+            if (_db.Database.ProviderName?.Contains("InMemory") == true)
             {
-                var box = await _db.CafeInventoryBoxes
-                    .FirstOrDefaultAsync(b => b.Id == session.CafeInventoryBoxId.Value, cancellationToken);
-                if (box != null && box.Status == CafeGameInventoryStatus.InUse)
+                // Release the board game box (if attached and still in use).
+                if (session.CafeInventoryBoxId.HasValue)
                 {
-                    box.Status = CafeGameInventoryStatus.Available;
-                    box.UpdatedAt = now;
+                    var box = await _db.CafeInventoryBoxes
+                        .FirstOrDefaultAsync(b => b.Id == session.CafeInventoryBoxId.Value, cancellationToken);
+                    if (box != null && box.Status == CafeGameInventoryStatus.InUse)
+                    {
+                        box.Status = CafeGameInventoryStatus.Available;
+                        box.UpdatedAt = now;
+                    }
+                }
+
+                if (session.CafeTableId.HasValue)
+                {
+                    var table = await _db.CafeTables
+                        .FirstOrDefaultAsync(t => t.Id == session.CafeTableId.Value && t.CafeId == session.CafeId, cancellationToken);
+                    if (table != null && table.Status == CafeTableStatus.InUse)
+                    {
+                        table.Status = CafeTableStatus.Available;
+                        table.UpdatedAt = now;
+                    }
+                }
+
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+            else
+            {
+                // Release the board game box (if attached and still in use).
+                if (session.CafeInventoryBoxId.HasValue)
+                {
+                    await _db.CafeInventoryBoxes
+                        .Where(b => b.Id == session.CafeInventoryBoxId.Value
+                                    && b.Status == CafeGameInventoryStatus.InUse)
+                        .ExecuteUpdateAsync(setters => setters
+                            .SetProperty(b => b.Status, CafeGameInventoryStatus.Available)
+                            .SetProperty(b => b.UpdatedAt, now),
+                            cancellationToken);
+                }
+
+                // Release the cafe table (if attached and still in use)
+                if (session.CafeTableId.HasValue)
+                {
+                    await _db.CafeTables
+                        .Where(t => t.Id == session.CafeTableId.Value
+                                    && t.CafeId == session.CafeId
+                                    && t.Status == CafeTableStatus.InUse)
+                        .ExecuteUpdateAsync(setters => setters
+                            .SetProperty(t => t.Status, CafeTableStatus.Available)
+                            .SetProperty(t => t.UpdatedAt, now),
+                            cancellationToken);
                 }
             }
-
-            // Release the cafe table (if attached and still in use)
-            if (session.CafeTableId.HasValue)
-            {
-                var table = await _db.CafeTables
-                    .FirstOrDefaultAsync(t => t.Id == session.CafeTableId.Value && t.CafeId == session.CafeId, cancellationToken);
-                if (table != null && table.Status == CafeTableStatus.InUse)
-                {
-                    table.Status = CafeTableStatus.Available;
-                    table.UpdatedAt = now;
-                }
-            }
-
-            await _db.SaveChangesAsync(cancellationToken);
         }
 
         /// <summary>

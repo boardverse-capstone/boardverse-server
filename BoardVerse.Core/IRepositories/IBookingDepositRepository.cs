@@ -10,6 +10,14 @@ namespace BoardVerse.Core.IRepositories
         Task<BookingDeposit?> GetByOrderIdAsync(string orderId, CancellationToken cancellationToken = default);
         Task<BookingDeposit?> GetByBookingCodeAsync(string bookingCode, CancellationToken cancellationToken = default);
         Task<BookingDeposit?> GetByActiveSessionIdAsync(Guid activeSessionId, CancellationToken cancellationToken = default);
+        /// <summary>
+        /// BR-22: Lấy tất cả BookingDeposit đã thanh toán (Status = Paid) của 1 phiên chơi.
+        /// Dùng cho PaySession để trừ deposit vào tổng bill (whole-table mode)
+        /// hoặc áp dụng per-member deposit vào bill cá nhân (split mode).
+        /// </summary>
+        Task<IReadOnlyList<BookingDeposit>> GetPaidDepositsByActiveSessionIdAsync(
+            Guid activeSessionId,
+            CancellationToken cancellationToken = default);
         Task<BookingDeposit?> GetBySePayTransactionIdAsync(string sePayTransactionId, CancellationToken cancellationToken = default);
         /// <summary>BR-05: Lấy deposit theo BookingId.</summary>
         Task<BookingDeposit?> GetByBookingIdAsync(Guid bookingId, CancellationToken cancellationToken = default);

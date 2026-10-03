@@ -1181,6 +1181,15 @@ $"Quán đã có cấu hình thanh toán. Dùng chức năng cập nhật để 
 
 public const string SePayBankInfoIncomplete =
 "Cấu hình thanh toán của quán chưa đầy đủ (thiếu thông tin ngân hàng). Bạn cập nhật lại nhé!";
+
+public const string SePaySecretKeyRequired =
+"Chế độ xác thực HMAC-SHA256 yêu cầu SecretKey. Vui lòng nhập SecretKey lấy từ my.sepay.vn → Merchant settings.";
+
+public const string SePayWebhookTokenRequired =
+"Chế độ xác thực ApiKey yêu cầu WebhookToken. Vui lòng nhập API Key lấy từ my.sepay.vn → Webhook settings.";
+
+public static string SePayPersonalSetupGuide(Uri dashboardUrl) =>
+$"Để kích hoạt SePay Personal cho quán: (1) Đăng ký merchant tại {dashboardUrl}; (2) Lấy Secret Key từ Merchant settings; (3) Nhập Secret Key vào ô SecretKey khi cập nhật cấu hình thanh toán. Sau đó BoardVerse sẽ tự động verify webhook bằng SecretKey riêng của quán.";
  }
 
  public static class BoardGame

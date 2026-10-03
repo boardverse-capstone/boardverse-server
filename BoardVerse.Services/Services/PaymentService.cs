@@ -548,6 +548,28 @@ public class PaymentService : IPaymentService
         return (true, null);
     }
 
+    public async Task<(bool IsValid, string? ErrorMessage)> VerifyWebhookRequestAsync(
+        SePayWebhookVerificationRequest request,
+        string? gateway,
+        string? accountNumber,
+        CancellationToken cancellationToken = default)
+    {
+        if (request == null)
+        {
+            return (false, "Webhook verification request missing.");
+        }
+
+        // SePay Personal per-cafe: truyền bank info để SePayClient route đúng cafe credentials.
+        var isValid = await _sePayClient.VerifyWebhookAsync(
+            request, gateway, accountNumber, cancellationToken);
+        if (!isValid)
+        {
+            return (false, "SePay webhook signature invalid.");
+        }
+
+        return (true, null);
+    }
+
     public async Task HandleSePayWebhookAsync(SePayWebhookDto webhook, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(webhook);

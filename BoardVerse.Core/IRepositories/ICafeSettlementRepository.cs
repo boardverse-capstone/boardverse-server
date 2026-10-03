@@ -22,6 +22,18 @@ namespace BoardVerse.Core.IRepositories
         /// </summary>
         Task<PaginatedResponse<SettlementListItemDto>> GetPagedAsync(SettlementListQuery query, CancellationToken cancellationToken = default);
 
+        /// <summary>
+        /// W-07: Lấy tất cả settlement trong 1 ngày (UTC range) — kèm CafeName join.
+        /// Settlement được coi là thuộc ngày X nếu:
+        ///   - Status = Succeeded/Overridden: <c>TransferredAt</c> nằm trong range (hoặc fallback <c>CreatedAt</c>).
+        ///   - Status = Pending/Failed/Retrying: <c>CreatedAt</c> nằm trong range.
+        /// Repository trả list raw, Service sẽ group/aggregate theo cafe.
+        /// </summary>
+        Task<IReadOnlyList<CafeSettlement>> GetForDailySummaryAsync(
+            DateTime startUtcInclusive,
+            DateTime endUtcExclusive,
+            CancellationToken cancellationToken = default);
+
         Task SaveChangesAsync(CancellationToken cancellationToken = default);
     }
 }

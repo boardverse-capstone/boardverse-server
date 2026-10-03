@@ -75,6 +75,8 @@ public class SePayWebhookController : ControllerBase
         }
 
         // === Webhook signature verification (3 mode: None / ApiKey / HmacSha256) ===
+        // SePay Personal per-cafe: route verify đúng cafe bằng cách match (Gateway, AccountNumber)
+        // từ payload với SePayAccount.BankCode/AccountNumber. Nếu không match → dùng Master.
         var signature = ExtractSignatureFromHeaders(Request.Headers);
         var timestamp = Request.Headers[HeaderTimestamp].ToString();
 
@@ -84,15 +86,23 @@ public class SePayWebhookController : ControllerBase
             RawBody: rawBody);
 
         var (isValid, errorMessage) = await _paymentService.VerifyWebhookRequestAsync(
-            verificationRequest, cancellationToken);
+            verificationRequest,
+            gateway: webhook.Gateway,
+            accountNumber: webhook.AccountNumber,
+            cancellationToken);
 
         if (!isValid)
         {
             _logger.LogWarning(
-                "SePay webhook signature verification failed. OrderId={OrderId}, Error={Error}",
-                webhook.OrderId, errorMessage);
+                "SePay webhook signature verification failed. OrderId={OrderId}, Gateway={Gateway}, AccountNumber={AccountNumber}, Error={Error}",
+                webhook.OrderId, webhook.Gateway, MaskAccountNumber(webhook.AccountNumber), errorMessage);
             return Unauthorized(new { status = "error", message = errorMessage });
         }
+
+        // Mask account number in log to avoid leaking full number
+        _logger.LogInformation(
+            "SePay webhook verified. OrderId={OrderId}, Gateway={Gateway}, Account={Account}",
+            webhook.OrderId, webhook.Gateway, MaskAccountNumber(webhook.AccountNumber));
 
         // Derive legacy fields (OrderId/Status/Amount/GatewayTransactionId) từ BankAPINotify payload.
         webhook.Normalize();
@@ -139,6 +149,16 @@ public class SePayWebhookController : ControllerBase
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Mask account number trong log (chỉ hiện 4 số cuối).
+    /// </summary>
+    private static string MaskAccountNumber(string? accountNumber)
+    {
+        if (string.IsNullOrWhiteSpace(accountNumber) || accountNumber.Length <= 4)
+            return accountNumber ?? string.Empty;
+        return new string('*', accountNumber.Length - 4) + accountNumber[^4..];
     }
 
     /// <summary>

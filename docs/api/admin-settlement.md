@@ -12,6 +12,7 @@ API Admin quản lý settlement — bao gồm xem danh sách (mọi status / ch�
 |----------|--------|--------|
 | `/` | GET | Lấy danh sách settlement có phân trang + filter |
 | `/failed` | GET | Lấy danh sách settlement bị lỗi (Status=Failed) |
+| `/daily-summary` | GET | Tổng hợp giải ngân theo NGÀY (admin dashboard "Hôm nay chuyển bao nhiêu cho quán nào") |
 | `/{settlementId}/override` | POST | Override settlement thất bại |
 
 **Header:** `Authorization: Bearer <admin-token>`
@@ -134,6 +135,97 @@ Cùng shape với `GET /api/v1/admin/settlements`, `status` luôn là `Failed`.
 4. Admin chọn 1 trong 2:
  - **Retry qua AdminJobs**: gọi `POST /api/v1/admin/jobs/settlement/release-session-deposit?cafeId=...&sessionId=...&activeSessionId=...` để trigger SePay transfer thủ công.
  - **Override**: gọi `POST /api/v1/admin/settlements/{settlementId}/override` để đánh dấu đã xử lý thủ công bên ngoài.
+
+---
+
+## GET /api/v1/admin/settlements/daily-summary
+
+W-07: Bảng tổng hợp giải ngân theo **ngày** (mặc định hôm nay theo giờ VN UTC+7).
+
+Dùng cho màn hình admin: **"Hôm nay BoardVerse chuyển bao nhiêu tiền cho quán nào"**. Trả về:
+
+- **Tổng quan**: số quán, tổng settlement, tổng tiền cần chuyển / đã chuyển / failed.
+- **Chi tiết từng quán**: `TotalToTransfer` + breakdown theo `ByStatus` (Pending/Succeeded/Failed/Retrying/Overridden) + SePay bank info + danh sách `SettlementIds`.
+
+### Quy tắc gom settlement theo ngày
+
+| Status | Điều kiện thuộc ngày X |
+|---|---|
+| `Succeeded` / `Overridden` | `TransferredAt` thuộc ngày X (fallback `CreatedAt`) |
+| `Pending` / `Retrying` / `Failed` | `CreatedAt` thuộc ngày X |
+
+### Query Parameters
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `date` | string | No | Ngày cần xem, định dạng `yyyy-MM-dd` theo giờ VN. Mặc định = hôm nay (timezone `Asia/Ho_Chi_Minh`). |
+
+### Response 200 — `SettlementDailySummaryDto`
+
+```json
+{
+  "statusCode": 200,
+  "message": "Lấy tổng hợp settlement theo ngày thành công.",
+  "data": {
+    "date": "2026-10-03",
+    "timezone": "Asia/Ho_Chi_Minh",
+    "queryStartUtc": "2026-10-02T17:00:00Z",
+    "queryEndUtc": "2026-10-03T17:00:00Z",
+    "cafeCount": 3,
+    "totalSettlementCount": 12,
+    "grandTotalToTransfer": 450000,
+    "grandTotalTransferred": 320000,
+    "grandTotalDeposit": 480000,
+    "grandTotalFailed": 30000,
+    "cafes": [
+      {
+        "cafeId": "<guid>",
+        "cafeName": "BoardGame Cafe A",
+        "cafeManagerId": "<guid>",
+        "sePayBankCode": "MBBank",
+        "sePayAccountNumber": "****7890",
+        "totalDepositAmount": 250000,
+        "totalToTransfer": 220000,
+        "totalTransferred": 200000,
+        "totalPending": 20000,
+        "totalFailed": 0,
+        "totalOverridden": 0,
+        "totalCount": 6,
+        "latestActivityAt": "2026-10-03T08:42:00Z",
+        "byStatus": [
+          { "status": "Pending",   "totalAmount": 20000,  "totalDepositAmount": 25000,  "totalNetTransferAmount": 20000,  "count": 1, "latestAt": "2026-10-03T08:42:00Z" },
+          { "status": "Succeeded", "totalAmount": 200000, "totalDepositAmount": 225000, "totalNetTransferAmount": 200000, "count": 5, "latestAt": "2026-10-03T07:30:00Z" },
+          { "status": "Failed",    "totalAmount": 0,      "totalDepositAmount": 0,      "totalNetTransferAmount": 0,      "count": 0, "latestAt": null },
+          { "status": "Retrying",  "totalAmount": 0,      "totalDepositAmount": 0,      "totalNetTransferAmount": 0,      "count": 0, "latestAt": null },
+          { "status": "Overridden","totalAmount": 0,      "totalDepositAmount": 0,      "totalNetTransferAmount": 0,      "count": 0, "latestAt": null }
+        ],
+        "settlementIds": ["<guid-1>", "<guid-2>", "..."]
+      }
+    ]
+  }
+}
+```
+
+### Sort
+
+`Cafes[]` sắp xếp theo `TotalToTransfer DESC` — quán lớn lên đầu. Mỗi `ByStatus[]` LUÔN chứa đủ 5 status (kể cả `count=0`).
+
+### Error Codes
+
+| Status | Description |
+|--------|-------------|
+| `400` | `date` không đúng định dạng `yyyy-MM-dd` |
+| `401` | Thiếu token |
+| `403` | Không phải Admin |
+| `500` | Lỗi hệ thống |
+
+### Use case
+
+1. Admin mở dashboard "Settlement hôm nay".
+2. Frontend gọi `GET /api/v1/admin/settlements/daily-summary` (không truyền `date` → lấy hôm nay).
+3. Hiển thị overview card + danh sách cafe (sort theo tiền lớn nhất).
+4. Bấm vào 1 cafe → drill-down `GET /api/v1/admin/settlements?cafeId={id}&date=...` để xem chi tiết.
+5. Cafe có `totalFailed > 0` → bấm "Xem Failed" → `GET /api/v1/admin/settlements/failed?cafeId={id}` → retry hoặc override.
 
 ---
 

@@ -42,6 +42,42 @@ public class PaySessionRequestDto
     /// Nếu null/empty → service tự sinh từ sessionId + HostDepositUsage.
     /// </summary>
     public string? IdempotencyKey { get; set; }
+
+    /// <summary>
+    /// BR-22 (override BR-09): Trừ tiền cọc đã thanh toán vào tổng bill cuối.
+    /// <para>
+    /// <b>Default = true</b> (2026-10-03 — POS yêu cầu trừ cọc vào bill thay vì để BoardVerse giữ).
+    /// Trước đây BR-09 quy định deposit là phí giữ chỗ, không cấn trừ; giờ thay đổi theo yêu cầu
+    /// vận hành POS: tổng bill phải hiển thị đúng số tiền khách thực trả sau khi trừ deposit.
+    /// </para>
+    /// <para>
+    /// Cách áp dụng:
+    /// <list type="bullet">
+    ///   <item><description><c>SplitByMember = false</c> (mặc định, cả bàn): cộng TẤT CẢ deposit
+    ///     thuộc group (per-member) vào <c>session.DepositAppliedAmount</c>, trừ vào
+    ///     <c>session.TotalAmount</c>. Mỗi member.DepositAppliedAmount = deposit tương ứng.</description></item>
+    ///   <item><description><c>SplitByMember = true</c> (POS chọn "Chia tiền từng người"):
+    ///     chỉ trừ deposit của HOST vào bill host; các member khác vẫn trả 100% tiền giờ.</description></item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// Set <c>false</c> để giữ BR-09 cũ (deposit không trừ, BoardVerse giữ 100% làm phí giữ chỗ).
+    /// </para>
+    /// </summary>
+    public bool DeductDepositFromBill { get; set; } = true;
+
+    /// <summary>
+    /// BR-22: Chế độ thanh toán per-member thay vì cả bàn.
+    /// <para>
+    /// Mặc định <c>false</c> (cả bàn). Khi <c>true</c>:
+    /// <list type="bullet">
+    ///   <item><description>Chỉ trừ deposit của HOST vào bill của host (per-member deposit khác bỏ qua).</description></item>
+    ///   <item><description>Per-member invoice (MemberInvoiceDto) hiển thị DepositAppliedAmount cho host, các member khác = 0.</description></item>
+    ///   <item><description>Session.TotalAmount vẫn = Subtotal + Penalty - HostDeposit (vì các thành viên tự trả phần của mình).</description></item>
+    /// </list>
+    /// </para>
+    /// </summary>
+    public bool SplitByMember { get; set; } = false;
 }
 
 /// <summary>
@@ -131,6 +167,54 @@ public class ComponentPenaltyItemDto
         /// Value có thể là: "LobbyTerminal", "ReservationCancelled", "NoActiveMembers", "DepositAlreadyCaptured".
         /// </summary>
         public string? DiscountSkippedReason { get; set; }
+
+        // ============================================================
+        // BR-22 (override BR-09): Trừ tiền cọc vào tổng bill
+        // ============================================================
+
+        /// <summary>
+        /// BR-22: Tổng tiền cọc BookingDeposit (VND) đã cấn trừ vào tổng bill.
+        /// <para>
+        /// Mặc định = 0 (BR-09 cũ: deposit là phí giữ chỗ cho BoardVerse, không trừ vào bill).
+        /// Khi <c>PaySessionRequestDto.DeductDepositFromBill = true</c>:
+        /// <list type="bullet">
+        ///   <item><description><c>SplitByMember = false</c> (cả bàn): cộng TẤT CẢ BookingDeposit
+        ///     thuộc group (per-member flow BR-22) vào đây. <c>TotalAmount = Subtotal + Penalty - AppliedAmount</c>.</description></item>
+        ///   <item><description><c>SplitByMember = true</c> (chia tiền): chỉ trừ deposit của HOST.
+        ///     Per-member invoice hiển thị DepositAppliedAmount cho host = host deposit.</description></item>
+        /// </list>
+        /// </para>
+        /// </summary>
+        public decimal BookingDepositDeductedAmount { get; set; }
+
+        /// <summary>
+        /// BR-22: Danh sách các deposit đã áp dụng (để POS staff đối soát và hiển thị chi tiết).
+        /// <para>Mỗi entry: 1 BookingDeposit (OrderId, Amount, UserId của người đặt).</para>
+        /// </summary>
+        public List<AppliedDepositInfo> AppliedDeposits { get; set; } = [];
+
+        /// <summary>
+        /// BR-22: Lý do bỏ qua deduction (nếu có). Null = áp dụng thành công (hoặc không có deposit).
+        /// </summary>
+        public string? DepositDeductionSkippedReason { get; set; }
+    }
+
+    /// <summary>
+    /// BR-22: Thông tin 1 BookingDeposit đã được áp dụng để trừ vào bill.
+    /// Trả trong <see cref="PaySessionResponseDto.AppliedDeposits"/>.
+    /// </summary>
+    public class AppliedDepositInfo
+    {
+        public Guid DepositId { get; set; }
+        public string OrderId { get; set; } = string.Empty;
+        public Guid UserId { get; set; }
+        public decimal Amount { get; set; }
+
+        /// <summary>Số tiền thực sự áp dụng (có thể &lt; Amount nếu bill thấp hơn deposit).</summary>
+        public decimal AppliedAmount { get; set; }
+
+        /// <summary>UserId của member nhận deduction (mặc định = UserId deposit).</summary>
+        public Guid? AppliedToMemberId { get; set; }
     }
 
     /// <summary>

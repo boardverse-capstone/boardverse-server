@@ -12,6 +12,17 @@ public interface IPaymentService
     Task<CreateSessionPaymentResponseDto> CreateSessionPaymentAsync(CreateSessionPaymentRequestDto request, Guid actorUserId, string actorRole, CancellationToken cancellationToken = default);
     Task<CreateSessionPaymentResponseDto> RegenerateSessionQrAsync(Guid sessionId, Guid actorUserId, string actorRole, CancellationToken cancellationToken = default);
     Task<(bool IsValid, string? ErrorMessage)> VerifyWebhookRequestAsync(SePayWebhookVerificationRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Verify webhook signature với routing per-cafe (SePay Personal).
+    /// Truyền <paramref name="gateway"/> + <paramref name="accountNumber"/> từ webhook payload
+    /// để SePayClient route đúng cafe account (verify bằng SecretKey/WebhookToken riêng).
+    /// </summary>
+    Task<(bool IsValid, string? ErrorMessage)> VerifyWebhookRequestAsync(
+        SePayWebhookVerificationRequest request,
+        string? gateway,
+        string? accountNumber,
+        CancellationToken cancellationToken = default);
     Task HandleSePayWebhookAsync(SePayWebhookDto webhook, CancellationToken cancellationToken = default);
     Task<RefundDepositResult> RefundDepositAsync(Guid depositId, string reason, Guid actorUserId, string actorRole, CancellationToken cancellationToken = default);
     Task ProcessExpiredDepositsAsync(CancellationToken cancellationToken = default);

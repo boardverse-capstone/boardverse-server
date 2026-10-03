@@ -1,4 +1,5 @@
 ﻿using BoardVerse.Core.Common;
+using BoardVerse.Core.Constants;
 using BoardVerse.Core.DTOs.Admin;
 using BoardVerse.Core.Entities;
 using BoardVerse.Core.Enum;
@@ -284,5 +285,115 @@ public class SettlementService : ISettlementService
             settlementId, adminUserId);
 
         return settlement;
+    }
+
+    /// <summary>
+    /// W-07: Tổng hợp giải ngân theo ngày. Mặc định = hôm nay theo giờ VN (UTC+7).
+    /// </summary>
+    public async Task<SettlementDailySummaryDto> GetDailySummaryAsync(
+        DateOnly? date = null,
+        CancellationToken cancellationToken = default)
+    {
+        var vnTz = CafeSchedule.VietnamTz;
+        var targetDate = date ?? DateOnly.FromDateTime(
+            TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, vnTz));
+
+        // Build UTC range [date 00:00 VN, date+1 00:00 VN).
+        var startVnLocal = targetDate.ToDateTime(new TimeOnly(0, 0));
+        var endVnLocal = targetDate.AddDays(1).ToDateTime(new TimeOnly(0, 0));
+        var startUtc = TimeZoneInfo.ConvertTimeToUtc(startVnLocal, vnTz);
+        var endUtc = TimeZoneInfo.ConvertTimeToUtc(endVnLocal, vnTz);
+
+        // Lấy tất cả settlement trong range (repository đã filter theo status + TransferredAt/CreatedAt).
+        var settlements = await _settlementRepository.GetForDailySummaryAsync(
+            startUtc, endUtc, cancellationToken);
+
+        // Lấy thông tin cafe (tên + SePay config) cho các cafeId xuất hiện.
+        var cafeIds = settlements.Select(s => s.CafeId).Distinct().ToList();
+        var cafeLookup = await _db.Cafes.AsNoTracking()
+            .Where(c => cafeIds.Contains(c.Id))
+            .ToDictionaryAsync(
+                c => c.Id,
+                c => new
+                {
+                    c.Name,
+                    c.ManagerId,
+                    c.SePayBankCode,
+                    c.SePayAccountNumber
+                },
+                cancellationToken);
+
+        // Group theo cafeId.
+        var grouped = settlements
+            .GroupBy(s => s.CafeId)
+            .Select(g =>
+            {
+                cafeLookup.TryGetValue(g.Key, out var cafe);
+
+                var byStatus = Enum.GetValues<CafeSettlementStatus>()
+                    .Select(status =>
+                    {
+                        var statusItems = g.Where(x => x.Status == status).ToList();
+                        return new SettlementStatusBreakdownDto
+                        {
+                            Status = status,
+                            TotalAmount = statusItems.Sum(x => x.DepositAmount),
+                            TotalDepositAmount = statusItems.Sum(x => x.DepositAmount),
+                            TotalNetTransferAmount = statusItems.Sum(x => x.NetTransferAmount),
+                            Count = statusItems.Count,
+                            // Ưu tiên TransferredAt cho Succeeded/Overridden, fallback CreatedAt.
+                            LatestAt = statusItems
+                                .Select(x => x.TransferredAt ?? x.CreatedAt)
+                                .DefaultIfEmpty()
+                                .Max()
+                        };
+                    })
+                    .ToList();
+
+                var totalDeposit = g.Sum(x => x.DepositAmount);
+                var totalTransferred = g.Where(x => x.Status == CafeSettlementStatus.Succeeded).Sum(x => x.NetTransferAmount);
+                var totalPending = g.Where(x => x.Status == CafeSettlementStatus.Pending
+                                                || x.Status == CafeSettlementStatus.Retrying).Sum(x => x.NetTransferAmount);
+                var totalFailed = g.Where(x => x.Status == CafeSettlementStatus.Failed).Sum(x => x.NetTransferAmount);
+                var totalOverridden = g.Where(x => x.Status == CafeSettlementStatus.Overridden).Sum(x => x.NetTransferAmount);
+
+                return new CafeDailySettlementDto
+                {
+                    CafeId = g.Key,
+                    CafeName = cafe?.Name,
+                    CafeManagerId = cafe?.ManagerId ?? Guid.Empty,
+                    SePayBankCode = cafe?.SePayBankCode,
+                    SePayAccountNumber = cafe?.SePayAccountNumber,
+                    TotalDepositAmount = totalDeposit,
+                    TotalToTransfer = totalTransferred + totalPending + totalOverridden,
+                    TotalTransferred = totalTransferred,
+                    TotalPending = totalPending,
+                    TotalFailed = totalFailed,
+                    TotalOverridden = totalOverridden,
+                    TotalCount = g.Count(),
+                    LatestActivityAt = g.Max(x => x.TransferredAt ?? x.CreatedAt),
+                    ByStatus = byStatus,
+                    SettlementIds = g.Select(x => x.Id).ToList()
+                };
+            })
+            // Quán có số tiền cần chuyển lớn nhất lên đầu.
+            .OrderByDescending(c => c.TotalToTransfer)
+            .ThenBy(c => c.CafeName)
+            .ToList();
+
+        return new SettlementDailySummaryDto
+        {
+            Date = targetDate.ToString("yyyy-MM-dd"),
+            Timezone = vnTz.Id,
+            QueryStartUtc = startUtc,
+            QueryEndUtc = endUtc,
+            CafeCount = grouped.Count,
+            TotalSettlementCount = settlements.Count,
+            GrandTotalDeposit = grouped.Sum(c => c.TotalDepositAmount),
+            GrandTotalToTransfer = grouped.Sum(c => c.TotalToTransfer),
+            GrandTotalTransferred = grouped.Sum(c => c.TotalTransferred),
+            GrandTotalFailed = grouped.Sum(c => c.TotalFailed),
+            Cafes = grouped
+        };
     }
 }

@@ -1036,6 +1036,8 @@ namespace BoardVerse.Services.Services
 
             // M1: khai báo trước để sử dụng trong transaction (BuildMemberInvoices gọi trong try) + response.
             List<MemberInvoiceDto> memberInvoices = new();
+            // BR-22: appliedDeposits từ BuildMemberInvoices — dùng cho response BookingDepositDeductedAmount.
+            var appliedDeposits = new List<AppliedDepositInfo>();
             BoardVerse.Core.Entities.Reservation? reservationForDiscount = null;
 
             // M1: Load allComponentCheckResults một lần — dùng cả trong try block (cho BuildMemberInvoices)
@@ -1259,16 +1261,40 @@ namespace BoardVerse.Services.Services
                         session.LobbyId.Value, ct);
                 }
 
+                // BR-22 (override BR-09): Load TẤT CẢ BookingDeposit đã thanh toán cho session này.
+                // Mỗi thành viên có thể có 1 deposit riêng (per-member flow); tổng cộng trừ vào bill.
+                // Empty list nếu không có (walk-in, hoặc group chưa đặt cọc).
+                var paidDeposits = await _depositRepository.GetPaidDepositsByActiveSessionIdAsync(
+                    sessionId, ct);
+
                 #pragma warning disable CS0618
-                memberInvoices = BuildMemberInvoices(
+                var buildResult = BuildMemberInvoices(
                     session,
                     cafe,
                     allComponentCheckResults,
                     request.PenaltyItems,
                     hostDepositUsage: request.HostDepositUsage,
                     reservation: reservationForDiscount,
-                    payTime: now);
+                    payTime: now,
+                    paidDeposits: paidDeposits,
+                    deductDepositFromBill: request.DeductDepositFromBill,
+                    splitByMember: request.SplitByMember);
                 #pragma warning restore CS0618
+                memberInvoices = buildResult.invoices;
+                appliedDeposits = buildResult.appliedDeposits;
+
+                // BR-22: Cập nhật session.DepositAppliedAmount (tổng VND deposit đã trừ) + TotalAmount.
+                // Công thức mới: TotalAmount = Subtotal + PenaltyAmount - DepositAppliedAmount.
+                // Trước đây (BR-09 cũ): TotalAmount = Subtotal + PenaltyAmount (không trừ deposit).
+                // Lưu ý: appliedDeposits.Empty nếu DeductDepositFromBill = false (BR-09 cũ)
+                // hoặc paidDeposits rỗng.
+                session.DepositAppliedAmount = appliedDeposits.Sum(d => d.AppliedAmount);
+                session.TotalAmount = Math.Max(0m, session.Subtotal + session.PenaltyAmount - session.DepositAppliedAmount);
+
+                // Persist member.DepositAppliedAmount (BR-22 VND) changes ngay tại đây.
+                // BuildMemberInvoices đã gán vào in-memory member.DepositAppliedAmount.
+                // SaveChangesAsync sẽ persist xuống DB.
+                await _activeSessionRepository.SaveChangesAsync();
 
                 // BR §21A.8 + BR-REVENUE-01: capture BVC deposit về doanh thu quán.
                 // Nếu thất bại → KHÔNG commit transaction; status Paid rollback.
@@ -1411,16 +1437,27 @@ namespace BoardVerse.Services.Services
             // M1: BuildMemberInvoices đã được gọi bên trong transaction (trước capture) để có totalDiscount.
             // memberInvoices đã có sẵn ở đây — KHÔNG gọi lại để tránh side-effect trùng (DepositAppliedAmount double-set).
             // Nếu memberInvoices null (fallback khi lỗi) → gọi lại không tham số HostDepositUsage.
+            // BR-22: Fallback cũng phải pass paidDeposits + deductDepositFromBill + splitByMember để consistent.
             if (memberInvoices == null || memberInvoices.Count == 0)
             {
-                memberInvoices = BuildMemberInvoices(
+                var fallbackPaidDeposits = await _depositRepository.GetPaidDepositsByActiveSessionIdAsync(
+                    sessionId, ct);
+                var fallbackResult = BuildMemberInvoices(
                     session,
                     cafe,
                     allComponentCheckResults,
                     request.PenaltyItems,
                     hostDepositUsage: HostDepositUsageMode.None,
                     reservation: reservationForDiscount,
-                    payTime: now);
+                    payTime: now,
+                    paidDeposits: fallbackPaidDeposits,
+                    deductDepositFromBill: request.DeductDepositFromBill,
+                    splitByMember: request.SplitByMember);
+                memberInvoices = fallbackResult.invoices;
+                if (appliedDeposits.Count == 0)
+                {
+                    appliedDeposits.AddRange(fallbackResult.appliedDeposits);
+                }
             }
 #pragma warning restore CS0618
 
@@ -1488,6 +1525,14 @@ namespace BoardVerse.Services.Services
                     ? (IsReservationEligibleForDiscount(reservationForDiscount)
                         ? "NoActiveMembersOrZeroBill"
                         : $"ReservationStatus={reservationForDiscount.Status}")
+                    : null,
+                // BR-22: Per-member BookingDeposit deduction (VND) applied vào tổng bill.
+                // BookingDepositDeductedAmount = tổng VND deposit đã cấn trừ (sum appliedDeposits).
+                // AppliedDeposits = list chi tiết deposit đã áp dụng (OrderId, Amount, MemberId).
+                BookingDepositDeductedAmount = appliedDeposits.Sum(d => d.AppliedAmount),
+                AppliedDeposits = appliedDeposits,
+                DepositDeductionSkippedReason = request.DeductDepositFromBill && appliedDeposits.Count == 0
+                    ? "NoPaidDeposits"
                     : null
             };
         }
@@ -1500,18 +1545,31 @@ namespace BoardVerse.Services.Services
         /// (single source of truth lưu lúc submit component-check), KHÔNG dùng penaltyItems
         /// từ client request. Back-compat: vẫn hỗ trợ penaltyItems (deprecated).
         /// M1: Apply host deposit discount theo HostDepositUsageMode + Reservation.
+        /// BR-22 (override BR-09): Apply per-member BookingDeposit (VND) deduction vào bill cá nhân
+        /// khi <c>PaySessionRequestDto.DeductDepositFromBill = true</c>.
         /// </summary>
         /// <param name="hostDepositUsage">Mode chọn lúc Pay (None/DiscountGroup/DiscountHostOnly). Default: None.</param>
         /// <param name="reservation">Reservation liên kết lobby (nullable cho walk-in). Source cho DepositAmount + status whitelist.</param>
         /// <param name="payTime">Thời điểm Pay — dùng filter active members (LeftAt &gt; payTime).</param>
-        private List<MemberInvoiceDto> BuildMemberInvoices(
+        /// <param name="paidDeposits">BR-22: List BookingDeposit (VND) đã thanh toán cho session này. Empty nếu không có.</param>
+        /// <param name="deductDepositFromBill">BR-22: Bật/tắt áp dụng deposit deduction. Default false (BR-09 cũ).</param>
+        /// <param name="splitByMember">BR-22: Mode thanh toán per-member. Khi true, chỉ trừ deposit của HOST vào bill host.</param>
+        /// <returns>
+        /// Tuple của (invoices, appliedDeposits).
+        /// <c>appliedDeposits</c>: list các deposit đã áp dụng để set session.DepositAppliedAmount + response.
+        /// </returns>
+        private (List<MemberInvoiceDto> invoices, List<AppliedDepositInfo> appliedDeposits)
+            BuildMemberInvoices(
             ActiveSession session,
             Cafe cafe,
             List<BoardVerse.Core.Entities.ComponentCheckResult> componentCheckResults,
             List<ComponentPenaltyItemDto>? legacyPenaltyItems,
             HostDepositUsageMode hostDepositUsage = HostDepositUsageMode.None,
             BoardVerse.Core.Entities.Reservation? reservation = null,
-            DateTime payTime = default)
+            DateTime payTime = default,
+            IReadOnlyList<BookingDeposit>? paidDeposits = null,
+            bool deductDepositFromBill = false,
+            bool splitByMember = false)
         {
             var invoices = new List<MemberInvoiceDto>();
             var now = payTime == default ? DateTime.UtcNow : payTime;
@@ -1635,6 +1693,52 @@ namespace BoardVerse.Services.Services
                 }
             }
 
+            // ============================================================
+            // BR-22 (override BR-09): Build member → BookingDeposit map.
+            // docs/design/host-deposit-discount-and-bvc-payment-design.md §C1.2
+            // ============================================================
+            // Mỗi member trong cùng ActiveSession có thể có 1 BookingDeposit riêng (per-member flow).
+            // Match theo (a) member.DepositId (set explicit lúc check-in), hoặc (b) member.UserId ==
+            // deposit.UserId (phổ biến nhất khi mỗi player tự đặt cọc), hoặc (c) parse memberId
+            // từ OrderId format "BV-MEMBER-{N}".
+            // Guest_Slot KHÔNG có deposit (BR-13) → bỏ qua.
+            var memberDepositMap = new Dictionary<Guid, BookingDeposit>();
+            var appliedDeposits = new List<AppliedDepositInfo>();
+            if (deductDepositFromBill && paidDeposits != null && paidDeposits.Count > 0)
+            {
+                foreach (var dep in paidDeposits)
+                {
+                    if (dep == null || dep.Status != BookingDepositStatus.Paid || dep.Amount <= 0)
+                    {
+                        continue;
+                    }
+                    // (a) match explicit DepositId
+                    var match = session.Members.FirstOrDefault(m =>
+                        m.IsGuestSlot == false && m.DepositId.HasValue && m.DepositId.Value == dep.Id);
+                    // (b) fallback: match theo UserId
+                    if (match == null && dep.UserId != Guid.Empty)
+                    {
+                        match = session.Members.FirstOrDefault(m =>
+                            m.IsGuestSlot == false && m.UserId.HasValue && m.UserId.Value == dep.UserId);
+                    }
+                    // (c) fallback: parse memberId từ OrderId "BV-MEMBER-{N}"
+                    if (match == null && !string.IsNullOrWhiteSpace(dep.OrderId) &&
+                        dep.OrderId.StartsWith("BV-MEMBER-", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var guidPart = dep.OrderId["BV-MEMBER-".Length..];
+                        if (Guid.TryParse(guidPart, out var parsedMemberId))
+                        {
+                            match = session.Members.FirstOrDefault(m =>
+                                m.IsGuestSlot == false && m.Id == parsedMemberId);
+                        }
+                    }
+                    if (match != null && !memberDepositMap.ContainsKey(match.Id))
+                    {
+                        memberDepositMap[match.Id] = dep;
+                    }
+                }
+            }
+
             foreach (var member in session.Members)
             {
                 // GAP-12 Fix: TotalMinutesPlayed đã được persist tại CompleteCheckoutAsync
@@ -1668,9 +1772,51 @@ namespace BoardVerse.Services.Services
                 {
                     var memberMax = (long)(memberSubtotal + memberPenalty);
                     memberDiscountApplied = Math.Max(0, Math.Min(rawDiscount, memberMax));
-                    // Persist lại vào entity để Capture ở PaySessionCoreAsync đọc được.
-                    member.DepositAppliedAmount = memberDiscountApplied;
                 }
+
+                // BR-22 (override BR-09): Per-member BookingDeposit deduction.
+                // Áp dụng SAU Host Deposit Discount để tránh double-trừ khi cafe có cả 2 loại deposit.
+                // memberDepositMap được build pre-loop ở trên (match theo DepositId / UserId / OrderId).
+                // Mỗi member chỉ trừ 1 deposit (đầu tiên match).
+                // splitByMember=true → chỉ apply cho host; các member khác bỏ qua deposit của họ
+                // (các member tự trả 100% tiền giờ).
+                // splitByMember=false (mặc định) → mỗi member trừ deposit tương ứng vào bill của mình.
+                decimal memberDepositApplied = 0m;
+                if (deductDepositFromBill
+                    && memberDepositMap.TryGetValue(member.Id, out var memberDeposit))
+                {
+                    // splitByMember: chỉ host mới được trừ deposit
+                    var applyThisMember = !splitByMember || member.IsHost;
+                    if (applyThisMember)
+                    {
+                        var remainingAfterDiscount = (decimal)memberSubtotal
+                            + memberPenalty
+                            - memberDiscountApplied;
+                        var remainingAfterDiscountNonNeg = Math.Max(0m, remainingAfterDiscount);
+                        // Clamp deposit theo bill còn lại của member (tránh âm tiền).
+                        memberDepositApplied = Math.Min(memberDeposit.Amount, remainingAfterDiscountNonNeg);
+                        if (memberDepositApplied < 0m) memberDepositApplied = 0m;
+
+                        appliedDeposits.Add(new AppliedDepositInfo
+                        {
+                            DepositId = memberDeposit.Id,
+                            OrderId = memberDeposit.OrderId ?? string.Empty,
+                            UserId = memberDeposit.UserId,
+                            Amount = memberDeposit.Amount,
+                            AppliedAmount = memberDepositApplied,
+                            AppliedToMemberId = member.Id
+                        });
+                    }
+                }
+
+                // Persist lại vào entity để save cùng transaction + response.
+                // BR-22: member.DepositAppliedAmount = VND per-member BookingDeposit đã trừ vào bill.
+                // KHÔNG cộng M1 BVC discount vào đây (đơn vị khác nhau + tránh double-count).
+                // M1 BVC discount đã track riêng qua DiscountAppliedAmount (long) trên DTO.
+                member.DepositAppliedAmount = memberDepositApplied;
+                member.DepositId = memberDepositApplied > 0 && memberDepositMap.TryGetValue(member.Id, out var depForLink)
+                    ? depForLink.Id
+                    : member.DepositId;
 
                 // Bug #3 fix: BR-09 — Deposit là phí giữ chỗ cho BoardVerse, KHÔNG cấn trừ vào hóa đơn.
                 // Tổng session.DepositAppliedAmount = 0 (Host đặt cọc thuộc BoardVerse, không trừ cash invoice).
@@ -1681,7 +1827,15 @@ namespace BoardVerse.Services.Services
                 // M1: Nếu HostDepositUsage != None → memberDiscountApplied CẤN TRỪ vào TotalAmount.
                 // Đây là supersede của BR-09: thay vì capture 100% deposit về cafe, host chọn
                 // dùng deposit làm discount cho members (BR-DEPOSIT-05 mới).
-                var memberTotal = (decimal)memberSubtotal + memberPenalty - memberDiscountApplied;
+                //
+                // BR-22: memberDepositApplied CẤN TRỪ thêm vào TotalAmount (override BR-09 cho per-member).
+                // MemberInvoiceDto.DepositAppliedAmount = DiscountApplied (BVC) + BookingDepositDeducted (VND)
+                // nhưng TotalAmount chỉ trừ tổng dollar value. Discount là BVC integer, deposit là VND;
+                // TotalAmount là VND → cast Discount sang decimal (1 BVC = 1.000 VND nếu apply, nhưng ở đây
+                // host deposit đã ở cùng scale — Reservation.DepositAmount cũng là VND long → cast an toàn).
+                var memberTotal = (decimal)memberSubtotal + memberPenalty
+                    - (decimal)memberDiscountApplied
+                    - memberDepositApplied;
                 memberTotal = Math.Max(0, memberTotal);
 
                 // Penalty #1: Ưu tiên penalty details từ persisted. Back-compat: nếu không có, dùng legacy.
@@ -1712,9 +1866,11 @@ namespace BoardVerse.Services.Services
                     JoinedAt = member.JoinedAt,
                     Subtotal = memberSubtotal,
                     PenaltyAmount = memberPenalty,
-                    // GAP-10 Fix: Use member-level deposit
+                    // GAP-10 Fix: Per-member deposit applied (BR-22: cọc đã trừ vào bill cá nhân).
+                    // = M1 Host Deposit Discount (BVC) + BR-22 Per-member BookingDeposit (VND).
+                    // Tổng dollar giá trị cấn trừ vào member.TotalAmount.
                     DepositAppliedAmount = member.DepositAppliedAmount,
-                    // M1: Discount từ host deposit
+                    // M1: Discount từ host deposit (BVC integer, riêng biệt với BookingDeposit VND).
                     DiscountAppliedAmount = memberDiscountApplied,
                     TotalAmount = memberTotal,
                     BvcCaptureStatus = member.IsGuestSlot ? BvcCaptureStatus.NotApplicable : BvcCaptureStatus.Pending,
@@ -1722,7 +1878,7 @@ namespace BoardVerse.Services.Services
                 });
             }
 
-            return invoices;
+            return (invoices, appliedDeposits);
         }
 
         /// <summary>

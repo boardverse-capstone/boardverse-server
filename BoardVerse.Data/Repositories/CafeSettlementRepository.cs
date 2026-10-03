@@ -115,6 +115,43 @@ namespace BoardVerse.Data.Repositories
             };
         }
 
+        /// <summary>
+        /// W-07: Lấy tất cả settlement trong 1 ngày (UTC range) để aggregate theo cafe.
+        /// Filter:
+        ///   - Succeeded: <c>TransferredAt</c> in [startUtc, endUtc)
+        ///   - Succeeded nhưng thiếu TransferredAt (legacy): fallback CreatedAt
+        ///   - Pending/Retrying/Failed/Overridden: <c>CreatedAt</c> in [startUtc, endUtc)
+        /// Không dùng <c>UpdatedAt</c> vì retry sẽ làm settle bị "lệch" ngày.
+        /// </summary>
+        public async Task<IReadOnlyList<CafeSettlement>> GetForDailySummaryAsync(
+            DateTime startUtcInclusive,
+            DateTime endUtcExclusive,
+            CancellationToken cancellationToken = default)
+        {
+            // 2 nhánh query, dùng OR để bao phủ 5 trạng thái.
+            // 1) Succeeded/Overridden (đã chốt số tiền) → match theo TransferredAt.
+            //    Nếu TransferredAt null (legacy data) → fallback CreatedAt.
+            // 2) Pending/Retrying/Failed (chưa chốt / đang chờ xử lý) → match theo CreatedAt.
+
+            return await _db.CafeSettlements.AsNoTracking()
+                .Where(s =>
+                    // Nhánh 1: Succeeded/Overridden — match theo TransferredAt (fallback CreatedAt)
+                    ((s.Status == Core.Enum.CafeSettlementStatus.Succeeded
+                        || s.Status == Core.Enum.CafeSettlementStatus.Overridden)
+                        && ((s.TransferredAt != null && s.TransferredAt >= startUtcInclusive && s.TransferredAt < endUtcExclusive)
+                            || (s.TransferredAt == null && s.CreatedAt >= startUtcInclusive && s.CreatedAt < endUtcExclusive)))
+                    ||
+                    // Nhánh 2: Pending/Retrying/Failed — match theo CreatedAt
+                    ((s.Status == Core.Enum.CafeSettlementStatus.Pending
+                        || s.Status == Core.Enum.CafeSettlementStatus.Retrying
+                        || s.Status == Core.Enum.CafeSettlementStatus.Failed)
+                        && s.CreatedAt >= startUtcInclusive && s.CreatedAt < endUtcExclusive)
+                )
+                .OrderBy(s => s.CafeId)
+                .ThenByDescending(s => s.CreatedAt)
+                .ToListAsync(cancellationToken);
+        }
+
         public Task SaveChangesAsync(CancellationToken cancellationToken = default)
         {
             return _db.SaveChangesAsync(cancellationToken);
