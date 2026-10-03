@@ -1577,6 +1577,23 @@ namespace BoardVerse.Services.Services
                 remaining,
                 utcNow);
 
+            // BVC-DEP-GET (2026-10-03): Pre-calculate deposit deduction khi session UNPAID và
+            // liên kết Reservation eligible. Mục đích: POS UI hiển thị đúng bill cuối cùng
+            // (Subtotal + Penalty − Deposit) TRƯỚC khi staff bấm Pay, tránh "bill nhảy" lúc Pay.
+            //
+            // Background:
+            //     PaySessionRequestDto.DeductDepositFromBill default = true (2026-10-03).
+            //     PaySessionCoreAsync apply deposit deduction tại Pay → set session.DepositAppliedAmount > 0.
+            //     Trước fix này, GET /sessions/{id} trả DepositAppliedAmount=0 / TotalAmount=Subtotal
+            //     khi session còn Unpaid, dù Reservation đã hold 24 BVC → POS hiển thị bill SAI.
+            //
+            // Logic: Mirror PaySessionCoreAsync.BVC-DEP-FIX (SynthesizeVirtualDepositFromBvcReservation)
+            //     + BuildMemberInvoices path (b) match dep.UserId → host member. Default mode là
+            //     DeductDepositFromBill=true + SplitByMember=false, nên deposit được apply cho HOST
+            //     member và trừ vào session total.
+            var (projectedDepositApplied, projectedTotalAmount) = PrePayDepositProjection.Compute(
+                session);
+
             return new ActiveSessionDto
             {
                 Id = session.Id,
@@ -1599,8 +1616,10 @@ namespace BoardVerse.Services.Services
                 TimeSlotRemainingMinutes = timeSlotRemaining,
                 Status = session.Status,
                 Subtotal = session.Subtotal,
-                DepositAppliedAmount = session.DepositAppliedAmount,
-                TotalAmount = session.TotalAmount,
+                // BVC-DEP-GET (2026-10-03): Dùng projected value khi session UNPAID + reservation eligible.
+                // PAID session giữ persisted value (đã tính tại Pay).
+                DepositAppliedAmount = projectedDepositApplied,
+                TotalAmount = projectedTotalAmount,
                 IsCheckingInventory = session.IsCheckingInventory,
                 HasMissingComponents = session.HasMissingComponents,
                 IsPaused = session.IsPaused,
@@ -1613,7 +1632,16 @@ namespace BoardVerse.Services.Services
                 Members = session.Members?
                     .Where(m => m.Status != IndividualSessionStatus.Finished
                                 && m.UserId != session.HostId)
-                    .Select(m => new ActiveSessionMemberDto
+                    .Select(m =>
+                    {
+                        // BVC-DEP-GET (2026-10-03): Project per-member DepositAppliedAmount
+                        // khi session UNPAID + reservation eligible. Default mode
+                        // (DeductDepositFromBill=true, SplitByMember=false): deposit match
+                        // theo path (b) UserId → host nhận full deposit; other members = 0.
+                        var (memberDeposit, memberTotal) = PrePayDepositProjection
+                            .ComputeForMember(m, session, projectedDepositApplied);
+
+                        return new ActiveSessionMemberDto
                 {
                     Id = m.Id,
                     UserId = m.UserId,
@@ -1634,8 +1662,9 @@ namespace BoardVerse.Services.Services
                     // BR-15: TotalAmount = Subtotal + PenaltyAmount - DepositAppliedAmount
                     Subtotal = m.Subtotal,
                     PenaltyAmount = m.PenaltyAmount,
-                    DepositAppliedAmount = m.DepositAppliedAmount,
-                    TotalAmount = m.TotalAmount,
+                    // BVC-DEP-GET (2026-10-03): Dùng projected value khi session UNPAID.
+                    DepositAppliedAmount = memberDeposit,
+                    TotalAmount = memberTotal,
                     IsCheckedOut = m.IsCheckedOut,
                     CheckedOutAt = m.CheckedOutAt,
                     Status = m.Status,
@@ -1643,7 +1672,8 @@ namespace BoardVerse.Services.Services
                     MergedAt = m.MergedAt,
                     OriginalLobbyId = m.OriginalLobbyId,
                     OriginalReservationId = m.OriginalReservationId
-                }).ToList() ?? [],
+                        };
+                    }).ToList() ?? [],
                 Games = session.Games?.Select(g => new ActiveSessionGameDto
                 {
                     Id = g.Id,
@@ -1656,6 +1686,115 @@ namespace BoardVerse.Services.Services
                     TotalPenaltyAmount = g.TotalPenaltyAmount
                 }).ToList() ?? []
             };
+        }
+
+        /// <summary>
+        /// BVC-DEP-GET (2026-10-03): Helper pre-calculate deposit deduction cho GET session response.
+        ///
+        /// <para>Mirror logic <c>PaySessionCoreAsync</c> (BVC-DEP-FIX + BuildMemberInvoices path b)
+        /// với default <c>DeductDepositFromBill=true, SplitByMember=false</c>:
+        /// <list type="bullet">
+        ///   <item><description>Nếu session đã PAID → trả persisted <c>DepositAppliedAmount/TotalAmount</c> (post-Pay).</description></item>
+        ///   <item><description>Nếu session UNPAID + lobby liên kết Reservation eligible
+        ///     (Holding/Confirmed/CheckedIn/InProgress + !SourceDissolved + DepositAmount > 0):
+        ///     project <c>DepositAppliedAmount = Reservation.DepositAmount (BVC) × 1000</c> (VND, clamp theo bill).</description></item>
+        ///   <item><description>Các case khác (walk-in, terminal reservation, DepositAmount=0): trả persisted (mặc định 0/Subtotal).</description></item>
+        /// </list>
+        /// </para>
+        /// </summary>
+        private static class PrePayDepositProjection
+        {
+            /// <summary>
+            /// Tính (DepositAppliedAmount, TotalAmount) cho session ở trạng thái pre-Pay.
+            /// </summary>
+            public static (decimal DepositApplied, decimal TotalAmount) Compute(ActiveSession session)
+            {
+                // PAID: persisted values là authoritative (đã tính tại Pay).
+                if (session.Status == GroupSessionStatus.Paid)
+                {
+                    return (session.DepositAppliedAmount, session.TotalAmount);
+                }
+
+                // Walk-in session: không có reservation → không project.
+                if (session.IsWalkInSession || !session.LobbyId.HasValue)
+                {
+                    return (session.DepositAppliedAmount, session.TotalAmount);
+                }
+
+                // Reservation phải eligible (Holding/Confirmed/CheckedIn/InProgress, !SourceDissolved, DepositAmount > 0).
+                var reservation = session.Lobby?.Reservation;
+                if (!IsEligible(reservation))
+                {
+                    return (session.DepositAppliedAmount, session.TotalAmount);
+                }
+
+                // Convert BVC → VND: 1 BVC = 1.000 VND (BR-DEPOSIT-01 + lobby-booking-deposit-bvc.mdc §II.2.1).
+                var depositVnd = reservation!.DepositAmount * 1000m;
+                var billBase = session.Subtotal + session.PenaltyAmount;
+                var depositApplied = Math.Min(depositVnd, Math.Max(0m, billBase));
+                var totalAmount = Math.Max(0m, billBase - depositApplied);
+
+                return (depositApplied, totalAmount);
+            }
+
+            /// <summary>
+            /// Tính (DepositAppliedAmount, TotalAmount) cho 1 member khi session UNPAID.
+            /// Mirror <c>BuildMemberInvoices</c> path (b) match theo UserId → host member nhận
+            /// toàn bộ deposit (default SplitByMember=false).
+            /// </summary>
+            public static (decimal DepositApplied, decimal TotalAmount) ComputeForMember(
+                ActiveSessionMember member,
+                ActiveSession session,
+                decimal sessionDepositApplied)
+            {
+                // PAID: persisted values.
+                if (session.Status == GroupSessionStatus.Paid)
+                {
+                    return (member.DepositAppliedAmount, member.TotalAmount);
+                }
+
+                // Walk-in / no lobby / no eligible reservation: persisted values (mặc định 0).
+                if (session.IsWalkInSession || !session.LobbyId.HasValue)
+                {
+                    return (member.DepositAppliedAmount, member.TotalAmount);
+                }
+
+                var reservation = session.Lobby?.Reservation;
+                if (!IsEligible(reservation))
+                {
+                    return (member.DepositAppliedAmount, member.TotalAmount);
+                }
+
+                // Default SplitByMember=false: chỉ host nhận deposit deduction.
+                // Match path (b): dep.UserId == hostMember.UserId (Reservation.HostId = session.HostId).
+                var isHost = member.IsHost || (member.UserId.HasValue && member.UserId.Value == session.HostId);
+                var memberDeposit = isHost ? sessionDepositApplied : 0m;
+                var memberBase = member.Subtotal + member.PenaltyAmount;
+                var memberTotal = Math.Max(0m, memberBase - memberDeposit);
+
+                return (memberDeposit, memberTotal);
+            }
+
+            /// <summary>
+            /// Validate Reservation eligible cho deposit deduction (mirror <c>ActiveSessionService.IsReservationEligibleForDiscount</c>).
+            /// </summary>
+            private static bool IsEligible(BoardVerse.Core.Entities.Reservation? reservation)
+            {
+                if (reservation == null || reservation.DepositAmount <= 0 || reservation.SourceDissolved)
+                {
+                    return false;
+                }
+
+                var eligibleStatuses = new[]
+                {
+                    ReservationStatus.Holding,
+                    ReservationStatus.Confirmed,
+                    ReservationStatus.CheckedIn,
+                    ReservationStatus.InProgress
+                };
+
+                return eligibleStatuses.Contains(reservation.Status);
+            }
         }
 
         /// <summary>

@@ -109,6 +109,11 @@ namespace BoardVerse.Data.Repositories
 
         public async Task<ActiveSession?> GetActiveSessionByIdAsync(Guid cafeId, Guid sessionId, CancellationToken cancellationToken = default)
         {
+            // FIX 2026-10-03 (BVC-DEP-GET): Include Lobby.Reservation để GetSessionByIdAsync có
+            // thể pre-calculate DepositAppliedAmount dựa trên Reservation.DepositAmount (BVC → VND).
+            // Trước đây chỉ GetActiveSessionsAsync load navigation → GET /sessions/{id} (CafePosController
+            // GetSessionById) trả DepositAppliedAmount=0 dù Reservation đã hold deposit 24 BVC.
+            // Field session.Lobby?.Reservation dùng ở MapSession để áp projection pre-Pay.
             var session = await _context.ActiveSessions
                 .Include(s => s.CafeTable)
                 .Include(s => s.CafeInventoryBox)
@@ -123,6 +128,8 @@ namespace BoardVerse.Data.Repositories
                     .ThenInclude(g => g.CafeInventoryBox)
                 .Include(s => s.Games)
                     .ThenInclude(g => g.GameTemplate)
+                .Include(s => s.Lobby)
+                    .ThenInclude(l => l!.Reservation)
                 .FirstOrDefaultAsync(s => s.Id == sessionId && s.CafeId == cafeId && s.Status != GroupSessionStatus.Paid, cancellationToken);
 
             return session;
