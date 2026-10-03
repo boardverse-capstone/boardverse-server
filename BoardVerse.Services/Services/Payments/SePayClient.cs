@@ -247,14 +247,23 @@ public class SePayClient : ISePayClient
     /// <summary>
     /// HMAC-SHA256 mode (SePay khuyến nghị):
     ///   1. Header <c>X-SePay-Timestamp</c> phải có và trong khoảng ±300s của server time.
-    ///   2. Reconstruct <c>expected = "sha256=" + HMAC-SHA256(SecretKey, "{timestamp}.{rawBody}")</c>.
+    ///   2. Reconstruct <c>expected = "sha256=" + HMAC-SHA256(WebhookToken, "{timestamp}.{rawBody}")</c>.
+    ///      Lưu ý: SePay dùng <b>Webhook Secret Key</b> (prefix <c>whsec_</c>) để ký HMAC,
+    ///      KHÔNG phải API Secret Key (prefix <c>spsk_</c>) dùng cho Basic auth REST API.
+    ///      Field <c>SecretKey</c> chỉ dùng trong <c>CreateTransferAsync</c>.
     ///   3. So sánh với header <c>X-SePay-Signature</c> qua constant-time.
     /// </summary>
     private bool VerifyHmacSha256(SePayAccount account, SePayWebhookVerificationRequest request, string accountLabel = "Master")
     {
-        if (string.IsNullOrWhiteSpace(account.SecretKey))
+        // Đúng field cho webhook HMAC: WebhookToken (whsec_...).
+        // Fallback SecretKey để tương thích ngược với data cũ nhập nhầm.
+        var webhookSecret = !string.IsNullOrWhiteSpace(account.WebhookToken)
+            ? account.WebhookToken
+            : account.SecretKey;
+
+        if (string.IsNullOrWhiteSpace(webhookSecret))
         {
-            _logger.LogWarning("SePay webhook (HMAC-SHA256 mode, {Label}) rejected: SecretKey is empty.", accountLabel);
+            _logger.LogWarning("SePay webhook (HMAC-SHA256 mode, {Label}) rejected: WebhookToken/SecretKey is empty.", accountLabel);
             return false;
         }
 
@@ -286,7 +295,7 @@ public class SePayClient : ISePayClient
 
         // Reconstruct signature.
         var messageBytes = Encoding.UTF8.GetBytes($"{unixSeconds}.{request.RawBody}");
-        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(account.SecretKey));
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(webhookSecret));
         var computedHash = hmac.ComputeHash(messageBytes);
         var expectedSignature = "sha256=" + Convert.ToHexString(computedHash).ToLowerInvariant();
 

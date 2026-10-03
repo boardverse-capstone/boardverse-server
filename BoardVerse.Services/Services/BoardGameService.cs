@@ -21,17 +21,20 @@ namespace BoardVerse.Services.Services
         private readonly IGameTemplateRepository _gameTemplateRepository;
         private readonly ICategoryRepository _categoryRepository;
         private readonly ICafeRepository _cafeRepository;
+        private readonly IPlayerBoardGameSaveRepository _playerBoardGameSaveRepository;
         private readonly IMemoryCache _memoryCache;
 
         public BoardGameService(
             IGameTemplateRepository gameTemplateRepository,
             ICategoryRepository categoryRepository,
             ICafeRepository cafeRepository,
+            IPlayerBoardGameSaveRepository playerBoardGameSaveRepository,
             IMemoryCache memoryCache)
         {
             _gameTemplateRepository = gameTemplateRepository;
             _categoryRepository = categoryRepository;
             _cafeRepository = cafeRepository;
+            _playerBoardGameSaveRepository = playerBoardGameSaveRepository;
             _memoryCache = memoryCache;
         }
 
@@ -131,8 +134,9 @@ namespace BoardVerse.Services.Services
             };
         }
 
-        public async Task<PaginatedResponse<NearbyCafeDto>> GetActiveCafesByBoardGameAsync(
+        public async Task<ActiveCafesByBoardGameResponseDto> GetActiveCafesByBoardGameAsync(
             Guid boardGameId,
+            Guid? userId,
             ActiveCafesByBoardGameQueryDto query,
             CancellationToken cancellationToken = default)
         {
@@ -155,13 +159,33 @@ namespace BoardVerse.Services.Services
             // tránh tính khoảng cách sai.
             bool hasLocation = query.Latitude.HasValue && query.Longitude.HasValue;
 
-            return await _cafeRepository.GetActiveCafesByBoardGameAsync(
+            var cafes = await _cafeRepository.GetActiveCafesByBoardGameAsync(
                 boardGameId,
                 hasLocation ? query.Latitude : null,
                 hasLocation ? query.Longitude : null,
                 query.Name,
                 pagination,
                 cancellationToken);
+
+            // ── IsSaved: xác định board game này có nằm trong danh sách yêu thích của player ──
+            // Tương tự field `isSaved` trong DiscoveryBoardGameDto (POST /api/v1/discovery/survey).
+            // - userId = null (anonymous): mặc định false (player chưa đăng nhập nên chưa có favorites).
+            // - userId có giá trị: tra PlayerBoardGameSave; nếu không có row thì false.
+            // Lưu ý: chỉ cần 1 lần EXISTS cho 1 board game, không phụ thuộc vào danh sách cafe.
+            bool isSaved = false;
+            if (userId.HasValue)
+            {
+                isSaved = await _playerBoardGameSaveRepository.ExistsAsync(
+                    userId.Value,
+                    boardGameId,
+                    cancellationToken);
+            }
+
+            return new ActiveCafesByBoardGameResponseDto
+            {
+                IsSaved = isSaved,
+                Cafes = cafes
+            };
         }
 
         private async Task<GameTemplate> RequireActiveGameAsync(Guid gameTemplateId)

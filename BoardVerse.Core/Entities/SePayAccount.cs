@@ -31,12 +31,18 @@ namespace BoardVerse.Core.Entities
         public string? ApiKey { get; set; }
 
         /// <summary>
-        /// Secret Key dùng để sign webhook.
+        /// API Secret Key từ SePay dashboard (prefix <c>spsk_</c>).
+        /// Dùng cho Basic auth với SePay REST API trong <c>CreateTransferAsync</c>:
+        /// <c>Authorization: Basic base64(MerchantId:SecretKey)</c>.
+        /// <b>KHÔNG</b> dùng cho webhook HMAC — cho mục đích đó, dùng <see cref="WebhookToken"/>.
         /// </summary>
         public string? SecretKey { get; set; }
 
         /// <summary>
-        /// Webhook Token / API Key dùng để xác thực webhook SePay (ApiKey mode).
+        /// Webhook Secret Key từ SePay dashboard (prefix <c>whsec_</c>).
+        /// SePay dùng giá trị này để ký <b>HMAC-SHA256</b> cho incoming webhooks:
+        /// <c>signature = sha256=HMAC-SHA256(WebhookToken, "{timestamp}.{rawBody}")</c>.
+        /// Cũng dùng cho <c>ApiKey</c> auth mode (so sánh trực tiếp với <c>Authorization: Apikey</c> header).
         /// </summary>
         public string? WebhookToken { get; set; }
 

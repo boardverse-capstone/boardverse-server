@@ -108,21 +108,30 @@ namespace BoardVerse.API.Controllers
         /// • Status ∈ {Available, InUse} — không bao gồm Damaged/Maintenance/Retired.
         /// Hỗ trợ filter: name (case-insensitive partial), sort theo khoảng cách khi truyền latitude/longitude,
         /// sort theo tên A→Z khi không truyền location.
-        /// [Role: Public — không yêu cầu đăng nhập.]
+        /// Response bao gồm field <c>isSaved</c> ở top-level để client biết board game này có nằm trong
+        /// danh sách yêu thích của player hiện tại hay không (giống <c>isSaved</c> trong survey endpoint).
+        /// [Role: Public — không yêu cầu đăng nhập; nếu có token sẽ populate <c>isSaved</c> theo user.]
         /// </summary>
         /// <param name="boardgameId">Mã định danh board game (GameTemplates.Id).</param>
         /// <param name="query">Filter tùy chọn: latitude, longitude, name, pageNumber, pageSize.</param>
-        /// <response code="200">Danh sách quán cafe có board game đang hoạt động (phân trang, shape NearbyCafeDto).</response>
+        /// <response code="200">Danh sách quán cafe có board game đang hoạt động (phân trang) kèm <c>isSaved</c> cho board game.</response>
         /// <response code="404">Không tìm thấy board game hoặc game đã bị vô hiệu hóa.</response>
         /// <response code="500">Lỗi hệ thống không mong đợi.</response>
         [HttpGet("{boardgameId:guid}/active-cafes")]
         [AllowAnonymous]
-        [ProducesResponseType(typeof(PaginatedResponse<NearbyCafeDto>), 200)]
+        [ProducesResponseType(typeof(ActiveCafesByBoardGameResponseDto), 200)]
         public async Task<IActionResult> GetActiveCafesByBoardGame(
             Guid boardgameId,
             [FromQuery] ActiveCafesByBoardGameQueryDto query)
         {
-            var result = await _boardGameService.GetActiveCafesByBoardGameAsync(boardgameId, query);
+            // Optional viewer context: nếu request có token hợp lệ → userId có giá trị → populate IsSaved.
+            // Anonymous request → userId = null → IsSaved = false (giá trị mặc định cho khách vãng lai).
+            var (userId, _) = GetOptionalViewerContext();
+
+            var result = await _boardGameService.GetActiveCafesByBoardGameAsync(
+                boardgameId,
+                userId,
+                query);
             return NewResponse(200, ApiSuccessMessages.BoardGame.ActiveCafesRetrieved, result);
         }
 

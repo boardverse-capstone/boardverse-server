@@ -1059,6 +1059,16 @@ $"Quán này chưa có trong hệ thống. Bạn kiểm tra lại nhé!";
 public static string DebugSePayCafeNotFoundShort(Guid cafeId) =>
 $"Không tìm thấy quán này.";
 
+public static string DebugSePayNoCafeAvailable(Guid? cafeId) =>
+    cafeId.HasValue
+        ? $"Không tìm thấy quán với GUID '{cafeId}'. Kiểm tra lại hoặc bỏ query ?cafeId=... để auto-pick cafe đầu tiên trong DB."
+        : "DB chưa có quán nào. Hãy tạo 1 cafe qua POST /api/cafes trước, hoặc truyền ?cafeId=<guid> để chỉ định quán cụ thể.";
+
+public static string DebugSePayNoCafeAvailableShort(Guid? cafeId) =>
+    cafeId.HasValue
+        ? $"Không tìm thấy quán '{cafeId}'."
+        : "DB chưa có quán nào. Hãy tạo 1 cafe trước.";
+
 public const string SePayResponseInvalid =
 "Phản hồi từ cổng thanh toán không hợp lệ. Bạn thử lại nhé!";
 

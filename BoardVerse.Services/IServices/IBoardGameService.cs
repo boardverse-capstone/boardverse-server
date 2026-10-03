@@ -31,10 +31,16 @@ namespace BoardVerse.Services.IServices
         /// nếu board game không tồn tại hoặc đã bị vô hiệu hóa. Hỗ trợ location-based sort (lat/lng) hoặc sort theo tên.
         /// </summary>
         /// <param name="boardGameId">Mã GameTemplate.</param>
+        /// <param name="userId">
+        /// Mã player hiện tại (optional — <c>null</c> nếu gọi public/anonymous).
+        /// Khi có giá trị, service sẽ kiểm tra <c>PlayerBoardGameSave</c> để set <c>IsSaved</c>
+        /// trong response (dùng cho icon save/unsave trên UI).
+        /// </param>
         /// <param name="query">Optional filters: latitude, longitude, name, pageNumber, pageSize.</param>
         /// <param name="cancellationToken">Token hủy.</param>
-        Task<PaginatedResponse<NearbyCafeDto>> GetActiveCafesByBoardGameAsync(
+        Task<ActiveCafesByBoardGameResponseDto> GetActiveCafesByBoardGameAsync(
             Guid boardGameId,
+            Guid? userId,
             ActiveCafesByBoardGameQueryDto query,
             CancellationToken cancellationToken = default);
     }
