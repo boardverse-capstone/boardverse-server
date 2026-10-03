@@ -3406,7 +3406,7 @@ public static string CannotAdvanceRoundFinalAlreadyBuilt(Guid tournamentId) =>
         "Vui lòng hoàn thành hoặc hủy các bàn đấu hiện tại trước khi thay đổi chế độ ghép đôi.";
 
  public static string RoundHasMatches(int roundNumber) =>
- "VÃ²ng {roundNumber} Ä‘Ã£ cÃ³ tráº­n Ä‘áº¥u tá»“n táº¡i. KhÃ´ng thá»ƒ thá»±c hiá»‡n thao tÃ¡c nÃ y.";
+        $"Vòng {roundNumber} đã có trận đấu tồn tại và đã bắt đầu (hoặc hoàn thành). Không thể set manual pairings. Nếu muốn override Auto pairings trước khi vòng bắt đầu, hãy đảm bảo các bàn của round này chưa được start (status = Scheduled).";
 
  public static string RoundCannotResetPairings(int roundNumber) =>
  "KhÃ´ng thá»ƒ táº¡o láº¡i cáº·p Ä‘áº¥u cho vÃ²ng {roundNumber} khi Ä‘Ã£ cÃ³ káº¿t quáº£.";

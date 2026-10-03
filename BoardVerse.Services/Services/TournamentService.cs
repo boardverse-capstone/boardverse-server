@@ -3162,12 +3162,30 @@ public async Task<TournamentResponseDto> AdvanceRoundAsync(Guid managerId, Guid 
 
         ValidateRoundNumber(request.RoundNumber, tournament);
 
-        // KhÃ´ng cho set manual náº¿u round Ä‘Ã£ build matches (trÃ¡nh xung Ä‘á»™t vá»›i matches Ä‘Ã£ cÃ³)
-        var roundExists = tournament.Matches.Any(m => m.RoundNumber == request.RoundNumber);
-        if (roundExists)
+        // GAP-SET-MANUAL-OVERWRITE-SCHEDULED:
+        // Neu round Ä‘Ã£ cÃ³ matches:
+        //   - Táº¥t cáº£ Scheduled (chÆ°a báº¯t Ä‘áº¥u) -> cho phÃ©p overwrite (xÃ³a + lÆ°u manual má»›i).
+        //     Intent: manager muá»‘n override Auto pairings trÆ°á»›c khi vÃ²ng báº¯t Ä‘áº§u.
+        //   - CÃ³ bÃ n OnGoing/Completed -> 409 khÃ´ng Ä‘á»•i pairings giá»¯a chÆ°ng vÃ²ng.
+        var existingRoundMatches = tournament.Matches
+            .Where(m => m.RoundNumber == request.RoundNumber)
+            .ToList();
+        if (existingRoundMatches.Count > 0)
         {
-            throw new ConflictException(
-                ApiErrorMessages.Tournament.RoundHasMatches(request.RoundNumber));
+            var hasStarted = existingRoundMatches.Any(m =>
+                m.Status == TournamentMatchStatus.OnGoing
+                || m.Status == TournamentMatchStatus.Completed);
+            if (hasStarted)
+            {
+                throw new ConflictException(
+                    ApiErrorMessages.Tournament.RoundHasMatches(request.RoundNumber));
+            }
+
+            // Táº¥t giá bÃ n Scheduled (chÆ°a báº¯t Ä‘áº§u) -> xÃ³a Ä‘á»ƒ lÆ°u manual má»›i.
+            await _tournamentRepository.DeleteMatchesByRoundAsync(tournamentId, request.RoundNumber);
+            tournament.Matches = tournament.Matches
+                .Where(m => m.RoundNumber != request.RoundNumber)
+                .ToList();
         }
 
         // Validate pairings
