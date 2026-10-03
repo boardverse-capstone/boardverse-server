@@ -27,6 +27,11 @@ public class SplitBillService : ISplitBillService
     private readonly BoardVerseDbContext _dbContext;
     private readonly ILogger<SplitBillService> _logger;
 
+    // BR-CAFE-SHIFT-01 (SplitBill): inject để cộng TotalRevenue/TotalSessions real-time mỗi khi
+    // một member được paid (per-member QR webhook, staff xác nhận cash, staff xác nhận QR).
+    // Best-effort: nếu cafe chưa mở ca → skip + log warning, không fail payment.
+    private readonly ICafeShiftService? _shiftService;
+
     // Fix #2: Idempotency key repository
     private readonly IPaymentWebhookAuditRepository _webhookAuditRepository;
 
@@ -38,7 +43,8 @@ public class SplitBillService : ISplitBillService
         ISePayAccountService sePayAccountService,
         BoardVerseDbContext dbContext,
         ILogger<SplitBillService> logger,
-        IPaymentWebhookAuditRepository webhookAuditRepository)
+        IPaymentWebhookAuditRepository webhookAuditRepository,
+        ICafeShiftService? shiftService = null)
     {
         _sessionRepository = sessionRepository;
         _transactionRepository = transactionRepository;
@@ -48,6 +54,7 @@ public class SplitBillService : ISplitBillService
         _dbContext = dbContext;
         _logger = logger;
         _webhookAuditRepository = webhookAuditRepository;
+        _shiftService = shiftService;
     }
 
     public async Task<SessionPaymentStatusDto> GetSessionPaymentStatusAsync(
@@ -383,6 +390,12 @@ public class SplitBillService : ISplitBillService
                 session, member, MemberPaymentStatus.PaidQr, "QR_CODE",
                 txId, paidAt, webhook.OrderId, staffIdForWebhook: Guid.Empty, cancellationToken);
 
+            // BR-CAFE-SHIFT-01 (SplitBill): cộng doanh thu member vừa paid vào ca đang mở của quán.
+            // Best-effort: nếu cafe chưa mở ca hoặc _shiftService null → log + skip, không fail payment.
+            await TryRecordShiftPaymentAsync(
+                session.CafeId, session.Id, member.Id, member.TotalAmount,
+                paymentSource: "ProcessMemberQrWebhookAsync", cancellationToken);
+
             _logger.LogInformation(
                 "[Webhook Audit] Payment processed successfully. WebhookId={WebhookId}, MemberId={MemberId}, Amount={Amount}",
                 webhookId, memberId, webhook.Amount);
@@ -534,10 +547,18 @@ public class SplitBillService : ISplitBillService
 
         await ValidateStaffPermissionAsync(session.CafeId, staffId, actorRole, cancellationToken);
 
-        return await UpdateMemberPaymentStatusAsync(
+        var result = await UpdateMemberPaymentStatusAsync(
             session, member, MemberPaymentStatus.PaidQr, "QR_CODE",
             transactionId: null, paidAt: DateTime.UtcNow,
             orderId: null, staffIdForWebhook: staffId, cancellationToken);
+
+        // BR-CAFE-SHIFT-01 (SplitBill): cộng doanh thu member vừa paid (staff xác nhận QR) vào ca đang mở.
+        // Best-effort: nếu cafe chưa mở ca hoặc _shiftService null → log + skip, không fail payment.
+        await TryRecordShiftPaymentAsync(
+            session.CafeId, session.Id, member.Id, member.TotalAmount,
+            paymentSource: "ConfirmMemberQrAsync", cancellationToken);
+
+        return result;
     }
 
     /// <summary>
@@ -798,6 +819,12 @@ public class SplitBillService : ISplitBillService
             transaction.Id, now, orderId: null, staffIdForWebhook: staffId, cancellationToken);
 
         response.AmountPaid = member.TotalAmount;
+
+        // BR-CAFE-SHIFT-01 (SplitBill): cộng doanh thu cash member vào ca đang mở của quán.
+        // Best-effort: nếu cafe chưa mở ca hoặc _shiftService null → log + skip, không fail payment.
+        await TryRecordShiftPaymentAsync(
+            cafeId, session.Id, member.Id, member.TotalAmount,
+            paymentSource: "ConfirmMemberCashInternalAsync", cancellationToken);
 
         return response;
     }
@@ -1100,6 +1127,47 @@ public class SplitBillService : ISplitBillService
     // Fix #8: Decimal comparison với tolerance 1 VND
     private static bool AmountEquals(decimal a, decimal b, decimal tolerance = 1m)
         => Math.Abs(a - b) <= tolerance;
+
+    /// <summary>
+    /// BR-CAFE-SHIFT-01 (SplitBill): cộng doanh thu + 1 phiên vào ca đang mở của quán khi 1 member paid.
+    /// Best-effort: nếu <c>_shiftService</c> == null (DI misconfig / test cũ) → log CRITICAL và skip;
+    /// nếu cafe chưa mở ca → <c>RecordSessionPaymentAsync</c> skip + log warning nội bộ.
+    /// Không bao giờ throw để tránh fail payment của khách.
+    /// </summary>
+    private async Task TryRecordShiftPaymentAsync(
+        Guid cafeId,
+        Guid sessionId,
+        Guid memberId,
+        decimal memberAmount,
+        string paymentSource,
+        CancellationToken cancellationToken)
+    {
+        if (_shiftService == null)
+        {
+            // DI misconfiguration: production 9-param constructor inject ICafeShiftService.
+            // Nếu tới đây _shiftService == null → fallback sang test cũ không inject
+            // → shift totals sẽ KHÔNG update → drift giữa cash vs reported revenue.
+            // Log CRITICAL để alert ops team fix DI ngay.
+            _logger.LogCritical(
+                "BR-CAFE-SHIFT-01 DI GAP (SplitBill): _shiftService is null in SplitBillService. " +
+                "Shift totals will NOT be updated for cafe {CafeId} session {SessionId} member {MemberId} amount {Amount} from {Source}. " +
+                "Investigate DI registration — production must inject ICafeShiftService.",
+                cafeId, sessionId, memberId, memberAmount, paymentSource);
+            return;
+        }
+
+        try
+        {
+            await _shiftService.RecordSessionPaymentAsync(cafeId, memberAmount, cancellationToken);
+        }
+        catch (Exception shiftEx)
+        {
+            _logger.LogWarning(shiftEx,
+                "BR-CAFE-SHIFT-01: Failed to update shift totals for cafe {CafeId} after split-bill member payment (session {SessionId}, member {MemberId}, amount {Amount}, source {Source}). " +
+                "Payment already committed; admin can reconcile via the recalculate endpoint.",
+                cafeId, sessionId, memberId, memberAmount, paymentSource);
+        }
+    }
 
     #endregion
 }

@@ -264,6 +264,8 @@ curl.exe "http://localhost:5022/api/v1/board-games/top5" | ConvertFrom-Json | Co
 
 Lấy toàn bộ thông tin chi tiết và danh sách linh kiện (AC 1.3).
 
+Trả về object `BoardGameDetailDto` (12 trường) — xem bảng **Trường response** bên dưới.
+
 **Optional auth:** Endpoint public (không bắt buộc đăng nhập). Nếu request có kèm JWT hợp lệ, response trả thêm field `isSaved` để client biết board game này có nằm trong danh sách yêu thích của player hiện tại hay không (giống `isSaved` trong survey endpoint và `active-cafes` endpoint).
 
 ### Path
@@ -306,6 +308,25 @@ GET /api/v1/board-games/66666666-6666-6666-6666-666666666666
   }
 }
 ```
+
+### Trường response — `BoardGameDetailDto`
+
+| Field | Type | Nullable | Mô tả |
+|-------|------|----------|-------|
+| `id` | Guid | No | GUID board game (= `GameTemplates.Id`). |
+| `name` | string | No | Tên board game. Mặc định `string.Empty` nếu DB trả null. |
+| `thumbnailUrl` | string | Yes | URL ảnh thumbnail. `null` nếu game chưa có ảnh. |
+| `description` | string | Yes | Mô tả ngắn về game. `null` nếu chưa nhập. |
+| `minPlayers` | int | No | Số người chơi tối thiểu (theo `GameTemplates.MinPlayers`). |
+| `maxPlayers` | int | No | Số người chơi tối đa (theo `GameTemplates.MaxPlayers`). |
+| `playTime` | int | No | Thời gian chơi trung bình (phút). |
+| `createdAt` | DateTime (ISO 8601) | No | Thời điểm tạo board game (UTC). |
+| `updatedAt` | DateTime (ISO 8601) | No | Thời điểm cập nhật gần nhất (UTC). |
+| `categories` | `CategoryDto[]` | No | Thể loại đã gắn — map qua `GameCatalogMapper.MapCategories(game)`. Mặc định `[]` nếu game chưa gắn thể loại. |
+| `components` | `BoardGameComponentDto[]` | No | Linh kiện trong hộp — map qua `GameCatalogMapper.MapComponents(game.Components)`. Mặc định `[]` nếu chưa nhập. |
+| `isSaved` | bool | No | `true` nếu board game này đang nằm trong danh sách yêu thích (favorites) của player hiện tại. `false` nếu player chưa đăng nhập, chưa lưu game này, hoặc token không hợp lệ. Cùng luật resolve với field `isSaved` trong `DiscoveryBoardGameDto` (`POST /api/v1/discovery/survey`) và `ActiveCafesByBoardGameResponseDto` (`GET /api/v1/board-games/{id}/active-cafes`). Dùng để hiển thị icon "đã lưu / chưa lưu" trên UI detail. |
+
+> **Lưu ý JSON contract:** Response C# property `Name` (PascalCase) serialize thành `name` (camelCase) theo cấu hình JSON của API. Tương tự cho `ThumbnailUrl` → `thumbnailUrl`, `IsSaved` → `isSaved`, … Client (Flutter) parse theo camelCase.
 
 ### Field `isSaved` — luật resolve
 

@@ -2,18 +2,19 @@
 
 **Base route:** `/api/shifts`
 **Controller:** `CafeShiftController.cs`
-**Role:** Manager, CafeStaff
+**Role:** Admin, Manager, CafeStaff
 
-API quản lý ca làm việc của quán. Mỗi ca có số dư tiền mặt đầu ca (`OpeningCashBalance`) và cuối ca (`ClosingCashBalance`) để đối soát.
+API quản lý ca làm việc của quán. Mỗi ca có số dư tiền mặt đầu ca (`OpeningCashBalance`) và cuối ca (`ClosingCashBalance`) để đối soát. Ca đang mở còn theo dõi `TotalRevenue` và `TotalSessions` được cộng dồn theo thời gian thực mỗi khi một `ActiveSession` chuyển sang `Paid` (BR-CAFE-SHIFT-01, gọi từ `CafeShiftService.RecordSessionPaymentAsync`).
 
 ## Endpoints
 
 | Endpoint | Method | Role | Mô tả |
 |----------|--------|------|--------|
-| `/` | POST | Manager, Staff | Mở ca làm việc mới |
-| `/{shiftId}/close` | POST | Manager, Staff | Đóng ca làm việc |
-| `/current` | GET | Manager, Staff | Lấy ca đang mở |
-| `/` | GET | Manager, Staff | Lấy lịch sử các ca (phân trang) |
+| `/` | POST | Admin, Manager, CafeStaff | Mở ca làm việc mới |
+| `/{shiftId}/close` | POST | Admin, Manager, CafeStaff | Đóng ca làm việc |
+| `/{shiftId}/recalculate` | POST | Admin, Manager, CafeStaff | Tính lại `TotalRevenue` + `TotalSessions` từ ActiveSession (idempotent) |
+| `/current` | GET | Admin, Manager, CafeStaff | Lấy ca đang mở |
+| `/history` | GET | Admin, Manager, CafeStaff | Lấy lịch sử các ca (phân trang) |
 
 **Header:** `Authorization: Bearer <token>`
 
@@ -140,6 +141,69 @@ Trong đó:
 
 ---
 
+## POST /api/shifts/{shiftId}/recalculate
+
+Tính lại `TotalRevenue` + `TotalSessions` cho ca bằng cách SUM `TotalAmount` + COUNT các `ActiveSession` đã `Paid` (Status=3) thuộc cùng `CafeId` trong cửa sổ `[shift.OpenedAt, shift.ClosedAt ?? UtcNow]`. **Idempotent** — gọi nhiều lần vẫn cho cùng kết quả.
+
+### Business Rules
+
+- Endpoint **chỉ ghi đè** 2 field: `TotalRevenue`, `TotalSessions`. Các field còn lại (`OpeningCashBalance`, `ClosingCashBalance`, `Status`, `OpenedAt`, `ClosedAt`, `OpenedByUserId`, `ClosedByUserId`) **không bị đụng**.
+- Validate ownership: Admin bypass; Manager chỉ recalc shift của cafe mình (`cafe.ManagerId == callerUserId`); CafeStaff chỉ recalc shift của cafe mình (có dòng trong `CafeStaff`).
+- Áp dụng cho cả ca `Open` lẫn ca `Closed`. Cửa sổ lấy `ClosedAt ?? UtcNow` cho ca đang mở.
+- Inclusive ở cả 2 đầu cửa sổ: session vừa paid ngay lúc `OpenedAt` hay trước khi `ClosedAt` đều được tính.
+
+### Use cases
+
+| Case | Cách dùng |
+|------|-----------|
+| **Backfill** | Ca đã mở trước khi áp dụng fix `RecordSessionPaymentAsync` → totals bị lệch. Admin gọi endpoint này để tính lại. |
+| **Drift detection** | `ShiftDriftDetectionJob` chạy hàng giờ so sánh `shift.TotalRevenue` với `SUM(ActiveSession.TotalAmount)`. Nếu khác → auto-reconcile bằng method này. |
+| **Manual audit** | Staff nghi ngờ ca bị lệch → bấm 1 phát để đối soát. |
+
+### Request
+
+Không có body. Chỉ cần `shiftId` trên path.
+
+```
+POST /api/shifts/{shiftId}/recalculate
+Authorization: Bearer <token>
+```
+
+### Response 200
+
+```json
+{
+  "statusCode": 200,
+  "message": "ShiftRecalculated",
+  "data": {
+    "id": "guid",
+    "cafeId": "guid",
+    "openedByUserId": "guid",
+    "closedByUserId": null,
+    "openedAt": "2026-08-07T08:00:00Z",
+    "closedAt": null,
+    "openingCashBalance": 500000,
+    "closingCashBalance": 0,
+    "totalRevenue": 2150000,
+    "totalSessions": 12,
+    "status": "Open"
+  }
+}
+```
+
+> **Lưu ý**: response trả về totals **sau khi đã ghi đè**. So sánh với totals trước recalc để biết mức drift. Log diff (prev → new) được ghi ở `CafeShiftService.RecalculateShiftTotalsAsync` với level `Information`.
+
+### Error Codes
+
+| Status | Description |
+|--------|-------------|
+| `401` | Thiếu token, token hết hạn hoặc token không hợp lệ |
+| `403` | Không có quyền vận hành quán của ca này |
+| `404` | Không tìm thấy ca làm việc |
+| `500` | Lỗi hệ thống không mong đợi |
+
+---
+
 ## GET /api/shifts/current
 
 Lấy ca đang mở của quán.
@@ -192,7 +256,7 @@ Nếu không có ca nào đang mở:
 
 ---
 
-## GET /api/shifts
+## GET /api/shifts/history
 
 Lấy lịch sử các ca làm việc của quán (phân trang).
 
@@ -209,9 +273,9 @@ Lấy lịch sử các ca làm việc của quán (phân trang).
 ```json
 {
   "statusCode": 200,
-  "message": "ShiftsRetrieved",
+  "message": "ShiftHistoryRetrieved",
   "data": {
-    "items": [
+    "shifts": [
       {
         "id": "guid",
         "cafeId": "guid",
@@ -271,7 +335,24 @@ Lấy lịch sử các ca làm việc của quán (phân trang).
 Open (OpenedBy)
    ↓ POST /{shiftId}/close
 Closed (OpenedBy + ClosedBy)
+
+Open | Closed
+   ↓ POST /{shiftId}/recalculate (idempotent)
+Open | Closed   # totals = SUM(ActiveSession Paid) trong cửa sổ ca
 ```
+
+### BR-CAFE-SHIFT-01 — Cộng doanh thu real-time
+
+Trong khi ca đang `Open`, mỗi khi một `ActiveSession` chuyển sang `Paid` thì `CafeShiftService.RecordSessionPaymentAsync` được gọi từ `ActiveSessionService.PaySessionCoreAsync` (POS pay) và `PlayerPaySessionAsync` (player pay BVC) để cộng dồn:
+
+```
+shift.TotalRevenue += session.TotalAmount
+shift.TotalSessions += 1
+```
+
+- **Best-effort**: nếu quán chưa mở ca thì skip + log warning, **không throw** — payment vẫn commit.
+- **Idempotency**: caller đã re-check `Status != Unpaid` trong transaction, nên chỉ session pay đầu tiên mới chạm method này.
+- **Drift recovery**: nếu ca bị lệch (do deploy trước fix, webhook silent skip,...) → dùng `POST /{shiftId}/recalculate` để tính lại.
 
 ---
 
