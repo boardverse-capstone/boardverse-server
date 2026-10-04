@@ -370,6 +370,36 @@ namespace BoardVerse.Data.Repositories
         }
 
         /// <summary>
+        /// HOTFIX (2026-10-04): Refresh member UpdatedAt trong change tracker sau khi
+        /// <see cref="ReleaseMembersAndCloseLobbyAsync"/> chạy <c>ExecuteUpdateAsync</c>
+        /// (bypass change tracker). Nếu không refresh, SaveChangesAsync kế tiếp trong
+        /// PaySessionCoreAsync fail với <c>DbUpdateConcurrencyException: 0 row(s) affected</c>.
+        ///
+        /// Lý do: ExecuteUpdateAsync update UpdatedAt của members trong DB nhưng KHÔNG
+        /// refresh EF tracker. OriginalValues.UpdatedAt vẫn giữ giá trị cũ → WHERE UpdatedAt = @old
+        /// match 0 rows → DbUpdateConcurrencyException.
+        ///
+        /// <c>ReloadAsync</c> trên mỗi tracked member đồng bộ CurrentValues + OriginalValues
+        /// với DB. Sau refresh, BuildMemberInvoices modify DepositAppliedAmount → SaveChanges
+        /// dùng UpdatedAt FRESH từ DB → match 1 row → success.
+        ///
+        /// Best-effort: nếu reload fail → throw để caller biết (transaction sẽ rollback).
+        /// </summary>
+        public async Task RefreshSessionMembersTrackerAsync(Guid sessionId, CancellationToken cancellationToken = default)
+        {
+            var trackedMembers = _db.ChangeTracker.Entries<ActiveSessionMember>()
+                .Where(e => e.State != EntityState.Detached && e.Entity.ActiveSessionId == sessionId)
+                .ToList();
+
+            foreach (var entry in trackedMembers)
+            {
+                // ReloadAsync yêu cầu entity còn tracked (state != Detached).
+                // Sau SaveChanges #1 ở PaySessionCoreAsync, members ở Unchanged → ReloadAsync OK.
+                await entry.ReloadAsync(cancellationToken);
+            }
+        }
+
+        /// <summary>
         /// Releases the board game box and cafe table back to Available.
         /// Called at payment time (when session becomes PAID) and by auto-release job.
         /// Idempotent: safe to call multiple times.

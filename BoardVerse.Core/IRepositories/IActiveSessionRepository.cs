@@ -76,6 +76,15 @@ namespace BoardVerse.Core.IRepositories
         /// </summary>
         Task ReleaseSessionTableAndBoxAsync(Guid sessionId, CancellationToken cancellationToken = default);
 
+        /// <summary>
+        /// HOTFIX (2026-10-04): Refresh member UpdatedAt trong change tracker sau khi
+        /// <c>ReleaseMembersAndCloseLobbyAsync</c> chạy <c>ExecuteUpdateAsync</c> (bypass tracker).
+        /// Nếu không refresh, SaveChangesAsync kế tiếp fail với
+        /// <c>DbUpdateConcurrencyException: 0 row(s) affected</c>.
+        /// Idempotent: chỉ refresh các member còn tracked.
+        /// </summary>
+        Task RefreshSessionMembersTrackerAsync(Guid sessionId, CancellationToken cancellationToken = default);
+
         // === BVC Capture Retry (GAP-9) ===
         /// <summary>
         /// Returns sessions that are Paid but haven't had BVC captured yet.

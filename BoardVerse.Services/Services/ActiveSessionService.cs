@@ -1363,6 +1363,28 @@ namespace BoardVerse.Services.Services
                     // KHÔNG throw — payment vẫn commit để customer không mất tiền.
                 }
 
+                // HOTFIX (2026-10-04): Refresh member UpdatedAt trong change tracker.
+                // ReleaseMembersAndCloseLobbyAsync vừa dùng ExecuteUpdateAsync để update
+                // UpdatedAt của members trong DB, BYPASS change tracker. EF tracker vẫn
+                // giữ UpdatedAt CŨ. SaveChanges kế tiếp (sau BuildMemberInvoices) sẽ
+                // WHERE UpdatedAt = @stale → 0 rows → DbUpdateConcurrencyException:
+                // "expected to affect 1 row(s), but actually affected 0 row(s)".
+                // Refresh tracker trước khi BuildMemberInvoices modify member.DepositAppliedAmount
+                // → SaveChanges dùng UpdatedAt FRESH từ DB → match 1 row → success.
+                try
+                {
+                    await _activeSessionRepository.RefreshSessionMembersTrackerAsync(sessionId, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "HOTFIX (2026-10-04): RefreshSessionMembersTracker failed for SessionId={SessionId}. " +
+                        "SaveChanges kế tiếp có thể throw DbUpdateConcurrencyException.",
+                        sessionId);
+                    // KHÔNG throw — best-effort. Nếu fail, SaveChanges sẽ throw
+                    // → transaction rollback → status Paid bị revert → staff retry thanh toán.
+                }
+
                 // M1: Load reservation + BuildMemberInvoices INSIDE transaction (trước khi capture BVC)
                 // để áp Host Deposit Discount và tính tổng discount cho capture flow.
                 // Side-effect: member.DepositAppliedAmount được set theo discount distribution → persist
